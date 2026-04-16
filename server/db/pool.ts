@@ -12,7 +12,7 @@ export function createPool(): DbPool | null {
     return new pg.Pool({
       host: process.env.PGHOST ?? "localhost",
       port: Number(process.env.PGPORT ?? 5433),
-      database: process.env.PGDATABASE ?? "postgres",
+      database: process.env.PGDATABASE ?? "zimson_service_management",
       user: process.env.PGUSER ?? "postgres",
       password: process.env.PGPASSWORD ?? "",
     });

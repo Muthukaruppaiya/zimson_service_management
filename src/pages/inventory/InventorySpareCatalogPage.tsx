@@ -1,72 +1,85 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import JsBarcode from "jsbarcode";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
+import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
-import { ApiError, apiJson, useApiMode } from "../../lib/api";
-import type { BrandRow, SpareStockRow } from "../../types/catalog";
+import { ApiError, apiJson } from "../../lib/api";
+import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2";
 
 const categories = ["Glass", "Movement", "Battery", "Crown", "Gasket", "Strap", "Dial", "Hands", "Lubricant", "Tool", "Consumable", "Stem", "Other"];
 
-function formatLocationKey(key: string): string {
-  if (key.startsWith("REGION:")) return `Region · ${key.slice(7)}`;
-  if (key.startsWith("HO:")) return `HO · ${key.slice(3)}`;
-  if (key.startsWith("STORE:")) {
-    const rest = key.slice(6);
-    const i = rest.indexOf(":");
-    if (i === -1) return key;
-    return `Store · ${rest.slice(0, i)} / ${rest.slice(i + 1)}`;
-  }
-  return key;
-}
-
 export function InventorySpareCatalogPage() {
-  const api = useApiMode();
-  const { user, authReady } = useAuth();
   const { spares, addSpare } = useSpares();
+  const { user } = useAuth();
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [category, setCategory] = useState("Other");
-  const [uom, setUom] = useState("PCS");
   const [hsn, setHsn] = useState("");
+  const [isActive, setIsActive] = useState(true);
+  const { regions } = useRegions();
+  const [locationType, setLocationType] = useState<"HO" | "STORE">("STORE");
+  const [regionId, setRegionId] = useState("");
+  const [storeId, setStoreId] = useState("");
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-
-  const [pgCatalog, setPgCatalog] = useState<"unknown" | "yes" | "no">("unknown");
-  const [brands, setBrands] = useState<BrandRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mrpDraft, setMrpDraft] = useState<Record<string, string>>({});
+  const [prices, setPrices] = useState<SparePriceLine[]>([]);
   const [stockRows, setStockRows] = useState<SpareStockRow[]>([]);
-  const [stockDelta, setStockDelta] = useState<Record<string, string>>({});
-  const [catalogBusy, setCatalogBusy] = useState(false);
-  const [catalogErr, setCatalogErr] = useState<string | null>(null);
+  const [brand, setBrand] = useState("");
+  const [price, setPrice] = useState("");
+  const [stockQty, setStockQty] = useState("0");
+  const [priceErr, setPriceErr] = useState<string | null>(null);
+  const canCreateSpare = user?.role === "super_admin" || user?.role === "regional_admin";
+  const hoOnlyRole =
+    user?.role === "service_centre_clerk" || user?.role === "service_centre_supervisor" || user?.role === "technician";
+  const storeOnlyRole = user?.role === "store_user";
 
   useEffect(() => {
-    if (!api || !authReady || !user) {
-      setPgCatalog("no");
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await apiJson<{ brands: BrandRow[] }>("/api/catalog/brands");
-        if (cancelled) return;
-        setBrands(data.brands);
-        setPgCatalog("yes");
-      } catch (e) {
-        if (cancelled) return;
-        if (e instanceof ApiError && e.status === 404) setPgCatalog("no");
-        else setPgCatalog("no");
+    if (regions.length > 0 && !regionId) setRegionId(regions[0]!.id);
+  }, [regions, regionId]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.role !== "super_admin") {
+      if (user.regionId) setRegionId(user.regionId);
+      if (user.role === "store_user") {
+        setLocationType("STORE");
+        setStoreId(user.storeId ?? "");
+      } else if (hoOnlyRole) {
+        setLocationType("HO");
+        setStoreId("");
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [api, authReady, user?.id]);
+    }
+  }, [user, hoOnlyRole]);
+
+  const currentStores = useMemo(
+    () => regions.find((r) => r.id === regionId)?.stores ?? [],
+    [regions, regionId],
+  );
+  const storeNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of regions) {
+      for (const s of r.stores) map.set(s.id, s.name);
+    }
+    return map;
+  }, [regions]);
+
+  useEffect(() => {
+    if (locationType === "STORE") {
+      if (currentStores.length > 0 && !currentStores.some((s) => s.id === storeId)) {
+        setStoreId(currentStores[0]!.id);
+      }
+    } else {
+      setStoreId("");
+    }
+  }, [locationType, currentStores, storeId]);
 
   useEffect(() => {
     if (spares.length === 0) {
@@ -80,75 +93,76 @@ export function InventorySpareCatalogPage() {
     () => (selectedId ? spares.find((s) => s.id === selectedId) ?? null : null),
     [spares, selectedId],
   );
+  const barcodeRef = useRef<SVGSVGElement | null>(null);
 
-  const reloadMrpAndStock = useCallback(async () => {
-    if (!selectedId || pgCatalog !== "yes") return;
-    setCatalogBusy(true);
-    setCatalogErr(null);
+  async function loadPrices(spareId: string) {
     try {
-      const [mrp, st] = await Promise.all([
-        apiJson<{ lines: { brandId: string; mrpInr: number }[] }>(`/api/catalog/spares/${selectedId}/brand-mrp`),
-        apiJson<{ stock: SpareStockRow[] }>(`/api/catalog/stock?spareId=${encodeURIComponent(selectedId)}`),
-      ]);
-      const draft: Record<string, string> = {};
-      for (const b of brands) {
-        const line = mrp.lines.find((l) => l.brandId === b.id);
-        draft[b.id] = String(line?.mrpInr ?? 0);
-      }
-      setMrpDraft(draft);
-      setStockRows(st.stock);
-      setStockDelta({});
+      const q = regionId ? `?regionId=${encodeURIComponent(regionId)}` : "";
+      const data = await apiJson<{ prices: SparePriceLine[] }>(`/api/catalog/spares/${encodeURIComponent(spareId)}/prices${q}`);
+      setPrices(data.prices);
     } catch (e) {
-      setCatalogErr(e instanceof ApiError ? e.message : "Could not load catalogue detail.");
-    } finally {
-      setCatalogBusy(false);
-    }
-  }, [selectedId, pgCatalog, brands]);
-
-  useEffect(() => {
-    if (pgCatalog !== "yes" || !selectedId) return;
-    void reloadMrpAndStock();
-  }, [pgCatalog, selectedId, reloadMrpAndStock]);
-
-  async function saveMrp(brandId: string) {
-    if (!selectedId || pgCatalog !== "yes") return;
-    const raw = mrpDraft[brandId] ?? "0";
-    const mrpInr = Number(raw);
-    if (Number.isNaN(mrpInr) || mrpInr < 0) {
-      setCatalogErr("MRP must be a non-negative number.");
-      return;
-    }
-    setCatalogErr(null);
-    try {
-      await apiJson("/api/catalog/spares/" + encodeURIComponent(selectedId) + "/brand-mrp", {
-        method: "PUT",
-        json: { brandId, mrpInr },
-      });
-      await reloadMrpAndStock();
-    } catch (e) {
-      setCatalogErr(e instanceof ApiError ? e.message : "Save failed.");
+      setPrices([]);
+      setPriceErr(e instanceof ApiError ? e.message : "Could not load prices.");
     }
   }
 
-  async function applyStockDelta(row: SpareStockRow) {
-    if (pgCatalog !== "yes") return;
-    const raw = stockDelta[row.id] ?? "";
-    const delta = Number(raw);
-    if (raw.trim() === "" || Number.isNaN(delta)) {
-      setCatalogErr("Enter a numeric adjustment (e.g. 5 or -2).");
-      return;
-    }
-    setCatalogErr(null);
+  async function loadStock(spareId: string) {
     try {
-      await apiJson("/api/catalog/stock/adjust", {
-        method: "POST",
-        json: { spareId: row.spareId, locationKey: row.locationKey, delta },
-      });
-      setStockDelta((d) => ({ ...d, [row.id]: "" }));
-      await reloadMrpAndStock();
-    } catch (e) {
-      setCatalogErr(e instanceof ApiError ? e.message : "Stock update failed.");
+      const data = await apiJson<{ stock: SpareStockRow[] }>(`/api/catalog/spares/${encodeURIComponent(spareId)}/stock`);
+      setStockRows(data.stock);
+    } catch {
+      setStockRows([]);
     }
+  }
+
+  useEffect(() => {
+    if (!selectedId) return;
+    setPriceErr(null);
+    void loadPrices(selectedId);
+    void loadStock(selectedId);
+  }, [selectedId, regionId]);
+
+  useEffect(() => {
+    if (!selectedSpare || !barcodeRef.current) return;
+    JsBarcode(barcodeRef.current, selectedSpare.sku, {
+      format: "CODE128",
+      displayValue: true,
+      lineColor: "#111827",
+      width: 2,
+      height: 60,
+      margin: 8,
+    });
+  }, [selectedSpare]);
+
+  function printBarcodeLabel() {
+    if (!selectedSpare || !barcodeRef.current) return;
+    const popup = window.open("", "_blank", "width=480,height=640");
+    if (!popup) return;
+    popup.document.write(`<!doctype html>
+<html>
+  <head>
+    <title>Spare Barcode - ${selectedSpare.sku}</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+      .label { border: 1px solid #d1d5db; border-radius: 12px; padding: 16px; width: 320px; }
+      .name { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+      .sku { font-family: monospace; font-size: 12px; margin-bottom: 8px; color: #374151; }
+      .muted { font-size: 11px; color: #6b7280; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="label">
+      <div class="name">${selectedSpare.name}</div>
+      <div class="sku">${selectedSpare.sku}</div>
+      ${barcodeRef.current.outerHTML}
+      <div class="muted">Zimson Spare Label</div>
+    </div>
+    <script>
+      window.onload = function () { window.print(); window.close(); };
+    </script>
+  </body>
+</html>`);
+    popup.document.close();
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -157,20 +171,70 @@ export function InventorySpareCatalogPage() {
     const r = await addSpare({
       sku,
       name,
+      description,
       category,
-      uom,
       hsn: hsn.trim() || null,
+      isActive,
     });
     if ("error" in r) {
       setMsg({ type: "err", text: r.error });
       return;
     }
-    setMsg({ type: "ok", text: `Spare ${r.ok.sku} added to catalogue.` });
+    setMsg({ type: "ok", text: `Spare ${r.ok.sku} added.` });
     setSku("");
     setName("");
+    setDescription("");
     setCategory("Other");
-    setUom("PCS");
     setHsn("");
+    setIsActive(true);
+  }
+
+  async function addPriceLine(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedId) return;
+    const brandValue = brand.trim();
+    const priceValue = Number(price);
+    if (!regionId || !brandValue || Number.isNaN(priceValue) || priceValue < 0) {
+      setPriceErr("Select region, enter brand and a non-negative price.");
+      return;
+    }
+    setPriceErr(null);
+    try {
+      await apiJson(`/api/catalog/spares/${encodeURIComponent(selectedId)}/prices`, {
+        method: "POST",
+        json: { brand: brandValue, price: priceValue, regionId },
+      });
+      setBrand("");
+      setPrice("");
+      await loadPrices(selectedId);
+    } catch (e) {
+      setPriceErr(e instanceof ApiError ? e.message : "Could not save price line.");
+    }
+  }
+
+  async function saveStockLine(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedId) return;
+    const qty = Number(stockQty);
+    if (!regionId || Number.isNaN(qty) || qty < 0 || (locationType === "STORE" && !storeId)) {
+      setPriceErr("Select region/store and enter a non-negative stock quantity.");
+      return;
+    }
+    setPriceErr(null);
+    try {
+      await apiJson(`/api/catalog/spares/${encodeURIComponent(selectedId)}/stock`, {
+        method: "POST",
+        json: {
+          locationType,
+          regionId,
+          storeId: locationType === "STORE" ? storeId : null,
+          quantity: qty,
+        },
+      });
+      await loadStock(selectedId);
+    } catch (e) {
+      setPriceErr(e instanceof ApiError ? e.message : "Could not save stock.");
+    }
   }
 
   return (
@@ -178,31 +242,20 @@ export function InventorySpareCatalogPage() {
       <InventoryBreadcrumb current="Spare catalogue" />
       <PageHeader
         title="Spare master"
-        description={
-          pgCatalog === "yes"
-            ? "Master data per SKU, brand-wise MRP, and stock by region, HO, and store."
-            : "Spare catalogue from the API."
-        }
+        description="Two-table model: spare master + spare brand price lines."
         actions={
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Link
-              to="/inventory/spare-price-fixing"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Regional prices
-            </Link>
-            <Link
-              to="/inventory"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Inventory home
-            </Link>
-          </div>
+          <Link
+            to="/inventory"
+            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+          >
+            Inventory home
+          </Link>
         }
       />
 
       <div className="grid gap-8 lg:grid-cols-5">
-        <Card title="Add spare" subtitle="New SKU in master" className="lg:col-span-2">
+        {canCreateSpare ? (
+        <Card title="Add spare" subtitle="Master row" className="lg:col-span-2">
           <form onSubmit={handleAdd} className="space-y-4">
             <div>
               <label htmlFor="sp-sku" className="text-xs font-medium text-stone-600">
@@ -219,7 +272,7 @@ export function InventorySpareCatalogPage() {
             </div>
             <div>
               <label htmlFor="sp-name" className="text-xs font-medium text-stone-600">
-                Description *
+                Name *
               </label>
               <input
                 id="sp-name"
@@ -228,6 +281,12 @@ export function InventorySpareCatalogPage() {
                 className={inputClass}
                 placeholder="Part name"
               />
+            </div>
+            <div>
+              <label htmlFor="sp-desc" className="text-xs font-medium text-stone-600">
+                Description *
+              </label>
+              <textarea id="sp-desc" value={description} onChange={(e) => setDescription(e.target.value)} className={inputClass} rows={3} />
             </div>
             <div>
               <label htmlFor="sp-cat" className="text-xs font-medium text-stone-600">
@@ -248,30 +307,16 @@ export function InventorySpareCatalogPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label htmlFor="sp-uom" className="text-xs font-medium text-stone-600">
-                  UoM
-                </label>
-                <select id="sp-uom" value={uom} onChange={(e) => setUom(e.target.value)} className={inputClass}>
-                  <option value="PCS">PCS</option>
-                  <option value="SET">SET</option>
-                  <option value="ML">ML</option>
-                  <option value="PAIR">PAIR</option>
-                </select>
-              </div>
-              <div>
                 <label htmlFor="sp-hsn" className="text-xs font-medium text-stone-600">
-                  HSN (optional)
+                  HSN
                 </label>
-                <input
-                  id="sp-hsn"
-                  value={hsn}
-                  onChange={(e) => setHsn(e.target.value)}
-                  className={inputClass}
-                  placeholder="8-digit chapter"
-                  maxLength={8}
-                />
+                <input id="sp-hsn" value={hsn} onChange={(e) => setHsn(e.target.value)} className={inputClass} />
               </div>
             </div>
+            <label className="flex items-center gap-2 text-sm text-stone-700">
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+              Is active
+            </label>
             {msg ? (
               <p
                 className={
@@ -287,15 +332,16 @@ export function InventorySpareCatalogPage() {
               type="submit"
               className="w-full rounded-xl bg-zimson-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 sm:w-auto sm:px-6"
             >
-              Add to catalogue
+              Add spare
             </button>
           </form>
         </Card>
+        ) : null}
 
         <Card
-          title="Catalogue"
-          subtitle={`${spares.length} SKU(s)`}
-          className="lg:col-span-3"
+          title="Spares"
+          subtitle={`${spares.length} row(s)`}
+          className={canCreateSpare ? "lg:col-span-3" : "lg:col-span-5"}
         >
           <div className="max-h-[480px] overflow-auto rounded-xl border border-zimson-200/80">
             <table className="min-w-full text-left text-sm">
@@ -303,8 +349,8 @@ export function InventorySpareCatalogPage() {
                 <tr>
                   <th className="px-3 py-2">SKU</th>
                   <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">Description</th>
                   <th className="px-3 py-2">Category</th>
-                  <th className="px-3 py-2">UoM</th>
                   <th className="px-3 py-2">HSN</th>
                   <th className="px-3 py-2">Active</th>
                 </tr>
@@ -320,9 +366,9 @@ export function InventorySpareCatalogPage() {
                   >
                     <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{s.sku}</td>
                     <td className="px-3 py-2 text-stone-800">{s.name}</td>
+                    <td className="px-3 py-2 text-stone-700">{s.description}</td>
                     <td className="px-3 py-2 text-stone-600">{s.category}</td>
-                    <td className="px-3 py-2 text-stone-600">{s.uom}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-stone-600">{s.hsn ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-stone-600">{s.hsn ?? "-"}</td>
                     <td className="px-3 py-2">
                       <span
                         className={
@@ -342,101 +388,126 @@ export function InventorySpareCatalogPage() {
         </Card>
       </div>
 
-      {pgCatalog === "yes" && selectedSpare ? (
-        <div className="mt-10 grid gap-8 lg:grid-cols-2">
-          <Card
-            title="Brand-wise MRP"
-            subtitle={`MRP (INR) per brand for ${selectedSpare.sku}.`}
-          >
-            {catalogErr ? (
-              <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">{catalogErr}</p>
-            ) : null}
-            {catalogBusy ? <p className="text-sm text-stone-500">Loading…</p> : null}
+      {selectedSpare ? (
+        <div className="mt-8 space-y-8">
+          <Card title="Barcode label" subtitle={`Print label for ${selectedSpare.sku}`}>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="rounded-xl border border-zimson-200/80 bg-white p-3">
+                <p className="mb-1 text-sm font-semibold text-stone-900">{selectedSpare.name}</p>
+                <p className="mb-2 font-mono text-xs text-stone-600">{selectedSpare.sku}</p>
+                <svg ref={barcodeRef} />
+              </div>
+              <button
+                type="button"
+                onClick={printBarcodeLabel}
+                className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700"
+              >
+                Print barcode label
+              </button>
+            </div>
+          </Card>
+        <div className="grid gap-8 lg:grid-cols-2">
+          <Card title="Brand price lines" subtitle={`Price lines for ${selectedSpare.sku}`}>
+            <div className="mb-3">
+              <label className="text-xs font-medium text-stone-600">Pricing region</label>
+              <select
+                value={regionId}
+                onChange={(e) => setRegionId(e.target.value)}
+                className={inputClass}
+                disabled={Boolean(user && user.role !== "super_admin")}
+              >
+                <option value="">Select region</option>
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <form onSubmit={addPriceLine} className="mb-4 grid gap-3 sm:grid-cols-3">
+              <input value={brand} onChange={(e) => setBrand(e.target.value)} className={inputClass} placeholder="Brand" />
+              <input type="number" min={0} step={0.01} value={price} onChange={(e) => setPrice(e.target.value)} className={inputClass} placeholder="Price" />
+              <button type="submit" className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700">Save price</button>
+            </form>
+            {priceErr ? <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{priceErr}</p> : null}
             <div className="max-h-[360px] overflow-auto rounded-xl border border-zimson-200/80">
               <table className="min-w-full text-left text-sm">
                 <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-                  <tr>
-                    <th className="px-3 py-2">Brand</th>
-                    <th className="px-3 py-2">MRP (₹)</th>
-                    <th className="px-3 py-2" />
-                  </tr>
+                  <tr><th className="px-3 py-2">Region</th><th className="px-3 py-2">Brand</th><th className="px-3 py-2">Price</th><th className="px-3 py-2">Created</th></tr>
                 </thead>
                 <tbody>
-                  {brands.map((b) => (
-                    <tr key={b.id} className="border-b border-zimson-100 last:border-0">
-                      <td className="px-3 py-2">
-                        <span className="font-mono text-xs text-zimson-900">{b.code}</span>
-                        <span className="ml-2 text-stone-700">{b.name}</span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={mrpDraft[b.id] ?? ""}
-                          onChange={(e) => setMrpDraft((d) => ({ ...d, [b.id]: e.target.value }))}
-                          className="w-28 rounded-lg border border-zimson-300/80 bg-white px-2 py-1.5 text-sm"
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => void saveMrp(b.id)}
-                          className="rounded-lg bg-zimson-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zimson-700"
-                        >
-                          Save
-                        </button>
-                      </td>
+                  {prices.map((p) => (
+                    <tr key={p.id} className="border-b border-zimson-100">
+                      <td className="px-3 py-2">{regions.find((r) => r.id === p.regionId)?.name ?? p.regionId ?? "-"}</td>
+                      <td className="px-3 py-2">{p.brand}</td>
+                      <td className="px-3 py-2">{p.price}</td>
+                      <td className="px-3 py-2">{new Date(p.createdAt).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </Card>
-
-          <Card title="Stock by location" subtitle={`On-hand for ${selectedSpare.sku} by location key.`}>
-            <div className="max-h-[400px] overflow-auto rounded-xl border border-zimson-200/80">
+          <Card title="Stock by location" subtitle="Central spare, location-wise stock (HO / Store)">
+            <form onSubmit={saveStockLine} className="mb-4 grid gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <select
+                  value={locationType}
+                  onChange={(e) => setLocationType(e.target.value as "HO" | "STORE")}
+                  className={inputClass}
+                  disabled={storeOnlyRole || hoOnlyRole}
+                >
+                  <option value="STORE">Store</option>
+                  <option value="HO">HO / Service Centre</option>
+                </select>
+                <select
+                  value={regionId}
+                  onChange={(e) => setRegionId(e.target.value)}
+                  className={inputClass}
+                  disabled={Boolean(user && user.role !== "super_admin")}
+                >
+                  <option value="">Select region</option>
+                  {regions.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {locationType === "STORE" ? (
+                <select value={storeId} onChange={(e) => setStoreId(e.target.value)} className={inputClass} disabled={storeOnlyRole}>
+                  <option value="">Select store</option>
+                  {currentStores.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <input type="number" min={0} step={0.001} value={stockQty} onChange={(e) => setStockQty(e.target.value)} className={inputClass} placeholder="Quantity" />
+                <button type="submit" className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700">Save stock</button>
+              </div>
+            </form>
+            <div className="max-h-[360px] overflow-auto rounded-xl border border-zimson-200/80">
               <table className="min-w-full text-left text-sm">
                 <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-                  <tr>
-                    <th className="px-3 py-2">Location</th>
-                    <th className="px-3 py-2">Key</th>
-                    <th className="px-3 py-2">Qty</th>
-                    <th className="px-3 py-2">Δ</th>
-                    <th className="px-3 py-2" />
-                  </tr>
+                  <tr><th className="px-3 py-2">Type</th><th className="px-3 py-2">Region</th><th className="px-3 py-2">Store</th><th className="px-3 py-2">Qty</th></tr>
                 </thead>
                 <tbody>
-                  {stockRows.map((r) => (
-                    <tr key={r.id} className="border-b border-zimson-100 last:border-0">
-                      <td className="px-3 py-2 text-stone-800">{formatLocationKey(r.locationKey)}</td>
-                      <td className="px-3 py-2 font-mono text-[10px] text-stone-500">{r.locationKey}</td>
-                      <td className="px-3 py-2 font-medium text-zimson-900">{r.quantity}</td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          step={0.001}
-                          placeholder="0"
-                          value={stockDelta[r.id] ?? ""}
-                          onChange={(e) => setStockDelta((d) => ({ ...d, [r.id]: e.target.value }))}
-                          className="w-24 rounded-lg border border-zimson-300/80 bg-white px-2 py-1 text-sm"
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => void applyStockDelta(r)}
-                          className="rounded-lg border border-zimson-400 bg-white px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-                        >
-                          Apply
-                        </button>
-                      </td>
+                  {stockRows.map((s) => (
+                    <tr key={s.id} className="border-b border-zimson-100">
+                      <td className="px-3 py-2">{s.locationType}</td>
+                      <td className="px-3 py-2">{regions.find((r) => r.id === s.regionId)?.name ?? s.regionId}</td>
+                      <td className="px-3 py-2">{s.storeId ? storeNameById.get(s.storeId) ?? s.storeId : "-"}</td>
+                      <td className="px-3 py-2">{s.quantity}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </Card>
+        </div>
         </div>
       ) : null}
     </div>

@@ -4,13 +4,17 @@ import { useAuth } from "../context/AuthContext";
 
 const demoRows = [
   { email: "superadmin@zimson.demo", password: "super123", role: "Super Admin", note: "All modules" },
-  { email: "west.admin@zimson.demo", password: "admin123", role: "Regional Admin", note: "Office 1" },
-  { email: "east.admin@zimson.demo", password: "admin123", role: "Regional Admin", note: "Office 2" },
-  { email: "west.store1@zimson.demo", password: "store123", role: "Store user", note: "Office 1 / Store 1" },
-  { email: "east.store1@zimson.demo", password: "store123", role: "Store user", note: "Office 2 / Store 1" },
-  { email: "sc.inward@zimson.demo", password: "sc123", role: "SC inward", note: "Office 1 HO" },
-  { email: "sc.supervisor@zimson.demo", password: "sc123", role: "SC supervisor", note: "Office 1" },
-  { email: "ho.tech@zimson.demo", password: "tech123", role: "Technician", note: "Grade A / tech-1" },
+  { email: "chennai.admin@zimson.demo", password: "admin123", role: "Regional Admin", note: "Chennai" },
+  { email: "coimbatore.admin@zimson.demo", password: "admin123", role: "Regional Admin", note: "Coimbatore" },
+  { email: "chn01@zimson.demo", password: "store123", role: "Store user", note: "Chennai / CHN01" },
+  { email: "chn02@zimson.demo", password: "store123", role: "Store user", note: "Chennai / CHN02" },
+  { email: "chn03@zimson.demo", password: "store123", role: "Store user", note: "Chennai / CHN03" },
+  { email: "cbe01@zimson.demo", password: "store123", role: "Store user", note: "Coimbatore / CBE01" },
+  { email: "cbe02@zimson.demo", password: "store123", role: "Store user", note: "Coimbatore / CBE02" },
+  { email: "cbe03@zimson.demo", password: "store123", role: "Store user", note: "Coimbatore / CBE03" },
+  { email: "sc.inward.chn@zimson.demo", password: "sc123", role: "SC inward", note: "Chennai HO" },
+  { email: "sc.supervisor.chn@zimson.demo", password: "sc123", role: "SC supervisor", note: "Chennai HO" },
+  { email: "ho.tech.chn@zimson.demo", password: "tech123", role: "Technician", note: "Chennai HO" },
 ] as const;
 
 export function LoginPage() {

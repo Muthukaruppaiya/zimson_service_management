@@ -1,22 +1,31 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { useAuth } from "../../context/AuthContext";
+import { useSpares } from "../../context/SparesContext";
+import { ApiError, apiJson } from "../../lib/api";
+import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import {
-  findPart,
   generateDemoOtp,
   isValidGstFormat,
   isValidPanFormat,
   nextQuickBillRef,
-  SEED_PARTS,
   SEED_TECHNICIANS,
   watchBrands,
   watchModelsForBrand,
 } from "../../data/serviceSeed";
 
 type LineItem = { id: string; description: string; amount: string };
+type QuickBillSpareOption = {
+  id: string;
+  sku: string;
+  name: string;
+  price: number;
+  stockQty: number;
+};
 
 function emptyLine(): LineItem {
   return { id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, description: "", amount: "" };
@@ -26,6 +35,8 @@ const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 placeholder:text-stone-400 focus:ring-2";
 
 export function QuickBillPage() {
+  const { user } = useAuth();
+  const { spares } = useSpares();
   const [customerType, setCustomerType] = useState<"B2C" | "B2B">("B2C");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
@@ -52,6 +63,14 @@ export function QuickBillPage() {
   const [awaitingOtp, setAwaitingOtp] = useState<string | null>(null);
   const [otpInput, setOtpInput] = useState("");
   const [otpError, setOtpError] = useState<string | null>(null);
+  const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
+  const [spareOptionsLoading, setSpareOptionsLoading] = useState(false);
+  const [barcodeSku, setBarcodeSku] = useState("");
+
+  const priceRegionQuery = useMemo(
+    () => (user?.regionId ? `?regionId=${encodeURIComponent(user.regionId)}` : ""),
+    [user?.regionId],
+  );
 
   function syncModelForBrand(nextBrand: string) {
     setWatchBrand(nextBrand);
@@ -61,6 +80,56 @@ export function QuickBillPage() {
     if (first?.refHint) setWatchRef(first.refHint);
     else setWatchRef("");
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadBrandSpareOptions() {
+      if (spares.length === 0) {
+        setSpareOptions([]);
+        return;
+      }
+      setSpareOptionsLoading(true);
+      try {
+        const resolved = await Promise.all(
+          spares.map(async (spare) => {
+            const [priceData, stockData] = await Promise.all([
+              apiJson<{ prices: SparePriceLine[] }>(
+                `/api/catalog/spares/${encodeURIComponent(spare.id)}/prices${priceRegionQuery}`,
+              ),
+              apiJson<{ stock: SpareStockRow[] }>(
+                `/api/catalog/spares/${encodeURIComponent(spare.id)}/stock`,
+              ),
+            ]);
+            const matchedPrice = priceData.prices.find(
+              (p) => p.brand.trim().toLowerCase() === watchBrand.trim().toLowerCase(),
+            );
+            if (!matchedPrice) return null;
+            const stockQty = stockData.stock.reduce((sum, row) => sum + row.quantity, 0);
+            return {
+              id: spare.id,
+              sku: spare.sku,
+              name: spare.name,
+              price: matchedPrice.price,
+              stockQty,
+            } satisfies QuickBillSpareOption;
+          }),
+        );
+        if (cancelled) return;
+        const sorted = resolved
+          .filter((r): r is QuickBillSpareOption => Boolean(r))
+          .sort((a, b) => a.name.localeCompare(b.name) || a.sku.localeCompare(b.sku));
+        setSpareOptions(sorted);
+      } catch {
+        if (!cancelled) setSpareOptions([]);
+      } finally {
+        if (!cancelled) setSpareOptionsLoading(false);
+      }
+    }
+    void loadBrandSpareOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [spares, watchBrand, priceRegionQuery]);
 
   function addLine() {
     setLines((prev) => [...prev, emptyLine()]);
@@ -74,18 +143,50 @@ export function QuickBillPage() {
     setLines((prev) => (prev.length <= 1 ? prev : prev.filter((l) => l.id !== id)));
   }
 
-  function addPartLine(partId: string) {
-    const p = findPart(partId);
-    if (!p) return;
-    setLines((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        description: `${p.name} (${p.sku})`,
-        amount: String(p.unitPrice),
-      },
-    ]);
-    setPartPick("");
+  async function addPartLine(spareId: string) {
+    const spare = spareOptions.find((s) => s.id === spareId);
+    if (!spare) {
+      const fallback = spares.find((s) => s.id === spareId);
+      setError(
+        fallback
+          ? `No ${watchBrand} price configured for ${fallback.name} (${fallback.sku}) in your region.`
+          : "Spare not found.",
+      );
+      return;
+    }
+    try {
+      if (spare.stockQty <= 0) {
+        setError(`${spare.name} (${spare.sku}) is out of stock.`);
+        setPartPick("");
+        return;
+      }
+      setLines((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          description: `${spare.name} (${spare.sku})`,
+          amount: String(spare.price),
+        },
+      ]);
+      setError(null);
+      setPartPick("");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not fetch spare amount/stock.");
+      setPartPick("");
+    }
+  }
+
+  function addScannedSku() {
+    const sku = barcodeSku.trim().toUpperCase();
+    if (!sku) return;
+    const option = spareOptions.find((s) => s.sku.toUpperCase() === sku);
+    if (!option) {
+      setError(`Scanned SKU ${sku} is not available for ${watchBrand} in your region/stock.`);
+      setBarcodeSku("");
+      return;
+    }
+    void addPartLine(option.id);
+    setBarcodeSku("");
   }
 
   function validateBeforeOtp(): boolean {
@@ -426,22 +527,46 @@ export function QuickBillPage() {
 
         <Card
           title="Service lines"
-          subtitle="Manual lines or add from parts catalog"
+          subtitle="Manual lines or add brand-based spares from catalog"
           action={
             <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2">
+                <input
+                  value={barcodeSku}
+                  onChange={(e) => setBarcodeSku(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addScannedSku();
+                    }
+                  }}
+                  className="rounded-lg border border-zimson-400 bg-white px-2 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm"
+                  placeholder="Scan barcode / SKU"
+                  aria-label="Scan barcode sku"
+                />
+                <button
+                  type="button"
+                  onClick={addScannedSku}
+                  className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
+                >
+                  Add by scan
+                </button>
+              </div>
               <select
                 value={partPick}
                 onChange={(e) => {
                   const v = e.target.value;
-                  if (v) addPartLine(v);
+                  if (v) void addPartLine(v);
                 }}
                 className="rounded-lg border border-zimson-400 bg-white px-2 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm"
                 aria-label="Add part from catalog"
               >
-                <option value="">+ Part from catalog…</option>
-                {SEED_PARTS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} — ₹{p.unitPrice}
+                <option value="">
+                  {spareOptionsLoading ? "Loading brand spares..." : "+ Spare from selected brand..."}
+                </option>
+                {spareOptions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.sku}) — ₹{s.price} {s.stockQty <= 0 ? "· Out of stock" : ""}
                   </option>
                 ))}
               </select>

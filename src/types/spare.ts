@@ -2,8 +2,8 @@ export type SparePart = {
   id: string;
   sku: string;
   name: string;
+  description: string;
   category: string;
-  uom: string;
   hsn: string | null;
   isActive: boolean;
   createdAt: string;
@@ -12,7 +12,27 @@ export type SparePart = {
 export type CreateSpareInput = {
   sku: string;
   name: string;
+  description: string;
   category: string;
-  uom: string;
   hsn?: string | null;
+  isActive?: boolean;
+};
+
+export type SparePriceLine = {
+  id: string;
+  spareId: string;
+  regionId: string | null;
+  brand: string;
+  price: number;
+  createdAt: string;
+};
+
+export type SpareStockRow = {
+  id: string;
+  spareId: string;
+  locationType: "HO" | "STORE";
+  regionId: string;
+  storeId: string | null;
+  quantity: number;
+  updatedAt: string;
 };

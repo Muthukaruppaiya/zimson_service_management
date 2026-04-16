@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Pool } from "pg";
 import type { CreateSpareInput, SparePart } from "../src/types/spare";
+import type { DemoUser } from "../src/types/user";
 
 type Authed = Request & { userId: string };
 
@@ -8,8 +9,8 @@ function rowToSpare(r: {
   id: string;
   sku: string;
   name: string;
+  description: string;
   category: string;
-  uom: string;
   hsn: string | null;
   is_active: boolean;
   created_at: Date | string;
@@ -20,8 +21,8 @@ function rowToSpare(r: {
     id: r.id,
     sku: r.sku,
     name: r.name,
+    description: r.description,
     category: r.category,
-    uom: r.uom,
     hsn: r.hsn,
     isActive: r.is_active,
     createdAt,
@@ -32,12 +33,14 @@ export function registerCatalogRoutes(
   app: Express,
   pool: Pool,
   requireAuth: (req: Request, res: Response, next: NextFunction) => void,
+  getUserById: (id: string) => DemoUser | null,
 ): void {
   app.get("/api/spares", requireAuth, async (_req, res) => {
     try {
       const { rows } = await pool.query(
-        `SELECT id, sku, name, category, uom, hsn, is_active, created_at
-         FROM spares ORDER BY sku`,
+        `SELECT id, sku, name, description, category, hsn, is_active, created_at
+         FROM spares
+         ORDER BY created_at DESC`,
       );
       res.json({ spares: rows.map((r) => rowToSpare(r as Parameters<typeof rowToSpare>[0])) });
     } catch (e) {
@@ -47,55 +50,32 @@ export function registerCatalogRoutes(
   });
 
   app.post("/api/spares", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin")) {
+      res.status(403).json({ error: "Only admin users can create spare master rows." });
+      return;
+    }
+
     const input = req.body as CreateSpareInput;
     const sku = input.sku.trim().toUpperCase();
     const name = input.name.trim();
+    const description = input.description.trim();
     const category = input.category.trim();
-    const uom = input.uom.trim() || "PCS";
-    if (!sku || !name || !category) {
-      res.status(400).json({ error: "SKU, description, and category are required." });
+    const isActive = input.isActive ?? true;
+    if (!sku || !name || !description || !category) {
+      res.status(400).json({ error: "sku, name, description and category are required." });
       return;
     }
-    const client = await pool.connect();
     try {
-      await client.query("BEGIN");
-      const ins = await client.query(
-        `INSERT INTO spares (sku, name, category, uom, hsn, is_active)
-         VALUES ($1, $2, $3, $4, $5, true)
-         RETURNING id, sku, name, category, uom, hsn, is_active, created_at`,
-        [sku, name, category, uom, input.hsn?.trim() || null],
+      const ins = await pool.query(
+        `INSERT INTO spares (sku, name, description, category, hsn, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, sku, name, description, category, hsn, is_active, created_at`,
+        [sku, name, description, category, input.hsn?.trim() || null, isActive],
       );
       const row = ins.rows[0] as Parameters<typeof rowToSpare>[0];
-      const spareId = row.id;
-
-      const { rows: gen } = await client.query<{ id: string }>(
-        `SELECT id FROM brands WHERE code = 'GENERIC' LIMIT 1`,
-      );
-      if (gen[0]) {
-        await client.query(
-          `INSERT INTO spare_brand_mrp (spare_id, brand_id, mrp_inr) VALUES ($1, $2, 0)
-           ON CONFLICT (spare_id, brand_id) DO NOTHING`,
-          [spareId, gen[0].id],
-        );
-      }
-
-      const { rows: locs } = await client.query<{ location_key: string }>(
-        `SELECT DISTINCT location_key FROM spare_stock LIMIT 5000`,
-      );
-      if (locs.length > 0) {
-        for (const { location_key } of locs) {
-          await client.query(
-            `INSERT INTO spare_stock (spare_id, location_key, quantity) VALUES ($1, $2, 0)
-             ON CONFLICT (spare_id, location_key) DO NOTHING`,
-            [spareId, location_key],
-          );
-        }
-      }
-
-      await client.query("COMMIT");
       res.json({ spare: rowToSpare(row) });
     } catch (e: unknown) {
-      await client.query("ROLLBACK").catch(() => {});
       const err = e as { code?: string };
       if (err.code === "23505") {
         res.status(400).json({ error: "A spare with this SKU already exists." });
@@ -103,108 +83,188 @@ export function registerCatalogRoutes(
       }
       console.error(e);
       res.status(500).json({ error: "Could not create spare." });
-    } finally {
-      client.release();
     }
   });
 
-  app.get("/api/catalog/brands", requireAuth, async (_req, res) => {
+  app.get("/api/catalog/spares/:spareId/prices", requireAuth, async (req, res) => {
+    const spareId = req.params.spareId;
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const requestedRegion = String(req.query.regionId ?? "").trim();
+    let regionId: string | null = null;
+    if (actor.role === "super_admin") {
+      regionId = requestedRegion || null;
+    } else {
+      regionId = actor.regionId;
+    }
     try {
       const { rows } = await pool.query(
-        `SELECT id, code, name, created_at AS "createdAt" FROM brands ORDER BY code`,
+        `SELECT id,
+                spare_id AS "spareId",
+                region_id AS "regionId",
+                brand,
+                price::float8 AS price,
+                created_at AS "createdAt"
+         FROM spare_prices
+         WHERE spare_id = $1::uuid
+           AND (($2::text IS NULL AND region_id IS NULL) OR region_id = $2::text)
+         ORDER BY brand`,
+        [spareId, regionId],
       );
-      res.json({ brands: rows });
+      res.json({ prices: rows });
     } catch (e) {
       console.error(e);
-      res.status(500).json({ error: "Failed to load brands." });
+      res.status(400).json({ error: "Invalid spare id." });
     }
   });
 
-  app.get("/api/catalog/spares/:spareId/brand-mrp", requireAuth, async (req, res) => {
+  app.post("/api/catalog/spares/:spareId/prices", requireAuth, async (req, res) => {
     const spareId = req.params.spareId;
-    try {
-      const { rows } = await pool.query(
-        `SELECT m.id, m.spare_id AS "spareId", m.brand_id AS "brandId", b.code AS "brandCode",
-                b.name AS "brandName", m.mrp_inr::float8 AS "mrpInr", m.currency
-         FROM spare_brand_mrp m
-         JOIN brands b ON b.id = m.brand_id
-         WHERE m.spare_id = $1::uuid
-         ORDER BY b.code`,
-        [spareId],
-      );
-      res.json({ lines: rows });
-    } catch (e) {
-      console.error(e);
-      res.status(400).json({ error: "Invalid spare or failed to load MRP lines." });
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin")) {
+      res.status(403).json({ error: "Only admin users can save prices." });
+      return;
     }
-  });
 
-  app.put("/api/catalog/spares/:spareId/brand-mrp", requireAuth, async (req, res) => {
-    const spareId = req.params.spareId;
-    const brandId = String(req.body?.brandId ?? "");
-    const mrpInr = Number(req.body?.mrpInr);
-    if (!brandId || Number.isNaN(mrpInr) || mrpInr < 0) {
-      res.status(400).json({ error: "brandId and non-negative mrpInr required." });
+    const brand = String(req.body?.brand ?? "").trim();
+    const price = Number(req.body?.price);
+    const requestedRegion = String(req.body?.regionId ?? "").trim();
+    const regionId = actor.role === "super_admin" ? requestedRegion || null : actor.regionId;
+    if (!brand || Number.isNaN(price) || price < 0) {
+      res.status(400).json({ error: "brand and non-negative price are required." });
+      return;
+    }
+    if (actor.role === "super_admin" && !regionId) {
+      res.status(400).json({ error: "regionId is required for region price." });
+      return;
+    }
+    if (!regionId) {
+      res.status(400).json({ error: "Actor region is required for pricing." });
       return;
     }
     try {
       await pool.query(
-        `INSERT INTO spare_brand_mrp (spare_id, brand_id, mrp_inr)
-         VALUES ($1::uuid, $2::uuid, $3)
-         ON CONFLICT (spare_id, brand_id)
-         DO UPDATE SET mrp_inr = EXCLUDED.mrp_inr, updated_at = now()`,
-        [spareId, brandId, mrpInr],
+        `INSERT INTO spare_prices (spare_id, region_id, brand, price)
+         VALUES ($1::uuid, $2::text, $3, $4)
+         ON CONFLICT (spare_id, brand, region_id)
+         DO UPDATE SET price = EXCLUDED.price, updated_at = now()`,
+        [spareId, regionId, brand, price],
       );
       res.json({ ok: true });
     } catch (e) {
       console.error(e);
-      res.status(400).json({ error: "Could not save MRP for this spare/brand." });
+      res.status(400).json({ error: "Could not save price line." });
     }
   });
 
-  app.get("/api/catalog/stock", requireAuth, async (req, res) => {
-    const spareId = typeof req.query.spareId === "string" ? req.query.spareId : null;
+  app.get("/api/catalog/spares/:spareId/stock", requireAuth, async (req, res) => {
+    const spareId = req.params.spareId;
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
     try {
+      let whereExtra = "";
+      const params: unknown[] = [spareId];
+      if (actor.role === "regional_admin") {
+        params.push(actor.regionId);
+        whereExtra = " AND region_id = $2::text";
+      } else if (actor.role === "store_user") {
+        params.push(actor.regionId, actor.storeId);
+        whereExtra = " AND location_type = 'STORE' AND region_id = $2::text AND store_id = $3::text";
+      } else if (
+        actor.role === "service_centre_clerk" ||
+        actor.role === "service_centre_supervisor" ||
+        actor.role === "technician"
+      ) {
+        params.push(actor.regionId);
+        whereExtra = " AND location_type = 'HO' AND region_id = $2::text";
+      }
+
       const { rows } = await pool.query(
-        `SELECT sk.id, sk.spare_id AS "spareId", s.sku, sk.location_key AS "locationKey",
-                sk.quantity::float8 AS quantity, sk.updated_at AS "updatedAt"
-         FROM spare_stock sk
-         JOIN spares s ON s.id = sk.spare_id
-         WHERE ($1::uuid IS NULL OR sk.spare_id = $1::uuid)
-         ORDER BY s.sku, sk.location_key`,
-        [spareId],
+        `SELECT id,
+                spare_id AS "spareId",
+                location_type AS "locationType",
+                region_id AS "regionId",
+                store_id AS "storeId",
+                quantity::float8 AS quantity,
+                updated_at AS "updatedAt"
+         FROM spare_stock
+         WHERE spare_id = $1::uuid${whereExtra}
+         ORDER BY location_type, region_id, store_id`,
+        params,
       );
       res.json({ stock: rows });
     } catch (e) {
       console.error(e);
-      res.status(400).json({ error: "Invalid spare filter or failed to load stock." });
+      res.status(400).json({ error: "Could not load stock rows." });
     }
   });
 
-  app.post("/api/catalog/stock/adjust", requireAuth, async (req, res) => {
-    const spareId = String(req.body?.spareId ?? "");
-    const locationKey = String(req.body?.locationKey ?? "").trim();
-    const delta = Number(req.body?.delta);
-    if (!spareId || !locationKey || Number.isNaN(delta)) {
-      res.status(400).json({ error: "spareId, locationKey, and numeric delta required." });
+  app.post("/api/catalog/spares/:spareId/stock", requireAuth, async (req, res) => {
+    const spareId = req.params.spareId;
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
       return;
     }
-    const u = (req as Authed).userId;
-    try {
-      const r = await pool.query(
-        `UPDATE spare_stock SET quantity = quantity + $3, updated_at = now()
-         WHERE spare_id = $1::uuid AND location_key = $2
-         RETURNING quantity::float8 AS quantity`,
-        [spareId, locationKey, delta],
-      );
-      if (r.rowCount === 0) {
-        res.status(404).json({ error: "Stock row not found for this spare and location." });
+
+    const locationType = String(req.body?.locationType ?? "").toUpperCase();
+    const regionId = String(req.body?.regionId ?? "").trim();
+    const storeIdRaw = req.body?.storeId;
+    const storeId = storeIdRaw == null || storeIdRaw === "" ? null : String(storeIdRaw);
+    const quantity = Number(req.body?.quantity);
+
+    if ((locationType !== "HO" && locationType !== "STORE") || !regionId || Number.isNaN(quantity) || quantity < 0) {
+      res.status(400).json({ error: "locationType(HO/STORE), regionId and non-negative quantity are required." });
+      return;
+    }
+    if (locationType === "STORE" && !storeId) {
+      res.status(400).json({ error: "storeId is required for STORE location." });
+      return;
+    }
+
+    if (actor.role === "store_user") {
+      if (locationType !== "STORE" || actor.regionId !== regionId || actor.storeId !== storeId) {
+        res.status(403).json({ error: "Store user can update only own store stock." });
         return;
       }
-      res.json({ ok: true, quantity: r.rows[0]?.quantity, adjustedBy: u });
+    } else if (
+      actor.role === "service_centre_clerk" ||
+      actor.role === "service_centre_supervisor" ||
+      actor.role === "technician"
+    ) {
+      if (locationType !== "HO" || actor.regionId !== regionId) {
+        res.status(403).json({ error: "HO users can update only own region HO stock." });
+        return;
+      }
+    } else if (actor.role === "regional_admin") {
+      if (actor.regionId !== regionId) {
+        res.status(403).json({ error: "Regional admin can update only own region stock." });
+        return;
+      }
+    } else if (actor.role !== "super_admin") {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+
+    const locationKey = locationType === "HO" ? `HO:${regionId}` : `STORE:${regionId}:${storeId}`;
+    try {
+      await pool.query(
+        `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6)
+         ON CONFLICT (spare_id, location_key)
+         DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = now()`,
+        [spareId, locationKey, locationType, regionId, storeId, quantity],
+      );
+      res.json({ ok: true });
     } catch (e) {
       console.error(e);
-      res.status(400).json({ error: "Stock adjustment failed." });
+      res.status(400).json({ error: "Could not save stock row." });
     }
   });
 }

@@ -63,11 +63,11 @@ export function SparesProvider({ children }: { children: ReactNode }) {
     async (input: CreateSpareInput): Promise<{ ok: SparePart } | { error: string }> => {
       const sku = input.sku.trim().toUpperCase();
       const name = input.name.trim();
+      const description = input.description.trim();
       const category = input.category.trim();
-      const uom = input.uom.trim() || "PCS";
-      if (!sku) return { error: "SKU is required." };
-      if (!name) return { error: "Description is required." };
-      if (!category) return { error: "Category is required." };
+      if (!sku || !name || !description || !category) {
+        return { error: "sku, name, description and category are required." };
+      }
       if (spares.some((s) => s.sku.trim().toUpperCase() === sku)) {
         return { error: "A spare with this SKU already exists." };
       }
@@ -76,7 +76,14 @@ export function SparesProvider({ children }: { children: ReactNode }) {
         try {
           const data = await apiJson<{ spare: SparePart }>("/api/spares", {
             method: "POST",
-            json: { ...input, sku, name, category, uom },
+            json: {
+              ...input,
+              sku,
+              name,
+              description,
+              category,
+              isActive: input.isActive ?? true,
+            },
           });
           setSpares((prev) => {
             const withoutDup = prev.filter((s) => s.sku.toUpperCase() !== data.spare.sku.toUpperCase());
@@ -93,10 +100,10 @@ export function SparesProvider({ children }: { children: ReactNode }) {
         id: createId("spare"),
         sku,
         name,
+        description,
         category,
-        uom,
         hsn: input.hsn?.trim() || null,
-        isActive: true,
+        isActive: input.isActive ?? true,
         createdAt: new Date().toISOString(),
       };
       const next = [row, ...spares];

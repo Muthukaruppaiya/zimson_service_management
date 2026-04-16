@@ -231,8 +231,39 @@ app.post("/api/users", requireAuth, async (req, res) => {
 });
 
 app.get("/api/regions", requireAuth, (_req, res) => {
-  const state = readState();
-  res.json({ regions: state.regions ?? [] });
+  if (!dbPool) {
+    const state = readState();
+    res.json({ regions: state.regions ?? [] });
+    return;
+  }
+  void (async () => {
+    try {
+      const { rows } = await dbPool.query<{
+        region_id: string;
+        region_name: string;
+        store_id: string | null;
+        store_name: string | null;
+      }>(
+        `SELECT r.id AS region_id, r.name AS region_name, s.id AS store_id, s.name AS store_name
+         FROM regions r
+         LEFT JOIN stores s ON s.region_id = r.id
+         ORDER BY r.name, s.name`,
+      );
+      const map = new Map<string, SeedRegion>();
+      for (const row of rows) {
+        if (!map.has(row.region_id)) {
+          map.set(row.region_id, { id: row.region_id, name: row.region_name, stores: [] });
+        }
+        if (row.store_id && row.store_name) {
+          map.get(row.region_id)!.stores.push({ id: row.store_id, name: row.store_name });
+        }
+      }
+      res.json({ regions: [...map.values()] });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load regions." });
+    }
+  })();
 });
 
 app.put("/api/regions", requireAuth, async (req, res) => {
@@ -241,11 +272,424 @@ app.put("/api/regions", requireAuth, async (req, res) => {
     res.status(400).json({ error: "regions array required" });
     return;
   }
-  await mutate((s) => ({
-    next: { ...s, regions: body.regions as SeedRegion[] },
-    result: undefined,
-  }));
-  res.json({ ok: true });
+  if (!dbPool) {
+    await mutate((s) => ({
+      next: { ...s, regions: body.regions as SeedRegion[] },
+      result: undefined,
+    }));
+    res.json({ ok: true });
+    return;
+  }
+
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM stores");
+    await client.query("DELETE FROM regions");
+    for (const region of body.regions) {
+      await client.query("INSERT INTO regions (id, name) VALUES ($1, $2)", [region.id, region.name]);
+      for (const store of region.stores) {
+        await client.query(
+          "INSERT INTO stores (id, region_id, name) VALUES ($1, $2, $3)",
+          [store.id, region.id, store.name],
+        );
+      }
+    }
+    await client.query("COMMIT");
+    res.json({ ok: true });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(e);
+    res.status(500).json({ error: "Could not save regions." });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/api/regions", requireAuth, async (req, res) => {
+  const name = String(req.body?.name ?? "").trim();
+  if (!name) {
+    res.status(400).json({ error: "Region name is required." });
+    return;
+  }
+  if (!dbPool) {
+    const row: SeedRegion = { id: createId("region"), name, stores: [] };
+    await mutate((s) => ({
+      next: { ...s, regions: [...(s.regions ?? []), row] },
+      result: undefined,
+    }));
+    res.json({ region: row });
+    return;
+  }
+  try {
+    const id = createId("region");
+    await dbPool.query("INSERT INTO regions (id, name) VALUES ($1, $2)", [id, name]);
+    res.json({ region: { id, name, stores: [] } satisfies SeedRegion });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not create region." });
+  }
+});
+
+app.post("/api/regions/:regionId/stores", requireAuth, async (req, res) => {
+  const regionId = req.params.regionId;
+  const name = String(req.body?.name ?? "").trim();
+  if (!name) {
+    res.status(400).json({ error: "Store name is required." });
+    return;
+  }
+  if (!dbPool) {
+    const store = { id: createId("store"), name };
+    await mutate((s) => ({
+      next: {
+        ...s,
+        regions: (s.regions ?? []).map((r) =>
+          r.id === regionId ? { ...r, stores: [...r.stores, store] } : r,
+        ),
+      },
+      result: undefined,
+    }));
+    res.json({ store });
+    return;
+  }
+  try {
+    const id = createId("store");
+    const ins = await dbPool.query(
+      "INSERT INTO stores (id, region_id, name) VALUES ($1, $2, $3) RETURNING id, name",
+      [id, regionId, name],
+    );
+    res.json({ store: ins.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not create store." });
+  }
+});
+
+app.get("/api/inventory/prs", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required for PR module." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const state = readState();
+  const actor = findUser(state, uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (!actor.regionId && actor.role !== "super_admin") {
+    res.status(400).json({ error: "User region not configured." });
+    return;
+  }
+  if (actor.role !== "store_user" && actor.role !== "regional_admin" && actor.role !== "super_admin") {
+    res.status(403).json({ error: "Forbidden." });
+    return;
+  }
+  try {
+    const params: unknown[] = [];
+    let where = "";
+    if (actor.role === "store_user") {
+      params.push(actor.storeId);
+      where = "WHERE pr.store_id = $1::text";
+    } else if (actor.role === "regional_admin") {
+      params.push(actor.regionId);
+      where = "WHERE pr.region_id = $1::text";
+    }
+    const { rows } = await dbPool.query(
+      `SELECT pr.id,
+              pr.pr_number AS "prNumber",
+              pr.region_id AS "regionId",
+              pr.store_id AS "storeId",
+              pr.status,
+              pr.needed_by AS "neededBy",
+              pr.notes,
+              pr.created_by AS "createdBy",
+              pr.created_at AS "createdAt",
+              pr.updated_at AS "updatedAt",
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'id', pri.id,
+                    'spareId', pri.spare_id,
+                    'qty', pri.qty::float8,
+                    'issuedQty', pri.issued_qty::float8,
+                    'reason', pri.reason
+                  )
+                ) FILTER (WHERE pri.id IS NOT NULL),
+                '[]'::json
+              ) AS items
+       FROM purchase_requests pr
+       LEFT JOIN purchase_request_items pri ON pri.pr_id = pr.id
+       ${where}
+       GROUP BY pr.id
+       ORDER BY pr.created_at DESC`,
+      params,
+    );
+    res.json({ prs: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load PRs." });
+  }
+});
+
+app.post("/api/inventory/prs", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required for PR module." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const state = readState();
+  const actor = findUser(state, uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (actor.role !== "store_user" || !actor.regionId || !actor.storeId) {
+    res.status(403).json({ error: "Only store users can create PRs." });
+    return;
+  }
+
+  const body = req.body as {
+    status?: "DRAFT" | "SUBMITTED";
+    neededBy?: string | null;
+    notes?: string;
+    items?: Array<{ spareId: string; qty: number; reason?: string }>;
+  };
+  const status = body.status === "DRAFT" ? "DRAFT" : "SUBMITTED";
+  const neededBy = body.neededBy?.trim() || null;
+  const notes = String(body.notes ?? "").trim();
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (items.length === 0) {
+    res.status(400).json({ error: "At least one PR line is required." });
+    return;
+  }
+  if (items.some((i) => !i.spareId || Number.isNaN(Number(i.qty)) || Number(i.qty) <= 0)) {
+    res.status(400).json({ error: "Each PR line needs valid spare and qty > 0." });
+    return;
+  }
+
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const prNumber = createId("pr").toUpperCase();
+    const ins = await client.query<{ id: string; prNumber: string }>(
+      `INSERT INTO purchase_requests (pr_number, region_id, store_id, status, needed_by, notes, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, pr_number AS "prNumber"`,
+      [prNumber, actor.regionId, actor.storeId, status, neededBy, notes, actor.id],
+    );
+    const prId = ins.rows[0]!.id;
+    for (const item of items) {
+      await client.query(
+        `INSERT INTO purchase_request_items (pr_id, spare_id, qty, reason)
+         VALUES ($1::uuid, $2::uuid, $3, $4)`,
+        [prId, item.spareId, Number(item.qty), String(item.reason ?? "").trim()],
+      );
+    }
+    await client.query("COMMIT");
+    res.json({ ok: true, id: prId, prNumber: ins.rows[0]!.prNumber });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(e);
+    res.status(400).json({ error: "Could not create PR." });
+  } finally {
+    client.release();
+  }
+});
+
+app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required for PR module." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const state = readState();
+  const actor = findUser(state, uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  const prId = req.params.prId;
+  const status = String(req.body?.status ?? "").toUpperCase();
+  const allowed = new Set(["SUBMITTED", "APPROVED", "REJECTED", "PARTIAL", "FULFILLED"]);
+  if (!allowed.has(status)) {
+    res.status(400).json({ error: "Invalid status." });
+    return;
+  }
+  try {
+    if (actor.role === "store_user") {
+      if (status !== "SUBMITTED") {
+        res.status(403).json({ error: "Store can only submit PR." });
+        return;
+      }
+      const upd = await dbPool.query(
+        `UPDATE purchase_requests
+         SET status = 'SUBMITTED', updated_at = now()
+         WHERE id = $1::uuid AND store_id = $2::text AND status = 'DRAFT'`,
+        [prId, actor.storeId],
+      );
+      if (upd.rowCount === 0) {
+        res.status(400).json({ error: "PR not found or not in draft." });
+        return;
+      }
+      res.json({ ok: true });
+      return;
+    }
+    if (actor.role !== "regional_admin" && actor.role !== "super_admin") {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const params: unknown[] = [status, prId];
+    let where = "id = $2::uuid";
+    if (actor.role === "regional_admin") {
+      params.push(actor.regionId);
+      where += " AND region_id = $3::text";
+    }
+    const upd = await dbPool.query(
+      `UPDATE purchase_requests
+       SET status = $1, updated_at = now()
+       WHERE ${where}`,
+      params,
+    );
+    if (upd.rowCount === 0) {
+      res.status(404).json({ error: "PR not found." });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "Could not update PR status." });
+  }
+});
+
+app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required for PR module." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const state = readState();
+  const actor = findUser(state, uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (actor.role !== "regional_admin" && actor.role !== "super_admin") {
+    res.status(403).json({ error: "Only HO admins can fulfill PR." });
+    return;
+  }
+  const prId = req.params.prId;
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const prRes = await client.query<{
+      id: string;
+      region_id: string;
+      store_id: string;
+      status: string;
+    }>(
+      `SELECT id, region_id, store_id, status
+       FROM purchase_requests
+       WHERE id = $1::uuid
+       FOR UPDATE`,
+      [prId],
+    );
+    const pr = prRes.rows[0];
+    if (!pr) {
+      await client.query("ROLLBACK");
+      res.status(404).json({ error: "PR not found." });
+      return;
+    }
+    if (actor.role === "regional_admin" && actor.regionId !== pr.region_id) {
+      await client.query("ROLLBACK");
+      res.status(403).json({ error: "You can fulfill only your region PR." });
+      return;
+    }
+    if (pr.status === "REJECTED" || pr.status === "FULFILLED") {
+      await client.query("ROLLBACK");
+      res.status(400).json({ error: `Cannot fulfill PR in ${pr.status} status.` });
+      return;
+    }
+
+    const itemsRes = await client.query<{
+      id: string;
+      spare_id: string;
+      qty: number;
+      issued_qty: number;
+    }>(
+      `SELECT id, spare_id, qty::float8, issued_qty::float8
+       FROM purchase_request_items
+       WHERE pr_id = $1::uuid
+       FOR UPDATE`,
+      [prId],
+    );
+    let movedTotal = 0;
+    for (const item of itemsRes.rows) {
+      const remaining = Math.max(0, item.qty - item.issued_qty);
+      if (remaining <= 0) continue;
+      const hoStock = await client.query<{ qty: number }>(
+        `SELECT quantity::float8 AS qty
+         FROM spare_stock
+         WHERE spare_id = $1::uuid AND location_key = $2`,
+        [item.spare_id, `HO:${pr.region_id}`],
+      );
+      const available = hoStock.rows[0]?.qty ?? 0;
+      const issueQty = Math.min(remaining, Math.max(0, available));
+      if (issueQty <= 0) continue;
+
+      await client.query(
+        `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
+         VALUES ($1::uuid, $2, 'STORE', $3, $4, $5)
+         ON CONFLICT (spare_id, location_key)
+         DO UPDATE SET quantity = spare_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
+        [item.spare_id, `STORE:${pr.region_id}:${pr.store_id}`, pr.region_id, pr.store_id, issueQty],
+      );
+      await client.query(
+        `UPDATE spare_stock
+         SET quantity = GREATEST(quantity - $1, 0), updated_at = now()
+         WHERE spare_id = $2::uuid AND location_key = $3`,
+        [issueQty, item.spare_id, `HO:${pr.region_id}`],
+      );
+      await client.query(
+        `UPDATE purchase_request_items
+         SET issued_qty = issued_qty + $1
+         WHERE id = $2::uuid`,
+        [issueQty, item.id],
+      );
+      movedTotal += issueQty;
+    }
+
+    if (movedTotal <= 0) {
+      await client.query("ROLLBACK");
+      res.status(400).json({ error: "No stock moved. Check HO availability." });
+      return;
+    }
+
+    const sum = await client.query<{ req: number; iss: number }>(
+      `SELECT COALESCE(SUM(qty), 0)::float8 AS req,
+              COALESCE(SUM(issued_qty), 0)::float8 AS iss
+       FROM purchase_request_items
+       WHERE pr_id = $1::uuid`,
+      [prId],
+    );
+    const req = sum.rows[0]?.req ?? 0;
+    const iss = sum.rows[0]?.iss ?? 0;
+    const nextStatus = iss >= req ? "FULFILLED" : "PARTIAL";
+    await client.query(
+      `UPDATE purchase_requests
+       SET status = $1, updated_at = now()
+       WHERE id = $2::uuid`,
+      [nextStatus, prId],
+    );
+    await client.query("COMMIT");
+    res.json({ ok: true, movedQty: movedTotal, status: nextStatus });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(e);
+    res.status(400).json({ error: "Could not fulfill PR." });
+  } finally {
+    client.release();
+  }
 });
 
 app.get("/api/customers", requireAuth, (_req, res) => {
@@ -323,7 +767,10 @@ async function main() {
     console.error("PostgreSQL migration failed:", e);
     process.exit(1);
   }
-  registerCatalogRoutes(app, dbPool, requireAuth);
+  registerCatalogRoutes(app, dbPool, requireAuth, (id) => {
+    const s = readState();
+    return findUser(s, id) ?? null;
+  });
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);
