@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --color-zimson-50: #fffef7;
+  --color-zimson-100: #fffbeb;
+  --color-zimson-200: #fef3c7;
+  --color-zimson-300: #fde68a;
+  --color-zimson-400: #fcd34d;
+  --color-zimson-500: #f59e0b;
+  --color-zimson-600: #d97706;
+  --color-zimson-700: #b45309;
+  --color-zimson-800: #92400e;
+  --color-zimson-900: #78350f;
+}
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-zimson-100 font-sans text-stone-800 antialiased;
+  }
+
+  #root {
+    @apply min-h-dvh;
+  }
+}
