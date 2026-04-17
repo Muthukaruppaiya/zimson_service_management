@@ -8,9 +8,11 @@ import { registerCatalogRoutes } from "./catalogRoutes";
 import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
+import { appendStockHistory } from "./db/stockHistory";
 import { SEED_USERS, type SeedRegion } from "../src/data/seed";
 import { createId } from "../src/lib/id";
 import type { CustomerKind, CustomerRecord } from "../src/types/customer";
+import type { AppNotification } from "../src/types/notification";
 import type { DemoUser, SessionUser, UserRole } from "../src/types/user";
 import type { SrfJob } from "../src/types/srfJob";
 import { readState, stripPassword, writeState, type AppState } from "./persist";
@@ -55,6 +57,29 @@ function findUser(state: AppState, id: string): DemoUser | undefined {
   return allUsers(state).find((u) => u.id === id);
 }
 
+async function pushNotifications(
+  userIds: string[],
+  payload: Pick<AppNotification, "title" | "message" | "category">,
+): Promise<void> {
+  if (userIds.length === 0) return;
+  const uniq = Array.from(new Set(userIds));
+  const now = new Date().toISOString();
+  await mutate((s) => {
+    const added: AppNotification[] = uniq.map((uid) => ({
+      id: createId("ntf"),
+      userId: uid,
+      title: payload.title,
+      message: payload.message,
+      category: payload.category,
+      isRead: false,
+      createdAt: now,
+    }));
+    const maxKeep = 1000;
+    const nextNotifications = [...added, ...s.notifications].slice(0, maxKeep);
+    return { next: { ...s, notifications: nextNotifications }, result: undefined };
+  });
+}
+
 function normalizeJob(raw: SrfJob): SrfJob {
   return {
     ...raw,
@@ -68,6 +93,29 @@ function getSessionUserId(req: express.Request): string | null {
   const sid = parseCookies(req.headers.cookie)[COOKIE];
   if (!sid) return null;
   return sessions.get(sid) ?? null;
+}
+
+function makeAlphaNumCode(input: string, fallback: string): string {
+  const cleaned = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return (cleaned.slice(0, 3) || fallback).padEnd(3, "X");
+}
+
+async function nextDocNumber(
+  client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<{ last_value: number }> }> },
+  prefix: "PR" | "PO" | "GRN",
+  scopeCode: string,
+): Promise<string> {
+  const yy = String(new Date().getFullYear()).slice(-2);
+  const seq = await client.query(
+    `INSERT INTO number_sequences (prefix, scope_code, year_2, last_value)
+     VALUES ($1, $2, $3, 1001)
+     ON CONFLICT (prefix, scope_code, year_2)
+     DO UPDATE SET last_value = number_sequences.last_value + 1
+     RETURNING last_value`,
+    [prefix, scopeCode, yy],
+  );
+  const num = String(seq.rows[0]!.last_value).padStart(4, "0");
+  return `${prefix}${yy}${scopeCode}${num}`;
 }
 
 function requireAuth(
@@ -394,7 +442,7 @@ app.get("/api/inventory/prs", requireAuth, async (req, res) => {
       where = "WHERE pr.store_id = $1::text";
     } else if (actor.role === "regional_admin") {
       params.push(actor.regionId);
-      where = "WHERE pr.region_id = $1::text";
+      where = "WHERE pr.region_id = $1::text AND pr.status <> 'DRAFT'";
     }
     const { rows } = await dbPool.query(
       `SELECT pr.id,
@@ -414,6 +462,7 @@ app.get("/api/inventory/prs", requireAuth, async (req, res) => {
                     'spareId', pri.spare_id,
                     'qty', pri.qty::float8,
                     'issuedQty', pri.issued_qty::float8,
+                    'receivedQty', pri.received_qty::float8,
                     'reason', pri.reason
                   )
                 ) FILTER (WHERE pri.id IS NOT NULL),
@@ -472,7 +521,10 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
   const client = await dbPool.connect();
   try {
     await client.query("BEGIN");
-    const prNumber = createId("pr").toUpperCase();
+    const storeRes = await client.query<{ name: string }>("SELECT name FROM stores WHERE id = $1::text", [actor.storeId]);
+    const storeName = storeRes.rows[0]?.name ?? actor.storeId;
+    const storeCode = makeAlphaNumCode(storeName, "STR");
+    const prNumber = await nextDocNumber(client, "PR", storeCode);
     const ins = await client.query<{ id: string; prNumber: string }>(
       `INSERT INTO purchase_requests (pr_number, region_id, store_id, status, needed_by, notes, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -540,6 +592,27 @@ app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
       res.status(403).json({ error: "Forbidden." });
       return;
     }
+    const current = await dbPool.query<{ status: string; region_id: string }>(
+      "SELECT status, region_id FROM purchase_requests WHERE id = $1::uuid",
+      [prId],
+    );
+    const cur = current.rows[0];
+    if (!cur) {
+      res.status(404).json({ error: "PR not found." });
+      return;
+    }
+    if (actor.role === "regional_admin" && actor.regionId !== cur.region_id) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    if (cur.status !== "SUBMITTED") {
+      res.status(400).json({ error: `Manual status change is not allowed from ${cur.status}.` });
+      return;
+    }
+    if (status !== "APPROVED" && status !== "REJECTED") {
+      res.status(400).json({ error: "Only APPROVED or REJECTED is allowed from SUBMITTED." });
+      return;
+    }
     const params: unknown[] = [status, prId];
     let where = "id = $2::uuid";
     if (actor.role === "regional_admin") {
@@ -580,6 +653,15 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
     return;
   }
   const prId = req.params.prId;
+  const requested = Array.isArray(req.body?.items)
+    ? (req.body.items as Array<{ itemId: string; qty: number }>)
+        .map((x) => ({ itemId: String(x.itemId ?? "").trim(), qty: Number(x.qty) }))
+        .filter((x) => x.itemId && !Number.isNaN(x.qty) && x.qty > 0)
+    : [];
+  const requestedByItem = new Map<string, number>();
+  for (const r of requested) {
+    requestedByItem.set(r.itemId, r.qty);
+  }
   const client = await dbPool.connect();
   try {
     await client.query("BEGIN");
@@ -588,8 +670,9 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
       region_id: string;
       store_id: string;
       status: string;
+      pr_number: string;
     }>(
-      `SELECT id, region_id, store_id, status
+      `SELECT id, region_id, store_id, status, pr_number
        FROM purchase_requests
        WHERE id = $1::uuid
        FOR UPDATE`,
@@ -628,6 +711,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
     for (const item of itemsRes.rows) {
       const remaining = Math.max(0, item.qty - item.issued_qty);
       if (remaining <= 0) continue;
+      if (requestedByItem.size > 0 && !requestedByItem.has(item.id)) continue;
       const hoStock = await client.query<{ qty: number }>(
         `SELECT quantity::float8 AS qty
          FROM spare_stock
@@ -635,21 +719,32 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
         [item.spare_id, `HO:${pr.region_id}`],
       );
       const available = hoStock.rows[0]?.qty ?? 0;
-      const issueQty = Math.min(remaining, Math.max(0, available));
+      const wanted = requestedByItem.get(item.id) ?? remaining;
+      if (wanted > remaining) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Requested quantity exceeds PR pending for one or more lines." });
+        return;
+      }
+      if (wanted > available) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Requested quantity exceeds HO available stock for one or more lines." });
+        return;
+      }
+      const issueQty = Math.min(wanted, Math.max(0, available));
       if (issueQty <= 0) continue;
 
-      await client.query(
-        `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
-         VALUES ($1::uuid, $2, 'STORE', $3, $4, $5)
-         ON CONFLICT (spare_id, location_key)
-         DO UPDATE SET quantity = spare_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
-        [item.spare_id, `STORE:${pr.region_id}:${pr.store_id}`, pr.region_id, pr.store_id, issueQty],
-      );
+      // HO transfer only: store inward will be posted in a separate step.
       await client.query(
         `UPDATE spare_stock
          SET quantity = GREATEST(quantity - $1, 0), updated_at = now()
          WHERE spare_id = $2::uuid AND location_key = $3`,
         [issueQty, item.spare_id, `HO:${pr.region_id}`],
+      );
+      const hoAfter = await client.query<{ qty: number }>(
+        `SELECT quantity::float8 AS qty
+         FROM spare_stock
+         WHERE spare_id = $1::uuid AND location_key = $2`,
+        [item.spare_id, `HO:${pr.region_id}`],
       );
       await client.query(
         `UPDATE purchase_request_items
@@ -657,6 +752,19 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
          WHERE id = $2::uuid`,
         [issueQty, item.id],
       );
+      await appendStockHistory(client, {
+        spareId: item.spare_id,
+        eventType: "TRANSFER_OUT",
+        locationKey: `HO:${pr.region_id}`,
+        locationType: "HO",
+        regionId: pr.region_id,
+        quantityChange: -issueQty,
+        balanceAfter: hoAfter.rows[0]?.qty ?? null,
+        referenceType: "PR",
+        referenceNumber: pr.pr_number,
+        note: `Stock issued from HO to store ${pr.store_id}.`,
+        createdBy: actor.id,
+      });
       movedTotal += issueQty;
     }
 
@@ -666,16 +774,227 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
       return;
     }
 
-    const sum = await client.query<{ req: number; iss: number }>(
+    const sum = await client.query<{ req: number; iss: number; rec: number }>(
       `SELECT COALESCE(SUM(qty), 0)::float8 AS req,
-              COALESCE(SUM(issued_qty), 0)::float8 AS iss
+              COALESCE(SUM(issued_qty), 0)::float8 AS iss,
+              COALESCE(SUM(received_qty), 0)::float8 AS rec
        FROM purchase_request_items
        WHERE pr_id = $1::uuid`,
       [prId],
     );
     const req = sum.rows[0]?.req ?? 0;
     const iss = sum.rows[0]?.iss ?? 0;
-    const nextStatus = iss >= req ? "FULFILLED" : "PARTIAL";
+    const rec = sum.rows[0]?.rec ?? 0;
+    let nextStatus: "APPROVED" | "PARTIAL" | "FULFILLED" = "APPROVED";
+    if (rec >= req && req > 0) nextStatus = "FULFILLED";
+    else if (iss > 0 || rec > 0) nextStatus = "PARTIAL";
+    await client.query(
+      `UPDATE purchase_requests
+       SET status = $1, updated_at = now()
+       WHERE id = $2::uuid`,
+      [nextStatus, prId],
+    );
+    await client.query("COMMIT");
+    const current = readState();
+    const recipients = allUsers(current)
+      .filter((u) => u.role === "store_user" && u.regionId === pr.region_id && u.storeId === pr.store_id)
+      .map((u) => u.id);
+    await pushNotifications(recipients, {
+      title: `PR ${pr.pr_number} stock sent`,
+      message: `Stock against PR ${pr.pr_number} has been sent from HO to your store. Please inward and verify quantity.`,
+      category: "inventory_pr",
+    });
+    res.json({ ok: true, movedQty: movedTotal, status: nextStatus });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(e);
+    res.status(400).json({ error: "Could not fulfill PR." });
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/api/notifications", requireAuth, (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const s = readState();
+  const list = s.notifications
+    .filter((n) => n.userId === uid)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 30);
+  res.json({ notifications: list });
+});
+
+app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  await mutate((s) => ({
+    next: {
+      ...s,
+      notifications: s.notifications.map((n) => (n.userId === uid ? { ...n, isRead: true } : n)),
+    },
+    result: undefined,
+  }));
+  res.json({ ok: true });
+});
+
+app.post("/api/notifications/service-dispatch", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const s = readState();
+  const actor = findUser(s, uid);
+  if (!actor || actor.role !== "store_user" || !actor.regionId || !actor.storeId) {
+    res.status(403).json({ error: "Only store users can send this notification." });
+    return;
+  }
+  const dcNumber = String(req.body?.dcNumber ?? "").trim();
+  const count = Number(req.body?.count ?? 0);
+  if (!dcNumber || Number.isNaN(count) || count <= 0) {
+    res.status(400).json({ error: "dcNumber and count are required." });
+    return;
+  }
+  const recipients = allUsers(s)
+    .filter(
+      (u) =>
+        u.regionId === actor.regionId &&
+        (u.role === "regional_admin" || u.role === "service_centre_clerk" || u.role === "service_centre_supervisor"),
+    )
+    .map((u) => u.id);
+  await pushNotifications(recipients, {
+    title: `Store DC ${dcNumber} sent to HO`,
+    message: `${count} watch(es) dispatched from store ${actor.storeId} to HO. Please process inward at service centre.`,
+    category: "service_dc",
+  });
+  res.json({ ok: true });
+});
+
+app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required for PR module." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const state = readState();
+  const actor = findUser(state, uid);
+  if (!actor || actor.role !== "store_user" || !actor.storeId || !actor.regionId) {
+    res.status(403).json({ error: "Only store user can inward PR transfer." });
+    return;
+  }
+  const prId = req.params.prId;
+  const requested = Array.isArray(req.body?.items)
+    ? (req.body.items as Array<{ itemId: string; qty: number }>)
+        .map((x) => ({ itemId: String(x.itemId ?? "").trim(), qty: Number(x.qty) }))
+        .filter((x) => x.itemId && !Number.isNaN(x.qty) && x.qty > 0)
+    : [];
+  if (requested.length === 0) {
+    res.status(400).json({ error: "At least one inward line quantity is required." });
+    return;
+  }
+  const requestedByItem = new Map<string, number>();
+  for (const r of requested) requestedByItem.set(r.itemId, r.qty);
+
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const prRes = await client.query<{ id: string; region_id: string; store_id: string; status: string; pr_number: string }>(
+      `SELECT id, region_id, store_id, status, pr_number
+       FROM purchase_requests
+       WHERE id = $1::uuid
+       FOR UPDATE`,
+      [prId],
+    );
+    const pr = prRes.rows[0];
+    if (!pr) {
+      await client.query("ROLLBACK");
+      res.status(404).json({ error: "PR not found." });
+      return;
+    }
+    if (pr.region_id !== actor.regionId || pr.store_id !== actor.storeId) {
+      await client.query("ROLLBACK");
+      res.status(403).json({ error: "You can inward only your store PR." });
+      return;
+    }
+    if (pr.status === "REJECTED" || pr.status === "DRAFT") {
+      await client.query("ROLLBACK");
+      res.status(400).json({ error: `Cannot inward PR in ${pr.status} status.` });
+      return;
+    }
+
+    const itemsRes = await client.query<{
+      id: string;
+      spare_id: string;
+      issued_qty: number;
+      received_qty: number;
+      qty: number;
+    }>(
+      `SELECT id, spare_id, issued_qty::float8, received_qty::float8, qty::float8
+       FROM purchase_request_items
+       WHERE pr_id = $1::uuid
+       FOR UPDATE`,
+      [prId],
+    );
+    let movedTotal = 0;
+    for (const item of itemsRes.rows) {
+      const reqQty = requestedByItem.get(item.id);
+      if (!reqQty) continue;
+      const pendingReceipt = Math.max(0, item.issued_qty - item.received_qty);
+      if (reqQty > pendingReceipt) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Inward quantity exceeds transferred pending quantity." });
+        return;
+      }
+      await client.query(
+        `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
+         VALUES ($1::uuid, $2, 'STORE', $3, $4, $5)
+         ON CONFLICT (spare_id, location_key)
+         DO UPDATE SET quantity = spare_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
+        [item.spare_id, `STORE:${pr.region_id}:${pr.store_id}`, pr.region_id, pr.store_id, reqQty],
+      );
+      const storeAfter = await client.query<{ qty: number }>(
+        `SELECT quantity::float8 AS qty
+         FROM spare_stock
+         WHERE spare_id = $1::uuid AND location_key = $2`,
+        [item.spare_id, `STORE:${pr.region_id}:${pr.store_id}`],
+      );
+      await client.query(
+        `UPDATE purchase_request_items
+         SET received_qty = received_qty + $1
+         WHERE id = $2::uuid`,
+        [reqQty, item.id],
+      );
+      await appendStockHistory(client, {
+        spareId: item.spare_id,
+        eventType: "TRANSFER_IN",
+        locationKey: `STORE:${pr.region_id}:${pr.store_id}`,
+        locationType: "STORE",
+        regionId: pr.region_id,
+        storeId: pr.store_id,
+        quantityChange: reqQty,
+        balanceAfter: storeAfter.rows[0]?.qty ?? null,
+        referenceType: "PR",
+        referenceNumber: pr.pr_number,
+        note: "Store inward posted against PR transfer.",
+        createdBy: actor.id,
+      });
+      movedTotal += reqQty;
+    }
+    if (movedTotal <= 0) {
+      await client.query("ROLLBACK");
+      res.status(400).json({ error: "No inward moved." });
+      return;
+    }
+
+    const sum = await client.query<{ req: number; rec: number; iss: number }>(
+      `SELECT COALESCE(SUM(qty), 0)::float8 AS req,
+              COALESCE(SUM(received_qty), 0)::float8 AS rec,
+              COALESCE(SUM(issued_qty), 0)::float8 AS iss
+       FROM purchase_request_items
+       WHERE pr_id = $1::uuid`,
+      [prId],
+    );
+    const req = sum.rows[0]?.req ?? 0;
+    const rec = sum.rows[0]?.rec ?? 0;
+    const iss = sum.rows[0]?.iss ?? 0;
+    let nextStatus: "APPROVED" | "PARTIAL" | "FULFILLED" = "APPROVED";
+    if (rec >= req && req > 0) nextStatus = "FULFILLED";
+    else if (iss > 0 || rec > 0) nextStatus = "PARTIAL";
     await client.query(
       `UPDATE purchase_requests
        SET status = $1, updated_at = now()
@@ -687,7 +1006,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     console.error(e);
-    res.status(400).json({ error: "Could not fulfill PR." });
+    res.status(400).json({ error: "Could not inward PR transfer." });
   } finally {
     client.release();
   }
@@ -733,10 +1052,11 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
       description: string;
       category: string;
       hsn: string | null;
+      mrp_inr: number | null;
       is_active: boolean;
       created_at: Date;
     }>(
-      `SELECT id, sku, name, description, category, hsn, is_active, created_at
+      `SELECT id, sku, name, description, category, hsn, mrp_inr, is_active, created_at
        FROM spares
        ${spareWhere}
        ORDER BY sku ASC
@@ -846,6 +1166,7 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
           description: r.description,
           category: r.category,
           hsn: r.hsn,
+          mrpInr: r.mrp_inr == null ? null : Number(r.mrp_inr),
           isActive: r.is_active,
           createdAt,
         },

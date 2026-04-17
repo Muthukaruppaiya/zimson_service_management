@@ -5,6 +5,7 @@ import type { SeedRegion } from "../src/data/seed";
 import type { CustomerRecord } from "../src/types/customer";
 import type { DemoUser, SessionUser } from "../src/types/user";
 import type { SrfJob } from "../src/types/srfJob";
+import type { AppNotification } from "../src/types/notification";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const DATA_PATH = join(__dirname, "data", "state.json");
@@ -15,6 +16,7 @@ export type AppState = {
   regions: SeedRegion[] | null;
   customersExtra: CustomerRecord[];
   srfJobs: SrfJob[] | null;
+  notifications: AppNotification[];
 };
 
 const defaultState = (): AppState => ({
@@ -23,6 +25,7 @@ const defaultState = (): AppState => ({
   regions: null,
   customersExtra: [],
   srfJobs: null,
+  notifications: [],
 });
 
 export function readState(): AppState {
@@ -36,6 +39,7 @@ export function readState(): AppState {
         ...parsed,
         extraUsers: Array.isArray(parsed.extraUsers) ? parsed.extraUsers : [],
         customersExtra: Array.isArray(parsed.customersExtra) ? parsed.customersExtra : [],
+        notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       };
     }
   } catch {

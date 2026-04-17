@@ -7,7 +7,7 @@ import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { useEffect, useMemo, useState } from "react";
 
-type PrItem = { id: string; spareId: string; qty: number; issuedQty: number; reason: string };
+type PrItem = { id: string; spareId: string; qty: number; issuedQty: number; receivedQty: number; reason: string };
 type PrRow = {
   id: string;
   prNumber: string;
@@ -39,6 +39,11 @@ export function InventoryPurchaseRequestsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [detailPrId, setDetailPrId] = useState<string | null>(null);
+  const [fulfillPrId, setFulfillPrId] = useState<string | null>(null);
+  const [fulfillQty, setFulfillQty] = useState<Record<string, string>>({});
+  const [inwardPrId, setInwardPrId] = useState<string | null>(null);
+  const [inwardQty, setInwardQty] = useState<Record<string, string>>({});
 
   const spareNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -107,17 +112,72 @@ export function InventoryPurchaseRequestsPage() {
     }
   }
 
-  async function fulfillPr(prId: string) {
+  function openFulfill(pr: PrRow) {
+    const initial: Record<string, string> = {};
+    for (const i of pr.items) {
+      const pending = Math.max(0, i.qty - i.issuedQty);
+      if (pending > 0) initial[i.id] = String(pending);
+    }
+    setFulfillQty(initial);
+    setFulfillPrId(pr.id);
+  }
+
+  async function fulfillPr(pr: PrRow) {
     setErr(null);
     setOk(null);
+    const items = pr.items
+      .map((i) => ({
+        itemId: i.id,
+        qty: Number(fulfillQty[i.id] ?? "0"),
+      }))
+      .filter((i) => i.qty > 0);
+    if (items.length === 0) {
+      setErr("Enter transfer qty for at least one line.");
+      return;
+    }
     try {
-      const data = await apiJson<{ movedQty: number; status: string }>(`/api/inventory/prs/${encodeURIComponent(prId)}/fulfill`, {
+      const data = await apiJson<{ movedQty: number; status: string }>(`/api/inventory/prs/${encodeURIComponent(pr.id)}/fulfill`, {
         method: "POST",
+        json: { items },
       });
       setOk(`Stock issued: ${data.movedQty}. PR status: ${data.status}.`);
+      setFulfillPrId(null);
       await loadPrs();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not fulfill PR.");
+    }
+  }
+
+  function openInward(pr: PrRow) {
+    const initial: Record<string, string> = {};
+    for (const i of pr.items) {
+      const pending = Math.max(0, i.issuedQty - i.receivedQty);
+      if (pending > 0) initial[i.id] = String(pending);
+    }
+    setInwardQty(initial);
+    setInwardPrId(pr.id);
+  }
+
+  async function inwardPr(pr: PrRow) {
+    setErr(null);
+    setOk(null);
+    const items = pr.items
+      .map((i) => ({ itemId: i.id, qty: Number(inwardQty[i.id] ?? "0") }))
+      .filter((i) => i.qty > 0);
+    if (items.length === 0) {
+      setErr("Enter inward qty for at least one line.");
+      return;
+    }
+    try {
+      const data = await apiJson<{ movedQty: number; status: string }>(`/api/inventory/prs/${encodeURIComponent(pr.id)}/inward`, {
+        method: "POST",
+        json: { items },
+      });
+      setOk(`Store inward done: ${data.movedQty}. PR status: ${data.status}.`);
+      setInwardPrId(null);
+      await loadPrs();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not inward PR.");
     }
   }
 
@@ -253,11 +313,18 @@ export function InventoryPurchaseRequestsPage() {
                     <td className="px-3 py-2">{pr.status}</td>
                     <td className="px-3 py-2">
                       {pr.items
-                        .map((i) => `${spareNameById.get(i.spareId) ?? i.spareId} req:${i.qty} issued:${i.issuedQty}`)
+                        .map((i) => `${spareNameById.get(i.spareId) ?? i.spareId} req:${i.qty} issued:${i.issuedQty} received:${i.receivedQty}`)
                         .join(", ")}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDetailPrId((x) => (x === pr.id ? null : pr.id))}
+                          className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-xs font-semibold text-stone-700"
+                        >
+                          Details
+                        </button>
                         <button type="button" onClick={() => void updateStatus(pr.id, "APPROVED")} className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white">
                           Approve
                         </button>
@@ -265,7 +332,7 @@ export function InventoryPurchaseRequestsPage() {
                           Reject
                         </button>
                         {(pr.status === "APPROVED" || pr.status === "PARTIAL" || pr.status === "SUBMITTED") ? (
-                          <button type="button" onClick={() => void fulfillPr(pr.id)} className="rounded-lg bg-zimson-700 px-2 py-1 text-xs font-semibold text-white">
+                          <button type="button" onClick={() => openFulfill(pr)} className="rounded-lg bg-zimson-700 px-2 py-1 text-xs font-semibold text-white">
                             Fulfill
                           </button>
                         ) : null}
@@ -276,6 +343,94 @@ export function InventoryPurchaseRequestsPage() {
               </tbody>
             </table>
           </div>
+        </Card>
+      ) : null}
+
+      {isHo && fulfillPrId ? (
+        <Card title="Fulfill PR — choose transfer quantities" subtitle="Enter quantity per line to transfer from HO to store">
+          {(() => {
+            const pr = prs.find((p) => p.id === fulfillPrId);
+            if (!pr) return <p className="text-sm text-stone-600">PR not found.</p>;
+            return (
+              <div className="space-y-3">
+                {pr.items.map((i) => {
+                  const pending = Math.max(0, i.qty - i.issuedQty);
+                  return (
+                    <div key={i.id} className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-12">
+                      <div className="sm:col-span-8">
+                        <p className="text-sm font-medium text-stone-900">{spareNameById.get(i.spareId) ?? i.spareId}</p>
+                        <p className="text-xs text-stone-600">Requested: {i.qty} · Issued: {i.issuedQty} · Pending: {pending}</p>
+                      </div>
+                      <div className="sm:col-span-4">
+                        <label className="text-xs font-medium text-stone-600">Transfer qty</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={pending}
+                          step={0.001}
+                          className={inputClass}
+                          value={fulfillQty[i.id] ?? "0"}
+                          onChange={(e) => setFulfillQty((prev) => ({ ...prev, [i.id]: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => void fulfillPr(pr)} className="rounded-xl bg-zimson-700 px-4 py-2 text-sm font-semibold text-white">
+                    Confirm transfer
+                  </button>
+                  <button type="button" onClick={() => setFulfillPrId(null)} className="rounded-xl border border-stone-300 px-4 py-2 text-sm">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </Card>
+      ) : null}
+
+      {isStore && inwardPrId ? (
+        <Card title="Store inward against PR transfer" subtitle="Confirm physically received quantity per line">
+          {(() => {
+            const pr = prs.find((p) => p.id === inwardPrId);
+            if (!pr) return <p className="text-sm text-stone-600">PR not found.</p>;
+            return (
+              <div className="space-y-3">
+                {pr.items.map((i) => {
+                  const pending = Math.max(0, i.issuedQty - i.receivedQty);
+                  return (
+                    <div key={i.id} className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-12">
+                      <div className="sm:col-span-8">
+                        <p className="text-sm font-medium text-stone-900">{spareNameById.get(i.spareId) ?? i.spareId}</p>
+                        <p className="text-xs text-stone-600">Issued: {i.issuedQty} · Received: {i.receivedQty} · Pending inward: {pending}</p>
+                      </div>
+                      <div className="sm:col-span-4">
+                        <label className="text-xs font-medium text-stone-600">Inward qty</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={pending}
+                          step={0.001}
+                          className={inputClass}
+                          value={inwardQty[i.id] ?? "0"}
+                          onChange={(e) => setInwardQty((prev) => ({ ...prev, [i.id]: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => void inwardPr(pr)} className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">
+                    Confirm inward
+                  </button>
+                  <button type="button" onClick={() => setInwardPrId(null)} className="rounded-xl border border-stone-300 px-4 py-2 text-sm">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </Card>
       ) : null}
 
@@ -298,17 +453,33 @@ export function InventoryPurchaseRequestsPage() {
                     <td className="px-3 py-2">{pr.status}</td>
                     <td className="px-3 py-2">{pr.items.length}</td>
                     <td className="px-3 py-2">
-                      {pr.status === "DRAFT" ? (
+                      <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => void updateStatus(pr.id, "SUBMITTED")}
-                          className="rounded-lg bg-zimson-600 px-2 py-1 text-xs font-semibold text-white"
+                          onClick={() => setDetailPrId((x) => (x === pr.id ? null : pr.id))}
+                          className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-xs font-semibold text-stone-700"
                         >
-                          Submit
+                          Details
                         </button>
-                      ) : (
-                        "-"
-                      )}
+                        {pr.status === "DRAFT" ? (
+                          <button
+                            type="button"
+                            onClick={() => void updateStatus(pr.id, "SUBMITTED")}
+                            className="rounded-lg bg-zimson-600 px-2 py-1 text-xs font-semibold text-white"
+                          >
+                            Submit
+                          </button>
+                        ) : null}
+                        {pr.items.some((i) => i.issuedQty > i.receivedQty) ? (
+                          <button
+                            type="button"
+                            onClick={() => openInward(pr)}
+                            className="rounded-lg bg-emerald-700 px-2 py-1 text-xs font-semibold text-white"
+                          >
+                            Inward
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -328,6 +499,86 @@ export function InventoryPurchaseRequestsPage() {
 
       {err ? <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{err}</p> : null}
       {ok ? <p className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{ok}</p> : null}
+
+      {detailPrId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-auto rounded-2xl bg-white p-6 shadow-xl">
+            {(() => {
+              const pr = prs.find((p) => p.id === detailPrId);
+              if (!pr) {
+                return (
+                  <div>
+                    <p className="text-sm text-stone-600">PR details not found.</p>
+                    <button
+                      type="button"
+                      onClick={() => setDetailPrId(null)}
+                      className="mt-4 rounded-xl border border-stone-300 px-4 py-2 text-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
+                );
+              }
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-stone-900">PR details — {pr.prNumber}</h3>
+                      <p className="text-sm text-stone-600">
+                        Store: {pr.storeId} · Region: {pr.regionId} · Status: {pr.status}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDetailPrId(null)}
+                      className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-4 sm:grid-cols-2">
+                    <p className="text-sm text-stone-700">
+                      <span className="font-semibold">Needed by:</span> {pr.neededBy ?? "-"}
+                    </p>
+                    <p className="text-sm text-stone-700">
+                      <span className="font-semibold">Created:</span> {new Date(pr.createdAt).toLocaleString()}
+                    </p>
+                    <p className="text-sm text-stone-700 sm:col-span-2">
+                      <span className="font-semibold">Notes:</span> {pr.notes || "-"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-zimson-200/80">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
+                        <tr>
+                          <th className="px-3 py-2">Spare</th>
+                          <th className="px-3 py-2">Requested</th>
+                          <th className="px-3 py-2">Issued</th>
+                          <th className="px-3 py-2">Received</th>
+                          <th className="px-3 py-2">Pending</th>
+                          <th className="px-3 py-2">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pr.items.map((i) => (
+                          <tr key={i.id} className="border-b border-zimson-100">
+                            <td className="px-3 py-2">{spareNameById.get(i.spareId) ?? i.spareId}</td>
+                            <td className="px-3 py-2">{i.qty}</td>
+                            <td className="px-3 py-2">{i.issuedQty}</td>
+                            <td className="px-3 py-2">{i.receivedQty}</td>
+                            <td className="px-3 py-2">{Math.max(0, i.qty - i.receivedQty)}</td>
+                            <td className="px-3 py-2">{i.reason || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,8 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
 import { useAuth } from "../../context/AuthContext";
+import { apiJson } from "../../lib/api";
 import { mainNav } from "../../navigation";
+import type { AppNotification } from "../../types/notification";
 
 function roleLabel(role: string) {
   switch (role) {
@@ -26,6 +28,8 @@ function roleLabel(role: string) {
 export function TopBar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   const items = useMemo(() => {
     if (!user) return [];
@@ -36,6 +40,36 @@ export function TopBar() {
     await logout();
     navigate("/login", { replace: true });
   }
+
+  async function loadNotifications() {
+    if (!user) return;
+    try {
+      const data = await apiJson<{ notifications: AppNotification[] }>("/api/notifications");
+      setNotifications(data.notifications);
+    } catch {
+      setNotifications([]);
+    }
+  }
+
+  async function markAllRead() {
+    try {
+      await apiJson("/api/notifications/read-all", { method: "POST" });
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  useEffect(() => {
+    if (!user) return;
+    void loadNotifications();
+    const t = setInterval(() => {
+      void loadNotifications();
+    }, 20000);
+    return () => clearInterval(t);
+  }, [user?.id]);
+
+  const unread = notifications.filter((n) => !n.isRead).length;
 
   return (
     <header className="sticky top-0 z-10 border-b border-zimson-300/60 bg-zimson-50/95 backdrop-blur">
@@ -72,6 +106,52 @@ export function TopBar() {
         <div className="flex items-center gap-2">
           {user ? (
             <>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpen((v) => !v)}
+                  className="relative rounded-xl border border-zimson-300/80 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900"
+                >
+                  Notifications
+                  {unread > 0 ? (
+                    <span className="ml-2 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {unread}
+                    </span>
+                  ) : null}
+                </button>
+                {open ? (
+                  <div className="absolute right-0 z-20 mt-2 w-[360px] rounded-xl border border-zimson-200 bg-white p-3 shadow-lg">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Recent notifications</p>
+                      <button
+                        type="button"
+                        onClick={() => void markAllRead()}
+                        className="rounded-lg border border-zimson-300 px-2 py-1 text-[11px] font-semibold text-zimson-900"
+                      >
+                        Mark all read
+                      </button>
+                    </div>
+                    <div className="max-h-72 space-y-2 overflow-auto">
+                      {notifications.length === 0 ? (
+                        <p className="text-xs text-stone-500">No notifications.</p>
+                      ) : (
+                        notifications.map((n) => (
+                          <div
+                            key={n.id}
+                            className={`rounded-lg border p-2 ${
+                              n.isRead ? "border-zimson-200 bg-white" : "border-zimson-300 bg-zimson-50/60"
+                            }`}
+                          >
+                            <p className="text-xs font-semibold text-stone-900">{n.title}</p>
+                            <p className="mt-0.5 text-xs text-stone-700">{n.message}</p>
+                            <p className="mt-1 text-[10px] text-stone-500">{new Date(n.createdAt).toLocaleString()}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
               <div className="hidden max-w-[200px] flex-col items-end text-right sm:flex">
                 <span className="truncate text-xs font-semibold text-stone-900">
                   {user.displayName}

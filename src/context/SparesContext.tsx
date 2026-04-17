@@ -103,6 +103,7 @@ export function SparesProvider({ children }: { children: ReactNode }) {
         description,
         category,
         hsn: input.hsn?.trim() || null,
+        mrpInr: input.mrpInr ?? null,
         isActive: input.isActive ?? true,
         createdAt: new Date().toISOString(),
       };

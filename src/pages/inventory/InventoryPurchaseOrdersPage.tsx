@@ -36,6 +36,7 @@ export function InventoryPurchaseOrdersPage() {
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [poNotes, setPoNotes] = useState("");
   const [lines, setLines] = useState<PoLineDraft[]>([]);
+  const [detailPoId, setDetailPoId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -284,29 +285,117 @@ export function InventoryPurchaseOrdersPage() {
                 <th className="px-3 py-2">Supplier</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Lines</th>
+                <th className="px-3 py-2">Action</th>
               </tr>
             </thead>
             <tbody>
               {pos.map((po) => (
-                <tr key={po.id} className="border-b border-zimson-100 align-top">
-                  <td className="px-3 py-2 font-mono text-xs">{po.poNumber}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{po.prNumber ?? "—"}</td>
-                  <td className="px-3 py-2">{po.supplierName}</td>
-                  <td className="px-3 py-2">{po.status}</td>
-                  <td className="px-3 py-2 text-xs text-stone-700">
-                    {po.items
-                      .map(
-                        (i) =>
-                          `${spareLabel.get(i.spareId) ?? i.spareId} × ${i.qtyOrdered} @ ${i.unitPrice.toLocaleString(undefined, { style: "currency", currency: "INR" })}`,
-                      )
-                      .join(" · ")}
-                  </td>
-                </tr>
+                  <tr className="border-b border-zimson-100 align-top">
+                    <td className="px-3 py-2 font-mono text-xs">{po.poNumber}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{po.prNumber ?? "—"}</td>
+                    <td className="px-3 py-2">{po.supplierName}</td>
+                    <td className="px-3 py-2">{po.status}</td>
+                    <td className="px-3 py-2 text-xs text-stone-700">{po.items.length}</td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => setDetailPoId((x) => (x === po.id ? null : po.id))}
+                        className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-xs font-semibold text-stone-700"
+                      >
+                        Details
+                      </button>
+                    </td>
+                  </tr>
+                  
               ))}
             </tbody>
           </table>
         </div>
       </Card>
+
+      {detailPoId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-auto rounded-2xl bg-white p-6 shadow-xl">
+            {(() => {
+              const po = pos.find((p) => p.id === detailPoId);
+              if (!po) {
+                return (
+                  <div>
+                    <p className="text-sm text-stone-600">PO details not found.</p>
+                    <button
+                      type="button"
+                      onClick={() => setDetailPoId(null)}
+                      className="mt-4 rounded-xl border border-stone-300 px-4 py-2 text-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
+                );
+              }
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-stone-900">PO details — {po.poNumber}</h3>
+                      <p className="text-sm text-stone-600">
+                        PR: {po.prNumber ?? "-"} · Supplier: {po.supplierName} · Status: {po.status}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDetailPoId(null)}
+                      className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-4 sm:grid-cols-2">
+                    <p className="text-sm text-stone-700">
+                      <span className="font-semibold">Created:</span> {new Date(po.createdAt).toLocaleString()}
+                    </p>
+                    <p className="text-sm text-stone-700">
+                      <span className="font-semibold">Region:</span> {po.regionId}
+                    </p>
+                    <p className="text-sm text-stone-700 sm:col-span-2">
+                      <span className="font-semibold">Notes:</span> {po.notes || "-"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-zimson-200/80">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
+                        <tr>
+                          <th className="px-3 py-2">Spare</th>
+                          <th className="px-3 py-2">Ordered</th>
+                          <th className="px-3 py-2">Received</th>
+                          <th className="px-3 py-2">Pending</th>
+                          <th className="px-3 py-2">Unit price</th>
+                          <th className="px-3 py-2">Line total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {po.items.map((i) => (
+                          <tr key={i.id} className="border-b border-zimson-100">
+                            <td className="px-3 py-2">{spareLabel.get(i.spareId) ?? i.spareId}</td>
+                            <td className="px-3 py-2">{i.qtyOrdered}</td>
+                            <td className="px-3 py-2">{i.receivedQty}</td>
+                            <td className="px-3 py-2">{Math.max(0, i.qtyOrdered - i.receivedQty)}</td>
+                            <td className="px-3 py-2">
+                              {i.unitPrice.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                            </td>
+                            <td className="px-3 py-2">
+                              {(i.qtyOrdered * i.unitPrice).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

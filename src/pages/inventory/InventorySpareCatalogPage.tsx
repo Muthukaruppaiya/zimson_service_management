@@ -23,6 +23,7 @@ export function InventorySpareCatalogPage() {
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("Other");
   const [hsn, setHsn] = useState("");
+  const [mrpInr, setMrpInr] = useState("");
   const [isActive, setIsActive] = useState(true);
   const { regions } = useRegions();
   const [locationType, setLocationType] = useState<"HO" | "STORE">("STORE");
@@ -168,12 +169,18 @@ export function InventorySpareCatalogPage() {
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
+    const mrpValue = mrpInr.trim() === "" ? null : Number(mrpInr);
+    if (mrpValue != null && (Number.isNaN(mrpValue) || mrpValue < 0)) {
+      setMsg({ type: "err", text: "MRP must be a non-negative number." });
+      return;
+    }
     const r = await addSpare({
       sku,
       name,
       description,
       category,
       hsn: hsn.trim() || null,
+      mrpInr: mrpValue,
       isActive,
     });
     if ("error" in r) {
@@ -186,6 +193,7 @@ export function InventorySpareCatalogPage() {
     setDescription("");
     setCategory("Other");
     setHsn("");
+    setMrpInr("");
     setIsActive(true);
   }
 
@@ -312,6 +320,20 @@ export function InventorySpareCatalogPage() {
                 </label>
                 <input id="sp-hsn" value={hsn} onChange={(e) => setHsn(e.target.value)} className={inputClass} />
               </div>
+              <div>
+                <label htmlFor="sp-mrp" className="text-xs font-medium text-stone-600">
+                  MRP (INR)
+                </label>
+                <input
+                  id="sp-mrp"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={mrpInr}
+                  onChange={(e) => setMrpInr(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
             </div>
             <label className="flex items-center gap-2 text-sm text-stone-700">
               <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
@@ -352,6 +374,7 @@ export function InventorySpareCatalogPage() {
                   <th className="px-3 py-2">Description</th>
                   <th className="px-3 py-2">Category</th>
                   <th className="px-3 py-2">HSN</th>
+                  <th className="px-3 py-2">MRP</th>
                   <th className="px-3 py-2">Active</th>
                 </tr>
               </thead>
@@ -369,6 +392,7 @@ export function InventorySpareCatalogPage() {
                     <td className="px-3 py-2 text-stone-700">{s.description}</td>
                     <td className="px-3 py-2 text-stone-600">{s.category}</td>
                     <td className="px-3 py-2 font-mono text-xs text-stone-600">{s.hsn ?? "-"}</td>
+                    <td className="px-3 py-2 text-stone-700">{s.mrpInr == null ? "-" : s.mrpInr}</td>
                     <td className="px-3 py-2">
                       <span
                         className={

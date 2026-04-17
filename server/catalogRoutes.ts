@@ -2,6 +2,7 @@ import type { Express, NextFunction, Request, Response } from "express";
 import type { Pool } from "pg";
 import type { CreateSpareInput, SparePart } from "../src/types/spare";
 import type { DemoUser } from "../src/types/user";
+import { appendStockHistory } from "./db/stockHistory";
 
 type Authed = Request & { userId: string };
 
@@ -12,6 +13,7 @@ function rowToSpare(r: {
   description: string;
   category: string;
   hsn: string | null;
+  mrp_inr: number | null;
   is_active: boolean;
   created_at: Date | string;
 }): SparePart {
@@ -24,6 +26,7 @@ function rowToSpare(r: {
     description: r.description,
     category: r.category,
     hsn: r.hsn,
+    mrpInr: r.mrp_inr == null ? null : Number(r.mrp_inr),
     isActive: r.is_active,
     createdAt,
   };
@@ -38,7 +41,7 @@ export function registerCatalogRoutes(
   app.get("/api/spares", requireAuth, async (_req, res) => {
     try {
       const { rows } = await pool.query(
-        `SELECT id, sku, name, description, category, hsn, is_active, created_at
+        `SELECT id, sku, name, description, category, hsn, mrp_inr, is_active, created_at
          FROM spares
          ORDER BY created_at DESC`,
       );
@@ -68,12 +71,19 @@ export function registerCatalogRoutes(
     }
     try {
       const ins = await pool.query(
-        `INSERT INTO spares (sku, name, description, category, hsn, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, sku, name, description, category, hsn, is_active, created_at`,
-        [sku, name, description, category, input.hsn?.trim() || null, isActive],
+        `INSERT INTO spares (sku, name, description, category, hsn, mrp_inr, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, sku, name, description, category, hsn, mrp_inr, is_active, created_at`,
+        [sku, name, description, category, input.hsn?.trim() || null, input.mrpInr ?? null, isActive],
       );
       const row = ins.rows[0] as Parameters<typeof rowToSpare>[0];
+      await appendStockHistory(pool, {
+        spareId: row.id,
+        eventType: "SPARE_CREATED",
+        referenceType: "MANUAL",
+        note: "Spare master row created.",
+        createdBy: actor.id,
+      });
       res.json({ spare: rowToSpare(row) });
     } catch (e: unknown) {
       const err = e as { code?: string };
@@ -253,18 +263,128 @@ export function registerCatalogRoutes(
     }
 
     const locationKey = locationType === "HO" ? `HO:${regionId}` : `STORE:${regionId}:${storeId}`;
+    const client = await pool.connect();
     try {
-      await pool.query(
+      await client.query("BEGIN");
+      const prev = await client.query<{ qty: number }>(
+        `SELECT quantity::float8 AS qty
+         FROM spare_stock
+         WHERE spare_id = $1::uuid AND location_key = $2
+         FOR UPDATE`,
+        [spareId, locationKey],
+      );
+      const prevQty = prev.rows[0]?.qty ?? 0;
+      await client.query(
         `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
          VALUES ($1::uuid, $2, $3, $4, $5, $6)
          ON CONFLICT (spare_id, location_key)
          DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = now()`,
         [spareId, locationKey, locationType, regionId, storeId, quantity],
       );
+      await appendStockHistory(client, {
+        spareId,
+        eventType: "MANUAL_STOCK_SET",
+        locationKey,
+        locationType: locationType as "HO" | "STORE",
+        regionId,
+        storeId,
+        quantityChange: quantity - prevQty,
+        balanceAfter: quantity,
+        referenceType: "MANUAL",
+        note: "Manual stock set from inventory master.",
+        createdBy: actor.id,
+      });
+      await client.query("COMMIT");
       res.json({ ok: true });
     } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
       console.error(e);
       res.status(400).json({ error: "Could not save stock row." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.get("/api/catalog/spares/:spareId/stock-history", requireAuth, async (req, res) => {
+    const spareId = req.params.spareId;
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const regionIdQ = String(req.query.regionId ?? "").trim();
+    const storeIdQ = String(req.query.storeId ?? "").trim();
+    const locationTypeQ = String(req.query.locationType ?? "").trim().toUpperCase();
+    const limitRaw = Number(req.query.limit ?? 100);
+    const limit = Number.isNaN(limitRaw) ? 100 : Math.max(20, Math.min(500, limitRaw));
+    const params: unknown[] = [spareId];
+    let where = "h.spare_id = $1::uuid";
+
+    if (locationTypeQ === "HO" || locationTypeQ === "STORE") {
+      params.push(locationTypeQ);
+      where += ` AND h.location_type = $${params.length}`;
+    }
+    if (regionIdQ) {
+      params.push(regionIdQ);
+      where += ` AND h.region_id = $${params.length}::text`;
+    }
+    if (storeIdQ) {
+      params.push(storeIdQ);
+      where += ` AND h.store_id = $${params.length}::text`;
+    }
+
+    if (actor.role === "regional_admin") {
+      params.push(actor.regionId);
+      where += ` AND (h.event_type = 'SPARE_CREATED' OR h.region_id = $${params.length}::text)`;
+    } else if (actor.role === "store_user") {
+      params.push(actor.regionId, actor.storeId);
+      where += ` AND (
+        h.event_type = 'SPARE_CREATED'
+        OR (h.location_type = 'STORE' AND h.region_id = $${params.length - 1}::text AND h.store_id = $${params.length}::text)
+      )`;
+    } else if (
+      actor.role === "service_centre_clerk" ||
+      actor.role === "service_centre_supervisor" ||
+      actor.role === "technician"
+    ) {
+      params.push(actor.regionId);
+      where += ` AND (h.event_type = 'SPARE_CREATED' OR (h.location_type = 'HO' AND h.region_id = $${params.length}::text))`;
+    } else if (actor.role !== "super_admin") {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+
+    params.push(limit);
+    try {
+      const { rows } = await pool.query(
+        `SELECT h.id,
+                h.spare_id AS "spareId",
+                h.event_type AS "eventType",
+                h.location_key AS "locationKey",
+                h.location_type AS "locationType",
+                h.region_id AS "regionId",
+                h.store_id AS "storeId",
+                h.quantity_change::float8 AS "quantityChange",
+                h.balance_after::float8 AS "balanceAfter",
+                h.reference_type AS "referenceType",
+                h.reference_number AS "referenceNumber",
+                h.note,
+                h.created_by AS "createdBy",
+                h.created_at AS "createdAt",
+                r.name AS "regionName",
+                s.name AS "storeName"
+         FROM spare_stock_history h
+         LEFT JOIN regions r ON r.id = h.region_id
+         LEFT JOIN stores s ON s.id = h.store_id
+         WHERE ${where}
+         ORDER BY h.created_at DESC
+         LIMIT $${params.length}`,
+        params,
+      );
+      res.json({ history: rows });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not load stock history." });
     }
   });
 }

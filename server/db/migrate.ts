@@ -29,12 +29,14 @@ CREATE TABLE IF NOT EXISTS spares (
   description TEXT NOT NULL DEFAULT '',
   category VARCHAR(128) NOT NULL DEFAULT 'Other',
   hsn VARCHAR(32),
+  mrp_inr NUMERIC(14, 2),
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE spares ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+ALTER TABLE spares ADD COLUMN IF NOT EXISTS mrp_inr NUMERIC(14, 2);
 
 CREATE TABLE IF NOT EXISTS spare_prices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -92,11 +94,14 @@ CREATE TABLE IF NOT EXISTS purchase_request_items (
   spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE RESTRICT,
   qty NUMERIC(18, 3) NOT NULL CHECK (qty > 0),
   issued_qty NUMERIC(18, 3) NOT NULL DEFAULT 0 CHECK (issued_qty >= 0),
+  received_qty NUMERIC(18, 3) NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
   reason TEXT NOT NULL DEFAULT ''
 );
 
 ALTER TABLE purchase_request_items
   ADD COLUMN IF NOT EXISTS issued_qty NUMERIC(18, 3) NOT NULL DEFAULT 0;
+ALTER TABLE purchase_request_items
+  ADD COLUMN IF NOT EXISTS received_qty NUMERIC(18, 3) NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_pr_items_pr ON purchase_request_items (pr_id);
 
@@ -174,6 +179,35 @@ CREATE TABLE IF NOT EXISTS grn_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_grn_items_grn ON grn_items (grn_id);
+
+CREATE TABLE IF NOT EXISTS number_sequences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  prefix VARCHAR(12) NOT NULL,
+  scope_code VARCHAR(32) NOT NULL,
+  year_2 VARCHAR(2) NOT NULL,
+  last_value INTEGER NOT NULL DEFAULT 1000,
+  UNIQUE (prefix, scope_code, year_2)
+);
+
+CREATE TABLE IF NOT EXISTS spare_stock_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE CASCADE,
+  event_type VARCHAR(48) NOT NULL,
+  location_key VARCHAR(200),
+  location_type VARCHAR(16),
+  region_id TEXT REFERENCES regions(id) ON DELETE CASCADE,
+  store_id TEXT REFERENCES stores(id) ON DELETE CASCADE,
+  quantity_change NUMERIC(18, 3),
+  balance_after NUMERIC(18, 3),
+  reference_type VARCHAR(24),
+  reference_number VARCHAR(64),
+  note TEXT,
+  created_by VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_spare_stock_history_spare ON spare_stock_history (spare_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_spare_stock_history_location ON spare_stock_history (location_key, created_at DESC);
 `;
 
 export async function runMigrations(pool: Pool): Promise<void> {

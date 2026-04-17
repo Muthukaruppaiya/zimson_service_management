@@ -1,12 +1,35 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Pool } from "pg";
-import { createId } from "../src/lib/id";
 import type { DemoUser } from "../src/types/user";
+import { appendStockHistory } from "./db/stockHistory";
 
 type Authed = Request & { userId: string };
 
 function requireHo(actor: DemoUser | undefined | null): boolean {
   return actor?.role === "super_admin" || actor?.role === "regional_admin";
+}
+
+function makeAlphaNumCode(input: string, fallback: string): string {
+  const cleaned = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return (cleaned.slice(0, 3) || fallback).padEnd(3, "X");
+}
+
+async function nextDocNumber(
+  client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<{ last_value: number }> }> },
+  prefix: "PO" | "GRN",
+  scopeCode: string,
+): Promise<string> {
+  const yy = String(new Date().getFullYear()).slice(-2);
+  const seq = await client.query(
+    `INSERT INTO number_sequences (prefix, scope_code, year_2, last_value)
+     VALUES ($1, $2, $3, 1001)
+     ON CONFLICT (prefix, scope_code, year_2)
+     DO UPDATE SET last_value = number_sequences.last_value + 1
+     RETURNING last_value`,
+    [prefix, scopeCode, yy],
+  );
+  const num = String(seq.rows[0]!.last_value).padStart(4, "0");
+  return `${prefix}${yy}${scopeCode}${num}`;
 }
 
 export function registerInventoryPoSupplierRoutes(
@@ -316,7 +339,9 @@ export function registerInventoryPoSupplierRoutes(
         return;
       }
 
-      const poNumber = `PO-${createId("po").slice(-10).toUpperCase()}`;
+      const regionNameRes = await client.query<{ name: string }>("SELECT name FROM regions WHERE id = $1::text", [pr.region_id]);
+      const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? pr.region_id, "REG");
+      const poNumber = await nextDocNumber(client, "PO", regionCode);
       const insPo = await client.query<{ id: string }>(
         `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by)
          VALUES ($1, $2::uuid, $3::uuid, $4, 'OPEN', $5, $6)
@@ -483,7 +508,9 @@ export function registerInventoryPoSupplierRoutes(
         return;
       }
 
-      const grnNumber = `GRN-${createId("grn").slice(-10).toUpperCase()}`;
+      const regionNameRes = await client.query<{ name: string }>("SELECT name FROM regions WHERE id = $1::text", [po.region_id]);
+      const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? po.region_id, "REG");
+      const grnNumber = await nextDocNumber(client, "GRN", regionCode);
       const ins = await client.query<{ id: string }>(
         `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, created_by)
          VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9)
@@ -542,6 +569,25 @@ export function registerInventoryPoSupplierRoutes(
            DO UPDATE SET quantity = spare_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
           [it.spareId, `HO:${po.region_id}`, po.region_id, qty],
         );
+        const hoAfter = await client.query<{ qty: number }>(
+          `SELECT quantity::float8 AS qty
+           FROM spare_stock
+           WHERE spare_id = $1::uuid AND location_key = $2`,
+          [it.spareId, `HO:${po.region_id}`],
+        );
+        await appendStockHistory(client, {
+          spareId: it.spareId,
+          eventType: "PURCHASE_IN",
+          locationKey: `HO:${po.region_id}`,
+          locationType: "HO",
+          regionId: po.region_id,
+          quantityChange: qty,
+          balanceAfter: hoAfter.rows[0]?.qty ?? null,
+          referenceType: "GRN",
+          referenceNumber: grnNumber,
+          note: `Purchase inward posted against PO ${poId}.`,
+          createdBy: actor?.id ?? "system",
+        });
         moved += qty;
       }
 

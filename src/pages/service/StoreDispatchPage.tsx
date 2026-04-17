@@ -5,6 +5,7 @@ import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
+import { apiJson } from "../../lib/api";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 
 const rowClass = "border-b border-zimson-100 last:border-0";
@@ -30,7 +31,7 @@ export function StoreDispatchPage() {
     setSelected(next);
   }
 
-  function handleDispatch() {
+  async function handleDispatch() {
     setMessage(null);
     const ids = Object.entries(selected)
       .filter(([, v]) => v)
@@ -44,6 +45,10 @@ export function StoreDispatchPage() {
       type: "ok",
       text: `Delivery challan ${result.dcNumber} created for this store only. Hand over watches with the DC copy; your regional HO inward desk will select this DC from their pending list (no manual typing).`,
     });
+    void apiJson("/api/notifications/service-dispatch", {
+      method: "POST",
+      json: { dcNumber: result.dcNumber, count: ids.length },
+    }).catch(() => {});
     setSelected({});
   }
 
@@ -91,7 +96,7 @@ export function StoreDispatchPage() {
               </label>
               <button
                 type="button"
-                onClick={handleDispatch}
+                onClick={() => void handleDispatch()}
                 className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
               >
                 Create DC &amp; mark in transit
