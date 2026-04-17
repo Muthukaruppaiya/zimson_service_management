@@ -99,6 +99,81 @@ ALTER TABLE purchase_request_items
   ADD COLUMN IF NOT EXISTS issued_qty NUMERIC(18, 3) NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_pr_items_pr ON purchase_request_items (pr_id);
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(240) NOT NULL,
+  contact_name VARCHAR(160),
+  email VARCHAR(200),
+  phone VARCHAR(64),
+  address TEXT,
+  gst VARCHAR(20),
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers (name);
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  po_number VARCHAR(48) UNIQUE NOT NULL,
+  supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+  pr_id UUID REFERENCES purchase_requests(id) ON DELETE SET NULL,
+  region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('DRAFT', 'OPEN', 'PARTIAL', 'CLOSED', 'CANCELLED')),
+  notes TEXT NOT NULL DEFAULT '',
+  created_by VARCHAR(80) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_po_region ON purchase_orders (region_id);
+CREATE INDEX IF NOT EXISTS idx_po_pr ON purchase_orders (pr_id);
+CREATE INDEX IF NOT EXISTS idx_po_supplier ON purchase_orders (supplier_id);
+
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  po_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+  pr_item_id UUID REFERENCES purchase_request_items(id) ON DELETE SET NULL,
+  spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE RESTRICT,
+  qty_ordered NUMERIC(18, 3) NOT NULL CHECK (qty_ordered > 0),
+  unit_price NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+  received_qty NUMERIC(18, 3) NOT NULL DEFAULT 0 CHECK (received_qty >= 0)
+);
+
+ALTER TABLE purchase_order_items
+  ADD COLUMN IF NOT EXISTS received_qty NUMERIC(18, 3) NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_poi_po ON purchase_order_items (po_id);
+CREATE INDEX IF NOT EXISTS idx_poi_pr_item ON purchase_order_items (pr_item_id);
+
+CREATE TABLE IF NOT EXISTS grns (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  grn_number VARCHAR(48) UNIQUE NOT NULL,
+  po_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE RESTRICT,
+  supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+  region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+  invoice_number VARCHAR(120),
+  invoice_date DATE,
+  mode VARCHAR(20) NOT NULL CHECK (mode IN ('WITH_BILL', 'WITHOUT_BILL')),
+  notes TEXT NOT NULL DEFAULT '',
+  created_by VARCHAR(80) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_grn_po ON grns (po_id);
+CREATE INDEX IF NOT EXISTS idx_grn_region ON grns (region_id);
+
+CREATE TABLE IF NOT EXISTS grn_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  grn_id UUID NOT NULL REFERENCES grns(id) ON DELETE CASCADE,
+  po_item_id UUID NOT NULL REFERENCES purchase_order_items(id) ON DELETE RESTRICT,
+  spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE RESTRICT,
+  qty_received NUMERIC(18, 3) NOT NULL CHECK (qty_received > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_grn_items_grn ON grn_items (grn_id);
 `;
 
 export async function runMigrations(pool: Pool): Promise<void> {

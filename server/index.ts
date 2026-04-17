@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerCatalogRoutes } from "./catalogRoutes";
+import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { SEED_USERS, type SeedRegion } from "../src/data/seed";
@@ -692,6 +693,190 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
   }
 });
 
+app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const state = readState();
+  const actor = findUser(state, uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (
+    actor.role !== "super_admin" &&
+    actor.role !== "regional_admin" &&
+    actor.role !== "store_user"
+  ) {
+    res.status(403).json({ error: "Forbidden." });
+    return;
+  }
+
+  const qSearch = String(req.query.q ?? "").trim();
+  const qRegion = String(req.query.regionId ?? "").trim();
+
+  try {
+    const spareParams: unknown[] = [];
+    let spareWhere = "WHERE 1=1";
+    if (qSearch) {
+      spareParams.push(`%${qSearch}%`, `%${qSearch}%`);
+      spareWhere += " AND (sku ILIKE $1 OR name ILIKE $2)";
+    }
+    spareParams.push(500);
+    const spareLimitIdx = spareParams.length;
+    const { rows: spareRows } = await dbPool.query<{
+      id: string;
+      sku: string;
+      name: string;
+      description: string;
+      category: string;
+      hsn: string | null;
+      is_active: boolean;
+      created_at: Date;
+    }>(
+      `SELECT id, sku, name, description, category, hsn, is_active, created_at
+       FROM spares
+       ${spareWhere}
+       ORDER BY sku ASC
+       LIMIT $${spareLimitIdx}`,
+      spareParams,
+    );
+
+    if (spareRows.length === 0) {
+      res.json({ rows: [] });
+      return;
+    }
+
+    const spareIds = spareRows.map((r) => r.id);
+
+    let stockWhere = "spare_id = ANY($1::uuid[])";
+    const stockParams: unknown[] = [spareIds];
+    if (actor.role === "regional_admin" && actor.regionId) {
+      stockParams.push(actor.regionId);
+      stockWhere += ` AND region_id = $${stockParams.length}::text`;
+    } else if (actor.role === "store_user" && actor.regionId && actor.storeId) {
+      stockParams.push(actor.regionId, actor.storeId);
+      stockWhere += ` AND (
+        (location_type = 'STORE' AND region_id = $${stockParams.length - 1}::text AND store_id = $${stockParams.length}::text)
+        OR (location_type = 'HO' AND region_id = $${stockParams.length - 1}::text)
+      )`;
+    } else if (actor.role === "super_admin" && qRegion) {
+      stockParams.push(qRegion);
+      stockWhere += ` AND region_id = $${stockParams.length}::text`;
+    }
+
+    const { rows: stockRows } = await dbPool.query<{
+      id: string;
+      spareId: string;
+      locationType: string;
+      regionId: string;
+      storeId: string | null;
+      quantity: number;
+      updatedAt: Date;
+    }>(
+      `SELECT id,
+              spare_id AS "spareId",
+              location_type AS "locationType",
+              region_id AS "regionId",
+              store_id AS "storeId",
+              quantity::float8 AS quantity,
+              updated_at AS "updatedAt"
+       FROM spare_stock
+       WHERE ${stockWhere}
+       ORDER BY location_type, region_id, store_id`,
+      stockParams,
+    );
+
+    let priceWhere = "spare_id = ANY($1::uuid[])";
+    const priceParams: unknown[] = [spareIds];
+    if (actor.role === "regional_admin" && actor.regionId) {
+      priceParams.push(actor.regionId);
+      priceWhere += ` AND (region_id = $${priceParams.length}::text OR region_id IS NULL)`;
+    } else if (actor.role === "store_user" && actor.regionId) {
+      priceParams.push(actor.regionId);
+      priceWhere += ` AND (region_id = $${priceParams.length}::text OR region_id IS NULL)`;
+    } else if (actor.role === "super_admin" && qRegion) {
+      priceParams.push(qRegion);
+      priceWhere += ` AND (region_id = $${priceParams.length}::text OR region_id IS NULL)`;
+    }
+
+    const { rows: priceRows } = await dbPool.query<{
+      id: string;
+      spareId: string;
+      regionId: string | null;
+      brand: string;
+      price: number;
+      createdAt: Date;
+    }>(
+      `SELECT id,
+              spare_id AS "spareId",
+              region_id AS "regionId",
+              brand,
+              price::float8 AS price,
+              created_at AS "createdAt"
+       FROM spare_prices
+       WHERE ${priceWhere}
+       ORDER BY region_id NULLS LAST, brand`,
+      priceParams,
+    );
+
+    const stockBySpare = new Map<string, typeof stockRows>();
+    const priceBySpare = new Map<string, typeof priceRows>();
+    for (const s of stockRows) {
+      const list = stockBySpare.get(s.spareId) ?? [];
+      list.push(s);
+      stockBySpare.set(s.spareId, list);
+    }
+    for (const p of priceRows) {
+      const list = priceBySpare.get(p.spareId) ?? [];
+      list.push(p);
+      priceBySpare.set(p.spareId, list);
+    }
+
+    const rows = spareRows.map((r) => {
+      const createdAt =
+        r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString();
+      return {
+        spare: {
+          id: r.id,
+          sku: r.sku,
+          name: r.name,
+          description: r.description,
+          category: r.category,
+          hsn: r.hsn,
+          isActive: r.is_active,
+          createdAt,
+        },
+        stock: (stockBySpare.get(r.id) ?? []).map((s) => ({
+          id: s.id,
+          spareId: s.spareId,
+          locationType: s.locationType as "HO" | "STORE",
+          regionId: s.regionId,
+          storeId: s.storeId,
+          quantity: s.quantity,
+          updatedAt:
+            s.updatedAt instanceof Date ? s.updatedAt.toISOString() : new Date(s.updatedAt).toISOString(),
+        })),
+        prices: (priceBySpare.get(r.id) ?? []).map((p) => ({
+          id: p.id,
+          spareId: p.spareId,
+          regionId: p.regionId,
+          brand: p.brand,
+          price: p.price,
+          createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : new Date(p.createdAt).toISOString(),
+        })),
+      };
+    });
+
+    res.json({ rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load stock & price overview." });
+  }
+});
+
 app.get("/api/customers", requireAuth, (_req, res) => {
   const state = readState();
   res.json({ customers: [...state.customersExtra] });
@@ -771,6 +956,7 @@ async function main() {
     const s = readState();
     return findUser(s, id) ?? null;
   });
+  registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(readState(), id));
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);

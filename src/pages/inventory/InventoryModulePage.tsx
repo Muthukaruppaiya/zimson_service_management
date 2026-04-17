@@ -56,12 +56,29 @@ export function InventoryModulePage() {
           </Link>
         </Card>
 
+        <Card title="Stock & prices by location" subtitle="Spare-wise HO/store quantities and regional brand prices">
+          <p className="text-sm text-stone-600">
+            Read-only overview: each spare shows stock rows by location and price lines for your region (super admin
+            can filter region).
+          </p>
+          <Link to="/inventory/stock-prices" className={`${primary} mt-4`}>
+            Open stock &amp; prices
+          </Link>
+        </Card>
+
         <Card title="Purchase requests" subtitle="Store → HO">
           <p className="text-sm text-stone-600">
             Store users submit PRs; HO inbox shows all PRs for that regional office.
           </p>
           <Link to="/inventory/purchase-requests" className={`${primary} mt-4`}>
             Purchase requests
+          </Link>
+        </Card>
+
+        <Card title="Suppliers" subtitle="Vendor master for PO">
+          <p className="text-sm text-stone-600">Add and edit suppliers; PO creation picks an active supplier.</p>
+          <Link to="/inventory/suppliers" className={`${secondary} mt-4`}>
+            Suppliers
           </Link>
         </Card>
 

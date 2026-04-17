@@ -25,9 +25,11 @@ import { UsersPrivilegesPage } from "./pages/UsersPrivilegesPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
 import { InventoryPoInwardPage } from "./pages/inventory/InventoryPoInwardPage";
 import { InventoryPurchaseOrdersPage } from "./pages/inventory/InventoryPurchaseOrdersPage";
+import { InventorySuppliersPage } from "./pages/inventory/InventorySuppliersPage";
 import { InventoryPurchaseRequestsPage } from "./pages/inventory/InventoryPurchaseRequestsPage";
 import { InventorySpareCatalogPage } from "./pages/inventory/InventorySpareCatalogPage";
 import { InventorySparePriceFixingPage } from "./pages/inventory/InventorySparePriceFixingPage";
+import { InventoryStockPriceOverviewPage } from "./pages/inventory/InventoryStockPriceOverviewPage";
 import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
@@ -176,6 +178,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/inventory/stock-prices"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventoryStockPriceOverviewPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/inventory/purchase-requests"
                   element={
                     <ModuleRoute module="inventory">
@@ -188,6 +198,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="inventory">
                       <InventoryPurchaseOrdersPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/suppliers"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySuppliersPage />
                     </ModuleRoute>
                   }
                 />
