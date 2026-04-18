@@ -31,6 +31,7 @@ import { InventorySpareCatalogPage } from "./pages/inventory/InventorySpareCatal
 import { InventorySparePriceFixingPage } from "./pages/inventory/InventorySparePriceFixingPage";
 import { InventoryStockPriceOverviewPage } from "./pages/inventory/InventoryStockPriceOverviewPage";
 import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPage";
+import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
   const { search } = useLocation();
@@ -182,6 +183,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="inventory">
                       <InventoryStockPriceOverviewPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/allocation-review"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventoryAllocationReviewPage />
                     </ModuleRoute>
                   }
                 />

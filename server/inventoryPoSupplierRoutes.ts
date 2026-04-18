@@ -204,7 +204,436 @@ export function registerInventoryPoSupplierRoutes(
     }
   });
 
+  app.get("/api/inventory/suppliers/:supplierId/spares", requireAuth, async (req, res) => {
+    const actor = getActor((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (
+      actor.role !== "super_admin" &&
+      actor.role !== "regional_admin" &&
+      actor.role !== "store_user"
+    ) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    try {
+      const { rows } = await pool.query(
+        `SELECT ss.id,
+                ss.supplier_id AS "supplierId",
+                ss.spare_id AS "spareId",
+                s.sku AS "spareSku",
+                s.name AS "spareName",
+                ss.lead_time_days AS "leadTimeDays",
+                ss.min_order_qty::float8 AS "minOrderQty",
+                ss.priority_rank AS "priorityRank",
+                ss.is_active AS "isActive",
+                ss.created_at AS "createdAt",
+                ss.updated_at AS "updatedAt"
+         FROM supplier_spares ss
+         JOIN spares s ON s.id = ss.spare_id
+         WHERE ss.supplier_id = $1::uuid
+         ORDER BY ss.priority_rank ASC, s.sku ASC`,
+        [req.params.supplierId],
+      );
+      res.json({ rows });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not load supplier spare mapping." });
+    }
+  });
+
+  app.put("/api/inventory/suppliers/:supplierId/spares", requireAuth, async (req, res) => {
+    const actor = getActor((req as Authed).userId);
+    if (!requireHo(actor)) {
+      res.status(403).json({ error: "Only HO admins can update supplier mappings." });
+      return;
+    }
+    const supplierId = req.params.supplierId;
+    const rows = Array.isArray(req.body?.rows)
+      ? (req.body.rows as Array<{
+          spareId: string;
+          leadTimeDays?: number | null;
+          minOrderQty?: number | null;
+          priorityRank?: number | null;
+          isActive?: boolean;
+        }>)
+      : null;
+    if (!rows) {
+      res.status(400).json({ error: "rows array is required." });
+      return;
+    }
+    if (rows.some((r) => !r.spareId)) {
+      res.status(400).json({ error: "Each row requires spareId." });
+      return;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const supplier = await client.query("SELECT id FROM suppliers WHERE id = $1::uuid", [supplierId]);
+      if (supplier.rowCount === 0) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Supplier not found." });
+        return;
+      }
+      await client.query("DELETE FROM supplier_spares WHERE supplier_id = $1::uuid", [supplierId]);
+      for (const row of rows) {
+        const leadTimeDays = row.leadTimeDays == null ? null : Math.max(0, Math.trunc(Number(row.leadTimeDays)));
+        const minOrderQty = row.minOrderQty == null ? null : Math.max(0, Number(row.minOrderQty));
+        const priorityRank = row.priorityRank == null ? 100 : Math.max(1, Math.trunc(Number(row.priorityRank)));
+        const isActive = row.isActive ?? true;
+        await client.query(
+          `INSERT INTO supplier_spares
+            (supplier_id, spare_id, lead_time_days, min_order_qty, priority_rank, is_active)
+           VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)`,
+          [supplierId, row.spareId, leadTimeDays, minOrderQty, priorityRank, isActive],
+        );
+      }
+      await client.query("COMMIT");
+      res.json({ ok: true, count: rows.length });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not save supplier mappings." });
+    } finally {
+      client.release();
+    }
+  });
+
   /** Purchase orders */
+  app.get("/api/inventory/po-consolidation", requireAuth, async (req, res) => {
+    const actor = getActor((req as Authed).userId);
+    if (!requireHo(actor)) {
+      res.status(403).json({ error: "Only HO admins can access PO consolidation." });
+      return;
+    }
+    const regionIdQ = String(req.query.regionId ?? "").trim();
+    const statuses = String(req.query.statuses ?? "APPROVED,PARTIAL,SUBMITTED")
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    if (statuses.length === 0) {
+      res.status(400).json({ error: "At least one status is required." });
+      return;
+    }
+    try {
+      const params: unknown[] = [statuses];
+      let where = `pr.status = ANY($1::text[])`;
+      if (actor.role === "regional_admin" && actor.regionId) {
+        params.push(actor.regionId);
+        where += ` AND pr.region_id = $${params.length}::text`;
+      } else if (regionIdQ) {
+        params.push(regionIdQ);
+        where += ` AND pr.region_id = $${params.length}::text`;
+      }
+      const { rows } = await pool.query(
+        `SELECT pri.id AS "prItemId",
+                pri.pr_id AS "prId",
+                pr.pr_number AS "prNumber",
+                pr.store_id AS "storeId",
+                pr.region_id AS "regionId",
+                pr.status AS "prStatus",
+                pr.needed_by AS "neededBy",
+                pr.created_at AS "prCreatedAt",
+                pri.spare_id AS "spareId",
+                s.sku AS "spareSku",
+                s.name AS "spareName",
+                pri.qty::float8 AS qty,
+                pri.issued_qty::float8 AS "issuedQty",
+                GREATEST(pri.qty - pri.issued_qty, 0)::float8 AS "pendingQty",
+                map.candidate_count AS "supplierCandidateCount",
+                CASE WHEN map.candidate_count = 1 THEN map.default_supplier_id ELSE NULL END AS "mappedSupplierId",
+                CASE WHEN map.candidate_count = 1 THEN map.default_supplier_name ELSE NULL END AS "mappedSupplierName",
+                COALESCE(map.candidates, '[]'::json) AS "supplierCandidates"
+         FROM purchase_request_items pri
+         JOIN purchase_requests pr ON pr.id = pri.pr_id
+         JOIN spares s ON s.id = pri.spare_id
+         LEFT JOIN LATERAL (
+           SELECT
+             COUNT(*)::int AS candidate_count,
+             (ARRAY_AGG(ss.supplier_id ORDER BY ss.priority_rank ASC, ss.created_at ASC))[1] AS default_supplier_id,
+             (ARRAY_AGG(sup.name ORDER BY ss.priority_rank ASC, ss.created_at ASC))[1] AS default_supplier_name,
+             json_agg(
+               json_build_object(
+                 'supplierId', ss.supplier_id,
+                 'supplierName', sup.name
+               )
+               ORDER BY ss.priority_rank ASC, ss.created_at ASC
+             ) AS candidates
+           FROM supplier_spares ss
+           JOIN suppliers sup ON sup.id = ss.supplier_id
+           WHERE ss.spare_id = pri.spare_id
+             AND ss.is_active = true
+             AND sup.is_active = true
+         ) map ON true
+         WHERE ${where}
+         ORDER BY pr.created_at ASC, pr.pr_number ASC, s.sku ASC`,
+        params,
+      );
+      res.json({
+        rows: rows.filter((r) => Number(r.pendingQty) > 0),
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not build consolidation view." });
+    }
+  });
+
+  app.post("/api/inventory/pos/draft-from-demand", requireAuth, async (req, res) => {
+    const actor = getActor((req as Authed).userId);
+    if (!requireHo(actor)) {
+      res.status(403).json({ error: "Only HO admins can draft POs from demand." });
+      return;
+    }
+    const selections = Array.isArray(req.body?.selections)
+      ? (req.body.selections as Array<{ prItemId: string; qtyOrdered: number; unitPrice?: number; supplierId?: string }>)
+      : [];
+    if (selections.length === 0) {
+      res.status(400).json({ error: "At least one selected line is required." });
+      return;
+    }
+    const itemIds = selections.map((s) => s.prItemId).filter(Boolean);
+    if (itemIds.length !== selections.length) {
+      res.status(400).json({ error: "Each selection requires prItemId." });
+      return;
+    }
+    try {
+      const { rows } = await pool.query<{
+        prItemId: string;
+        prId: string;
+        prNumber: string;
+        regionId: string;
+        storeId: string;
+        spareId: string;
+        pendingQty: number;
+        candidateCount: number;
+        supplierCandidates: Array<{ supplierId: string; supplierName: string }>;
+      }>(
+        `SELECT pri.id AS "prItemId",
+                pri.pr_id AS "prId",
+                pr.pr_number AS "prNumber",
+                pr.region_id AS "regionId",
+                pr.store_id AS "storeId",
+                pri.spare_id AS "spareId",
+                GREATEST(pri.qty - pri.issued_qty, 0)::float8 AS "pendingQty",
+                map.candidate_count AS "candidateCount",
+                COALESCE(map.candidates, '[]'::json) AS "supplierCandidates"
+         FROM purchase_request_items pri
+         JOIN purchase_requests pr ON pr.id = pri.pr_id
+         LEFT JOIN LATERAL (
+           SELECT
+             COUNT(*)::int AS candidate_count,
+             json_agg(
+               json_build_object(
+                 'supplierId', ss.supplier_id,
+                 'supplierName', sup.name
+               )
+               ORDER BY ss.priority_rank ASC, ss.created_at ASC
+             ) AS candidates
+           FROM supplier_spares ss
+           JOIN suppliers sup ON sup.id = ss.supplier_id
+           WHERE ss.spare_id = pri.spare_id
+             AND ss.is_active = true
+             AND sup.is_active = true
+         ) map ON true
+         WHERE pri.id = ANY($1::uuid[])`,
+        [itemIds],
+      );
+      const requestedById = new Map(selections.map((s) => [s.prItemId, s]));
+      const unmapped: Array<{
+        prItemId: string;
+        spareId: string;
+        prNumber: string;
+        reason: string;
+        supplierCandidates?: Array<{ supplierId: string; supplierName: string }>;
+      }> = [];
+      const draftsBySupplier = new Map<
+        string,
+        {
+          supplierId: string;
+          supplierName: string;
+          regionId: string;
+          lines: Array<{
+            prItemId: string;
+            prId: string;
+            prNumber: string;
+            storeId: string;
+            spareId: string;
+            qtyOrdered: number;
+            unitPrice: number;
+          }>;
+        }
+      >();
+      for (const row of rows) {
+        const reqLine = requestedById.get(row.prItemId);
+        if (!reqLine) continue;
+        const requestedSupplierId = reqLine.supplierId ? String(reqLine.supplierId).trim() : "";
+        const candidates = Array.isArray(row.supplierCandidates) ? row.supplierCandidates : [];
+        if (row.candidateCount <= 0 || candidates.length === 0) {
+          unmapped.push({
+            prItemId: row.prItemId,
+            spareId: row.spareId,
+            prNumber: row.prNumber,
+            reason: "No mapped supplier found.",
+          });
+          continue;
+        }
+        let finalSupplierId = requestedSupplierId;
+        if (!finalSupplierId) {
+          if (row.candidateCount === 1) {
+            finalSupplierId = candidates[0]!.supplierId;
+          } else {
+            unmapped.push({
+              prItemId: row.prItemId,
+              spareId: row.spareId,
+              prNumber: row.prNumber,
+              reason: "Multiple suppliers mapped. Choose one.",
+              supplierCandidates: candidates,
+            });
+            continue;
+          }
+        }
+        const chosen = candidates.find((c) => c.supplierId === finalSupplierId);
+        if (!chosen) {
+          unmapped.push({
+            prItemId: row.prItemId,
+            spareId: row.spareId,
+            prNumber: row.prNumber,
+            reason: "Selected supplier is not mapped for this spare.",
+            supplierCandidates: candidates,
+          });
+          continue;
+        }
+        const qtyOrdered = Number(reqLine.qtyOrdered);
+        if (Number.isNaN(qtyOrdered) || qtyOrdered <= 0 || qtyOrdered > row.pendingQty) continue;
+        const unitPrice = reqLine.unitPrice == null ? 0 : Number(reqLine.unitPrice);
+        const key = `${finalSupplierId}|${row.regionId}`;
+        const bucket =
+          draftsBySupplier.get(key) ??
+          {
+            supplierId: finalSupplierId,
+            supplierName: chosen.supplierName,
+            regionId: row.regionId,
+            lines: [],
+          };
+        bucket.lines.push({
+          prItemId: row.prItemId,
+          prId: row.prId,
+          prNumber: row.prNumber,
+          storeId: row.storeId,
+          spareId: row.spareId,
+          qtyOrdered,
+          unitPrice: Number.isNaN(unitPrice) || unitPrice < 0 ? 0 : unitPrice,
+        });
+        draftsBySupplier.set(key, bucket);
+      }
+      res.json({
+        drafts: Array.from(draftsBySupplier.values()),
+        unmapped,
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not generate PO drafts." });
+    }
+  });
+
+  app.post("/api/inventory/pos/bulk-create", requireAuth, async (req, res) => {
+    const actor = getActor((req as Authed).userId);
+    if (!requireHo(actor)) {
+      res.status(403).json({ error: "Only HO admins can bulk-create POs." });
+      return;
+    }
+    const drafts = Array.isArray(req.body?.drafts)
+      ? (req.body.drafts as Array<{
+          supplierId: string;
+          regionId: string;
+          notes?: string;
+          lines: Array<{ prItemId: string; spareId: string; qtyOrdered: number; unitPrice: number }>;
+        }>)
+      : [];
+    if (drafts.length === 0) {
+      res.status(400).json({ error: "At least one draft is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const created: Array<{ id: string; poNumber: string; supplierId: string; regionId: string; lines: number }> = [];
+      for (const draft of drafts) {
+        if (!draft.supplierId || !draft.regionId || !Array.isArray(draft.lines) || draft.lines.length === 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Each draft requires supplierId, regionId, and lines." });
+          return;
+        }
+        if (actor.role === "regional_admin" && actor.regionId !== draft.regionId) {
+          await client.query("ROLLBACK");
+          res.status(403).json({ error: "Draft outside your region." });
+          return;
+        }
+        const sup = await client.query("SELECT id FROM suppliers WHERE id = $1::uuid AND is_active = true", [draft.supplierId]);
+        if (sup.rowCount === 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Invalid supplier in one draft." });
+          return;
+        }
+        const regionNameRes = await client.query<{ name: string }>("SELECT name FROM regions WHERE id = $1::text", [draft.regionId]);
+        const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? draft.regionId, "REG");
+        const poNumber = await nextDocNumber(client, "PO", regionCode);
+        const poIns = await client.query<{ id: string }>(
+          `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by)
+           VALUES ($1, $2::uuid, NULL, $3, 'OPEN', $4, $5)
+           RETURNING id`,
+          [poNumber, draft.supplierId, draft.regionId, String(draft.notes ?? "").trim(), actor.id],
+        );
+        const poId = poIns.rows[0]!.id;
+        for (const line of draft.lines) {
+          const qty = Number(line.qtyOrdered);
+          const unitPrice = Number(line.unitPrice);
+          if (!line.prItemId || !line.spareId || Number.isNaN(qty) || qty <= 0 || Number.isNaN(unitPrice) || unitPrice < 0) {
+            await client.query("ROLLBACK");
+            res.status(400).json({ error: "Invalid line values in one draft." });
+            return;
+          }
+          const prItem = await client.query<{ spare_id: string; qty: number; issued_qty: number; pr_id: string }>(
+            `SELECT spare_id, qty::float8, issued_qty::float8, pr_id
+             FROM purchase_request_items
+             WHERE id = $1::uuid
+             FOR UPDATE`,
+            [line.prItemId],
+          );
+          const row = prItem.rows[0];
+          if (!row || String(row.spare_id) !== line.spareId) {
+            await client.query("ROLLBACK");
+            res.status(400).json({ error: "PR line mismatch in one draft line." });
+            return;
+          }
+          const pending = Math.max(0, row.qty - row.issued_qty);
+          if (qty > pending) {
+            await client.query("ROLLBACK");
+            res.status(400).json({ error: "PO qty exceeds pending PR qty for one line." });
+            return;
+          }
+          await client.query(
+            `INSERT INTO purchase_order_items (po_id, pr_item_id, spare_id, qty_ordered, unit_price)
+             VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
+            [poId, line.prItemId, line.spareId, qty, unitPrice],
+          );
+        }
+        created.push({ id: poId, poNumber, supplierId: draft.supplierId, regionId: draft.regionId, lines: draft.lines.length });
+      }
+      await client.query("COMMIT");
+      res.json({ ok: true, created });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not bulk-create POs." });
+    } finally {
+      client.release();
+    }
+  });
+
   app.get("/api/inventory/pos", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
     if (!actor) {

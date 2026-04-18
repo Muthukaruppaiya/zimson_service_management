@@ -1012,6 +1012,289 @@ app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
   }
 });
 
+app.post("/api/inventory/allocations/suggest", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const state = readState();
+  const actor = findUser(state, uid);
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin")) {
+    res.status(403).json({ error: "Only HO admins can generate allocations." });
+    return;
+  }
+  const regionId = String(req.body?.regionId ?? actor.regionId ?? "").trim();
+  if (!regionId) {
+    res.status(400).json({ error: "regionId is required." });
+    return;
+  }
+  if (actor.role === "regional_admin" && actor.regionId !== regionId) {
+    res.status(403).json({ error: "Region mismatch." });
+    return;
+  }
+  try {
+    const pendingRes = await dbPool.query<{
+      prId: string;
+      prNumber: string;
+      prItemId: string;
+      spareId: string;
+      spareSku: string;
+      spareName: string;
+      storeId: string;
+      neededBy: string | null;
+      createdAt: Date;
+      pendingQty: number;
+      hoAvailable: number;
+    }>(
+      `SELECT pr.id AS "prId",
+              pr.pr_number AS "prNumber",
+              pri.id AS "prItemId",
+              pri.spare_id AS "spareId",
+              s.sku AS "spareSku",
+              s.name AS "spareName",
+              pr.store_id AS "storeId",
+              pr.needed_by AS "neededBy",
+              pr.created_at AS "createdAt",
+              GREATEST(pri.qty - pri.issued_qty, 0)::float8 AS "pendingQty",
+              COALESCE((
+                SELECT quantity::float8
+                FROM spare_stock st
+                WHERE st.spare_id = pri.spare_id AND st.location_key = $1
+              ), 0) AS "hoAvailable"
+       FROM purchase_request_items pri
+       JOIN purchase_requests pr ON pr.id = pri.pr_id
+       JOIN spares s ON s.id = pri.spare_id
+       WHERE pr.region_id = $2::text
+         AND pr.status IN ('APPROVED', 'PARTIAL', 'SUBMITTED')
+       ORDER BY COALESCE(pr.needed_by, DATE '9999-12-31') ASC, pr.created_at ASC`,
+      [`HO:${regionId}`, regionId],
+    );
+    const groups = new Map<string, typeof pendingRes.rows>();
+    for (const row of pendingRes.rows) {
+      if (row.pendingQty <= 0) continue;
+      const list = groups.get(row.spareId) ?? [];
+      list.push(row);
+      groups.set(row.spareId, list);
+    }
+    const suggestions: Array<{
+      prId: string;
+      prNumber: string;
+      prItemId: string;
+      spareId: string;
+      spareSku: string;
+      spareName: string;
+      storeId: string;
+      pendingQty: number;
+      suggestedQty: number;
+      hoAvailableAtStart: number;
+    }> = [];
+    for (const [, rows] of groups) {
+      const availableStart = rows[0]?.hoAvailable ?? 0;
+      let available = availableStart;
+      for (const row of rows) {
+        const suggested = Math.max(0, Math.min(row.pendingQty, available));
+        if (suggested > 0) {
+          available -= suggested;
+        }
+        suggestions.push({
+          prId: row.prId,
+          prNumber: row.prNumber,
+          prItemId: row.prItemId,
+          spareId: row.spareId,
+          spareSku: row.spareSku,
+          spareName: row.spareName,
+          storeId: row.storeId,
+          pendingQty: row.pendingQty,
+          suggestedQty: suggested,
+          hoAvailableAtStart: availableStart,
+        });
+      }
+    }
+    res.json({ suggestions });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not generate allocation suggestions." });
+  }
+});
+
+app.post("/api/inventory/allocations/confirm", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const state = readState();
+  const actor = findUser(state, uid);
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin")) {
+    res.status(403).json({ error: "Only HO admins can confirm allocations." });
+    return;
+  }
+  const regionId = String(req.body?.regionId ?? actor.regionId ?? "").trim();
+  const rows = Array.isArray(req.body?.rows)
+    ? (req.body.rows as Array<{ prItemId: string; finalQty: number; suggestedQty?: number }>)
+    : [];
+  const notes = String(req.body?.notes ?? "").trim();
+  if (!regionId || rows.length === 0) {
+    res.status(400).json({ error: "regionId and rows are required." });
+    return;
+  }
+  if (actor.role === "regional_admin" && actor.regionId !== regionId) {
+    res.status(403).json({ error: "Region mismatch." });
+    return;
+  }
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const batchNumber = `ALC${String(new Date().getFullYear()).slice(-2)}${createId("alc").slice(-8).toUpperCase()}`;
+    const batchIns = await client.query<{ id: string }>(
+      `INSERT INTO stock_allocation_batches (batch_number, region_id, status, notes, created_by)
+       VALUES ($1, $2, 'DRAFT', $3, $4)
+       RETURNING id`,
+      [batchNumber, regionId, notes, actor.id],
+    );
+    const batchId = batchIns.rows[0]!.id;
+    let moved = 0;
+    const touchedPrIds = new Set<string>();
+    const touchedStoreIds = new Set<string>();
+    const touchedPrNumbers = new Set<string>();
+    for (const input of rows) {
+      const finalQty = Number(input.finalQty);
+      if (Number.isNaN(finalQty) || finalQty <= 0) continue;
+      const prItemRes = await client.query<{
+        id: string;
+        pr_id: string;
+        spare_id: string;
+        qty: number;
+        issued_qty: number;
+        pr_number: string;
+        store_id: string;
+        region_id: string;
+      }>(
+        `SELECT pri.id, pri.pr_id, pri.spare_id, pri.qty::float8, pri.issued_qty::float8,
+                pr.pr_number, pr.store_id, pr.region_id
+         FROM purchase_request_items pri
+         JOIN purchase_requests pr ON pr.id = pri.pr_id
+         WHERE pri.id = $1::uuid
+         FOR UPDATE`,
+        [input.prItemId],
+      );
+      const prItem = prItemRes.rows[0];
+      if (!prItem || prItem.region_id !== regionId) continue;
+      const pending = Math.max(0, prItem.qty - prItem.issued_qty);
+      if (finalQty > pending) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Final qty exceeds pending qty." });
+        return;
+      }
+      const hoStockRes = await client.query<{ qty: number }>(
+        `SELECT quantity::float8 AS qty
+         FROM spare_stock
+         WHERE spare_id = $1::uuid AND location_key = $2
+         FOR UPDATE`,
+        [prItem.spare_id, `HO:${regionId}`],
+      );
+      const available = hoStockRes.rows[0]?.qty ?? 0;
+      if (finalQty > available) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Final qty exceeds HO available stock." });
+        return;
+      }
+      await client.query(
+        `INSERT INTO stock_allocation_batch_items (batch_id, pr_id, pr_item_id, spare_id, suggested_qty, final_qty)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6)`,
+        [batchId, prItem.pr_id, prItem.id, prItem.spare_id, Number(input.suggestedQty ?? 0), finalQty],
+      );
+      touchedPrIds.add(prItem.pr_id);
+      touchedStoreIds.add(prItem.store_id);
+      touchedPrNumbers.add(prItem.pr_number);
+      await client.query(
+        `UPDATE spare_stock
+         SET quantity = quantity - $1, updated_at = now()
+         WHERE spare_id = $2::uuid AND location_key = $3`,
+        [finalQty, prItem.spare_id, `HO:${regionId}`],
+      );
+      await client.query(
+        `UPDATE purchase_request_items
+         SET issued_qty = issued_qty + $1
+         WHERE id = $2::uuid`,
+        [finalQty, prItem.id],
+      );
+      const hoAfter = await client.query<{ qty: number }>(
+        `SELECT quantity::float8 AS qty
+         FROM spare_stock
+         WHERE spare_id = $1::uuid AND location_key = $2`,
+        [prItem.spare_id, `HO:${regionId}`],
+      );
+      await appendStockHistory(client, {
+        spareId: prItem.spare_id,
+        eventType: "TRANSFER_OUT",
+        locationKey: `HO:${regionId}`,
+        locationType: "HO",
+        regionId,
+        quantityChange: -finalQty,
+        balanceAfter: hoAfter.rows[0]?.qty ?? null,
+        referenceType: "PR",
+        referenceNumber: prItem.pr_number,
+        note: `Auto allocation batch ${batchNumber} issued to store ${prItem.store_id}.`,
+        createdBy: actor.id,
+      });
+      moved += finalQty;
+    }
+    for (const prId of touchedPrIds) {
+      const sum = await client.query<{ req: number; iss: number; rec: number }>(
+        `SELECT COALESCE(SUM(qty), 0)::float8 AS req,
+                COALESCE(SUM(issued_qty), 0)::float8 AS iss,
+                COALESCE(SUM(received_qty), 0)::float8 AS rec
+         FROM purchase_request_items
+         WHERE pr_id = $1::uuid`,
+        [prId],
+      );
+      const req = sum.rows[0]?.req ?? 0;
+      const iss = sum.rows[0]?.iss ?? 0;
+      const rec = sum.rows[0]?.rec ?? 0;
+      let nextStatus: "APPROVED" | "PARTIAL" | "FULFILLED" = "APPROVED";
+      if (rec >= req && req > 0) nextStatus = "FULFILLED";
+      else if (iss > 0 || rec > 0) nextStatus = "PARTIAL";
+      await client.query(
+        `UPDATE purchase_requests
+         SET status = $1, updated_at = now()
+         WHERE id = $2::uuid`,
+        [nextStatus, prId],
+      );
+    }
+
+    if (moved <= 0) {
+      await client.query("ROLLBACK");
+      res.status(400).json({ error: "No quantity allocated." });
+      return;
+    }
+    await client.query(
+      `UPDATE stock_allocation_batches
+       SET status = 'CONFIRMED', confirmed_at = now()
+       WHERE id = $1::uuid`,
+      [batchId],
+    );
+    await client.query("COMMIT");
+    const current = readState();
+    const recipients = allUsers(current)
+      .filter((u) => u.role === "store_user" && u.regionId === regionId && u.storeId && touchedStoreIds.has(u.storeId))
+      .map((u) => u.id);
+    await pushNotifications(recipients, {
+      title: `Allocation ${batchNumber} issued`,
+      message: `HO issued stock for PR(s): ${Array.from(touchedPrNumbers).slice(0, 5).join(", ")}. Please inward at store.`,
+      category: "inventory_pr",
+    });
+    res.json({ ok: true, batchId, batchNumber, movedQty: moved });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(e);
+    res.status(400).json({ error: "Could not confirm allocation." });
+  } finally {
+    client.release();
+  }
+});
+
 app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => {
   if (!dbPool) {
     res.status(503).json({ error: "Database is required." });

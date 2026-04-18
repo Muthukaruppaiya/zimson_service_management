@@ -189,6 +189,51 @@ CREATE TABLE IF NOT EXISTS number_sequences (
   UNIQUE (prefix, scope_code, year_2)
 );
 
+CREATE TABLE IF NOT EXISTS supplier_spares (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+  spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE CASCADE,
+  lead_time_days INTEGER,
+  min_order_qty NUMERIC(18, 3),
+  priority_rank INTEGER NOT NULL DEFAULT 100,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (supplier_id, spare_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_spares_supplier ON supplier_spares (supplier_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_spares_spare ON supplier_spares (spare_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_spares_active ON supplier_spares (is_active);
+
+CREATE TABLE IF NOT EXISTS stock_allocation_batches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_number VARCHAR(48) UNIQUE NOT NULL,
+  region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('DRAFT', 'CONFIRMED')),
+  notes TEXT NOT NULL DEFAULT '',
+  created_by VARCHAR(80) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  confirmed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_alloc_batch_region ON stock_allocation_batches (region_id);
+CREATE INDEX IF NOT EXISTS idx_alloc_batch_status ON stock_allocation_batches (status);
+
+CREATE TABLE IF NOT EXISTS stock_allocation_batch_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id UUID NOT NULL REFERENCES stock_allocation_batches(id) ON DELETE CASCADE,
+  pr_id UUID NOT NULL REFERENCES purchase_requests(id) ON DELETE CASCADE,
+  pr_item_id UUID NOT NULL REFERENCES purchase_request_items(id) ON DELETE CASCADE,
+  spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE RESTRICT,
+  suggested_qty NUMERIC(18, 3) NOT NULL CHECK (suggested_qty >= 0),
+  final_qty NUMERIC(18, 3) NOT NULL CHECK (final_qty >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alloc_items_batch ON stock_allocation_batch_items (batch_id);
+CREATE INDEX IF NOT EXISTS idx_alloc_items_pr_item ON stock_allocation_batch_items (pr_item_id);
+
 CREATE TABLE IF NOT EXISTS spare_stock_history (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE CASCADE,

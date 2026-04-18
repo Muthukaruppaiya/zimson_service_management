@@ -23,6 +23,40 @@ type PrRow = {
 };
 
 type PoLineDraft = { prItemId: string; spareId: string; qtyOrdered: string; unitPrice: string };
+type ConsolidationRow = {
+  prItemId: string;
+  prId: string;
+  prNumber: string;
+  storeId: string;
+  regionId: string;
+  prStatus: string;
+  neededBy: string | null;
+  prCreatedAt: string;
+  spareId: string;
+  spareSku: string;
+  spareName: string;
+  qty: number;
+  issuedQty: number;
+  pendingQty: number;
+  supplierCandidateCount: number;
+  mappedSupplierId: string | null;
+  mappedSupplierName: string | null;
+  supplierCandidates: Array<{ supplierId: string; supplierName: string }>;
+};
+type BulkDraft = {
+  supplierId: string;
+  supplierName: string;
+  regionId: string;
+  lines: Array<{
+    prItemId: string;
+    prId: string;
+    prNumber: string;
+    storeId: string;
+    spareId: string;
+    qtyOrdered: number;
+    unitPrice: number;
+  }>;
+};
 
 export function InventoryPurchaseOrdersPage() {
   const { user } = useAuth();
@@ -40,6 +74,11 @@ export function InventoryPurchaseOrdersPage() {
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [consolidationRows, setConsolidationRows] = useState<ConsolidationRow[]>([]);
+  const [selectedDemand, setSelectedDemand] = useState<Record<string, boolean>>({});
+  const [selectedSupplierByItem, setSelectedSupplierByItem] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<BulkDraft[]>([]);
+  const [unmapped, setUnmapped] = useState<Array<{ prItemId: string; spareId: string; prNumber: string }>>([]);
 
   const spareLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -57,10 +96,14 @@ export function InventoryPurchaseOrdersPage() {
       setPrs(prData.prs);
       setSuppliers(supData.suppliers);
       setPos(poData.pos);
+      if (isHo) {
+        const cData = await apiJson<{ rows: ConsolidationRow[] }>("/api/inventory/po-consolidation");
+        setConsolidationRows(cData.rows);
+      }
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not load data.");
     }
-  }, []);
+  }, [isHo]);
 
   useEffect(() => {
     void loadAll();
@@ -148,6 +191,101 @@ export function InventoryPurchaseOrdersPage() {
     }
   }
 
+  async function generateDrafts() {
+    const selections = consolidationRows
+      .filter((r) => selectedDemand[r.prItemId])
+      .map((r) => ({
+        prItemId: r.prItemId,
+        qtyOrdered: r.pendingQty,
+        unitPrice: 0,
+        supplierId:
+          r.supplierCandidateCount <= 1
+            ? r.mappedSupplierId ?? undefined
+            : selectedSupplierByItem[r.prItemId] || undefined,
+      }));
+    if (selections.length === 0) {
+      setErr("Select at least one demand line.");
+      return;
+    }
+    setErr(null);
+    try {
+      const data = await apiJson<{
+        drafts: BulkDraft[];
+        unmapped: Array<{
+          prItemId: string;
+          spareId: string;
+          prNumber: string;
+          reason: string;
+          supplierCandidates?: Array<{ supplierId: string; supplierName: string }>;
+        }>;
+      }>("/api/inventory/pos/draft-from-demand", {
+        method: "POST",
+        json: { selections },
+      });
+      setDrafts(data.drafts);
+      setUnmapped(data.unmapped);
+      if (data.unmapped.length > 0) {
+        setErr(`Some lines are unmapped to suppliers (${data.unmapped.length}). Map them in Suppliers module.`);
+      }
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not generate PO drafts.");
+    }
+  }
+
+  function updateDraftLine(
+    supplierId: string,
+    prItemId: string,
+    patch: Partial<{ qtyOrdered: number; unitPrice: number }>,
+  ) {
+    setDrafts((prev) =>
+      prev.map((d) =>
+        d.supplierId !== supplierId
+          ? d
+          : {
+              ...d,
+              lines: d.lines.map((l) => (l.prItemId !== prItemId ? l : { ...l, ...patch })),
+            },
+      ),
+    );
+  }
+
+  async function createBulkPos() {
+    if (drafts.length === 0) {
+      setErr("Generate drafts first.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    setOk(null);
+    try {
+      const data = await apiJson<{ created: Array<{ poNumber: string }> }>("/api/inventory/pos/bulk-create", {
+        method: "POST",
+        json: {
+          drafts: drafts.map((d) => ({
+            supplierId: d.supplierId,
+            regionId: d.regionId,
+            notes: "Consolidated from multiple PRs",
+            lines: d.lines.map((l) => ({
+              prItemId: l.prItemId,
+              spareId: l.spareId,
+              qtyOrdered: l.qtyOrdered,
+              unitPrice: l.unitPrice,
+            })),
+          })),
+        },
+      });
+      setOk(`Created ${data.created.length} PO(s): ${data.created.map((x) => x.poNumber).join(", ")}`);
+      setDrafts([]);
+      setSelectedDemand({});
+      setUnmapped([]);
+      await loadAll();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not create bulk POs.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div>
       <InventoryBreadcrumb current="Purchase orders" />
@@ -184,7 +322,7 @@ export function InventoryPurchaseOrdersPage() {
       ) : null}
 
       {isHo ? (
-        <Card title="Create PO from PR" subtitle="Map lines to supplier; default qty is PR remaining (qty − issued)" className="mb-8">
+        <Card title="Create PO from one PR (legacy)" subtitle="Single PR flow" className="mb-8">
           <form onSubmit={createPo} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
@@ -272,6 +410,152 @@ export function InventoryPurchaseOrdersPage() {
               Create PO
             </button>
           </form>
+        </Card>
+      ) : null}
+
+      {isHo ? (
+        <Card
+          title="Consolidated demand to supplier-wise PO"
+          subtitle="Select pending lines from multiple PRs/stores, auto-group by mapped supplier, then create multiple POs"
+          className="mb-8"
+        >
+          <div className="max-h-72 overflow-auto rounded-xl border border-zimson-200/80">
+            <table className="min-w-full text-left text-sm">
+              <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
+                <tr>
+                  <th className="px-3 py-2">Pick</th>
+                  <th className="px-3 py-2">PR#</th>
+                  <th className="px-3 py-2">Store</th>
+                  <th className="px-3 py-2">Spare</th>
+                  <th className="px-3 py-2">Pending</th>
+                  <th className="px-3 py-2">Mapped supplier</th>
+                  <th className="px-3 py-2">Choose supplier</th>
+                </tr>
+              </thead>
+              <tbody>
+                {consolidationRows.map((r) => (
+                  <tr key={r.prItemId} className="border-b border-zimson-100">
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selectedDemand[r.prItemId])}
+                        onChange={(e) => setSelectedDemand((prev) => ({ ...prev, [r.prItemId]: e.target.checked }))}
+                      />
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.prNumber}</td>
+                    <td className="px-3 py-2">{r.storeId}</td>
+                    <td className="px-3 py-2">{r.spareName} ({r.spareSku})</td>
+                    <td className="px-3 py-2">{r.pendingQty}</td>
+                    <td className="px-3 py-2">{r.mappedSupplierName ?? "Unmapped"}</td>
+                    <td className="px-3 py-2">
+                      {r.supplierCandidateCount > 1 ? (
+                        <select
+                          className="rounded border px-2 py-1 text-xs"
+                          value={selectedSupplierByItem[r.prItemId] ?? ""}
+                          onChange={(e) =>
+                            setSelectedSupplierByItem((prev) => ({
+                              ...prev,
+                              [r.prItemId]: e.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Select supplier</option>
+                          {r.supplierCandidates.map((c) => (
+                            <option key={c.supplierId} value={c.supplierId}>
+                              {c.supplierName}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-stone-500">Auto</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => void generateDrafts()}
+              className="rounded-xl bg-zimson-700 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Generate supplier drafts
+            </button>
+          </div>
+
+          {unmapped.length > 0 ? (
+            <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {unmapped.length} selected lines need mapping/supplier choice. Complete selection or mapping before bulk create.
+            </p>
+          ) : null}
+
+          {drafts.length > 0 ? (
+            <div className="mt-4 space-y-4">
+              {drafts.map((d) => (
+                <div key={`${d.supplierId}-${d.regionId}`} className="rounded-xl border border-zimson-200/80 p-3">
+                  <p className="mb-2 text-sm font-semibold text-stone-900">
+                    Supplier: {d.supplierName} · Region: {d.regionId}
+                  </p>
+                  <div className="max-h-56 overflow-auto rounded-xl border border-zimson-200/80">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
+                        <tr>
+                          <th className="px-3 py-2">PR#</th>
+                          <th className="px-3 py-2">Store</th>
+                          <th className="px-3 py-2">Spare</th>
+                          <th className="px-3 py-2">Qty</th>
+                          <th className="px-3 py-2">Unit price</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {d.lines.map((l) => (
+                          <tr key={l.prItemId} className="border-b border-zimson-100">
+                            <td className="px-3 py-2 font-mono text-xs">{l.prNumber}</td>
+                            <td className="px-3 py-2">{l.storeId}</td>
+                            <td className="px-3 py-2">{spareLabel.get(l.spareId) ?? l.spareId}</td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                min={0.001}
+                                step={0.001}
+                                className="w-24 rounded border px-2 py-1"
+                                value={l.qtyOrdered}
+                                onChange={(e) =>
+                                  updateDraftLine(d.supplierId, l.prItemId, { qtyOrdered: Math.max(0, Number(e.target.value) || 0) })
+                                }
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                className="w-24 rounded border px-2 py-1"
+                                value={l.unitPrice}
+                                onChange={(e) =>
+                                  updateDraftLine(d.supplierId, l.prItemId, { unitPrice: Math.max(0, Number(e.target.value) || 0) })
+                                }
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                disabled={busy || unmapped.length > 0}
+                onClick={() => void createBulkPos()}
+                className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Create consolidated POs
+              </button>
+            </div>
+          ) : null}
         </Card>
       ) : null}
 

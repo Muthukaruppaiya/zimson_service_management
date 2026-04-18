@@ -100,6 +100,15 @@ export function InventoryModulePage() {
           </Link>
         </Card>
 
+        <Card title="Allocation review" subtitle="Auto suggest + manual override transfer">
+          <p className="text-sm text-stone-600">
+            After HO inward, generate auto allocation across pending PRs, review quantities, and confirm issue to stores.
+          </p>
+          <Link to="/inventory/allocation-review" className={`${primary} mt-4`}>
+            Open allocation review
+          </Link>
+        </Card>
+
         <Card title="Spare price fixing" subtitle="Per regional HO — uses catalogue SKUs">
           <p className="text-sm text-stone-600">
             List price, issue price to store, and tax class can differ by region for each spare row from the
