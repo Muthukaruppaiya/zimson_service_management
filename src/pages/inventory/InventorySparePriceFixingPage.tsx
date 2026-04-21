@@ -53,7 +53,7 @@ export function InventorySparePriceFixingPage() {
         }
       />
 
-      <Card title="Regional matrix" subtitle="MRP or issue price (INR) — demo editable cells">
+      <Card title="Regional matrix" subtitle="MRP or issue price (INR)">
         <p className="mb-4 text-sm text-stone-600">
           This is a <strong>separate sub-module</strong> under spares: maintain prices in{" "}
           <Link className="font-medium text-zimson-800 underline" to="/regions">
@@ -107,9 +107,6 @@ export function InventorySparePriceFixingPage() {
             </table>
           </div>
         )}
-        <p className="mt-3 text-xs text-stone-500">
-          Persist to API later: effective date, version history, and GST % per region if required.
-        </p>
       </Card>
     </div>
   );

@@ -19,6 +19,37 @@ CREATE TABLE IF NOT EXISTS stores (
 
 CREATE INDEX IF NOT EXISTS idx_stores_region ON stores (region_id);
 
+CREATE TABLE IF NOT EXISTS app_users (
+  id TEXT PRIMARY KEY,
+  email VARCHAR(240) NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  display_name VARCHAR(240) NOT NULL,
+  role VARCHAR(64) NOT NULL,
+  region_id TEXT,
+  store_id TEXT,
+  technician_profile_id VARCHAR(80),
+  can_login BOOLEAN NOT NULL DEFAULT true,
+  module_access_override JSONB,
+  is_seed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_users_role ON app_users (role);
+CREATE INDEX IF NOT EXISTS idx_app_users_region ON app_users (region_id);
+CREATE INDEX IF NOT EXISTS idx_app_users_store ON app_users (store_id);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions (expires_at);
+
 DROP TABLE IF EXISTS spare_brand_mrp CASCADE;
 
 CREATE TABLE IF NOT EXISTS brands (
@@ -107,6 +138,31 @@ CREATE TABLE IF NOT EXISTS quick_bill_lines (
 );
 
 CREATE INDEX IF NOT EXISTS idx_quick_bill_lines_bill ON quick_bill_lines (quick_bill_id);
+
+CREATE TABLE IF NOT EXISTS customers (
+  id TEXT PRIMARY KEY,
+  display_name VARCHAR(240) NOT NULL,
+  phone VARCHAR(80) NOT NULL,
+  phone_last10 VARCHAR(10) NOT NULL,
+  email VARCHAR(200) NOT NULL DEFAULT '',
+  address TEXT,
+  city VARCHAR(120),
+  customer_kind VARCHAR(8) NOT NULL CHECK (customer_kind IN ('B2C', 'B2B')),
+  company VARCHAR(240),
+  gst VARCHAR(20),
+  pan VARCHAR(12),
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_by VARCHAR(80),
+  modified_by VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_phone_last10 ON customers (phone_last10);
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers (display_name);
+CREATE INDEX IF NOT EXISTS idx_customers_created ON customers (created_at DESC);
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS city VARCHAR(120);
 
 CREATE TABLE IF NOT EXISTS spare_stock (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -318,6 +374,18 @@ CREATE TABLE IF NOT EXISTS service_tax_settings (
     CHECK (igst_rate_percent >= 0 AND igst_rate_percent <= 100),
   default_sac_hsn VARCHAR(32) NOT NULL DEFAULT '9987',
   prices_tax_inclusive BOOLEAN NOT NULL DEFAULT false,
+  srf_prefix VARCHAR(16) NOT NULL DEFAULT 'SRF',
+  srf_suffix VARCHAR(16) NOT NULL DEFAULT '',
+  pr_prefix VARCHAR(16) NOT NULL DEFAULT 'PR',
+  pr_suffix VARCHAR(16) NOT NULL DEFAULT '',
+  po_prefix VARCHAR(16) NOT NULL DEFAULT 'PO',
+  po_suffix VARCHAR(16) NOT NULL DEFAULT '',
+  grn_prefix VARCHAR(16) NOT NULL DEFAULT 'GRN',
+  grn_suffix VARCHAR(16) NOT NULL DEFAULT '',
+  dc_prefix VARCHAR(16) NOT NULL DEFAULT 'DC',
+  dc_suffix VARCHAR(16) NOT NULL DEFAULT '',
+  odc_prefix VARCHAR(16) NOT NULL DEFAULT 'ODC',
+  odc_suffix VARCHAR(16) NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by VARCHAR(80)
@@ -351,6 +419,18 @@ CREATE INDEX IF NOT EXISTS idx_pr_status_hist_pr ON purchase_request_status_hist
 
 ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS internal_status_code VARCHAR(64) NOT NULL DEFAULT 'PR_CREATED';
 ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS internal_status_label VARCHAR(120) NOT NULL DEFAULT 'PR creation';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS srf_prefix VARCHAR(16) NOT NULL DEFAULT 'SRF';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS srf_suffix VARCHAR(16) NOT NULL DEFAULT '';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS pr_prefix VARCHAR(16) NOT NULL DEFAULT 'PR';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS pr_suffix VARCHAR(16) NOT NULL DEFAULT '';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS po_prefix VARCHAR(16) NOT NULL DEFAULT 'PO';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS po_suffix VARCHAR(16) NOT NULL DEFAULT '';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS grn_prefix VARCHAR(16) NOT NULL DEFAULT 'GRN';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS grn_suffix VARCHAR(16) NOT NULL DEFAULT '';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS dc_prefix VARCHAR(16) NOT NULL DEFAULT 'DC';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS dc_suffix VARCHAR(16) NOT NULL DEFAULT '';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS odc_prefix VARCHAR(16) NOT NULL DEFAULT 'ODC';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS odc_suffix VARCHAR(16) NOT NULL DEFAULT '';
 
 ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
 ALTER TABLE spare_stock ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
@@ -376,6 +456,133 @@ ALTER TABLE supplier_spares ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
 ALTER TABLE stock_allocation_batches ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
 ALTER TABLE stock_allocation_batch_items ADD COLUMN IF NOT EXISTS created_by VARCHAR(80);
 ALTER TABLE stock_allocation_batch_items ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
+
+CREATE TABLE IF NOT EXISTS srf_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reference VARCHAR(64) NOT NULL UNIQUE,
+  region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  customer_name VARCHAR(240) NOT NULL,
+  phone VARCHAR(80) NOT NULL,
+  customer_kind VARCHAR(8) NOT NULL CHECK (customer_kind IN ('B2C', 'B2B')),
+  company VARCHAR(240),
+  watch_brand VARCHAR(120) NOT NULL,
+  watch_model VARCHAR(200) NOT NULL,
+  serial VARCHAR(200) NOT NULL,
+  complaint TEXT NOT NULL DEFAULT '',
+  estimate_total_inr NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (estimate_total_inr >= 0),
+  selected_part_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status VARCHAR(40) NOT NULL DEFAULT 'draft',
+  dc_number VARCHAR(64),
+  dispatched_to_sc_at TIMESTAMPTZ,
+  inward_at TIMESTAMPTZ,
+  assigned_technician_id VARCHAR(80),
+  assigned_at TIMESTAMPTZ,
+  estimate_ok_at TIMESTAMPTZ,
+  reestimate_requested_note TEXT,
+  reestimate_requested_at TIMESTAMPTZ,
+  reestimate_approved_note TEXT,
+  reestimate_approved_at TIMESTAMPTZ,
+  used_spares JSONB NOT NULL DEFAULT '[]'::jsonb,
+  spares_slip_submitted_at TIMESTAMPTZ,
+  spares_slip_submitted_by VARCHAR(80),
+  ho_spares_bill_ref VARCHAR(120),
+  store_bill_ref VARCHAR(120),
+  completed_at_sc TIMESTAMPTZ,
+  ready_for_outward_at TIMESTAMPTZ,
+  destination_store_id TEXT REFERENCES stores(id) ON DELETE SET NULL,
+  outward_dc_number VARCHAR(64),
+  dispatched_to_store_at TIMESTAMPTZ,
+  received_back_at_store_at TIMESTAMPTZ,
+  closed_at TIMESTAMPTZ,
+  photo_session_active BOOLEAN NOT NULL DEFAULT false,
+  capture_link_disabled_at TIMESTAMPTZ,
+  created_by VARCHAR(80),
+  modified_by VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_srf_jobs_region_status ON srf_jobs (region_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_srf_jobs_store_status ON srf_jobs (store_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_srf_jobs_dc ON srf_jobs (dc_number);
+CREATE INDEX IF NOT EXISTS idx_srf_jobs_outward_dc ON srf_jobs (outward_dc_number);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_requested_note TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_requested_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_approved_note TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_approved_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS used_spares JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS spares_slip_submitted_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS spares_slip_submitted_by VARCHAR(80);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS ho_spares_bill_ref VARCHAR(120);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_bill_ref VARCHAR(120);
+
+CREATE TABLE IF NOT EXISTS srf_job_photos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+  file_path TEXT NOT NULL,
+  mime VARCHAR(120) NOT NULL,
+  bytes INTEGER NOT NULL CHECK (bytes > 0),
+  created_by VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_srf_job_photos_srf ON srf_job_photos (srf_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS srf_photo_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+  token_hash VARCHAR(128) NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_by VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_srf_photo_sessions_srf ON srf_photo_sessions (srf_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_srf_photo_sessions_expiry ON srf_photo_sessions (expires_at);
+
+CREATE TABLE IF NOT EXISTS delivery_challans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  dc_number VARCHAR(64) NOT NULL UNIQUE,
+  region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+  from_store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  to_location VARCHAR(24) NOT NULL CHECK (to_location IN ('SERVICE_CENTRE', 'STORE')),
+  status VARCHAR(20) NOT NULL CHECK (status IN ('CREATED', 'INWARDED', 'DISPATCHED', 'RECEIVED')) DEFAULT 'CREATED',
+  created_by VARCHAR(80),
+  modified_by VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_challans_region ON delivery_challans (region_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_delivery_challans_store ON delivery_challans (from_store_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS delivery_challan_lines (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  dc_id UUID NOT NULL REFERENCES delivery_challans(id) ON DELETE CASCADE,
+  srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+  qty NUMERIC(18, 3) NOT NULL DEFAULT 1 CHECK (qty > 0),
+  created_by VARCHAR(80),
+  modified_by VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (dc_id, srf_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_challan_lines_dc ON delivery_challan_lines (dc_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_challan_lines_srf ON delivery_challan_lines (srf_id);
+
+CREATE TABLE IF NOT EXISTS srf_status_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+  status VARCHAR(40) NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  changed_by VARCHAR(80),
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_srf_status_history_srf ON srf_status_history (srf_id, changed_at DESC);
 `;
 
 export async function runMigrations(pool: Pool): Promise<void> {

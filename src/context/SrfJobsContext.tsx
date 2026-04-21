@@ -1,326 +1,224 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
-import { SEED_SRF_JOBS } from "../data/seedSrfJobs";
-import { apiJson, useApiMode } from "../lib/api";
-import { createId } from "../lib/id";
-import { STORAGE_SRF_JOBS } from "../lib/storageKeys";
-import type { CreateSrfJobInput, SrfJob, SrfJobStatus } from "../types/srfJob";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { apiJson } from "../lib/api";
+import type { CreateSrfJobInput, SrfJob, UsedSpareLine } from "../types/srfJob";
 import { useAuth } from "./AuthContext";
-
-function normalizeJob(raw: SrfJob): SrfJob {
-  return {
-    ...raw,
-    destinationStoreId: raw.destinationStoreId ?? null,
-    outwardDcNumber: raw.outwardDcNumber ?? null,
-    readyForOutwardAt: raw.readyForOutwardAt ?? null,
-  };
-}
-
-function loadJobsLocal(): SrfJob[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_SRF_JOBS);
-    if (raw) {
-      const parsed = JSON.parse(raw) as SrfJob[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(normalizeJob);
-    }
-  } catch {
-    /* ignore */
-  }
-  return structuredClone(SEED_SRF_JOBS).map(normalizeJob);
-}
-
-function saveJobsLocal(jobs: SrfJob[]) {
-  localStorage.setItem(STORAGE_SRF_JOBS, JSON.stringify(jobs));
-}
-
-function nextDcNumber() {
-  return `DC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
-}
-
-function nextOdcNumber() {
-  return `ODC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
-}
 
 type SrfJobsContextValue = {
   jobs: SrfJob[];
-  createJob: (input: CreateSrfJobInput) => SrfJob;
-  dispatchToServiceCentre: (jobIds: string[]) => { dcNumber: string } | { error: string };
-  confirmInwardByDc: (dcNumber: string) => { updated: number } | { error: string };
-  assignTechnician: (jobId: string, technicianId: string) => { ok: true } | { error: string };
-  technicianEstimateOk: (jobId: string, technicianProfileId: string) => { ok: true } | { error: string };
-  technicianMarkRepairComplete: (
-    jobId: string,
-    technicianProfileId: string,
-  ) => { ok: true } | { error: string };
-  createOutwardBatch: (
-    items: { jobId: string; destinationStoreId: string }[],
-  ) => { odcNumber: string } | { error: string };
+  refreshJobs: () => Promise<void>;
+  createDraftJob: (input: CreateSrfJobInput) => Promise<{ srfId: string; reference: string; token: string; captureUrl: string }>;
+  refreshPhotoSession: (srfId: string) => Promise<{ token: string; captureUrl: string }>;
+  finalizeJob: (srfId: string, payload: { complaint: string; estimateTotalInr: number; selectedPartIds: string[] }) => Promise<void>;
+  dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
+  confirmInwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
+  assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
+  supervisorRequestReestimate: (jobId: string, note: string) => Promise<void>;
+  supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
+  supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
+  technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
+  technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<void>;
+  submitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
+  technicianMarkRepairComplete: (jobId: string, technicianProfileId: string) => Promise<void>;
+  createOutwardBatch: (items: { jobId: string; destinationStoreId: string }[]) => Promise<{ odcNumber: string; moved: number }>;
+  receiveOutwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
+  closeWithInvoice: (srfId: string, payload?: { hoSparesBillRef?: string; storeBillRef?: string }) => Promise<void>;
+  getStatusHistory: (srfId: string) => Promise<Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }>>;
 };
 
 const SrfJobsContext = createContext<SrfJobsContextValue | null>(null);
 
 export function SrfJobsProvider({ children }: { children: ReactNode }) {
-  const api = useApiMode();
   const { user, authReady } = useAuth();
-  const [jobs, setJobs] = useState<SrfJob[]>(() =>
-    api ? structuredClone(SEED_SRF_JOBS).map(normalizeJob) : loadJobsLocal(),
-  );
+  const [jobs, setJobs] = useState<SrfJob[]>([]);
+
+  const refreshJobs = useCallback(async () => {
+    const data = await apiJson<{ jobs: SrfJob[] }>("/api/service/srf-jobs");
+    setJobs(data.jobs);
+  }, []);
 
   useEffect(() => {
-    if (!api || !authReady || !user) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await apiJson<{ jobs: SrfJob[] }>("/api/srf-jobs");
-        if (!cancelled) setJobs(data.jobs.map(normalizeJob));
-      } catch {
-        /* keep current */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [api, authReady, user?.id]);
+    if (!authReady || !user) return;
+    void refreshJobs().catch(() => {});
+  }, [authReady, user?.id, refreshJobs]);
 
-  const persist = useCallback(
-    (next: SrfJob[]) => {
-      setJobs(next);
-      if (!api) {
-        saveJobsLocal(next);
-        return;
-      }
-      void apiJson("/api/srf-jobs", { method: "PUT", json: { jobs: next } }).catch(console.error);
-    },
-    [api],
-  );
+  const createDraftJob = useCallback(async (input: CreateSrfJobInput) => {
+    const result = await apiJson<{ srfId: string; reference: string; token: string; captureUrl: string }>(
+      "/api/service/srf-jobs/draft",
+      { method: "POST", json: input },
+    );
+    await refreshJobs();
+    return result;
+  }, [refreshJobs]);
 
-  const createJob = useCallback(
-    (input: CreateSrfJobInput): SrfJob => {
-      const row: SrfJob = {
-        id: createId("srf-job"),
-        reference: input.reference,
-        regionId: input.regionId,
-        storeId: input.storeId,
-        customerName: input.customerName.trim(),
-        phone: input.phone.trim(),
-        customerKind: input.customerKind,
-        company: input.company?.trim() || undefined,
-        watchBrand: input.watchBrand,
-        watchModel: input.watchModel,
-        serial: input.serial.trim(),
-        complaint: input.complaint.trim(),
-        estimateTotalInr: input.estimateTotalInr,
-        selectedPartIds: [...input.selectedPartIds],
-        createdAt: new Date().toISOString(),
-        status: "at_store",
-        dcNumber: null,
-        dispatchedToScAt: null,
-        inwardAt: null,
-        assignedTechnicianId: null,
-        assignedAt: null,
-        estimateOkAt: null,
-        completedAtSc: null,
-        readyForOutwardAt: null,
-        destinationStoreId: null,
-        outwardDcNumber: null,
-        dispatchedToStoreAt: null,
-      };
-      const next = [row, ...jobs];
-      persist(next);
-      return row;
-    },
-    [jobs, persist],
-  );
+  const refreshPhotoSession = useCallback(async (srfId: string) => {
+    return apiJson<{ token: string; captureUrl: string }>(
+      `/api/service/srf-jobs/${encodeURIComponent(srfId)}/photo-session/refresh`,
+      { method: "POST" },
+    );
+  }, []);
 
-  const dispatchToServiceCentre = useCallback(
-    (jobIds: string[]): { dcNumber: string } | { error: string } => {
-      if (jobIds.length === 0) return { error: "Select at least one SRF." };
-      const dc = nextDcNumber();
-      const now = new Date().toISOString();
-      const idSet = new Set(jobIds);
-      let ok = false;
-      const next = jobs.map((j) => {
-        if (!idSet.has(j.id)) return j;
-        if (j.status !== "at_store") return j;
-        ok = true;
-        return {
-          ...j,
-          status: "in_transit_sc" as SrfJobStatus,
-          dcNumber: dc,
-          dispatchedToScAt: now,
-        };
+  const finalizeJob = useCallback(
+    async (srfId: string, payload: { complaint: string; estimateTotalInr: number; selectedPartIds: string[] }) => {
+      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`, {
+        method: "POST",
+        json: payload,
       });
-      if (!ok) return { error: "Selected rows must be at store and ready to dispatch." };
-      persist(next);
-      return { dcNumber: dc };
+      await refreshJobs();
     },
-    [jobs, persist],
+    [refreshJobs],
   );
 
-  const confirmInwardByDc = useCallback(
-    (dcNumber: string): { updated: number } | { error: string } => {
-      const dc = dcNumber.trim().toUpperCase();
-      if (!dc) return { error: "Enter DC number from the challan copy." };
-      let count = 0;
-      const now = new Date().toISOString();
-      const next = jobs.map((j) => {
-        if (j.dcNumber?.toUpperCase() !== dc) return j;
-        if (j.status !== "in_transit_sc") return j;
-        count += 1;
-        return {
-          ...j,
-          status: "received_at_sc" as SrfJobStatus,
-          inwardAt: now,
-        };
-      });
-      if (count === 0) {
-        return {
-          error: "No watches in transit found for this DC, or inward was already done.",
-        };
-      }
-      persist(next);
-      return { updated: count };
-    },
-    [jobs, persist],
-  );
+  const dispatchToServiceCentre = useCallback(async (jobIds: string[]) => {
+    const out = await apiJson<{ dcNumber: string; moved: number }>("/api/service/dcs", {
+      method: "POST",
+      json: { srfIds: jobIds },
+    });
+    await refreshJobs();
+    return out;
+  }, [refreshJobs]);
 
-  const assignTechnician = useCallback(
-    (jobId: string, technicianId: string): { ok: true } | { error: string } => {
-      const now = new Date().toISOString();
-      let found = false;
-      const next = jobs.map((j) => {
-        if (j.id !== jobId) return j;
-        found = true;
-        if (j.status !== "received_at_sc") {
-          return j;
-        }
-        return {
-          ...j,
-          status: "assigned" as SrfJobStatus,
-          assignedTechnicianId: technicianId,
-          assignedAt: now,
-        };
-      });
-      if (!found) return { error: "SRF not found." };
-      const updated = next.find((j) => j.id === jobId);
-      if (updated?.status !== "assigned") {
-        return { error: "SRF must be received at service centre before assignment." };
-      }
-      persist(next);
-      return { ok: true };
-    },
-    [jobs, persist],
-  );
+  const confirmInwardByDc = useCallback(async (dcNumber: string) => {
+    const out = await apiJson<{ updated: number }>(`/api/service/dcs/${encodeURIComponent(dcNumber)}/inward`, {
+      method: "POST",
+    });
+    await refreshJobs();
+    return out;
+  }, [refreshJobs]);
 
-  const technicianEstimateOk = useCallback(
-    (jobId: string, technicianProfileId: string): { ok: true } | { error: string } => {
-      const now = new Date().toISOString();
-      const next = jobs.map((j) => {
-        if (j.id !== jobId) return j;
-        if (j.assignedTechnicianId !== technicianProfileId) return j;
-        if (j.status !== "assigned") return j;
-        return {
-          ...j,
-          status: "estimate_ok" as SrfJobStatus,
-          estimateOkAt: now,
-        };
-      });
-      const u = next.find((j) => j.id === jobId);
-      if (!u || u.status !== "estimate_ok") {
-        return { error: "Only the assigned technician can confirm estimate on an assigned SRF." };
-      }
-      persist(next);
-      return { ok: true };
-    },
-    [jobs, persist],
-  );
+  const assignTechnician = useCallback(async (jobId: string, technicianId: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/assign`, {
+      method: "POST",
+      json: { technicianId },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
 
-  const technicianMarkRepairComplete = useCallback(
-    (jobId: string, technicianProfileId: string): { ok: true } | { error: string } => {
-      const now = new Date().toISOString();
-      const next = jobs.map((j) => {
-        if (j.id !== jobId) return j;
-        if (j.assignedTechnicianId !== technicianProfileId) return j;
-        if (j.status !== "estimate_ok") return j;
-        return {
-          ...j,
-          status: "ready_for_outward" as SrfJobStatus,
-          completedAtSc: now,
-          readyForOutwardAt: now,
-        };
-      });
-      const u = next.find((j) => j.id === jobId);
-      if (!u || u.status !== "ready_for_outward") {
-        return {
-          error: "Confirm estimate OK first, then mark repair complete for SC outward.",
-        };
-      }
-      persist(next);
-      return { ok: true };
-    },
-    [jobs, persist],
-  );
+  const supervisorRequestReestimate = useCallback(async (jobId: string, note: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate`, {
+      method: "POST",
+      json: { note },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
 
-  const createOutwardBatch = useCallback(
-    (items: { jobId: string; destinationStoreId: string }[]): { odcNumber: string } | { error: string } => {
-      if (items.length === 0) return { error: "Select at least one watch and destination store." };
-      for (const it of items) {
-        const j = jobs.find((x) => x.id === it.jobId);
-        if (!j || j.status !== "ready_for_outward") {
-          return { error: "Every selected row must be ready for outward (after technician completion)." };
-        }
-        if (!it.destinationStoreId.trim()) {
-          return { error: "Choose a destination store for each selected SRF." };
-        }
-      }
-      const odc = nextOdcNumber();
-      const now = new Date().toISOString();
-      const map = new Map(items.map((i) => [i.jobId, i.destinationStoreId.trim()]));
-      const next = jobs.map((j) => {
-        const dest = map.get(j.id);
-        if (!dest) return j;
-        if (j.status !== "ready_for_outward") return j;
-        return {
-          ...j,
-          status: "dispatched_to_store" as SrfJobStatus,
-          destinationStoreId: dest,
-          outwardDcNumber: odc,
-          dispatchedToStoreAt: now,
-        };
-      });
-      persist(next);
-      return { odcNumber: odc };
-    },
-    [jobs, persist],
-  );
+  const supervisorApproveReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate-approve`, {
+      method: "POST",
+      json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
 
-  const value = useMemo(
+  const supervisorMarkRepairComplete = useCallback(async (jobId: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/repair-complete`, {
+      method: "POST",
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const technicianEstimateOk = useCallback(async (jobId: string, technicianProfileId: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/estimate-ok`, {
+      method: "POST",
+      json: { technicianProfileId },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const technicianRequestReestimate = useCallback(async (jobId: string, technicianProfileId: string, note: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/reestimate`, {
+      method: "POST",
+      json: { technicianProfileId, note },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const submitSparesSlip = useCallback(async (jobId: string, lines: UsedSpareLine[]) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/spares-slip`, {
+      method: "POST",
+      json: { lines },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const technicianMarkRepairComplete = useCallback(async (jobId: string, technicianProfileId: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/repair-complete`, {
+      method: "POST",
+      json: { technicianProfileId },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const createOutwardBatch = useCallback(async (items: { jobId: string; destinationStoreId: string }[]) => {
+    const out = await apiJson<{ odcNumber: string; moved: number }>("/api/service/odcs", {
+      method: "POST",
+      json: { items: items.map((x) => ({ srfId: x.jobId, destinationStoreId: x.destinationStoreId })) },
+    });
+    await refreshJobs();
+    return out;
+  }, [refreshJobs]);
+
+  const receiveOutwardByDc = useCallback(async (dcNumber: string) => {
+    const out = await apiJson<{ updated: number }>(`/api/service/odcs/${encodeURIComponent(dcNumber)}/receive`, {
+      method: "POST",
+    });
+    await refreshJobs();
+    return out;
+  }, [refreshJobs]);
+
+  const closeWithInvoice = useCallback(async (srfId: string, payload?: { hoSparesBillRef?: string; storeBillRef?: string }) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/close`, { method: "POST", json: payload ?? {} });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const getStatusHistory = useCallback(async (srfId: string) => {
+    const out = await apiJson<{ rows: Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }> }>(
+      `/api/service/srf-jobs/${encodeURIComponent(srfId)}/status-history`,
+    );
+    return out.rows;
+  }, []);
+
+  const value = useMemo<SrfJobsContextValue>(
     () => ({
       jobs,
-      createJob,
+      refreshJobs,
+      createDraftJob,
+      refreshPhotoSession,
+      finalizeJob,
       dispatchToServiceCentre,
       confirmInwardByDc,
       assignTechnician,
+      supervisorRequestReestimate,
+      supervisorApproveReestimate,
+      supervisorMarkRepairComplete,
       technicianEstimateOk,
+      technicianRequestReestimate,
+      submitSparesSlip,
       technicianMarkRepairComplete,
       createOutwardBatch,
+      receiveOutwardByDc,
+      closeWithInvoice,
+      getStatusHistory,
     }),
     [
       jobs,
-      createJob,
+      refreshJobs,
+      createDraftJob,
+      refreshPhotoSession,
+      finalizeJob,
       dispatchToServiceCentre,
       confirmInwardByDc,
       assignTechnician,
+      supervisorRequestReestimate,
+      supervisorApproveReestimate,
+      supervisorMarkRepairComplete,
       technicianEstimateOk,
+      technicianRequestReestimate,
+      submitSparesSlip,
       technicianMarkRepairComplete,
       createOutwardBatch,
+      receiveOutwardByDc,
+      closeWithInvoice,
+      getStatusHistory,
     ],
   );
 

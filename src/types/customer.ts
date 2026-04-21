@@ -5,6 +5,8 @@ export type CustomerRecord = {
   displayName: string;
   phone: string;
   email: string;
+  address?: string;
+  city?: string;
   customerKind: CustomerKind;
   company?: string;
   gst?: string;

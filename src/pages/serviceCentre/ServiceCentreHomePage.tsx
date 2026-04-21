@@ -47,7 +47,7 @@ export function ServiceCentreHomePage() {
               Open logistics
             </Link>
           ) : (
-            <p className={disabledNote}>Sign in as SC inward or supervisor (demo: sc.inward@zimson.demo).</p>
+            <p className={disabledNote}>Access restricted for this role.</p>
           )}
         </Card>
 
@@ -60,9 +60,7 @@ export function ServiceCentreHomePage() {
               Open supervisor desk
             </Link>
           ) : (
-            <p className={disabledNote}>
-              Sign in as SC supervisor (demo: sc.supervisor@zimson.demo).
-            </p>
+            <p className={disabledNote}>Access restricted for this role.</p>
           )}
         </Card>
 
@@ -76,27 +74,10 @@ export function ServiceCentreHomePage() {
               Open technician queue
             </Link>
           ) : (
-            <p className={disabledNote}>Sign in as HO technician (demo: ho.tech@zimson.demo).</p>
+            <p className={disabledNote}>Access restricted for this role.</p>
           )}
         </Card>
       </div>
-
-      <Card title="Demo logins" subtitle="Passwords on the login page table" className="mt-8">
-        <ul className="list-disc space-y-1 pl-5 text-sm text-stone-600">
-          <li>
-            <code className="rounded bg-zimson-100 px-1 text-xs">sc.inward@zimson.demo</code> /{" "}
-            <code className="text-xs">sc123</code> — inward
-          </li>
-          <li>
-            <code className="rounded bg-zimson-100 px-1 text-xs">sc.supervisor@zimson.demo</code> /{" "}
-            <code className="text-xs">sc123</code> — supervisor
-          </li>
-          <li>
-            <code className="rounded bg-zimson-100 px-1 text-xs">ho.tech@zimson.demo</code> /{" "}
-            <code className="text-xs">tech123</code> — technician (Grade A / tech-1)
-          </li>
-        </ul>
-      </Card>
     </div>
   );
 }

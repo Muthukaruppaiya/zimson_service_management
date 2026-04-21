@@ -26,6 +26,18 @@ export function ServiceTaxSettingsPage() {
   const [igstRatePercent, setIgstRatePercent] = useState("18");
   const [defaultSacHsn, setDefaultSacHsn] = useState("9987");
   const [pricesTaxInclusive, setPricesTaxInclusive] = useState(false);
+  const [srfPrefix, setSrfPrefix] = useState("SRF");
+  const [srfSuffix, setSrfSuffix] = useState("");
+  const [prPrefix, setPrPrefix] = useState("PR");
+  const [prSuffix, setPrSuffix] = useState("");
+  const [poPrefix, setPoPrefix] = useState("PO");
+  const [poSuffix, setPoSuffix] = useState("");
+  const [grnPrefix, setGrnPrefix] = useState("GRN");
+  const [grnSuffix, setGrnSuffix] = useState("");
+  const [dcPrefix, setDcPrefix] = useState("DC");
+  const [dcSuffix, setDcSuffix] = useState("");
+  const [odcPrefix, setOdcPrefix] = useState("ODC");
+  const [odcSuffix, setOdcSuffix] = useState("");
   const [notes, setNotes] = useState("");
   const [meta, setMeta] = useState<{ updatedAt: string; updatedBy: string | null } | null>(null);
 
@@ -46,6 +58,18 @@ export function ServiceTaxSettingsPage() {
       setIgstRatePercent(String(s.igstRatePercent));
       setDefaultSacHsn(s.defaultSacHsn);
       setPricesTaxInclusive(s.pricesTaxInclusive);
+      setSrfPrefix(s.srfPrefix ?? "SRF");
+      setSrfSuffix(s.srfSuffix ?? "");
+      setPrPrefix(s.prPrefix ?? "PR");
+      setPrSuffix(s.prSuffix ?? "");
+      setPoPrefix(s.poPrefix ?? "PO");
+      setPoSuffix(s.poSuffix ?? "");
+      setGrnPrefix(s.grnPrefix ?? "GRN");
+      setGrnSuffix(s.grnSuffix ?? "");
+      setDcPrefix(s.dcPrefix ?? "DC");
+      setDcSuffix(s.dcSuffix ?? "");
+      setOdcPrefix(s.odcPrefix ?? "ODC");
+      setOdcSuffix(s.odcSuffix ?? "");
       setNotes(s.notes);
       setMeta({ updatedAt: s.updatedAt, updatedBy: s.updatedBy });
     } catch (e) {
@@ -73,6 +97,18 @@ export function ServiceTaxSettingsPage() {
         igstRatePercent: Number.parseFloat(igstRatePercent),
         defaultSacHsn: defaultSacHsn.trim(),
         pricesTaxInclusive,
+        srfPrefix: srfPrefix.trim(),
+        srfSuffix: srfSuffix.trim(),
+        prPrefix: prPrefix.trim(),
+        prSuffix: prSuffix.trim(),
+        poPrefix: poPrefix.trim(),
+        poSuffix: poSuffix.trim(),
+        grnPrefix: grnPrefix.trim(),
+        grnSuffix: grnSuffix.trim(),
+        dcPrefix: dcPrefix.trim(),
+        dcSuffix: dcSuffix.trim(),
+        odcPrefix: odcPrefix.trim(),
+        odcSuffix: odcSuffix.trim(),
         notes: notes.trim(),
       };
       const data = await apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax", {
@@ -86,6 +122,18 @@ export function ServiceTaxSettingsPage() {
       setIgstRatePercent(String(s.igstRatePercent));
       setDefaultSacHsn(s.defaultSacHsn);
       setPricesTaxInclusive(s.pricesTaxInclusive);
+      setSrfPrefix(s.srfPrefix ?? "SRF");
+      setSrfSuffix(s.srfSuffix ?? "");
+      setPrPrefix(s.prPrefix ?? "PR");
+      setPrSuffix(s.prSuffix ?? "");
+      setPoPrefix(s.poPrefix ?? "PO");
+      setPoSuffix(s.poSuffix ?? "");
+      setGrnPrefix(s.grnPrefix ?? "GRN");
+      setGrnSuffix(s.grnSuffix ?? "");
+      setDcPrefix(s.dcPrefix ?? "DC");
+      setDcSuffix(s.dcSuffix ?? "");
+      setOdcPrefix(s.odcPrefix ?? "ODC");
+      setOdcSuffix(s.odcSuffix ?? "");
       setNotes(s.notes);
       setMeta({ updatedAt: s.updatedAt, updatedBy: s.updatedBy });
       setSavedMsg("Saved.");
@@ -239,6 +287,26 @@ export function ServiceTaxSettingsPage() {
                 </label>
               </div>
             </div>
+            <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-4">
+              <p className="text-xs font-semibold text-stone-700">Document number prefix / suffix settings</p>
+              <p className="mt-1 text-xs text-stone-500">
+                Format remains sequence based; these values control start/end text of generated SRF, PR, PO, GRN, DC, and ODC numbers.
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="text-xs font-medium text-stone-600">SRF prefix<input className={inputClass} value={srfPrefix} onChange={(e) => setSrfPrefix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">SRF suffix<input className={inputClass} value={srfSuffix} onChange={(e) => setSrfSuffix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">PR prefix<input className={inputClass} value={prPrefix} onChange={(e) => setPrPrefix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">PR suffix<input className={inputClass} value={prSuffix} onChange={(e) => setPrSuffix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">PO prefix<input className={inputClass} value={poPrefix} onChange={(e) => setPoPrefix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">PO suffix<input className={inputClass} value={poSuffix} onChange={(e) => setPoSuffix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">GRN prefix<input className={inputClass} value={grnPrefix} onChange={(e) => setGrnPrefix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">GRN suffix<input className={inputClass} value={grnSuffix} onChange={(e) => setGrnSuffix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">DC prefix<input className={inputClass} value={dcPrefix} onChange={(e) => setDcPrefix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">DC suffix<input className={inputClass} value={dcSuffix} onChange={(e) => setDcSuffix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">ODC prefix<input className={inputClass} value={odcPrefix} onChange={(e) => setOdcPrefix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">ODC suffix<input className={inputClass} value={odcSuffix} onChange={(e) => setOdcSuffix(e.target.value)} /></label>
+              </div>
+            </div>
 
             <div>
               <label htmlFor="tax-notes" className="text-xs font-medium text-stone-600">
@@ -250,7 +318,7 @@ export function ServiceTaxSettingsPage() {
                 onChange={(e) => setNotes(e.target.value)}
                 rows={3}
                 className={inputClass}
-                placeholder="e.g. Registered under composition — not used for validation in this wireframe."
+                placeholder="Internal notes"
               />
             </div>
 

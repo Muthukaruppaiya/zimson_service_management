@@ -28,6 +28,11 @@ function esc(v: string): string {
     .replaceAll('"', "&quot;");
 }
 
+function qr(ref: string): string {
+  const q = encodeURIComponent(ref);
+  return `<img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${q}" alt="QR ${esc(ref)}" style="border:1px solid #111;padding:4px;background:#fff" />`;
+}
+
 function activeConfig(kind: DocumentKind) {
   const store = loadDocumentTemplateStore();
   const tpl = getActiveTemplateByKind(store, kind);
@@ -159,6 +164,7 @@ export function buildPurchaseOrderDocument(input: {
     <div class="top">
       <h1 class="title" style="text-align:${tpl.titleAlign}">${esc(tpl.title)}</h1>
       <div class="meta">
+        <div>${qr(input.poNumber)}</div>
         <div><strong>${esc(branding.companyName)}</strong></div>
         <div>${esc(branding.companySlogan)}</div>
         <div>${esc(branding.companyAddress)}</div>
@@ -267,7 +273,7 @@ export function buildPrDocument(input: {
     <table>
       <tbody>
         <tr>
-          <td style="width:20%;text-align:center;"><strong>&lt;Logo&gt;</strong></td>
+          <td style="width:20%;text-align:center;">${qr(input.prNumber)}</td>
           <td style="width:60%;text-align:center;"><strong>${esc(branding.companyName)}</strong></td>
           <td style="width:20%;text-align:center;">Normal</td>
         </tr>
@@ -332,6 +338,7 @@ export function buildGrnDocument(input: {
     <div class="line"></div>
     <div class="sec" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
       <div>
+        <p>${qr(input.grnNumber)}</p>
         <p><strong>GRN NUMBER:</strong> ${esc(input.grnNumber)}</p>
         <p><strong>DATE:</strong> ${esc(formatDate(input.createdAt))}</p>
       </div>
@@ -394,6 +401,7 @@ export function buildTransferDocument(input: {
     <div class="top">
       <h1 class="title" style="text-align:${tpl.titleAlign}">${esc(tpl.title)}</h1>
       <div class="meta">
+        <div>${qr(input.refNumber)}</div>
         <div><strong>${esc(branding.companyName)}</strong></div>
         <div><strong>Ref: ${esc(input.refNumber)}</strong></div>
         <div>Date: ${esc(formatDate(input.date))}</div>

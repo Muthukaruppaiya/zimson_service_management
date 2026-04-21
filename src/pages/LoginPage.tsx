@@ -1,29 +1,15 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { SEED_USERS } from "../data/seed";
 
-const demoRows = [
-  { email: "superadmin@zimson.demo", password: "super123", role: "Super Admin", note: "All modules" },
-  { email: "ho.accounts.chn@zimson.demo", password: "acc123", role: "HO Accounts", note: "Chennai HO" },
-  { email: "ho.admin.chn@zimson.demo", password: "admin123", role: "HO Admin", note: "Chennai HO" },
-  { email: "ho.manager.chn@zimson.demo", password: "mgr123", role: "HO Manager", note: "Chennai HO" },
-  { email: "ho.supervisor.chn@zimson.demo", password: "sup123", role: "HO Supervisor", note: "Chennai HO" },
-  { email: "ho.user.chn@zimson.demo", password: "hou123", role: "HO User", note: "Chennai HO" },
-  { email: "store.manager.chn01@zimson.demo", password: "mgr123", role: "Store Manager", note: "CHN01" },
-  { email: "store.purchase.chn01@zimson.demo", password: "pur123", role: "Store Purchase User", note: "CHN01" },
-  { email: "store.accounts.chn01@zimson.demo", password: "acc123", role: "Store Accounts", note: "CHN01" },
-  { email: "chennai.admin@zimson.demo", password: "admin123", role: "Regional Admin", note: "Chennai" },
-  { email: "coimbatore.admin@zimson.demo", password: "admin123", role: "Regional Admin", note: "Coimbatore" },
-  { email: "chn01@zimson.demo", password: "store123", role: "Store user", note: "Chennai / CHN01" },
-  { email: "chn02@zimson.demo", password: "store123", role: "Store user", note: "Chennai / CHN02" },
-  { email: "chn03@zimson.demo", password: "store123", role: "Store user", note: "Chennai / CHN03" },
-  { email: "cbe01@zimson.demo", password: "store123", role: "Store user", note: "Coimbatore / CBE01" },
-  { email: "cbe02@zimson.demo", password: "store123", role: "Store user", note: "Coimbatore / CBE02" },
-  { email: "cbe03@zimson.demo", password: "store123", role: "Store user", note: "Coimbatore / CBE03" },
-  { email: "sc.inward.chn@zimson.demo", password: "sc123", role: "SC inward", note: "Chennai HO" },
-  { email: "sc.supervisor.chn@zimson.demo", password: "sc123", role: "SC supervisor", note: "Chennai HO" },
-  { email: "ho.tech.chn@zimson.demo", password: "N/A", role: "Technician", note: "Employee only · no login" },
-] as const;
+const demoRows = SEED_USERS.filter((u) => u.isSeed).map((u) => ({
+  email: u.email,
+  password: u.password,
+  role: u.role,
+  note: u.displayName,
+  canLogin: u.canLogin,
+}));
 
 export function LoginPage() {
   const { user, login, authReady } = useAuth();
@@ -59,6 +45,7 @@ export function LoginPage() {
   }
 
   function fillDemo(row: (typeof demoRows)[number]) {
+    if (!row.canLogin) return;
     setEmail(row.email);
     setPassword(row.password);
     setError(null);
@@ -73,13 +60,13 @@ export function LoginPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-stone-900">Zimson</h1>
-            <p className="text-sm text-stone-600">Service management - demo login</p>
+            <p className="text-sm text-stone-600">Service management</p>
           </div>
         </div>
 
         <div className="w-full max-w-md rounded-2xl border border-zimson-300/80 bg-white/95 p-6 shadow-lg backdrop-blur-sm md:p-8">
           <h2 className="text-lg font-semibold text-stone-900">Sign in</h2>
-          <p className="mt-1 text-sm text-stone-600">Use a demo account below or your own credentials.</p>
+          <p className="mt-1 text-sm text-stone-600">Use seeded demo credentials or your own account.</p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
@@ -124,16 +111,17 @@ export function LoginPage() {
           </form>
         </div>
 
-        <div className="mt-8 w-full max-w-3xl rounded-2xl border border-zimson-300/70 bg-white/80 p-4 shadow-sm backdrop-blur-sm md:p-6">
-          <h3 className="text-sm font-semibold text-stone-900">Demo accounts (click to autofill)</h3>
+        <div className="mt-8 w-full max-w-4xl rounded-2xl border border-zimson-300/70 bg-white/80 p-4 shadow-sm backdrop-blur-sm md:p-6">
+          <h3 className="text-sm font-semibold text-stone-900">Seeded demo logins</h3>
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[620px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-zimson-200 text-xs uppercase tracking-wide text-stone-500">
                   <th className="py-2 pr-3 font-medium">Email</th>
                   <th className="py-2 pr-3 font-medium">Password</th>
                   <th className="py-2 pr-3 font-medium">Role</th>
-                  <th className="py-2 font-medium">Scope</th>
+                  <th className="py-2 pr-3 font-medium">User</th>
+                  <th className="py-2 font-medium">Login</th>
                 </tr>
               </thead>
               <tbody>
@@ -143,14 +131,16 @@ export function LoginPage() {
                       <button
                         type="button"
                         onClick={() => fillDemo(row)}
-                        className="text-left font-mono text-xs text-zimson-800 underline decoration-zimson-300 underline-offset-2 hover:text-zimson-950"
+                        disabled={!row.canLogin}
+                        className="text-left font-mono text-xs text-zimson-800 underline decoration-zimson-300 underline-offset-2 hover:text-zimson-950 disabled:no-underline disabled:opacity-60"
                       >
                         {row.email}
                       </button>
                     </td>
                     <td className="py-2 pr-3 font-mono text-xs text-stone-600">{row.password}</td>
                     <td className="py-2 pr-3 text-stone-800">{row.role}</td>
-                    <td className="py-2 text-stone-600">{row.note}</td>
+                    <td className="py-2 pr-3 text-stone-600">{row.note}</td>
+                    <td className="py-2 text-stone-600">{row.canLogin ? "Yes" : "No"}</td>
                   </tr>
                 ))}
               </tbody>

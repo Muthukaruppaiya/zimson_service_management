@@ -12,7 +12,7 @@ export function InventoryStoreStockPage() {
       <InventoryBreadcrumb current="Store stock" />
       <PageHeader
         title="Store stock — spares & service watches"
-        description={`Scoped to your store (${user?.displayName ?? "user"}). Quantities and valuations will come from the API; this screen defines the layout.`}
+        description={`Scoped to your store (${user?.displayName ?? "user"}).`}
         actions={
           <Link
             to="/inventory"
@@ -30,7 +30,7 @@ export function InventoryStoreStockPage() {
             transfer. Negative stock blocked at save.
           </p>
           <div className="mt-4 rounded-xl border border-dashed border-zimson-300/80 bg-zimson-50/40 px-4 py-8 text-center text-sm text-stone-500">
-            Table: SKU · description · qty · reserved · bin — wireframe placeholder
+            No stock rows to display.
           </div>
         </Card>
 
@@ -40,7 +40,7 @@ export function InventoryStoreStockPage() {
             and linked to service requests where applicable.
           </p>
           <div className="mt-4 rounded-xl border border-dashed border-zimson-300/80 bg-zimson-50/40 px-4 py-8 text-center text-sm text-stone-500">
-            Table: ref · brand/model · status · linked SR — wireframe placeholder
+            No watches in custody to display.
           </div>
         </Card>
       </div>

@@ -5,6 +5,18 @@ export type ServiceTaxSettings = {
   igstRatePercent: number;
   defaultSacHsn: string;
   pricesTaxInclusive: boolean;
+  srfPrefix: string;
+  srfSuffix: string;
+  prPrefix: string;
+  prSuffix: string;
+  poPrefix: string;
+  poSuffix: string;
+  grnPrefix: string;
+  grnSuffix: string;
+  dcPrefix: string;
+  dcSuffix: string;
+  odcPrefix: string;
+  odcSuffix: string;
   notes: string;
   updatedAt: string;
   updatedBy: string | null;

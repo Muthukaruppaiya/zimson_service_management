@@ -2,6 +2,7 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import type { Pool } from "pg";
+import crypto from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,7 @@ import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { registerQuickBillRoutes } from "./quickBillRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
+import { registerSrfRoutes } from "./srfRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { appendStockHistory } from "./db/stockHistory";
@@ -18,7 +20,6 @@ import { createId } from "../src/lib/id";
 import type { CustomerKind, CustomerRecord } from "../src/types/customer";
 import type { AppNotification } from "../src/types/notification";
 import type { DemoUser, ModuleKey, SessionUser, UserRole } from "../src/types/user";
-import type { SrfJob } from "../src/types/srfJob";
 import { readState, stripPassword, writeState, type AppState } from "./persist";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -26,7 +27,21 @@ const PORT = Number(process.env.PORT) || 4000;
 const COOKIE = "zimson_session";
 const dbPool = createPool();
 
-const sessions = new Map<string, string>();
+type DbUserRow = {
+  id: string;
+  email: string;
+  password_hash: string;
+  display_name: string;
+  role: UserRole;
+  region_id: string | null;
+  store_id: string | null;
+  technician_profile_id: string | null;
+  can_login: boolean;
+  module_access_override: ModuleKey[] | null;
+  is_seed: boolean;
+  created_at: Date | string;
+};
+let userDirectory: DemoUser[] = [];
 
 let queue = Promise.resolve();
 function mutate<T>(fn: (s: AppState) => { next: AppState; result: T }): Promise<T> {
@@ -53,12 +68,43 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out;
 }
 
-function allUsers(state: AppState): DemoUser[] {
-  return [...SEED_USERS, ...state.extraUsers];
+function hashPassword(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex");
 }
 
-function findUser(state: AppState, id: string): DemoUser | undefined {
-  return allUsers(state).find((u) => u.id === id);
+function mapDbUser(row: DbUserRow): DemoUser {
+  return {
+    id: row.id,
+    email: row.email,
+    password: row.password_hash,
+    displayName: row.display_name,
+    role: row.role,
+    regionId: row.region_id,
+    storeId: row.store_id,
+    technicianProfileId: row.technician_profile_id,
+    canLogin: row.can_login,
+    moduleAccessOverride: row.module_access_override ?? null,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
+    isSeed: row.is_seed,
+  };
+}
+
+function allUsers(): DemoUser[] {
+  return userDirectory;
+}
+
+async function refreshUsersFromDb(): Promise<void> {
+  const { rows } = await dbPool.query<DbUserRow>(
+    `SELECT id, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
+            can_login, module_access_override, is_seed, created_at
+     FROM app_users
+     ORDER BY created_at`,
+  );
+  userDirectory = rows.map(mapDbUser);
+}
+
+function findUser(id: string): DemoUser | undefined {
+  return userDirectory.find((u) => u.id === id);
 }
 
 async function pushNotifications(
@@ -84,19 +130,19 @@ async function pushNotifications(
   });
 }
 
-function normalizeJob(raw: SrfJob): SrfJob {
-  return {
-    ...raw,
-    destinationStoreId: raw.destinationStoreId ?? null,
-    outwardDcNumber: raw.outwardDcNumber ?? null,
-    readyForOutwardAt: raw.readyForOutwardAt ?? null,
-  };
-}
-
-function getSessionUserId(req: express.Request): string | null {
+async function getSessionUserId(req: express.Request): Promise<string | null> {
   const sid = parseCookies(req.headers.cookie)[COOKIE];
   if (!sid) return null;
-  return sessions.get(sid) ?? null;
+  const { rows } = await dbPool.query<{ user_id: string }>(
+    `SELECT user_id
+     FROM auth_sessions
+     WHERE id = $1
+       AND revoked_at IS NULL
+       AND expires_at > now()
+     LIMIT 1`,
+    [sid],
+  );
+  return rows[0]?.user_id ?? null;
 }
 
 function makeAlphaNumCode(input: string, fallback: string): string {
@@ -106,7 +152,8 @@ function makeAlphaNumCode(input: string, fallback: string): string {
 
 async function nextDocNumber(
   client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<{ last_value: number }> }> },
-  prefix: "PR" | "PO" | "GRN",
+  prefix: string,
+  suffix: string,
   scopeCode: string,
 ): Promise<string> {
   const yy = String(new Date().getFullYear()).slice(-2);
@@ -119,7 +166,22 @@ async function nextDocNumber(
     [prefix, scopeCode, yy],
   );
   const num = String(seq.rows[0]!.last_value).padStart(4, "0");
-  return `${prefix}${yy}${scopeCode}${num}`;
+  return `${prefix}${yy}${scopeCode}${num}${suffix}`;
+}
+
+async function getSeriesPrefixSuffix(
+  client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
+  doc: "pr",
+): Promise<{ prefix: string; suffix: string }> {
+  const prefixColumn = doc === "pr" ? "pr_prefix" : "pr_prefix";
+  const suffixColumn = doc === "pr" ? "pr_suffix" : "pr_suffix";
+  const { rows } = await client.query(
+    `SELECT ${prefixColumn} AS prefix, ${suffixColumn} AS suffix FROM service_tax_settings WHERE id = 1`,
+  );
+  return {
+    prefix: String(rows[0]?.prefix ?? "PR").trim() || "PR",
+    suffix: String(rows[0]?.suffix ?? "").trim(),
+  };
 }
 
 const STORE_ROLES = new Set<UserRole>([
@@ -171,13 +233,18 @@ function requireAuth(
   res: express.Response,
   next: express.NextFunction,
 ) {
-  const uid = getSessionUserId(req);
-  if (!uid) {
-    res.status(401).json({ error: "Not signed in." });
-    return;
-  }
-  (req as express.Request & { userId: string }).userId = uid;
-  next();
+  void getSessionUserId(req)
+    .then((uid) => {
+      if (!uid) {
+        res.status(401).json({ error: "Not signed in." });
+        return;
+      }
+      (req as express.Request & { userId: string }).userId = uid;
+      next();
+    })
+    .catch(() => {
+      res.status(401).json({ error: "Not signed in." });
+    });
 }
 
 const app = express();
@@ -188,15 +255,51 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "5mb" }));
+app.use("/uploads", express.static(join(process.cwd(), "uploads")));
 
-app.post("/api/auth/login", (req, res) => {
+async function ensureSeedUsers(): Promise<void> {
+  for (const user of SEED_USERS) {
+    await dbPool.query(
+      `INSERT INTO app_users (
+         id, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
+         can_login, module_access_override, is_seed
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, true)
+       ON CONFLICT (id) DO UPDATE
+       SET email = EXCLUDED.email,
+           password_hash = EXCLUDED.password_hash,
+           display_name = EXCLUDED.display_name,
+           role = EXCLUDED.role,
+           region_id = EXCLUDED.region_id,
+           store_id = EXCLUDED.store_id,
+           technician_profile_id = EXCLUDED.technician_profile_id,
+           can_login = EXCLUDED.can_login,
+           module_access_override = EXCLUDED.module_access_override,
+           is_seed = true,
+           updated_at = now()`,
+      [
+        user.id,
+        user.email.toLowerCase(),
+        hashPassword(user.password),
+        user.displayName,
+        user.role,
+        user.regionId,
+        user.storeId,
+        user.technicianProfileId,
+        user.canLogin !== false,
+        JSON.stringify(user.moduleAccessOverride ?? null),
+      ],
+    );
+  }
+}
+
+app.post("/api/auth/login", async (req, res) => {
   const email = String(req.body?.email ?? "")
     .trim()
     .toLowerCase();
   const password = String(req.body?.password ?? "");
-  const state = readState();
-  const found = allUsers(state).find(
-    (u) => u.email.toLowerCase() === email && u.password === password,
+  const users = await allUsers();
+  const found = users.find(
+    (u) => u.email.toLowerCase() === email && u.password === hashPassword(password),
   );
   if (!found) {
     res.status(401).json({ ok: false, message: "Invalid email or password." });
@@ -207,7 +310,11 @@ app.post("/api/auth/login", (req, res) => {
     return;
   }
   const sid = createId("sid");
-  sessions.set(sid, found.id);
+  await dbPool.query(
+    `INSERT INTO auth_sessions (id, user_id, expires_at)
+     VALUES ($1, $2, now() + interval '7 day')`,
+    [sid, found.id],
+  );
   res.cookie(COOKIE, sid, {
     httpOnly: true,
     sameSite: "lax",
@@ -219,31 +326,38 @@ app.post("/api/auth/login", (req, res) => {
 
 app.post("/api/auth/logout", (req, res) => {
   const sid = parseCookies(req.headers.cookie)[COOKIE];
-  if (sid) sessions.delete(sid);
+  if (sid) {
+    void dbPool.query(`UPDATE auth_sessions SET revoked_at = now() WHERE id = $1`, [sid]);
+  }
   res.clearCookie(COOKIE, { path: "/" });
   res.json({ ok: true });
 });
 
-app.get("/api/auth/me", (req, res) => {
-  const uid = getSessionUserId(req);
+app.get("/api/auth/me", async (req, res) => {
+  const uid = await getSessionUserId(req);
   if (!uid) {
     res.json({ user: null });
     return;
   }
-  const state = readState();
-  const u = findUser(state, uid);
+  const u = await findUser(uid);
   res.json({ user: u ? stripPassword(u) : null });
 });
 
-app.get("/api/users", requireAuth, (req, res) => {
+app.get("/api/auth/demo-logins", (_req, res) => {
+  const users = allUsers()
+    .filter((u) => u.isSeed)
+    .map((u) => ({ email: u.email, password: "••••", role: u.role, name: u.displayName }));
+  res.json({ users });
+});
+
+app.get("/api/users", requireAuth, async (req, res) => {
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  let list = allUsers(state).map(stripPassword);
+  let list = (await allUsers()).map(stripPassword);
   if (actor.role === "regional_admin") {
     list = list.filter((u) => u.regionId === actor.regionId);
   } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
@@ -255,8 +369,7 @@ app.get("/api/users", requireAuth, (req, res) => {
 
 app.post("/api/users", requireAuth, async (req, res) => {
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -288,7 +401,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
       return;
     }
   }
-  if (email && allUsers(state).some((u) => u.email.toLowerCase() === email)) {
+  if (email && (await allUsers()).some((u) => u.email.toLowerCase() === email)) {
     res.status(400).json({ ok: false, message: "An account with this email already exists." });
     return;
   }
@@ -312,7 +425,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
   const newUser: DemoUser = {
     id: createId("user"),
     email: email || `${createId("user")}@directory.local`,
-    password: String(input.password ?? "") || createId("pwd"),
+    password: hashPassword(String(input.password ?? "") || createId("pwd")),
     displayName: input.displayName.trim(),
     role: input.role as UserRole,
     regionId: input.regionId,
@@ -323,10 +436,26 @@ app.post("/api/users", requireAuth, async (req, res) => {
     createdAt: new Date().toISOString(),
   };
 
-  await mutate((s) => ({
-    next: { ...s, extraUsers: [...s.extraUsers, newUser] },
-    result: undefined,
-  }));
+  await dbPool.query(
+    `INSERT INTO app_users (
+       id, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
+       can_login, module_access_override, is_seed
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, false)`,
+    [
+      newUser.id,
+      newUser.email,
+      newUser.password,
+      newUser.displayName,
+      newUser.role,
+      newUser.regionId,
+      newUser.storeId,
+      newUser.technicianProfileId,
+      newUser.canLogin !== false,
+      JSON.stringify(newUser.moduleAccessOverride ?? null),
+    ],
+  );
+  await refreshUsersFromDb();
   res.json({ ok: true });
 });
 
@@ -648,8 +777,7 @@ app.get("/api/inventory/prs", requireAuth, async (req, res) => {
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -774,8 +902,7 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -809,7 +936,8 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
     const storeRes = await client.query<{ name: string }>("SELECT name FROM stores WHERE id = $1::text", [actor.storeId]);
     const storeName = storeRes.rows[0]?.name ?? actor.storeId;
     const storeCode = makeAlphaNumCode(storeName, "STR");
-    const prNumber = await nextDocNumber(client, "PR", storeCode);
+    const { prefix, suffix } = await getSeriesPrefixSuffix(client, "pr");
+    const prNumber = await nextDocNumber(client, prefix, suffix, storeCode);
     const createdLabel = await getPrFlowLabel(dbPool, "PR_CREATED");
     const ins = await client.query<{ id: string; prNumber: string }>(
       `INSERT INTO purchase_requests (pr_number, region_id, store_id, status, internal_status_code, internal_status_label, needed_by, notes, created_by, modified_by)
@@ -849,8 +977,7 @@ app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -992,8 +1119,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -1202,7 +1328,7 @@ app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
 app.post("/api/notifications/service-dispatch", requireAuth, async (req, res) => {
   const uid = (req as express.Request & { userId: string }).userId;
   const s = readState();
-  const actor = findUser(s, uid);
+  const actor = await findUser(uid);
   if (!actor || actor.role !== "store_user" || !actor.regionId || !actor.storeId) {
     res.status(403).json({ error: "Only store users can send this notification." });
     return;
@@ -1213,7 +1339,7 @@ app.post("/api/notifications/service-dispatch", requireAuth, async (req, res) =>
     res.status(400).json({ error: "dcNumber and count are required." });
     return;
   }
-  const recipients = allUsers(s)
+  const recipients = (await allUsers())
     .filter(
       (u) =>
         u.regionId === actor.regionId &&
@@ -1234,8 +1360,7 @@ app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor || !STORE_ROLES.has(actor.role) || !actor.storeId || !actor.regionId) {
     res.status(403).json({ error: "Only store roles can inward PR transfer." });
     return;
@@ -1394,8 +1519,7 @@ app.post("/api/inventory/allocations/suggest", requireAuth, async (req, res) => 
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
     res.status(403).json({ error: "Only HO admins can generate allocations." });
     return;
@@ -1500,8 +1624,7 @@ app.post("/api/inventory/allocations/confirm", requireAuth, async (req, res) => 
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
     res.status(403).json({ error: "Only HO admins can confirm allocations." });
     return;
@@ -1690,8 +1813,7 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const state = readState();
-  const actor = findUser(state, uid);
+  const actor = await findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -1871,57 +1993,212 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
   }
 });
 
-app.get("/api/customers", requireAuth, (_req, res) => {
-  const state = readState();
-  res.json({ customers: [...state.customersExtra] });
+function phoneLast10(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+app.get("/api/customers", requireAuth, (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const phone = String(req.query.phone ?? "").trim();
+  (async () => {
+    try {
+      if (!phone) {
+        const { rows } = await dbPool.query<{
+          id: string;
+          displayName: string;
+          phone: string;
+          email: string;
+          address: string | null;
+          city: string | null;
+          customerKind: CustomerKind;
+          company: string | null;
+          gst: string | null;
+          pan: string | null;
+          createdAt: Date;
+        }>(
+          `SELECT id,
+                  display_name AS "displayName",
+                  phone,
+                  email,
+                  address,
+                  city,
+                  customer_kind AS "customerKind",
+                  company,
+                  gst,
+                  pan,
+                  created_at AS "createdAt"
+           FROM customers
+           WHERE is_active = true
+           ORDER BY created_at DESC`,
+        );
+        const customers: CustomerRecord[] = rows.map((r) => ({
+          id: r.id,
+          displayName: r.displayName,
+          phone: r.phone,
+          email: r.email,
+            address: r.address ?? undefined,
+            city: r.city ?? undefined,
+          customerKind: r.customerKind,
+          company: r.company ?? undefined,
+          gst: r.gst ?? undefined,
+          pan: r.pan ?? undefined,
+          createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : new Date(r.createdAt).toISOString(),
+        }));
+        res.json({ customers });
+        return;
+      }
+      const p10 = phoneLast10(phone);
+      const { rows } = await dbPool.query<{
+        id: string;
+        displayName: string;
+        phone: string;
+        email: string;
+        address: string | null;
+        city: string | null;
+        customerKind: CustomerKind;
+        company: string | null;
+        gst: string | null;
+        pan: string | null;
+        createdAt: Date;
+      }>(
+        `SELECT id,
+                display_name AS "displayName",
+                phone,
+                email,
+                address,
+                city,
+                customer_kind AS "customerKind",
+                company,
+                gst,
+                pan,
+                created_at AS "createdAt"
+         FROM customers
+         WHERE is_active = true AND phone_last10 = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [p10],
+      );
+      const row = rows[0];
+      const customer: CustomerRecord | null = row
+        ? {
+            id: row.id,
+            displayName: row.displayName,
+            phone: row.phone,
+            email: row.email,
+            address: row.address ?? undefined,
+            city: row.city ?? undefined,
+            customerKind: row.customerKind,
+            company: row.company ?? undefined,
+            gst: row.gst ?? undefined,
+            pan: row.pan ?? undefined,
+            createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+          }
+        : null;
+      res.json({ customer });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load customers." });
+    }
+  })();
 });
 
 app.post("/api/customers", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
   const body = req.body as {
     displayName: string;
     phone: string;
     email: string;
+    address?: string;
+    city?: string;
     customerKind: CustomerKind;
     company?: string;
     gst?: string;
     pan?: string;
   };
-  const row: CustomerRecord = {
-    id: createId("cust"),
-    displayName: body.displayName.trim(),
-    phone: body.phone.trim(),
-    email: body.email.trim(),
-    customerKind: body.customerKind,
-    company: body.company?.trim() || undefined,
-    gst: body.gst?.trim().toUpperCase() || undefined,
-    pan: body.pan?.trim().toUpperCase() || undefined,
-    createdAt: new Date().toISOString(),
-  };
-  await mutate((s) => ({
-    next: { ...s, customersExtra: [...s.customersExtra, row] },
-    result: undefined,
-  }));
-  res.json({ customer: row });
-});
-
-app.get("/api/srf-jobs", requireAuth, (_req, res) => {
-  const state = readState();
-  const jobs = (state.srfJobs ?? []).map(normalizeJob);
-  res.json({ jobs });
-});
-
-app.put("/api/srf-jobs", requireAuth, async (req, res) => {
-  const body = req.body as { jobs?: SrfJob[] };
-  if (!Array.isArray(body.jobs)) {
-    res.status(400).json({ error: "jobs array required" });
+  const displayName = body.displayName.trim();
+  const phone = body.phone.trim();
+  const email = body.email.trim();
+  const address = body.address?.trim() || null;
+  const city = body.city?.trim() || null;
+  const customerKind = body.customerKind;
+  const company = body.company?.trim() || null;
+  const gst = body.gst?.trim().toUpperCase() || null;
+  const pan = body.pan?.trim().toUpperCase() || null;
+  if (!displayName || !phone) {
+    res.status(400).json({ error: "displayName and phone are required." });
     return;
   }
-  const jobs = body.jobs.map(normalizeJob);
-  await mutate((s) => ({
-    next: { ...s, srfJobs: jobs },
-    result: undefined,
-  }));
-  res.json({ ok: true });
+  const p10 = phoneLast10(phone);
+  if (p10.length !== 10) {
+    res.status(400).json({ error: "Valid 10-digit mobile number is required." });
+    return;
+  }
+  const id = createId("cust");
+  try {
+    const { rows } = await dbPool.query<{
+      id: string;
+      displayName: string;
+      phone: string;
+      email: string;
+      customerKind: CustomerKind;
+      company: string | null;
+      gst: string | null;
+      pan: string | null;
+      createdAt: Date;
+    }>(
+      `INSERT INTO customers (
+         id, display_name, phone, phone_last10, email, address, city, customer_kind, company, gst, pan, created_by, modified_by
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+       RETURNING id,
+                 display_name AS "displayName",
+                 phone,
+                 email,
+                 address,
+                 city,
+                 customer_kind AS "customerKind",
+                 company,
+                 gst,
+                 pan,
+                 created_at AS "createdAt"`,
+      [id, displayName, phone, p10, email, address, city, customerKind, company, gst, pan, actor.id],
+    );
+    const row = rows[0]!;
+    const customer: CustomerRecord = {
+      id: row.id,
+      displayName: row.displayName,
+      phone: row.phone,
+      email: row.email,
+      address: row.address ?? undefined,
+      city: row.city ?? undefined,
+      customerKind: row.customerKind,
+      company: row.company ?? undefined,
+      gst: row.gst ?? undefined,
+      pan: row.pan ?? undefined,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+    };
+    res.json({ customer });
+  } catch (e) {
+    const err = e as { code?: string };
+    if (err.code === "23505") {
+      res.status(400).json({ error: "Customer with this phone already exists." });
+      return;
+    }
+    console.error(e);
+    res.status(500).json({ error: "Could not create customer." });
+  }
 });
 
 /** Static SPA when dist exists (production). */
@@ -1942,18 +2219,20 @@ async function main() {
   }
   try {
     await runMigrations(dbPool);
+    await ensureSeedUsers();
+    await refreshUsersFromDb();
   } catch (e) {
     console.error("PostgreSQL migration failed:", e);
     process.exit(1);
   }
   registerCatalogRoutes(app, dbPool, requireAuth, (id) => {
-    const s = readState();
-    return findUser(s, id) ?? null;
+    return findUser(id) ?? null;
   });
-  registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(readState(), id));
-  registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(readState(), id) ?? null);
-  registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(readState(), id) ?? null);
-  registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(readState(), id) ?? null);
+  registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(id));
+  registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);

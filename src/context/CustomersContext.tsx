@@ -23,6 +23,8 @@ type CustomersContextValue = {
     displayName: string;
     phone: string;
     email: string;
+    address?: string;
+    city?: string;
     customerKind: CustomerKind;
     company?: string;
     gst?: string;
@@ -95,6 +97,8 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       displayName: string;
       phone: string;
       email: string;
+      address?: string;
+      city?: string;
       customerKind: CustomerKind;
       company?: string;
       gst?: string;
@@ -107,6 +111,8 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
             displayName: input.displayName.trim(),
             phone: input.phone.trim(),
             email: input.email.trim(),
+            address: input.address?.trim(),
+            city: input.city?.trim(),
             customerKind: input.customerKind,
             company: input.company?.trim(),
             gst: input.gst?.trim(),
@@ -122,6 +128,8 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         displayName: input.displayName.trim(),
         phone: input.phone.trim(),
         email: input.email.trim(),
+        address: input.address?.trim() || undefined,
+        city: input.city?.trim() || undefined,
         customerKind: input.customerKind,
         company: input.company?.trim() || undefined,
         gst: input.gst?.trim().toUpperCase() || undefined,

@@ -118,7 +118,7 @@ export function InventoryBrandsPage() {
       />
 
       {!api ? (
-        <Card title="API required" subtitle="Local demo mode">
+        <Card title="API required">
           <p className="text-sm text-stone-600">
             Turn on API mode (do not set <span className="font-mono">VITE_USE_API=false</span>) and run the server
             with PostgreSQL to maintain brands here.

@@ -675,13 +675,41 @@ export function InventoryPurchaseRequestsPage() {
                         Store: {pr.storeName ?? pr.storeId} · Region: {pr.regionName ?? pr.regionId} · Status: {pr.status}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setDetailPrId(null)}
-                      className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm"
-                    >
-                      Close
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openPrintDocument(
+                            `PR ${pr.prNumber}`,
+                            buildPrDocument({
+                              prNumber: pr.prNumber,
+                              createdAt: pr.createdAt,
+                              regionId: pr.regionId,
+                              regionName: pr.regionName,
+                              storeId: pr.storeId,
+                              storeName: pr.storeName,
+                              neededBy: pr.neededBy,
+                              notes: pr.notes,
+                              lines: pr.items.map((i) => ({
+                                description: spareNameById.get(i.spareId) ?? i.spareId,
+                                qty: i.qty,
+                                reason: i.reason,
+                              })),
+                            }),
+                          )
+                        }
+                        className="rounded-xl border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-sm font-semibold text-zimson-900"
+                      >
+                        Print document
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDetailPrId(null)}
+                        className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm"
+                      >
+                        Close
+                      </button>
+                    </div>
                   </div>
                   <div className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-4 sm:grid-cols-2">
                     <p className="text-sm text-stone-700">

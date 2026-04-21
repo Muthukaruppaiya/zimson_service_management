@@ -5,7 +5,9 @@ import { Card } from "../../../components/ui/Card";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { useCustomers } from "../../../context/CustomersContext";
 import { isValidGstFormat, isValidPanFormat } from "../../../data/serviceSeed";
+import { apiJson } from "../../../lib/api";
 import type { CustomerKind } from "../../../types/customer";
+import type { CustomerRecord } from "../../../types/customer";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 placeholder:text-stone-400 focus:ring-2";
@@ -22,10 +24,16 @@ export function CustomerRegisterPage() {
   const [displayName, setDisplayName] = useState(initialName);
   const [phone, setPhone] = useState(initialPhone);
   const [email, setEmail] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
   const [company, setCompany] = useState("");
   const [gst, setGst] = useState("");
   const [pan, setPan] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [phoneToCheck, setPhoneToCheck] = useState(initialPhone);
+  const [checking, setChecking] = useState(false);
+  const [checkedCustomer, setCheckedCustomer] = useState<CustomerRecord | null>(null);
+  const [showCreatePopup, setShowCreatePopup] = useState(false);
 
   const hint = useMemo(() => {
     if (searchParams.get("reason") === "new") {
@@ -59,6 +67,8 @@ export function CustomerRegisterPage() {
       displayName,
       phone,
       email,
+      address,
+      city,
       customerKind,
       company: customerKind === "B2B" ? company : undefined,
       gst: customerKind === "B2B" ? gst : undefined,
@@ -67,12 +77,46 @@ export function CustomerRegisterPage() {
     navigate(`/service/billing?customerId=${encodeURIComponent(row.id)}`, { replace: true });
   }
 
+  async function checkByPhone() {
+    setError(null);
+    setCheckedCustomer(null);
+    if (!phoneToCheck.trim()) {
+      setError("Enter mobile number first.");
+      return;
+    }
+    setChecking(true);
+    try {
+      const data = await apiJson<{ customer: CustomerRecord | null }>(
+        `/api/customers?phone=${encodeURIComponent(phoneToCheck.trim())}`,
+      );
+      if (data.customer) {
+        setCheckedCustomer(data.customer);
+        setShowCreatePopup(false);
+        setDisplayName(data.customer.displayName);
+        setPhone(data.customer.phone);
+        setEmail(data.customer.email ?? "");
+        setCustomerKind(data.customer.customerKind);
+        setCompany(data.customer.company ?? "");
+        setGst(data.customer.gst ?? "");
+        setPan(data.customer.pan ?? "");
+      } else {
+        setDisplayName(initialName);
+        setPhone(phoneToCheck);
+        setShowCreatePopup(true);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not check customer.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
   return (
     <div>
       <ServiceBreadcrumb current="Register customer" />
       <PageHeader
         title="Customer registration"
-        description={hint}
+        description="Step 1: check mobile in database. If existing, use same customer. If new, create in popup."
         actions={
           <Link
             to="/service/billing"
@@ -83,8 +127,77 @@ export function CustomerRegisterPage() {
         }
       />
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <Card title="Customer type">
+      <Card title="Check customer by mobile">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <div>
+            <label className="text-xs font-medium text-stone-600">Mobile number *</label>
+            <input
+              value={phoneToCheck}
+              onChange={(e) => setPhoneToCheck(e.target.value)}
+              className={inputClass}
+              placeholder="+91 …"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => void checkByPhone()}
+            disabled={checking}
+            className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {checking ? "Checking..." : "Check number"}
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-stone-500">{hint}</p>
+      </Card>
+
+      {checkedCustomer ? (
+        <Card title="Existing customer found" className="mt-6">
+          <p className="text-sm text-stone-700">
+            <strong>{checkedCustomer.displayName}</strong> · {checkedCustomer.phone}
+          </p>
+          <p className="mt-1 text-sm text-stone-600">
+            Type: {checkedCustomer.customerKind}
+            {checkedCustomer.company ? ` · ${checkedCustomer.company}` : ""}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => navigate(`/service/billing?customerId=${encodeURIComponent(checkedCustomer.id)}`, { replace: true })}
+              className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+            >
+              Use this customer
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCheckedCustomer(null);
+                setShowCreatePopup(true);
+                setDisplayName(initialName);
+                setPhone(phoneToCheck);
+              }}
+              className="rounded-xl border border-zimson-400 bg-white px-5 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Create as new customer
+            </button>
+          </div>
+        </Card>
+      ) : null}
+
+      {showCreatePopup ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-zimson-900">Create new customer</h2>
+              <button
+                type="button"
+                onClick={() => setShowCreatePopup(false)}
+                className="rounded-lg border border-zimson-300 px-3 py-1 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+              >
+                Close
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <Card title="Customer type">
           <div className="flex gap-4">
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <input
@@ -107,9 +220,9 @@ export function CustomerRegisterPage() {
               B2B
             </label>
           </div>
-        </Card>
+              </Card>
 
-        <Card title="Contact">
+              <Card title="Contact">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Full name *</label>
@@ -139,11 +252,29 @@ export function CustomerRegisterPage() {
                 placeholder="optional"
               />
             </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs font-medium text-stone-600">Address</label>
+              <input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                className={inputClass}
+                placeholder="Address line"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-stone-600">City</label>
+              <input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className={inputClass}
+                placeholder="City"
+              />
+            </div>
           </div>
-        </Card>
+              </Card>
 
-        {customerKind === "B2B" ? (
-          <Card title="Business details">
+              {customerKind === "B2B" ? (
+                <Card title="Business details">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium text-stone-600">Company / legal name *</label>
@@ -174,30 +305,34 @@ export function CustomerRegisterPage() {
                 />
               </div>
             </div>
-          </Card>
-        ) : null}
+                </Card>
+              ) : null}
 
-        {error ? (
-          <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
-            {error}
-          </p>
-        ) : null}
+              {error ? (
+                <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
+                  {error}
+                </p>
+              ) : null}
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="submit"
-            className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
-          >
-            Save &amp; continue to bill
-          </button>
-          <Link
-            to="/service/billing"
-            className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-5 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Cancel
-          </Link>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="submit"
+                  className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+                >
+                  Save &amp; continue to bill
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePopup(false)}
+                  className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-5 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </form>
+      ) : null}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import type { SrfJob } from "../../types/srfJob";
+import { printDcDocument } from "../../lib/serviceDocuments";
 
 const selectClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm outline-none ring-zimson-400/40 focus:ring-2";
@@ -103,23 +104,23 @@ export function ScLogisticsPage() {
     setSearchParams(next === "inward" ? {} : { tab: "outward" }, { replace: true });
   }
 
-  function handleInward(e: React.FormEvent) {
+  async function handleInward(e: React.FormEvent) {
     e.preventDefault();
     setInwardMsg(null);
     if (!selectedDc.trim()) {
       setInwardMsg({ type: "err", text: "Choose a pending DC from the list for this HO." });
       return;
     }
-    const result = confirmInwardByDc(selectedDc);
-    if ("error" in result) {
-      setInwardMsg({ type: "err", text: result.error });
-      return;
+    try {
+      const result = await confirmInwardByDc(selectedDc);
+      setInwardMsg({
+        type: "ok",
+        text: `Inward recorded for ${result.updated} watch(es) on DC ${selectedDc}. Supervisor can now assign technicians.`,
+      });
+      setSelectedDc("");
+    } catch (e) {
+      setInwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not inward DC." });
     }
-    setInwardMsg({
-      type: "ok",
-      text: `Inward recorded for ${result.updated} watch(es) on DC ${selectedDc}. Supervisor can now assign technicians.`,
-    });
-    setSelectedDc("");
   }
 
   function destinationFor(jobId: string, originatingStoreId: string) {
@@ -136,7 +137,7 @@ export function ScLogisticsPage() {
     setSelectedOut(next);
   }
 
-  function handleCreateOdc() {
+  async function handleCreateOdc() {
     setOutwardMsg(null);
     const ids = Object.entries(selectedOut)
       .filter(([, v]) => v)
@@ -150,16 +151,18 @@ export function ScLogisticsPage() {
       const dest = destinationFor(jobId, j?.storeId ?? "");
       return { jobId, destinationStoreId: dest };
     });
-    const result = createOutwardBatch(items);
-    if ("error" in result) {
-      setOutwardMsg({ type: "err", text: result.error });
-      return;
+    try {
+      const result = await createOutwardBatch(items);
+      const rows = jobs.filter((j) => ids.includes(j.id));
+      printDcDocument("ODC", result.odcNumber, rows);
+      setOutwardMsg({
+        type: "ok",
+        text: `Outward challan ${result.odcNumber} created. Selected watches are dispatched to their destination stores.`,
+      });
+      setSelectedOut({});
+    } catch (e) {
+      setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not create outward ODC." });
     }
-    setOutwardMsg({
-      type: "ok",
-      text: `Outward challan ${result.odcNumber} created. Selected watches are dispatched to their destination stores.`,
-    });
-    setSelectedOut({});
   }
 
   return (
@@ -196,7 +199,7 @@ export function ScLogisticsPage() {
             title="Inward by delivery challan (DC)"
             subtitle="Pending DCs from stores shipping to this HO only — each line is one store batch, separate from the service centre (HO)"
           >
-            <form onSubmit={handleInward} className="max-w-2xl space-y-4">
+            <form onSubmit={(e) => void handleInward(e)} className="max-w-2xl space-y-4">
               <div>
                 <label htmlFor="dc-pending" className="text-xs font-medium text-stone-600">
                   Select pending DC
@@ -322,7 +325,7 @@ export function ScLogisticsPage() {
                   </label>
                   <button
                     type="button"
-                    onClick={handleCreateOdc}
+                    onClick={() => void handleCreateOdc()}
                     className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
                   >
                     Generate ODC &amp; dispatch

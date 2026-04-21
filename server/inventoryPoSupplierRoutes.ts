@@ -36,7 +36,8 @@ function makeAlphaNumCode(input: string, fallback: string): string {
 
 async function nextDocNumber(
   client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<{ last_value: number }> }> },
-  prefix: "PO" | "GRN",
+  prefix: string,
+  suffix: string,
   scopeCode: string,
 ): Promise<string> {
   const yy = String(new Date().getFullYear()).slice(-2);
@@ -49,7 +50,23 @@ async function nextDocNumber(
     [prefix, scopeCode, yy],
   );
   const num = String(seq.rows[0]!.last_value).padStart(4, "0");
-  return `${prefix}${yy}${scopeCode}${num}`;
+  return `${prefix}${yy}${scopeCode}${num}${suffix}`;
+}
+
+async function getSeriesPrefixSuffix(
+  client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
+  doc: "po" | "grn",
+): Promise<{ prefix: string; suffix: string }> {
+  const prefixColumn = doc === "po" ? "po_prefix" : "grn_prefix";
+  const suffixColumn = doc === "po" ? "po_suffix" : "grn_suffix";
+  const fallback = doc === "po" ? "PO" : "GRN";
+  const { rows } = await client.query(
+    `SELECT ${prefixColumn} AS prefix, ${suffixColumn} AS suffix FROM service_tax_settings WHERE id = 1`,
+  );
+  return {
+    prefix: String(rows[0]?.prefix ?? fallback).trim() || fallback,
+    suffix: String(rows[0]?.suffix ?? "").trim(),
+  };
 }
 
 export function registerInventoryPoSupplierRoutes(
@@ -625,7 +642,8 @@ export function registerInventoryPoSupplierRoutes(
         }
         const regionNameRes = await client.query<{ name: string }>("SELECT name FROM regions WHERE id = $1::text", [draft.regionId]);
         const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? draft.regionId, "REG");
-        const poNumber = await nextDocNumber(client, "PO", regionCode);
+        const poSeries = await getSeriesPrefixSuffix(client, "po");
+        const poNumber = await nextDocNumber(client, poSeries.prefix, poSeries.suffix, regionCode);
         const poIns = await client.query<{ id: string }>(
         `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by)
          VALUES ($1, $2::uuid, NULL, $3, 'OPEN', $4, $5, $5)
@@ -826,7 +844,8 @@ export function registerInventoryPoSupplierRoutes(
 
       const regionNameRes = await client.query<{ name: string }>("SELECT name FROM regions WHERE id = $1::text", [pr.region_id]);
       const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? pr.region_id, "REG");
-      const poNumber = await nextDocNumber(client, "PO", regionCode);
+      const poSeries = await getSeriesPrefixSuffix(client, "po");
+      const poNumber = await nextDocNumber(client, poSeries.prefix, poSeries.suffix, regionCode);
       const insPo = await client.query<{ id: string }>(
         `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by)
          VALUES ($1, $2::uuid, $3::uuid, $4, 'OPEN', $5, $6, $6)
@@ -995,7 +1014,8 @@ export function registerInventoryPoSupplierRoutes(
 
       const regionNameRes = await client.query<{ name: string }>("SELECT name FROM regions WHERE id = $1::text", [po.region_id]);
       const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? po.region_id, "REG");
-      const grnNumber = await nextDocNumber(client, "GRN", regionCode);
+      const grnSeries = await getSeriesPrefixSuffix(client, "grn");
+      const grnNumber = await nextDocNumber(client, grnSeries.prefix, grnSeries.suffix, regionCode);
       const ins = await client.query<{ id: string }>(
         `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, created_by, modified_by)
          VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $9)

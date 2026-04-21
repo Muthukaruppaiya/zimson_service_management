@@ -1,19 +1,41 @@
 /** Store ↔ service centre workflow statuses. */
 export type SrfJobStatus =
+  | "draft"
+  | "photo_pending"
   | "at_store"
   | "in_transit_sc"
   | "received_at_sc"
   | "assigned"
   | "estimate_ok"
+  | "reestimate_required"
   | "ready_for_outward"
-  | "dispatched_to_store";
+  | "dispatched_to_store"
+  | "received_at_store"
+  | "closed";
+
+export type SrfJobPhoto = {
+  id: string;
+  filePath: string;
+  mime: string;
+  bytes: number;
+  createdAt: string;
+};
+
+export type UsedSpareLine = {
+  name: string;
+  qty: number;
+  unitPriceInr?: number | null;
+  lineTotalInr?: number | null;
+};
 
 export type SrfJob = {
   id: string;
   reference: string;
   regionId: string;
+  regionName?: string;
   /** Originating store (where SRF was created). */
   storeId: string;
+  storeName?: string;
   customerName: string;
   phone: string;
   customerKind: "B2C" | "B2B";
@@ -26,6 +48,10 @@ export type SrfJob = {
   selectedPartIds: string[];
   createdAt: string;
   status: SrfJobStatus;
+  photoCount?: number;
+  photos?: SrfJobPhoto[];
+  photoSessionActive?: boolean;
+  captureLinkDisabledAt?: string | null;
   /** Store → SC challan */
   dcNumber: string | null;
   dispatchedToScAt: string | null;
@@ -33,6 +59,15 @@ export type SrfJob = {
   assignedTechnicianId: string | null;
   assignedAt: string | null;
   estimateOkAt: string | null;
+  reestimateRequestedNote?: string | null;
+  reestimateRequestedAt?: string | null;
+  reestimateApprovedNote?: string | null;
+  reestimateApprovedAt?: string | null;
+  usedSpares?: UsedSpareLine[];
+  sparesSlipSubmittedAt?: string | null;
+  sparesSlipSubmittedBy?: string | null;
+  hoSparesBillRef?: string | null;
+  storeBillRef?: string | null;
   /** Repair finished at SC; waiting SC outward (ODC). */
   completedAtSc: string | null;
   readyForOutwardAt: string | null;
@@ -41,10 +76,14 @@ export type SrfJob = {
   /** SC → store challan */
   outwardDcNumber: string | null;
   dispatchedToStoreAt: string | null;
+  receivedBackAtStoreAt?: string | null;
+  closedAt?: string | null;
+  createdBy?: string | null;
+  modifiedBy?: string | null;
+  updatedAt?: string;
 };
 
 export type CreateSrfJobInput = {
-  reference: string;
   regionId: string;
   storeId: string;
   customerName: string;

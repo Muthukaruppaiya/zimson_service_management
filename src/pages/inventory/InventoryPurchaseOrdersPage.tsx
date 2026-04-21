@@ -738,13 +738,51 @@ export function InventoryPurchaseOrdersPage() {
                         PR: {po.prNumber ?? "-"} · Supplier: {po.supplierName} · Status: {po.status}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setDetailPoId(null)}
-                      className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm"
-                    >
-                      Close
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openPrintDocument(
+                            `PO ${po.poNumber}`,
+                            buildPurchaseOrderDocument({
+                              poNumber: po.poNumber,
+                              poDate: po.createdAt,
+                              prNumber: po.prNumber ?? null,
+                              supplier: {
+                                name: suppliers.find((s) => s.id === po.supplierId)?.name ?? po.supplierName,
+                                phone: suppliers.find((s) => s.id === po.supplierId)?.phone ?? undefined,
+                                email: suppliers.find((s) => s.id === po.supplierId)?.email ?? undefined,
+                                address: suppliers.find((s) => s.id === po.supplierId)?.address ?? undefined,
+                                gstin: suppliers.find((s) => s.id === po.supplierId)?.gst ?? undefined,
+                              },
+                              shipTo: { name: `Store ${po.storeName ?? po.storeId ?? "-"} · Region ${po.regionName ?? po.regionId}` },
+                              notes: po.notes,
+                              requestedBy: user?.displayName ?? "-",
+                              requisitioner: user?.displayName ?? "-",
+                              shippedVia: "Road",
+                              fobPoint: "Destination",
+                              terms: "As per agreed rates and delivery schedule",
+                              lines: po.items.map((i) => ({
+                                description: spareLabel.get(i.spareId) ?? i.spareId,
+                                qty: i.qtyOrdered,
+                                unit: "Nos",
+                                unitPrice: i.unitPrice,
+                              })),
+                            }),
+                          )
+                        }
+                        className="rounded-xl border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-sm font-semibold text-zimson-900"
+                      >
+                        Print document
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDetailPoId(null)}
+                        className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm"
+                      >
+                        Close
+                      </button>
+                    </div>
                   </div>
                   <div className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-4 sm:grid-cols-2">
                     <p className="text-sm text-stone-700">

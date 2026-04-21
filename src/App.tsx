@@ -15,7 +15,8 @@ import { QuickBillPage } from "./pages/service/QuickBillPage";
 import { ServiceModulePage } from "./pages/service/ServiceModulePage";
 import { CustomerRegisterPage } from "./pages/service/customers/CustomerRegisterPage";
 import { ServiceBillingPage } from "./pages/service/ServiceBillingPage";
-import { SrfBookingPage } from "./pages/service/SrfBookingPage";
+import { SrfBookingV2Page } from "./pages/service/SrfBookingV2Page";
+import { StoreBillingPage } from "./pages/service/StoreBillingPage";
 import { StoreDispatchPage } from "./pages/service/StoreDispatchPage";
 import { ScInwardPage } from "./pages/serviceCentre/ScInwardPage";
 import { ScLogisticsPage } from "./pages/serviceCentre/ScLogisticsPage";
@@ -37,6 +38,7 @@ import { InventoryStockPriceOverviewPage } from "./pages/inventory/InventoryStoc
 import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPage";
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
+import { SrfPhotoCapturePage } from "./pages/public/SrfPhotoCapturePage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
   const { search } = useLocation();
@@ -54,6 +56,7 @@ export default function App() {
             <SparesProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/service/srf-capture" element={<SrfPhotoCapturePage />} />
             <Route element={<RequireAuth />}>
               <Route element={<AppShell />}>
                 <Route
@@ -84,7 +87,7 @@ export default function App() {
                   path="/service/srf"
                   element={
                     <ModuleRoute module="service">
-                      <SrfBookingPage />
+                      <SrfBookingV2Page />
                     </ModuleRoute>
                   }
                 />
@@ -93,6 +96,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service">
                       <StoreDispatchPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/store-billing"
+                  element={
+                    <ModuleRoute module="service">
+                      <StoreBillingPage />
                     </ModuleRoute>
                   }
                 />
