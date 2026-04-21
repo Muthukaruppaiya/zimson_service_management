@@ -5,6 +5,7 @@ import path from "node:path";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser, UserRole } from "../src/types/user";
+import { sendTrackingLink, trackingBaseUrl } from "./notificationService";
 
 type Authed = Request & { userId: string };
 
@@ -110,6 +111,57 @@ function tokenHash(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
+function phoneLast10(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+async function getOrCreateTrackingToken(client: PoolClient, phone: string): Promise<string> {
+  const p10 = phoneLast10(phone);
+  if (!p10) throw new Error("Invalid customer phone for tracking.");
+  const existing = await client.query<{ token_plain: string }>(
+    `SELECT token_plain
+     FROM customer_tracking_tokens
+     WHERE phone_last10 = $1
+       AND is_active = true
+     LIMIT 1`,
+    [p10],
+  );
+  if (existing.rows[0]?.token_plain) return existing.rows[0].token_plain;
+
+  const token = crypto.randomBytes(24).toString("hex");
+  await client.query(
+    `INSERT INTO customer_tracking_tokens (token_plain, token_hash, phone_last10, is_active)
+     VALUES ($1, $2, $3, true)
+     ON CONFLICT (phone_last10) DO UPDATE SET
+       token_plain = EXCLUDED.token_plain,
+       token_hash = EXCLUDED.token_hash,
+       is_active = true,
+       disabled_at = NULL`,
+    [token, tokenHash(token), p10],
+  );
+  return token;
+}
+
+async function maybeDisableTrackingToken(client: PoolClient, phone: string): Promise<void> {
+  const p10 = phoneLast10(phone);
+  if (!p10) return;
+  const openRows = await client.query<{ c: number }>(
+    `SELECT COUNT(*)::int AS c
+     FROM srf_jobs
+     WHERE RIGHT(regexp_replace(phone, '\D', '', 'g'), 10) = $1
+       AND status <> 'closed'`,
+    [p10],
+  );
+  if ((openRows.rows[0]?.c ?? 0) > 0) return;
+  await client.query(
+    `UPDATE customer_tracking_tokens
+     SET is_active = false, disabled_at = now()
+     WHERE phone_last10 = $1`,
+    [p10],
+  );
+}
+
 async function appendStatusHistory(
   client: PoolClient,
   srfId: string,
@@ -206,6 +258,8 @@ export function registerSrfRoutes(
                 j.reestimate_requested_at AS "reestimateRequestedAt",
                 j.reestimate_approved_note AS "reestimateApprovedNote",
                 j.reestimate_approved_at AS "reestimateApprovedAt",
+                j.customer_reestimate_response AS "customerReestimateResponse",
+                j.customer_reestimate_responded_at AS "customerReestimateRespondedAt",
                 j.used_spares AS "usedSpares",
                 j.spares_slip_submitted_at AS "sparesSlipSubmittedAt",
                 j.spares_slip_submitted_by AS "sparesSlipSubmittedBy",
@@ -445,8 +499,25 @@ export function registerSrfRoutes(
         [srfId],
       );
       await appendStatusHistory(client, srfId, "at_store", actor.id, "SRF finalized after OTP.");
+      const refRows = await client.query<{ reference: string; customer_name: string; phone: string }>(
+        `SELECT reference, customer_name, phone FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const refRow = refRows.rows[0];
+      const trackingToken = await getOrCreateTrackingToken(client, refRow?.phone ?? "");
+      await client.query(
+        `UPDATE customer_tracking_tokens SET last_sent_at = now() WHERE phone_last10 = $1`,
+        [phoneLast10(refRow?.phone ?? "")],
+      );
       await client.query("COMMIT");
-      res.json({ ok: true });
+      const trackingUrl = `${trackingBaseUrl()}/track?t=${encodeURIComponent(trackingToken)}`;
+      await sendTrackingLink({
+        phone: refRow?.phone ?? "",
+        name: refRow?.customer_name ?? "Customer",
+        trackingUrl,
+        srfReference: refRow?.reference ?? "",
+      }).catch(() => {});
+      res.json({ ok: true, trackingUrl });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -1125,10 +1196,12 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Only received SRF with submitted spares slip at your store can be closed." });
         return;
       }
+      const srfPhone = await pool.query<{ phone: string }>(`SELECT phone FROM srf_jobs WHERE id = $1::uuid`, [srfId]);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
         await appendStatusHistory(client, srfId, "closed", actor.id, "Closed after customer invoice.");
+        await maybeDisableTrackingToken(client, srfPhone.rows[0]?.phone ?? "");
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
@@ -1139,6 +1212,190 @@ export function registerSrfRoutes(
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not close SRF." });
+    }
+  });
+
+  app.get("/api/public/srf-track", async (req, res) => {
+    const token = String(req.query.t ?? "").trim();
+    if (!token) {
+      res.status(400).json({ error: "Tracking token is required." });
+      return;
+    }
+    try {
+      const tokenRow = await pool.query<{ phone_last10: string; disabled_at: Date | null; is_active: boolean }>(
+        `SELECT phone_last10, disabled_at, is_active
+         FROM customer_tracking_tokens
+         WHERE token_hash = $1
+         LIMIT 1`,
+        [tokenHash(token)],
+      );
+      const row = tokenRow.rows[0];
+      if (!row) {
+        res.status(404).json({ error: "Invalid tracking link." });
+        return;
+      }
+      if (row.disabled_at || row.is_active === false) {
+        res.json({ disabled: true, customer: null, jobs: [] });
+        return;
+      }
+
+      const jobsRes = await pool.query<
+        {
+          id: string;
+          reference: string;
+          customerName: string;
+          phone: string;
+          watchBrand: string;
+          watchModel: string;
+          serial: string;
+          status: string;
+          complaint: string;
+          estimateTotalInr: number;
+          reestimateRequestedNote: string | null;
+          customerReestimateResponse: string | null;
+          createdAt: string;
+        }
+      >(
+        `SELECT j.id,
+                j.reference,
+                j.customer_name AS "customerName",
+                j.phone,
+                j.watch_brand AS "watchBrand",
+                j.watch_model AS "watchModel",
+                j.serial,
+                j.status,
+                j.complaint,
+                j.estimate_total_inr::float8 AS "estimateTotalInr",
+                j.reestimate_requested_note AS "reestimateRequestedNote",
+                j.customer_reestimate_response AS "customerReestimateResponse",
+                j.created_at AS "createdAt"
+         FROM srf_jobs j
+         WHERE RIGHT(regexp_replace(j.phone, '\D', '', 'g'), 10) = $1
+         ORDER BY j.created_at DESC`,
+        [row.phone_last10],
+      );
+
+      const ids = jobsRes.rows.map((x) => x.id);
+      const historyRows =
+        ids.length > 0
+          ? await pool.query<{ id: string; srf_id: string; status: string; note: string; changed_at: string }>(
+              `SELECT id, srf_id, status, note, changed_at
+               FROM srf_status_history
+               WHERE srf_id = ANY($1::uuid[])
+               ORDER BY changed_at DESC`,
+              [ids],
+            )
+          : { rows: [] as Array<{ id: string; srf_id: string; status: string; note: string; changed_at: string }> };
+
+      const historyBySrf = new Map<string, Array<{ id: string; status: string; note: string; changedAt: string }>>();
+      for (const h of historyRows.rows) {
+        const list = historyBySrf.get(h.srf_id) ?? [];
+        list.push({ id: h.id, status: h.status, note: h.note, changedAt: h.changed_at });
+        historyBySrf.set(h.srf_id, list);
+      }
+
+      const jobs = jobsRes.rows.map((j) => ({
+        ...j,
+        timeline: historyBySrf.get(j.id) ?? [],
+      }));
+      const customer = jobs[0]
+        ? {
+            name: jobs[0].customerName,
+            phone: jobs[0].phone,
+          }
+        : null;
+
+      if (jobs.length === 0) {
+        await pool.query(
+          `UPDATE customer_tracking_tokens
+           SET is_active = false, disabled_at = now()
+           WHERE phone_last10 = $1`,
+          [row.phone_last10],
+        );
+        res.json({ disabled: true, customer: null, jobs: [] });
+        return;
+      }
+      res.json({ disabled: false, customer, jobs });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load tracking details." });
+    }
+  });
+
+  app.post("/api/public/srf-track/reestimate-response", async (req, res) => {
+    const token = String(req.body?.token ?? "").trim();
+    const srfId = String(req.body?.srfId ?? "").trim();
+    const accepted = Boolean(req.body?.accepted);
+    const note = String(req.body?.note ?? "").trim();
+    if (!token || !srfId) {
+      res.status(400).json({ error: "token and srfId are required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const tokenRes = await client.query<{ phone_last10: string; disabled_at: Date | null; is_active: boolean }>(
+        `SELECT phone_last10, disabled_at, is_active
+         FROM customer_tracking_tokens
+         WHERE token_hash = $1
+         FOR UPDATE`,
+        [tokenHash(token)],
+      );
+      const tokenRow = tokenRes.rows[0];
+      if (!tokenRow || tokenRow.disabled_at || tokenRow.is_active === false) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "This tracking link is disabled." });
+        return;
+      }
+      const srfRes = await client.query<{ id: string; status: string; phone: string }>(
+        `SELECT id, status, phone
+         FROM srf_jobs
+         WHERE id = $1::uuid
+         FOR UPDATE`,
+        [srfId],
+      );
+      const srf = srfRes.rows[0];
+      if (!srf || phoneLast10(srf.phone) !== tokenRow.phone_last10) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "SRF is not linked to this customer." });
+        return;
+      }
+      if (srf.status !== "reestimate_required") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Re-estimate response is not allowed for this SRF status." });
+        return;
+      }
+      if (accepted) {
+        await client.query(
+          `UPDATE srf_jobs
+           SET status = 'assigned',
+               customer_reestimate_response = 'accepted',
+               customer_reestimate_responded_at = now(),
+               updated_at = now()
+           WHERE id = $1::uuid`,
+          [srfId],
+        );
+        await appendStatusHistory(client, srfId, "assigned", null, note || "Customer accepted re-estimate.");
+      } else {
+        await client.query(
+          `UPDATE srf_jobs
+           SET status = 'customer_rejected',
+               customer_reestimate_response = 'rejected',
+               customer_reestimate_responded_at = now(),
+               updated_at = now()
+           WHERE id = $1::uuid`,
+          [srfId],
+        );
+        await appendStatusHistory(client, srfId, "customer_rejected", null, note || "Customer rejected re-estimate.");
+      }
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not save re-estimate response." });
+    } finally {
+      client.release();
     }
   });
 

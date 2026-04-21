@@ -39,6 +39,7 @@ import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPa
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
 import { SrfPhotoCapturePage } from "./pages/public/SrfPhotoCapturePage";
+import { SrfTrackingPage } from "./pages/public/SrfTrackingPage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
   const { search } = useLocation();
@@ -57,6 +58,7 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/service/srf-capture" element={<SrfPhotoCapturePage />} />
+            <Route path="/track" element={<SrfTrackingPage />} />
             <Route element={<RequireAuth />}>
               <Route element={<AppShell />}>
                 <Route

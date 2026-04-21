@@ -164,6 +164,19 @@ CREATE INDEX IF NOT EXISTS idx_customers_created ON customers (created_at DESC);
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS city VARCHAR(120);
 
+CREATE TABLE IF NOT EXISTS customer_tracking_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_plain VARCHAR(64) NOT NULL UNIQUE,
+  token_hash VARCHAR(128) NOT NULL UNIQUE,
+  phone_last10 VARCHAR(10) NOT NULL UNIQUE,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  disabled_at TIMESTAMPTZ,
+  last_sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ctt_phone ON customer_tracking_tokens (phone_last10);
+
 CREATE TABLE IF NOT EXISTS spare_stock (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE CASCADE,
@@ -516,6 +529,9 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS spares_slip_submitted_at TIMESTAMP
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS spares_slip_submitted_by VARCHAR(80);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS ho_spares_bill_ref VARCHAR(120);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_bill_ref VARCHAR(120);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_reestimate_response VARCHAR(10)
+  CHECK (customer_reestimate_response IN ('accepted', 'rejected'));
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_reestimate_responded_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS srf_job_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

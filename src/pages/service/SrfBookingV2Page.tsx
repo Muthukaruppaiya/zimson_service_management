@@ -49,6 +49,7 @@ export function SrfBookingV2Page() {
   const [partsExtra, setPartsExtra] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [srfRef, setSrfRef] = useState<string | null>(null);
+  const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
@@ -351,7 +352,7 @@ export function SrfBookingV2Page() {
   async function finalizeAndPrint() {
     try {
       const row = await ensureDraft();
-      await finalizeJob(row.srfId, { complaint, estimateTotalInr: estimateTotal, selectedPartIds });
+      const out = await finalizeJob(row.srfId, { complaint, estimateTotalInr: estimateTotal, selectedPartIds });
       printSrfDocument({
         reference: row.reference,
         customerName,
@@ -363,6 +364,7 @@ export function SrfBookingV2Page() {
         estimateTotalInr: estimateTotal,
       });
       setSrfRef(row.reference);
+      setTrackingUrl(out.trackingUrl ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create SRF.");
     }
@@ -392,6 +394,20 @@ export function SrfBookingV2Page() {
               Go to dispatch
             </Link>
           </div>
+          {trackingUrl ? (
+            <div className="mt-5 rounded-xl border border-zimson-200 bg-zimson-50/40 p-4">
+              <p className="text-sm font-semibold text-zimson-900">Customer tracking link</p>
+              <p className="mt-1 break-all font-mono text-xs text-stone-700">{trackingUrl}</p>
+              <p className="mt-1 text-xs text-stone-600">Share this URL with the customer via SMS/WhatsApp.</p>
+              <div className="mt-3">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(trackingUrl)}`}
+                  alt="tracking qr"
+                  className="h-[150px] w-[150px] rounded border border-zimson-200 bg-white p-1"
+                />
+              </div>
+            </div>
+          ) : null}
         </Card>
       </div>
     );

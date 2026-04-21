@@ -8,6 +8,7 @@ export type SrfJobStatus =
   | "assigned"
   | "estimate_ok"
   | "reestimate_required"
+  | "customer_rejected"
   | "ready_for_outward"
   | "dispatched_to_store"
   | "received_at_store"
@@ -63,6 +64,8 @@ export type SrfJob = {
   reestimateRequestedAt?: string | null;
   reestimateApprovedNote?: string | null;
   reestimateApprovedAt?: string | null;
+  customerReestimateResponse?: "accepted" | "rejected" | null;
+  customerReestimateRespondedAt?: string | null;
   usedSpares?: UsedSpareLine[];
   sparesSlipSubmittedAt?: string | null;
   sparesSlipSubmittedBy?: string | null;

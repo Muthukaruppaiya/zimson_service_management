@@ -8,7 +8,10 @@ type SrfJobsContextValue = {
   refreshJobs: () => Promise<void>;
   createDraftJob: (input: CreateSrfJobInput) => Promise<{ srfId: string; reference: string; token: string; captureUrl: string }>;
   refreshPhotoSession: (srfId: string) => Promise<{ token: string; captureUrl: string }>;
-  finalizeJob: (srfId: string, payload: { complaint: string; estimateTotalInr: number; selectedPartIds: string[] }) => Promise<void>;
+  finalizeJob: (
+    srfId: string,
+    payload: { complaint: string; estimateTotalInr: number; selectedPartIds: string[] },
+  ) => Promise<{ trackingUrl?: string }>;
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
   confirmInwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
@@ -59,11 +62,12 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
 
   const finalizeJob = useCallback(
     async (srfId: string, payload: { complaint: string; estimateTotalInr: number; selectedPartIds: string[] }) => {
-      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`, {
+      const out = await apiJson<{ trackingUrl?: string }>(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`, {
         method: "POST",
         json: payload,
       });
       await refreshJobs();
+      return out;
     },
     [refreshJobs],
   );

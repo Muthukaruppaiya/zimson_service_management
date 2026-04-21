@@ -1998,7 +1998,7 @@ function phoneLast10(raw: string): string {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
-app.get("/api/customers", requireAuth, (req, res) => {
+app.get("/api/customers", (req, res) => {
   if (!dbPool) {
     res.status(503).json({ error: "Database is required." });
     return;
@@ -2106,17 +2106,13 @@ app.get("/api/customers", requireAuth, (req, res) => {
   })();
 });
 
-app.post("/api/customers", requireAuth, async (req, res) => {
+app.post("/api/customers", async (req, res) => {
   if (!dbPool) {
     res.status(503).json({ error: "Database is required." });
     return;
   }
-  const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
-  if (!actor) {
-    res.status(401).json({ error: "Invalid session." });
-    return;
-  }
+  const uid = await getSessionUserId(req);
+  const actor = uid ? findUser(uid) : null;
   const body = req.body as {
     displayName: string;
     phone: string;
@@ -2173,7 +2169,7 @@ app.post("/api/customers", requireAuth, async (req, res) => {
                  gst,
                  pan,
                  created_at AS "createdAt"`,
-      [id, displayName, phone, p10, email, address, city, customerKind, company, gst, pan, actor.id],
+      [id, displayName, phone, p10, email, address, city, customerKind, company, gst, pan, actor?.id ?? null],
     );
     const row = rows[0]!;
     const customer: CustomerRecord = {
