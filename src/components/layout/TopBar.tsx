@@ -8,12 +8,28 @@ import type { AppNotification } from "../../types/notification";
 
 function roleLabel(role: string) {
   switch (role) {
+    case "ho_admin":
+      return "HO Admin";
+    case "ho_manager":
+      return "HO Manager";
+    case "ho_supervisor":
+      return "HO Supervisor";
+    case "ho_user":
+      return "HO User";
+    case "ho_accounts":
+      return "HO Accounts";
     case "super_admin":
       return "Super Admin";
     case "regional_admin":
       return "Regional Admin";
     case "store_user":
       return "Store user";
+    case "store_purchase_user":
+      return "Store Purchase";
+    case "store_manager":
+      return "Store Manager";
+    case "store_accounts":
+      return "Store Accounts";
     case "service_centre_clerk":
       return "SC inward";
     case "service_centre_supervisor":
@@ -33,7 +49,7 @@ export function TopBar() {
 
   const items = useMemo(() => {
     if (!user) return [];
-    return mainNav.filter((item) => canAccessModule(user.role, item.module));
+    return mainNav.filter((item) => canAccessModule(user, item.module));
   }, [user]);
 
   async function handleLogout() {
@@ -72,7 +88,7 @@ export function TopBar() {
   const unread = notifications.filter((n) => !n.isRead).length;
 
   return (
-    <header className="sticky top-0 z-10 border-b border-zimson-300/60 bg-zimson-50/95 backdrop-blur">
+    <header className="print:hidden sticky top-0 z-10 border-b border-zimson-300/60 bg-zimson-50/95 backdrop-blur">
       <div className="flex h-14 items-center justify-between gap-4 px-4 md:px-8">
         <div className="flex min-w-0 items-center gap-3 md:hidden">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zimson-500 text-xs font-bold text-white">

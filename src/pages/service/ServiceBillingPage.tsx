@@ -3,7 +3,10 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { useAuth } from "../../context/AuthContext";
 import { useCustomers } from "../../context/CustomersContext";
+import { canAccessModule } from "../../config/moduleAccess";
+import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { phoneLast10 } from "../../lib/customerLookup";
 import type { CustomerRecord } from "../../types/customer";
 
@@ -28,6 +31,8 @@ function nextBillRef() {
 }
 
 export function ServiceBillingPage() {
+  const apiMode = useApiMode();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { lookup, getById } = useCustomers();
@@ -41,6 +46,8 @@ export function ServiceBillingPage() {
 
   const [lines, setLines] = useState<LineItem[]>([emptyLine()]);
   const [taxPercent, setTaxPercent] = useState("18");
+  const [pricesTaxInclusive, setPricesTaxInclusive] = useState(false);
+  const [defaultSacHsn, setDefaultSacHsn] = useState("9987");
   const [billRef, setBillRef] = useState<string | null>(null);
 
   const customerIdParam = searchParams.get("customerId");
@@ -55,6 +62,33 @@ export function ServiceBillingPage() {
       setError(null);
     }
   }, [customerIdParam, getById]);
+
+  useEffect(() => {
+    if (!apiMode) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await apiJson<{
+          settings: {
+            gstRatePercent: number;
+            pricesTaxInclusive: boolean;
+            defaultSacHsn: string;
+          };
+        }>("/api/settings/tax");
+        if (cancelled) return;
+        setTaxPercent(String(data.settings.gstRatePercent));
+        setPricesTaxInclusive(data.settings.pricesTaxInclusive);
+        setDefaultSacHsn(data.settings.defaultSacHsn.trim() || "9987");
+      } catch (e) {
+        if (!cancelled && e instanceof ApiError && e.status !== 401) {
+          /* keep local defaults */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiMode]);
 
   function goRegisterNew(reason: "new" | "choice" = "new") {
     const q = new URLSearchParams();
@@ -137,14 +171,28 @@ export function ServiceBillingPage() {
     setLines((prev) => (prev.length <= 1 ? prev : prev.filter((l) => l.id !== id)));
   }
 
-  const subtotal = lines.reduce((sum, l) => {
+  const lineTotal = lines.reduce((sum, l) => {
     const q = Number.parseFloat(l.qty) || 0;
     const r = Number.parseFloat(l.rate) || 0;
     return sum + q * r;
   }, 0);
   const taxPct = Number.parseFloat(taxPercent) || 0;
-  const taxAmt = (subtotal * taxPct) / 100;
-  const grandTotal = subtotal + taxAmt;
+  let taxableValue: number;
+  let taxAmt: number;
+  let grandTotal: number;
+  if (pricesTaxInclusive) {
+    const divisor = 1 + taxPct / 100;
+    taxableValue = divisor > 0 ? lineTotal / divisor : lineTotal;
+    taxAmt = Math.max(0, lineTotal - taxableValue);
+    grandTotal = lineTotal;
+  } else {
+    taxableValue = lineTotal;
+    taxAmt = (taxableValue * taxPct) / 100;
+    grandTotal = lineTotal + taxAmt;
+  }
+  const cgstAmt = taxPct > 0 ? taxAmt / 2 : 0;
+  const sgstAmt = taxPct > 0 ? taxAmt - cgstAmt : 0;
+  const canOpenTaxSettings = user ? canAccessModule(user, "settings") : false;
 
   function recordBill(e: React.FormEvent) {
     e.preventDefault();
@@ -174,9 +222,24 @@ export function ServiceBillingPage() {
           <p className="mt-2 text-sm text-stone-600">
             Bill to: <strong>{selectedCustomer.displayName}</strong> · {selectedCustomer.phone}
           </p>
+          <p className="mt-2 text-sm text-stone-600">
+            Taxable value:{" "}
+            <span className="font-semibold text-stone-900">
+              {taxableValue.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+            </span>
+            {taxPct > 0 ? (
+              <>
+                {" "}
+                · CGST {cgstAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })} · SGST{" "}
+                {sgstAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+              </>
+            ) : null}
+          </p>
           <p className="mt-2 text-lg font-semibold text-stone-900">
             Total: {grandTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}{" "}
-            <span className="text-sm font-normal text-stone-500">(incl. {taxPct}% tax)</span>
+            <span className="text-sm font-normal text-stone-500">
+              ({pricesTaxInclusive ? "rates tax-inclusive" : `${taxPct}% GST on taxable value`})
+            </span>
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
@@ -192,6 +255,14 @@ export function ServiceBillingPage() {
             >
               Service home
             </Link>
+            {canOpenTaxSettings ? (
+              <Link
+                to="/settings/tax"
+                className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              >
+                Tax settings
+              </Link>
+            ) : null}
           </div>
         </Card>
       </div>
@@ -224,6 +295,14 @@ export function ServiceBillingPage() {
             >
               Service home
             </Link>
+            {canOpenTaxSettings ? (
+              <Link
+                to="/settings/tax"
+                className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              >
+                Tax &amp; billing
+              </Link>
+            ) : null}
           </div>
         }
       />
@@ -471,26 +550,77 @@ export function ServiceBillingPage() {
                 ))}
               </div>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-xs font-medium text-stone-600">Tax % (GST)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={taxPercent}
-                    onChange={(e) => setTaxPercent(e.target.value)}
-                    className={inputClass}
-                  />
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-stone-600">Tax % (GST on taxable value)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={taxPercent}
+                      onChange={(e) => setTaxPercent(e.target.value)}
+                      className={inputClass}
+                    />
+                    {apiMode ? (
+                      <p className="mt-1 text-xs text-stone-500">
+                        Default loaded from organisation settings. Default SAC/HSN for invoices:{" "}
+                        <span className="font-mono font-medium text-stone-700">{defaultSacHsn}</span>
+                        {canOpenTaxSettings ? (
+                          <>
+                            {" "}
+                            ·{" "}
+                            <Link to="/settings/tax" className="font-medium text-zimson-800 underline">
+                              Edit in Tax &amp; billing
+                            </Link>
+                          </>
+                        ) : null}
+                      </p>
+                    ) : null}
+                  </div>
+                  {pricesTaxInclusive ? (
+                    <p className="rounded-lg bg-zimson-50 px-3 py-2 text-xs text-stone-700 ring-1 ring-zimson-200/80">
+                      <strong>Tax-inclusive rates</strong> are on (from settings when API is on). Line totals include
+                      GST; taxable value is backed out using the % above.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-stone-500">
+                      Line rates are <strong>tax-exclusive</strong> unless changed in Tax &amp; billing settings.
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col justify-end text-right text-sm">
                   <p className="text-stone-600">
-                    Subtotal:{" "}
+                    {pricesTaxInclusive ? "Gross from lines (incl. GST)" : "Subtotal (excl. GST)"}{" "}
                     <span className="font-semibold text-stone-900">
-                      {subtotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      {lineTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
                     </span>
                   </p>
+                  {pricesTaxInclusive ? (
+                    <p className="text-stone-600">
+                      Taxable (backed out):{" "}
+                      <span className="font-semibold text-stone-900">
+                        {taxableValue.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </span>
+                    </p>
+                  ) : null}
+                  {taxPct > 0 ? (
+                    <>
+                      <p className="text-stone-600">
+                        CGST (½ of GST):{" "}
+                        <span className="font-semibold text-stone-900">
+                          {cgstAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        </span>
+                      </p>
+                      <p className="text-stone-600">
+                        SGST (½ of GST):{" "}
+                        <span className="font-semibold text-stone-900">
+                          {sgstAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        </span>
+                      </p>
+                    </>
+                  ) : null}
                   <p className="text-stone-600">
-                    Tax:{" "}
+                    Total GST:{" "}
                     <span className="font-semibold text-stone-900">
                       {taxAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
                     </span>

@@ -5,6 +5,7 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { buildPrDocument, buildTransferDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import { useEffect, useMemo, useState } from "react";
 
 type PrItem = { id: string; spareId: string; qty: number; issuedQty: number; receivedQty: number; reason: string };
@@ -12,8 +13,12 @@ type PrRow = {
   id: string;
   prNumber: string;
   regionId: string;
+  regionName?: string;
   storeId: string;
+  storeName?: string;
   status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "PARTIAL" | "FULFILLED";
+  internalStatusCode?: string;
+  internalStatusLabel?: string;
   neededBy: string | null;
   notes: string;
   createdBy: string;
@@ -25,11 +30,20 @@ type PrRow = {
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2";
 
+function statusPillClass(status: PrRow["status"]): string {
+  if (status === "APPROVED" || status === "FULFILLED") return "bg-emerald-100 text-emerald-800";
+  if (status === "PARTIAL" || status === "SUBMITTED") return "bg-amber-100 text-amber-800";
+  if (status === "REJECTED") return "bg-red-100 text-red-800";
+  return "bg-stone-100 text-stone-700";
+}
+
 export function InventoryPurchaseRequestsPage() {
   const { user } = useAuth();
   const { spares } = useSpares();
-  const isStore = user?.role === "store_user";
-  const isHo = user?.role === "regional_admin" || user?.role === "super_admin";
+  const isStoreCreator = user?.role === "store_user" || user?.role === "store_purchase_user";
+  const isStoreManager = user?.role === "store_manager";
+  const isStoreAny = isStoreCreator || isStoreManager || user?.role === "store_accounts";
+  const isHo = user?.role === "regional_admin" || user?.role === "super_admin" || user?.role === "ho_admin" || user?.role === "ho_manager" || user?.role === "ho_user";
   const [neededBy, setNeededBy] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<Array<{ spareId: string; qty: string; reason: string }>>([
@@ -42,6 +56,8 @@ export function InventoryPurchaseRequestsPage() {
   const [detailPrId, setDetailPrId] = useState<string | null>(null);
   const [fulfillPrId, setFulfillPrId] = useState<string | null>(null);
   const [fulfillQty, setFulfillQty] = useState<Record<string, string>>({});
+  const [hoStockByItem, setHoStockByItem] = useState<Record<string, number>>({});
+  const [hoStockLoading, setHoStockLoading] = useState(false);
   const [inwardPrId, setInwardPrId] = useState<string | null>(null);
   const [inwardQty, setInwardQty] = useState<Record<string, string>>({});
 
@@ -64,7 +80,7 @@ export function InventoryPurchaseRequestsPage() {
     void loadPrs();
   }, []);
 
-  async function createPr(status: "DRAFT" | "SUBMITTED") {
+  async function createPr() {
     const parsed = lines
       .map((l) => ({ spareId: l.spareId, qty: Number(l.qty), reason: l.reason.trim() }))
       .filter((l) => l.spareId && !Number.isNaN(l.qty) && l.qty > 0);
@@ -79,13 +95,31 @@ export function InventoryPurchaseRequestsPage() {
       const data = await apiJson<{ prNumber: string }>("/api/inventory/prs", {
         method: "POST",
         json: {
-          status,
           neededBy: neededBy || null,
           notes,
           items: parsed,
         },
       });
-      setOk(`PR ${data.prNumber} ${status === "DRAFT" ? "saved as draft" : "submitted"} successfully.`);
+      setOk(`PR ${data.prNumber} created in draft. Store Manager approval is required before sending to HO.`);
+      const nowIso = new Date().toISOString();
+      openPrintDocument(
+        `PR ${data.prNumber}`,
+        buildPrDocument({
+          prNumber: data.prNumber,
+          createdAt: nowIso,
+          regionId: user?.regionId ?? "-",
+          storeId: user?.storeId ?? "-",
+          regionName: user?.regionId ?? "-",
+          storeName: user?.storeId ?? "-",
+          neededBy: neededBy || null,
+          notes,
+          lines: parsed.map((p) => ({
+            description: spareNameById.get(p.spareId) ?? p.spareId,
+            qty: p.qty,
+            reason: p.reason,
+          })),
+        }),
+      );
       setNeededBy("");
       setNotes("");
       setLines([{ spareId: "", qty: "1", reason: "" }]);
@@ -101,24 +135,52 @@ export function InventoryPurchaseRequestsPage() {
     setErr(null);
     setOk(null);
     try {
-      await apiJson(`/api/inventory/prs/${encodeURIComponent(prId)}/status`, {
+      const data = await apiJson<{ internalStatusLabel?: string }>(`/api/inventory/prs/${encodeURIComponent(prId)}/status`, {
         method: "PATCH",
         json: { status },
       });
-      setOk(`PR updated to ${status}.`);
+      setOk(`PR updated to ${status}${data.internalStatusLabel ? ` · ${data.internalStatusLabel}` : ""}.`);
       await loadPrs();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not update PR.");
     }
   }
 
-  function openFulfill(pr: PrRow) {
+  async function storeApproveAndSend(prId: string) {
+    setErr(null);
+    setOk(null);
+    try {
+      const data = await apiJson<{ internalStatusLabel?: string }>(
+        `/api/inventory/prs/${encodeURIComponent(prId)}/store-approve`,
+        { method: "POST" },
+      );
+      setOk(`PR approved by store manager and sent to HO${data.internalStatusLabel ? ` · ${data.internalStatusLabel}` : ""}.`);
+      await loadPrs();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not approve/send PR.");
+    }
+  }
+
+  async function openFulfill(pr: PrRow) {
     const initial: Record<string, string> = {};
     for (const i of pr.items) {
       const pending = Math.max(0, i.qty - i.issuedQty);
       if (pending > 0) initial[i.id] = String(pending);
     }
     setFulfillQty(initial);
+    setHoStockLoading(true);
+    try {
+      const data = await apiJson<{ rows: Array<{ itemId: string; hoAvailable: number }> }>(
+        `/api/inventory/prs/${encodeURIComponent(pr.id)}/ho-stock`,
+      );
+      setHoStockByItem(
+        Object.fromEntries(data.rows.map((r) => [r.itemId, r.hoAvailable])),
+      );
+    } catch {
+      setHoStockByItem({});
+    } finally {
+      setHoStockLoading(false);
+    }
     setFulfillPrId(pr.id);
   }
 
@@ -141,6 +203,22 @@ export function InventoryPurchaseRequestsPage() {
         json: { items },
       });
       setOk(`Stock issued: ${data.movedQty}. PR status: ${data.status}.`);
+      openPrintDocument(
+        `Transfer ${pr.prNumber}`,
+        buildTransferDocument({
+          refNumber: pr.prNumber,
+          date: new Date().toISOString(),
+          fromLocation: `HO: ${pr.regionName ?? pr.regionId}`,
+          toLocation: `STORE: ${pr.storeName ?? pr.storeId}`,
+          lines: items.map((it) => {
+            const line = pr.items.find((x) => x.id === it.itemId);
+            return {
+              description: spareNameById.get(line?.spareId ?? "") ?? line?.spareId ?? it.itemId,
+              qty: it.qty,
+            };
+          }),
+        }),
+      );
       setFulfillPrId(null);
       await loadPrs();
     } catch (e) {
@@ -197,8 +275,8 @@ export function InventoryPurchaseRequestsPage() {
         }
       />
 
-      {isStore ? (
-        <Card title="New PR from this store" subtitle="Save draft or submit to regional HO" className="mb-8">
+      {isStoreCreator ? (
+        <Card title="New PR from this store" subtitle="Create draft PR for Store Manager approval" className="mb-8">
           <div className="space-y-3">
             {lines.map((line, idx) => (
               <div key={idx} className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-12">
@@ -274,20 +352,55 @@ export function InventoryPurchaseRequestsPage() {
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void createPr("DRAFT")}
-                className="rounded-xl border border-zimson-400 bg-white px-4 py-2 text-sm font-semibold text-zimson-900"
-              >
-                Save draft
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void createPr("SUBMITTED")}
+                onClick={() => void createPr()}
                 className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white"
               >
-                Submit to HO
+                Create draft PR
               </button>
             </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {isStoreManager ? (
+        <Card title="Store Manager approval" subtitle="Approve draft PR then send to HO" className="mb-8">
+          <div className="max-h-[340px] overflow-auto rounded-xl border border-zimson-200/80">
+            <table className="min-w-full text-left text-sm">
+              <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
+                <tr>
+                  <th className="px-3 py-2">PR#</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Internal</th>
+                  <th className="px-3 py-2">Lines</th>
+                  <th className="px-3 py-2">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {prs.map((pr) => (
+                  <tr key={pr.id} className="border-b border-zimson-100">
+                    <td className="px-3 py-2 font-mono text-xs">{pr.prNumber}</td>
+                    <td className="px-3 py-2">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusPillClass(pr.status)}`}>{pr.status}</span>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-stone-600">{pr.internalStatusLabel ?? pr.internalStatusCode ?? "-"}</td>
+                    <td className="px-3 py-2">{pr.items.length}</td>
+                    <td className="px-3 py-2">
+                      {pr.status === "DRAFT" ? (
+                        <button
+                          type="button"
+                          onClick={() => void storeApproveAndSend(pr.id)}
+                          className="rounded-lg bg-zimson-700 px-2 py-1 text-xs font-semibold text-white"
+                        >
+                          Approve + send HO
+                        </button>
+                      ) : (
+                        <span className="text-xs text-stone-500">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Card>
       ) : null}
@@ -309,8 +422,11 @@ export function InventoryPurchaseRequestsPage() {
                 {prs.map((pr) => (
                   <tr key={pr.id} className="border-b border-zimson-100 align-top">
                     <td className="px-3 py-2 font-mono text-xs">{pr.prNumber}</td>
-                    <td className="px-3 py-2">{pr.storeId}</td>
-                    <td className="px-3 py-2">{pr.status}</td>
+                    <td className="px-3 py-2">{pr.storeName ?? pr.storeId}</td>
+                    <td className="px-3 py-2">
+                      <div>{pr.status}</div>
+                      <div className="text-xs text-stone-500">{pr.internalStatusLabel ?? pr.internalStatusCode ?? "-"}</div>
+                    </td>
                     <td className="px-3 py-2">
                       {pr.items
                         .map((i) => `${spareNameById.get(i.spareId) ?? i.spareId} req:${i.qty} issued:${i.issuedQty} received:${i.receivedQty}`)
@@ -318,6 +434,11 @@ export function InventoryPurchaseRequestsPage() {
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
+                        {(() => {
+                          const canApproveReject = pr.status === "SUBMITTED";
+                          const canFulfill = pr.status === "APPROVED" || pr.status === "PARTIAL";
+                          return (
+                            <>
                         <button
                           type="button"
                           onClick={() => setDetailPrId((x) => (x === pr.id ? null : pr.id))}
@@ -325,17 +446,42 @@ export function InventoryPurchaseRequestsPage() {
                         >
                           Details
                         </button>
-                        <button type="button" onClick={() => void updateStatus(pr.id, "APPROVED")} className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white">
+                        <button
+                          type="button"
+                          disabled={!canApproveReject}
+                          title={canApproveReject ? "Approve PR" : "Approve available only for SUBMITTED PR"}
+                          onClick={() => void updateStatus(pr.id, "APPROVED")}
+                          className={`rounded-lg px-2 py-1 text-xs font-semibold text-white ${
+                            canApproveReject ? "bg-emerald-600 hover:bg-emerald-700" : "cursor-not-allowed bg-stone-300 text-stone-100"
+                          }`}
+                        >
                           Approve
                         </button>
-                        <button type="button" onClick={() => void updateStatus(pr.id, "REJECTED")} className="rounded-lg bg-red-600 px-2 py-1 text-xs font-semibold text-white">
+                        <button
+                          type="button"
+                          disabled={!canApproveReject}
+                          title={canApproveReject ? "Reject PR" : "Reject available only for SUBMITTED PR"}
+                          onClick={() => void updateStatus(pr.id, "REJECTED")}
+                          className={`rounded-lg px-2 py-1 text-xs font-semibold text-white ${
+                            canApproveReject ? "bg-red-600 hover:bg-red-700" : "cursor-not-allowed bg-stone-300 text-stone-100"
+                          }`}
+                        >
                           Reject
                         </button>
-                        {(pr.status === "APPROVED" || pr.status === "PARTIAL" || pr.status === "SUBMITTED") ? (
-                          <button type="button" onClick={() => openFulfill(pr)} className="rounded-lg bg-zimson-700 px-2 py-1 text-xs font-semibold text-white">
-                            Fulfill
-                          </button>
-                        ) : null}
+                        <button
+                          type="button"
+                          disabled={!canFulfill}
+                          title={canFulfill ? "Fulfill PR" : "Fulfill available only for APPROVED/PARTIAL PR"}
+                          onClick={() => void openFulfill(pr)}
+                          className={`rounded-lg px-2 py-1 text-xs font-semibold text-white ${
+                            canFulfill ? "bg-zimson-700 hover:bg-zimson-800" : "cursor-not-allowed bg-stone-300 text-stone-100"
+                          }`}
+                        >
+                          Fulfill
+                        </button>
+                            </>
+                          );
+                        })()}
                       </div>
                     </td>
                   </tr>
@@ -359,7 +505,12 @@ export function InventoryPurchaseRequestsPage() {
                     <div key={i.id} className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-12">
                       <div className="sm:col-span-8">
                         <p className="text-sm font-medium text-stone-900">{spareNameById.get(i.spareId) ?? i.spareId}</p>
-                        <p className="text-xs text-stone-600">Requested: {i.qty} · Issued: {i.issuedQty} · Pending: {pending}</p>
+                        <p className="text-xs text-stone-600">
+                          Requested: {i.qty} · Issued: {i.issuedQty} · Pending: {pending} · HO Stock:{" "}
+                          <span className="font-semibold text-zimson-900">
+                            {hoStockLoading ? "Loading..." : (hoStockByItem[i.id] ?? 0)}
+                          </span>
+                        </p>
                       </div>
                       <div className="sm:col-span-4">
                         <label className="text-xs font-medium text-stone-600">Transfer qty</label>
@@ -390,7 +541,7 @@ export function InventoryPurchaseRequestsPage() {
         </Card>
       ) : null}
 
-      {isStore && inwardPrId ? (
+      {isStoreAny && inwardPrId ? (
         <Card title="Store inward against PR transfer" subtitle="Confirm physically received quantity per line">
           {(() => {
             const pr = prs.find((p) => p.id === inwardPrId);
@@ -434,7 +585,7 @@ export function InventoryPurchaseRequestsPage() {
         </Card>
       ) : null}
 
-      {isStore ? (
+      {isStoreAny ? (
         <Card title="My PRs" subtitle="Drafts and submitted requests">
           <div className="max-h-[380px] overflow-auto rounded-xl border border-zimson-200/80">
             <table className="min-w-full text-left text-sm">
@@ -450,7 +601,12 @@ export function InventoryPurchaseRequestsPage() {
                 {prs.map((pr) => (
                   <tr key={pr.id} className="border-b border-zimson-100">
                     <td className="px-3 py-2 font-mono text-xs">{pr.prNumber}</td>
-                    <td className="px-3 py-2">{pr.status}</td>
+                    <td className="px-3 py-2">
+                      <div>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusPillClass(pr.status)}`}>{pr.status}</span>
+                      </div>
+                      <div className="text-xs text-stone-500">{pr.internalStatusLabel ?? pr.internalStatusCode ?? "-"}</div>
+                    </td>
                     <td className="px-3 py-2">{pr.items.length}</td>
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
@@ -461,15 +617,6 @@ export function InventoryPurchaseRequestsPage() {
                         >
                           Details
                         </button>
-                        {pr.status === "DRAFT" ? (
-                          <button
-                            type="button"
-                            onClick={() => void updateStatus(pr.id, "SUBMITTED")}
-                            className="rounded-lg bg-zimson-600 px-2 py-1 text-xs font-semibold text-white"
-                          >
-                            Submit
-                          </button>
-                        ) : null}
                         {pr.items.some((i) => i.issuedQty > i.receivedQty) ? (
                           <button
                             type="button"
@@ -489,7 +636,7 @@ export function InventoryPurchaseRequestsPage() {
         </Card>
       ) : null}
 
-      {!isStore && !isHo ? (
+      {!isStoreAny && !isHo ? (
         <Card title="Access">
           <p className="text-sm text-stone-600">
             Sign in as a store user to raise PRs, or as regional / super admin to review HO inbox.
@@ -525,7 +672,7 @@ export function InventoryPurchaseRequestsPage() {
                     <div>
                       <h3 className="text-lg font-semibold text-stone-900">PR details — {pr.prNumber}</h3>
                       <p className="text-sm text-stone-600">
-                        Store: {pr.storeId} · Region: {pr.regionId} · Status: {pr.status}
+                        Store: {pr.storeName ?? pr.storeId} · Region: {pr.regionName ?? pr.regionId} · Status: {pr.status}
                       </p>
                     </div>
                     <button

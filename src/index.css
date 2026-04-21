@@ -28,3 +28,22 @@
     @apply min-h-dvh;
   }
 }
+
+/* Service invoice print — A4, hide app chrome via `print:hidden` on layout + invoice actions */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: white !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body {
+    font-size: 11pt;
+  }
+}

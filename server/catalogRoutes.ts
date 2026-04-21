@@ -1,8 +1,43 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Pool } from "pg";
+import type { BrandRow } from "../src/types/brand";
 import type { CreateSpareInput, SparePart } from "../src/types/spare";
 import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
+
+function isHoAdminRole(role: string): boolean {
+  return role === "super_admin" || role === "regional_admin" || role === "ho_admin";
+}
+
+function brandCodeFromName(name: string): string {
+  const base = name.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
+  return base || "BRAND";
+}
+
+function normalizeBrandCodeInput(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 32);
+}
+
+function rowToBrand(r: {
+  id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: Date | string;
+  updated_at: Date | string;
+}): BrandRow {
+  const iso = (d: Date | string) => (d instanceof Date ? d.toISOString() : new Date(d).toISOString());
+  return {
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    sortOrder: r.sort_order,
+    isActive: r.is_active,
+    createdAt: iso(r.created_at),
+    updatedAt: iso(r.updated_at),
+  };
+}
 
 type Authed = Request & { userId: string };
 
@@ -54,7 +89,7 @@ export function registerCatalogRoutes(
 
   app.post("/api/spares", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin")) {
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
       res.status(403).json({ error: "Only admin users can create spare master rows." });
       return;
     }
@@ -105,7 +140,7 @@ export function registerCatalogRoutes(
     }
     const requestedRegion = String(req.query.regionId ?? "").trim();
     let regionId: string | null = null;
-    if (actor.role === "super_admin") {
+    if (actor.role === "super_admin" || actor.role === "ho_admin") {
       regionId = requestedRegion || null;
     } else {
       regionId = actor.regionId;
@@ -134,7 +169,7 @@ export function registerCatalogRoutes(
   app.post("/api/catalog/spares/:spareId/prices", requireAuth, async (req, res) => {
     const spareId = req.params.spareId;
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin")) {
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
       res.status(403).json({ error: "Only admin users can save prices." });
       return;
     }
@@ -142,12 +177,12 @@ export function registerCatalogRoutes(
     const brand = String(req.body?.brand ?? "").trim();
     const price = Number(req.body?.price);
     const requestedRegion = String(req.body?.regionId ?? "").trim();
-    const regionId = actor.role === "super_admin" ? requestedRegion || null : actor.regionId;
+    const regionId = actor.role === "super_admin" || actor.role === "ho_admin" ? requestedRegion || null : actor.regionId;
     if (!brand || Number.isNaN(price) || price < 0) {
       res.status(400).json({ error: "brand and non-negative price are required." });
       return;
     }
-    if (actor.role === "super_admin" && !regionId) {
+    if ((actor.role === "super_admin" || actor.role === "ho_admin") && !regionId) {
       res.status(400).json({ error: "regionId is required for region price." });
       return;
     }
@@ -156,17 +191,192 @@ export function registerCatalogRoutes(
       return;
     }
     try {
+      const bRes = await pool.query<{ name: string }>(
+        `SELECT name FROM brands WHERE is_active = true AND LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1`,
+        [brand],
+      );
+      if (bRes.rowCount === 0) {
+        res.status(400).json({ error: "Brand must match an active master brand from Inventory → Brands." });
+        return;
+      }
+      const brandCanonical = bRes.rows[0]!.name;
       await pool.query(
         `INSERT INTO spare_prices (spare_id, region_id, brand, price)
          VALUES ($1::uuid, $2::text, $3, $4)
          ON CONFLICT (spare_id, brand, region_id)
          DO UPDATE SET price = EXCLUDED.price, updated_at = now()`,
-        [spareId, regionId, brand, price],
+        [spareId, regionId, brandCanonical, price],
       );
       res.json({ ok: true });
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not save price line." });
+    }
+  });
+
+  app.get("/api/brands", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const allQ = String(req.query.all ?? "").trim() === "1";
+    const includeInactive = allQ && isHoAdminRole(actor.role);
+    try {
+      const where = includeInactive ? "" : "WHERE is_active = true";
+      const { rows } = await pool.query(
+        `SELECT id, code, name, sort_order, is_active, created_at, updated_at
+         FROM brands
+         ${where}
+         ORDER BY sort_order, name`,
+      );
+      res.json({ brands: rows.map((r) => rowToBrand(r as Parameters<typeof rowToBrand>[0])) });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load brands." });
+    }
+  });
+
+  app.post("/api/brands", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !isHoAdminRole(actor.role)) {
+      res.status(403).json({ error: "Only HO admins can manage brands." });
+      return;
+    }
+    const name = String(req.body?.name ?? "").trim();
+    if (!name) {
+      res.status(400).json({ error: "name is required." });
+      return;
+    }
+    const sortOrderRaw = req.body?.sortOrder;
+    const sortOrder =
+      sortOrderRaw === undefined || sortOrderRaw === null || sortOrderRaw === ""
+        ? 0
+        : Number(sortOrderRaw);
+    if (Number.isNaN(sortOrder)) {
+      res.status(400).json({ error: "sortOrder must be a number." });
+      return;
+    }
+    let baseCode = String(req.body?.code ?? "").trim();
+    baseCode = baseCode ? normalizeBrandCodeInput(baseCode) : brandCodeFromName(name);
+    if (!baseCode) {
+      res.status(400).json({ error: "Could not derive a brand code; provide code explicitly." });
+      return;
+    }
+    try {
+      const dupName = await pool.query(`SELECT id FROM brands WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1`, [
+        name,
+      ]);
+      if (dupName.rowCount && dupName.rowCount > 0) {
+        res.status(400).json({ error: "A brand with this name already exists." });
+        return;
+      }
+      let attempt = 0;
+      let code = baseCode;
+      while (attempt < 24) {
+        try {
+          const ins = await pool.query(
+            `INSERT INTO brands (code, name, sort_order)
+             VALUES ($1, $2, $3)
+             RETURNING id, code, name, sort_order, is_active, created_at, updated_at`,
+            [code, name, sortOrder],
+          );
+          const row = ins.rows[0] as Parameters<typeof rowToBrand>[0];
+          res.json({ brand: rowToBrand(row) });
+          return;
+        } catch (e: unknown) {
+          const err = e as { code?: string };
+          if (err.code === "23505") {
+            attempt += 1;
+            const suffix = String(attempt);
+            code = `${baseCode}`.slice(0, Math.max(1, 32 - suffix.length)) + suffix;
+            continue;
+          }
+          throw e;
+        }
+      }
+      res.status(400).json({ error: "Could not allocate a unique brand code." });
+    } catch (e: unknown) {
+      const err = e as { code?: string };
+      if (err.code === "23505") {
+        res.status(400).json({ error: "A brand with this name or code already exists." });
+        return;
+      }
+      console.error(e);
+      res.status(500).json({ error: "Could not create brand." });
+    }
+  });
+
+  app.patch("/api/brands/:brandId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !isHoAdminRole(actor.role)) {
+      res.status(403).json({ error: "Only HO admins can manage brands." });
+      return;
+    }
+    const brandId = req.params.brandId;
+    const nameRaw = req.body?.name;
+    const codeRaw = req.body?.code;
+    const sortOrderRaw = req.body?.sortOrder;
+    const isActiveRaw = req.body?.isActive;
+    const updates: string[] = [];
+    const params: unknown[] = [];
+    if (nameRaw !== undefined) {
+      const name = String(nameRaw).trim();
+      if (!name) {
+        res.status(400).json({ error: "name cannot be empty." });
+        return;
+      }
+      params.push(name);
+      updates.push(`name = $${params.length}`);
+    }
+    if (codeRaw !== undefined) {
+      const code = normalizeBrandCodeInput(String(codeRaw));
+      if (!code) {
+        res.status(400).json({ error: "code cannot be empty." });
+        return;
+      }
+      params.push(code);
+      updates.push(`code = $${params.length}`);
+    }
+    if (sortOrderRaw !== undefined) {
+      const sortOrder = Number(sortOrderRaw);
+      if (Number.isNaN(sortOrder)) {
+        res.status(400).json({ error: "sortOrder must be a number." });
+        return;
+      }
+      params.push(sortOrder);
+      updates.push(`sort_order = $${params.length}`);
+    }
+    if (isActiveRaw !== undefined) {
+      params.push(Boolean(isActiveRaw));
+      updates.push(`is_active = $${params.length}`);
+    }
+    if (updates.length === 0) {
+      res.status(400).json({ error: "No fields to update." });
+      return;
+    }
+    params.push(brandId);
+    try {
+      const upd = await pool.query(
+        `UPDATE brands SET ${updates.join(", ")}, updated_at = now()
+         WHERE id = $${params.length}::uuid
+         RETURNING id, code, name, sort_order, is_active, created_at, updated_at`,
+        params,
+      );
+      if (upd.rowCount === 0) {
+        res.status(404).json({ error: "Brand not found." });
+        return;
+      }
+      const row = upd.rows[0] as Parameters<typeof rowToBrand>[0];
+      res.json({ brand: rowToBrand(row) });
+    } catch (e: unknown) {
+      const err = e as { code?: string };
+      if (err.code === "23505") {
+        res.status(400).json({ error: "Name or code conflicts with another brand." });
+        return;
+      }
+      console.error(e);
+      res.status(500).json({ error: "Could not update brand." });
     }
   });
 
@@ -180,19 +390,32 @@ export function registerCatalogRoutes(
     try {
       let whereExtra = "";
       const params: unknown[] = [spareId];
-      if (actor.role === "regional_admin") {
-        params.push(actor.regionId);
-        whereExtra = " AND region_id = $2::text";
-      } else if (actor.role === "store_user") {
-        params.push(actor.regionId, actor.storeId);
-        whereExtra = " AND location_type = 'STORE' AND region_id = $2::text AND store_id = $3::text";
-      } else if (
-        actor.role === "service_centre_clerk" ||
-        actor.role === "service_centre_supervisor" ||
-        actor.role === "technician"
-      ) {
-        params.push(actor.regionId);
-        whereExtra = " AND location_type = 'HO' AND region_id = $2::text";
+      const aggregateRegion = String(req.query.aggregate ?? "").trim() === "region";
+      const regionScopeQ = String(req.query.regionId ?? "").trim();
+
+      if (aggregateRegion) {
+        const scope =
+          actor.role === "super_admin" || actor.role === "ho_admin" ? regionScopeQ || null : actor.regionId ?? null;
+        if (scope) {
+          params.push(scope);
+          whereExtra = " AND region_id = $2::text";
+        }
+      }
+      if (!whereExtra) {
+        if (actor.role === "regional_admin") {
+          params.push(actor.regionId);
+          whereExtra = " AND region_id = $2::text";
+        } else if (actor.role === "store_user") {
+          params.push(actor.regionId, actor.storeId);
+          whereExtra = " AND location_type = 'STORE' AND region_id = $2::text AND store_id = $3::text";
+        } else if (
+          actor.role === "service_centre_clerk" ||
+          actor.role === "service_centre_supervisor" ||
+          actor.role === "technician"
+        ) {
+          params.push(actor.regionId);
+          whereExtra = " AND location_type = 'HO' AND region_id = $2::text";
+        }
       }
 
       const { rows } = await pool.query(
@@ -216,10 +439,15 @@ export function registerCatalogRoutes(
   });
 
   app.post("/api/catalog/spares/:spareId/stock", requireAuth, async (req, res) => {
-    const spareId = req.params.spareId;
+    const sid = req.params.spareId;
+    const spareId = Array.isArray(sid) ? sid[0] ?? "" : String(sid ?? "");
     const actor = getUserById((req as Authed).userId);
     if (!actor) {
       res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!spareId) {
+      res.status(400).json({ error: "Invalid spare id." });
       return;
     }
 
@@ -257,7 +485,7 @@ export function registerCatalogRoutes(
         res.status(403).json({ error: "Regional admin can update only own region stock." });
         return;
       }
-    } else if (actor.role !== "super_admin") {
+    } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
       res.status(403).json({ error: "Forbidden." });
       return;
     }
@@ -349,7 +577,7 @@ export function registerCatalogRoutes(
     ) {
       params.push(actor.regionId);
       where += ` AND (h.event_type = 'SPARE_CREATED' OR (h.location_type = 'HO' AND h.region_id = $${params.length}::text))`;
-    } else if (actor.role !== "super_admin") {
+    } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
       res.status(403).json({ error: "Forbidden." });
       return;
     }

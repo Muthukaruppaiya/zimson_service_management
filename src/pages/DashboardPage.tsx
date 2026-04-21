@@ -13,7 +13,7 @@ const stats = [
 
 export function DashboardPage() {
   const { user } = useAuth();
-  const canInventory = user ? canAccessModule(user.role, "inventory") : false;
+  const canInventory = user ? canAccessModule(user, "inventory") : false;
 
   return (
     <div>

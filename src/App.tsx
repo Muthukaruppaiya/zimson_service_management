@@ -3,6 +3,7 @@ import { ModuleRoute } from "./components/auth/ModuleRoute";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { AppShell } from "./components/layout/AppShell";
 import { AuthProvider } from "./context/AuthContext";
+import { BrandsProvider } from "./context/BrandsContext";
 import { CustomersProvider } from "./context/CustomersContext";
 import { RegionsProvider } from "./context/RegionsContext";
 import { SparesProvider } from "./context/SparesContext";
@@ -22,16 +23,20 @@ import { ScSupervisorPage } from "./pages/serviceCentre/ScSupervisorPage";
 import { ServiceCentreHomePage } from "./pages/serviceCentre/ServiceCentreHomePage";
 import { TechnicianWorkbenchPage } from "./pages/serviceCentre/TechnicianWorkbenchPage";
 import { UsersPrivilegesPage } from "./pages/UsersPrivilegesPage";
+import { ServiceTaxSettingsPage } from "./pages/settings/ServiceTaxSettingsPage";
+import { DocumentTemplatesPage } from "./pages/settings/DocumentTemplatesPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
 import { InventoryPoInwardPage } from "./pages/inventory/InventoryPoInwardPage";
 import { InventoryPurchaseOrdersPage } from "./pages/inventory/InventoryPurchaseOrdersPage";
 import { InventorySuppliersPage } from "./pages/inventory/InventorySuppliersPage";
 import { InventoryPurchaseRequestsPage } from "./pages/inventory/InventoryPurchaseRequestsPage";
 import { InventorySpareCatalogPage } from "./pages/inventory/InventorySpareCatalogPage";
+import { InventoryBulkImportPage } from "./pages/inventory/InventoryBulkImportPage";
 import { InventorySparePriceFixingPage } from "./pages/inventory/InventorySparePriceFixingPage";
 import { InventoryStockPriceOverviewPage } from "./pages/inventory/InventoryStockPriceOverviewPage";
 import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPage";
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
+import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
   const { search } = useLocation();
@@ -43,6 +48,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <RegionsProvider>
+          <BrandsProvider>
           <CustomersProvider>
             <SrfJobsProvider>
             <SparesProvider>
@@ -235,6 +241,22 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/inventory/bulk-import"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventoryBulkImportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/brands"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventoryBrandsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/inventory/spare-price-fixing"
                   element={
                     <ModuleRoute module="inventory">
@@ -258,6 +280,22 @@ export default function App() {
                     </ModuleRoute>
                   }
                 />
+                <Route
+                  path="/settings/tax"
+                  element={
+                    <ModuleRoute module="settings">
+                      <ServiceTaxSettingsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/settings/document-templates"
+                  element={
+                    <ModuleRoute module="settings">
+                      <DocumentTemplatesPage />
+                    </ModuleRoute>
+                  }
+                />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -265,6 +303,7 @@ export default function App() {
             </SparesProvider>
             </SrfJobsProvider>
           </CustomersProvider>
+          </BrandsProvider>
         </RegionsProvider>
       </AuthProvider>
     </BrowserRouter>

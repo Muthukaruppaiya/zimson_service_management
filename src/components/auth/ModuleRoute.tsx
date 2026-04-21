@@ -7,7 +7,7 @@ import type { ModuleKey } from "../../types/user";
 export function ModuleRoute({ module, children }: { module: ModuleKey; children: ReactNode }) {
   const { user } = useAuth();
 
-  if (!user || !canAccessModule(user.role, module)) {
+  if (!user || !canAccessModule(user, module)) {
     return <Navigate to="/" replace />;
   }
 

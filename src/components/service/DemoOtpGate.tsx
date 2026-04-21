@@ -14,6 +14,8 @@ type DemoOtpGateProps = {
   error: string | null;
   onVerify: () => void;
   onRegenerate?: () => void;
+  /** When true, disables the verify button (e.g. while an API request is in flight). */
+  verifyBusy?: boolean;
 };
 
 export function DemoOtpGate({
@@ -25,6 +27,7 @@ export function DemoOtpGate({
   error,
   onVerify,
   onRegenerate,
+  verifyBusy = false,
 }: DemoOtpGateProps) {
   const baseId = useId();
 
@@ -68,15 +71,17 @@ export function DemoOtpGate({
         <button
           type="button"
           onClick={onVerify}
-          className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+          disabled={verifyBusy}
+          className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Verify &amp; proceed
+          {verifyBusy ? "Saving…" : "Verify and proceed"}
         </button>
         {onRegenerate ? (
           <button
             type="button"
             onClick={onRegenerate}
-            className="rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            disabled={verifyBusy}
+            className="rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             New code
           </button>

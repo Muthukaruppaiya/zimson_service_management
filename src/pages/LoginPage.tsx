@@ -4,6 +4,14 @@ import { useAuth } from "../context/AuthContext";
 
 const demoRows = [
   { email: "superadmin@zimson.demo", password: "super123", role: "Super Admin", note: "All modules" },
+  { email: "ho.accounts.chn@zimson.demo", password: "acc123", role: "HO Accounts", note: "Chennai HO" },
+  { email: "ho.admin.chn@zimson.demo", password: "admin123", role: "HO Admin", note: "Chennai HO" },
+  { email: "ho.manager.chn@zimson.demo", password: "mgr123", role: "HO Manager", note: "Chennai HO" },
+  { email: "ho.supervisor.chn@zimson.demo", password: "sup123", role: "HO Supervisor", note: "Chennai HO" },
+  { email: "ho.user.chn@zimson.demo", password: "hou123", role: "HO User", note: "Chennai HO" },
+  { email: "store.manager.chn01@zimson.demo", password: "mgr123", role: "Store Manager", note: "CHN01" },
+  { email: "store.purchase.chn01@zimson.demo", password: "pur123", role: "Store Purchase User", note: "CHN01" },
+  { email: "store.accounts.chn01@zimson.demo", password: "acc123", role: "Store Accounts", note: "CHN01" },
   { email: "chennai.admin@zimson.demo", password: "admin123", role: "Regional Admin", note: "Chennai" },
   { email: "coimbatore.admin@zimson.demo", password: "admin123", role: "Regional Admin", note: "Coimbatore" },
   { email: "chn01@zimson.demo", password: "store123", role: "Store user", note: "Chennai / CHN01" },
@@ -14,7 +22,7 @@ const demoRows = [
   { email: "cbe03@zimson.demo", password: "store123", role: "Store user", note: "Coimbatore / CBE03" },
   { email: "sc.inward.chn@zimson.demo", password: "sc123", role: "SC inward", note: "Chennai HO" },
   { email: "sc.supervisor.chn@zimson.demo", password: "sc123", role: "SC supervisor", note: "Chennai HO" },
-  { email: "ho.tech.chn@zimson.demo", password: "tech123", role: "Technician", note: "Chennai HO" },
+  { email: "ho.tech.chn@zimson.demo", password: "N/A", role: "Technician", note: "Employee only · no login" },
 ] as const;
 
 export function LoginPage() {

@@ -6,7 +6,27 @@ import { appendStockHistory } from "./db/stockHistory";
 type Authed = Request & { userId: string };
 
 function requireHo(actor: DemoUser | undefined | null): boolean {
-  return actor?.role === "super_admin" || actor?.role === "regional_admin";
+  return actor?.role === "super_admin" || actor?.role === "regional_admin" || actor?.role === "ho_admin";
+}
+
+function canManagePo(actor: DemoUser | undefined | null): boolean {
+  return (
+    actor?.role === "super_admin" ||
+    actor?.role === "regional_admin" ||
+    actor?.role === "ho_admin" ||
+    actor?.role === "ho_manager" ||
+    actor?.role === "ho_user"
+  );
+}
+
+function canViewPo(actor: DemoUser | undefined | null): boolean {
+  return (
+    canManagePo(actor) ||
+    actor?.role === "store_user" ||
+    actor?.role === "store_purchase_user" ||
+    actor?.role === "store_manager" ||
+    actor?.role === "store_accounts"
+  );
 }
 
 function makeAlphaNumCode(input: string, fallback: string): string {
@@ -80,8 +100,8 @@ export function registerInventoryPoSupplierRoutes(
     const gst = String(req.body?.gst ?? "").trim().toUpperCase() || null;
     try {
       const { rows } = await pool.query(
-        `INSERT INTO suppliers (name, contact_name, email, phone, address, gst)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO suppliers (name, contact_name, email, phone, address, gst, created_by, modified_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
          RETURNING id,
                    name,
                    contact_name AS "contactName",
@@ -92,7 +112,7 @@ export function registerInventoryPoSupplierRoutes(
                    is_active AS "isActive",
                    created_at AS "createdAt",
                    updated_at AS "updatedAt"`,
-        [name, contactName, email, phone, address, gst],
+        [name, contactName, email, phone, address, gst, actor?.id ?? null],
       );
       res.json({ supplier: rows[0] });
     } catch (e) {
@@ -159,6 +179,8 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     sets.push("updated_at = now()");
+    sets.push(`modified_by = $${i++}`);
+    params.push(actor?.id ?? null);
     params.push(id);
     try {
       const upd = await pool.query(
@@ -212,6 +234,7 @@ export function registerInventoryPoSupplierRoutes(
     }
     if (
       actor.role !== "super_admin" &&
+      actor.role !== "ho_admin" &&
       actor.role !== "regional_admin" &&
       actor.role !== "store_user"
     ) {
@@ -305,7 +328,11 @@ export function registerInventoryPoSupplierRoutes(
   /** Purchase orders */
   app.get("/api/inventory/po-consolidation", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
-    if (!requireHo(actor)) {
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!canManagePo(actor)) {
       res.status(403).json({ error: "Only HO admins can access PO consolidation." });
       return;
     }
@@ -333,7 +360,9 @@ export function registerInventoryPoSupplierRoutes(
                 pri.pr_id AS "prId",
                 pr.pr_number AS "prNumber",
                 pr.store_id AS "storeId",
+                st.name AS "storeName",
                 pr.region_id AS "regionId",
+                rg.name AS "regionName",
                 pr.status AS "prStatus",
                 pr.needed_by AS "neededBy",
                 pr.created_at AS "prCreatedAt",
@@ -349,6 +378,8 @@ export function registerInventoryPoSupplierRoutes(
                 COALESCE(map.candidates, '[]'::json) AS "supplierCandidates"
          FROM purchase_request_items pri
          JOIN purchase_requests pr ON pr.id = pri.pr_id
+         JOIN stores st ON st.id = pr.store_id
+         JOIN regions rg ON rg.id = pr.region_id
          JOIN spares s ON s.id = pri.spare_id
          LEFT JOIN LATERAL (
            SELECT
@@ -383,7 +414,7 @@ export function registerInventoryPoSupplierRoutes(
 
   app.post("/api/inventory/pos/draft-from-demand", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
-    if (!requireHo(actor)) {
+    if (!canManagePo(actor)) {
       res.status(403).json({ error: "Only HO admins can draft POs from demand." });
       return;
     }
@@ -405,7 +436,9 @@ export function registerInventoryPoSupplierRoutes(
         prId: string;
         prNumber: string;
         regionId: string;
+        regionName: string;
         storeId: string;
+        storeName: string;
         spareId: string;
         pendingQty: number;
         candidateCount: number;
@@ -416,12 +449,16 @@ export function registerInventoryPoSupplierRoutes(
                 pr.pr_number AS "prNumber",
                 pr.region_id AS "regionId",
                 pr.store_id AS "storeId",
+                st.name AS "storeName",
+                rg.name AS "regionName",
                 pri.spare_id AS "spareId",
                 GREATEST(pri.qty - pri.issued_qty, 0)::float8 AS "pendingQty",
                 map.candidate_count AS "candidateCount",
                 COALESCE(map.candidates, '[]'::json) AS "supplierCandidates"
          FROM purchase_request_items pri
          JOIN purchase_requests pr ON pr.id = pri.pr_id
+         JOIN stores st ON st.id = pr.store_id
+         JOIN regions rg ON rg.id = pr.region_id
          LEFT JOIN LATERAL (
            SELECT
              COUNT(*)::int AS candidate_count,
@@ -455,11 +492,13 @@ export function registerInventoryPoSupplierRoutes(
           supplierId: string;
           supplierName: string;
           regionId: string;
+          regionName: string;
           lines: Array<{
             prItemId: string;
             prId: string;
             prNumber: string;
             storeId: string;
+            storeName: string;
             spareId: string;
             qtyOrdered: number;
             unitPrice: number;
@@ -516,6 +555,7 @@ export function registerInventoryPoSupplierRoutes(
             supplierId: finalSupplierId,
             supplierName: chosen.supplierName,
             regionId: row.regionId,
+            regionName: row.regionName,
             lines: [],
           };
         bucket.lines.push({
@@ -523,6 +563,7 @@ export function registerInventoryPoSupplierRoutes(
           prId: row.prId,
           prNumber: row.prNumber,
           storeId: row.storeId,
+          storeName: row.storeName,
           spareId: row.spareId,
           qtyOrdered,
           unitPrice: Number.isNaN(unitPrice) || unitPrice < 0 ? 0 : unitPrice,
@@ -541,7 +582,11 @@ export function registerInventoryPoSupplierRoutes(
 
   app.post("/api/inventory/pos/bulk-create", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
-    if (!requireHo(actor)) {
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!canManagePo(actor)) {
       res.status(403).json({ error: "Only HO admins can bulk-create POs." });
       return;
     }
@@ -582,8 +627,8 @@ export function registerInventoryPoSupplierRoutes(
         const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? draft.regionId, "REG");
         const poNumber = await nextDocNumber(client, "PO", regionCode);
         const poIns = await client.query<{ id: string }>(
-          `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by)
-           VALUES ($1, $2::uuid, NULL, $3, 'OPEN', $4, $5)
+        `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by)
+         VALUES ($1, $2::uuid, NULL, $3, 'OPEN', $4, $5, $5)
            RETURNING id`,
           [poNumber, draft.supplierId, draft.regionId, String(draft.notes ?? "").trim(), actor.id],
         );
@@ -616,9 +661,9 @@ export function registerInventoryPoSupplierRoutes(
             return;
           }
           await client.query(
-            `INSERT INTO purchase_order_items (po_id, pr_item_id, spare_id, qty_ordered, unit_price)
-             VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
-            [poId, line.prItemId, line.spareId, qty, unitPrice],
+            `INSERT INTO purchase_order_items (po_id, pr_item_id, spare_id, qty_ordered, unit_price, created_by, modified_by)
+             VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $6)`,
+            [poId, line.prItemId, line.spareId, qty, unitPrice, actor.id],
           );
         }
         created.push({ id: poId, poNumber, supplierId: draft.supplierId, regionId: draft.regionId, lines: draft.lines.length });
@@ -640,21 +685,23 @@ export function registerInventoryPoSupplierRoutes(
       res.status(401).json({ error: "Invalid session." });
       return;
     }
-    if (
-      actor.role !== "super_admin" &&
-      actor.role !== "regional_admin" &&
-      actor.role !== "store_user"
-    ) {
+    if (!canViewPo(actor)) {
       res.status(403).json({ error: "Forbidden." });
       return;
     }
     try {
       const params: unknown[] = [];
       let where = "";
-      if (actor.role === "regional_admin" && actor.regionId) {
+      if ((actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") && actor.regionId) {
         params.push(actor.regionId);
         where = "WHERE po.region_id = $1::text";
-      } else if (actor.role === "store_user" && actor.storeId) {
+      } else if (
+        (actor.role === "store_user" ||
+          actor.role === "store_purchase_user" ||
+          actor.role === "store_manager" ||
+          actor.role === "store_accounts") &&
+        actor.storeId
+      ) {
         params.push(actor.storeId);
         where = `WHERE EXISTS (
           SELECT 1 FROM purchase_requests pr
@@ -666,9 +713,12 @@ export function registerInventoryPoSupplierRoutes(
                 po.po_number AS "poNumber",
                 po.pr_id AS "prId",
                 pr.pr_number AS "prNumber",
+                pr.store_id AS "storeId",
+                st.name AS "storeName",
                 po.supplier_id AS "supplierId",
                 s.name AS "supplierName",
                 po.region_id AS "regionId",
+                rg.name AS "regionName",
                 po.status,
                 po.notes,
                 po.created_at AS "createdAt",
@@ -688,10 +738,12 @@ export function registerInventoryPoSupplierRoutes(
                 ) AS items
          FROM purchase_orders po
          JOIN suppliers s ON s.id = po.supplier_id
+         JOIN regions rg ON rg.id = po.region_id
          LEFT JOIN purchase_requests pr ON pr.id = po.pr_id
+         LEFT JOIN stores st ON st.id = pr.store_id
          LEFT JOIN purchase_order_items poi ON poi.po_id = po.id
          ${where}
-         GROUP BY po.id, s.name, pr.pr_number
+         GROUP BY po.id, s.name, pr.pr_number, pr.store_id, st.name, rg.name
          ORDER BY po.created_at DESC`,
         params,
       );
@@ -704,7 +756,11 @@ export function registerInventoryPoSupplierRoutes(
 
   app.post("/api/inventory/pos", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
-    if (!requireHo(actor)) {
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!canManagePo(actor)) {
       res.status(403).json({ error: "Only HO admins can create POs." });
       return;
     }
@@ -747,7 +803,7 @@ export function registerInventoryPoSupplierRoutes(
         res.status(404).json({ error: "PR not found." });
         return;
       }
-      if (actor.role === "regional_admin" && actor.regionId !== pr.region_id) {
+      if ((actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") && actor.regionId !== pr.region_id) {
         await client.query("ROLLBACK");
         res.status(403).json({ error: "PR is outside your region." });
         return;
@@ -772,8 +828,8 @@ export function registerInventoryPoSupplierRoutes(
       const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? pr.region_id, "REG");
       const poNumber = await nextDocNumber(client, "PO", regionCode);
       const insPo = await client.query<{ id: string }>(
-        `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by)
-         VALUES ($1, $2::uuid, $3::uuid, $4, 'OPEN', $5, $6)
+        `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by)
+         VALUES ($1, $2::uuid, $3::uuid, $4, 'OPEN', $5, $6, $6)
          RETURNING id`,
         [poNumber, supplierId, prId, pr.region_id, notes, actor.id],
       );
@@ -795,9 +851,9 @@ export function registerInventoryPoSupplierRoutes(
           return;
         }
         await client.query(
-          `INSERT INTO purchase_order_items (po_id, pr_item_id, spare_id, qty_ordered, unit_price)
-           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
-          [poId, it.prItemId, it.spareId, Number(it.qtyOrdered), Number(it.unitPrice)],
+          `INSERT INTO purchase_order_items (po_id, pr_item_id, spare_id, qty_ordered, unit_price, created_by, modified_by)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $6)`,
+          [poId, it.prItemId, it.spareId, Number(it.qtyOrdered), Number(it.unitPrice), actor.id],
         );
       }
 
@@ -819,7 +875,7 @@ export function registerInventoryPoSupplierRoutes(
       res.status(401).json({ error: "Invalid session." });
       return;
     }
-    if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+    if (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin") {
       res.status(403).json({ error: "Only HO admins can view GRN register." });
       return;
     }
@@ -941,8 +997,8 @@ export function registerInventoryPoSupplierRoutes(
       const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? po.region_id, "REG");
       const grnNumber = await nextDocNumber(client, "GRN", regionCode);
       const ins = await client.query<{ id: string }>(
-        `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, created_by)
-         VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, created_by, modified_by)
+         VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $9)
          RETURNING id`,
         [grnNumber, poId, po.supplier_id, po.region_id, invoiceNumber, invoiceDate, mode, notes, actor?.id ?? "system"],
       );
@@ -981,15 +1037,15 @@ export function registerInventoryPoSupplierRoutes(
           return;
         }
         await client.query(
-          `INSERT INTO grn_items (grn_id, po_item_id, spare_id, qty_received)
-           VALUES ($1::uuid, $2::uuid, $3::uuid, $4)`,
-          [grnId, it.poItemId, it.spareId, qty],
+          `INSERT INTO grn_items (grn_id, po_item_id, spare_id, qty_received, created_by, modified_by)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $5)`,
+          [grnId, it.poItemId, it.spareId, qty, actor?.id ?? "system"],
         );
         await client.query(
           `UPDATE purchase_order_items
-           SET received_qty = received_qty + $1
+           SET received_qty = received_qty + $1, modified_by = $3
            WHERE id = $2::uuid`,
-          [qty, it.poItemId],
+          [qty, it.poItemId, actor?.id ?? "system"],
         );
         await client.query(
           `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
@@ -1032,9 +1088,9 @@ export function registerInventoryPoSupplierRoutes(
       const poStatus = received >= ordered ? "CLOSED" : "PARTIAL";
       await client.query(
         `UPDATE purchase_orders
-         SET status = $1, updated_at = now()
+         SET status = $1, updated_at = now(), modified_by = $3
          WHERE id = $2::uuid`,
-        [poStatus, poId],
+        [poStatus, poId, actor?.id ?? "system"],
       );
 
       await client.query("COMMIT");

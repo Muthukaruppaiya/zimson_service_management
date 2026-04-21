@@ -1,12 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
+import { useBrands } from "../../context/BrandsContext";
+import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
-import { ApiError, apiJson } from "../../lib/api";
+import { ApiError, apiJson, useApiMode } from "../../lib/api";
+import { buildDemoServiceInvoiceViewModel, mapQuickBillInvoiceToViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
+import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import { printServiceInvoice } from "../../lib/printServiceInvoice";
+import type { QuickBillHistoryRow, QuickBillInvoice } from "../../types/quickBill";
+import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import {
   generateDemoOtp,
@@ -14,11 +21,12 @@ import {
   isValidPanFormat,
   nextQuickBillRef,
   SEED_TECHNICIANS,
-  watchBrands,
   watchModelsForBrand,
 } from "../../data/serviceSeed";
 
-type LineItem = { id: string; description: string; amount: string };
+type LineItem = { id: string; description: string; amount: string; spareId?: string; qty?: number };
+
+type CompletionState = null | { mode: "demo"; ref: string } | { mode: "api"; invoice: QuickBillInvoice };
 type QuickBillSpareOption = {
   id: string;
   sku: string;
@@ -34,9 +42,133 @@ function emptyLine(): LineItem {
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 placeholder:text-stone-400 focus:ring-2";
 
+function customerLabelForHistory(row: QuickBillHistoryRow): string {
+  if (row.customerType === "B2B") return row.company?.trim() || "—";
+  return row.customerName?.trim() || "Walk-in / B2C";
+}
+
+function QuickBillHistoryCard({
+  rows,
+  loading,
+  error,
+  onRefresh,
+  className = "",
+}: {
+  rows: QuickBillHistoryRow[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  className?: string;
+}) {
+  return (
+    <Card
+      title="Quick bill history"
+      subtitle="Saved bills for your access scope (newest first)."
+      className={`print:hidden ${className}`.trim()}
+      action={
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50 disabled:opacity-50"
+        >
+          {loading ? "Loading…" : "Refresh"}
+        </button>
+      }
+    >
+      {error ? <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
+      {rows.length === 0 && !loading ? (
+        <p className="text-sm text-stone-500">No saved quick bills yet.</p>
+      ) : null}
+      {rows.length > 0 ? (
+        <div className="max-h-[320px] overflow-auto rounded-xl border border-zimson-200/80">
+          <table className="min-w-full text-left text-sm">
+            <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
+              <tr>
+                <th className="px-3 py-2">Date</th>
+                <th className="px-3 py-2">Invoice #</th>
+                <th className="px-3 py-2">Customer</th>
+                <th className="px-3 py-2">Brand</th>
+                <th className="px-3 py-2">Location</th>
+                <th className="px-3 py-2">Pay</th>
+                <th className="px-3 py-2 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} className="border-b border-zimson-100">
+                  <td className="whitespace-nowrap px-3 py-2 text-stone-600">
+                    {new Date(row.createdAt).toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{row.billNumber}</td>
+                  <td className="max-w-[180px] truncate px-3 py-2 text-stone-800" title={customerLabelForHistory(row)}>
+                    {customerLabelForHistory(row)}
+                  </td>
+                  <td className="px-3 py-2">{row.watchBrand}</td>
+                  <td className="max-w-[140px] truncate px-3 py-2 text-xs text-stone-600" title={row.storeName ?? row.regionName ?? row.regionId}>
+                    {row.storeName ?? row.regionName ?? row.regionId}
+                  </td>
+                  <td className="px-3 py-2">{row.paymentMode}</td>
+                  <td className="px-3 py-2 text-right font-medium tabular-nums text-stone-900">
+                    {row.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function QuickBillInvoicePanel({
+  viewModel,
+  onNew,
+}: {
+  viewModel: ServiceInvoiceViewModel;
+  onNew: () => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <p className="text-xs text-stone-500 print:hidden">
+        Preview uses the same layout as print. Sidebar and top bar are hidden when you print.
+      </p>
+      <ServiceInvoiceTemplate data={viewModel} idPrefix="qb" />
+      <div className="flex flex-wrap gap-3 print:hidden">
+        <button
+          type="button"
+          onClick={() => printServiceInvoice()}
+          className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+        >
+          Print invoice
+        </button>
+        <button
+          type="button"
+          onClick={onNew}
+          className="inline-flex rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+        >
+          New quick bill
+        </button>
+        <Link
+          to="/service"
+          className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+        >
+          Back to service
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export function QuickBillPage() {
+  const apiMode = useApiMode();
   const { user } = useAuth();
+  const { regions } = useRegions();
+  const { brands: catalogBrands } = useBrands();
+  const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
   const { spares } = useSpares();
+  const [billingRegionId, setBillingRegionId] = useState("");
   const [customerType, setCustomerType] = useState<"B2C" | "B2B">("B2C");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
@@ -45,8 +177,7 @@ export function QuickBillPage() {
   const [gst, setGst] = useState("");
   const [pan, setPan] = useState("");
 
-  const brands = watchBrands();
-  const [watchBrand, setWatchBrand] = useState(brands[0] ?? "");
+  const [watchBrand, setWatchBrand] = useState("");
   const models = watchModelsForBrand(watchBrand);
   const [watchModel, setWatchModel] = useState<string>(models[0]?.model ?? "");
   const [watchRef, setWatchRef] = useState("");
@@ -58,7 +189,8 @@ export function QuickBillPage() {
   const [notes, setNotes] = useState("");
 
   const [error, setError] = useState<string | null>(null);
-  const [completedRef, setCompletedRef] = useState<string | null>(null);
+  const [completion, setCompletion] = useState<CompletionState>(null);
+  const [isSavingBill, setIsSavingBill] = useState(false);
 
   const [awaitingOtp, setAwaitingOtp] = useState<string | null>(null);
   const [otpInput, setOtpInput] = useState("");
@@ -66,20 +198,89 @@ export function QuickBillPage() {
   const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
   const [spareOptionsLoading, setSpareOptionsLoading] = useState(false);
   const [barcodeSku, setBarcodeSku] = useState("");
+  const [historyRows, setHistoryRows] = useState<QuickBillHistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [invoiceHsnSac, setInvoiceHsnSac] = useState("9987");
 
-  const priceRegionQuery = useMemo(
-    () => (user?.regionId ? `?regionId=${encodeURIComponent(user.regionId)}` : ""),
-    [user?.regionId],
-  );
+  const loadQuickBillHistory = useCallback(async () => {
+    if (!apiMode || !user) {
+      setHistoryRows([]);
+      return;
+    }
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const qs = new URLSearchParams();
+      qs.set("limit", "50");
+      if (user.role === "super_admin" && billingRegionId.trim()) {
+        qs.set("regionId", billingRegionId.trim());
+      }
+      const data = await apiJson<{ bills: QuickBillHistoryRow[] }>(`/api/service/quick-bills?${qs.toString()}`);
+      setHistoryRows(data.bills);
+    } catch (e) {
+      setHistoryError(e instanceof ApiError ? e.message : "Could not load quick bill history.");
+      setHistoryRows([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [apiMode, user, billingRegionId]);
 
-  function syncModelForBrand(nextBrand: string) {
+  useEffect(() => {
+    void loadQuickBillHistory();
+  }, [loadQuickBillHistory]);
+
+  useEffect(() => {
+    if (!apiMode || !user) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await apiJson<{ settings: { defaultSacHsn: string } }>("/api/settings/tax");
+        if (cancelled) return;
+        setInvoiceHsnSac(data.settings.defaultSacHsn.trim() || "9987");
+      } catch {
+        /* keep default */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiMode, user]);
+
+  const priceRegionQuery = useMemo(() => {
+    const rid = user?.role === "super_admin" ? billingRegionId : user?.regionId ?? "";
+    return rid ? `?regionId=${encodeURIComponent(rid)}` : "";
+  }, [user?.role, user?.regionId, billingRegionId]);
+
+  const stockQuerySuffix = useMemo(() => {
+    const qs = new URLSearchParams();
+    qs.set("aggregate", "region");
+    if (user?.role === "super_admin" && billingRegionId.trim()) {
+      qs.set("regionId", billingRegionId.trim());
+    }
+    return `?${qs.toString()}`;
+  }, [user?.role, billingRegionId]);
+
+  useEffect(() => {
+    if (!apiMode || user?.role !== "super_admin") return;
+    if (regions.length > 0 && !billingRegionId) setBillingRegionId(regions[0]!.id);
+  }, [apiMode, user?.role, regions, billingRegionId]);
+
+  const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
     const ms = watchModelsForBrand(nextBrand);
     const first = ms[0];
     setWatchModel(first?.model ?? "");
     if (first?.refHint) setWatchRef(first.refHint);
     else setWatchRef("");
-  }
+  }, []);
+
+  useEffect(() => {
+    if (brandNames.length === 0) return;
+    if (!watchBrand || !brandNames.includes(watchBrand)) {
+      syncModelForBrand(brandNames[0]!);
+    }
+  }, [brandNames, watchBrand, syncModelForBrand]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,26 +293,30 @@ export function QuickBillPage() {
       try {
         const resolved = await Promise.all(
           spares.map(async (spare) => {
-            const [priceData, stockData] = await Promise.all([
-              apiJson<{ prices: SparePriceLine[] }>(
-                `/api/catalog/spares/${encodeURIComponent(spare.id)}/prices${priceRegionQuery}`,
-              ),
-              apiJson<{ stock: SpareStockRow[] }>(
-                `/api/catalog/spares/${encodeURIComponent(spare.id)}/stock`,
-              ),
-            ]);
-            const matchedPrice = priceData.prices.find(
-              (p) => p.brand.trim().toLowerCase() === watchBrand.trim().toLowerCase(),
-            );
-            if (!matchedPrice) return null;
-            const stockQty = stockData.stock.reduce((sum, row) => sum + row.quantity, 0);
-            return {
-              id: spare.id,
-              sku: spare.sku,
-              name: spare.name,
-              price: matchedPrice.price,
-              stockQty,
-            } satisfies QuickBillSpareOption;
+            try {
+              const [priceData, stockData] = await Promise.all([
+                apiJson<{ prices: SparePriceLine[] }>(
+                  `/api/catalog/spares/${encodeURIComponent(spare.id)}/prices${priceRegionQuery}`,
+                ),
+                apiJson<{ stock: SpareStockRow[] }>(
+                  `/api/catalog/spares/${encodeURIComponent(spare.id)}/stock${stockQuerySuffix}`,
+                ),
+              ]);
+              const matchedPrice = priceData.prices.find(
+                (p) => p.brand.trim().toLowerCase() === watchBrand.trim().toLowerCase(),
+              );
+              if (!matchedPrice) return null;
+              const stockQty = stockData.stock.reduce((sum, row) => sum + row.quantity, 0);
+              return {
+                id: spare.id,
+                sku: spare.sku,
+                name: spare.name,
+                price: matchedPrice.price,
+                stockQty,
+              } satisfies QuickBillSpareOption;
+            } catch {
+              return null;
+            }
           }),
         );
         if (cancelled) return;
@@ -129,7 +334,7 @@ export function QuickBillPage() {
     return () => {
       cancelled = true;
     };
-  }, [spares, watchBrand, priceRegionQuery]);
+  }, [spares, watchBrand, priceRegionQuery, stockQuerySuffix]);
 
   function addLine() {
     setLines((prev) => [...prev, emptyLine()]);
@@ -149,7 +354,7 @@ export function QuickBillPage() {
       const fallback = spares.find((s) => s.id === spareId);
       setError(
         fallback
-          ? `No ${watchBrand} price configured for ${fallback.name} (${fallback.sku}) in your region.`
+          ? `No ${watchBrand} price for ${fallback.name} (${fallback.sku}) in this region — add it under Inventory → Spare catalogue.`
           : "Spare not found.",
       );
       return;
@@ -166,6 +371,8 @@ export function QuickBillPage() {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           description: `${spare.name} (${spare.sku})`,
           amount: String(spare.price),
+          spareId: spare.id,
+          qty: 1,
         },
       ]);
       setError(null);
@@ -181,7 +388,9 @@ export function QuickBillPage() {
     if (!sku) return;
     const option = spareOptions.find((s) => s.sku.toUpperCase() === sku);
     if (!option) {
-      setError(`Scanned SKU ${sku} is not available for ${watchBrand} in your region/stock.`);
+      setError(
+        `Scanned SKU ${sku} has no ${watchBrand} price in this region (or is out of stock).`,
+      );
       setBarcodeSku("");
       return;
     }
@@ -213,6 +422,10 @@ export function QuickBillPage() {
       setError("Choose a watch brand and model from the catalog.");
       return false;
     }
+    if (apiMode && user?.role === "super_admin" && !billingRegionId.trim()) {
+      setError("Select billing region (required to load prices and save the bill).");
+      return false;
+    }
     const parsed = lines
       .map((l) => ({
         description: l.description.trim(),
@@ -236,14 +449,72 @@ export function QuickBillPage() {
     setOtpError(null);
   }
 
-  function handleVerifyOtp() {
+  async function handleVerifyOtp() {
     setOtpError(null);
     if (!awaitingOtp) return;
     if (otpInput.trim() !== awaitingOtp) {
       setOtpError("Incorrect OTP. No changes were saved. Enter the code shown above.");
       return;
     }
-    setCompletedRef(nextQuickBillRef());
+    const parsedLines = lines
+      .map((l) => ({
+        description: l.description.trim(),
+        amount: Number.parseFloat(l.amount),
+        spareId: l.spareId,
+        qty: l.qty ?? 1,
+      }))
+      .filter((l) => l.description && !Number.isNaN(l.amount) && l.amount >= 0);
+
+    if (apiMode) {
+      const regionId =
+        user?.role === "super_admin" ? billingRegionId.trim() : user?.regionId?.trim() ?? "";
+      if (!regionId) {
+        setOtpError("Missing region for this account. Select billing region or re-login.");
+        return;
+      }
+      const tech = SEED_TECHNICIANS.find((t) => t.id === technicianId);
+      setIsSavingBill(true);
+      try {
+        const { invoice } = await apiJson<{ invoice: QuickBillInvoice }>("/api/service/quick-bills", {
+          method: "POST",
+          json: {
+            regionId,
+            storeId: user?.role === "store_user" ? user.storeId : null,
+            customerType,
+            customerName: customerName.trim() || null,
+            phone: phone.trim() || null,
+            email: email.trim() || null,
+            company: company.trim() || null,
+            gst: gst.trim().toUpperCase() || null,
+            pan: pan.trim().toUpperCase() || null,
+            watchBrand,
+            watchModel,
+            watchRef: watchRef.trim() || null,
+            technicianId: technicianId || null,
+            technicianName: tech?.name ?? null,
+            paymentMode,
+            notes: notes.trim(),
+            lines: parsedLines.map((l) => ({
+              description: l.description,
+              amount: l.amount,
+              spareId: l.spareId,
+              qty: l.qty,
+            })),
+          },
+        });
+        setCompletion({ mode: "api", invoice });
+        setAwaitingOtp(null);
+        setOtpInput("");
+        void loadQuickBillHistory();
+      } catch (e) {
+        setOtpError(e instanceof ApiError ? e.message : "Could not save quick bill to the server.");
+      } finally {
+        setIsSavingBill(false);
+      }
+      return;
+    }
+
+    setCompletion({ mode: "demo", ref: nextQuickBillRef() });
     setAwaitingOtp(null);
     setOtpInput("");
   }
@@ -277,52 +548,90 @@ export function QuickBillPage() {
     setCompany("");
     setGst("");
     setPan("");
-    const b0 = watchBrands()[0] ?? "";
-    syncModelForBrand(b0);
+    const b0 = brandNames[0] ?? "";
+    if (b0) syncModelForBrand(b0);
+    else {
+      setWatchBrand("");
+      setWatchModel("");
+      setWatchRef("");
+    }
     setLines([emptyLine()]);
     setPartPick("");
     setTechnicianId(SEED_TECHNICIANS[0]?.id ?? "");
     setPaymentMode("Cash");
     setNotes("");
     setError(null);
-    setCompletedRef(null);
+    setCompletion(null);
+    setIsSavingBill(false);
     setAwaitingOtp(null);
     setOtpInput("");
     setOtpError(null);
+    void loadQuickBillHistory();
   }
 
-  if (completedRef) {
+  if (completion?.mode === "api") {
     return (
       <div>
-        <ServiceBreadcrumb current="Quick bill" />
-        <Card title="Quick bill completed" subtitle="Counter sale — no HO workflow">
-          <p className="text-sm text-stone-600">
-            Reference <span className="font-mono font-semibold text-zimson-900">{completedRef}</span>{" "}
-            (demo only; not saved to a server).
-          </p>
-          <p className="mt-2 text-sm text-stone-600">
-            Total billed:{" "}
-            <span className="font-semibold text-stone-900">
-              {total.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-            </span>{" "}
-            · {paymentMode}
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={resetForm}
-              className="inline-flex rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
-            >
-              New quick bill
-            </button>
-            <Link
-              to="/service"
-              className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Back to service
-            </Link>
-          </div>
-        </Card>
+        <ServiceBreadcrumb current="Quick bill" className="print:hidden" />
+        <PageHeader
+          title="Quick bill"
+          description="Bill saved. Print or start another sale from this screen — no separate invoicing page."
+          className="print:hidden"
+        />
+        <QuickBillInvoicePanel
+          viewModel={mapQuickBillInvoiceToViewModel(completion.invoice, { defaultHsnSac: invoiceHsnSac })}
+          onNew={resetForm}
+        />
+        <QuickBillHistoryCard
+          className="mt-8"
+          rows={historyRows}
+          loading={historyLoading}
+          error={historyError}
+          onRefresh={() => void loadQuickBillHistory()}
+        />
+      </div>
+    );
+  }
+
+  if (completion?.mode === "demo") {
+    const techName = SEED_TECHNICIANS.find((t) => t.id === technicianId)?.name ?? null;
+    const placeOfSupply =
+      user?.regionId != null
+        ? (regions.find((r) => r.id === user.regionId)?.name ?? user.regionId)
+        : "—";
+    const demoLines = lines
+      .map((l) => ({
+        description: l.description.trim(),
+        amount: Number.parseFloat(l.amount),
+      }))
+      .filter((l) => l.description && !Number.isNaN(l.amount) && l.amount >= 0);
+    const demoVm = buildDemoServiceInvoiceViewModel(
+      {
+        billNumber: completion.ref,
+        placeOfSupply,
+        customerType,
+        customerName,
+        company,
+        phone,
+        email,
+        gst,
+        pan,
+        watchBrand,
+        watchModel,
+        watchRef,
+        technicianName: techName,
+        paymentMode,
+        notes,
+        lines: demoLines,
+        total,
+      },
+      { defaultHsnSac: invoiceHsnSac },
+    );
+    return (
+      <div>
+        <ServiceBreadcrumb current="Quick bill" className="print:hidden" />
+        <PageHeader title="Quick bill" description="Demo mode — bill not persisted (API off)." className="print:hidden" />
+        <QuickBillInvoicePanel viewModel={demoVm} onNew={resetForm} />
       </div>
     );
   }
@@ -332,8 +641,47 @@ export function QuickBillPage() {
       <ServiceBreadcrumb current="Quick bill" />
       <PageHeader
         title="Quick bill"
-        description="B2C: customer fields are optional. B2B: register the customer with mandatory GSTIN and PAN, then verify with OTP before the bill is finalized."
+        description="B2C: customer fields are optional. B2B: GSTIN and PAN required. After OTP, the bill is saved (API on) and the invoice appears below on this page — no separate billing route."
       />
+
+      {apiMode && user?.role === "super_admin" ? (
+        <Card
+          title="Billing region"
+          subtitle="Used for regional spare prices and stored on the quick bill."
+          className="mb-8"
+        >
+          <label htmlFor="qb-bill-region" className="text-xs font-medium text-stone-600">
+            Region *
+          </label>
+          <select
+            id="qb-bill-region"
+            value={billingRegionId}
+            onChange={(e) => setBillingRegionId(e.target.value)}
+            className={inputClass}
+          >
+            <option value="">Select region</option>
+            {regions.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </Card>
+      ) : null}
+
+      {apiMode ? (
+        <QuickBillHistoryCard
+          className="mb-8"
+          rows={historyRows}
+          loading={historyLoading}
+          error={historyError}
+          onRefresh={() => void loadQuickBillHistory()}
+        />
+      ) : (
+        <Card title="Quick bill history" subtitle="API mode is off — saved bills are not listed." className="mb-8 print:hidden">
+          <p className="text-sm text-stone-600">Turn on the API to load history from the database.</p>
+        </Card>
+      )}
 
       <form onSubmit={handlePrepareComplete} className="space-y-8">
         <Card
@@ -470,7 +818,7 @@ export function QuickBillPage() {
           </div>
         </Card>
 
-        <Card title="Watch (catalog)" subtitle="Choose from test data">
+        <Card title="Watch (catalog)" subtitle="Brand list from master data; models from demo catalog for that brand">
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label htmlFor="qb-brand" className="text-xs font-medium text-stone-600">
@@ -482,7 +830,7 @@ export function QuickBillPage() {
                 onChange={(e) => syncModelForBrand(e.target.value)}
                 className={inputClass}
               >
-                {brands.map((b) => (
+                {brandNames.map((b) => (
                   <option key={b} value={b}>
                     {b}
                   </option>
@@ -527,7 +875,7 @@ export function QuickBillPage() {
 
         <Card
           title="Service lines"
-          subtitle="Manual lines or add brand-based spares from catalog"
+          subtitle="Only spares that have a regional price row for the selected watch brand appear here; stock is summed across HO + stores in the region"
           action={
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2">
@@ -562,11 +910,14 @@ export function QuickBillPage() {
                 aria-label="Add part from catalog"
               >
                 <option value="">
-                  {spareOptionsLoading ? "Loading brand spares..." : "+ Spare from selected brand..."}
+                  {spareOptionsLoading
+                    ? "Loading spares for selected brand…"
+                    : `+ Spare with ${watchBrand} price in region…`}
                 </option>
                 {spareOptions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({s.sku}) — ₹{s.price} {s.stockQty <= 0 ? "· Out of stock" : ""}
+                    {s.name} ({s.sku}) — ₹{s.price} · regional qty {s.stockQty}
+                    {s.stockQty <= 0 ? " · Out of stock" : ""}
                   </option>
                 ))}
               </select>
@@ -705,8 +1056,9 @@ export function QuickBillPage() {
             value={otpInput}
             onChange={setOtpInput}
             error={otpError}
-            onVerify={handleVerifyOtp}
+            onVerify={() => void handleVerifyOtp()}
             onRegenerate={regenerateOtp}
+            verifyBusy={isSavingBill}
           />
           <button
             type="button"

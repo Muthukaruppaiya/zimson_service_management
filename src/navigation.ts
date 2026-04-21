@@ -48,4 +48,16 @@ export const mainNav: NavItem[] = [
     description: "Create users and roles",
     module: "users",
   },
+  {
+    to: "/settings/tax",
+    label: "Tax & billing",
+    description: "GST rates, SAC/HSN, tax-inclusive pricing",
+    module: "settings",
+  },
+  {
+    to: "/settings/document-templates",
+    label: "Document templates",
+    description: "PO, PR, GRN and transfer print templates",
+    module: "settings",
+  },
 ];

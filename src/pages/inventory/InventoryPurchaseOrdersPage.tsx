@@ -6,18 +6,29 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { buildPurchaseOrderDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import type { PurchaseOrder } from "../../types/purchaseOrder";
 import type { Supplier } from "../../types/supplier";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2";
 
+function poStatusPillClass(status: string): string {
+  if (status === "CLOSED") return "bg-emerald-100 text-emerald-800";
+  if (status === "OPEN") return "bg-blue-100 text-blue-800";
+  if (status === "PARTIAL") return "bg-amber-100 text-amber-800";
+  if (status === "CANCELLED") return "bg-red-100 text-red-800";
+  return "bg-stone-100 text-stone-700";
+}
+
 type PrItem = { id: string; spareId: string; qty: number; issuedQty: number; reason: string };
 type PrRow = {
   id: string;
   prNumber: string;
   regionId: string;
+  regionName?: string;
   storeId: string;
+  storeName?: string;
   status: string;
   items: PrItem[];
 };
@@ -28,7 +39,9 @@ type ConsolidationRow = {
   prId: string;
   prNumber: string;
   storeId: string;
+  storeName?: string;
   regionId: string;
+  regionName?: string;
   prStatus: string;
   neededBy: string | null;
   prCreatedAt: string;
@@ -47,11 +60,13 @@ type BulkDraft = {
   supplierId: string;
   supplierName: string;
   regionId: string;
+  regionName?: string;
   lines: Array<{
     prItemId: string;
     prId: string;
     prNumber: string;
     storeId: string;
+    storeName?: string;
     spareId: string;
     qtyOrdered: number;
     unitPrice: number;
@@ -61,7 +76,12 @@ type BulkDraft = {
 export function InventoryPurchaseOrdersPage() {
   const { user } = useAuth();
   const { spares } = useSpares();
-  const isHo = user?.role === "regional_admin" || user?.role === "super_admin";
+  const isHo =
+    user?.role === "regional_admin" ||
+    user?.role === "super_admin" ||
+    user?.role === "ho_admin" ||
+    user?.role === "ho_manager" ||
+    user?.role === "ho_user";
 
   const [prs, setPrs] = useState<PrRow[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -115,6 +135,13 @@ export function InventoryPurchaseOrdersPage() {
   );
 
   const activeSuppliers = useMemo(() => suppliers.filter((s) => s.isActive), [suppliers]);
+  const poStats = useMemo(() => {
+    const total = pos.length;
+    const open = pos.filter((p) => p.status === "OPEN").length;
+    const partial = pos.filter((p) => p.status === "PARTIAL").length;
+    const closed = pos.filter((p) => p.status === "CLOSED").length;
+    return { total, open, partial, closed };
+  }, [pos]);
 
   useEffect(() => {
     if (!selectedPrId) {
@@ -179,6 +206,39 @@ export function InventoryPurchaseOrdersPage() {
         },
       });
       setOk(`Created ${data.poNumber}.`);
+      const supplierName = activeSuppliers.find((s) => s.id === selectedSupplierId)?.name ?? "Supplier";
+      const selectedPr = prs.find((p) => p.id === selectedPrId);
+      const supplier = activeSuppliers.find((s) => s.id === selectedSupplierId);
+      openPrintDocument(
+        `PO ${data.poNumber}`,
+        buildPurchaseOrderDocument({
+          poNumber: data.poNumber,
+          poDate: new Date().toISOString(),
+          prNumber: selectedPr?.prNumber ?? null,
+          supplier: {
+            name: supplier?.name ?? supplierName,
+            phone: supplier?.phone ?? undefined,
+            email: supplier?.email ?? undefined,
+            address: supplier?.address ?? undefined,
+            gstin: supplier?.gst ?? undefined,
+          },
+          shipTo: {
+            name: `Store ${selectedPr?.storeName ?? selectedPr?.storeId ?? "-"} · Region ${selectedPr?.regionName ?? selectedPr?.regionId ?? "-"}`,
+          },
+          notes: poNotes.trim(),
+          requestedBy: user?.displayName ?? "-",
+          requisitioner: user?.displayName ?? "-",
+          shippedVia: "Road",
+          fobPoint: selectedPr?.storeName ?? selectedPr?.storeId ?? "Store",
+          terms: "As per agreed rates and delivery schedule",
+          lines: parsed.map((l) => ({
+            description: spareLabel.get(l.spareId) ?? l.spareId,
+            qty: l.qtyOrdered,
+            unit: "Nos",
+            unitPrice: l.unitPrice,
+          })),
+        }),
+      );
       setSelectedPrId("");
       setSelectedSupplierId("");
       setPoNotes("");
@@ -313,6 +373,21 @@ export function InventoryPurchaseOrdersPage() {
       {err ? <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{err}</p> : null}
       {ok ? <p className="mb-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{ok}</p> : null}
 
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card title="Total PO" className="py-1">
+          <p className="text-2xl font-semibold text-stone-900">{poStats.total}</p>
+        </Card>
+        <Card title="Open" className="py-1">
+          <p className="text-2xl font-semibold text-zimson-800">{poStats.open}</p>
+        </Card>
+        <Card title="Partial" className="py-1">
+          <p className="text-2xl font-semibold text-amber-700">{poStats.partial}</p>
+        </Card>
+        <Card title="Closed" className="py-1">
+          <p className="text-2xl font-semibold text-emerald-700">{poStats.closed}</p>
+        </Card>
+      </div>
+
       {!isHo ? (
         <Card className="mb-6" title="Store view">
           <p className="text-sm text-stone-600">
@@ -335,7 +410,7 @@ export function InventoryPurchaseOrdersPage() {
                   <option value="">Select PR…</option>
                   {eligiblePrs.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.prNumber} · {p.status} · store {p.storeId}
+                      {p.prNumber} · {p.status} · store {p.storeName ?? p.storeId}
                     </option>
                   ))}
                 </select>
@@ -443,7 +518,7 @@ export function InventoryPurchaseOrdersPage() {
                       />
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">{r.prNumber}</td>
-                    <td className="px-3 py-2">{r.storeId}</td>
+                    <td className="px-3 py-2">{r.storeName ?? r.storeId}</td>
                     <td className="px-3 py-2">{r.spareName} ({r.spareSku})</td>
                     <td className="px-3 py-2">{r.pendingQty}</td>
                     <td className="px-3 py-2">{r.mappedSupplierName ?? "Unmapped"}</td>
@@ -496,7 +571,7 @@ export function InventoryPurchaseOrdersPage() {
               {drafts.map((d) => (
                 <div key={`${d.supplierId}-${d.regionId}`} className="rounded-xl border border-zimson-200/80 p-3">
                   <p className="mb-2 text-sm font-semibold text-stone-900">
-                    Supplier: {d.supplierName} · Region: {d.regionId}
+                    Supplier: {d.supplierName} · Region: {d.regionName ?? d.regionId}
                   </p>
                   <div className="max-h-56 overflow-auto rounded-xl border border-zimson-200/80">
                     <table className="min-w-full text-left text-sm">
@@ -513,7 +588,7 @@ export function InventoryPurchaseOrdersPage() {
                         {d.lines.map((l) => (
                           <tr key={l.prItemId} className="border-b border-zimson-100">
                             <td className="px-3 py-2 font-mono text-xs">{l.prNumber}</td>
-                            <td className="px-3 py-2">{l.storeId}</td>
+                            <td className="px-3 py-2">{l.storeName ?? l.storeId}</td>
                             <td className="px-3 py-2">{spareLabel.get(l.spareId) ?? l.spareId}</td>
                             <td className="px-3 py-2">
                               <input
@@ -574,11 +649,13 @@ export function InventoryPurchaseOrdersPage() {
             </thead>
             <tbody>
               {pos.map((po) => (
-                  <tr className="border-b border-zimson-100 align-top">
+                  <tr key={po.id} className="border-b border-zimson-100 align-top">
                     <td className="px-3 py-2 font-mono text-xs">{po.poNumber}</td>
                     <td className="px-3 py-2 font-mono text-xs">{po.prNumber ?? "—"}</td>
                     <td className="px-3 py-2">{po.supplierName}</td>
-                    <td className="px-3 py-2">{po.status}</td>
+                    <td className="px-3 py-2">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${poStatusPillClass(po.status)}`}>{po.status}</span>
+                    </td>
                     <td className="px-3 py-2 text-xs text-stone-700">{po.items.length}</td>
                     <td className="px-3 py-2">
                       <button
@@ -587,6 +664,42 @@ export function InventoryPurchaseOrdersPage() {
                         className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-xs font-semibold text-stone-700"
                       >
                         Details
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openPrintDocument(
+                            `PO ${po.poNumber}`,
+                            buildPurchaseOrderDocument({
+                              poNumber: po.poNumber,
+                              poDate: po.createdAt,
+                              prNumber: po.prNumber ?? null,
+                              supplier: {
+                                name: suppliers.find((s) => s.id === po.supplierId)?.name ?? po.supplierName,
+                                phone: suppliers.find((s) => s.id === po.supplierId)?.phone ?? undefined,
+                                email: suppliers.find((s) => s.id === po.supplierId)?.email ?? undefined,
+                                address: suppliers.find((s) => s.id === po.supplierId)?.address ?? undefined,
+                                gstin: suppliers.find((s) => s.id === po.supplierId)?.gst ?? undefined,
+                              },
+                              shipTo: { name: `Store ${po.storeName ?? po.storeId ?? "-"} · Region ${po.regionName ?? po.regionId}` },
+                              notes: po.notes,
+                              requestedBy: user?.displayName ?? "-",
+                              requisitioner: user?.displayName ?? "-",
+                              shippedVia: "Road",
+                              fobPoint: "Destination",
+                              terms: "As per agreed rates and delivery schedule",
+                              lines: po.items.map((i) => ({
+                                description: spareLabel.get(i.spareId) ?? i.spareId,
+                                qty: i.qtyOrdered,
+                                unit: "Nos",
+                                unitPrice: i.unitPrice,
+                              })),
+                            }),
+                          )
+                        }
+                        className="rounded-lg border border-zimson-300 bg-zimson-50 px-2 py-1 text-xs font-semibold text-zimson-800"
+                      >
+                        Print
                       </button>
                     </td>
                   </tr>
@@ -638,7 +751,7 @@ export function InventoryPurchaseOrdersPage() {
                       <span className="font-semibold">Created:</span> {new Date(po.createdAt).toLocaleString()}
                     </p>
                     <p className="text-sm text-stone-700">
-                      <span className="font-semibold">Region:</span> {po.regionId}
+                      <span className="font-semibold">Region:</span> {po.regionName ?? po.regionId}
                     </p>
                     <p className="text-sm text-stone-700 sm:col-span-2">
                       <span className="font-semibold">Notes:</span> {po.notes || "-"}

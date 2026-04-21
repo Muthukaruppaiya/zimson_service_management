@@ -1,11 +1,10 @@
 import { Link } from "react-router-dom";
+import { InventoryNavBar } from "../../components/inventory/InventoryNavBar";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 
 const primary =
   "inline-flex w-full items-center justify-center rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 sm:w-auto";
-const secondary =
-  "inline-flex w-full items-center justify-center rounded-xl border border-zimson-300 bg-zimson-50 py-2.5 text-sm font-semibold text-zimson-900 transition hover:bg-zimson-100 sm:w-auto";
 
 const flowSteps = [
   "Store maintains spares + customer service watches at store level.",
@@ -13,6 +12,15 @@ const flowSteps = [
   "HO converts approved PR lines into a purchase order (PO) to vendor.",
   "Goods receipt: inward quantities against the PO — with tax invoice, or bill-free entry capped at ₹10,000 per policy.",
   "Spare selling / issue rates: maintained in the regional price-fixing screen (same SKU, different region).",
+];
+
+const quickTiles = [
+  { to: "/inventory/spares", title: "Spare catalogue", hint: "Master data + SKU setup", cta: "Open spare master" },
+  { to: "/inventory/bulk-import", title: "Bulk import", hint: "Excel template → validate → import", cta: "Bulk import" },
+  { to: "/inventory/brands", title: "Brands", hint: "Watch brands used across modules", cta: "Manage brands" },
+  { to: "/inventory/store-stock", title: "Store stock", hint: "HO/store on-hand quantity", cta: "Open store stock" },
+  { to: "/inventory/purchase-requests", title: "Purchase requests", hint: "Store to HO pipeline", cta: "Open PRs" },
+  { to: "/inventory/purchase-orders", title: "Purchase orders", hint: "HO to supplier ordering", cta: "Open POs" },
 ];
 
 export function InventoryModulePage() {
@@ -31,6 +39,31 @@ export function InventoryModulePage() {
         }
       />
 
+      <InventoryNavBar />
+
+      <Card
+        title="Inventory command center"
+        subtitle="Fast actions and visibility for stock, procurement and pricing"
+        className="mb-6 overflow-hidden"
+      >
+        <div className="rounded-2xl bg-gradient-to-r from-zimson-900 via-zimson-800 to-zimson-700 p-5 text-zimson-50">
+          <p className="text-sm/6">
+            Use the inventory navbar for direct navigation. Keep stock healthy with bulk import, PR → PO → GRN flow,
+            and region-wise pricing controls.
+          </p>
+        </div>
+      </Card>
+
+      <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {quickTiles.map((tile) => (
+          <Card key={tile.to} title={tile.title} subtitle={tile.hint}>
+            <Link to={tile.to} className={`${primary} mt-4`}>
+              {tile.cta}
+            </Link>
+          </Card>
+        ))}
+      </div>
+
       <Card title="End-to-end flow" subtitle="Inventory movement and controls" className="mb-8">
         <ol className="list-decimal space-y-2 pl-5 text-sm text-stone-700">
           {flowSteps.map((s) => (
@@ -40,83 +73,19 @@ export function InventoryModulePage() {
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card title="Spare catalogue" subtitle="Master data + add new SKU">
-          <p className="text-sm text-stone-600">Central spare master used by PR/PO, price fixing, and stock.</p>
-          <Link to="/inventory/spares" className={`${primary} mt-4`}>
-            Open spare master
-          </Link>
-        </Card>
-
-        <Card title="Store stock" subtitle="Spares + service watches">
+        <Card title="Use navbar for navigation" subtitle="All inventory menus are now pinned at the top">
           <p className="text-sm text-stone-600">
-            On-hand spares by bin/location and watches held for service (separate from saleable stock).
+            You can switch directly between Spares, Bulk Import, PR, PO, GRN, Suppliers, Allocation, and Pricing
+            from the horizontal inventory navbar.
           </p>
-          <Link to="/inventory/store-stock" className={`${secondary} mt-4`}>
-            Open store stock
-          </Link>
         </Card>
-
-        <Card title="Stock & prices by location" subtitle="Spare-wise HO/store quantities and regional brand prices">
-          <p className="text-sm text-stone-600">
-            Read-only overview: each spare shows stock rows by location and price lines for your region (super admin
-            can filter region).
-          </p>
-          <Link to="/inventory/stock-prices" className={`${primary} mt-4`}>
-            Open stock &amp; prices
-          </Link>
-        </Card>
-
-        <Card title="Purchase requests" subtitle="Store → HO">
-          <p className="text-sm text-stone-600">
-            Store users submit PRs; HO inbox shows all PRs for that regional office.
-          </p>
-          <Link to="/inventory/purchase-requests" className={`${primary} mt-4`}>
-            Purchase requests
-          </Link>
-        </Card>
-
-        <Card title="Suppliers" subtitle="Vendor master for PO">
-          <p className="text-sm text-stone-600">Add and edit suppliers; PO creation picks an active supplier.</p>
-          <Link to="/inventory/suppliers" className={`${secondary} mt-4`}>
-            Suppliers
-          </Link>
-        </Card>
-
-        <Card title="Purchase orders" subtitle="HO converts PR → PO">
-          <p className="text-sm text-stone-600">
-            Approve vendor, quantities, and rates; PO is the legal document for inward and GRN matching.
-          </p>
-          <Link to="/inventory/purchase-orders" className={`${primary} mt-4`}>
-            Purchase orders
-          </Link>
-        </Card>
-
-        <Card title="PO inward / GRN" subtitle="Bill + tax vs without bill ≤ ₹10k">
-          <p className="text-sm text-stone-600">
-            Post goods against PO lines: full tax invoice capture, or a controlled without-bill path for purchases under ₹10,000.
-          </p>
-          <Link to="/inventory/po-inward" className={`${primary} mt-4`}>
-            Goods receipt
-          </Link>
-        </Card>
-
-        <Card title="Allocation review" subtitle="Auto suggest + manual override transfer">
-          <p className="text-sm text-stone-600">
-            After HO inward, generate auto allocation across pending PRs, review quantities, and confirm issue to stores.
-          </p>
-          <Link to="/inventory/allocation-review" className={`${primary} mt-4`}>
-            Open allocation review
-          </Link>
-        </Card>
-
-        <Card title="Spare price fixing" subtitle="Per regional HO — uses catalogue SKUs">
-          <p className="text-sm text-stone-600">
-            List price, issue price to store, and tax class can differ by region for each spare row from the
-            catalogue.
-          </p>
-          <Link to="/inventory/spare-price-fixing" className={`${secondary} mt-4`}>
-            Regional prices
-          </Link>
+        <Card title="Recommended daily order" subtitle="Quick working sequence">
+          <ol className="list-decimal space-y-2 pl-5 text-sm text-stone-700">
+            <li>Maintain or import spare masters.</li>
+            <li>Update region-wise prices and stock.</li>
+            <li>Process PR → PO → GRN.</li>
+            <li>Run allocation review for pending store demand.</li>
+          </ol>
         </Card>
       </div>
     </div>

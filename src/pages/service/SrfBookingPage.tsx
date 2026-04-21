@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
@@ -6,6 +6,7 @@ import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Stepper } from "../../components/ui/Stepper";
 import { useAuth } from "../../context/AuthContext";
+import { useBrands } from "../../context/BrandsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import {
   findPart,
@@ -14,7 +15,6 @@ import {
   isValidPanFormat,
   nextSrfRef,
   SEED_PARTS,
-  watchBrands,
   watchModelsForBrand,
 } from "../../data/serviceSeed";
 
@@ -26,7 +26,8 @@ const inputClass =
 export function SrfBookingPage() {
   const { user } = useAuth();
   const { createJob } = useSrfJobs();
-  const brands = watchBrands();
+  const { brands: catalogBrands } = useBrands();
+  const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
   const [step, setStep] = useState(0);
   const [customerType, setCustomerType] = useState<"B2C" | "B2B">("B2C");
   const [customerName, setCustomerName] = useState("");
@@ -36,7 +37,7 @@ export function SrfBookingPage() {
   const [gst, setGst] = useState("");
   const [pan, setPan] = useState("");
 
-  const [watchBrand, setWatchBrand] = useState(brands[0] ?? "");
+  const [watchBrand, setWatchBrand] = useState("");
   const models = watchModelsForBrand(watchBrand);
   const [watchModel, setWatchModel] = useState<string>(models[0]?.model ?? "");
   const [serial, setSerial] = useState("");
@@ -64,14 +65,21 @@ export function SrfBookingPage() {
   const extraPartsNum = Number.parseFloat(partsExtra) || 0;
   const estimateTotal = laborNum + catalogPartsTotal + extraPartsNum;
 
-  function syncModelForBrand(nextBrand: string) {
+  const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
     const ms = watchModelsForBrand(nextBrand);
     const first = ms[0];
     setWatchModel(first?.model ?? "");
     if (first?.refHint) setSerial(first.refHint);
     else setSerial("");
-  }
+  }, []);
+
+  useEffect(() => {
+    if (brandNames.length === 0) return;
+    if (!watchBrand || !brandNames.includes(watchBrand)) {
+      syncModelForBrand(brandNames[0]!);
+    }
+  }, [brandNames, watchBrand, syncModelForBrand]);
 
   function togglePart(id: string) {
     setSelectedPartIds((prev) =>
@@ -199,8 +207,13 @@ export function SrfBookingPage() {
     setCompany("");
     setGst("");
     setPan("");
-    const b0 = watchBrands()[0] ?? "";
-    syncModelForBrand(b0);
+    const b0 = brandNames[0] ?? "";
+    if (b0) syncModelForBrand(b0);
+    else {
+      setWatchBrand("");
+      setWatchModel("");
+      setSerial("");
+    }
     setCondition("");
     setAccessories("");
     setComplaint("");
@@ -377,7 +390,7 @@ export function SrfBookingPage() {
       ) : null}
 
       {step === 1 ? (
-        <Card title="Step 2 — Watch" subtitle="Catalog test data">
+        <Card title="Step 2 — Watch" subtitle="Brand from master data; models from demo catalog for that brand">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="text-xs font-medium text-stone-600">Brand *</label>
@@ -386,7 +399,7 @@ export function SrfBookingPage() {
                 onChange={(e) => syncModelForBrand(e.target.value)}
                 className={inputClass}
               >
-                {brands.map((b) => (
+                {brandNames.map((b) => (
                   <option key={b} value={b}>
                     {b}
                   </option>

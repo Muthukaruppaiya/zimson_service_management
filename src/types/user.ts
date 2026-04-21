@@ -1,7 +1,15 @@
 export type UserRole =
+  | "ho_admin"
+  | "ho_manager"
+  | "ho_supervisor"
+  | "ho_user"
+  | "ho_accounts"
   | "super_admin"
   | "regional_admin"
   | "store_user"
+  | "store_purchase_user"
+  | "store_manager"
+  | "store_accounts"
   | "service_centre_clerk"
   | "service_centre_supervisor"
   | "technician";
@@ -13,7 +21,8 @@ export type ModuleKey =
   | "regions"
   | "users"
   | "service_centre"
-  | "inventory";
+  | "inventory"
+  | "settings";
 
 export type DemoUser = {
   id: string;
@@ -27,6 +36,10 @@ export type DemoUser = {
   storeId: string | null;
   /** For technician role — matches `SEED_TECHNICIANS` id */
   technicianProfileId?: string | null;
+  /** If false, account is directory-only and cannot sign in (e.g. technicians). */
+  canLogin?: boolean;
+  /** Optional per-user module customization set by admin. */
+  moduleAccessOverride?: ModuleKey[] | null;
   createdAt: string;
   /** Built-in accounts cannot be removed from the demo */
   isSeed?: boolean;

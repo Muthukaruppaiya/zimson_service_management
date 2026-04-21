@@ -1,11 +1,15 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
+import type { Pool } from "pg";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerCatalogRoutes } from "./catalogRoutes";
 import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
+import { registerQuickBillRoutes } from "./quickBillRoutes";
+import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
+import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { appendStockHistory } from "./db/stockHistory";
@@ -13,7 +17,7 @@ import { SEED_USERS, type SeedRegion } from "../src/data/seed";
 import { createId } from "../src/lib/id";
 import type { CustomerKind, CustomerRecord } from "../src/types/customer";
 import type { AppNotification } from "../src/types/notification";
-import type { DemoUser, SessionUser, UserRole } from "../src/types/user";
+import type { DemoUser, ModuleKey, SessionUser, UserRole } from "../src/types/user";
 import type { SrfJob } from "../src/types/srfJob";
 import { readState, stripPassword, writeState, type AppState } from "./persist";
 
@@ -118,6 +122,50 @@ async function nextDocNumber(
   return `${prefix}${yy}${scopeCode}${num}`;
 }
 
+const STORE_ROLES = new Set<UserRole>([
+  "store_user",
+  "store_purchase_user",
+  "store_manager",
+  "store_accounts",
+]);
+
+const PR_CREATOR_ROLES = new Set<UserRole>(["store_user", "store_purchase_user"]);
+const HO_APPROVER_ROLES = new Set<UserRole>(["super_admin", "regional_admin", "ho_admin", "ho_manager"]);
+
+function moduleKeys(input: unknown): ModuleKey[] | null {
+  if (!Array.isArray(input)) return null;
+  const allowed: ModuleKey[] = ["dashboard", "service", "regions", "users", "service_centre", "inventory", "settings"];
+  return input.filter((m): m is ModuleKey => typeof m === "string" && allowed.includes(m as ModuleKey));
+}
+
+async function getPrFlowLabel(
+  pool: Pool,
+  code: string,
+): Promise<string> {
+  const { rows } = await pool.query<{ label: string }>(
+    `SELECT label FROM workflow_status_definitions WHERE entity = 'pr_flow' AND code = $1 AND is_active = true LIMIT 1`,
+    [code],
+  );
+  return rows[0]?.label ?? code;
+}
+
+async function appendPrStatusHistory(
+  poolOrClient: { query: (sql: string, values?: unknown[]) => Promise<unknown> },
+  params: { prId: string; statusCode: string; statusLabel: string; changedBy?: string | null; note?: string },
+): Promise<void> {
+  await poolOrClient.query(
+    `INSERT INTO purchase_request_status_history (pr_id, status_code, status_label, changed_by, note)
+     VALUES ($1::uuid, $2, $3, $4, $5)`,
+    [params.prId, params.statusCode, params.statusLabel, params.changedBy ?? null, params.note ?? ""],
+  );
+}
+
+function derivePrInternalStatus(req: number, issued: number, received: number): { code: string; fallbackLabel: string } {
+  if (received >= req && req > 0) return { code: "STORE_INWARD_COMPLETED", fallbackLabel: "Store inward completed" };
+  if (issued > 0 || received > 0) return { code: "TRANSFER_TO_STORE", fallbackLabel: "Transfer to store" };
+  return { code: "PR_APPROVED_HO", fallbackLabel: "PR approved by HO" };
+}
+
 function requireAuth(
   req: express.Request,
   res: express.Response,
@@ -152,6 +200,10 @@ app.post("/api/auth/login", (req, res) => {
   );
   if (!found) {
     res.status(401).json({ ok: false, message: "Invalid email or password." });
+    return;
+  }
+  if (found.canLogin === false) {
+    res.status(403).json({ ok: false, message: "This profile is directory-only and cannot sign in." });
     return;
   }
   const sid = createId("sid");
@@ -194,7 +246,7 @@ app.get("/api/users", requireAuth, (req, res) => {
   let list = allUsers(state).map(stripPassword);
   if (actor.role === "regional_admin") {
     list = list.filter((u) => u.regionId === actor.regionId);
-  } else if (actor.role !== "super_admin") {
+  } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
     res.status(403).json({ error: "Forbidden." });
     return;
   }
@@ -211,64 +263,63 @@ app.post("/api/users", requireAuth, async (req, res) => {
   }
 
   const input = req.body as {
-    email: string;
+    email?: string;
     displayName: string;
-    password: string;
-    role: "regional_admin" | "store_user";
+    password?: string;
+    role: UserRole;
     regionId: string;
     storeId: string | null;
+    canLogin?: boolean;
+    moduleAccessOverride?: string[] | null;
   };
-  const email = input.email.trim().toLowerCase();
-  if (!email) {
-    res.status(400).json({ ok: false, message: "Email is required." });
-    return;
-  }
+  const canLogin = input.canLogin !== false;
+  const email = String(input.email ?? "").trim().toLowerCase();
   if (!input.displayName.trim()) {
     res.status(400).json({ ok: false, message: "Display name is required." });
     return;
   }
-  if (input.password.length < 4) {
-    res.status(400).json({ ok: false, message: "Password must be at least 4 characters." });
-    return;
+  if (canLogin) {
+    if (!email) {
+      res.status(400).json({ ok: false, message: "Email is required for login-enabled users." });
+      return;
+    }
+    if (String(input.password ?? "").length < 4) {
+      res.status(400).json({ ok: false, message: "Password must be at least 4 characters." });
+      return;
+    }
   }
-  if (allUsers(state).some((u) => u.email.toLowerCase() === email)) {
+  if (email && allUsers(state).some((u) => u.email.toLowerCase() === email)) {
     res.status(400).json({ ok: false, message: "An account with this email already exists." });
     return;
   }
 
-  if (actor.role === "super_admin") {
-    if (input.role !== "regional_admin" && input.role !== "store_user") {
-      res.status(400).json({ ok: false, message: "Invalid role for this action." });
-      return;
-    }
-  } else if (actor.role === "regional_admin") {
-    if (input.role !== "store_user") {
-      res.status(400).json({ ok: false, message: "Regional admins can only create store users." });
-      return;
-    }
+  if (actor.role === "regional_admin") {
     if (input.regionId !== actor.regionId) {
       res.status(400).json({ ok: false, message: "You can only add users in your region." });
       return;
     }
-  } else {
+  } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
     res.status(403).json({ ok: false, message: "You do not have permission to create users." });
     return;
   }
 
-  if (input.role === "store_user" && !input.storeId) {
-    res.status(400).json({ ok: false, message: "Store is required for store users." });
+  if (STORE_ROLES.has(input.role) && !input.storeId) {
+    res.status(400).json({ ok: false, message: "Store is required for store roles." });
     return;
   }
+  const overrideModules = moduleKeys(input.moduleAccessOverride);
 
   const newUser: DemoUser = {
     id: createId("user"),
-    email,
-    password: input.password,
+    email: email || `${createId("user")}@directory.local`,
+    password: String(input.password ?? "") || createId("pwd"),
     displayName: input.displayName.trim(),
     role: input.role as UserRole,
     regionId: input.regionId,
-    storeId: input.role === "store_user" ? input.storeId : null,
+    storeId: STORE_ROLES.has(input.role) ? input.storeId : null,
     technicianProfileId: null,
+    canLogin,
+    moduleAccessOverride: overrideModules,
     createdAt: new Date().toISOString(),
   };
 
@@ -277,6 +328,153 @@ app.post("/api/users", requireAuth, async (req, res) => {
     result: undefined,
   }));
   res.json({ ok: true });
+});
+
+app.get("/api/settings/workflow-statuses", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin") {
+    res.status(403).json({ error: "Forbidden." });
+    return;
+  }
+  const entity = String(req.query.entity ?? "pr_flow").trim() || "pr_flow";
+  try {
+    const { rows } = await dbPool.query(
+      `SELECT id, entity, code, label, sort_order AS "sortOrder", is_active AS "isActive", updated_at AS "updatedAt"
+       FROM workflow_status_definitions
+       WHERE entity = $1
+       ORDER BY sort_order, label`,
+      [entity],
+    );
+    res.json({ rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not load workflow statuses." });
+  }
+});
+
+app.post("/api/settings/workflow-statuses", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "ho_admin")) {
+    res.status(403).json({ error: "Only admin can create statuses." });
+    return;
+  }
+  const entity = String(req.body?.entity ?? "pr_flow").trim() || "pr_flow";
+  const code = String(req.body?.code ?? "").trim().toUpperCase();
+  const label = String(req.body?.label ?? "").trim();
+  const sortOrder = Number.isFinite(Number(req.body?.sortOrder)) ? Number(req.body.sortOrder) : 0;
+  if (!code || !label) {
+    res.status(400).json({ error: "code and label are required." });
+    return;
+  }
+  try {
+    const { rows } = await dbPool.query(
+      `INSERT INTO workflow_status_definitions (entity, code, label, sort_order)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, entity, code, label, sort_order AS "sortOrder", is_active AS "isActive", updated_at AS "updatedAt"`,
+      [entity, code, label, sortOrder],
+    );
+    res.json({ row: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "Could not create workflow status (maybe duplicate code)." });
+  }
+});
+
+app.patch("/api/settings/workflow-statuses/:id", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "ho_admin")) {
+    res.status(403).json({ error: "Only admin can update statuses." });
+    return;
+  }
+  const id = req.params.id;
+  const label = req.body?.label !== undefined ? String(req.body.label ?? "").trim() : undefined;
+  const sortOrder = req.body?.sortOrder !== undefined ? Number(req.body.sortOrder) : undefined;
+  const isActive = req.body?.isActive !== undefined ? Boolean(req.body.isActive) : undefined;
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  let i = 1;
+  if (label !== undefined) {
+    if (!label) {
+      res.status(400).json({ error: "label cannot be empty." });
+      return;
+    }
+    sets.push(`label = $${i++}`);
+    values.push(label);
+  }
+  if (sortOrder !== undefined && Number.isFinite(sortOrder)) {
+    sets.push(`sort_order = $${i++}`);
+    values.push(sortOrder);
+  }
+  if (isActive !== undefined) {
+    sets.push(`is_active = $${i++}`);
+    values.push(isActive);
+  }
+  if (sets.length === 0) {
+    res.status(400).json({ error: "No fields to update." });
+    return;
+  }
+  sets.push("updated_at = now()");
+  values.push(id);
+  try {
+    const { rows } = await dbPool.query(
+      `UPDATE workflow_status_definitions
+       SET ${sets.join(", ")}
+       WHERE id = $${i}::uuid
+       RETURNING id, entity, code, label, sort_order AS "sortOrder", is_active AS "isActive", updated_at AS "updatedAt"`,
+      values,
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: "Status not found." });
+      return;
+    }
+    res.json({ row: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "Could not update status." });
+  }
+});
+
+app.delete("/api/settings/workflow-statuses/:id", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "ho_admin")) {
+    res.status(403).json({ error: "Only admin can delete statuses." });
+    return;
+  }
+  try {
+    const del = await dbPool.query("DELETE FROM workflow_status_definitions WHERE id = $1::uuid", [req.params.id]);
+    if (del.rowCount === 0) {
+      res.status(404).json({ error: "Status not found." });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "Could not delete status." });
+  }
 });
 
 app.get("/api/regions", requireAuth, (_req, res) => {
@@ -316,6 +514,16 @@ app.get("/api/regions", requireAuth, (_req, res) => {
 });
 
 app.put("/api/regions", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+    res.status(403).json({ error: "Only super/regional admins can manage regions." });
+    return;
+  }
   const body = req.body as { regions?: SeedRegion[] };
   if (!Array.isArray(body.regions)) {
     res.status(400).json({ error: "regions array required" });
@@ -356,6 +564,16 @@ app.put("/api/regions", requireAuth, async (req, res) => {
 });
 
 app.post("/api/regions", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+    res.status(403).json({ error: "Only super/regional admins can manage regions." });
+    return;
+  }
   const name = String(req.body?.name ?? "").trim();
   if (!name) {
     res.status(400).json({ error: "Region name is required." });
@@ -381,6 +599,16 @@ app.post("/api/regions", requireAuth, async (req, res) => {
 });
 
 app.post("/api/regions/:regionId/stores", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+    res.status(403).json({ error: "Only super/regional admins can manage regions." });
+    return;
+  }
   const regionId = req.params.regionId;
   const name = String(req.body?.name ?? "").trim();
   if (!name) {
@@ -426,21 +654,21 @@ app.get("/api/inventory/prs", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (!actor.regionId && actor.role !== "super_admin") {
+  if (!actor.regionId && actor.role !== "super_admin" && actor.role !== "ho_admin") {
     res.status(400).json({ error: "User region not configured." });
     return;
   }
-  if (actor.role !== "store_user" && actor.role !== "regional_admin" && actor.role !== "super_admin") {
+  if (!STORE_ROLES.has(actor.role) && !HO_APPROVER_ROLES.has(actor.role) && actor.role !== "ho_user") {
     res.status(403).json({ error: "Forbidden." });
     return;
   }
   try {
     const params: unknown[] = [];
     let where = "";
-    if (actor.role === "store_user") {
+    if (STORE_ROLES.has(actor.role)) {
       params.push(actor.storeId);
       where = "WHERE pr.store_id = $1::text";
-    } else if (actor.role === "regional_admin") {
+    } else if (actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") {
       params.push(actor.regionId);
       where = "WHERE pr.region_id = $1::text AND pr.status <> 'DRAFT'";
     }
@@ -448,8 +676,12 @@ app.get("/api/inventory/prs", requireAuth, async (req, res) => {
       `SELECT pr.id,
               pr.pr_number AS "prNumber",
               pr.region_id AS "regionId",
+              r.name AS "regionName",
               pr.store_id AS "storeId",
+              st.name AS "storeName",
               pr.status,
+              pr.internal_status_code AS "internalStatusCode",
+              pr.internal_status_label AS "internalStatusLabel",
               pr.needed_by AS "neededBy",
               pr.notes,
               pr.created_by AS "createdBy",
@@ -469,9 +701,11 @@ app.get("/api/inventory/prs", requireAuth, async (req, res) => {
                 '[]'::json
               ) AS items
        FROM purchase_requests pr
+       JOIN regions r ON r.id = pr.region_id
+       JOIN stores st ON st.id = pr.store_id
        LEFT JOIN purchase_request_items pri ON pri.pr_id = pr.id
        ${where}
-       GROUP BY pr.id
+       GROUP BY pr.id, r.name, st.name
        ORDER BY pr.created_at DESC`,
       params,
     );
@@ -479,6 +713,58 @@ app.get("/api/inventory/prs", requireAuth, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to load PRs." });
+  }
+});
+
+app.get("/api/inventory/prs/:prId/ho-stock", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required for PR module." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (!HO_APPROVER_ROLES.has(actor.role) && actor.role !== "ho_user") {
+    res.status(403).json({ error: "Only HO roles can view HO stock for fulfill." });
+    return;
+  }
+  const prId = String(req.params.prId ?? "").trim();
+  try {
+    const prRes = await dbPool.query<{ region_id: string }>(
+      `SELECT region_id FROM purchase_requests WHERE id = $1::uuid`,
+      [prId],
+    );
+    const pr = prRes.rows[0];
+    if (!pr) {
+      res.status(404).json({ error: "PR not found." });
+      return;
+    }
+    if ((actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") && actor.regionId !== pr.region_id) {
+      res.status(403).json({ error: "Region mismatch." });
+      return;
+    }
+    const { rows } = await dbPool.query<{
+      itemId: string;
+      spareId: string;
+      hoAvailable: number;
+    }>(
+      `SELECT pri.id AS "itemId",
+              pri.spare_id AS "spareId",
+              COALESCE(st.quantity::float8, 0) AS "hoAvailable"
+       FROM purchase_request_items pri
+       LEFT JOIN spare_stock st
+         ON st.spare_id = pri.spare_id
+        AND st.location_key = $2
+       WHERE pri.pr_id = $1::uuid`,
+      [prId, `HO:${pr.region_id}`],
+    );
+    res.json({ rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not load HO stock for PR." });
   }
 });
 
@@ -494,18 +780,17 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (actor.role !== "store_user" || !actor.regionId || !actor.storeId) {
-    res.status(403).json({ error: "Only store users can create PRs." });
+  if (!PR_CREATOR_ROLES.has(actor.role) || !actor.regionId || !actor.storeId) {
+    res.status(403).json({ error: "Only store purchase users can create PRs." });
     return;
   }
 
   const body = req.body as {
-    status?: "DRAFT" | "SUBMITTED";
     neededBy?: string | null;
     notes?: string;
     items?: Array<{ spareId: string; qty: number; reason?: string }>;
   };
-  const status = body.status === "DRAFT" ? "DRAFT" : "SUBMITTED";
+  const status = "DRAFT";
   const neededBy = body.neededBy?.trim() || null;
   const notes = String(body.notes ?? "").trim();
   const items = Array.isArray(body.items) ? body.items : [];
@@ -525,22 +810,30 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
     const storeName = storeRes.rows[0]?.name ?? actor.storeId;
     const storeCode = makeAlphaNumCode(storeName, "STR");
     const prNumber = await nextDocNumber(client, "PR", storeCode);
+    const createdLabel = await getPrFlowLabel(dbPool, "PR_CREATED");
     const ins = await client.query<{ id: string; prNumber: string }>(
-      `INSERT INTO purchase_requests (pr_number, region_id, store_id, status, needed_by, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO purchase_requests (pr_number, region_id, store_id, status, internal_status_code, internal_status_label, needed_by, notes, created_by, modified_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
        RETURNING id, pr_number AS "prNumber"`,
-      [prNumber, actor.regionId, actor.storeId, status, neededBy, notes, actor.id],
+      [prNumber, actor.regionId, actor.storeId, status, "PR_CREATED", createdLabel, neededBy, notes, actor.id],
     );
     const prId = ins.rows[0]!.id;
     for (const item of items) {
       await client.query(
-        `INSERT INTO purchase_request_items (pr_id, spare_id, qty, reason)
-         VALUES ($1::uuid, $2::uuid, $3, $4)`,
-        [prId, item.spareId, Number(item.qty), String(item.reason ?? "").trim()],
+        `INSERT INTO purchase_request_items (pr_id, spare_id, qty, reason, created_by, modified_by)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $5)`,
+        [prId, item.spareId, Number(item.qty), String(item.reason ?? "").trim(), actor.id],
       );
     }
+    await appendPrStatusHistory(client, {
+      prId,
+      statusCode: "PR_CREATED",
+      statusLabel: createdLabel,
+      changedBy: actor.id,
+      note: "PR created at store.",
+    });
     await client.query("COMMIT");
-    res.json({ ok: true, id: prId, prNumber: ins.rows[0]!.prNumber });
+    res.json({ ok: true, id: prId, prNumber: ins.rows[0]!.prNumber, status });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     console.error(e);
@@ -562,38 +855,20 @@ app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  const prId = req.params.prId;
+  const prId = String(req.params.prId ?? "").trim();
   const status = String(req.body?.status ?? "").toUpperCase();
-  const allowed = new Set(["SUBMITTED", "APPROVED", "REJECTED", "PARTIAL", "FULFILLED"]);
+  const allowed = new Set(["APPROVED", "REJECTED"]);
   if (!allowed.has(status)) {
     res.status(400).json({ error: "Invalid status." });
     return;
   }
   try {
-    if (actor.role === "store_user") {
-      if (status !== "SUBMITTED") {
-        res.status(403).json({ error: "Store can only submit PR." });
-        return;
-      }
-      const upd = await dbPool.query(
-        `UPDATE purchase_requests
-         SET status = 'SUBMITTED', updated_at = now()
-         WHERE id = $1::uuid AND store_id = $2::text AND status = 'DRAFT'`,
-        [prId, actor.storeId],
-      );
-      if (upd.rowCount === 0) {
-        res.status(400).json({ error: "PR not found or not in draft." });
-        return;
-      }
-      res.json({ ok: true });
-      return;
-    }
-    if (actor.role !== "regional_admin" && actor.role !== "super_admin") {
+    if (!HO_APPROVER_ROLES.has(actor.role)) {
       res.status(403).json({ error: "Forbidden." });
       return;
     }
-    const current = await dbPool.query<{ status: string; region_id: string }>(
-      "SELECT status, region_id FROM purchase_requests WHERE id = $1::uuid",
+    const current = await dbPool.query<{ status: string; region_id: string; internal_status_code: string }>(
+      "SELECT status, region_id, internal_status_code FROM purchase_requests WHERE id = $1::uuid",
       [prId],
     );
     const cur = current.rows[0];
@@ -601,38 +876,113 @@ app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
       res.status(404).json({ error: "PR not found." });
       return;
     }
-    if (actor.role === "regional_admin" && actor.regionId !== cur.region_id) {
+    if ((actor.role === "regional_admin" || actor.role === "ho_manager") && actor.regionId !== cur.region_id) {
       res.status(403).json({ error: "Forbidden." });
       return;
     }
     if (cur.status !== "SUBMITTED") {
-      res.status(400).json({ error: `Manual status change is not allowed from ${cur.status}.` });
+      res.status(400).json({ error: `HO approval allowed only after store sends PR to HO.` });
       return;
     }
-    if (status !== "APPROVED" && status !== "REJECTED") {
-      res.status(400).json({ error: "Only APPROVED or REJECTED is allowed from SUBMITTED." });
-      return;
-    }
-    const params: unknown[] = [status, prId];
-    let where = "id = $2::uuid";
-    if (actor.role === "regional_admin") {
-      params.push(actor.regionId);
-      where += " AND region_id = $3::text";
-    }
+    const nextCode = status === "APPROVED" ? "PR_APPROVED_HO" : "PR_REJECTED_HO";
+    const nextLabel = await getPrFlowLabel(dbPool, nextCode);
     const upd = await dbPool.query(
       `UPDATE purchase_requests
-       SET status = $1, updated_at = now()
-       WHERE ${where}`,
-      params,
+       SET status = $1,
+           internal_status_code = $2,
+           internal_status_label = $3,
+           updated_at = now(),
+           modified_by = $5
+       WHERE id = $4::uuid`,
+      [status, nextCode, nextLabel, prId, actor.id],
     );
     if (upd.rowCount === 0) {
       res.status(404).json({ error: "PR not found." });
       return;
     }
-    res.json({ ok: true });
+    await appendPrStatusHistory(dbPool, {
+      prId,
+      statusCode: nextCode,
+      statusLabel: nextLabel,
+      changedBy: actor.id,
+      note: status === "APPROVED" ? "PR approved by HO." : "PR rejected by HO.",
+    });
+    res.json({ ok: true, status, internalStatusCode: nextCode, internalStatusLabel: nextLabel });
   } catch (e) {
     console.error(e);
     res.status(400).json({ error: "Could not update PR status." });
+  }
+});
+
+app.post("/api/inventory/prs/:prId/store-approve", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required for PR module." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(readState(), uid);
+  if (!actor || actor.role !== "store_manager" || !actor.storeId) {
+    res.status(403).json({ error: "Only Store Manager can approve and send PR to HO." });
+    return;
+  }
+  const prId = String(req.params.prId ?? "").trim();
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const current = await client.query<{ status: string; store_id: string }>(
+      `SELECT status, store_id FROM purchase_requests WHERE id = $1::uuid FOR UPDATE`,
+      [prId],
+    );
+    const row = current.rows[0];
+    if (!row) {
+      await client.query("ROLLBACK");
+      res.status(404).json({ error: "PR not found." });
+      return;
+    }
+    if (row.store_id !== actor.storeId) {
+      await client.query("ROLLBACK");
+      res.status(403).json({ error: "You can approve only your store PRs." });
+      return;
+    }
+    if (row.status !== "DRAFT") {
+      await client.query("ROLLBACK");
+      res.status(400).json({ error: "Only draft PR can be approved and sent to HO." });
+      return;
+    }
+    const approvedLabel = await getPrFlowLabel(dbPool, "PR_APPROVED_STORE");
+    const sentLabel = await getPrFlowLabel(dbPool, "PR_SENT_TO_HO");
+    await client.query(
+      `UPDATE purchase_requests
+       SET status = 'SUBMITTED',
+           internal_status_code = 'PR_SENT_TO_HO',
+           internal_status_label = $2,
+           updated_at = now(),
+           modified_by = $3
+       WHERE id = $1::uuid`,
+      [prId, sentLabel, actor.id],
+    );
+    await appendPrStatusHistory(client, {
+      prId,
+      statusCode: "PR_APPROVED_STORE",
+      statusLabel: approvedLabel,
+      changedBy: actor.id,
+      note: "PR approved by store manager.",
+    });
+    await appendPrStatusHistory(client, {
+      prId,
+      statusCode: "PR_SENT_TO_HO",
+      statusLabel: sentLabel,
+      changedBy: actor.id,
+      note: "PR sent to HO.",
+    });
+    await client.query("COMMIT");
+    res.json({ ok: true, status: "SUBMITTED", internalStatusCode: "PR_SENT_TO_HO", internalStatusLabel: sentLabel });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(e);
+    res.status(400).json({ error: "Could not approve/send PR to HO." });
+  } finally {
+    client.release();
   }
 });
 
@@ -648,11 +998,11 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (actor.role !== "regional_admin" && actor.role !== "super_admin") {
+  if (!HO_APPROVER_ROLES.has(actor.role) && actor.role !== "ho_user") {
     res.status(403).json({ error: "Only HO admins can fulfill PR." });
     return;
   }
-  const prId = req.params.prId;
+  const prId = String(req.params.prId ?? "").trim();
   const requested = Array.isArray(req.body?.items)
     ? (req.body.items as Array<{ itemId: string; qty: number }>)
         .map((x) => ({ itemId: String(x.itemId ?? "").trim(), qty: Number(x.qty) }))
@@ -684,7 +1034,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
       res.status(404).json({ error: "PR not found." });
       return;
     }
-    if (actor.role === "regional_admin" && actor.regionId !== pr.region_id) {
+    if ((actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") && actor.regionId !== pr.region_id) {
       await client.query("ROLLBACK");
       res.status(403).json({ error: "You can fulfill only your region PR." });
       return;
@@ -788,12 +1138,25 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
     let nextStatus: "APPROVED" | "PARTIAL" | "FULFILLED" = "APPROVED";
     if (rec >= req && req > 0) nextStatus = "FULFILLED";
     else if (iss > 0 || rec > 0) nextStatus = "PARTIAL";
+    const internal = derivePrInternalStatus(req, iss, rec);
+    const internalLabel = await getPrFlowLabel(dbPool, internal.code);
     await client.query(
       `UPDATE purchase_requests
-       SET status = $1, updated_at = now()
-       WHERE id = $2::uuid`,
-      [nextStatus, prId],
+       SET status = $1,
+           internal_status_code = $2,
+           internal_status_label = $3,
+           updated_at = now(),
+           modified_by = $5
+       WHERE id = $4::uuid`,
+      [nextStatus, internal.code, internalLabel, prId, actor.id],
     );
+    await appendPrStatusHistory(client, {
+      prId,
+      statusCode: internal.code,
+      statusLabel: internalLabel || internal.fallbackLabel,
+      changedBy: actor.id,
+      note: "HO transfer processed.",
+    });
     await client.query("COMMIT");
     const current = readState();
     const recipients = allUsers(current)
@@ -804,7 +1167,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
       message: `Stock against PR ${pr.pr_number} has been sent from HO to your store. Please inward and verify quantity.`,
       category: "inventory_pr",
     });
-    res.json({ ok: true, movedQty: movedTotal, status: nextStatus });
+    res.json({ ok: true, movedQty: movedTotal, status: nextStatus, internalStatusCode: internal.code, internalStatusLabel: internalLabel });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     console.error(e);
@@ -873,11 +1236,11 @@ app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
   const uid = (req as express.Request & { userId: string }).userId;
   const state = readState();
   const actor = findUser(state, uid);
-  if (!actor || actor.role !== "store_user" || !actor.storeId || !actor.regionId) {
-    res.status(403).json({ error: "Only store user can inward PR transfer." });
+  if (!actor || !STORE_ROLES.has(actor.role) || !actor.storeId || !actor.regionId) {
+    res.status(403).json({ error: "Only store roles can inward PR transfer." });
     return;
   }
-  const prId = req.params.prId;
+  const prId = String(req.params.prId ?? "").trim();
   const requested = Array.isArray(req.body?.items)
     ? (req.body.items as Array<{ itemId: string; qty: number }>)
         .map((x) => ({ itemId: String(x.itemId ?? "").trim(), qty: Number(x.qty) }))
@@ -995,14 +1358,27 @@ app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
     let nextStatus: "APPROVED" | "PARTIAL" | "FULFILLED" = "APPROVED";
     if (rec >= req && req > 0) nextStatus = "FULFILLED";
     else if (iss > 0 || rec > 0) nextStatus = "PARTIAL";
+    const internal = derivePrInternalStatus(req, iss, rec);
+    const internalLabel = await getPrFlowLabel(dbPool, internal.code);
     await client.query(
       `UPDATE purchase_requests
-       SET status = $1, updated_at = now()
-       WHERE id = $2::uuid`,
-      [nextStatus, prId],
+       SET status = $1,
+           internal_status_code = $2,
+           internal_status_label = $3,
+           updated_at = now(),
+           modified_by = $5
+       WHERE id = $4::uuid`,
+      [nextStatus, internal.code, internalLabel, prId, actor.id],
     );
+    await appendPrStatusHistory(client, {
+      prId,
+      statusCode: internal.code,
+      statusLabel: internalLabel || internal.fallbackLabel,
+      changedBy: actor.id,
+      note: "Store inward completed.",
+    });
     await client.query("COMMIT");
-    res.json({ ok: true, movedQty: movedTotal, status: nextStatus });
+    res.json({ ok: true, movedQty: movedTotal, status: nextStatus, internalStatusCode: internal.code, internalStatusLabel: internalLabel });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     console.error(e);
@@ -1020,7 +1396,7 @@ app.post("/api/inventory/allocations/suggest", requireAuth, async (req, res) => 
   const uid = (req as express.Request & { userId: string }).userId;
   const state = readState();
   const actor = findUser(state, uid);
-  if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin")) {
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
     res.status(403).json({ error: "Only HO admins can generate allocations." });
     return;
   }
@@ -1126,7 +1502,7 @@ app.post("/api/inventory/allocations/confirm", requireAuth, async (req, res) => 
   const uid = (req as express.Request & { userId: string }).userId;
   const state = readState();
   const actor = findUser(state, uid);
-  if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin")) {
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
     res.status(403).json({ error: "Only HO admins can confirm allocations." });
     return;
   }
@@ -1256,12 +1632,25 @@ app.post("/api/inventory/allocations/confirm", requireAuth, async (req, res) => 
       let nextStatus: "APPROVED" | "PARTIAL" | "FULFILLED" = "APPROVED";
       if (rec >= req && req > 0) nextStatus = "FULFILLED";
       else if (iss > 0 || rec > 0) nextStatus = "PARTIAL";
+      const internal = derivePrInternalStatus(req, iss, rec);
+      const internalLabel = await getPrFlowLabel(dbPool, internal.code);
       await client.query(
         `UPDATE purchase_requests
-         SET status = $1, updated_at = now()
-         WHERE id = $2::uuid`,
-        [nextStatus, prId],
+         SET status = $1,
+             internal_status_code = $2,
+             internal_status_label = $3,
+             updated_at = now(),
+             modified_by = $5
+         WHERE id = $4::uuid`,
+        [nextStatus, internal.code, internalLabel, prId, actor.id],
       );
+      await appendPrStatusHistory(client, {
+        prId,
+        statusCode: internal.code,
+        statusLabel: internalLabel || internal.fallbackLabel,
+        changedBy: actor.id,
+        note: `Auto allocation batch ${batchNumber} transfer.`,
+      });
     }
 
     if (moved <= 0) {
@@ -1309,6 +1698,7 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
   }
   if (
     actor.role !== "super_admin" &&
+    actor.role !== "ho_admin" &&
     actor.role !== "regional_admin" &&
     actor.role !== "store_user"
   ) {
@@ -1365,7 +1755,7 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
         (location_type = 'STORE' AND region_id = $${stockParams.length - 1}::text AND store_id = $${stockParams.length}::text)
         OR (location_type = 'HO' AND region_id = $${stockParams.length - 1}::text)
       )`;
-    } else if (actor.role === "super_admin" && qRegion) {
+    } else if ((actor.role === "super_admin" || actor.role === "ho_admin") && qRegion) {
       stockParams.push(qRegion);
       stockWhere += ` AND region_id = $${stockParams.length}::text`;
     }
@@ -1400,7 +1790,7 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
     } else if (actor.role === "store_user" && actor.regionId) {
       priceParams.push(actor.regionId);
       priceWhere += ` AND (region_id = $${priceParams.length}::text OR region_id IS NULL)`;
-    } else if (actor.role === "super_admin" && qRegion) {
+    } else if ((actor.role === "super_admin" || actor.role === "ho_admin") && qRegion) {
       priceParams.push(qRegion);
       priceWhere += ` AND (region_id = $${priceParams.length}::text OR region_id IS NULL)`;
     }
@@ -1561,6 +1951,9 @@ async function main() {
     return findUser(s, id) ?? null;
   });
   registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(readState(), id));
+  registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(readState(), id) ?? null);
+  registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(readState(), id) ?? null);
+  registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(readState(), id) ?? null);
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);

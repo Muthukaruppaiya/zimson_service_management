@@ -6,6 +6,7 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { buildGrnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import type { PurchaseOrder } from "../../types/purchaseOrder";
 
 type GrnItem = { id: string; poItemId: string; spareId: string; qtyReceived: number };
@@ -126,6 +127,23 @@ export function InventoryPoInwardPage() {
         },
       });
       setOk(`Created ${data.grnNumber}. Moved qty ${data.movedQty}. PO status ${data.poStatus}.`);
+      openPrintDocument(
+        `GRN ${data.grnNumber}`,
+        buildGrnDocument({
+          grnNumber: data.grnNumber,
+          createdAt: new Date().toISOString(),
+          poNumber: selectedPo.poNumber,
+          supplierName: selectedPo.supplierName,
+          mode,
+          invoiceNumber: mode === "WITH_BILL" ? invoiceNumber.trim() : null,
+          invoiceDate: mode === "WITH_BILL" ? invoiceDate : null,
+          notes: notes.trim(),
+          lines: lines.map((l) => ({
+            description: spareNameById.get(l.spareId) ?? l.spareId,
+            qtyReceived: l.qtyReceived,
+          })),
+        }),
+      );
       setSelectedPoId("");
       setInvoiceNumber("");
       setInvoiceDate("");
@@ -266,6 +284,7 @@ export function InventoryPoInwardPage() {
                     <th className="px-3 py-2">Mode</th>
                     <th className="px-3 py-2">Invoice</th>
                     <th className="px-3 py-2">Lines</th>
+                    <th className="px-3 py-2">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -278,6 +297,33 @@ export function InventoryPoInwardPage() {
                       <td className="px-3 py-2">{g.invoiceNumber ?? "-"}</td>
                       <td className="px-3 py-2 text-xs text-stone-700">
                         {g.items.map((i) => `${spareNameById.get(i.spareId) ?? i.spareId} x ${i.qtyReceived}`).join(" · ")}
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openPrintDocument(
+                              `GRN ${g.grnNumber}`,
+                              buildGrnDocument({
+                                grnNumber: g.grnNumber,
+                                createdAt: g.createdAt,
+                                poNumber: g.poNumber,
+                                supplierName: g.supplierName,
+                                mode: g.mode,
+                                invoiceNumber: g.invoiceNumber,
+                                invoiceDate: g.invoiceDate,
+                                notes: g.notes,
+                                lines: g.items.map((i) => ({
+                                  description: spareNameById.get(i.spareId) ?? i.spareId,
+                                  qtyReceived: i.qtyReceived,
+                                })),
+                              }),
+                            )
+                          }
+                          className="rounded-lg border border-zimson-300 bg-zimson-50 px-2 py-1 text-xs font-semibold text-zimson-800"
+                        >
+                          Print
+                        </button>
                       </td>
                     </tr>
                   ))}

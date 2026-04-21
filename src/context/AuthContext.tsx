@@ -11,15 +11,17 @@ import { SEED_USERS } from "../data/seed";
 import { ApiError, apiJson, useApiMode } from "../lib/api";
 import { createId } from "../lib/id";
 import { STORAGE_EXTRA_USERS, STORAGE_SESSION_USER_ID } from "../lib/storageKeys";
-import type { DemoUser, SessionUser } from "../types/user";
+import type { DemoUser, ModuleKey, SessionUser, UserRole } from "../types/user";
 
 export type CreateUserInput = {
   email: string;
   displayName: string;
   password: string;
-  role: "regional_admin" | "store_user";
+  role: UserRole;
   regionId: string;
   storeId: string | null;
+  canLogin: boolean;
+  moduleAccessOverride: ModuleKey[] | null;
 };
 
 type AuthContextValue = {
@@ -84,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setListUsers([]);
       return;
     }
-    if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+    if (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin") {
       setListUsers([]);
       return;
     }
@@ -152,6 +154,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         (u) => u.email.toLowerCase() === normalized && u.password === password,
       );
       if (!found) return { ok: false, message: "Invalid email or password." };
+      if (found.canLogin === false) {
+        return { ok: false, message: "This profile is directory-only and cannot sign in." };
+      }
       localStorage.setItem(STORAGE_SESSION_USER_ID, found.id);
       setSessionUserId(found.id);
       return { ok: true };
@@ -196,42 +201,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!actor) return { ok: false, message: "Not signed in." };
 
       const email = input.email.trim().toLowerCase();
-      if (!email) return { ok: false, message: "Email is required." };
       if (!input.displayName.trim()) return { ok: false, message: "Display name is required." };
-      if (input.password.length < 4) return { ok: false, message: "Password must be at least 4 characters." };
+      if (input.canLogin) {
+        if (!email) return { ok: false, message: "Email is required for login-enabled users." };
+        if (input.password.length < 4) return { ok: false, message: "Password must be at least 4 characters." };
+      }
 
-      if (allWithPassword.some((u) => u.email.toLowerCase() === email)) {
+      if (email && allWithPassword.some((u) => u.email.toLowerCase() === email)) {
         return { ok: false, message: "An account with this email already exists." };
       }
 
-      if (actor.role === "super_admin") {
-        if (input.role !== "regional_admin" && input.role !== "store_user") {
-          return { ok: false, message: "Invalid role for this action." };
-        }
-      } else if (actor.role === "regional_admin") {
-        if (input.role !== "store_user") {
-          return { ok: false, message: "Regional admins can only create store users." };
-        }
+      if (actor.role === "regional_admin") {
         if (input.regionId !== actor.regionId) {
           return { ok: false, message: "You can only add users in your region." };
         }
-      } else {
+      } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
         return { ok: false, message: "You do not have permission to create users." };
       }
 
-      if (input.role === "store_user" && !input.storeId) {
-        return { ok: false, message: "Store is required for store users." };
+      if ((input.role === "store_user" || input.role === "store_purchase_user" || input.role === "store_manager" || input.role === "store_accounts") && !input.storeId) {
+        return { ok: false, message: "Store is required for store roles." };
       }
 
       const newUser: DemoUser = {
         id: createId("user"),
-        email,
-        password: input.password,
+        email: email || `${createId("user")}@directory.local`,
+        password: input.password || createId("pwd"),
         displayName: input.displayName.trim(),
         role: input.role,
         regionId: input.regionId,
-        storeId: input.role === "store_user" ? input.storeId : null,
+        storeId:
+          input.role === "store_user" ||
+          input.role === "store_purchase_user" ||
+          input.role === "store_manager" ||
+          input.role === "store_accounts"
+            ? input.storeId
+            : null,
         technicianProfileId: null,
+        canLogin: input.canLogin,
+        moduleAccessOverride: input.moduleAccessOverride,
         createdAt: new Date().toISOString(),
       };
 
@@ -271,5 +279,6 @@ export function useVisibleUsers(): SessionUser[] {
   if (user.role === "regional_admin") {
     return listUsers.filter((u) => u.regionId === user.regionId);
   }
+  if (user.role === "ho_admin") return listUsers;
   return [];
 }

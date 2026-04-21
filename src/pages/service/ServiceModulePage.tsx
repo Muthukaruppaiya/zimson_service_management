@@ -66,7 +66,7 @@ const cardSecondary =
 
 export function ServiceModulePage() {
   const { user } = useAuth();
-  const canSc = user ? canAccessModule(user.role, "service_centre") : false;
+  const canSc = user ? canAccessModule(user, "service_centre") : false;
 
   return (
     <div>
