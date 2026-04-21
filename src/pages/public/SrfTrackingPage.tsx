@@ -15,6 +15,7 @@ type TrackJob = {
   estimateTotalInr: number;
   reestimateRequestedNote: string | null;
   customerReestimateResponse: "accepted" | "rejected" | null;
+  photos?: Array<{ id: string; photoKind?: string; filePath: string }>;
   timeline: TrackHistory[];
 };
 
@@ -117,6 +118,19 @@ export function SrfTrackingPage() {
                 <p className="mt-2 text-sm text-stone-700">{job.watchBrand} {job.watchModel} · {job.serial}</p>
                 <p className="mt-1 text-sm text-stone-700">Estimate: INR {Number(job.estimateTotalInr ?? 0).toFixed(2)}</p>
                 <p className="mt-1 text-sm text-stone-600">Complaint: {job.complaint || "-"}</p>
+                {job.photos && job.photos.length > 0 ? (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Watch photos</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {job.photos.map((p) => (
+                        <div key={p.id} className="rounded-lg border border-zimson-200 p-1.5">
+                          <img src={`/${p.filePath}`} alt={p.photoKind ?? "watch photo"} className="h-20 w-full rounded object-cover" />
+                          <p className="mt-1 text-[10px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 {job.status === "reestimate_required" && !job.customerReestimateResponse ? (
                   <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">

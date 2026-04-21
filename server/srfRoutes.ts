@@ -5,7 +5,7 @@ import path from "node:path";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser, UserRole } from "../src/types/user";
-import { sendTrackingLink, trackingBaseUrl } from "./notificationService";
+import { sendTrackingLink } from "./notificationService";
 
 type Authed = Request & { userId: string };
 
@@ -191,6 +191,24 @@ function ensurePhotoTokenSession(row: {
   return null;
 }
 
+function normalizePhotoKind(input: string): "front" | "back" | "strap" | "serial" | "damage" | "other" {
+  const v = input.trim().toLowerCase();
+  if (v === "front" || v === "back" || v === "strap" || v === "serial" || v === "damage") return v;
+  return "other";
+}
+
+function appBaseUrlFromRequest(req: Request): string {
+  const protoHeader = String(req.headers["x-forwarded-proto"] ?? "").trim();
+  const hostHeader = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").trim();
+  if (protoHeader && hostHeader) {
+    return `${protoHeader.split(",")[0].trim()}://${hostHeader.split(",")[0].trim()}`.replace(/\/+$/, "");
+  }
+  if (hostHeader) {
+    return `${req.protocol}://${hostHeader.split(",")[0].trim()}`.replace(/\/+$/, "");
+  }
+  return "http://127.0.0.1:5173";
+}
+
 export function registerSrfRoutes(
   app: Express,
   pool: Pool,
@@ -281,6 +299,20 @@ export function registerSrfRoutes(
                 r.name AS "regionName",
                 s.name AS "storeName",
                 ds.name AS "destinationStoreName",
+                COALESCE((
+                  SELECT json_agg(
+                    json_build_object(
+                      'id', p.id,
+                      'photoKind', p.photo_kind,
+                      'filePath', p.file_path,
+                      'mime', p.mime,
+                      'bytes', p.bytes,
+                      'createdAt', p.created_at
+                    ) ORDER BY p.created_at DESC
+                  )
+                  FROM srf_job_photos p
+                  WHERE p.srf_id = j.id
+                ), '[]'::json) AS photos,
                 COALESCE((
                   SELECT COUNT(*)::int FROM srf_job_photos p WHERE p.srf_id = j.id
                 ), 0) AS "photoCount"
@@ -510,7 +542,7 @@ export function registerSrfRoutes(
         [phoneLast10(refRow?.phone ?? "")],
       );
       await client.query("COMMIT");
-      const trackingUrl = `${trackingBaseUrl()}/track?t=${encodeURIComponent(trackingToken)}`;
+      const trackingUrl = `${appBaseUrlFromRequest(req)}/track?t=${encodeURIComponent(trackingToken)}`;
       await sendTrackingLink({
         phone: refRow?.phone ?? "",
         name: refRow?.customer_name ?? "Customer",
@@ -1254,6 +1286,14 @@ export function registerSrfRoutes(
           reestimateRequestedNote: string | null;
           customerReestimateResponse: string | null;
           createdAt: string;
+          photos: Array<{
+            id: string;
+            photoKind: string;
+            filePath: string;
+            mime: string;
+            bytes: number;
+            createdAt: string;
+          }>;
         }
       >(
         `SELECT j.id,
@@ -1268,9 +1308,24 @@ export function registerSrfRoutes(
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
                 j.reestimate_requested_note AS "reestimateRequestedNote",
                 j.customer_reestimate_response AS "customerReestimateResponse",
-                j.created_at AS "createdAt"
+                j.created_at AS "createdAt",
+                COALESCE((
+                  SELECT json_agg(
+                    json_build_object(
+                      'id', p.id,
+                      'photoKind', p.photo_kind,
+                      'filePath', p.file_path,
+                      'mime', p.mime,
+                      'bytes', p.bytes,
+                      'createdAt', p.created_at
+                    ) ORDER BY p.created_at DESC
+                  )
+                  FROM srf_job_photos p
+                  WHERE p.srf_id = j.id
+                ), '[]'::json) AS photos
          FROM srf_jobs j
          WHERE RIGHT(regexp_replace(j.phone, '\D', '', 'g'), 10) = $1
+           AND j.status <> 'closed'
          ORDER BY j.created_at DESC`,
         [row.phone_last10],
       );
@@ -1441,8 +1496,23 @@ export function registerSrfRoutes(
         res.status(400).json({ error });
         return;
       }
-      const { rows: photoRows } = await pool.query<{ c: number }>(
-        `SELECT COUNT(*)::int AS c FROM srf_job_photos WHERE srf_id = $1::uuid`,
+      const { rows: photoRows } = await pool.query<{
+        id: string;
+        photoKind: string;
+        filePath: string;
+        mime: string;
+        bytes: number;
+        createdAt: string;
+      }>(
+        `SELECT id,
+                photo_kind AS "photoKind",
+                file_path AS "filePath",
+                mime,
+                bytes,
+                created_at AS "createdAt"
+         FROM srf_job_photos
+         WHERE srf_id = $1::uuid
+         ORDER BY created_at DESC`,
         [row!.srf_id],
       );
       res.json({
@@ -1450,7 +1520,8 @@ export function registerSrfRoutes(
         reference: row!.reference,
         customerName: row!.customer_name,
         watch: `${row!.watch_brand} ${row!.watch_model}`,
-        photoCount: photoRows[0]?.c ?? 0,
+        photoCount: photoRows.length,
+        photos: photoRows,
       });
     } catch (e) {
       console.error(e);
@@ -1495,10 +1566,11 @@ export function registerSrfRoutes(
         return;
       }
       const relPath = path.relative(process.cwd(), req.file.path).replace(/\\/g, "/");
+      const photoKind = normalizePhotoKind(String(req.body?.photoKind ?? ""));
       await pool.query(
-        `INSERT INTO srf_job_photos (srf_id, file_path, mime, bytes, created_by)
-         VALUES ($1::uuid, $2, $3, $4, NULL)`,
-        [row!.srf_id, relPath, req.file.mimetype || "application/octet-stream", req.file.size],
+        `INSERT INTO srf_job_photos (srf_id, photo_kind, file_path, mime, bytes, created_by)
+         VALUES ($1::uuid, $2, $3, $4, $5, NULL)`,
+        [row!.srf_id, photoKind, relPath, req.file.mimetype || "application/octet-stream", req.file.size],
       );
       await pool.query(
         `UPDATE srf_photo_sessions SET used_at = COALESCE(used_at, now()) WHERE id = $1::uuid`,

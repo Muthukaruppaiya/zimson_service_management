@@ -424,6 +424,19 @@ export function StoreDispatchPage() {
                       ))}
                     </div>
                   </div>
+                  {j.photos && j.photos.length > 0 ? (
+                    <div className="rounded-xl border border-zimson-200/80 p-4">
+                      <h4 className="mb-2 text-sm font-semibold text-stone-900">Uploaded watch photos</h4>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {j.photos.map((p) => (
+                          <div key={p.id} className="rounded-lg border border-zimson-200 p-1.5">
+                            <img src={`/${p.filePath}`} alt={p.photoKind ?? "watch photo"} className="h-24 w-full rounded object-cover" />
+                            <p className="mt-1 text-[11px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })()}

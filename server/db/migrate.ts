@@ -536,6 +536,7 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_reestimate_responded_at T
 CREATE TABLE IF NOT EXISTS srf_job_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+  photo_kind VARCHAR(24) NOT NULL DEFAULT 'other',
   file_path TEXT NOT NULL,
   mime VARCHAR(120) NOT NULL,
   bytes INTEGER NOT NULL CHECK (bytes > 0),
@@ -544,6 +545,7 @@ CREATE TABLE IF NOT EXISTS srf_job_photos (
 );
 
 CREATE INDEX IF NOT EXISTS idx_srf_job_photos_srf ON srf_job_photos (srf_id, created_at DESC);
+ALTER TABLE srf_job_photos ADD COLUMN IF NOT EXISTS photo_kind VARCHAR(24) NOT NULL DEFAULT 'other';
 
 CREATE TABLE IF NOT EXISTS srf_photo_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -2,9 +2,11 @@ import { openPrintDocument } from "./inventoryDocuments";
 import type { SrfJob } from "../types/srfJob";
 
 function base(title: string, body: string): string {
+  const baseHref = typeof window !== "undefined" ? window.location.origin : "";
   return `<!doctype html>
   <html>
     <head><meta charset="utf-8"/><title>${title}</title></head>
+    <base href="${baseHref}/" />
     <body style="font-family:Arial,sans-serif;padding:24px;color:#111">
       ${body}
     </body>
@@ -18,6 +20,21 @@ function qrBlock(reference: string): string {
   </div>`;
 }
 
+function backendOrigin(): string {
+  if (typeof window === "undefined") return "";
+  const { protocol, hostname, origin } = window.location;
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return `${protocol}//${hostname}:4000`;
+  }
+  return origin;
+}
+
+function absolutePhotoSrc(filePath: string): string {
+  if (/^https?:\/\//i.test(filePath)) return filePath;
+  const clean = filePath.startsWith("/") ? filePath : `/${filePath}`;
+  return `${backendOrigin()}${clean}`;
+}
+
 export function printSrfDocument(job: {
   reference: string;
   customerName: string;
@@ -27,7 +44,17 @@ export function printSrfDocument(job: {
   serial: string;
   complaint: string;
   estimateTotalInr: number;
+  photos?: Array<{ id: string; photoKind?: string; filePath: string }>;
 }): void {
+  const photoBlocks = (job.photos ?? [])
+    .map((p) => {
+      const src = absolutePhotoSrc(p.filePath);
+      return `<div style="width:160px">
+        <img src="${src}" alt="${p.photoKind ?? "watch photo"}" style="width:160px;height:110px;object-fit:cover;border:1px solid #ccc;border-radius:6px"/>
+        <div style="font-size:11px;margin-top:4px;text-transform:capitalize">${p.photoKind ?? "other"}</div>
+      </div>`;
+    })
+    .join("");
   const html = base(
     `SRF ${job.reference}`,
     `${qrBlock(job.reference)}<h2 style="margin:0 0 12px">Service Request Form</h2>
@@ -36,6 +63,8 @@ export function printSrfDocument(job: {
      <div><strong>Watch:</strong> ${job.watchBrand} ${job.watchModel} · ${job.serial}</div>
      <div style="margin-top:8px"><strong>Complaint:</strong> ${job.complaint}</div>
      <div style="margin-top:8px"><strong>Estimate:</strong> INR ${job.estimateTotalInr.toFixed(2)}</div>
+     <h3 style="margin:16px 0 6px">Watch images</h3>
+     <div style="display:flex;flex-wrap:wrap;gap:8px">${photoBlocks || "<div>No images uploaded</div>"}</div>
      <div style="margin-top:24px">Customer Sign: _____________________</div>
      <div style="margin-top:16px">Store Sign: _____________________</div>`,
   );
@@ -68,6 +97,15 @@ export function printFullSrfDocument(
           <td>${h.note || "-"}</td>
         </tr>`,
     )
+    .join("");
+  const photoBlocks = (job.photos ?? [])
+    .map((p) => {
+      const src = absolutePhotoSrc(p.filePath);
+      return `<div style="width:170px">
+        <img src="${src}" alt="${p.photoKind ?? "watch photo"}" style="width:170px;height:120px;object-fit:cover;border:1px solid #ccc;border-radius:6px"/>
+        <div style="font-size:11px;margin-top:4px;text-transform:capitalize">${p.photoKind ?? "other"}</div>
+      </div>`;
+    })
     .join("");
   const html = base(
     `SRF ${job.reference}`,
@@ -102,6 +140,8 @@ export function printFullSrfDocument(
        <thead><tr><th>#</th><th>Spare</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr></thead>
        <tbody>${spareRows || '<tr><td colspan="5">No spares entered</td></tr>'}</tbody>
      </table>
+     <h3 style="margin:16px 0 6px">Watch images</h3>
+     <div style="display:flex;flex-wrap:wrap;gap:8px">${photoBlocks || "<div>No images uploaded</div>"}</div>
      <div style="margin-top:12px"><strong>Spares slip submitted by:</strong> ${job.sparesSlipSubmittedBy || "-"} ${job.sparesSlipSubmittedAt ? `(${new Date(job.sparesSlipSubmittedAt).toLocaleString()})` : ""}</div>
      <div><strong>HO bill ref:</strong> ${job.hoSparesBillRef || "-"}</div>
      <div><strong>Store bill ref:</strong> ${job.storeBillRef || "-"}</div>

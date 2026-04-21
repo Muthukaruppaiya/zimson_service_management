@@ -52,6 +52,7 @@ export function SrfBookingV2Page() {
   const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
+  const [photoPreview, setPhotoPreview] = useState<Array<{ id: string; photoKind?: string; filePath: string }>>([]);
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
   const [awaitingOtp, setAwaitingOtp] = useState<string | null>(null);
   const [otpInput, setOtpInput] = useState("");
@@ -142,10 +143,11 @@ export function SrfBookingV2Page() {
   async function refreshPhotoStatus() {
     try {
       const row = await ensureDraft();
-      const data = await apiJson<{ photoCount: number }>(
+      const data = await apiJson<{ photoCount: number; photos?: Array<{ id: string; photoKind?: string; filePath: string }> }>(
         `/api/public/srf-photo/session?token=${encodeURIComponent(row.token)}`,
       );
       setPhotoCount(data.photoCount ?? 0);
+      setPhotoPreview(data.photos ?? []);
       setPhotoMsg((data.photoCount ?? 0) > 0 ? `${data.photoCount} photo(s) uploaded.` : "No photos yet.");
     } catch (e) {
       setPhotoMsg(e instanceof Error ? e.message : "Could not check uploads.");
@@ -362,6 +364,7 @@ export function SrfBookingV2Page() {
         serial,
         complaint,
         estimateTotalInr: estimateTotal,
+        photos: photoPreview,
       });
       setSrfRef(row.reference);
       setTrackingUrl(out.trackingUrl ?? null);
@@ -508,24 +511,10 @@ export function SrfBookingV2Page() {
               </div>
             </div>
           </div>
-          {!awaitingOtp ? (
-            <div className="mt-4 flex justify-between">
-              <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
-              <button type="button" onClick={beginOtp} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Send OTP</button>
-            </div>
-          ) : (
-            <div className="mt-4">
-              <DemoOtpGate
-                title="OTP verification"
-                issuedCode={awaitingOtp}
-                value={otpInput}
-                onChange={setOtpInput}
-                error={otpError}
-                onVerify={verifyOtpAndProceed}
-                onRegenerate={beginOtp}
-              />
-            </div>
-          )}
+          <div className="mt-4 flex justify-between">
+            <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
+            <button type="button" onClick={beginOtp} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Send OTP</button>
+          </div>
         </Card>
       ) : null}
 
@@ -561,7 +550,36 @@ export function SrfBookingV2Page() {
             <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
             <button type="button" onClick={() => void finalizeAndPrint()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Create SRF + print</button>
           </div>
+          {photoPreview.length > 0 ? (
+            <div className="mt-4 rounded-xl border border-zimson-200 bg-white p-3">
+              <p className="text-sm font-semibold text-zimson-900">Uploaded photo preview</p>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {photoPreview.map((p) => (
+                  <div key={p.id} className="rounded-lg border border-zimson-200 p-1.5">
+                    <img src={`/${p.filePath}`} alt={p.photoKind ?? "watch photo"} className="h-24 w-full rounded object-cover" />
+                    <p className="mt-1 text-[11px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </Card>
+      ) : null}
+
+      {awaitingOtp ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <DemoOtpGate
+              title="OTP verification"
+              issuedCode={awaitingOtp}
+              value={otpInput}
+              onChange={setOtpInput}
+              error={otpError}
+              onVerify={verifyOtpAndProceed}
+              onRegenerate={beginOtp}
+            />
+          </div>
+        </div>
       ) : null}
 
       {showCreateCustomerPopup ? (
