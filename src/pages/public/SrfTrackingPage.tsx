@@ -14,7 +14,10 @@ type TrackJob = {
   complaint: string;
   estimateTotalInr: number;
   reestimateRequestedNote: string | null;
+  reestimateRequestedInr?: number | null;
   customerReestimateResponse: "accepted" | "rejected" | null;
+  customerReestimateRespondedAt?: string | null;
+  reestimateHistory?: Array<{ amountInr: number | null; note: string; requestedAt: string }>;
   photos?: Array<{ id: string; photoKind?: string; filePath: string }>;
   timeline: TrackHistory[];
 };
@@ -35,6 +38,32 @@ const statusClass: Record<string, string> = {
   closed: "bg-stone-200 text-stone-800",
 };
 
+function customerStatusLabel(status: string, hasPendingReestimate: boolean): string {
+  if (hasPendingReestimate) return "Approval required";
+  if (status === "draft" || status === "photo_pending" || status === "at_store") return "Booking confirmed";
+  if (status === "in_transit_sc" || status === "received_at_sc") return "In service movement";
+  if (status === "assigned" || status === "estimate_ok" || status === "reestimate_required") return "Under repair";
+  if (status === "customer_rejected") return "Awaiting confirmation";
+  if (status === "ready_for_outward" || status === "dispatched_to_store") return "Ready for return";
+  if (status === "received_at_store") return "Ready for delivery";
+  if (status === "closed") return "Delivered";
+  return "In progress";
+}
+
+const flow = [
+  { id: "booked", label: "Service booked" },
+  { id: "sent", label: "Watch moved for repair" },
+  { id: "repair", label: "Repair in progress" },
+  { id: "ready", label: "Ready for delivery" },
+] as const;
+
+function flowIndex(status: string): number {
+  if (status === "draft" || status === "photo_pending" || status === "at_store") return 0;
+  if (status === "in_transit_sc" || status === "received_at_sc") return 1;
+  if (status === "assigned" || status === "estimate_ok" || status === "reestimate_required" || status === "customer_rejected") return 2;
+  return 3;
+}
+
 export function SrfTrackingPage() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const token = params.get("t")?.trim() ?? "";
@@ -42,8 +71,9 @@ export function SrfTrackingPage() {
   const [error, setError] = useState<string | null>(null);
   const [disabled, setDisabled] = useState(false);
   const [customer, setCustomer] = useState<{ name: string; phone: string } | null>(null);
-  const [jobs, setJobs] = useState<TrackJob[]>([]);
+  const [job, setJob] = useState<TrackJob | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   async function load() {
     if (!token) {
@@ -54,12 +84,13 @@ export function SrfTrackingPage() {
     setLoading(true);
     setError(null);
     try {
-      const out = await apiJson<{ disabled: boolean; customer: { name: string; phone: string } | null; jobs: TrackJob[] }>(
+      const out = await apiJson<{ disabled: boolean; customer: { name: string; phone: string } | null; job: TrackJob | null }>(
         `/api/public/srf-track?t=${encodeURIComponent(token)}`,
       );
       setDisabled(Boolean(out.disabled));
       setCustomer(out.customer ?? null);
-      setJobs(out.jobs ?? []);
+      setJob(out.job ?? null);
+      setDetailsOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load tracking details.");
     } finally {
@@ -94,7 +125,7 @@ export function SrfTrackingPage() {
         <div className="rounded-2xl border border-zimson-200 bg-white p-5 shadow-sm">
           <h1 className="text-2xl font-bold text-zimson-900">Watch Service Tracking</h1>
           <p className="mt-1 text-sm text-stone-600">Track SRF progress and respond to re-estimate requests.</p>
-          {customer ? <p className="mt-2 text-sm text-stone-700">{customer.name} · {customer.phone}</p> : null}
+          {customer ? <p className="mt-2 text-sm font-semibold text-stone-800">{customer.name}</p> : null}
         </div>
 
         {loading ? <div className="mt-6 text-sm text-stone-600">Loading tracking details...</div> : null}
@@ -107,17 +138,64 @@ export function SrfTrackingPage() {
 
         {!loading && !disabled ? (
           <div className="mt-6 space-y-4">
-            {jobs.map((job) => (
-              <div key={job.id} className="rounded-2xl border border-zimson-200 bg-white p-4 shadow-sm">
+            {job ? (
+              <div className="rounded-2xl border border-zimson-200 bg-white p-4 shadow-sm sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-mono text-sm font-semibold text-zimson-900">{job.reference}</p>
+                  <button
+                    type="button"
+                    onClick={() => setDetailsOpen((v) => !v)}
+                    className="font-mono text-sm font-semibold text-zimson-900 underline decoration-zimson-300 underline-offset-2"
+                  >
+                    {job.reference}
+                  </button>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass[job.status] ?? "bg-stone-100 text-stone-700"}`}>
-                    {job.status.replace(/_/g, " ")}
+                    {customerStatusLabel(job.status, job.status === "reestimate_required" && !job.customerReestimateResponse)}
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-stone-700">{job.watchBrand} {job.watchModel} · {job.serial}</p>
-                <p className="mt-1 text-sm text-stone-700">Estimate: INR {Number(job.estimateTotalInr ?? 0).toFixed(2)}</p>
+                <p className="mt-2 text-xs text-stone-500">
+                  Click SRF number to {detailsOpen ? "hide" : "view"} details
+                </p>
+
+                {detailsOpen ? (
+                <>
+                <div className="mt-4 rounded-2xl border border-zimson-100 bg-zimson-50/40 p-4">
+                  <div className="flex items-center gap-2">
+                    {flow.map((s, idx) => {
+                      const done = idx <= flowIndex(job.status);
+                      return (
+                        <div key={s.id} className="flex flex-1 items-center gap-2">
+                          <div className={`h-7 w-7 shrink-0 rounded-full border text-center text-xs leading-7 font-bold ${done ? "border-zimson-600 bg-zimson-600 text-white" : "border-zimson-300 bg-white text-zimson-500"}`}>
+                            {done ? "✓" : idx + 1}
+                          </div>
+                          <div className="min-w-0 text-[11px] font-medium text-stone-700">{s.label}</div>
+                          {idx < flow.length - 1 ? (
+                            <div className={`hidden h-1 flex-1 rounded sm:block ${idx < flowIndex(job.status) ? "bg-zimson-600" : "bg-zimson-200"}`} />
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <p className="mt-4 text-sm text-stone-700">{job.watchBrand} {job.watchModel} · {job.serial}</p>
+                <p className="mt-1 text-sm text-stone-700">Original estimate: INR {Number(job.estimateTotalInr ?? 0).toFixed(2)}</p>
                 <p className="mt-1 text-sm text-stone-600">Complaint: {job.complaint || "-"}</p>
+
+                {(job.reestimateHistory ?? []).length > 0 ? (
+                  <div className="mt-4 rounded-xl border border-zimson-200 bg-zimson-50/40 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Re-estimate updates</p>
+                    <ul className="mt-2 space-y-2">
+                      {(job.reestimateHistory ?? []).map((x, idx) => (
+                        <li key={`${x.requestedAt}-${idx}`} className="rounded-lg border border-zimson-100 bg-white px-3 py-2 text-xs text-stone-700">
+                          <p className="font-semibold">Estimate {idx + 1}: INR {Number(x.amountInr ?? 0).toFixed(2)}</p>
+                          <p className="mt-0.5">{x.note || "-"}</p>
+                          <p className="mt-0.5 text-[11px] text-stone-500">{new Date(x.requestedAt).toLocaleString()}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
                 {job.photos && job.photos.length > 0 ? (
                   <div className="mt-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Watch photos</p>
@@ -134,8 +212,8 @@ export function SrfTrackingPage() {
 
                 {job.status === "reestimate_required" && !job.customerReestimateResponse ? (
                   <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                    <p className="text-xs font-semibold text-amber-800">Re-estimate approval required</p>
-                    <p className="mt-1 text-sm text-stone-700">{job.reestimateRequestedNote || "Supervisor requested your approval."}</p>
+                    <p className="text-xs font-semibold text-amber-800">Approval required</p>
+                    <p className="mt-1 text-sm text-stone-700">Please review latest re-estimate and submit your decision.</p>
                     <div className="mt-3 flex gap-2">
                       <button
                         type="button"
@@ -156,23 +234,12 @@ export function SrfTrackingPage() {
                     </div>
                   </div>
                 ) : null}
-
-                <div className="mt-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Status Timeline</p>
-                  <ul className="mt-2 space-y-2">
-                    {(job.timeline ?? []).map((h) => (
-                      <li key={h.id} className="rounded-lg border border-zimson-100 bg-zimson-50/30 px-3 py-2 text-xs text-stone-700">
-                        <span className="font-mono">{new Date(h.changedAt).toLocaleString()}</span> ·{" "}
-                        <span className="font-semibold">{h.status.replace(/_/g, " ")}</span>
-                        {h.note ? ` - ${h.note}` : ""}
-                      </li>
-                    ))}
-                    {(job.timeline ?? []).length === 0 ? <li className="text-xs text-stone-500">No timeline updates yet.</li> : null}
-                  </ul>
-                </div>
+                </>
+                ) : null}
               </div>
-            ))}
-            {jobs.length === 0 ? <p className="text-sm text-stone-600">No active SRFs found for this link.</p> : null}
+            ) : (
+              <p className="text-sm text-stone-600">No active SRF found for this link.</p>
+            )}
           </div>
         ) : null}
       </div>

@@ -54,6 +54,7 @@ export type SrfJob = {
   photos?: SrfJobPhoto[];
   photoSessionActive?: boolean;
   captureLinkDisabledAt?: string | null;
+  trackingUrl?: string | null;
   /** Store → SC challan */
   dcNumber: string | null;
   dispatchedToScAt: string | null;
@@ -62,6 +63,7 @@ export type SrfJob = {
   assignedAt: string | null;
   estimateOkAt: string | null;
   reestimateRequestedNote?: string | null;
+  reestimateRequestedInr?: number | null;
   reestimateRequestedAt?: string | null;
   reestimateApprovedNote?: string | null;
   reestimateApprovedAt?: string | null;

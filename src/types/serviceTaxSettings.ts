@@ -17,6 +17,8 @@ export type ServiceTaxSettings = {
   dcSuffix: string;
   odcPrefix: string;
   odcSuffix: string;
+  appLogoUrl: string;
+  appFaviconUrl: string;
   notes: string;
   updatedAt: string;
   updatedBy: string | null;

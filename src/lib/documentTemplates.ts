@@ -15,6 +15,7 @@ export const DEFAULT_DOCUMENT_BRANDING: DocumentBranding = {
   companyCityStateZip: "Chennai, Tamil Nadu 600001",
   companyPhone: "044-2222 3333",
   companyEmail: "ops@zimson.demo",
+  companyLogoUrl: "/icons.svg",
 };
 
 type FieldRef = { key: string; label: string };
@@ -128,6 +129,7 @@ function normalizeStore(parsed: Partial<DocumentTemplateStore> | null | undefine
       companyCityStateZip: branding?.companyCityStateZip?.trim() || fallback.branding.companyCityStateZip,
       companyPhone: branding?.companyPhone?.trim() || fallback.branding.companyPhone,
       companyEmail: branding?.companyEmail?.trim() || fallback.branding.companyEmail,
+      companyLogoUrl: branding?.companyLogoUrl?.trim() || fallback.branding.companyLogoUrl,
     },
     templatesByKind: {
       po: parsed?.templatesByKind?.po?.length ? parsed.templatesByKind.po : fallback.templatesByKind.po,
@@ -162,6 +164,7 @@ export function loadDocumentTemplateStore(): DocumentTemplateStore {
 
 export function saveDocumentTemplateStore(input: DocumentTemplateStore): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeStore(input)));
+  window.dispatchEvent(new Event("zimson-branding-updated"));
 }
 
 export function listTemplateFieldReferences(kind: DocumentKind): FieldRef[] {

@@ -15,7 +15,7 @@ type SrfJobsContextValue = {
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
   confirmInwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
-  supervisorRequestReestimate: (jobId: string, note: string) => Promise<void>;
+  supervisorRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
   technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
@@ -97,10 +97,10 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
-  const supervisorRequestReestimate = useCallback(async (jobId: string, note: string) => {
+  const supervisorRequestReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr: number; note: string }) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate`, {
       method: "POST",
-      json: { note },
+      json: payload,
     });
     await refreshJobs();
   }, [refreshJobs]);

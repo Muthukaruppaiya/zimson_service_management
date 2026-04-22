@@ -29,6 +29,24 @@
   }
 }
 
+@layer utilities {
+  @keyframes srf-step-enter {
+    from {
+      opacity: 0;
+      transform: translateX(-28px) scale(0.99);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+
+  .animate-srf-step-enter {
+    animation: srf-step-enter 300ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform, opacity;
+  }
+}
+
 /* Service invoice print — A4, hide app chrome via `print:hidden` on layout + invoice actions */
 @media print {
   @page {

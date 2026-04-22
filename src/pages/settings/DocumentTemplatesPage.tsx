@@ -27,6 +27,18 @@ export function DocumentTemplatesPage() {
     setMsg(null);
   }
 
+  function uploadLogoFromFile(file: File | null) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? "").trim();
+      if (!dataUrl) return;
+      updateBranding("companyLogoUrl", dataUrl);
+      setMsg("Logo loaded from local file. Click Save to persist in local storage.");
+    };
+    reader.readAsDataURL(file);
+  }
+
   function updateTemplateField(patch: Partial<typeof activeTemplate>) {
     setStore((prev) => ({
       ...prev,
@@ -48,6 +60,11 @@ export function DocumentTemplatesPage() {
     e.preventDefault();
     saveDocumentTemplateStore(store);
     setMsg("Template store saved. New and existing document previews will use it.");
+  }
+
+  function saveBrandingOnly() {
+    saveDocumentTemplateStore(store);
+    setMsg("Company branding saved.");
   }
 
   function addTemplate() {
@@ -82,7 +99,19 @@ export function DocumentTemplatesPage() {
       />
       {msg ? <p className="mb-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p> : null}
 
-      <Card title="Company branding" subtitle="Applied globally to all document templates">
+      <Card
+        title="Company branding"
+        subtitle="Applied globally to all document templates"
+        action={
+          <button
+            type="button"
+            onClick={saveBrandingOnly}
+            className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Save branding
+          </button>
+        }
+      >
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="text-xs font-medium text-stone-600">Company name</label>
@@ -107,6 +136,43 @@ export function DocumentTemplatesPage() {
           <div>
             <label className="text-xs font-medium text-stone-600">Email</label>
             <input className={inputClass} value={store.branding.companyEmail} onChange={(e) => updateBranding("companyEmail", e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-xs font-medium text-stone-600">Application logo URL / path</label>
+            <input
+              className={inputClass}
+              value={store.branding.companyLogoUrl}
+              onChange={(e) => updateBranding("companyLogoUrl", e.target.value)}
+              placeholder="/icons.svg or https://your-domain/logo.png"
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <label className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50">
+                Upload logo from local
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => uploadLogoFromFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => updateBranding("companyLogoUrl", "")}
+                className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+              >
+                Reset to default
+              </button>
+            </div>
+            {store.branding.companyLogoUrl ? (
+              <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-zimson-200 bg-white px-2 py-2">
+                <img
+                  src={store.branding.companyLogoUrl}
+                  alt="logo preview"
+                  className="h-9 w-9 rounded-md border border-zimson-200 object-contain"
+                />
+                <span className="text-xs text-stone-600">Logo preview</span>
+              </div>
+            ) : null}
           </div>
         </div>
       </Card>

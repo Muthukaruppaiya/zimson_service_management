@@ -12,11 +12,9 @@ import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
 import { printSrfDocument } from "../../lib/serviceDocuments";
 import {
-  findPart,
   generateDemoOtp,
   isValidGstFormat,
   isValidPanFormat,
-  SEED_PARTS,
   watchModelsForBrand,
 } from "../../data/serviceSeed";
 
@@ -35,6 +33,8 @@ export function SrfBookingV2Page() {
   const [customerType, setCustomerType] = useState<"B2C" | "B2B">("B2C");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
+  const [alternatePhone, setAlternatePhone] = useState("");
+  const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
   const [company, setCompany] = useState("");
@@ -44,9 +44,8 @@ export function SrfBookingV2Page() {
   const [watchModel, setWatchModel] = useState("");
   const [serial, setSerial] = useState("");
   const [complaint, setComplaint] = useState("");
-  const [estimatedLabor, setEstimatedLabor] = useState("");
-  const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
-  const [partsExtra, setPartsExtra] = useState("");
+  const [estimateAmount, setEstimateAmount] = useState("");
+  const [estimateRemarks, setEstimateRemarks] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [srfRef, setSrfRef] = useState<string | null>(null);
   const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
@@ -69,10 +68,7 @@ export function SrfBookingV2Page() {
   const lastAutoLookupPhoneRef = useRef("");
 
   const models = watchModelsForBrand(watchBrand);
-  const laborNum = Number.parseFloat(estimatedLabor) || 0;
-  const catalogPartsTotal = selectedPartIds.reduce((sum, id) => sum + (findPart(id)?.unitPrice ?? 0), 0);
-  const extraPartsNum = Number.parseFloat(partsExtra) || 0;
-  const estimateTotal = laborNum + catalogPartsTotal + extraPartsNum;
+  const estimateTotal = Number.parseFloat(estimateAmount) || 0;
 
   const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
@@ -114,7 +110,11 @@ export function SrfBookingV2Page() {
   }
   function validateEstimate() {
     if (!complaint.trim()) {
-      setError("Complaint is required.");
+      setError("Watch complaint is required.");
+      return false;
+    }
+    if (!estimateAmount.trim() || estimateTotal <= 0) {
+      setError("Enter a valid estimate amount.");
       return false;
     }
     return true;
@@ -211,6 +211,7 @@ export function SrfBookingV2Page() {
           id: string;
           displayName: string;
           phone: string;
+          alternatePhone?: string;
           email: string;
           address?: string;
           city?: string;
@@ -226,6 +227,8 @@ export function SrfBookingV2Page() {
         setCustomerType(data.customer.customerKind);
         setCustomerName(data.customer.displayName || customerName);
         setPhone(data.customer.phone || phone);
+        setAlternatePhone(data.customer.alternatePhone ?? "");
+        setEmail(data.customer.email ?? "");
         setAddress(data.customer.address ?? "");
         setCity(data.customer.city ?? "");
         setCompany(data.customer.company ?? "");
@@ -252,6 +255,14 @@ export function SrfBookingV2Page() {
       setError("Name and phone are required.");
       return;
     }
+    if (!email.trim() || !email.includes("@")) {
+      setError("Valid email is required.");
+      return;
+    }
+    if (!address.trim() || !city.trim()) {
+      setError("Address and city are required.");
+      return;
+    }
     if (customerType === "B2B") {
       if (!company.trim() || !isValidGstFormat(gst) || !isValidPanFormat(pan)) {
         setError("For B2B, company + valid GSTIN + valid PAN are required.");
@@ -262,7 +273,8 @@ export function SrfBookingV2Page() {
       await registerCustomer({
         displayName: customerName,
         phone,
-        email: "",
+        alternatePhone,
+        email,
         address,
         city,
         customerKind: customerType,
@@ -283,6 +295,14 @@ export function SrfBookingV2Page() {
     setError(null);
     if (!customerName.trim() || !phone.trim()) {
       setError("Name and phone are required.");
+      return;
+    }
+    if (!email.trim() || !email.includes("@")) {
+      setError("Valid email is required.");
+      return;
+    }
+    if (!address.trim() || !city.trim()) {
+      setError("Address and city are required.");
       return;
     }
     if (customerType === "B2B") {
@@ -354,7 +374,7 @@ export function SrfBookingV2Page() {
   async function finalizeAndPrint() {
     try {
       const row = await ensureDraft();
-      const out = await finalizeJob(row.srfId, { complaint, estimateTotalInr: estimateTotal, selectedPartIds });
+      const out = await finalizeJob(row.srfId, { complaint, estimateTotalInr: estimateTotal, selectedPartIds: [] });
       printSrfDocument({
         reference: row.reference,
         customerName,
@@ -425,6 +445,7 @@ export function SrfBookingV2Page() {
       </div>
       {error ? <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
 
+      <div key={step} className="animate-srf-step-enter">
       {step === 0 ? (
         <Card title="Step 1 — Customer">
           <div className="mb-3 flex gap-4">
@@ -432,19 +453,27 @@ export function SrfBookingV2Page() {
             <label className="text-sm"><input type="radio" checked={customerType === "B2B"} onChange={() => setCustomerType("B2B")} /> B2B</label>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <label className="text-sm">Customer name<input className={inputClass} value={customerName} onChange={(e) => setCustomerName(e.target.value)} /></label>
-            <label className="text-sm">Phone<input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-            {customerType === "B2B" ? (
-              <>
-                <label className="text-sm">Company<input className={inputClass} value={company} onChange={(e) => setCompany(e.target.value)} /></label>
-                <label className="text-sm">GSTIN<input className={inputClass} value={gst} onChange={(e) => setGst(e.target.value)} /></label>
-                <label className="text-sm">PAN<input className={inputClass} value={pan} onChange={(e) => setPan(e.target.value)} /></label>
-              </>
-            ) : null}
+            <label className="text-sm md:col-span-2">Phone<input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
           </div>
           <div className="mt-3 text-xs text-stone-500">{checkingCustomer ? "Checking customer in DB..." : "Customer check is automatic after entering mobile number."}</div>
           {customerCheckMsg ? (
             <p className="mt-3 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">{customerCheckMsg}</p>
+          ) : null}
+          {phone10(phone).length === 10 && !checkingCustomer ? (
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="text-sm">Customer name<input className={inputClass} value={customerName} onChange={(e) => setCustomerName(e.target.value)} /></label>
+              <label className="text-sm">Email<input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+              <label className="text-sm">Alternate mobile<input className={inputClass} value={alternatePhone} onChange={(e) => setAlternatePhone(e.target.value)} /></label>
+              <label className="text-sm">Address<input className={inputClass} value={address} onChange={(e) => setAddress(e.target.value)} /></label>
+              <label className="text-sm">City<input className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} /></label>
+              {customerType === "B2B" ? (
+                <>
+                  <label className="text-sm">Company<input className={inputClass} value={company} onChange={(e) => setCompany(e.target.value)} /></label>
+                  <label className="text-sm">GSTIN<input className={inputClass} value={gst} onChange={(e) => setGst(e.target.value)} /></label>
+                  <label className="text-sm">PAN<input className={inputClass} value={pan} onChange={(e) => setPan(e.target.value)} /></label>
+                </>
+              ) : null}
+            </div>
           ) : null}
           {!customerExists && customerChecked ? (
             <p className="mt-2 text-sm text-amber-700">Customer must be created before moving to Watch details.</p>
@@ -495,21 +524,10 @@ export function SrfBookingV2Page() {
       {step === 3 ? (
         <Card title="Step 4 — Estimate + OTP">
           <div className="grid gap-3 md:grid-cols-2">
-            <label className="text-sm md:col-span-2">Complaint<textarea className={inputClass} rows={3} value={complaint} onChange={(e) => setComplaint(e.target.value)} /></label>
-            <label className="text-sm">Labor (INR)<input className={inputClass} value={estimatedLabor} onChange={(e) => setEstimatedLabor(e.target.value)} /></label>
-            <label className="text-sm">Extra parts (INR)<input className={inputClass} value={partsExtra} onChange={(e) => setPartsExtra(e.target.value)} /></label>
-            <div className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm">Total estimate: <strong>INR {estimateTotal.toFixed(2)}</strong></div>
-            <div className="md:col-span-2">
-              <p className="mb-2 text-sm font-medium">Suggested parts</p>
-              <div className="grid gap-2 md:grid-cols-2">
-                {SEED_PARTS.slice(0, 8).map((p) => (
-                  <label key={p.id} className="flex items-center gap-2 rounded border border-zimson-200 px-2 py-1 text-sm">
-                    <input type="checkbox" checked={selectedPartIds.includes(p.id)} onChange={() => setSelectedPartIds((prev) => prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id])} />
-                    <span>{p.name} (INR {p.unitPrice})</span>
-                  </label>
-                ))}
-              </div>
-            </div>
+            <label className="text-sm md:col-span-2">Watch complaint<textarea className={inputClass} rows={3} value={complaint} onChange={(e) => setComplaint(e.target.value)} /></label>
+            <label className="text-sm">Estimate amount (INR)<input className={inputClass} value={estimateAmount} onChange={(e) => setEstimateAmount(e.target.value)} /></label>
+            <label className="text-sm">Remarks<input className={inputClass} value={estimateRemarks} onChange={(e) => setEstimateRemarks(e.target.value)} placeholder="Optional remarks" /></label>
+            <div className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm">Estimate amount: <strong>INR {estimateTotal.toFixed(2)}</strong></div>
           </div>
           <div className="mt-4 flex justify-between">
             <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
@@ -532,8 +550,12 @@ export function SrfBookingV2Page() {
                   <td className="px-3 py-2 text-stone-800">{watchBrand} {watchModel} · {serial}</td>
                 </tr>
                 <tr className="border-b border-zimson-100">
-                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Complaint</th>
+                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Watch complaint</th>
                   <td className="px-3 py-2 text-stone-800">{complaint}</td>
+                </tr>
+                <tr className="border-b border-zimson-100">
+                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Remarks</th>
+                  <td className="px-3 py-2 text-stone-800">{estimateRemarks || "-"}</td>
                 </tr>
                 <tr className="border-b border-zimson-100">
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Uploaded photos</th>
@@ -565,6 +587,7 @@ export function SrfBookingV2Page() {
           ) : null}
         </Card>
       ) : null}
+      </div>
 
       {awaitingOtp ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
@@ -588,6 +611,10 @@ export function SrfBookingV2Page() {
             <h3 className="text-lg font-semibold text-zimson-900">Create customer</h3>
             <p className="mt-1 text-sm text-stone-600">Customer not found. Verify OTP and save customer to continue SRF booking.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">Customer name<input className={inputClass} value={customerName} onChange={(e) => setCustomerName(e.target.value)} /></label>
+              <label className="text-sm">Primary mobile<input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
+              <label className="text-sm">Email<input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+              <label className="text-sm">Alternate mobile<input className={inputClass} value={alternatePhone} onChange={(e) => setAlternatePhone(e.target.value)} /></label>
               <label className="text-sm">Address<input className={inputClass} value={address} onChange={(e) => setAddress(e.target.value)} /></label>
               <label className="text-sm">City<input className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} /></label>
             </div>

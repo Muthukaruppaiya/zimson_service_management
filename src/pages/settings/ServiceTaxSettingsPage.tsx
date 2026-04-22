@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
+import { applyAppFavicon } from "../../lib/appBranding";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 
 const inputClass =
@@ -38,6 +39,8 @@ export function ServiceTaxSettingsPage() {
   const [dcSuffix, setDcSuffix] = useState("");
   const [odcPrefix, setOdcPrefix] = useState("ODC");
   const [odcSuffix, setOdcSuffix] = useState("");
+  const [appLogoUrl, setAppLogoUrl] = useState("");
+  const [appFaviconUrl, setAppFaviconUrl] = useState("");
   const [notes, setNotes] = useState("");
   const [meta, setMeta] = useState<{ updatedAt: string; updatedBy: string | null } | null>(null);
 
@@ -70,6 +73,8 @@ export function ServiceTaxSettingsPage() {
       setDcSuffix(s.dcSuffix ?? "");
       setOdcPrefix(s.odcPrefix ?? "ODC");
       setOdcSuffix(s.odcSuffix ?? "");
+      setAppLogoUrl(s.appLogoUrl ?? "");
+      setAppFaviconUrl(s.appFaviconUrl ?? "");
       setNotes(s.notes);
       setMeta({ updatedAt: s.updatedAt, updatedBy: s.updatedBy });
     } catch (e) {
@@ -109,6 +114,8 @@ export function ServiceTaxSettingsPage() {
         dcSuffix: dcSuffix.trim(),
         odcPrefix: odcPrefix.trim(),
         odcSuffix: odcSuffix.trim(),
+        appLogoUrl: appLogoUrl.trim(),
+        appFaviconUrl: appFaviconUrl.trim(),
         notes: notes.trim(),
       };
       const data = await apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax", {
@@ -134,7 +141,11 @@ export function ServiceTaxSettingsPage() {
       setDcSuffix(s.dcSuffix ?? "");
       setOdcPrefix(s.odcPrefix ?? "ODC");
       setOdcSuffix(s.odcSuffix ?? "");
+      setAppLogoUrl(s.appLogoUrl ?? "");
+      setAppFaviconUrl(s.appFaviconUrl ?? "");
       setNotes(s.notes);
+      applyAppFavicon(s.appFaviconUrl ?? "");
+      window.dispatchEvent(new Event("zimson-branding-updated"));
       setMeta({ updatedAt: s.updatedAt, updatedBy: s.updatedBy });
       setSavedMsg("Saved.");
     } catch (err) {
@@ -305,6 +316,21 @@ export function ServiceTaxSettingsPage() {
                 <label className="text-xs font-medium text-stone-600">DC suffix<input className={inputClass} value={dcSuffix} onChange={(e) => setDcSuffix(e.target.value)} /></label>
                 <label className="text-xs font-medium text-stone-600">ODC prefix<input className={inputClass} value={odcPrefix} onChange={(e) => setOdcPrefix(e.target.value)} /></label>
                 <label className="text-xs font-medium text-stone-600">ODC suffix<input className={inputClass} value={odcSuffix} onChange={(e) => setOdcSuffix(e.target.value)} /></label>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-4">
+              <p className="text-xs font-semibold text-stone-700">Global app branding (same for all regions)</p>
+              <p className="mt-1 text-xs text-stone-500">
+                Super admin sets these once; sidebar/topbar logo and favicon use these values for all users.
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-medium text-stone-600">App logo URL / data URL
+                  <input className={inputClass} value={appLogoUrl} onChange={(e) => setAppLogoUrl(e.target.value)} placeholder="/icons.svg or data:image/png;base64,..." />
+                </label>
+                <label className="text-xs font-medium text-stone-600">Favicon URL / data URL
+                  <input className={inputClass} value={appFaviconUrl} onChange={(e) => setAppFaviconUrl(e.target.value)} placeholder="/icons.svg or data:image/png;base64,..." />
+                </label>
               </div>
             </div>
 

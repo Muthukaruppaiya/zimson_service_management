@@ -24,6 +24,8 @@ type TaxRow = {
   dc_suffix: string;
   odc_prefix: string;
   odc_suffix: string;
+  app_logo_url: string;
+  app_favicon_url: string;
   notes: string;
   updated_at: Date;
   updated_by: string | null;
@@ -54,6 +56,8 @@ function rowToPayload(row: TaxRow) {
     dcSuffix: row.dc_suffix ?? "",
     odcPrefix: row.odc_prefix ?? "ODC",
     odcSuffix: row.odc_suffix ?? "",
+    appLogoUrl: row.app_logo_url ?? "",
+    appFaviconUrl: row.app_favicon_url ?? "",
     notes: row.notes ?? "",
     updatedAt: row.updated_at.toISOString(),
     updatedBy: row.updated_by,
@@ -150,6 +154,8 @@ export function registerTaxSettingsRoutes(
     const odcPrefix = parseSeriesPart(body.odcPrefix, "ODC");
     const odcSuffix = parseSeriesSuffix(body.odcSuffix);
     const notes = String(body.notes ?? "").slice(0, 2000);
+    const appLogoUrl = String(body.appLogoUrl ?? "").trim().slice(0, 4000);
+    const appFaviconUrl = String(body.appFaviconUrl ?? "").trim().slice(0, 4000);
     const updatedBy = actor.displayName?.trim() || actor.email;
 
     try {
@@ -173,14 +179,17 @@ export function registerTaxSettingsRoutes(
            dc_suffix = $16,
            odc_prefix = $17,
            odc_suffix = $18,
-           notes = $19,
+           app_logo_url = $19,
+           app_favicon_url = $20,
+           notes = $21,
            updated_at = now(),
-           updated_by = $20
+           updated_by = $22
          WHERE id = 1
          RETURNING id, gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
                    igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive,
                    srf_prefix, srf_suffix, pr_prefix, pr_suffix, po_prefix, po_suffix,
-                   grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix, notes,
+                  grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix,
+                  app_logo_url, app_favicon_url, notes,
                    updated_at, updated_by`,
         [
           gstRatePercent,
@@ -201,6 +210,8 @@ export function registerTaxSettingsRoutes(
           dcSuffix,
           odcPrefix,
           odcSuffix,
+          appLogoUrl,
+          appFaviconUrl,
           notes,
           updatedBy,
         ],

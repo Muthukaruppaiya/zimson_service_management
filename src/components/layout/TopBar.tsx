@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
 import { useAuth } from "../../context/AuthContext";
 import { apiJson } from "../../lib/api";
+import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } from "../../lib/appBranding";
 import { mainNav } from "../../navigation";
 import type { AppNotification } from "../../types/notification";
 
@@ -46,6 +47,7 @@ export function TopBar() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [logoUrl, setLogoUrl] = useState(getAppLogoUrl());
 
   const items = useMemo(() => {
     if (!user) return [];
@@ -85,15 +87,32 @@ export function TopBar() {
     return () => clearInterval(t);
   }, [user?.id]);
 
+  useEffect(() => {
+    const refresh = () => setLogoUrl(getAppLogoUrl());
+    void refreshAppBrandingFromServer().then(refresh).catch(() => {});
+    window.addEventListener("storage", refresh);
+    window.addEventListener("zimson-branding-updated", refresh);
+    return () => {
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener("zimson-branding-updated", refresh);
+    };
+  }, []);
+
   const unread = notifications.filter((n) => !n.isRead).length;
 
   return (
     <header className="print:hidden sticky top-0 z-10 border-b border-zimson-300/60 bg-zimson-50/95 backdrop-blur">
       <div className="flex h-14 items-center justify-between gap-4 px-4 md:px-8">
         <div className="flex min-w-0 items-center gap-3 md:hidden">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zimson-500 text-xs font-bold text-white">
-            Z
-          </div>
+          <img
+            src={logoUrl}
+            alt="Zimson logo"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).onerror = null;
+              (e.currentTarget as HTMLImageElement).src = DEFAULT_APP_LOGO_URL;
+            }}
+            className="h-8 w-8 rounded-lg border border-zimson-200 bg-white object-contain p-1"
+          />
           <span className="truncate text-sm font-semibold text-stone-900">Zimson</span>
         </div>
         <div className="hidden flex-1 md:block" />

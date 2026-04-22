@@ -23,6 +23,7 @@ export function StoreBillingPage() {
   const [issuedOtpByJob, setIssuedOtpByJob] = useState<Record<string, string>>({});
   const [otpInputByJob, setOtpInputByJob] = useState<Record<string, string>>({});
   const [otpErrorByJob, setOtpErrorByJob] = useState<Record<string, string>>({});
+  const [otpModalJobId, setOtpModalJobId] = useState<string | null>(null);
 
   const receivedAtStore = useMemo(() => {
     if (!user) return [];
@@ -45,6 +46,7 @@ export function StoreBillingPage() {
     setIssuedOtpByJob((prev) => ({ ...prev, [jobId]: code }));
     setOtpInputByJob((prev) => ({ ...prev, [jobId]: "" }));
     setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
+    setOtpModalJobId(jobId);
     setMessage({ type: "ok", text: "Customer collection OTP generated. Verify OTP before invoicing." });
   }
 
@@ -321,16 +323,13 @@ export function StoreBillingPage() {
                 Customer present — generate OTP
               </button>
             ) : (
-              <DemoOtpGate
-                title="Customer collection OTP verification"
-                subtitle="After OTP verify, payment is recorded and invoice is generated."
-                issuedCode={issuedOtpByJob[billingJob.id]}
-                value={otpInputByJob[billingJob.id] ?? ""}
-                onChange={(value) => setOtpInputByJob((prev) => ({ ...prev, [billingJob.id]: value }))}
-                error={otpErrorByJob[billingJob.id] || null}
-                onVerify={() => void verifyOtpAndClose(billingJob.id)}
-                onRegenerate={() => startCollectionOtp(billingJob.id)}
-              />
+              <button
+                type="button"
+                onClick={() => setOtpModalJobId(billingJob.id)}
+                className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+              >
+                Open OTP verification
+              </button>
             )}
           </div>
         )}
@@ -347,6 +346,31 @@ export function StoreBillingPage() {
           </p>
         ) : null}
       </Card>
+      {otpModalJobId ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <DemoOtpGate
+              title="Customer collection OTP verification"
+              subtitle="After OTP verify, payment is recorded and invoice is generated."
+              issuedCode={issuedOtpByJob[otpModalJobId]}
+              value={otpInputByJob[otpModalJobId] ?? ""}
+              onChange={(value) => setOtpInputByJob((prev) => ({ ...prev, [otpModalJobId]: value }))}
+              error={otpErrorByJob[otpModalJobId] || null}
+              onVerify={() => void verifyOtpAndClose(otpModalJobId)}
+              onRegenerate={() => startCollectionOtp(otpModalJobId)}
+            />
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setOtpModalJobId(null)}
+                className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

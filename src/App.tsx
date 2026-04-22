@@ -14,6 +14,7 @@ import { RegionsPage } from "./pages/RegionsPage";
 import { QuickBillPage } from "./pages/service/QuickBillPage";
 import { ServiceModulePage } from "./pages/service/ServiceModulePage";
 import { CustomerRegisterPage } from "./pages/service/customers/CustomerRegisterPage";
+import { CustomerMasterPage } from "./pages/service/customers/CustomerMasterPage";
 import { ServiceBillingPage } from "./pages/service/ServiceBillingPage";
 import { SrfBookingV2Page } from "./pages/service/SrfBookingV2Page";
 import { StoreBillingPage } from "./pages/service/StoreBillingPage";
@@ -122,6 +123,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service">
                       <CustomerRegisterPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/customers/master"
+                  element={
+                    <ModuleRoute module="service">
+                      <CustomerMasterPage />
                     </ModuleRoute>
                   }
                 />

@@ -15,12 +15,13 @@ import { openPrintDocument } from "../../lib/inventoryDocuments";
 export function ScSupervisorPage() {
   const { user } = useAuth();
   const { activeSpares } = useSpares();
-  const { jobs, assignTechnician, supervisorRequestReestimate, supervisorApproveReestimate, submitSparesSlip, supervisorMarkRepairComplete, getStatusHistory } = useSrfJobs();
+  const { jobs, assignTechnician, supervisorRequestReestimate, submitSparesSlip, supervisorMarkRepairComplete, getStatusHistory } = useSrfJobs();
   const [pickTech, setPickTech] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<Record<string, string>>({});
   const [historyByJob, setHistoryByJob] = useState<Record<string, Array<{ id: string; status: string; note: string; changedAt: string }>>>({});
-  const [reestimateNoteByJob, setReestimateNoteByJob] = useState<Record<string, string>>({});
-  const [reestimateAmountByJob, setReestimateAmountByJob] = useState<Record<string, string>>({});
+  const [reestimatePopupJobId, setReestimatePopupJobId] = useState<string | null>(null);
+  const [reestimateAmountInput, setReestimateAmountInput] = useState("");
+  const [reestimateRemarkInput, setReestimateRemarkInput] = useState("");
   const [repairPopupJobId, setRepairPopupJobId] = useState<string | null>(null);
   const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string }>>([{ spareId: "", qty: "1" }]);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
@@ -74,12 +75,40 @@ export function ScSupervisorPage() {
     }
   }
 
-  async function markReestimate(jobId: string) {
+  function openReestimatePopup(jobId: string) {
+    const job = jobs.find((x) => x.id === jobId);
+    setReestimatePopupJobId(jobId);
+    setReestimateAmountInput(job ? String(Number(job.estimateTotalInr ?? 0).toFixed(2)) : "");
+    setReestimateRemarkInput("");
+  }
+
+  function closeReestimatePopup() {
+    setReestimatePopupJobId(null);
+    setReestimateAmountInput("");
+    setReestimateRemarkInput("");
+  }
+
+  async function confirmReestimateRequest() {
+    if (!reestimatePopupJobId) return;
+    const amount = Number(reestimateAmountInput);
+    const note = reestimateRemarkInput.trim();
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFeedback((f) => ({ ...f, [reestimatePopupJobId]: "Enter valid re-estimate amount." }));
+      return;
+    }
+    if (!note) {
+      setFeedback((f) => ({ ...f, [reestimatePopupJobId]: "Enter re-estimate remark." }));
+      return;
+    }
     try {
-      await supervisorRequestReestimate(jobId, "Supervisor marked need re-estimate.");
-      setFeedback((f) => ({ ...f, [jobId]: "Marked as re-estimate required." }));
+      await supervisorRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
+      setFeedback((f) => ({ ...f, [reestimatePopupJobId]: "Re-estimate sent to customer for approval." }));
+      closeReestimatePopup();
     } catch (e) {
-      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not mark re-estimate." }));
+      setFeedback((f) => ({
+        ...f,
+        [reestimatePopupJobId]: e instanceof Error ? e.message : "Could not mark re-estimate.",
+      }));
     }
   }
 
@@ -150,29 +179,6 @@ export function ScSupervisorPage() {
       closeRepairPopup();
     } catch (e) {
       setFeedback((f) => ({ ...f, [repairPopupJobId]: e instanceof Error ? e.message : "Could not complete repair." }));
-    }
-  }
-
-  async function approveReestimate(jobId: string) {
-    const amountText = (reestimateAmountByJob[jobId] ?? "").trim();
-    const note = (reestimateNoteByJob[jobId] ?? "").trim();
-    const payload: { estimateTotalInr?: number; note?: string } = {};
-    if (amountText) {
-      const n = Number(amountText);
-      if (!Number.isFinite(n) || n < 0) {
-        setFeedback((f) => ({ ...f, [jobId]: "Enter valid non-negative revised estimate." }));
-        return;
-      }
-      payload.estimateTotalInr = n;
-    }
-    if (note) payload.note = note;
-    try {
-      await supervisorApproveReestimate(jobId, payload);
-      setFeedback((f) => ({ ...f, [jobId]: "Re-estimate approved. Reassigned to same technician." }));
-      setReestimateAmountByJob((prev) => ({ ...prev, [jobId]: "" }));
-      setReestimateNoteByJob((prev) => ({ ...prev, [jobId]: "" }));
-    } catch (e) {
-      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not approve re-estimate." }));
     }
   }
 
@@ -318,6 +324,16 @@ export function ScSupervisorPage() {
                     <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
                     <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
                     <p className="mt-1 text-xs text-stone-500">Status: {j.status.replace(/_/g, " ")}</p>
+                    {j.customerReestimateResponse === "accepted" ? (
+                      <p className="mt-1 text-xs font-semibold text-emerald-700">
+                        Customer accepted re-estimate{j.customerReestimateRespondedAt ? ` · ${new Date(j.customerReestimateRespondedAt).toLocaleString()}` : ""}
+                      </p>
+                    ) : null}
+                    {j.customerReestimateResponse === "rejected" ? (
+                      <p className="mt-1 text-xs font-semibold text-rose-700">
+                        Customer rejected re-estimate{j.customerReestimateRespondedAt ? ` · ${new Date(j.customerReestimateRespondedAt).toLocaleString()}` : ""}
+                      </p>
+                    ) : null}
                     {j.usedSpares && j.usedSpares.length > 0 ? (
                       <p className="mt-1 text-xs text-stone-600">
                         Spares: {j.usedSpares.map((x) => `${x.name} x${x.qty}`).join(", ")}
@@ -327,39 +343,32 @@ export function ScSupervisorPage() {
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {j.status === "reestimate_required" ? (
-                    <>
-                      <input
-                        value={reestimateAmountByJob[j.id] ?? ""}
-                        onChange={(e) => setReestimateAmountByJob((p) => ({ ...p, [j.id]: e.target.value }))}
-                        placeholder="Revised estimate amount (optional)"
-                        className="rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                      />
-                      <input
-                        value={reestimateNoteByJob[j.id] ?? ""}
-                        onChange={(e) => setReestimateNoteByJob((p) => ({ ...p, [j.id]: e.target.value }))}
-                        placeholder="Re-estimate note"
-                        className="min-w-[220px] rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void approveReestimate(j.id)}
-                        className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-700"
-                      >
-                        Re-estimate OK &amp; reassign
-                      </button>
-                    </>
+                    <div className="w-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                      <p className="font-semibold">Waiting for customer approval from tracking link.</p>
+                      {j.trackingUrl ? (
+                        <>
+                          <p className="mt-2 text-[11px]">Share this link with customer:</p>
+                          <p className="mt-1 break-all rounded bg-white/80 px-2 py-1 font-mono text-[11px] text-stone-700">{j.trackingUrl}</p>
+                        </>
+                      ) : (
+                        <p className="mt-1 text-[11px]">Tracking link is not available.</p>
+                      )}
+                    </div>
+                  ) : null}
+                  {j.status !== "reestimate_required" ? (
+                    <button
+                      type="button"
+                      onClick={() => openRepairPopup(j.id)}
+                      className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                    >
+                      Watch repaired
+                    </button>
                   ) : null}
                   <button
                     type="button"
-                    onClick={() => openRepairPopup(j.id)}
-                    className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                  >
-                    Watch repaired
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void markReestimate(j.id)}
-                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                    onClick={() => openReestimatePopup(j.id)}
+                    disabled={j.status === "reestimate_required"}
+                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Need re-estimate
                   </button>
@@ -466,6 +475,45 @@ export function ScSupervisorPage() {
                 className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
               >
                 Confirm repaired
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {reestimatePopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Request re-estimate approval</h3>
+            <p className="mt-1 text-sm text-stone-600">Enter revised estimate amount and remarks for customer approval.</p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Re-estimate amount (INR)
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={reestimateAmountInput}
+                  onChange={(e) => setReestimateAmountInput(e.target.value)}
+                />
+              </label>
+              <label className="text-sm">
+                Remarks
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={3}
+                  value={reestimateRemarkInput}
+                  onChange={(e) => setReestimateRemarkInput(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={closeReestimatePopup} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmReestimateRequest()}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Send to customer
               </button>
             </div>
           </div>

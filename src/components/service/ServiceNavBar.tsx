@@ -4,6 +4,7 @@ const navItems: Array<{ to: string; label: string }> = [
   { to: "/service", label: "Home" },
   { to: "/service/quick-bill", label: "Quick bill" },
   { to: "/service/srf", label: "SRF booking" },
+  { to: "/service/customers/master", label: "Customer master" },
   { to: "/service/store-dispatch", label: "Store dispatch" },
   { to: "/service/store-billing", label: "Store billing" },
 ];

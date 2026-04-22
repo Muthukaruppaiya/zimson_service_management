@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS customers (
   display_name VARCHAR(240) NOT NULL,
   phone VARCHAR(80) NOT NULL,
   phone_last10 VARCHAR(10) NOT NULL,
+  alternate_phone VARCHAR(80),
   email VARCHAR(200) NOT NULL DEFAULT '',
   address TEXT,
   city VARCHAR(120),
@@ -163,6 +164,7 @@ CREATE INDEX IF NOT EXISTS idx_customers_name ON customers (display_name);
 CREATE INDEX IF NOT EXISTS idx_customers_created ON customers (created_at DESC);
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS city VARCHAR(120);
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS alternate_phone VARCHAR(80);
 
 CREATE TABLE IF NOT EXISTS customer_tracking_tokens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -399,6 +401,8 @@ CREATE TABLE IF NOT EXISTS service_tax_settings (
   dc_suffix VARCHAR(16) NOT NULL DEFAULT '',
   odc_prefix VARCHAR(16) NOT NULL DEFAULT 'ODC',
   odc_suffix VARCHAR(16) NOT NULL DEFAULT '',
+  app_logo_url TEXT NOT NULL DEFAULT '',
+  app_favicon_url TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by VARCHAR(80)
@@ -444,6 +448,8 @@ ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS dc_prefix VARCHAR(16) 
 ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS dc_suffix VARCHAR(16) NOT NULL DEFAULT '';
 ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS odc_prefix VARCHAR(16) NOT NULL DEFAULT 'ODC';
 ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS odc_suffix VARCHAR(16) NOT NULL DEFAULT '';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS app_logo_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS app_favicon_url TEXT NOT NULL DEFAULT '';
 
 ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
 ALTER TABLE spare_stock ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
@@ -493,6 +499,7 @@ CREATE TABLE IF NOT EXISTS srf_jobs (
   assigned_at TIMESTAMPTZ,
   estimate_ok_at TIMESTAMPTZ,
   reestimate_requested_note TEXT,
+  reestimate_requested_inr NUMERIC(14, 2),
   reestimate_requested_at TIMESTAMPTZ,
   reestimate_approved_note TEXT,
   reestimate_approved_at TIMESTAMPTZ,
@@ -532,6 +539,7 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_bill_ref VARCHAR(120);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_reestimate_response VARCHAR(10)
   CHECK (customer_reestimate_response IN ('accepted', 'rejected'));
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_reestimate_responded_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_requested_inr NUMERIC(14, 2);
 
 CREATE TABLE IF NOT EXISTS srf_job_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
 import { useAuth } from "../../context/AuthContext";
 import { mainNav } from "../../navigation";
+import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } from "../../lib/appBranding";
 
 function NavIcon({ name }: { name: string }) {
   const common = "h-5 w-5 shrink-0 stroke-[1.75]";
@@ -73,18 +74,36 @@ const iconFor = (to: string) => {
 
 export function Sidebar() {
   const { user } = useAuth();
+  const [logoUrl, setLogoUrl] = useState(getAppLogoUrl());
 
   const items = useMemo(() => {
     if (!user) return [];
     return mainNav.filter((item) => canAccessModule(user, item.module));
   }, [user]);
 
+  useEffect(() => {
+    const refresh = () => setLogoUrl(getAppLogoUrl());
+    void refreshAppBrandingFromServer().then(refresh).catch(() => {});
+    window.addEventListener("storage", refresh);
+    window.addEventListener("zimson-branding-updated", refresh);
+    return () => {
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener("zimson-branding-updated", refresh);
+    };
+  }, []);
+
   return (
     <aside className="print:hidden hidden w-64 shrink-0 border-r border-zimson-300/60 bg-gradient-to-b from-zimson-50 to-zimson-100 md:flex md:flex-col">
       <div className="flex h-16 items-center gap-2 border-b border-zimson-300/50 px-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-zimson-500 text-sm font-bold text-white shadow-sm">
-          Z
-        </div>
+        <img
+          src={logoUrl}
+          alt="Zimson logo"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).onerror = null;
+            (e.currentTarget as HTMLImageElement).src = DEFAULT_APP_LOGO_URL;
+          }}
+          className="h-9 w-9 rounded-xl border border-zimson-200 bg-white object-contain p-1 shadow-sm"
+        />
         <div>
           <p className="text-sm font-semibold tracking-tight text-stone-900">Zimson</p>
           <p className="text-xs text-stone-600">Service management</p>

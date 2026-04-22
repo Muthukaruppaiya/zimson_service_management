@@ -1049,24 +1049,28 @@ export function QuickBillPage() {
       </form>
 
       {awaitingOtp ? (
-        <div className="mt-8 space-y-4">
-          <DemoOtpGate
-            title="Verify quick bill"
-            issuedCode={awaitingOtp}
-            value={otpInput}
-            onChange={setOtpInput}
-            error={otpError}
-            onVerify={() => void handleVerifyOtp()}
-            onRegenerate={regenerateOtp}
-            verifyBusy={isSavingBill}
-          />
-          <button
-            type="button"
-            onClick={cancelOtp}
-            className="text-sm font-medium text-stone-600 underline decoration-zimson-300 underline-offset-2 hover:text-stone-900"
-          >
-            Cancel verification (edit form)
-          </button>
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <DemoOtpGate
+              title="Verify quick bill"
+              issuedCode={awaitingOtp}
+              value={otpInput}
+              onChange={setOtpInput}
+              error={otpError}
+              onVerify={() => void handleVerifyOtp()}
+              onRegenerate={regenerateOtp}
+              verifyBusy={isSavingBill}
+            />
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={cancelOtp}
+                className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900"
+              >
+                Cancel verification
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

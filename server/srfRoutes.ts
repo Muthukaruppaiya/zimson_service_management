@@ -5,7 +5,7 @@ import path from "node:path";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser, UserRole } from "../src/types/user";
-import { sendTrackingLink } from "./notificationService";
+import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
 
 type Authed = Request & { userId: string };
 
@@ -119,15 +119,24 @@ function phoneLast10(phone: string): string {
 async function getOrCreateTrackingToken(client: PoolClient, phone: string): Promise<string> {
   const p10 = phoneLast10(phone);
   if (!p10) throw new Error("Invalid customer phone for tracking.");
+  const openRows = await client.query<{ c: number }>(
+    `SELECT COUNT(*)::int AS c
+     FROM srf_jobs
+     WHERE RIGHT(regexp_replace(phone, '\D', '', 'g'), 10) = $1
+       AND status <> 'closed'`,
+    [p10],
+  );
+  const hasOpenSrf = (openRows.rows[0]?.c ?? 0) > 0;
   const existing = await client.query<{ token_plain: string }>(
     `SELECT token_plain
      FROM customer_tracking_tokens
      WHERE phone_last10 = $1
        AND is_active = true
+       AND disabled_at IS NULL
      LIMIT 1`,
     [p10],
   );
-  if (existing.rows[0]?.token_plain) return existing.rows[0].token_plain;
+  if (existing.rows[0]?.token_plain && hasOpenSrf) return existing.rows[0].token_plain;
 
   const token = crypto.randomBytes(24).toString("hex");
   await client.query(
@@ -209,6 +218,22 @@ function appBaseUrlFromRequest(req: Request): string {
   return "http://127.0.0.1:5173";
 }
 
+function parseReestimateEntry(
+  note: string,
+  changedAt: string,
+): { amountInr: number | null; note: string; requestedAt: string } {
+  const raw = String(note ?? "").trim();
+  const m = raw.match(/^Re-estimate INR\s+([0-9]+(?:\.[0-9]+)?)\s*:\s*(.*)$/i);
+  if (!m) {
+    return { amountInr: null, note: raw, requestedAt: changedAt };
+  }
+  return {
+    amountInr: Number(m[1]),
+    note: String(m[2] ?? "").trim(),
+    requestedAt: changedAt,
+  };
+}
+
 export function registerSrfRoutes(
   app: Express,
   pool: Pool,
@@ -273,11 +298,20 @@ export function registerSrfRoutes(
                 j.assigned_at AS "assignedAt",
                 j.estimate_ok_at AS "estimateOkAt",
                 j.reestimate_requested_note AS "reestimateRequestedNote",
+                j.reestimate_requested_inr::float8 AS "reestimateRequestedInr",
                 j.reestimate_requested_at AS "reestimateRequestedAt",
                 j.reestimate_approved_note AS "reestimateApprovedNote",
                 j.reestimate_approved_at AS "reestimateApprovedAt",
                 j.customer_reestimate_response AS "customerReestimateResponse",
                 j.customer_reestimate_responded_at AS "customerReestimateRespondedAt",
+                (
+                  SELECT ctt.token_plain
+                  FROM customer_tracking_tokens ctt
+                  WHERE ctt.phone_last10 = RIGHT(regexp_replace(j.phone, '\D', '', 'g'), 10)
+                    AND ctt.is_active = true
+                    AND ctt.disabled_at IS NULL
+                  LIMIT 1
+                ) AS "trackingToken",
                 j.used_spares AS "usedSpares",
                 j.spares_slip_submitted_at AS "sparesSlipSubmittedAt",
                 j.spares_slip_submitted_by AS "sparesSlipSubmittedBy",
@@ -324,7 +358,15 @@ export function registerSrfRoutes(
          ORDER BY j.created_at DESC`,
         params,
       );
-      res.json({ jobs: rows });
+      const baseUrl = appBaseUrlFromRequest(req);
+      const jobs = rows.map((r) => {
+        const trackingToken = (r as { trackingToken?: string | null }).trackingToken;
+        return {
+          ...r,
+          trackingUrl: trackingToken ? `${baseUrl}/track?t=${encodeURIComponent(trackingToken)}` : null,
+        };
+      });
+      res.json({ jobs });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Failed to load SRFs." });
@@ -750,26 +792,39 @@ export function registerSrfRoutes(
     }
     const srfId = String(req.params.srfId ?? "").trim();
     const note = String(req.body?.note ?? "").trim();
+    const amountRaw = req.body?.estimateTotalInr;
+    const amount = Number(amountRaw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status(400).json({ error: "Valid re-estimate amount is required." });
+      return;
+    }
+    if (!note) {
+      res.status(400).json({ error: "Re-estimate remark is required." });
+      return;
+    }
     try {
       const upd = await pool.query(
         `UPDATE srf_jobs
          SET status = 'reestimate_required',
+             reestimate_requested_inr = $4,
              reestimate_requested_note = $3,
              reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
              updated_at = now(),
              modified_by = $2
          WHERE id = $1::uuid
-           AND status IN ('assigned', 'estimate_ok')`,
-        [srfId, actor.id, note || "Supervisor requested re-estimate."],
+           AND status IN ('assigned', 'estimate_ok', 'customer_rejected')`,
+        [srfId, actor.id, note, amount],
       );
       if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "Only assigned/estimate-ok SRFs can be marked re-estimate." });
+        res.status(400).json({ error: "Only assigned/estimate-ok/customer-rejected SRFs can be marked re-estimate." });
         return;
       }
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        await appendStatusHistory(client, srfId, "reestimate_required", actor.id, note || "Supervisor requested re-estimate.");
+        await appendStatusHistory(client, srfId, "reestimate_required", actor.id, `Re-estimate INR ${amount.toFixed(2)}: ${note}`);
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
@@ -789,55 +844,9 @@ export function registerSrfRoutes(
       res.status(403).json({ error: "Only supervisor/admin can approve re-estimate." });
       return;
     }
-    const srfId = String(req.params.srfId ?? "").trim();
-    const note = String(req.body?.note ?? "").trim();
-    const amountRaw = req.body?.estimateTotalInr;
-    const hasAmount = amountRaw !== undefined && amountRaw !== null && String(amountRaw).trim() !== "";
-    const amount = Number(amountRaw);
-    if (hasAmount && (!Number.isFinite(amount) || amount < 0)) {
-      res.status(400).json({ error: "estimateTotalInr must be a non-negative number." });
-      return;
-    }
-    try {
-      const upd = await pool.query(
-        `UPDATE srf_jobs
-         SET status = 'assigned',
-             assigned_at = now(),
-             estimate_total_inr = CASE WHEN $3::boolean THEN $4 ELSE estimate_total_inr END,
-             reestimate_approved_note = $5,
-             reestimate_approved_at = now(),
-             updated_at = now(),
-             modified_by = $2
-         WHERE id = $1::uuid
-           AND status = 'reestimate_required'
-           AND assigned_technician_id IS NOT NULL`,
-        [srfId, actor.id, hasAmount, amount, note || "Re-estimate approved by supervisor; reassigned to same technician."],
-      );
-      if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "SRF must be in reestimate_required with an assigned technician." });
-        return;
-      }
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await appendStatusHistory(
-          client,
-          srfId,
-          "assigned",
-          actor.id,
-          note || "Re-estimate approved and reassigned to same technician.",
-        );
-        await client.query("COMMIT");
-      } catch {
-        await client.query("ROLLBACK").catch(() => {});
-      } finally {
-        client.release();
-      }
-      res.json({ ok: true });
-    } catch (e) {
-      console.error(e);
-      res.status(400).json({ error: "Could not approve re-estimate." });
-    }
+    res.status(400).json({
+      error: "Manual re-estimate approval is disabled. Customer must approve from tracking link to restart repair.",
+    });
   });
 
   app.post("/api/service/srf-jobs/:srfId/supervisor/repair-complete", requireAuth, async (req, res) => {
@@ -934,8 +943,11 @@ export function registerSrfRoutes(
       const upd = await pool.query(
         `UPDATE srf_jobs
          SET status = 'reestimate_required',
+             reestimate_requested_inr = estimate_total_inr,
              reestimate_requested_note = $4,
              reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
              updated_at = now(),
              modified_by = $2
          WHERE id = $1::uuid
@@ -1284,6 +1296,7 @@ export function registerSrfRoutes(
           complaint: string;
           estimateTotalInr: number;
           reestimateRequestedNote: string | null;
+          reestimateRequestedInr: number | null;
           customerReestimateResponse: string | null;
           createdAt: string;
           photos: Array<{
@@ -1307,6 +1320,7 @@ export function registerSrfRoutes(
                 j.complaint,
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
                 j.reestimate_requested_note AS "reestimateRequestedNote",
+                j.reestimate_requested_inr::float8 AS "reestimateRequestedInr",
                 j.customer_reestimate_response AS "customerReestimateResponse",
                 j.created_at AS "createdAt",
                 COALESCE((
@@ -1330,7 +1344,8 @@ export function registerSrfRoutes(
         [row.phone_last10],
       );
 
-      const ids = jobsRes.rows.map((x) => x.id);
+      const currentJob = jobsRes.rows[0] ?? null;
+      const ids = currentJob ? [currentJob.id] : [];
       const historyRows =
         ids.length > 0
           ? await pool.query<{ id: string; srf_id: string; status: string; note: string; changed_at: string }>(
@@ -1349,28 +1364,34 @@ export function registerSrfRoutes(
         historyBySrf.set(h.srf_id, list);
       }
 
-      const jobs = jobsRes.rows.map((j) => ({
-        ...j,
-        timeline: historyBySrf.get(j.id) ?? [],
-      }));
-      const customer = jobs[0]
+      const job = currentJob
         ? {
-            name: jobs[0].customerName,
-            phone: jobs[0].phone,
+            ...currentJob,
+            timeline: historyBySrf.get(currentJob.id) ?? [],
+            reestimateHistory: (historyBySrf.get(currentJob.id) ?? [])
+              .filter((h) => h.status === "reestimate_required")
+              .map((h) => parseReestimateEntry(h.note, h.changedAt))
+              .reverse(),
+          }
+        : null;
+      const customer = job
+        ? {
+            name: job.customerName,
+            phone: job.phone,
           }
         : null;
 
-      if (jobs.length === 0) {
+      if (!job) {
         await pool.query(
           `UPDATE customer_tracking_tokens
            SET is_active = false, disabled_at = now()
            WHERE phone_last10 = $1`,
           [row.phone_last10],
         );
-        res.json({ disabled: true, customer: null, jobs: [] });
+        res.json({ disabled: true, customer: null, job: null });
         return;
       }
-      res.json({ disabled: false, customer, jobs });
+      res.json({ disabled: false, customer, job });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Could not load tracking details." });
@@ -1402,8 +1423,8 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "This tracking link is disabled." });
         return;
       }
-      const srfRes = await client.query<{ id: string; status: string; phone: string }>(
-        `SELECT id, status, phone
+      const srfRes = await client.query<{ id: string; status: string; phone: string; reference: string; customer_name: string }>(
+        `SELECT id, status, phone, reference, customer_name
          FROM srf_jobs
          WHERE id = $1::uuid
          FOR UPDATE`,
@@ -1431,6 +1452,13 @@ export function registerSrfRoutes(
           [srfId],
         );
         await appendStatusHistory(client, srfId, "assigned", null, note || "Customer accepted re-estimate.");
+        await sendReestimateDecisionNotification({
+          srfReference: srf.reference,
+          customerName: srf.customer_name,
+          phone: srf.phone,
+          decision: "accepted",
+          note,
+        });
       } else {
         await client.query(
           `UPDATE srf_jobs
@@ -1442,6 +1470,13 @@ export function registerSrfRoutes(
           [srfId],
         );
         await appendStatusHistory(client, srfId, "customer_rejected", null, note || "Customer rejected re-estimate.");
+        await sendReestimateDecisionNotification({
+          srfReference: srf.reference,
+          customerName: srf.customer_name,
+          phone: srf.phone,
+          decision: "rejected",
+          note,
+        });
       }
       await client.query("COMMIT");
       res.json({ ok: true });

@@ -2011,6 +2011,7 @@ app.get("/api/customers", (req, res) => {
           id: string;
           displayName: string;
           phone: string;
+          alternatePhone: string | null;
           email: string;
           address: string | null;
           city: string | null;
@@ -2023,6 +2024,7 @@ app.get("/api/customers", (req, res) => {
           `SELECT id,
                   display_name AS "displayName",
                   phone,
+                  alternate_phone AS "alternatePhone",
                   email,
                   address,
                   city,
@@ -2039,6 +2041,7 @@ app.get("/api/customers", (req, res) => {
           id: r.id,
           displayName: r.displayName,
           phone: r.phone,
+          alternatePhone: r.alternatePhone ?? undefined,
           email: r.email,
             address: r.address ?? undefined,
             city: r.city ?? undefined,
@@ -2056,6 +2059,7 @@ app.get("/api/customers", (req, res) => {
         id: string;
         displayName: string;
         phone: string;
+        alternatePhone: string | null;
         email: string;
         address: string | null;
         city: string | null;
@@ -2068,6 +2072,7 @@ app.get("/api/customers", (req, res) => {
         `SELECT id,
                 display_name AS "displayName",
                 phone,
+                alternate_phone AS "alternatePhone",
                 email,
                 address,
                 city,
@@ -2088,6 +2093,7 @@ app.get("/api/customers", (req, res) => {
             id: row.id,
             displayName: row.displayName,
             phone: row.phone,
+            alternatePhone: row.alternatePhone ?? undefined,
             email: row.email,
             address: row.address ?? undefined,
             city: row.city ?? undefined,
@@ -2116,6 +2122,7 @@ app.post("/api/customers", async (req, res) => {
   const body = req.body as {
     displayName: string;
     phone: string;
+    alternatePhone?: string;
     email: string;
     address?: string;
     city?: string;
@@ -2126,6 +2133,7 @@ app.post("/api/customers", async (req, res) => {
   };
   const displayName = body.displayName.trim();
   const phone = body.phone.trim();
+  const alternatePhone = body.alternatePhone?.trim() || null;
   const email = body.email.trim();
   const address = body.address?.trim() || null;
   const city = body.city?.trim() || null;
@@ -2148,6 +2156,7 @@ app.post("/api/customers", async (req, res) => {
       id: string;
       displayName: string;
       phone: string;
+      alternatePhone: string | null;
       email: string;
       customerKind: CustomerKind;
       company: string | null;
@@ -2156,11 +2165,12 @@ app.post("/api/customers", async (req, res) => {
       createdAt: Date;
     }>(
       `INSERT INTO customers (
-         id, display_name, phone, phone_last10, email, address, city, customer_kind, company, gst, pan, created_by, modified_by
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+         id, display_name, phone, phone_last10, alternate_phone, email, address, city, customer_kind, company, gst, pan, created_by, modified_by
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
        RETURNING id,
                  display_name AS "displayName",
                  phone,
+                alternate_phone AS "alternatePhone",
                  email,
                  address,
                  city,
@@ -2169,13 +2179,14 @@ app.post("/api/customers", async (req, res) => {
                  gst,
                  pan,
                  created_at AS "createdAt"`,
-      [id, displayName, phone, p10, email, address, city, customerKind, company, gst, pan, actor?.id ?? null],
+      [id, displayName, phone, p10, alternatePhone, email, address, city, customerKind, company, gst, pan, actor?.id ?? null],
     );
     const row = rows[0]!;
     const customer: CustomerRecord = {
       id: row.id,
       displayName: row.displayName,
       phone: row.phone,
+      alternatePhone: row.alternatePhone ?? undefined,
       email: row.email,
       address: row.address ?? undefined,
       city: row.city ?? undefined,
@@ -2194,6 +2205,124 @@ app.post("/api/customers", async (req, res) => {
     }
     console.error(e);
     res.status(500).json({ error: "Could not create customer." });
+  }
+});
+
+app.put("/api/customers/:id", async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = await getSessionUserId(req);
+  const actor = uid ? findUser(uid) : null;
+  const id = String(req.params.id ?? "").trim();
+  const body = req.body as {
+    displayName: string;
+    phone: string;
+    alternatePhone?: string;
+    email: string;
+    address?: string;
+    city?: string;
+    customerKind: CustomerKind;
+    company?: string;
+    gst?: string;
+    pan?: string;
+  };
+  const displayName = String(body.displayName ?? "").trim();
+  const phone = String(body.phone ?? "").trim();
+  const alternatePhone = String(body.alternatePhone ?? "").trim() || null;
+  const email = String(body.email ?? "").trim();
+  const address = String(body.address ?? "").trim() || null;
+  const city = String(body.city ?? "").trim() || null;
+  const customerKind = body.customerKind;
+  const company = String(body.company ?? "").trim() || null;
+  const gst = String(body.gst ?? "").trim().toUpperCase() || null;
+  const pan = String(body.pan ?? "").trim().toUpperCase() || null;
+  if (!id) {
+    res.status(400).json({ error: "Customer id is required." });
+    return;
+  }
+  if (!displayName || !phone) {
+    res.status(400).json({ error: "displayName and phone are required." });
+    return;
+  }
+  const p10 = phoneLast10(phone);
+  if (p10.length !== 10) {
+    res.status(400).json({ error: "Valid 10-digit mobile number is required." });
+    return;
+  }
+  try {
+    const { rows } = await dbPool.query<{
+      id: string;
+      displayName: string;
+      phone: string;
+      alternatePhone: string | null;
+      email: string;
+      address: string | null;
+      city: string | null;
+      customerKind: CustomerKind;
+      company: string | null;
+      gst: string | null;
+      pan: string | null;
+      createdAt: Date;
+    }>(
+      `UPDATE customers
+       SET display_name = $2,
+           phone = $3,
+           phone_last10 = $4,
+           alternate_phone = $5,
+           email = $6,
+           address = $7,
+           city = $8,
+           customer_kind = $9,
+           company = $10,
+           gst = $11,
+           pan = $12,
+           modified_by = $13,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING id,
+                 display_name AS "displayName",
+                 phone,
+                 alternate_phone AS "alternatePhone",
+                 email,
+                 address,
+                 city,
+                 customer_kind AS "customerKind",
+                 company,
+                 gst,
+                 pan,
+                 created_at AS "createdAt"`,
+      [id, displayName, phone, p10, alternatePhone, email, address, city, customerKind, company, gst, pan, actor?.id ?? null],
+    );
+    const row = rows[0];
+    if (!row) {
+      res.status(404).json({ error: "Customer not found." });
+      return;
+    }
+    const customer: CustomerRecord = {
+      id: row.id,
+      displayName: row.displayName,
+      phone: row.phone,
+      alternatePhone: row.alternatePhone ?? undefined,
+      email: row.email,
+      address: row.address ?? undefined,
+      city: row.city ?? undefined,
+      customerKind: row.customerKind,
+      company: row.company ?? undefined,
+      gst: row.gst ?? undefined,
+      pan: row.pan ?? undefined,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+    };
+    res.json({ customer });
+  } catch (e) {
+    const err = e as { code?: string };
+    if (err.code === "23505") {
+      res.status(400).json({ error: "Customer with this phone already exists." });
+      return;
+    }
+    console.error(e);
+    res.status(500).json({ error: "Could not update customer." });
   }
 });
 

@@ -22,6 +22,7 @@ type CustomersContextValue = {
   registerCustomer: (input: {
     displayName: string;
     phone: string;
+    alternatePhone?: string;
     email: string;
     address?: string;
     city?: string;
@@ -96,6 +97,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
     async (input: {
       displayName: string;
       phone: string;
+      alternatePhone?: string;
       email: string;
       address?: string;
       city?: string;
@@ -110,6 +112,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
           json: {
             displayName: input.displayName.trim(),
             phone: input.phone.trim(),
+            alternatePhone: input.alternatePhone?.trim(),
             email: input.email.trim(),
             address: input.address?.trim(),
             city: input.city?.trim(),
@@ -127,6 +130,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         id: createId("cust"),
         displayName: input.displayName.trim(),
         phone: input.phone.trim(),
+        alternatePhone: input.alternatePhone?.trim() || undefined,
         email: input.email.trim(),
         address: input.address?.trim() || undefined,
         city: input.city?.trim() || undefined,

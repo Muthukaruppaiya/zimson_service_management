@@ -5,6 +5,7 @@ export type DocumentBranding = {
   companyCityStateZip: string;
   companyPhone: string;
   companyEmail: string;
+  companyLogoUrl: string;
 };
 
 export type DocumentKind = "po" | "pr" | "grn" | "transfer";
