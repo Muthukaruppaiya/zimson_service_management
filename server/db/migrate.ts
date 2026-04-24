@@ -517,6 +517,7 @@ CREATE TABLE IF NOT EXISTS srf_jobs (
   closed_at TIMESTAMPTZ,
   photo_session_active BOOLEAN NOT NULL DEFAULT false,
   capture_link_disabled_at TIMESTAMPTZ,
+  requires_local_conversion BOOLEAN NOT NULL DEFAULT false,
   created_by VARCHAR(80),
   modified_by VARCHAR(80),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -540,6 +541,7 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_reestimate_response VARCH
   CHECK (customer_reestimate_response IN ('accepted', 'rejected'));
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_reestimate_responded_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_requested_inr NUMERIC(14, 2);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS requires_local_conversion BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS srf_job_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

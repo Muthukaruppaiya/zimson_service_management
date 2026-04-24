@@ -54,6 +54,7 @@ export type SrfJob = {
   photos?: SrfJobPhoto[];
   photoSessionActive?: boolean;
   captureLinkDisabledAt?: string | null;
+  requiresLocalConversion?: boolean;
   trackingUrl?: string | null;
   /** Store → SC challan */
   dcNumber: string | null;

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
+import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { SEED_TECHNICIANS } from "../../data/serviceSeed";
@@ -14,14 +15,18 @@ import { openPrintDocument } from "../../lib/inventoryDocuments";
 
 export function ScSupervisorPage() {
   const { user } = useAuth();
+  const { regions } = useRegions();
   const { activeSpares } = useSpares();
-  const { jobs, assignTechnician, supervisorRequestReestimate, submitSparesSlip, supervisorMarkRepairComplete, getStatusHistory } = useSrfJobs();
+  const { jobs, assignTechnician, convertTransferredSrfToLocal, supervisorRequestReestimate, supervisorTransferToOtherHo, submitSparesSlip, supervisorMarkRepairComplete, getStatusHistory } = useSrfJobs();
   const [pickTech, setPickTech] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<Record<string, string>>({});
   const [historyByJob, setHistoryByJob] = useState<Record<string, Array<{ id: string; status: string; note: string; changedAt: string }>>>({});
   const [reestimatePopupJobId, setReestimatePopupJobId] = useState<string | null>(null);
   const [reestimateAmountInput, setReestimateAmountInput] = useState("");
   const [reestimateRemarkInput, setReestimateRemarkInput] = useState("");
+  const [transferPopupJobId, setTransferPopupJobId] = useState<string | null>(null);
+  const [transferTargetRegionId, setTransferTargetRegionId] = useState("");
+  const [transferNoteInput, setTransferNoteInput] = useState("");
   const [repairPopupJobId, setRepairPopupJobId] = useState<string | null>(null);
   const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string }>>([{ spareId: "", qty: "1" }]);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
@@ -55,6 +60,15 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({ ...f, [jobId]: "Assigned." }));
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not assign." }));
+    }
+  }
+
+  async function convertLocal(jobId: string) {
+    try {
+      await convertTransferredSrfToLocal(jobId);
+      setFeedback((f) => ({ ...f, [jobId]: "Converted to local SRF. You can assign technician now." }));
+    } catch (e) {
+      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not convert SRF." }));
     }
   }
 
@@ -118,6 +132,43 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({ ...f, [jobId]: "Marked repair complete and moved to outward queue." }));
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not mark repaired." }));
+    }
+  }
+
+  const transferRegionOptions = useMemo(() => {
+    if (!user) return [];
+    return regions
+      .filter((r) => r.id !== (user.regionId ?? ""))
+      .map((r) => ({ id: r.id, label: r.name }));
+  }, [regions, user]);
+
+  function openTransferPopup(jobId: string) {
+    setTransferPopupJobId(jobId);
+    setTransferTargetRegionId(transferRegionOptions[0]?.id ?? "");
+    setTransferNoteInput("");
+  }
+
+  function closeTransferPopup() {
+    setTransferPopupJobId(null);
+    setTransferTargetRegionId("");
+    setTransferNoteInput("");
+  }
+
+  async function confirmTransferToOtherHo() {
+    if (!transferPopupJobId) return;
+    if (!transferTargetRegionId) {
+      setFeedback((f) => ({ ...f, [transferPopupJobId]: "Select destination HO region." }));
+      return;
+    }
+    try {
+      const out = await supervisorTransferToOtherHo(transferPopupJobId, {
+        targetRegionId: transferTargetRegionId,
+        note: transferNoteInput || "Transfer to other HO requested.",
+      });
+      setFeedback((f) => ({ ...f, [transferPopupJobId]: `Transferred to other HO in DC ${out.dcNumber}.` }));
+      closeTransferPopup();
+    } catch (e) {
+      setFeedback((f) => ({ ...f, [transferPopupJobId]: e instanceof Error ? e.message : "Could not transfer to other HO." }));
     }
   }
 
@@ -255,6 +306,7 @@ export function ScSupervisorPage() {
                       onChange={(e) =>
                         setPickTech((p) => ({ ...p, [j.id]: e.target.value }))
                       }
+                      disabled={!!j.requiresLocalConversion}
                       className="mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zimson-400/40"
                     >
                       <option value="">Select…</option>
@@ -268,10 +320,20 @@ export function ScSupervisorPage() {
                   <button
                     type="button"
                     onClick={() => void handleAssign(j.id)}
+                    disabled={!!j.requiresLocalConversion}
                     className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
                   >
                     Assign
                   </button>
+                  {j.requiresLocalConversion ? (
+                    <button
+                      type="button"
+                      onClick={() => void convertLocal(j.id)}
+                      className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
+                    >
+                      Convert to local SRF
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void toggleHistory(j.id)}
@@ -372,6 +434,15 @@ export function ScSupervisorPage() {
                   >
                     Need re-estimate
                   </button>
+                  {(j.status === "assigned" || j.status === "estimate_ok") ? (
+                    <button
+                      type="button"
+                      onClick={() => openTransferPopup(j.id)}
+                      className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
+                    >
+                      Send to other HO
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void toggleHistory(j.id)}
@@ -514,6 +585,52 @@ export function ScSupervisorPage() {
                 className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
               >
                 Send to customer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {transferPopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Send SRF to other HO</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Choose destination HO region. System will dispatch directly to HO inward (DC flow).
+            </p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Destination HO region
+                <select
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={transferTargetRegionId}
+                  onChange={(e) => setTransferTargetRegionId(e.target.value)}
+                >
+                  <option value="">Select destination</option>
+                  {transferRegionOptions.map((x) => (
+                    <option key={x.id} value={x.id}>{x.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                Note (optional)
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={3}
+                  value={transferNoteInput}
+                  onChange={(e) => setTransferNoteInput(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={closeTransferPopup} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmTransferToOtherHo()}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Create transfer DC
               </button>
             </div>
           </div>

@@ -159,6 +159,18 @@ export const SEED_USERS: DemoUser[] = [
     isSeed: true,
   },
   {
+    id: "seed-sc-supervisor-cbe",
+    email: "sc.supervisor.cbe@zimson.demo",
+    password: "sc123",
+    displayName: "SC supervisor - Coimbatore",
+    role: "service_centre_supervisor",
+    regionId: "region-1776324268229-44nicbl",
+    storeId: null,
+    canLogin: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    isSeed: true,
+  },
+  {
     id: "seed-ho-tech-chn",
     email: "ho.tech.chn@zimson.demo",
     password: "tech123",

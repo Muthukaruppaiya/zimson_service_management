@@ -1047,7 +1047,7 @@ app.post("/api/inventory/prs/:prId/store-approve", requireAuth, async (req, res)
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
+  const actor = findUser(uid);
   if (!actor || actor.role !== "store_manager" || !actor.storeId) {
     res.status(403).json({ error: "Only Store Manager can approve and send PR to HO." });
     return;

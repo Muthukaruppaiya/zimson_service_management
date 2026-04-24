@@ -15,8 +15,10 @@ type SrfJobsContextValue = {
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
   confirmInwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
+  convertTransferredSrfToLocal: (jobId: string) => Promise<void>;
   supervisorRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
+  supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ dcNumber: string }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
   technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
   technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<void>;
@@ -97,6 +99,13 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const convertTransferredSrfToLocal = useCallback(async (jobId: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/convert-local`, {
+      method: "POST",
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
   const supervisorRequestReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr: number; note: string }) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate`, {
       method: "POST",
@@ -111,6 +120,15 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       json: payload,
     });
     await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorTransferToOtherHo = useCallback(async (jobId: string, payload: { targetRegionId: string; note?: string }) => {
+    const out = await apiJson<{ dcNumber: string }>(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/transfer-other-ho`, {
+      method: "POST",
+      json: payload,
+    });
+    await refreshJobs();
+    return out;
   }, [refreshJobs]);
 
   const supervisorMarkRepairComplete = useCallback(async (jobId: string) => {
@@ -191,8 +209,10 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       dispatchToServiceCentre,
       confirmInwardByDc,
       assignTechnician,
+      convertTransferredSrfToLocal,
       supervisorRequestReestimate,
       supervisorApproveReestimate,
+      supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
       technicianEstimateOk,
       technicianRequestReestimate,
@@ -212,8 +232,10 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       dispatchToServiceCentre,
       confirmInwardByDc,
       assignTechnician,
+      convertTransferredSrfToLocal,
       supervisorRequestReestimate,
       supervisorApproveReestimate,
+      supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
       technicianEstimateOk,
       technicianRequestReestimate,
