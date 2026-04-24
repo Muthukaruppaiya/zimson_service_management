@@ -12,6 +12,7 @@ export type PurchaseOrder = {
   poNumber: string;
   prId: string | null;
   prNumber: string | null;
+  prNumbers?: string[] | null;
   storeId?: string | null;
   storeName?: string | null;
   supplierId: string;

@@ -388,7 +388,8 @@ export function registerInventoryPoSupplierRoutes(
                 s.name AS "spareName",
                 pri.qty::float8 AS qty,
                 pri.issued_qty::float8 AS "issuedQty",
-                GREATEST(pri.qty - pri.issued_qty, 0)::float8 AS "pendingQty",
+                COALESCE(ordered.ordered_qty, 0)::float8 AS "orderedQty",
+                GREATEST(pri.qty - COALESCE(ordered.ordered_qty, 0), 0)::float8 AS "pendingQty",
                 map.candidate_count AS "supplierCandidateCount",
                 CASE WHEN map.candidate_count = 1 THEN map.default_supplier_id ELSE NULL END AS "mappedSupplierId",
                 CASE WHEN map.candidate_count = 1 THEN map.default_supplier_name ELSE NULL END AS "mappedSupplierName",
@@ -398,6 +399,13 @@ export function registerInventoryPoSupplierRoutes(
          JOIN stores st ON st.id = pr.store_id
          JOIN regions rg ON rg.id = pr.region_id
          JOIN spares s ON s.id = pri.spare_id
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(poi.qty_ordered), 0)::float8 AS ordered_qty
+           FROM purchase_order_items poi
+           JOIN purchase_orders po2 ON po2.id = poi.po_id
+           WHERE poi.pr_item_id = pri.id
+             AND po2.status <> 'CANCELLED'
+         ) ordered ON true
          LEFT JOIN LATERAL (
            SELECT
              COUNT(*)::int AS candidate_count,
@@ -469,13 +477,20 @@ export function registerInventoryPoSupplierRoutes(
                 st.name AS "storeName",
                 rg.name AS "regionName",
                 pri.spare_id AS "spareId",
-                GREATEST(pri.qty - pri.issued_qty, 0)::float8 AS "pendingQty",
+                GREATEST(pri.qty - COALESCE(ordered.ordered_qty, 0), 0)::float8 AS "pendingQty",
                 map.candidate_count AS "candidateCount",
                 COALESCE(map.candidates, '[]'::json) AS "supplierCandidates"
          FROM purchase_request_items pri
          JOIN purchase_requests pr ON pr.id = pri.pr_id
          JOIN stores st ON st.id = pr.store_id
          JOIN regions rg ON rg.id = pr.region_id
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(poi.qty_ordered), 0)::float8 AS ordered_qty
+           FROM purchase_order_items poi
+           JOIN purchase_orders po2 ON po2.id = poi.po_id
+           WHERE poi.pr_item_id = pri.id
+             AND po2.status <> 'CANCELLED'
+         ) ordered ON true
          LEFT JOIN LATERAL (
            SELECT
              COUNT(*)::int AS candidate_count,
@@ -644,11 +659,24 @@ export function registerInventoryPoSupplierRoutes(
         const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? draft.regionId, "REG");
         const poSeries = await getSeriesPrefixSuffix(client, "po");
         const poNumber = await nextDocNumber(client, poSeries.prefix, poSeries.suffix, regionCode);
+        const uniquePrIds = Array.from(new Set(draft.lines.map((line) => String(line.prItemId))));
+        const prIdsByItems = new Set<string>();
+        for (const prItemId of uniquePrIds) {
+          const prItemForLink = await client.query<{ pr_id: string }>(
+            `SELECT pr_id
+             FROM purchase_request_items
+             WHERE id = $1::uuid`,
+            [prItemId],
+          );
+          const linkedPrId = prItemForLink.rows[0]?.pr_id;
+          if (linkedPrId) prIdsByItems.add(String(linkedPrId));
+        }
+        const headerPrId = prIdsByItems.size === 1 ? Array.from(prIdsByItems)[0]! : null;
         const poIns = await client.query<{ id: string }>(
         `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by)
-         VALUES ($1, $2::uuid, NULL, $3, 'OPEN', $4, $5, $5)
+         VALUES ($1, $2::uuid, $3::uuid, $4, 'OPEN', $5, $6, $6)
            RETURNING id`,
-          [poNumber, draft.supplierId, draft.regionId, String(draft.notes ?? "").trim(), actor.id],
+          [poNumber, draft.supplierId, headerPrId, draft.regionId, String(draft.notes ?? "").trim(), actor.id],
         );
         const poId = poIns.rows[0]!.id;
         for (const line of draft.lines) {
@@ -659,10 +687,10 @@ export function registerInventoryPoSupplierRoutes(
             res.status(400).json({ error: "Invalid line values in one draft." });
             return;
           }
-          const prItem = await client.query<{ spare_id: string; qty: number; issued_qty: number; pr_id: string }>(
-            `SELECT spare_id, qty::float8, issued_qty::float8, pr_id
-             FROM purchase_request_items
-             WHERE id = $1::uuid
+          const prItem = await client.query<{ spare_id: string; qty: number; pr_id: string }>(
+            `SELECT pri.spare_id, pri.qty::float8, pri.pr_id
+             FROM purchase_request_items pri
+             WHERE pri.id = $1::uuid
              FOR UPDATE`,
             [line.prItemId],
           );
@@ -672,7 +700,15 @@ export function registerInventoryPoSupplierRoutes(
             res.status(400).json({ error: "PR line mismatch in one draft line." });
             return;
           }
-          const pending = Math.max(0, row.qty - row.issued_qty);
+          const orderedRes = await client.query<{ ordered_qty: number }>(
+            `SELECT COALESCE(SUM(poi.qty_ordered), 0)::float8 AS ordered_qty
+             FROM purchase_order_items poi
+             JOIN purchase_orders po2 ON po2.id = poi.po_id
+             WHERE poi.pr_item_id = $1::uuid
+               AND po2.status <> 'CANCELLED'`,
+            [line.prItemId],
+          );
+          const pending = Math.max(0, Number(row.qty) - Number(orderedRes.rows[0]?.ordered_qty ?? 0));
           if (qty > pending) {
             await client.query("ROLLBACK");
             res.status(400).json({ error: "PO qty exceeds pending PR qty for one line." });
@@ -722,8 +758,12 @@ export function registerInventoryPoSupplierRoutes(
       ) {
         params.push(actor.storeId);
         where = `WHERE EXISTS (
-          SELECT 1 FROM purchase_requests pr
-          WHERE pr.id = po.pr_id AND pr.store_id = $1::text
+          SELECT 1
+          FROM purchase_order_items poi_scope
+          JOIN purchase_request_items pri_scope ON pri_scope.id = poi_scope.pr_item_id
+          JOIN purchase_requests pr_scope ON pr_scope.id = pri_scope.pr_id
+          WHERE poi_scope.po_id = po.id
+            AND pr_scope.store_id = $1::text
         )`;
       }
       const { rows } = await pool.query(
@@ -731,6 +771,7 @@ export function registerInventoryPoSupplierRoutes(
                 po.po_number AS "poNumber",
                 po.pr_id AS "prId",
                 pr.pr_number AS "prNumber",
+                COALESCE(pr_refs.pr_numbers, '[]'::jsonb) AS "prNumbers",
                 pr.store_id AS "storeId",
                 st.name AS "storeName",
                 po.supplier_id AS "supplierId",
@@ -759,9 +800,16 @@ export function registerInventoryPoSupplierRoutes(
          JOIN regions rg ON rg.id = po.region_id
          LEFT JOIN purchase_requests pr ON pr.id = po.pr_id
          LEFT JOIN stores st ON st.id = pr.store_id
+         LEFT JOIN LATERAL (
+           SELECT to_jsonb(array_agg(DISTINCT prx.pr_number) FILTER (WHERE prx.pr_number IS NOT NULL)) AS pr_numbers
+           FROM purchase_order_items poix
+           JOIN purchase_request_items prix ON prix.id = poix.pr_item_id
+           JOIN purchase_requests prx ON prx.id = prix.pr_id
+           WHERE poix.po_id = po.id
+         ) pr_refs ON true
          LEFT JOIN purchase_order_items poi ON poi.po_id = po.id
          ${where}
-         GROUP BY po.id, s.name, pr.pr_number, pr.store_id, st.name, rg.name
+         GROUP BY po.id, s.name, pr.pr_number, pr.store_id, st.name, rg.name, pr_refs.pr_numbers
          ORDER BY po.created_at DESC`,
         params,
       );
@@ -855,8 +903,16 @@ export function registerInventoryPoSupplierRoutes(
       const poId = insPo.rows[0]!.id;
 
       for (const it of items) {
-        const row = await client.query(
-          `SELECT id, pr_id, spare_id FROM purchase_request_items WHERE id = $1::uuid AND pr_id = $2::uuid`,
+        const row = await client.query<{
+          id: string;
+          pr_id: string;
+          spare_id: string;
+          qty: number;
+        }>(
+          `SELECT pri.id, pri.pr_id, pri.spare_id, pri.qty::float8 AS qty
+           FROM purchase_request_items pri
+           WHERE pri.id = $1::uuid AND pri.pr_id = $2::uuid
+           FOR UPDATE`,
           [it.prItemId, prId],
         );
         if (row.rowCount === 0) {
@@ -867,6 +923,20 @@ export function registerInventoryPoSupplierRoutes(
         if (String(row.rows[0]!.spare_id) !== it.spareId) {
           await client.query("ROLLBACK");
           res.status(400).json({ error: "Spare mismatch on PR line." });
+          return;
+        }
+        const orderedRes = await client.query<{ ordered_qty: number }>(
+          `SELECT COALESCE(SUM(poi.qty_ordered), 0)::float8 AS ordered_qty
+           FROM purchase_order_items poi
+           JOIN purchase_orders po2 ON po2.id = poi.po_id
+           WHERE poi.pr_item_id = $1::uuid
+             AND po2.status <> 'CANCELLED'`,
+          [it.prItemId],
+        );
+        const pending = Math.max(0, Number(row.rows[0]!.qty) - Number(orderedRes.rows[0]?.ordered_qty ?? 0));
+        if (Number(it.qtyOrdered) > pending) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "PO qty exceeds pending PR qty for one line." });
           return;
         }
         await client.query(

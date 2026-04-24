@@ -21,6 +21,12 @@ function poStatusPillClass(status: string): string {
   return "bg-stone-100 text-stone-700";
 }
 
+function poPrReference(po: PurchaseOrder): string {
+  if (po.prNumber) return po.prNumber;
+  if (Array.isArray(po.prNumbers) && po.prNumbers.length > 0) return po.prNumbers.join(", ");
+  return "—";
+}
+
 type PrItem = { id: string; spareId: string; qty: number; issuedQty: number; reason: string };
 type PrRow = {
   id: string;
@@ -651,7 +657,7 @@ export function InventoryPurchaseOrdersPage() {
               {pos.map((po) => (
                   <tr key={po.id} className="border-b border-zimson-100 align-top">
                     <td className="px-3 py-2 font-mono text-xs">{po.poNumber}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{po.prNumber ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{poPrReference(po)}</td>
                     <td className="px-3 py-2">{po.supplierName}</td>
                     <td className="px-3 py-2">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${poStatusPillClass(po.status)}`}>{po.status}</span>
@@ -735,7 +741,7 @@ export function InventoryPurchaseOrdersPage() {
                     <div>
                       <h3 className="text-lg font-semibold text-stone-900">PO details — {po.poNumber}</h3>
                       <p className="text-sm text-stone-600">
-                        PR: {po.prNumber ?? "-"} · Supplier: {po.supplierName} · Status: {po.status}
+                        PR: {poPrReference(po)} · Supplier: {po.supplierName} · Status: {po.status}
                       </p>
                     </div>
                     <div className="flex gap-2">
