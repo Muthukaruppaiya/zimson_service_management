@@ -17,7 +17,15 @@ const disabledNote = "mt-4 text-xs text-stone-500";
 export function ServiceCentreHomePage() {
   const { user } = useAuth();
 
-  const inwardOk = can(user?.role, ["service_centre_clerk", "service_centre_supervisor"]);
+  const inwardOk = can(user?.role, [
+    "service_centre_clerk",
+    "service_centre_inward",
+    "service_centre_outward",
+    "ho_manager",
+    "ho_admin",
+    "regional_admin",
+    "super_admin",
+  ]);
   const supervisorOk = can(user?.role, ["service_centre_supervisor"]);
   const techOk = can(user?.role, ["technician"]);
 

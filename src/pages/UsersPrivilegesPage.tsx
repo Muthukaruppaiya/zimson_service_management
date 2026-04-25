@@ -29,6 +29,10 @@ const ROLE_OPTIONS: Array<{ value: UserRole; label: string; scope: "HO" | "STORE
   { value: "regional_admin", label: "Regional Admin (legacy)", scope: "BOTH" },
   { value: "super_admin", label: "Super Admin (legacy)", scope: "BOTH" },
   { value: "technician", label: "Technician (employee, no login)", scope: "HO" },
+  { value: "service_centre_clerk", label: "Service centre clerk (logistics + desk)", scope: "HO" },
+  { value: "service_centre_supervisor", label: "Service centre supervisor (assign / decisions)", scope: "HO" },
+  { value: "service_centre_inward", label: "Service centre inward only (DC receive)", scope: "HO" },
+  { value: "service_centre_outward", label: "Service centre outward only (ODC dispatch)", scope: "HO" },
 ];
 
 function roleLabel(role: UserRole) {
@@ -55,6 +59,7 @@ export function UsersPrivilegesPage() {
 
   const canManageUsers =
     user?.role === "super_admin" || user?.role === "regional_admin" || user?.role === "ho_admin";
+  const canCreateUsers = user?.role === "super_admin" || user?.role === "ho_admin";
   const isStoreRole = role.startsWith("store_");
 
   const regionOptions = useMemo(() => {
@@ -134,6 +139,7 @@ export function UsersPrivilegesPage() {
       />
 
       <div className="grid gap-8 lg:grid-cols-5">
+        {canCreateUsers ? (
         <Card title="Create user" subtitle="Role + module customization" className="lg:col-span-2">
           <form onSubmit={handleCreate} className="space-y-4">
             <div>
@@ -242,6 +248,13 @@ export function UsersPrivilegesPage() {
             </button>
           </form>
         </Card>
+        ) : (
+          <Card title="Create user" subtitle="Restricted" className="lg:col-span-2">
+            <p className="text-sm text-stone-600">
+              Only Super Admin or HO Admin can create new accounts. You can still review the directory on the right.
+            </p>
+          </Card>
+        )}
 
         <Card title="User directory" subtitle="Roles + scope + login state" className="lg:col-span-3">
           <div className="overflow-x-auto">

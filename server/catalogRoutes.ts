@@ -456,6 +456,8 @@ export function registerCatalogRoutes(
     const storeIdRaw = req.body?.storeId;
     const storeId = storeIdRaw == null || storeIdRaw === "" ? null : String(storeIdRaw);
     const quantity = Number(req.body?.quantity);
+    const modeRaw = String(req.body?.mode ?? "add").toLowerCase();
+    const mode = modeRaw === "set" ? "set" : "add";
 
     if ((locationType !== "HO" && locationType !== "STORE") || !regionId || Number.isNaN(quantity) || quantity < 0) {
       res.status(400).json({ error: "locationType(HO/STORE), regionId and non-negative quantity are required." });
@@ -502,12 +504,13 @@ export function registerCatalogRoutes(
         [spareId, locationKey],
       );
       const prevQty = prev.rows[0]?.qty ?? 0;
+      const newQty = mode === "set" ? quantity : prevQty + quantity;
       await client.query(
         `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
          VALUES ($1::uuid, $2, $3, $4, $5, $6)
          ON CONFLICT (spare_id, location_key)
          DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = now()`,
-        [spareId, locationKey, locationType, regionId, storeId, quantity],
+        [spareId, locationKey, locationType, regionId, storeId, newQty],
       );
       await appendStockHistory(client, {
         spareId,
@@ -516,10 +519,13 @@ export function registerCatalogRoutes(
         locationType: locationType as "HO" | "STORE",
         regionId,
         storeId,
-        quantityChange: quantity - prevQty,
-        balanceAfter: quantity,
+        quantityChange: newQty - prevQty,
+        balanceAfter: newQty,
         referenceType: "MANUAL",
-        note: "Manual stock set from inventory master.",
+        note:
+          mode === "set"
+            ? "Manual stock set (absolute) from inventory master."
+            : "Manual stock adjustment (add to existing) from inventory master.",
         createdBy: actor.id,
       });
       await client.query("COMMIT");

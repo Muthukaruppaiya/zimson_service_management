@@ -129,7 +129,11 @@ export function ScSupervisorPage() {
   async function markRepaired(jobId: string) {
     try {
       await supervisorMarkRepairComplete(jobId);
-      setFeedback((f) => ({ ...f, [jobId]: "Marked repair complete and moved to outward queue." }));
+      setFeedback((f) => ({
+        ...f,
+        [jobId]:
+          "Repair recorded successfully. The job is now in the outward (ODC) queue for logistics to dispatch to the store.",
+      }));
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not mark repaired." }));
     }
@@ -161,11 +165,14 @@ export function ScSupervisorPage() {
       return;
     }
     try {
-      const out = await supervisorTransferToOtherHo(transferPopupJobId, {
+      await supervisorTransferToOtherHo(transferPopupJobId, {
         targetRegionId: transferTargetRegionId,
         note: transferNoteInput || "Transfer to other HO requested.",
       });
-      setFeedback((f) => ({ ...f, [transferPopupJobId]: `Transferred to other HO in DC ${out.dcNumber}.` }));
+      setFeedback((f) => ({
+        ...f,
+        [transferPopupJobId]: "Moved to outward queue for inter-HO transfer. Create DC from Service Centre Logistics.",
+      }));
       closeTransferPopup();
     } catch (e) {
       setFeedback((f) => ({ ...f, [transferPopupJobId]: e instanceof Error ? e.message : "Could not transfer to other HO." }));
@@ -386,6 +393,19 @@ export function ScSupervisorPage() {
                     <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
                     <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
                     <p className="mt-1 text-xs text-stone-500">Status: {j.status.replace(/_/g, " ")}</p>
+                    <div className="mt-2 rounded-lg border border-zimson-100 bg-zimson-50/50 px-3 py-2 text-xs text-stone-700">
+                      <p>
+                        <span className="font-semibold text-stone-900">Current approved estimate:</span>{" "}
+                        {j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </p>
+                      {j.reestimateRequestedInr != null && j.reestimateRequestedInr > 0 ? (
+                        <p className="mt-1">
+                          <span className="font-semibold text-stone-900">Last proposed re-estimate:</span>{" "}
+                          {j.reestimateRequestedInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                          {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
+                        </p>
+                      ) : null}
+                    </div>
                     {j.customerReestimateResponse === "accepted" ? (
                       <p className="mt-1 text-xs font-semibold text-emerald-700">
                         Customer accepted re-estimate{j.customerReestimateRespondedAt ? ` · ${new Date(j.customerReestimateRespondedAt).toLocaleString()}` : ""}
@@ -595,7 +615,7 @@ export function ScSupervisorPage() {
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Send SRF to other HO</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Choose destination HO region. System will dispatch directly to HO inward (DC flow).
+              Choose destination HO region. SRF moves to outward queue; logistics will create DC for HO inward.
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
@@ -630,7 +650,7 @@ export function ScSupervisorPage() {
                 onClick={() => void confirmTransferToOtherHo()}
                 className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
               >
-                Create transfer DC
+                Queue transfer
               </button>
             </div>
           </div>

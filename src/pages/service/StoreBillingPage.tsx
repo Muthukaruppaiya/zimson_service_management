@@ -30,6 +30,14 @@ export function StoreBillingPage() {
     return jobs.filter((j) => j.status === "received_at_store" && jobVisibleToStoreUser(j, user));
   }, [jobs, user]);
 
+  const recentClosedBilling = useMemo(() => {
+    if (!user) return [];
+    return jobs
+      .filter((j) => j.status === "closed" && jobVisibleToStoreUser(j, user))
+      .sort((a, b) => String(b.closedAt ?? b.updatedAt ?? "").localeCompare(String(a.closedAt ?? a.updatedAt ?? "")))
+      .slice(0, 60);
+  }, [jobs, user]);
+
   const filteredInventory = useMemo(() => {
     const q = billingRefInput.trim().toLowerCase();
     if (!q) return receivedAtStore;
@@ -346,6 +354,44 @@ export function StoreBillingPage() {
           </p>
         ) : null}
       </Card>
+
+      <Card title="Store billing history" subtitle="SRFs already closed after customer collection (newest first)" className="mt-8">
+        {recentClosedBilling.length === 0 ? (
+          <p className="text-sm text-stone-600">No closed SRFs in your visible scope yet.</p>
+        ) : (
+          <div className="max-h-[360px] overflow-auto rounded-xl border border-zimson-200/80">
+            <table className="min-w-full text-left text-sm">
+              <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
+                <tr>
+                  <th className="px-3 py-2">SRF</th>
+                  <th className="px-3 py-2">Customer</th>
+                  <th className="px-3 py-2">Watch</th>
+                  <th className="px-3 py-2">Closed</th>
+                  <th className="px-3 py-2 text-right">Estimate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentClosedBilling.map((j) => (
+                  <tr key={j.id} className="border-b border-zimson-100 last:border-0">
+                    <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                    <td className="px-3 py-2 text-stone-800">{j.customerName}</td>
+                    <td className="px-3 py-2 text-stone-700">
+                      {j.watchBrand} {j.watchModel}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-stone-600">
+                      {j.closedAt ? new Date(j.closedAt).toLocaleString() : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-stone-900">
+                      {Number(j.estimateTotalInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
       {otpModalJobId ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">

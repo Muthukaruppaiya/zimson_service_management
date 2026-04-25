@@ -12,6 +12,8 @@ export type UserRole =
   | "store_accounts"
   | "service_centre_clerk"
   | "service_centre_supervisor"
+  | "service_centre_inward"
+  | "service_centre_outward"
   | "technician";
 
 /** App sections tied to routes; adjust visibility per role in `config/moduleAccess.ts`. */

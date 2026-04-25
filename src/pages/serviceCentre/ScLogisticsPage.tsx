@@ -24,6 +24,30 @@ export function ScLogisticsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get("tab") === "outward" ? "outward" : "inward";
 
+  const canPostDcInward = useMemo(() => {
+    if (!user) return false;
+    return (
+      user.role === "service_centre_clerk" ||
+      user.role === "service_centre_inward" ||
+      user.role === "super_admin" ||
+      user.role === "regional_admin" ||
+      user.role === "ho_admin" ||
+      user.role === "ho_manager"
+    );
+  }, [user]);
+
+  const canCreateOdc = useMemo(() => {
+    if (!user) return false;
+    return (
+      user.role === "service_centre_clerk" ||
+      user.role === "service_centre_outward" ||
+      user.role === "super_admin" ||
+      user.role === "regional_admin" ||
+      user.role === "ho_admin" ||
+      user.role === "ho_manager"
+    );
+  }, [user]);
+
   const storeById = useMemo(() => {
     const m = new Map<string, { regionName: string; storeName: string }>();
     for (const r of regions) {
@@ -104,8 +128,19 @@ export function ScLogisticsPage() {
     setSearchParams(next === "inward" ? {} : { tab: "outward" }, { replace: true });
   }
 
+  useEffect(() => {
+    if (!user) return;
+    if (!canPostDcInward && canCreateOdc && tab === "inward") {
+      setSearchParams({ tab: "outward" }, { replace: true });
+    }
+    if (canPostDcInward && !canCreateOdc && tab === "outward") {
+      setSearchParams({}, { replace: true });
+    }
+  }, [user, canPostDcInward, canCreateOdc, tab, setSearchParams]);
+
   async function handleInward(e: React.FormEvent) {
     e.preventDefault();
+    if (!canPostDcInward) return;
     setInwardMsg(null);
     if (!selectedDc.trim()) {
       setInwardMsg({ type: "err", text: "Choose a pending DC from the list for this HO." });
@@ -124,6 +159,9 @@ export function ScLogisticsPage() {
   }
 
   function destinationFor(jobId: string, originatingStoreId: string) {
+    const j = jobs.find((x) => x.id === jobId);
+    if (j?.transferTargetStoreId && j.requiresLocalConversion) return j.transferTargetStoreId;
+    if (j?.transferSourceStoreId && !j.requiresLocalConversion) return j.transferSourceStoreId;
     return destByJob[jobId] ?? originatingStoreId;
   }
 
@@ -138,6 +176,7 @@ export function ScLogisticsPage() {
   }
 
   async function handleCreateOdc() {
+    if (!canCreateOdc) return;
     setOutwardMsg(null);
     const ids = Object.entries(selectedOut)
       .filter(([, v]) => v)
@@ -163,6 +202,29 @@ export function ScLogisticsPage() {
     } catch (e) {
       setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not create outward ODC." });
     }
+  }
+
+  if (user && !canPostDcInward && !canCreateOdc) {
+    return (
+      <div>
+        <PageHeader
+          title="Service centre logistics"
+          description="HO inward and outward batches"
+          actions={
+            <Link
+              to="/service-centre"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Service centre home
+            </Link>
+          }
+        />
+        <p className="text-sm text-stone-600">
+          Your role cannot confirm store DC inward or generate outward ODC batches. Use the supervisor or technician
+          areas instead, or ask an administrator for the inward/outward logistics role.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -225,11 +287,14 @@ export function ScLogisticsPage() {
               </div>
               <button
                 type="submit"
-                disabled={!selectedDc || pendingDcOptions.length === 0}
+                disabled={!canPostDcInward || !selectedDc || pendingDcOptions.length === 0}
                 className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Confirm inward
               </button>
+              {!canPostDcInward ? (
+                <p className="text-xs text-amber-800">You can view transit lists but cannot post inward for this HO.</p>
+              ) : null}
             </form>
             {inwardMsg ? (
               <p
@@ -317,6 +382,7 @@ export function ScLogisticsPage() {
                   <label className="flex items-center gap-2 text-sm text-stone-700">
                     <input
                       type="checkbox"
+                      disabled={!canCreateOdc}
                       checked={readyOutward.length > 0 && readyOutward.every((j) => selectedOut[j.id])}
                       onChange={(e) => toggleAllOut(e.target.checked)}
                       className="rounded border-zimson-400 text-zimson-600 focus:ring-zimson-500"
@@ -325,8 +391,9 @@ export function ScLogisticsPage() {
                   </label>
                   <button
                     type="button"
+                    disabled={!canCreateOdc}
                     onClick={() => void handleCreateOdc()}
-                    className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+                    className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Generate ODC &amp; dispatch
                   </button>
@@ -347,6 +414,7 @@ export function ScLogisticsPage() {
                           <td className="px-3 py-2 align-top">
                             <input
                               type="checkbox"
+                              disabled={!canCreateOdc}
                               checked={!!selectedOut[j.id]}
                               onChange={() => toggleOut(j.id)}
                               className="rounded border-zimson-400 text-zimson-600 focus:ring-zimson-500"
@@ -363,6 +431,7 @@ export function ScLogisticsPage() {
                               onChange={(e) =>
                                 setDestByJob((prev) => ({ ...prev, [j.id]: e.target.value }))
                               }
+                              disabled={Boolean(j.transferTargetStoreId || j.transferSourceStoreId)}
                               className="w-full max-w-xs rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zimson-400/40"
                             >
                               {storeOptions.map((opt) => (
@@ -371,7 +440,11 @@ export function ScLogisticsPage() {
                                 </option>
                               ))}
                             </select>
-                            <p className="mt-1 text-xs text-stone-500">Originating store is pre-selected.</p>
+                            <p className="mt-1 text-xs text-stone-500">
+                              {j.transferTargetStoreId
+                                ? "Inter-HO transfer: destination is auto-fixed."
+                                : "Originating store is pre-selected."}
+                            </p>
                           </td>
                         </tr>
                       ))}

@@ -700,20 +700,6 @@ export function registerInventoryPoSupplierRoutes(
             res.status(400).json({ error: "PR line mismatch in one draft line." });
             return;
           }
-          const orderedRes = await client.query<{ ordered_qty: number }>(
-            `SELECT COALESCE(SUM(poi.qty_ordered), 0)::float8 AS ordered_qty
-             FROM purchase_order_items poi
-             JOIN purchase_orders po2 ON po2.id = poi.po_id
-             WHERE poi.pr_item_id = $1::uuid
-               AND po2.status <> 'CANCELLED'`,
-            [line.prItemId],
-          );
-          const pending = Math.max(0, Number(row.qty) - Number(orderedRes.rows[0]?.ordered_qty ?? 0));
-          if (qty > pending) {
-            await client.query("ROLLBACK");
-            res.status(400).json({ error: "PO qty exceeds pending PR qty for one line." });
-            return;
-          }
           await client.query(
             `INSERT INTO purchase_order_items (po_id, pr_item_id, spare_id, qty_ordered, unit_price, created_by, modified_by)
              VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $6)`,
@@ -923,20 +909,6 @@ export function registerInventoryPoSupplierRoutes(
         if (String(row.rows[0]!.spare_id) !== it.spareId) {
           await client.query("ROLLBACK");
           res.status(400).json({ error: "Spare mismatch on PR line." });
-          return;
-        }
-        const orderedRes = await client.query<{ ordered_qty: number }>(
-          `SELECT COALESCE(SUM(poi.qty_ordered), 0)::float8 AS ordered_qty
-           FROM purchase_order_items poi
-           JOIN purchase_orders po2 ON po2.id = poi.po_id
-           WHERE poi.pr_item_id = $1::uuid
-             AND po2.status <> 'CANCELLED'`,
-          [it.prItemId],
-        );
-        const pending = Math.max(0, Number(row.rows[0]!.qty) - Number(orderedRes.rows[0]?.ordered_qty ?? 0));
-        if (Number(it.qtyOrdered) > pending) {
-          await client.query("ROLLBACK");
-          res.status(400).json({ error: "PO qty exceeds pending PR qty for one line." });
           return;
         }
         await client.query(

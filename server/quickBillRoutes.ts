@@ -65,6 +65,8 @@ export function registerQuickBillRoutes(
       actor.role === "regional_admin" ||
       actor.role === "service_centre_clerk" ||
       actor.role === "service_centre_supervisor" ||
+      actor.role === "service_centre_inward" ||
+      actor.role === "service_centre_outward" ||
       actor.role === "technician"
     ) {
       if (!actor.regionId) {
@@ -175,6 +177,8 @@ export function registerQuickBillRoutes(
     if (
       (actor.role === "service_centre_clerk" ||
         actor.role === "service_centre_supervisor" ||
+        actor.role === "service_centre_inward" ||
+        actor.role === "service_centre_outward" ||
         actor.role === "technician") &&
       actor.regionId !== regionId
     ) {
@@ -288,6 +292,20 @@ export function registerQuickBillRoutes(
         qty: spareId ? qty : 1,
       });
       sum += amountInr;
+    }
+
+    const serviceChargeInr = Number(req.body?.serviceChargeInr ?? 0);
+    if (Number.isFinite(serviceChargeInr) && serviceChargeInr > 0) {
+      lineNo += 1;
+      const rounded = Math.round(serviceChargeInr * 100) / 100;
+      lines.push({
+        lineNo,
+        description: "Service / repair charge",
+        amountInr: rounded,
+        spareId: null,
+        qty: 1,
+      });
+      sum += rounded;
     }
 
     const totalInr = Math.round(sum * 100) / 100;

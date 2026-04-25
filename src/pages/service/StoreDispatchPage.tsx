@@ -12,6 +12,8 @@ import type { SrfJob } from "../../types/srfJob";
 
 const rowClass = "border-b border-zimson-100 last:border-0";
 const statusClass: Record<string, string> = {
+  draft: "bg-slate-100 text-slate-800",
+  photo_pending: "bg-amber-50 text-amber-900",
   at_store: "bg-stone-100 text-stone-700",
   in_transit_sc: "bg-blue-100 text-blue-700",
   received_at_sc: "bg-violet-100 text-violet-700",
@@ -22,6 +24,7 @@ const statusClass: Record<string, string> = {
   dispatched_to_store: "bg-orange-100 text-orange-700",
   received_at_store: "bg-emerald-100 text-emerald-700",
   closed: "bg-emerald-200 text-emerald-900",
+  cancelled: "bg-stone-200 text-stone-600 line-through decoration-stone-500",
 };
 
 function buildSrfTimeline(job: SrfJob): Array<{ label: string; done: boolean; at?: string | null }> {

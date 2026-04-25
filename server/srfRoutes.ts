@@ -9,6 +9,11 @@ import { sendReestimateDecisionNotification, sendTrackingLink } from "./notifica
 
 type Authed = Request & { userId: string };
 
+export type InAppNotifier = (
+  userIds: string[],
+  payload: { title: string; message: string; category: string },
+) => Promise<void>;
+
 const STORE_ROLES = new Set<UserRole>([
   "store_user",
   "store_purchase_user",
@@ -23,7 +28,27 @@ const HO_SC_ROLES = new Set<UserRole>([
   "ho_user",
   "service_centre_clerk",
   "service_centre_supervisor",
+  "service_centre_inward",
+  "service_centre_outward",
   "technician",
+]);
+
+const SC_DC_INWARD_ROLES = new Set<UserRole>([
+  "super_admin",
+  "regional_admin",
+  "ho_admin",
+  "ho_manager",
+  "service_centre_clerk",
+  "service_centre_inward",
+]);
+
+const SC_ODC_OUTWARD_ROLES = new Set<UserRole>([
+  "super_admin",
+  "regional_admin",
+  "ho_admin",
+  "ho_manager",
+  "service_centre_clerk",
+  "service_centre_outward",
 ]);
 
 function canSupervisorDecide(actor: DemoUser | null): boolean {
@@ -123,7 +148,7 @@ async function getOrCreateTrackingToken(client: PoolClient, phone: string): Prom
     `SELECT COUNT(*)::int AS c
      FROM srf_jobs
      WHERE RIGHT(regexp_replace(phone, '\D', '', 'g'), 10) = $1
-       AND status <> 'closed'`,
+       AND status NOT IN ('closed', 'cancelled')`,
     [p10],
   );
   const hasOpenSrf = (openRows.rows[0]?.c ?? 0) > 0;
@@ -159,7 +184,7 @@ async function maybeDisableTrackingToken(client: PoolClient, phone: string): Pro
     `SELECT COUNT(*)::int AS c
      FROM srf_jobs
      WHERE RIGHT(regexp_replace(phone, '\D', '', 'g'), 10) = $1
-       AND status <> 'closed'`,
+       AND status NOT IN ('closed', 'cancelled')`,
     [p10],
   );
   if ((openRows.rows[0]?.c ?? 0) > 0) return;
@@ -239,6 +264,7 @@ export function registerSrfRoutes(
   pool: Pool,
   requireAuth: (req: Request, res: Response, next: NextFunction) => void,
   getUserById: (id: string) => DemoUser | null,
+  pushInApp?: InAppNotifier,
 ): void {
   app.get("/api/service/srf-jobs", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
@@ -327,6 +353,11 @@ export function registerSrfRoutes(
                 j.photo_session_active AS "photoSessionActive",
                 j.capture_link_disabled_at AS "captureLinkDisabledAt",
                 j.requires_local_conversion AS "requiresLocalConversion",
+                j.transfer_target_region_id AS "transferTargetRegionId",
+                j.transfer_target_store_id AS "transferTargetStoreId",
+                j.transfer_source_region_id AS "transferSourceRegionId",
+                j.transfer_source_store_id AS "transferSourceStoreId",
+                j.transfer_source_reference AS "transferSourceReference",
                 j.created_by AS "createdBy",
                 j.modified_by AS "modifiedBy",
                 j.created_at AS "createdAt",
@@ -602,6 +633,160 @@ export function registerSrfRoutes(
     }
   });
 
+  app.post("/api/service/srf-jobs/:srfId/cancel", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const reason = String(req.body?.reason ?? "").trim();
+    if (!reason) {
+      res.status(400).json({ error: "Cancellation reason is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query<{ id: string; status: string; region_id: string; store_id: string }>(
+        `SELECT id, status, region_id, store_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const row = rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (row.status !== "draft" && row.status !== "photo_pending") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Only draft or photo-pending SRFs can be cancelled." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+        if (!actor.regionId || actor.regionId !== row.region_id) {
+          await client.query("ROLLBACK");
+          res.status(403).json({ error: "Region mismatch." });
+          return;
+        }
+        if (STORE_ROLES.has(actor.role) && actor.storeId !== row.store_id) {
+          await client.query("ROLLBACK");
+          res.status(403).json({ error: "You can cancel only your own store SRF." });
+          return;
+        }
+      }
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'cancelled',
+             capture_link_disabled_at = now(),
+             photo_session_active = false,
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid`,
+        [srfId, actor.id],
+      );
+      await client.query(
+        `UPDATE srf_photo_sessions SET revoked_at = now() WHERE srf_id = $1::uuid AND revoked_at IS NULL`,
+        [srfId],
+      );
+      await appendStatusHistory(client, srfId, "cancelled", actor.id, reason);
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not cancel SRF." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.patch("/api/service/srf-jobs/:srfId/store-draft", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query<{ id: string; status: string; region_id: string; store_id: string }>(
+        `SELECT id, status, region_id, store_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const row = rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (row.status !== "draft" && row.status !== "photo_pending") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Only draft or photo-pending SRFs can be edited." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+        if (!actor.regionId || actor.regionId !== row.region_id) {
+          await client.query("ROLLBACK");
+          res.status(403).json({ error: "Region mismatch." });
+          return;
+        }
+        if (STORE_ROLES.has(actor.role) && actor.storeId !== row.store_id) {
+          await client.query("ROLLBACK");
+          res.status(403).json({ error: "You can edit only your own store SRF." });
+          return;
+        }
+      }
+      const body = req.body as Record<string, unknown>;
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      let pi = 1;
+      if (typeof body.customerName === "string") {
+        sets.push(`customer_name = $${pi++}`);
+        vals.push(String(body.customerName).trim());
+      }
+      if (typeof body.phone === "string") {
+        sets.push(`phone = $${pi++}`);
+        vals.push(String(body.phone).trim());
+      }
+      if (typeof body.watchBrand === "string") {
+        sets.push(`watch_brand = $${pi++}`);
+        vals.push(String(body.watchBrand).trim());
+      }
+      if (typeof body.watchModel === "string") {
+        sets.push(`watch_model = $${pi++}`);
+        vals.push(String(body.watchModel).trim());
+      }
+      if (typeof body.serial === "string") {
+        sets.push(`serial = $${pi++}`);
+        vals.push(String(body.serial).trim());
+      }
+      if (sets.length === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "No updatable fields supplied." });
+        return;
+      }
+      sets.push("updated_at = now()");
+      sets.push(`modified_by = $${pi++}`);
+      vals.push(actor.id);
+      vals.push(srfId);
+      await client.query(
+        `UPDATE srf_jobs SET ${sets.join(", ")} WHERE id = $${pi}::uuid`,
+        vals,
+      );
+      await appendStatusHistory(client, srfId, row.status, actor.id, "Store updated draft details before finalize.");
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not update SRF draft." });
+    } finally {
+      client.release();
+    }
+  });
+
   app.post("/api/service/dcs", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !STORE_ROLES.has(actor.role)) {
@@ -677,8 +862,8 @@ export function registerSrfRoutes(
 
   app.post("/api/service/dcs/:dcNumber/inward", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || !HO_SC_ROLES.has(actor.role)) {
-      res.status(403).json({ error: "Only HO/service-centre roles can inward DC." });
+    if (!actor || !SC_DC_INWARD_ROLES.has(actor.role)) {
+      res.status(403).json({ error: "Only logistics inward roles can inward a store DC." });
       return;
     }
     const dcNumber = String(req.params.dcNumber ?? "").trim();
@@ -790,7 +975,7 @@ export function registerSrfRoutes(
 
   app.post("/api/service/srf-jobs/:srfId/supervisor/reestimate", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!canSupervisorDecide(actor)) {
+    if (!actor || !canSupervisorDecide(actor)) {
       res.status(403).json({ error: "Only supervisor/admin can mark re-estimate." });
       return;
     }
@@ -844,7 +1029,7 @@ export function registerSrfRoutes(
 
   app.post("/api/service/srf-jobs/:srfId/supervisor/reestimate-approve", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!canSupervisorDecide(actor)) {
+    if (!actor || !canSupervisorDecide(actor)) {
       res.status(403).json({ error: "Only supervisor/admin can approve re-estimate." });
       return;
     }
@@ -855,7 +1040,7 @@ export function registerSrfRoutes(
 
   app.post("/api/service/srf-jobs/:srfId/supervisor/repair-complete", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!canSupervisorDecide(actor)) {
+    if (!actor || !canSupervisorDecide(actor)) {
       res.status(403).json({ error: "Only supervisor/admin can mark repair complete." });
       return;
     }
@@ -897,7 +1082,7 @@ export function registerSrfRoutes(
 
   app.post("/api/service/srf-jobs/:srfId/supervisor/transfer-other-ho", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!canSupervisorDecide(actor)) {
+    if (!actor || !canSupervisorDecide(actor)) {
       res.status(403).json({ error: "Only supervisor/admin can transfer to other HO." });
       return;
     }
@@ -926,79 +1111,70 @@ export function registerSrfRoutes(
           res.status(400).json({ error: "No HO destination store configured for target region." });
           return;
         }
-        const ready = await client.query(
+        const base = await client.query<{ region_id: string; store_id: string; reference: string; status: string }>(
+          `SELECT region_id, store_id, reference, status
+           FROM srf_jobs
+           WHERE id = $1::uuid
+           FOR UPDATE`,
+          [srfId],
+        );
+        const current = base.rows[0];
+        if (!current || !["assigned", "estimate_ok"].includes(current.status)) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Only assigned/estimate-ok SRFs can be transferred to other HO." });
+          return;
+        }
+        await client.query(
           `UPDATE srf_jobs
-           SET status = 'in_transit_sc',
-               region_id = $3::text,
+           SET status = 'ready_for_outward',
                requires_local_conversion = true,
-               dc_number = $4,
-               destination_store_id = NULL,
+               transfer_target_region_id = $3::text,
+               transfer_target_store_id = $4::text,
+               transfer_source_region_id = $5::text,
+               transfer_source_store_id = $6::text,
+               transfer_source_reference = COALESCE(NULLIF(transfer_source_reference, ''), reference),
+               destination_store_id = COALESCE(destination_store_id, $6::text),
+               dc_number = NULL,
                outward_dc_number = NULL,
-               dispatched_to_sc_at = now(),
+               dispatched_to_sc_at = NULL,
                inward_at = NULL,
                assigned_technician_id = NULL,
                assigned_at = NULL,
                estimate_ok_at = NULL,
                completed_at_sc = NULL,
-               ready_for_outward_at = NULL,
+               ready_for_outward_at = now(),
                dispatched_to_store_at = NULL,
                received_back_at_store_at = NULL,
                updated_at = now(),
                modified_by = $2
-           WHERE id = $1::uuid
-             AND status IN ('assigned', 'estimate_ok')`,
-          [srfId, actor.id, targetRegionId, "__PENDING__"],
+           WHERE id = $1::uuid`,
+          [srfId, actor.id, targetRegionId, targetStoreId, current.region_id, current.store_id],
         );
-        if ((ready.rowCount ?? 0) === 0) {
-          await client.query("ROLLBACK");
-          res.status(400).json({ error: "Only assigned/estimate-ok SRFs can be transferred to other HO." });
-          return;
-        }
-        const { prefix, suffix } = await getSeriesPrefixSuffix(client, "dc", "DC");
-        const dcNumber = await nextDocNumber(client, prefix, suffix, scopeCode(targetRegionId, "RGN"));
-        const dcIns = await client.query<{ id: string }>(
-          `INSERT INTO delivery_challans (dc_number, region_id, from_store_id, to_location, status, created_by, modified_by)
-           VALUES ($1, $2, $3, 'SERVICE_CENTRE', 'CREATED', $4, $4)
-           RETURNING id`,
-          [dcNumber, targetRegionId, targetStoreId, actor.id],
-        );
-        const dcId = dcIns.rows[0]?.id;
-        if (!dcId) {
-          await client.query("ROLLBACK");
-          res.status(400).json({ error: "Could not create transfer DC." });
-          return;
-        }
-        await client.query(
-          `INSERT INTO delivery_challan_lines (dc_id, srf_id, qty, created_by, modified_by)
-           VALUES ($1::uuid, $2::uuid, 1, $3, $3)
-           ON CONFLICT (dc_id, srf_id) DO NOTHING`,
-          [dcId, srfId, actor.id],
-        );
-        await client.query(`UPDATE srf_jobs SET dc_number = $2 WHERE id = $1::uuid`, [srfId, dcNumber]);
         await appendStatusHistory(
           client,
           srfId,
-          "in_transit_sc",
+          "ready_for_outward",
           actor.id,
-          note || `Transferred to other HO via DC ${dcNumber}.`,
+          note || `Queued for transfer to HO ${targetRegionId}. Create Outward DC to dispatch.`,
         );
         await client.query("COMMIT");
-        res.json({ ok: true, dcNumber });
-      } catch {
+        res.json({ ok: true, queued: true });
+      } catch (e) {
         await client.query("ROLLBACK").catch(() => {});
-        res.status(400).json({ error: "Could not mark transfer to other HO." });
+        console.error(e);
+        res.status(400).json({ error: "Could not queue transfer to other HO." });
       } finally {
         client.release();
       }
     } catch (e) {
       console.error(e);
-      res.status(400).json({ error: "Could not mark transfer to other HO." });
+      res.status(400).json({ error: "Could not queue transfer to other HO." });
     }
   });
 
   app.post("/api/service/srf-jobs/:srfId/convert-local", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!canSupervisorDecide(actor)) {
+    if (!actor || !canSupervisorDecide(actor)) {
       res.status(403).json({ error: "Only supervisor/admin can convert transferred SRF." });
       return;
     }
@@ -1006,8 +1182,37 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const base = await client.query<{ region_id: string; store_id: string; status: string; requires_local_conversion: boolean }>(
-        `SELECT region_id, store_id, status, requires_local_conversion
+      const base = await client.query<{
+        reference: string;
+        region_id: string;
+        store_id: string;
+        customer_name: string;
+        phone: string;
+        customer_kind: "B2C" | "B2B";
+        company: string | null;
+        watch_brand: string;
+        watch_model: string;
+        serial: string;
+        complaint: string;
+        estimate_total_inr: number;
+        selected_part_ids: unknown;
+        status: string;
+        dc_number: string | null;
+        dispatched_to_sc_at: string | null;
+        inward_at: string | null;
+        destination_store_id: string | null;
+        requires_local_conversion: boolean;
+        transfer_source_reference: string | null;
+        transfer_source_region_id: string | null;
+        transfer_source_store_id: string | null;
+        transfer_target_region_id: string | null;
+        transfer_target_store_id: string | null;
+      }>(
+        `SELECT reference, region_id, store_id, customer_name, phone, customer_kind, company,
+                watch_brand, watch_model, serial, complaint, estimate_total_inr::float8, selected_part_ids,
+                status, dc_number, dispatched_to_sc_at, inward_at, destination_store_id, requires_local_conversion,
+                transfer_source_reference, transfer_source_region_id, transfer_source_store_id,
+                transfer_target_region_id, transfer_target_store_id
          FROM srf_jobs
          WHERE id = $1::uuid
          FOR UPDATE`,
@@ -1025,18 +1230,84 @@ export function registerSrfRoutes(
       );
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
       const newRef = await nextDocNumber(client, prefix, suffix, scopeCode(storeRows[0]?.name ?? row.store_id, "STR"));
+      const ins = await client.query<{ id: string }>(
+        `INSERT INTO srf_jobs (
+          reference, region_id, store_id, customer_name, phone, customer_kind, company,
+          watch_brand, watch_model, serial, complaint, estimate_total_inr, selected_part_ids,
+          status, dc_number, dispatched_to_sc_at, inward_at, destination_store_id, photo_session_active,
+          requires_local_conversion, transfer_target_region_id, transfer_target_store_id,
+          transfer_source_region_id, transfer_source_store_id, transfer_source_reference,
+          created_by, modified_by
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11, $12, $13::jsonb,
+          'received_at_sc', $14, $15, $16, $17, false,
+          false, $18, $19, $20, $21, $22, $23, $23
+        )
+        RETURNING id`,
+        [
+          newRef,
+          row.region_id,
+          row.store_id,
+          row.customer_name,
+          row.phone,
+          row.customer_kind,
+          row.company,
+          row.watch_brand,
+          row.watch_model,
+          row.serial,
+          row.complaint,
+          row.estimate_total_inr,
+          JSON.stringify(row.selected_part_ids ?? []),
+          row.dc_number,
+          row.dispatched_to_sc_at,
+          row.inward_at,
+          row.transfer_source_store_id ?? row.destination_store_id ?? row.store_id,
+          row.transfer_target_region_id,
+          row.transfer_target_store_id,
+          row.transfer_source_region_id,
+          row.transfer_source_store_id,
+          row.transfer_source_reference ?? row.reference,
+          actor.id,
+        ],
+      );
+      const newSrfId = ins.rows[0]?.id;
+      if (!newSrfId) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Could not create local SRF." });
+        return;
+      }
       await client.query(
         `UPDATE srf_jobs
-         SET reference = $2,
-             requires_local_conversion = false,
+         SET status = 'closed',
+             closed_at = now(),
+             destination_store_id = NULL,
+             dc_number = NULL,
+             outward_dc_number = NULL,
+             ready_for_outward_at = NULL,
+             dispatched_to_store_at = NULL,
+             received_back_at_store_at = NULL,
              updated_at = now(),
-             modified_by = $3
+             modified_by = $2
          WHERE id = $1::uuid`,
-        [srfId, newRef, actor.id],
+        [srfId, actor.id],
       );
-      await appendStatusHistory(client, srfId, "received_at_sc", actor.id, `Converted to local SRF ${newRef}.`);
+      await appendStatusHistory(
+        client,
+        srfId,
+        "closed",
+        actor.id,
+        `Temporary source SRF closed after local conversion. New local SRF: ${newRef}.`,
+      );
+      await appendStatusHistory(
+        client,
+        newSrfId,
+        "received_at_sc",
+        actor.id,
+        `Auto-created local SRF ${newRef}. Source HO reference: ${row.transfer_source_reference ?? row.reference}.`,
+      );
       await client.query("COMMIT");
-      res.json({ ok: true, reference: newRef });
+      res.json({ ok: true, reference: newRef, newSrfId });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -1234,8 +1505,8 @@ export function registerSrfRoutes(
 
   app.post("/api/service/odcs", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || !HO_SC_ROLES.has(actor.role)) {
-      res.status(403).json({ error: "Only HO/service-centre roles can create outward ODC." });
+    if (!actor || !SC_ODC_OUTWARD_ROLES.has(actor.role)) {
+      res.status(403).json({ error: "Only logistics outward roles can create an ODC batch." });
       return;
     }
     const items = Array.isArray(req.body?.items)
@@ -1256,17 +1527,69 @@ export function registerSrfRoutes(
       const regionId = actor.regionId ?? "";
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "odc", "ODC");
       const dcNumber = await nextDocNumber(client, prefix, suffix, scopeCode(regionId, "RGN"));
+      const transferRows = await client.query<{
+        id: string;
+        status: string;
+        region_id: string;
+        store_id: string;
+        requires_local_conversion: boolean;
+        transfer_target_region_id: string | null;
+        transfer_target_store_id: string | null;
+        transfer_source_region_id: string | null;
+        transfer_source_store_id: string | null;
+        transfer_source_reference: string | null;
+      }>(
+        `SELECT id, status, region_id, store_id, requires_local_conversion,
+                transfer_target_region_id, transfer_target_store_id,
+                transfer_source_region_id, transfer_source_store_id, transfer_source_reference
+         FROM srf_jobs
+         WHERE id = ANY($1::uuid[])`,
+        [items.map((x: { srfId: string }) => x.srfId)],
+      );
+      const transferCandidates = transferRows.rows.filter((r) => r.status === "ready_for_outward" && r.transfer_target_region_id);
+      const normalCandidates = transferRows.rows.filter((r) => !r.transfer_target_region_id);
+      if (transferCandidates.length > 0 && normalCandidates.length > 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Create separate outward batches: normal store dispatch and inter-HO transfer." });
+        return;
+      }
+      const firstTransfer = transferCandidates[0] ?? null;
+      const isInterHoBatch = !!firstTransfer;
+      const interHoTargetRegionId = firstTransfer?.requires_local_conversion
+        ? firstTransfer.transfer_target_region_id
+        : firstTransfer?.transfer_source_region_id;
+      const interHoFromStoreId = firstTransfer?.requires_local_conversion
+        ? firstTransfer.transfer_target_store_id
+        : firstTransfer?.transfer_source_store_id;
       const dcIns = await client.query<{ id: string }>(
         `INSERT INTO delivery_challans (dc_number, region_id, from_store_id, to_location, status, created_by, modified_by)
-         VALUES ($1, $2, $3, 'STORE', 'DISPATCHED', $4, $4)
+         VALUES ($1, $2, $3, $4, $5, $6, $6)
          RETURNING id`,
-        [dcNumber, regionId, items[0]?.destinationStoreId ?? actor.storeId ?? "unknown", actor.id],
+        [
+          dcNumber,
+          isInterHoBatch ? interHoTargetRegionId : regionId,
+          (isInterHoBatch ? interHoFromStoreId : items[0]?.destinationStoreId ?? actor.storeId ?? "unknown") as string,
+          isInterHoBatch ? "SERVICE_CENTRE" : "STORE",
+          isInterHoBatch ? "CREATED" : "DISPATCHED",
+          actor.id,
+        ],
       );
       const dcId = dcIns.rows[0]?.id;
       let moved = 0;
       for (const it of items) {
-        const { rows } = await client.query<{ id: string; status: string; region_id: string }>(
-          `SELECT id, status, region_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        const { rows } = await client.query<{
+          id: string;
+          status: string;
+          region_id: string;
+          requires_local_conversion: boolean;
+          transfer_target_region_id: string | null;
+          transfer_source_region_id: string | null;
+          transfer_source_store_id: string | null;
+          transfer_source_reference: string | null;
+        }>(
+          `SELECT id, status, region_id, requires_local_conversion,
+                  transfer_target_region_id, transfer_source_region_id, transfer_source_store_id, transfer_source_reference
+           FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
           [it.srfId],
         );
         const row = rows[0];
@@ -1278,18 +1601,56 @@ export function registerSrfRoutes(
            ON CONFLICT (dc_id, srf_id) DO NOTHING`,
           [dcId, it.srfId, actor.id],
         );
-        await client.query(
-          `UPDATE srf_jobs
-           SET status = 'dispatched_to_store',
-               destination_store_id = $2::text,
-               outward_dc_number = $3,
-               dispatched_to_store_at = now(),
-               updated_at = now(),
-               modified_by = $4
-           WHERE id = $1::uuid`,
-          [it.srfId, it.destinationStoreId, dcNumber, actor.id],
-        );
-        await appendStatusHistory(client, it.srfId, "dispatched_to_store", actor.id, `Dispatched in outward DC ${dcNumber}.`);
+        if (row.transfer_target_region_id) {
+          const movingToTargetHo = row.requires_local_conversion;
+          if (movingToTargetHo) {
+            if (row.transfer_target_region_id !== actor.regionId) continue;
+          } else {
+            if (row.transfer_source_region_id !== actor.regionId) continue;
+            // Strict guard: return transfer can only go back to original source store.
+            if (it.destinationStoreId !== row.transfer_source_store_id) {
+              await client.query("ROLLBACK");
+              res.status(400).json({ error: "Return transfer destination is fixed to source HO/store." });
+              return;
+            }
+          }
+          await client.query(
+            `UPDATE srf_jobs
+             SET status = 'in_transit_sc',
+                 region_id = CASE WHEN $4 THEN transfer_target_region_id ELSE transfer_source_region_id END,
+                 reference = CASE WHEN $4 THEN reference ELSE COALESCE(transfer_source_reference, reference) END,
+                 dc_number = $2,
+                 dispatched_to_sc_at = now(),
+                 outward_dc_number = NULL,
+                 destination_store_id = COALESCE(destination_store_id, transfer_source_store_id),
+                 updated_at = now(),
+                 modified_by = $3
+             WHERE id = $1::uuid`,
+            [it.srfId, dcNumber, actor.id, movingToTargetHo],
+          );
+          await appendStatusHistory(
+            client,
+            it.srfId,
+            "in_transit_sc",
+            actor.id,
+            movingToTargetHo
+              ? `Transferred to other HO in DC ${dcNumber}.`
+              : `Returned to source HO in DC ${dcNumber} (source SRF reference restored).`,
+          );
+        } else {
+          await client.query(
+            `UPDATE srf_jobs
+             SET status = 'dispatched_to_store',
+                 destination_store_id = $2::text,
+                 outward_dc_number = $3,
+                 dispatched_to_store_at = now(),
+                 updated_at = now(),
+                 modified_by = $4
+             WHERE id = $1::uuid`,
+            [it.srfId, it.destinationStoreId, dcNumber, actor.id],
+          );
+          await appendStatusHistory(client, it.srfId, "dispatched_to_store", actor.id, `Dispatched in outward DC ${dcNumber}.`);
+        }
         moved += 1;
       }
       if (moved === 0) {
@@ -1494,7 +1855,7 @@ export function registerSrfRoutes(
                 ), '[]'::json) AS photos
          FROM srf_jobs j
          WHERE RIGHT(regexp_replace(j.phone, '\D', '', 'g'), 10) = $1
-           AND j.status <> 'closed'
+           AND j.status NOT IN ('closed', 'cancelled')
          ORDER BY j.created_at DESC`,
         [row.phone_last10],
       );
@@ -1578,8 +1939,16 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "This tracking link is disabled." });
         return;
       }
-      const srfRes = await client.query<{ id: string; status: string; phone: string; reference: string; customer_name: string }>(
-        `SELECT id, status, phone, reference, customer_name
+      const srfRes = await client.query<{
+        id: string;
+        status: string;
+        phone: string;
+        reference: string;
+        customer_name: string;
+        region_id: string;
+        reestimate_requested_inr: number | null;
+      }>(
+        `SELECT id, status, phone, reference, customer_name, region_id, reestimate_requested_inr::float8
          FROM srf_jobs
          WHERE id = $1::uuid
          FOR UPDATE`,
@@ -1602,9 +1971,10 @@ export function registerSrfRoutes(
            SET status = 'assigned',
                customer_reestimate_response = 'accepted',
                customer_reestimate_responded_at = now(),
+               estimate_total_inr = COALESCE($2::numeric, estimate_total_inr),
                updated_at = now()
            WHERE id = $1::uuid`,
-          [srfId],
+          [srfId, srf.reestimate_requested_inr],
         );
         await appendStatusHistory(client, srfId, "assigned", null, note || "Customer accepted re-estimate.");
         await sendReestimateDecisionNotification({
@@ -1634,6 +2004,28 @@ export function registerSrfRoutes(
         });
       }
       await client.query("COMMIT");
+      if (!accepted && pushInApp && srf.region_id) {
+        const { rows: notifyRows } = await pool.query<{ id: string }>(
+          `SELECT id FROM app_users
+           WHERE region_id = $1::text
+             AND role IN (
+               'service_centre_supervisor',
+               'ho_manager',
+               'ho_admin',
+               'regional_admin',
+               'super_admin'
+             )`,
+          [srf.region_id],
+        );
+        await pushInApp(
+          notifyRows.map((r) => r.id),
+          {
+            title: "Customer rejected re-estimate",
+            message: `SRF ${srf.reference}: customer rejected the proposed re-estimate from the tracking link.`,
+            category: "service_srf",
+          },
+        );
+      }
       res.json({ ok: true });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});

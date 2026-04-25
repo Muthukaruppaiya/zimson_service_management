@@ -18,6 +18,8 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, ModuleKey[]> = {
   store_accounts: ["dashboard", "inventory", "service", "settings"],
   service_centre_clerk: ["dashboard", "service_centre"],
   service_centre_supervisor: ["dashboard", "service_centre"],
+  service_centre_inward: ["dashboard", "service_centre"],
+  service_centre_outward: ["dashboard", "service_centre"],
   technician: ["dashboard"],
 };
 

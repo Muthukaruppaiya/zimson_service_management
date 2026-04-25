@@ -20,6 +20,8 @@ export function jobVisibleToServiceCentre(job: SrfJob, user: SessionUser): boole
   if (
     user.role === "service_centre_clerk" ||
     user.role === "service_centre_supervisor" ||
+    user.role === "service_centre_inward" ||
+    user.role === "service_centre_outward" ||
     user.role === "technician" ||
     user.role === "ho_manager" ||
     user.role === "ho_user"

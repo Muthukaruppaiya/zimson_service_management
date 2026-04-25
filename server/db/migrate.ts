@@ -542,6 +542,11 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_reestimate_response VARCH
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_reestimate_responded_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_requested_inr NUMERIC(14, 2);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS requires_local_conversion BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_target_region_id TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_target_store_id TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_source_region_id TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_source_store_id TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_source_reference VARCHAR(64);
 
 CREATE TABLE IF NOT EXISTS srf_job_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

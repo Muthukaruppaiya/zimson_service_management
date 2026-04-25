@@ -72,6 +72,36 @@ function hashPassword(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
+const MODULE_KEY_ALLOWLIST: ModuleKey[] = [
+  "dashboard",
+  "service",
+  "regions",
+  "users",
+  "service_centre",
+  "inventory",
+  "settings",
+];
+
+/** Normalizes jsonb / JSON string / array from Postgres into validated module keys. */
+function normalizeModuleAccessOverride(raw: unknown): ModuleKey[] | null {
+  let arr: unknown[] | null = null;
+  if (raw == null) return null;
+  if (Array.isArray(raw)) arr = raw;
+  else if (typeof raw === "string") {
+    try {
+      const p = JSON.parse(raw) as unknown;
+      if (Array.isArray(p)) arr = p;
+    } catch {
+      return null;
+    }
+  }
+  if (!arr) return null;
+  const out = arr.filter(
+    (m): m is ModuleKey => typeof m === "string" && MODULE_KEY_ALLOWLIST.includes(m as ModuleKey),
+  );
+  return out.length ? out : null;
+}
+
 function mapDbUser(row: DbUserRow): DemoUser {
   return {
     id: row.id,
@@ -83,7 +113,7 @@ function mapDbUser(row: DbUserRow): DemoUser {
     storeId: row.store_id,
     technicianProfileId: row.technician_profile_id,
     canLogin: row.can_login,
-    moduleAccessOverride: row.module_access_override ?? null,
+    moduleAccessOverride: normalizeModuleAccessOverride(row.module_access_override as unknown),
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
     isSeed: row.is_seed,
   };
@@ -195,9 +225,7 @@ const PR_CREATOR_ROLES = new Set<UserRole>(["store_user", "store_purchase_user"]
 const HO_APPROVER_ROLES = new Set<UserRole>(["super_admin", "regional_admin", "ho_admin", "ho_manager"]);
 
 function moduleKeys(input: unknown): ModuleKey[] | null {
-  if (!Array.isArray(input)) return null;
-  const allowed: ModuleKey[] = ["dashboard", "service", "regions", "users", "service_centre", "inventory", "settings"];
-  return input.filter((m): m is ModuleKey => typeof m === "string" && allowed.includes(m as ModuleKey));
+  return normalizeModuleAccessOverride(input);
 }
 
 async function getPrFlowLabel(
@@ -406,13 +434,12 @@ app.post("/api/users", requireAuth, async (req, res) => {
     return;
   }
 
-  if (actor.role === "regional_admin") {
-    if (input.regionId !== actor.regionId) {
-      res.status(400).json({ ok: false, message: "You can only add users in your region." });
-      return;
-    }
-  } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
-    res.status(403).json({ ok: false, message: "You do not have permission to create users." });
+  if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+    res.status(403).json({ ok: false, message: "Only Super Admin or HO Admin can create users." });
+    return;
+  }
+  if (actor.role === "ho_admin" && (input.role === "super_admin" || input.role === "regional_admin")) {
+    res.status(403).json({ ok: false, message: "HO Admin cannot assign super admin or regional admin roles." });
     return;
   }
 
@@ -465,7 +492,7 @@ app.get("/api/settings/workflow-statuses", requireAuth, async (req, res) => {
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
+  const actor = findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -496,7 +523,7 @@ app.post("/api/settings/workflow-statuses", requireAuth, async (req, res) => {
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
+  const actor = findUser(uid);
   if (!actor || (actor.role !== "super_admin" && actor.role !== "ho_admin")) {
     res.status(403).json({ error: "Only admin can create statuses." });
     return;
@@ -529,7 +556,7 @@ app.patch("/api/settings/workflow-statuses/:id", requireAuth, async (req, res) =
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
+  const actor = findUser(uid);
   if (!actor || (actor.role !== "super_admin" && actor.role !== "ho_admin")) {
     res.status(403).json({ error: "Only admin can update statuses." });
     return;
@@ -588,7 +615,7 @@ app.delete("/api/settings/workflow-statuses/:id", requireAuth, async (req, res) 
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
+  const actor = findUser(uid);
   if (!actor || (actor.role !== "super_admin" && actor.role !== "ho_admin")) {
     res.status(403).json({ error: "Only admin can delete statuses." });
     return;
@@ -644,7 +671,7 @@ app.get("/api/regions", requireAuth, (_req, res) => {
 
 app.put("/api/regions", requireAuth, async (req, res) => {
   const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
+  const actor = findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -694,7 +721,7 @@ app.put("/api/regions", requireAuth, async (req, res) => {
 
 app.post("/api/regions", requireAuth, async (req, res) => {
   const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
+  const actor = findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -729,7 +756,7 @@ app.post("/api/regions", requireAuth, async (req, res) => {
 
 app.post("/api/regions/:regionId/stores", requireAuth, async (req, res) => {
   const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
+  const actor = findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -850,7 +877,7 @@ app.get("/api/inventory/prs/:prId/ho-stock", requireAuth, async (req, res) => {
     return;
   }
   const uid = (req as express.Request & { userId: string }).userId;
-  const actor = findUser(readState(), uid);
+  const actor = findUser(uid);
   if (!actor) {
     res.status(401).json({ error: "Invalid session." });
     return;
@@ -920,6 +947,24 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
   const status = "DRAFT";
   const neededBy = body.neededBy?.trim() || null;
   const notes = String(body.notes ?? "").trim();
+  if (neededBy) {
+    const m = neededBy.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) {
+      res.status(400).json({ error: "Invalid needed-by date." });
+      return;
+    }
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    const picked = new Date(y, mo - 1, d);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    picked.setHours(0, 0, 0, 0);
+    if (picked.getTime() < today.getTime()) {
+      res.status(400).json({ error: "Needed-by date cannot be in the past." });
+      return;
+    }
+  }
   const items = Array.isArray(body.items) ? body.items : [];
   if (items.length === 0) {
     res.status(400).json({ error: "At least one PR line is required." });
@@ -1424,6 +1469,21 @@ app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
       if (!reqQty) continue;
       const pendingReceipt = Math.max(0, item.issued_qty - item.received_qty);
       if (reqQty > pendingReceipt) {
+        const auditRecipients = allUsers()
+          .filter(
+            (u) =>
+              u.regionId === pr.region_id &&
+              (u.role === "ho_manager" ||
+                u.role === "ho_admin" ||
+                u.role === "regional_admin" ||
+                u.role === "super_admin"),
+          )
+          .map((u) => u.id);
+        await pushNotifications(auditRecipients, {
+          title: "PR inward audit alert",
+          message: `${actor.displayName} attempted to inward ${reqQty} units on PR ${pr.pr_number} but only ${pendingReceipt} pending from HO for this line.`,
+          category: "inventory_pr",
+        });
         await client.query("ROLLBACK");
         res.status(400).json({ error: "Inward quantity exceeds transferred pending quantity." });
         return;
@@ -2357,7 +2417,7 @@ async function main() {
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
-  registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);

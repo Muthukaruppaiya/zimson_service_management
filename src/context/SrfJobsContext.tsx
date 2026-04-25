@@ -18,7 +18,7 @@ type SrfJobsContextValue = {
   convertTransferredSrfToLocal: (jobId: string) => Promise<void>;
   supervisorRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
-  supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ dcNumber: string }>;
+  supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
   technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
   technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<void>;
@@ -28,6 +28,11 @@ type SrfJobsContextValue = {
   receiveOutwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   closeWithInvoice: (srfId: string, payload?: { hoSparesBillRef?: string; storeBillRef?: string }) => Promise<void>;
   getStatusHistory: (srfId: string) => Promise<Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }>>;
+  cancelDraftSrf: (srfId: string, reason: string) => Promise<void>;
+  patchStoreDraftSrf: (
+    srfId: string,
+    patch: { customerName?: string; phone?: string; watchBrand?: string; watchModel?: string; serial?: string },
+  ) => Promise<void>;
 };
 
 const SrfJobsContext = createContext<SrfJobsContextValue | null>(null);
@@ -123,7 +128,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   }, [refreshJobs]);
 
   const supervisorTransferToOtherHo = useCallback(async (jobId: string, payload: { targetRegionId: string; note?: string }) => {
-    const out = await apiJson<{ dcNumber: string }>(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/transfer-other-ho`, {
+    const out = await apiJson<{ queued?: boolean }>(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/transfer-other-ho`, {
       method: "POST",
       json: payload,
     });
@@ -199,6 +204,31 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     return out.rows;
   }, []);
 
+  const cancelDraftSrf = useCallback(
+    async (srfId: string, reason: string) => {
+      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/cancel`, {
+        method: "POST",
+        json: { reason },
+      });
+      await refreshJobs();
+    },
+    [refreshJobs],
+  );
+
+  const patchStoreDraftSrf = useCallback(
+    async (
+      srfId: string,
+      patch: { customerName?: string; phone?: string; watchBrand?: string; watchModel?: string; serial?: string },
+    ) => {
+      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/store-draft`, {
+        method: "PATCH",
+        json: patch,
+      });
+      await refreshJobs();
+    },
+    [refreshJobs],
+  );
+
   const value = useMemo<SrfJobsContextValue>(
     () => ({
       jobs,
@@ -222,6 +252,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       receiveOutwardByDc,
       closeWithInvoice,
       getStatusHistory,
+      cancelDraftSrf,
+      patchStoreDraftSrf,
     }),
     [
       jobs,
@@ -245,6 +277,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       receiveOutwardByDc,
       closeWithInvoice,
       getStatusHistory,
+      cancelDraftSrf,
+      patchStoreDraftSrf,
     ],
   );
 

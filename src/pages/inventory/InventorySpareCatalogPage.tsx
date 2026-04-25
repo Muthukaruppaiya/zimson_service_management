@@ -34,6 +34,8 @@ export function InventorySpareCatalogPage() {
   const apiMode = useApiMode();
   const { spares, addSpare } = useSpares();
   const { user } = useAuth();
+  const hideStockLogsButton =
+    user?.role === "ho_user" || user?.role === "ho_manager" || user?.role === "ho_admin" || user?.role === "ho_supervisor";
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -301,6 +303,7 @@ export function InventorySpareCatalogPage() {
           regionId,
           storeId: locationType === "STORE" ? storeId : null,
           quantity: qty,
+          mode: "add",
         },
       });
       await loadStock(selectedId);
@@ -532,6 +535,7 @@ export function InventorySpareCatalogPage() {
                         >
                           Print barcode
                         </button>
+                        {hideStockLogsButton ? null : (
                         <button
                           type="button"
                           onClick={() => openLogs(s.id)}
@@ -539,6 +543,7 @@ export function InventorySpareCatalogPage() {
                         >
                           Logs
                         </button>
+                        )}
                       </div>
                     </td>
                   </tr>

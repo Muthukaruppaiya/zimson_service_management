@@ -60,6 +60,11 @@ export function InventoryPurchaseRequestsPage() {
   const [hoStockLoading, setHoStockLoading] = useState(false);
   const [inwardPrId, setInwardPrId] = useState<string | null>(null);
   const [inwardQty, setInwardQty] = useState<Record<string, string>>({});
+  const [smReviewPr, setSmReviewPr] = useState<PrRow | null>(null);
+
+  const minNeededByDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const draftPrsForManager = useMemo(() => prs.filter((p) => p.status === "DRAFT"), [prs]);
 
   const spareNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -341,7 +346,13 @@ export function InventoryPurchaseRequestsPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="text-xs font-medium text-stone-600">Needed by</label>
-                <input type="date" className={inputClass} value={neededBy} onChange={(e) => setNeededBy(e.target.value)} />
+                <input
+                  type="date"
+                  min={minNeededByDate}
+                  className={inputClass}
+                  value={neededBy}
+                  onChange={(e) => setNeededBy(e.target.value)}
+                />
               </div>
               <div>
                 <label className="text-xs font-medium text-stone-600">Notes</label>
@@ -363,7 +374,7 @@ export function InventoryPurchaseRequestsPage() {
       ) : null}
 
       {isStoreManager ? (
-        <Card title="Store Manager approval" subtitle="Approve draft PR then send to HO" className="mb-8">
+        <Card title="Store Manager approval" subtitle="Draft PRs only — review details, then approve and send to HO" className="mb-8">
           <div className="max-h-[340px] overflow-auto rounded-xl border border-zimson-200/80">
             <table className="min-w-full text-left text-sm">
               <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
@@ -376,33 +387,85 @@ export function InventoryPurchaseRequestsPage() {
                 </tr>
               </thead>
               <tbody>
-                {prs.map((pr) => (
-                  <tr key={pr.id} className="border-b border-zimson-100">
-                    <td className="px-3 py-2 font-mono text-xs">{pr.prNumber}</td>
-                    <td className="px-3 py-2">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusPillClass(pr.status)}`}>{pr.status}</span>
-                    </td>
-                    <td className="px-3 py-2 text-xs text-stone-600">{pr.internalStatusLabel ?? pr.internalStatusCode ?? "-"}</td>
-                    <td className="px-3 py-2">{pr.items.length}</td>
-                    <td className="px-3 py-2">
-                      {pr.status === "DRAFT" ? (
-                        <button
-                          type="button"
-                          onClick={() => void storeApproveAndSend(pr.id)}
-                          className="rounded-lg bg-zimson-700 px-2 py-1 text-xs font-semibold text-white"
-                        >
-                          Approve + send HO
-                        </button>
-                      ) : (
-                        <span className="text-xs text-stone-500">—</span>
-                      )}
+                {draftPrsForManager.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-3 text-sm text-stone-600" colSpan={5}>
+                      No draft PRs waiting for store manager approval.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  draftPrsForManager.map((pr) => (
+                    <tr key={pr.id} className="border-b border-zimson-100">
+                      <td className="px-3 py-2 font-mono text-xs">{pr.prNumber}</td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusPillClass(pr.status)}`}>{pr.status}</span>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-stone-600">{pr.internalStatusLabel ?? pr.internalStatusCode ?? "-"}</td>
+                      <td className="px-3 py-2">{pr.items.length}</td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => setSmReviewPr(pr)}
+                          className="rounded-lg border border-zimson-400 bg-white px-2 py-1 text-xs font-semibold text-zimson-900"
+                        >
+                          Review details
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </Card>
+      ) : null}
+
+      {isStoreManager && smReviewPr ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-stone-900">Approve PR {smReviewPr.prNumber}</h3>
+            <p className="mt-1 text-sm text-stone-600">Needed by: {smReviewPr.neededBy ?? "—"} · Notes: {smReviewPr.notes || "—"}</p>
+            <div className="mt-4 max-h-64 overflow-auto rounded-xl border border-zimson-200/80">
+              <table className="min-w-full text-left text-sm">
+                <thead className="sticky top-0 bg-zimson-50/90 text-xs font-semibold uppercase text-stone-600">
+                  <tr>
+                    <th className="px-3 py-2">Spare</th>
+                    <th className="px-3 py-2">Qty</th>
+                    <th className="px-3 py-2">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {smReviewPr.items.map((it) => (
+                    <tr key={it.id} className="border-b border-zimson-100">
+                      <td className="px-3 py-2">{spareNameById.get(it.spareId) ?? it.spareId}</td>
+                      <td className="px-3 py-2">{it.qty}</td>
+                      <td className="px-3 py-2 text-xs text-stone-700">{it.reason || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSmReviewPr(null)}
+                className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-800"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void storeApproveAndSend(smReviewPr.id);
+                  setSmReviewPr(null);
+                }}
+                className="rounded-xl bg-zimson-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Approve + send to HO
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {isHo ? (

@@ -26,7 +26,7 @@ export function SrfBookingV2Page() {
   const { user } = useAuth();
   const { brands: catalogBrands } = useBrands();
   const { registerCustomer } = useCustomers();
-  const { createDraftJob, refreshPhotoSession, finalizeJob } = useSrfJobs();
+  const { createDraftJob, refreshPhotoSession, finalizeJob, cancelDraftSrf, patchStoreDraftSrf } = useSrfJobs();
   const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
 
   const [step, setStep] = useState(0);
@@ -64,6 +64,8 @@ export function SrfBookingV2Page() {
   const [newCustomerOtpIssued, setNewCustomerOtpIssued] = useState<string | null>(null);
   const [newCustomerOtpInput, setNewCustomerOtpInput] = useState("");
   const [newCustomerOtpError, setNewCustomerOtpError] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelBusy, setCancelBusy] = useState(false);
   const autoLookupTimerRef = useRef<number | null>(null);
   const lastAutoLookupPhoneRef = useRef("");
 
@@ -179,6 +181,43 @@ export function SrfBookingV2Page() {
   function goBack() {
     setError(null);
     setStep((s) => Math.max(0, s - 1));
+  }
+
+  async function handleCancelDraftSrf() {
+    if (!draft) return;
+    const r = cancelReason.trim();
+    if (r.length < 3) {
+      setError("Enter a cancellation reason (at least 3 characters).");
+      return;
+    }
+    setCancelBusy(true);
+    setError(null);
+    try {
+      await cancelDraftSrf(draft.srfId, r);
+      setDraft(null);
+      setPhotoCount(0);
+      setPhotoPreview([]);
+      setCancelReason("");
+      setStep(0);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not cancel SRF.");
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
+  async function saveDraftEditsAndGoWatchStep() {
+    if (!draft) {
+      setStep(1);
+      return;
+    }
+    setError(null);
+    try {
+      await patchStoreDraftSrf(draft.srfId, { customerName, phone, watchBrand, watchModel, serial });
+      setStep(1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save edits.");
+    }
   }
 
   function phone10(v: string): string {
@@ -512,6 +551,37 @@ export function SrfBookingV2Page() {
                 <button type="button" onClick={() => void regenerateCaptureLink()} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Regenerate link</button>
                 {captureUrl ? <a href={captureUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-zimson-700 px-4 py-2 text-sm font-semibold text-white">Open capture page</a> : null}
               </div>
+              {draft ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-950">
+                  <p className="font-semibold text-amber-950">Waiting on photos (draft / photo pending)</p>
+                  <p className="mt-1 text-xs text-amber-900">
+                    Edit customer or watch details on file, or cancel this SRF if the booking should not continue.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void saveDraftEditsAndGoWatchStep()}
+                    className="mt-2 rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+                  >
+                    Edit customer &amp; watch
+                  </button>
+                  <label className="mt-3 block text-xs font-medium text-amber-950">Cancel reason</label>
+                  <textarea
+                    className="mt-1 w-full rounded-lg border border-amber-300 bg-white px-2 py-1.5 text-xs text-stone-900"
+                    rows={2}
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Reason for cancelling this SRF"
+                  />
+                  <button
+                    type="button"
+                    disabled={cancelBusy}
+                    onClick={() => void handleCancelDraftSrf()}
+                    className="mt-2 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-800 disabled:opacity-50"
+                  >
+                    {cancelBusy ? "Cancelling…" : "Cancel SRF"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="mt-4 flex justify-between">

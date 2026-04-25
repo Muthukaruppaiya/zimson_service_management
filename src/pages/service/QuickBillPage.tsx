@@ -183,6 +183,7 @@ export function QuickBillPage() {
   const [watchRef, setWatchRef] = useState("");
 
   const [lines, setLines] = useState<LineItem[]>([emptyLine()]);
+  const [serviceChargeInr, setServiceChargeInr] = useState("");
   const [partPick, setPartPick] = useState("");
   const [technicianId, setTechnicianId] = useState<string>(SEED_TECHNICIANS[0]?.id ?? "");
   const [paymentMode, setPaymentMode] = useState<"Cash" | "Card" | "UPI">("Cash");
@@ -432,8 +433,13 @@ export function QuickBillPage() {
         amount: Number.parseFloat(l.amount),
       }))
       .filter((l) => l.description && !Number.isNaN(l.amount) && l.amount >= 0);
-    if (parsed.length === 0) {
-      setError("Add at least one service line (or pick a part from the catalog).");
+    const extra = Number.parseFloat(serviceChargeInr);
+    if (parsed.length === 0 && (!Number.isFinite(extra) || extra <= 0)) {
+      setError("Add at least one service line, a service/repair charge, or pick a part from the catalog.");
+      return false;
+    }
+    if (Number.isFinite(extra) && extra < 0) {
+      setError("Service / repair charge cannot be negative.");
       return false;
     }
     return true;
@@ -494,6 +500,10 @@ export function QuickBillPage() {
             technicianName: tech?.name ?? null,
             paymentMode,
             notes: notes.trim(),
+            serviceChargeInr: (() => {
+              const n = Number.parseFloat(serviceChargeInr);
+              return Number.isFinite(n) && n > 0 ? n : undefined;
+            })(),
             lines: parsedLines.map((l) => ({
               description: l.description,
               amount: l.amount,
@@ -535,10 +545,14 @@ export function QuickBillPage() {
     setOtpError(null);
   }
 
-  const total = lines.reduce((sum, l) => {
-    const n = Number.parseFloat(l.amount);
-    return sum + (Number.isNaN(n) ? 0 : n);
-  }, 0);
+  const total =
+    lines.reduce((sum, l) => {
+      const n = Number.parseFloat(l.amount);
+      return sum + (Number.isNaN(n) ? 0 : n);
+    }, 0) + (() => {
+      const n = Number.parseFloat(serviceChargeInr);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    })();
 
   function resetForm() {
     setCustomerType("B2C");
@@ -556,6 +570,7 @@ export function QuickBillPage() {
       setWatchRef("");
     }
     setLines([emptyLine()]);
+    setServiceChargeInr("");
     setPartPick("");
     setTechnicianId(SEED_TECHNICIANS[0]?.id ?? "");
     setPaymentMode("Cash");
@@ -968,6 +983,21 @@ export function QuickBillPage() {
                 </button>
               </div>
             ))}
+            <div className="mt-4 rounded-xl border border-zimson-200/80 bg-white/80 p-3 sm:max-w-xs">
+              <label htmlFor="qb-svc" className="text-xs font-medium text-stone-600">
+                Service / repair charge (INR, optional)
+              </label>
+              <input
+                id="qb-svc"
+                type="number"
+                min={0}
+                step={0.01}
+                value={serviceChargeInr}
+                onChange={(e) => setServiceChargeInr(e.target.value)}
+                className={inputClass}
+                placeholder="0"
+              />
+            </div>
           </div>
           <p className="mt-4 text-right text-sm font-semibold text-stone-900">
             Total: {total.toLocaleString(undefined, { style: "currency", currency: "INR" })}

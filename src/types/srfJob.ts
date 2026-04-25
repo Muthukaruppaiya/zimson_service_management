@@ -12,7 +12,8 @@ export type SrfJobStatus =
   | "ready_for_outward"
   | "dispatched_to_store"
   | "received_at_store"
-  | "closed";
+  | "closed"
+  | "cancelled";
 
 export type SrfJobPhoto = {
   id: string;
@@ -55,6 +56,11 @@ export type SrfJob = {
   photoSessionActive?: boolean;
   captureLinkDisabledAt?: string | null;
   requiresLocalConversion?: boolean;
+  transferTargetRegionId?: string | null;
+  transferTargetStoreId?: string | null;
+  transferSourceRegionId?: string | null;
+  transferSourceStoreId?: string | null;
+  transferSourceReference?: string | null;
   trackingUrl?: string | null;
   /** Store → SC challan */
   dcNumber: string | null;
