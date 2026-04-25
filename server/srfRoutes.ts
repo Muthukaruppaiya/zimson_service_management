@@ -895,19 +895,64 @@ export function registerSrfRoutes(
       );
       let updated = 0;
       for (const line of rows) {
-        const upd = await client.query(
-          `UPDATE srf_jobs
-           SET status = 'received_at_sc',
-               inward_at = now(),
-               store_id = CASE WHEN requires_local_conversion THEN $3::text ELSE store_id END,
-               updated_at = now(),
-               modified_by = $2
-           WHERE id = $1::uuid AND status = 'in_transit_sc'`,
-          [line.srf_id, actor.id, dc.from_store_id ?? null],
+        const current = await client.query<{
+          id: string;
+          status: string;
+          requires_local_conversion: boolean;
+          transfer_target_region_id: string | null;
+          transfer_source_store_id: string | null;
+        }>(
+          `SELECT id, status, requires_local_conversion, transfer_target_region_id, transfer_source_store_id
+           FROM srf_jobs
+           WHERE id = $1::uuid
+           FOR UPDATE`,
+          [line.srf_id],
         );
-        if ((upd.rowCount ?? 0) > 0) {
-          await appendStatusHistory(client, line.srf_id, "received_at_sc", actor.id, `Inwarded by DC ${dcNumber}.`);
-          updated += 1;
+        const row = current.rows[0];
+        if (!row || row.status !== "in_transit_sc") continue;
+        const isReturnToSenderHo = !row.requires_local_conversion && !!row.transfer_target_region_id;
+        if (isReturnToSenderHo) {
+          const updReturn = await client.query(
+            `UPDATE srf_jobs
+             SET status = 'ready_for_outward',
+                 inward_at = now(),
+                 ready_for_outward_at = now(),
+                 destination_store_id = COALESCE(destination_store_id, transfer_source_store_id),
+                 requires_local_conversion = false,
+                 transfer_target_region_id = NULL,
+                 transfer_target_store_id = NULL,
+                 transfer_source_region_id = NULL,
+                 transfer_source_store_id = NULL,
+                 updated_at = now(),
+                 modified_by = $2
+             WHERE id = $1::uuid AND status = 'in_transit_sc'`,
+            [line.srf_id, actor.id],
+          );
+          if ((updReturn.rowCount ?? 0) > 0) {
+            await appendStatusHistory(
+              client,
+              line.srf_id,
+              "ready_for_outward",
+              actor.id,
+              `Inwarded return DC ${dcNumber}. Sender HO can now dispatch to store.`,
+            );
+            updated += 1;
+          }
+        } else {
+          const upd = await client.query(
+            `UPDATE srf_jobs
+             SET status = 'received_at_sc',
+                 inward_at = now(),
+                 store_id = CASE WHEN requires_local_conversion THEN $3::text ELSE store_id END,
+                 updated_at = now(),
+                 modified_by = $2
+             WHERE id = $1::uuid AND status = 'in_transit_sc'`,
+            [line.srf_id, actor.id, dc.from_store_id ?? null],
+          );
+          if ((upd.rowCount ?? 0) > 0) {
+            await appendStatusHistory(client, line.srf_id, "received_at_sc", actor.id, `Inwarded by DC ${dcNumber}.`);
+            updated += 1;
+          }
         }
       }
       await client.query(
@@ -1280,6 +1325,7 @@ export function registerSrfRoutes(
       await client.query(
         `UPDATE srf_jobs
          SET status = 'closed',
+             reference = CONCAT(reference, '-TMP-', LEFT(id::text, 8)),
              closed_at = now(),
              destination_store_id = NULL,
              dc_number = NULL,
@@ -1517,6 +1563,8 @@ export function registerSrfRoutes(
           }))
           .filter((x: { srfId: string; destinationStoreId: string }) => x.srfId && x.destinationStoreId)
       : [];
+    const hoInvoiceRef = String(req.body?.hoInvoiceRef ?? "").trim();
+    const storeInvoiceRef = String(req.body?.storeInvoiceRef ?? "").trim();
     if (items.length === 0) {
       res.status(400).json({ error: "Select at least one SRF for outward." });
       return;
@@ -1555,6 +1603,12 @@ export function registerSrfRoutes(
       }
       const firstTransfer = transferCandidates[0] ?? null;
       const isInterHoBatch = !!firstTransfer;
+      const isReturnToSenderBatch = !!firstTransfer && !firstTransfer.requires_local_conversion;
+      if (isReturnToSenderBatch && !hoInvoiceRef) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Repair HO invoice ref is required for return-to-sender dispatch." });
+        return;
+      }
       const interHoTargetRegionId = firstTransfer?.requires_local_conversion
         ? firstTransfer.transfer_target_region_id
         : firstTransfer?.transfer_source_region_id;
@@ -1604,14 +1658,29 @@ export function registerSrfRoutes(
         if (row.transfer_target_region_id) {
           const movingToTargetHo = row.requires_local_conversion;
           if (movingToTargetHo) {
-            if (row.transfer_target_region_id !== actor.regionId) continue;
+            // Source HO dispatches the inter-HO transfer; actor must match current owning region.
+            if (row.region_id !== actor.regionId) continue;
           } else {
-            if (row.transfer_source_region_id !== actor.regionId) continue;
+            // Return leg is dispatched by the current (receiving/repairing) HO region.
+            if (row.region_id !== actor.regionId) continue;
             // Strict guard: return transfer can only go back to original source store.
             if (it.destinationStoreId !== row.transfer_source_store_id) {
               await client.query("ROLLBACK");
               res.status(400).json({ error: "Return transfer destination is fixed to source HO/store." });
               return;
+            }
+            // Free sender SRF reference from any archived temp rows so it can be restored on the live return row.
+            if (row.transfer_source_reference) {
+              await client.query(
+                `UPDATE srf_jobs
+                 SET reference = CONCAT(reference, '-ARCH-', LEFT(id::text, 8)),
+                     updated_at = now(),
+                     modified_by = $2
+                 WHERE reference = $1
+                   AND id <> $3::uuid
+                   AND status = 'closed'`,
+                [row.transfer_source_reference, actor.id, it.srfId],
+              );
             }
           }
           await client.query(
@@ -1619,6 +1688,7 @@ export function registerSrfRoutes(
              SET status = 'in_transit_sc',
                  region_id = CASE WHEN $4 THEN transfer_target_region_id ELSE transfer_source_region_id END,
                  reference = CASE WHEN $4 THEN reference ELSE COALESCE(transfer_source_reference, reference) END,
+                 ho_spares_bill_ref = CASE WHEN $4 THEN ho_spares_bill_ref ELSE COALESCE(NULLIF($5, ''), ho_spares_bill_ref) END,
                  dc_number = $2,
                  dispatched_to_sc_at = now(),
                  outward_dc_number = NULL,
@@ -1626,7 +1696,7 @@ export function registerSrfRoutes(
                  updated_at = now(),
                  modified_by = $3
              WHERE id = $1::uuid`,
-            [it.srfId, dcNumber, actor.id, movingToTargetHo],
+            [it.srfId, dcNumber, actor.id, movingToTargetHo, hoInvoiceRef],
           );
           await appendStatusHistory(
             client,
@@ -1643,11 +1713,12 @@ export function registerSrfRoutes(
              SET status = 'dispatched_to_store',
                  destination_store_id = $2::text,
                  outward_dc_number = $3,
+                 store_bill_ref = COALESCE(NULLIF($5, ''), store_bill_ref, ho_spares_bill_ref),
                  dispatched_to_store_at = now(),
                  updated_at = now(),
                  modified_by = $4
              WHERE id = $1::uuid`,
-            [it.srfId, it.destinationStoreId, dcNumber, actor.id],
+            [it.srfId, it.destinationStoreId, dcNumber, actor.id, storeInvoiceRef],
           );
           await appendStatusHistory(client, it.srfId, "dispatched_to_store", actor.id, `Dispatched in outward DC ${dcNumber}.`);
         }

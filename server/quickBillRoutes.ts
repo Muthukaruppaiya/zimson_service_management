@@ -63,6 +63,9 @@ export function registerQuickBillRoutes(
       }
     } else if (
       actor.role === "regional_admin" ||
+      actor.role === "ho_manager" ||
+      actor.role === "ho_user" ||
+      actor.role === "ho_accounts" ||
       actor.role === "service_centre_clerk" ||
       actor.role === "service_centre_supervisor" ||
       actor.role === "service_centre_inward" ||
@@ -75,7 +78,12 @@ export function registerQuickBillRoutes(
       }
       params.push(actor.regionId);
       conditions.push(`qb.region_id = $${params.length}::text`);
-    } else if (actor.role === "store_user") {
+    } else if (
+      actor.role === "store_user" ||
+      actor.role === "store_purchase_user" ||
+      actor.role === "store_manager" ||
+      actor.role === "store_accounts"
+    ) {
       if (!actor.regionId || !actor.storeId) {
         res.json({ bills: [] });
         return;

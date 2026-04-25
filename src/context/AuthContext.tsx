@@ -219,6 +219,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, message: "You do not have permission to create users." };
       }
 
+      if (actor.role === "ho_admin") {
+        if (input.role === "super_admin" || input.role === "regional_admin") {
+          return { ok: false, message: "HO Admin cannot assign super admin or regional admin roles." };
+        }
+        if (actor.regionId && input.regionId !== actor.regionId) {
+          return { ok: false, message: "HO Admin may only create users in the same HO region as their account." };
+        }
+        if (!actor.regionId) {
+          return { ok: false, message: "Your HO Admin account has no region; user creation is disabled." };
+        }
+      }
+
       if ((input.role === "store_user" || input.role === "store_purchase_user" || input.role === "store_manager" || input.role === "store_accounts") && !input.storeId) {
         return { ok: false, message: "Store is required for store roles." };
       }
@@ -279,6 +291,9 @@ export function useVisibleUsers(): SessionUser[] {
   if (user.role === "regional_admin") {
     return listUsers.filter((u) => u.regionId === user.regionId);
   }
-  if (user.role === "ho_admin") return listUsers;
+  if (user.role === "ho_admin") {
+    if (user.regionId) return listUsers.filter((u) => u.regionId === user.regionId);
+    return listUsers;
+  }
   return [];
 }

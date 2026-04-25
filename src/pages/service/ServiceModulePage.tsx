@@ -28,11 +28,20 @@ export function ServiceModulePage() {
             <Link to="/service/quick-bill" className={headerPrimary}>
               Quick bill
             </Link>
+            <Link to="/service/quick-bill-history" className={headerSecondary}>
+              Quick bill history
+            </Link>
             <Link to="/service/srf" className={headerSecondary}>
-              New SRF
+              New booking
+            </Link>
+            <Link to="/service/srf-register" className={headerSecondary}>
+              Booking list
             </Link>
             <Link to="/service/store-dispatch" className={headerSecondary}>
               Send to SC
+            </Link>
+            <Link to="/service/watch-inventory" className={headerSecondary}>
+              Watch inventory
             </Link>
             <Link to="/service/store-billing" className={headerSecondary}>
               Store billing
@@ -57,9 +66,14 @@ export function ServiceModulePage() {
             Multi-step intake: customer (B2B/B2C), watch, indicative estimate, then create SRF for approval
             link and HO workflow.
           </p>
-          <Link to="/service/srf" className={`${cardPrimary} mt-4`}>
-            Start SRF booking
-          </Link>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link to="/service/srf" className={cardPrimary}>
+              New booking
+            </Link>
+            <Link to="/service/srf-register" className={cardSecondary}>
+              Booking list
+            </Link>
+          </div>
         </Card>
       </div>
 
@@ -83,6 +97,20 @@ export function ServiceModulePage() {
               Service centre (HO) home
             </Link>
           ) : null}
+        </div>
+      </Card>
+
+      <Card
+        title="Watch inventory (HO + Store)"
+        subtitle="Separate queues for HO repair flow, store dispatch, and customer handover"
+      >
+        <p className="text-sm text-stone-600">
+          One consolidated tracker for watch movement: waiting dispatch, repair WIP, inward pending, and waiting customer handover.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Link to="/service/watch-inventory" className={cardPrimary}>
+            Open watch inventory
+          </Link>
         </div>
       </Card>
     </div>

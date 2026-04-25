@@ -3,7 +3,10 @@ import { NavLink } from "react-router-dom";
 const navItems: Array<{ to: string; label: string }> = [
   { to: "/service", label: "Home" },
   { to: "/service/quick-bill", label: "Quick bill" },
-  { to: "/service/srf", label: "SRF booking" },
+  { to: "/service/quick-bill-history", label: "Quick bill history" },
+  { to: "/service/srf", label: "New booking" },
+  { to: "/service/srf-register", label: "Booking list" },
+  { to: "/service/watch-inventory", label: "Watch inventory" },
   { to: "/service/customers/master", label: "Customer master" },
   { to: "/service/store-dispatch", label: "Store dispatch" },
   { to: "/service/store-billing", label: "Store billing" },

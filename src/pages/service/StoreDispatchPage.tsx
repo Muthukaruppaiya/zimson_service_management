@@ -48,6 +48,10 @@ export function StoreDispatchPage() {
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [outwardDcInput, setOutwardDcInput] = useState("");
   const [detailJobId, setDetailJobId] = useState<string | null>(null);
+  const [masterQuery, setMasterQuery] = useState("");
+  const [masterStatus, setMasterStatus] = useState<string>("ALL");
+  const [masterFromDate, setMasterFromDate] = useState("");
+  const [masterToDate, setMasterToDate] = useState("");
 
   const atStore = useMemo(() => {
     if (!user) return [];
@@ -89,6 +93,30 @@ export function StoreDispatchPage() {
     return jobs.filter((j) => jobVisibleToStoreUser(j, user));
   }, [jobs, user]);
 
+  const masterRows = useMemo(() => {
+    const q = masterQuery.trim().toLowerCase();
+    const from = masterFromDate ? new Date(`${masterFromDate}T00:00:00`).getTime() : null;
+    const to = masterToDate ? new Date(`${masterToDate}T23:59:59`).getTime() : null;
+    return visibleJobs
+      .filter((j) => (masterStatus === "ALL" ? true : j.status === masterStatus))
+      .filter((j) => {
+        const ts = new Date(j.createdAt).getTime();
+        if (from != null && ts < from) return false;
+        if (to != null && ts > to) return false;
+        return true;
+      })
+      .filter((j) => {
+        if (!q) return true;
+        return (
+          j.reference.toLowerCase().includes(q) ||
+          j.customerName.toLowerCase().includes(q) ||
+          j.phone.toLowerCase().includes(q) ||
+          `${j.watchBrand} ${j.watchModel}`.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [visibleJobs, masterQuery, masterStatus, masterFromDate, masterToDate]);
+
   function toggleAll(checked: boolean) {
     const next: Record<string, boolean> = {};
     if (checked) atStore.forEach((j) => (next[j.id] = true));
@@ -103,7 +131,12 @@ export function StoreDispatchPage() {
     try {
       const result = await dispatchToServiceCentre(ids);
       const rows = atStore.filter((j) => ids.includes(j.id));
-      printDcDocument("DC", result.dcNumber, rows);
+      printDcDocument("DC", result.dcNumber, rows, {
+        fromLocation: `Store: ${rows[0]?.storeName ?? rows[0]?.storeId ?? user?.storeId ?? "-"}`,
+        toLocation: `HO / Service Centre: ${rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-"}`,
+        fromHo: rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-",
+        toHo: rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-",
+      });
       setMessage({
         type: "ok",
         text: `Delivery challan ${result.dcNumber} created for this store only. Hand over watches with the DC copy; your regional HO inward desk will select this DC from their pending list (no manual typing).`,
@@ -317,6 +350,48 @@ export function StoreDispatchPage() {
       </Card>
 
       <Card title="SRF master table (all data)" subtitle="Track complete SRF lifecycle with DC/ODC and status" className="mt-8">
+        <div className="mb-3 grid gap-2 md:grid-cols-5">
+          <input
+            value={masterQuery}
+            onChange={(e) => setMasterQuery(e.target.value)}
+            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+            placeholder="Search SRF / customer / phone / watch"
+          />
+          <select
+            value={masterStatus}
+            onChange={(e) => setMasterStatus(e.target.value)}
+            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+          >
+            <option value="ALL">All status</option>
+            {Array.from(new Set(visibleJobs.map((j) => j.status))).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <input
+            type="date"
+            value={masterFromDate}
+            onChange={(e) => setMasterFromDate(e.target.value)}
+            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+          />
+          <input
+            type="date"
+            value={masterToDate}
+            onChange={(e) => setMasterToDate(e.target.value)}
+            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setMasterQuery("");
+              setMasterStatus("ALL");
+              setMasterFromDate("");
+              setMasterToDate("");
+            }}
+            className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+          >
+            Reset
+          </button>
+        </div>
         <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
           <table className="w-full min-w-[1080px] text-left text-sm">
             <thead>
@@ -331,8 +406,8 @@ export function StoreDispatchPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleJobs.map((j) => (
-                <tr key={j.id} className={rowClass}>
+              {masterRows.map((j) => (
+                <tr key={j.id} className={`${rowClass} cursor-pointer hover:bg-zimson-50/70`} onClick={() => setDetailJobId(j.id)}>
                   <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
                   <td className="px-3 py-2">{j.customerName}</td>
                   <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
@@ -343,7 +418,7 @@ export function StoreDispatchPage() {
                   </td>
                   <td className="px-3 py-2 font-mono text-xs">{j.dcNumber ?? "-"}</td>
                   <td className="px-3 py-2 font-mono text-xs">{j.outwardDcNumber ?? "-"}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       onClick={() => setDetailJobId(j.id)}
@@ -363,7 +438,7 @@ export function StoreDispatchPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="max-h-[85vh] w-full max-w-4xl overflow-auto rounded-2xl bg-white p-6 shadow-xl">
             {(() => {
-              const j = visibleJobs.find((x) => x.id === detailJobId);
+              const j = masterRows.find((x) => x.id === detailJobId) ?? visibleJobs.find((x) => x.id === detailJobId);
               if (!j) return <p className="text-sm text-stone-600">SRF details not found.</p>;
               const timeline = buildSrfTimeline(j);
               return (

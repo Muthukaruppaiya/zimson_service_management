@@ -12,13 +12,16 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegionsPage } from "./pages/RegionsPage";
 import { QuickBillPage } from "./pages/service/QuickBillPage";
+import { QuickBillHistoryPage } from "./pages/service/QuickBillHistoryPage";
 import { ServiceModulePage } from "./pages/service/ServiceModulePage";
 import { CustomerRegisterPage } from "./pages/service/customers/CustomerRegisterPage";
 import { CustomerMasterPage } from "./pages/service/customers/CustomerMasterPage";
 import { ServiceBillingPage } from "./pages/service/ServiceBillingPage";
+import { SrfBookingsRegisterPage } from "./pages/service/SrfBookingsRegisterPage";
 import { SrfBookingV2Page } from "./pages/service/SrfBookingV2Page";
 import { StoreBillingPage } from "./pages/service/StoreBillingPage";
 import { StoreDispatchPage } from "./pages/service/StoreDispatchPage";
+import { WatchInventoryPage } from "./pages/service/WatchInventoryPage";
 import { ScInwardPage } from "./pages/serviceCentre/ScInwardPage";
 import { ScLogisticsPage } from "./pages/serviceCentre/ScLogisticsPage";
 import { ScSupervisorPage } from "./pages/serviceCentre/ScSupervisorPage";
@@ -87,10 +90,26 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service/quick-bill-history"
+                  element={
+                    <ModuleRoute module="service">
+                      <QuickBillHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service/srf"
                   element={
                     <ModuleRoute module="service">
                       <SrfBookingV2Page />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/srf-register"
+                  element={
+                    <ModuleRoute module="service">
+                      <SrfBookingsRegisterPage />
                     </ModuleRoute>
                   }
                 />
@@ -107,6 +126,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service">
                       <StoreBillingPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/watch-inventory"
+                  element={
+                    <ModuleRoute module="service">
+                      <WatchInventoryPage />
                     </ModuleRoute>
                   }
                 />
@@ -187,6 +214,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service_centre">
                       <TechnicianWorkbenchPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service-centre/watch-inventory"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <WatchInventoryPage />
                     </ModuleRoute>
                   }
                 />

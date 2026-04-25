@@ -12,7 +12,7 @@ import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { buildDemoServiceInvoiceViewModel, mapQuickBillInvoiceToViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
-import type { QuickBillHistoryRow, QuickBillInvoice } from "../../types/quickBill";
+import type { QuickBillInvoice } from "../../types/quickBill";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import {
@@ -41,86 +41,6 @@ function emptyLine(): LineItem {
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 placeholder:text-stone-400 focus:ring-2";
-
-function customerLabelForHistory(row: QuickBillHistoryRow): string {
-  if (row.customerType === "B2B") return row.company?.trim() || "—";
-  return row.customerName?.trim() || "Walk-in / B2C";
-}
-
-function QuickBillHistoryCard({
-  rows,
-  loading,
-  error,
-  onRefresh,
-  className = "",
-}: {
-  rows: QuickBillHistoryRow[];
-  loading: boolean;
-  error: string | null;
-  onRefresh: () => void;
-  className?: string;
-}) {
-  return (
-    <Card
-      title="Quick bill history"
-      subtitle="Saved bills for your access scope (newest first)."
-      className={`print:hidden ${className}`.trim()}
-      action={
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={loading}
-          className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50 disabled:opacity-50"
-        >
-          {loading ? "Loading…" : "Refresh"}
-        </button>
-      }
-    >
-      {error ? <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
-      {rows.length === 0 && !loading ? (
-        <p className="text-sm text-stone-500">No saved quick bills yet.</p>
-      ) : null}
-      {rows.length > 0 ? (
-        <div className="max-h-[320px] overflow-auto rounded-xl border border-zimson-200/80">
-          <table className="min-w-full text-left text-sm">
-            <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-              <tr>
-                <th className="px-3 py-2">Date</th>
-                <th className="px-3 py-2">Invoice #</th>
-                <th className="px-3 py-2">Customer</th>
-                <th className="px-3 py-2">Brand</th>
-                <th className="px-3 py-2">Location</th>
-                <th className="px-3 py-2">Pay</th>
-                <th className="px-3 py-2 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className="border-b border-zimson-100">
-                  <td className="whitespace-nowrap px-3 py-2 text-stone-600">
-                    {new Date(row.createdAt).toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{row.billNumber}</td>
-                  <td className="max-w-[180px] truncate px-3 py-2 text-stone-800" title={customerLabelForHistory(row)}>
-                    {customerLabelForHistory(row)}
-                  </td>
-                  <td className="px-3 py-2">{row.watchBrand}</td>
-                  <td className="max-w-[140px] truncate px-3 py-2 text-xs text-stone-600" title={row.storeName ?? row.regionName ?? row.regionId}>
-                    {row.storeName ?? row.regionName ?? row.regionId}
-                  </td>
-                  <td className="px-3 py-2">{row.paymentMode}</td>
-                  <td className="px-3 py-2 text-right font-medium tabular-nums text-stone-900">
-                    {row.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-    </Card>
-  );
-}
 
 function QuickBillInvoicePanel({
   viewModel,
@@ -199,37 +119,7 @@ export function QuickBillPage() {
   const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
   const [spareOptionsLoading, setSpareOptionsLoading] = useState(false);
   const [barcodeSku, setBarcodeSku] = useState("");
-  const [historyRows, setHistoryRows] = useState<QuickBillHistoryRow[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
   const [invoiceHsnSac, setInvoiceHsnSac] = useState("9987");
-
-  const loadQuickBillHistory = useCallback(async () => {
-    if (!apiMode || !user) {
-      setHistoryRows([]);
-      return;
-    }
-    setHistoryLoading(true);
-    setHistoryError(null);
-    try {
-      const qs = new URLSearchParams();
-      qs.set("limit", "50");
-      if (user.role === "super_admin" && billingRegionId.trim()) {
-        qs.set("regionId", billingRegionId.trim());
-      }
-      const data = await apiJson<{ bills: QuickBillHistoryRow[] }>(`/api/service/quick-bills?${qs.toString()}`);
-      setHistoryRows(data.bills);
-    } catch (e) {
-      setHistoryError(e instanceof ApiError ? e.message : "Could not load quick bill history.");
-      setHistoryRows([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [apiMode, user, billingRegionId]);
-
-  useEffect(() => {
-    void loadQuickBillHistory();
-  }, [loadQuickBillHistory]);
 
   useEffect(() => {
     if (!apiMode || !user) return;
@@ -515,7 +405,6 @@ export function QuickBillPage() {
         setCompletion({ mode: "api", invoice });
         setAwaitingOtp(null);
         setOtpInput("");
-        void loadQuickBillHistory();
       } catch (e) {
         setOtpError(e instanceof ApiError ? e.message : "Could not save quick bill to the server.");
       } finally {
@@ -581,7 +470,6 @@ export function QuickBillPage() {
     setAwaitingOtp(null);
     setOtpInput("");
     setOtpError(null);
-    void loadQuickBillHistory();
   }
 
   if (completion?.mode === "api") {
@@ -597,13 +485,14 @@ export function QuickBillPage() {
           viewModel={mapQuickBillInvoiceToViewModel(completion.invoice, { defaultHsnSac: invoiceHsnSac })}
           onNew={resetForm}
         />
-        <QuickBillHistoryCard
-          className="mt-8"
-          rows={historyRows}
-          loading={historyLoading}
-          error={historyError}
-          onRefresh={() => void loadQuickBillHistory()}
-        />
+        <div className="mt-8 print:hidden">
+          <Link
+            to="/service/quick-bill-history"
+            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+          >
+            Open quick bill history page
+          </Link>
+        </div>
       </div>
     );
   }
@@ -684,19 +573,20 @@ export function QuickBillPage() {
         </Card>
       ) : null}
 
-      {apiMode ? (
-        <QuickBillHistoryCard
-          className="mb-8"
-          rows={historyRows}
-          loading={historyLoading}
-          error={historyError}
-          onRefresh={() => void loadQuickBillHistory()}
-        />
-      ) : (
-        <Card title="Quick bill history" subtitle="API mode is off — saved bills are not listed." className="mb-8 print:hidden">
-          <p className="text-sm text-stone-600">Turn on the API to load history from the database.</p>
-        </Card>
-      )}
+      <Card title="Quick bill history" subtitle="Separate register page" className="mb-8 print:hidden">
+        {!apiMode ? (
+          <p className="text-sm text-stone-600">API mode is off — saved bills are not listed.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/service/quick-bill-history"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Open quick bill history page
+            </Link>
+          </div>
+        )}
+      </Card>
 
       <form onSubmit={handlePrepareComplete} className="space-y-8">
         <Card

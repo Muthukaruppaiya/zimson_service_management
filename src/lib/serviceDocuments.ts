@@ -153,17 +153,51 @@ export function printFullSrfDocument(
   openPrintDocument(`SRF ${job.reference}`, html);
 }
 
-export function printDcDocument(kind: "DC" | "ODC", number: string, jobs: SrfJob[]): void {
+export function printDcDocument(
+  kind: "DC" | "ODC",
+  number: string,
+  jobs: SrfJob[],
+  opts?: {
+    fromLocation?: string;
+    toLocation?: string;
+    fromHo?: string;
+    toHo?: string;
+    hoInvoiceRef?: string;
+    storeInvoiceRef?: string;
+  },
+): void {
   const rows = jobs
     .map(
       (j, idx) =>
         `<tr><td>${idx + 1}</td><td>${j.reference}</td><td>${j.customerName}</td><td>${j.watchBrand} ${j.watchModel}</td><td>${j.serial}</td></tr>`,
     )
     .join("");
+  const first = jobs[0];
+  const defaultFromLocation =
+    kind === "DC"
+      ? `Store: ${first?.storeName ?? first?.storeId ?? "-"}`
+      : `HO / Service Centre: ${first?.regionName ?? first?.regionId ?? "-"}`;
+  const defaultToLocation =
+    kind === "DC"
+      ? `HO / Service Centre: ${first?.regionName ?? first?.regionId ?? "-"}`
+      : `Store: ${first?.destinationStoreId ?? first?.storeName ?? first?.storeId ?? "-"}`;
+  const fromLocation = opts?.fromLocation ?? defaultFromLocation;
+  const toLocation = opts?.toLocation ?? defaultToLocation;
+  const fromHo = opts?.fromHo ?? (first?.regionName ?? first?.regionId ?? "-");
+  const toHo = opts?.toHo ?? (first?.regionName ?? first?.regionId ?? "-");
+  const hoInvoiceRef = opts?.hoInvoiceRef ?? first?.hoSparesBillRef ?? "-";
+  const storeInvoiceRef = opts?.storeInvoiceRef ?? first?.storeBillRef ?? "-";
+
   const html = base(
     `${kind} ${number}`,
     `${qrBlock(number)}<h2 style="margin:0 0 12px">${kind} Document</h2>
      <div><strong>No:</strong> ${number}</div>
+     <div><strong>From Location:</strong> ${fromLocation}</div>
+     <div><strong>To Location:</strong> ${toLocation}</div>
+     <div><strong>From HO:</strong> ${fromHo}</div>
+     <div><strong>To HO:</strong> ${toHo}</div>
+     <div><strong>HO -> HO Invoice Ref:</strong> ${hoInvoiceRef}</div>
+     <div><strong>HO -> Store Invoice Ref:</strong> ${storeInvoiceRef}</div>
      <table style="width:100%;border-collapse:collapse;margin-top:12px" border="1" cellspacing="0" cellpadding="6">
        <thead><tr><th>#</th><th>SRF</th><th>Customer</th><th>Watch</th><th>Serial</th></tr></thead>
        <tbody>${rows || '<tr><td colspan="5">No rows</td></tr>'}</tbody>

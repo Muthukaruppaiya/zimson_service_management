@@ -70,10 +70,19 @@ export function ScLogisticsPage() {
 
   const [selectedDc, setSelectedDc] = useState("");
   const [inwardMsg, setInwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [inwardQuery, setInwardQuery] = useState("");
+  const [inwardFromDate, setInwardFromDate] = useState("");
+  const [inwardToDate, setInwardToDate] = useState("");
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
   const [destByJob, setDestByJob] = useState<Record<string, string>>({});
+  const [repairHoInvoiceRef, setRepairHoInvoiceRef] = useState("");
+  const [senderHoInvoiceRef, setSenderHoInvoiceRef] = useState("");
   const [outwardMsg, setOutwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [outwardQuery, setOutwardQuery] = useState("");
+  const [outwardFromDate, setOutwardFromDate] = useState("");
+  const [outwardToDate, setOutwardToDate] = useState("");
+  const [selectedJob, setSelectedJob] = useState<SrfJob | null>(null);
 
   const inTransit = useMemo(() => {
     if (!user) return [];
@@ -108,21 +117,82 @@ export function ScLogisticsPage() {
     }
   }, [pendingDcOptions, selectedDc]);
 
-  const inTransitByDc = useMemo(() => {
-    const map = new Map<string, SrfJob[]>();
-    for (const j of inTransit) {
-      const key = j.dcNumber ?? "—";
-      const list = map.get(key) ?? [];
-      list.push(j);
-      map.set(key, list);
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [inTransit]);
+  const inwardRows = useMemo(() => {
+    const q = inwardQuery.trim().toLowerCase();
+    const from = inwardFromDate ? new Date(`${inwardFromDate}T00:00:00`).getTime() : null;
+    const to = inwardToDate ? new Date(`${inwardToDate}T23:59:59`).getTime() : null;
+    return inTransit
+      .filter((j) => {
+        const ts = new Date(j.createdAt).getTime();
+        if (from != null && ts < from) return false;
+        if (to != null && ts > to) return false;
+        return true;
+      })
+      .filter((j) => {
+        if (!q) return true;
+        const loc = storeById.get(j.storeId);
+        return (
+          j.reference.toLowerCase().includes(q) ||
+          j.customerName.toLowerCase().includes(q) ||
+          j.phone.toLowerCase().includes(q) ||
+          `${j.watchBrand} ${j.watchModel}`.toLowerCase().includes(q) ||
+          (j.dcNumber ?? "").toLowerCase().includes(q) ||
+          (loc?.storeName ?? "").toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [inTransit, inwardQuery, inwardFromDate, inwardToDate, storeById]);
 
   const readyOutward = useMemo(() => {
     if (!user) return [];
     return jobs.filter((j) => j.status === "ready_for_outward" && jobVisibleToServiceCentre(j, user));
   }, [jobs, user]);
+
+  const allVisibleJobs = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter((j) => jobVisibleToServiceCentre(j, user));
+  }, [jobs, user]);
+
+  const allDcRows = useMemo(() => {
+    const rows = allVisibleJobs
+      .filter((j) => !!j.dcNumber)
+      .map((j) => ({ ...j, challan: j.dcNumber as string }))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return rows;
+  }, [allVisibleJobs]);
+
+  const allOdcRows = useMemo(() => {
+    const rows = allVisibleJobs
+      .filter((j) => !!j.outwardDcNumber)
+      .map((j) => ({ ...j, challan: j.outwardDcNumber as string }))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return rows;
+  }, [allVisibleJobs]);
+
+  const outwardRows = useMemo(() => {
+    const q = outwardQuery.trim().toLowerCase();
+    const from = outwardFromDate ? new Date(`${outwardFromDate}T00:00:00`).getTime() : null;
+    const to = outwardToDate ? new Date(`${outwardToDate}T23:59:59`).getTime() : null;
+    return readyOutward
+      .filter((j) => {
+        const ts = new Date(j.createdAt).getTime();
+        if (from != null && ts < from) return false;
+        if (to != null && ts > to) return false;
+        return true;
+      })
+      .filter((j) => {
+        if (!q) return true;
+        const loc = storeById.get(j.storeId);
+        return (
+          j.reference.toLowerCase().includes(q) ||
+          j.customerName.toLowerCase().includes(q) ||
+          j.phone.toLowerCase().includes(q) ||
+          `${j.watchBrand} ${j.watchModel}`.toLowerCase().includes(q) ||
+          (loc?.storeName ?? "").toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [readyOutward, outwardQuery, outwardFromDate, outwardToDate, storeById]);
 
   function setTab(next: "inward" | "outward") {
     setSearchParams(next === "inward" ? {} : { tab: "outward" }, { replace: true });
@@ -169,9 +239,9 @@ export function ScLogisticsPage() {
     setSelectedOut((s) => ({ ...s, [id]: !s[id] }));
   }
 
-  function toggleAllOut(checked: boolean) {
+  function toggleAllOut(checked: boolean, rows: SrfJob[]) {
     const next: Record<string, boolean> = {};
-    if (checked) readyOutward.forEach((j) => (next[j.id] = true));
+    if (checked) rows.forEach((j) => (next[j.id] = true));
     setSelectedOut(next);
   }
 
@@ -190,15 +260,51 @@ export function ScLogisticsPage() {
       const dest = destinationFor(jobId, j?.storeId ?? "");
       return { jobId, destinationStoreId: dest };
     });
+    const selectedRows = jobs.filter((j) => ids.includes(j.id));
+    const hasReturnToSender = selectedRows.some((j) => !!j.transferTargetRegionId && !j.requiresLocalConversion);
+    const hasNormalStoreDispatch = selectedRows.some((j) => !j.transferTargetRegionId);
+    if (hasReturnToSender && !repairHoInvoiceRef.trim()) {
+      setOutwardMsg({ type: "err", text: "Enter repair HO invoice ref before return-to-sender dispatch." });
+      return;
+    }
+    if (hasNormalStoreDispatch && !senderHoInvoiceRef.trim()) {
+      setOutwardMsg({ type: "err", text: "Enter sender HO invoice ref before dispatch to store." });
+      return;
+    }
     try {
-      const result = await createOutwardBatch(items);
+      const result = await createOutwardBatch(items, {
+        hoInvoiceRef: hasReturnToSender ? repairHoInvoiceRef.trim() : undefined,
+        storeInvoiceRef: hasNormalStoreDispatch ? senderHoInvoiceRef.trim() : undefined,
+      });
       const rows = jobs.filter((j) => ids.includes(j.id));
-      printDcDocument("ODC", result.odcNumber, rows);
+      const first = rows[0];
+      const regionNameById = new Map<string, string>(regions.map((r) => [r.id, r.name]));
+      const destLabels = Array.from(new Set(items.map((it) => it.destinationStoreId)))
+        .map((sid) => {
+          const loc = storeById.get(sid);
+          return loc ? `Store: ${loc.storeName} (HO: ${loc.regionName})` : `Store: ${sid}`;
+        });
+      const toLocation = destLabels.length === 1 ? destLabels[0] : `Multiple stores (${destLabels.length})`;
+      const fromHo = first?.regionName ?? (first?.regionId ? regionNameById.get(first.regionId) ?? first.regionId : "-");
+      const toHo =
+        hasReturnToSender && first?.transferSourceRegionId
+          ? regionNameById.get(first.transferSourceRegionId) ?? first.transferSourceRegionId
+          : fromHo;
+      printDcDocument("ODC", result.odcNumber, rows, {
+        fromLocation: `HO / Service Centre: ${fromHo}`,
+        toLocation,
+        fromHo,
+        toHo,
+        hoInvoiceRef: hasReturnToSender ? repairHoInvoiceRef.trim() : undefined,
+        storeInvoiceRef: hasNormalStoreDispatch ? senderHoInvoiceRef.trim() : undefined,
+      });
       setOutwardMsg({
         type: "ok",
         text: `Outward challan ${result.odcNumber} created. Selected watches are dispatched to their destination stores.`,
       });
       setSelectedOut({});
+      setRepairHoInvoiceRef("");
+      setSenderHoInvoiceRef("");
     } catch (e) {
       setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not create outward ODC." });
     }
@@ -310,8 +416,8 @@ export function ScLogisticsPage() {
           </Card>
 
           <Card
-            title="In transit to this HO"
-            subtitle="Grouped by DC — originating store is not the HO; inward confirms receipt at the service centre"
+            title={`Inward transit list (${inwardRows.length})`}
+            subtitle="Listed format with filters; click any row for full details"
             className="mt-8"
           >
             {inTransit.length === 0 ? (
@@ -320,35 +426,111 @@ export function ScLogisticsPage() {
                 appear in the dropdown above.
               </p>
             ) : (
-              <div className="space-y-6">
-                {inTransitByDc.map(([dc, list]) => {
-                  const first = list[0];
-                  const loc = storeById.get(first.storeId);
-                  return (
-                    <div key={dc}>
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
-                        <span className="font-mono text-zimson-900">{dc}</span>
-                        <span className="ml-2 font-normal normal-case text-stone-600">
-                          HO {loc?.regionName ?? first.regionId} · Store {loc?.storeName ?? first.storeId} ·{" "}
-                          {list.length} SRF{list.length === 1 ? "" : "s"}
-                        </span>
-                      </p>
-                      <ul className="space-y-2 text-sm">
-                        {list.map((j) => (
-                          <li
+              <div>
+                <div className="mb-3 grid gap-2 md:grid-cols-4">
+                  <input
+                    value={inwardQuery}
+                    onChange={(e) => setInwardQuery(e.target.value)}
+                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                    placeholder="Search SRF/customer/phone/watch/DC/store"
+                  />
+                  <input
+                    type="date"
+                    value={inwardFromDate}
+                    onChange={(e) => setInwardFromDate(e.target.value)}
+                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="date"
+                    value={inwardToDate}
+                    onChange={(e) => setInwardToDate(e.target.value)}
+                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInwardQuery("");
+                      setInwardFromDate("");
+                      setInwardToDate("");
+                    }}
+                    className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                      <tr>
+                        <th className="px-3 py-2">Date</th>
+                        <th className="px-3 py-2">DC</th>
+                        <th className="px-3 py-2">SRF</th>
+                        <th className="px-3 py-2">Customer</th>
+                        <th className="px-3 py-2">Watch</th>
+                        <th className="px-3 py-2">Store</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inwardRows.map((j) => {
+                        const loc = storeById.get(j.storeId);
+                        return (
+                          <tr
                             key={j.id}
-                            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zimson-200/80 bg-zimson-50/40 px-3 py-2"
+                            onClick={() => setSelectedJob(j)}
+                            className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
                           >
-                            <span className="font-mono font-semibold text-zimson-900">{j.reference}</span>
-                            <span className="text-stone-700">
-                              {j.watchBrand} {j.watchModel}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                })}
+                            <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleString()}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.dcNumber ?? "-"}</td>
+                            <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                            <td className="px-3 py-2">{j.customerName}</td>
+                            <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
+                            <td className="px-3 py-2 text-xs text-stone-600">{loc?.storeName ?? j.storeId}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </Card>
+          <Card
+            title={`All DC list (${allDcRows.length})`}
+            subtitle="Complete DC visibility for this HO scope (pending + completed)"
+            className="mt-8"
+          >
+            {allDcRows.length === 0 ? (
+              <p className="text-sm text-stone-600">No DC records found.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                    <tr>
+                      <th className="px-3 py-2">Date</th>
+                      <th className="px-3 py-2">DC</th>
+                      <th className="px-3 py-2">SRF</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Customer</th>
+                      <th className="px-3 py-2">Store</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allDcRows.map((j) => (
+                      <tr
+                        key={`all-dc-${j.id}`}
+                        onClick={() => setSelectedJob(j)}
+                        className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
+                      >
+                        <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleString()}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.dcNumber}</td>
+                        <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                        <td className="px-3 py-2 text-xs text-stone-700">{j.status.replace(/_/g, " ")}</td>
+                        <td className="px-3 py-2">{j.customerName}</td>
+                        <td className="px-3 py-2 text-xs text-stone-600">{storeById.get(j.storeId)?.storeName ?? j.storeId}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </Card>
@@ -378,13 +560,88 @@ export function ScLogisticsPage() {
               </p>
             ) : (
               <>
-                <div className="mt-4 mb-3 flex flex-wrap items-center justify-between gap-2">
+                {(() => {
+                  const selectedRows = readyOutward.filter((j) => !!selectedOut[j.id]);
+                  const needsRepairHoInvoice = selectedRows.some(
+                    (j) => !!j.transferTargetRegionId && !j.requiresLocalConversion,
+                  );
+                  if (!needsRepairHoInvoice) return null;
+                  return (
+                    <div className="mt-4 max-w-md rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-stone-600">
+                        Repair HO invoice ref (for sender HO)
+                      </label>
+                      <input
+                        value={repairHoInvoiceRef}
+                        onChange={(e) => setRepairHoInvoiceRef(e.target.value)}
+                        className={selectClass}
+                        placeholder="e.g. HO-REP-INV-1023"
+                      />
+                      <p className="mt-1 text-xs text-stone-500">
+                        This ref is carried to sender HO and auto-used as HO-to-store bill reference.
+                      </p>
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const selectedRows = readyOutward.filter((j) => !!selectedOut[j.id]);
+                  const needsSenderHoInvoice = selectedRows.some((j) => !j.transferTargetRegionId);
+                  if (!needsSenderHoInvoice) return null;
+                  return (
+                    <div className="mt-3 max-w-md rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-stone-600">
+                        Sender HO invoice ref (for store billing)
+                      </label>
+                      <input
+                        value={senderHoInvoiceRef}
+                        onChange={(e) => setSenderHoInvoiceRef(e.target.value)}
+                        className={selectClass}
+                        placeholder="e.g. HO-SND-INV-2099"
+                      />
+                      <p className="mt-1 text-xs text-stone-500">
+                        This invoice is attached during ODC dispatch and printed on the challan.
+                      </p>
+                    </div>
+                  );
+                })()}
+                <div className="mt-4 mb-3 grid gap-2 md:grid-cols-4">
+                  <input
+                    value={outwardQuery}
+                    onChange={(e) => setOutwardQuery(e.target.value)}
+                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                    placeholder="Search SRF/customer/phone/watch/store"
+                  />
+                  <input
+                    type="date"
+                    value={outwardFromDate}
+                    onChange={(e) => setOutwardFromDate(e.target.value)}
+                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="date"
+                    value={outwardToDate}
+                    onChange={(e) => setOutwardToDate(e.target.value)}
+                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOutwardQuery("");
+                      setOutwardFromDate("");
+                      setOutwardToDate("");
+                    }}
+                    className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <label className="flex items-center gap-2 text-sm text-stone-700">
                     <input
                       type="checkbox"
                       disabled={!canCreateOdc}
-                      checked={readyOutward.length > 0 && readyOutward.every((j) => selectedOut[j.id])}
-                      onChange={(e) => toggleAllOut(e.target.checked)}
+                      checked={outwardRows.length > 0 && outwardRows.every((j) => selectedOut[j.id])}
+                      onChange={(e) => toggleAllOut(e.target.checked, outwardRows)}
                       className="rounded border-zimson-400 text-zimson-600 focus:ring-zimson-500"
                     />
                     Select all
@@ -409,14 +666,21 @@ export function ScLogisticsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {readyOutward.map((j) => (
-                        <tr key={j.id} className="border-b border-zimson-100 last:border-0">
+                      {outwardRows.map((j) => (
+                        <tr
+                          key={j.id}
+                          onClick={() => setSelectedJob(j)}
+                          className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
+                        >
                           <td className="px-3 py-2 align-top">
                             <input
                               type="checkbox"
                               disabled={!canCreateOdc}
                               checked={!!selectedOut[j.id]}
-                              onChange={() => toggleOut(j.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleOut(j.id);
+                              }}
                               className="rounded border-zimson-400 text-zimson-600 focus:ring-zimson-500"
                             />
                           </td>
@@ -431,6 +695,7 @@ export function ScLogisticsPage() {
                               onChange={(e) =>
                                 setDestByJob((prev) => ({ ...prev, [j.id]: e.target.value }))
                               }
+                              onClick={(e) => e.stopPropagation()}
                               disabled={Boolean(j.transferTargetStoreId || j.transferSourceStoreId)}
                               className="w-full max-w-xs rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zimson-400/40"
                             >
@@ -454,8 +719,108 @@ export function ScLogisticsPage() {
               </>
             )}
           </Card>
+          <Card
+            title={`All ODC list (${allOdcRows.length})`}
+            subtitle="Complete ODC visibility for this HO scope (created + already dispatched)"
+            className="mt-8"
+          >
+            {allOdcRows.length === 0 ? (
+              <p className="text-sm text-stone-600">No ODC records found.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                    <tr>
+                      <th className="px-3 py-2">Date</th>
+                      <th className="px-3 py-2">ODC</th>
+                      <th className="px-3 py-2">SRF</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Customer</th>
+                      <th className="px-3 py-2">Store</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allOdcRows.map((j) => (
+                      <tr
+                        key={`all-odc-${j.id}`}
+                        onClick={() => setSelectedJob(j)}
+                        className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
+                      >
+                        <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleString()}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.outwardDcNumber}</td>
+                        <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                        <td className="px-3 py-2 text-xs text-stone-700">{j.status.replace(/_/g, " ")}</td>
+                        <td className="px-3 py-2">{j.customerName}</td>
+                        <td className="px-3 py-2 text-xs text-stone-600">{storeById.get(j.storeId)?.storeName ?? j.storeId}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
         </>
       )}
+      {selectedJob ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-3 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-stone-900">SRF details - {selectedJob.reference}</h3>
+                <p className="text-sm text-stone-600">{new Date(selectedJob.createdAt).toLocaleString()}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedJob(null)}
+                className="rounded-lg border px-3 py-1.5 text-sm"
+              >
+                Close
+              </button>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+              <table className="min-w-full text-left text-sm">
+                <tbody>
+                  <tr className="border-b border-zimson-100">
+                    <th className="w-56 bg-zimson-50/70 px-3 py-2">Status</th>
+                    <td className="px-3 py-2">{selectedJob.status.replace(/_/g, " ")}</td>
+                  </tr>
+                  <tr className="border-b border-zimson-100">
+                    <th className="bg-zimson-50/70 px-3 py-2">Customer</th>
+                    <td className="px-3 py-2">{selectedJob.customerName} ({selectedJob.phone})</td>
+                  </tr>
+                  <tr className="border-b border-zimson-100">
+                    <th className="bg-zimson-50/70 px-3 py-2">Watch</th>
+                    <td className="px-3 py-2">{selectedJob.watchBrand} {selectedJob.watchModel} · {selectedJob.serial}</td>
+                  </tr>
+                  <tr className="border-b border-zimson-100">
+                    <th className="bg-zimson-50/70 px-3 py-2">DC / ODC</th>
+                    <td className="px-3 py-2">DC: {selectedJob.dcNumber ?? "-"} · ODC: {selectedJob.outwardDcNumber ?? "-"}</td>
+                  </tr>
+                  <tr className="border-b border-zimson-100">
+                    <th className="bg-zimson-50/70 px-3 py-2">Region / Store</th>
+                    <td className="px-3 py-2">
+                      HO: {selectedJob.regionName ?? selectedJob.regionId} · Store: {storeById.get(selectedJob.storeId)?.storeName ?? selectedJob.storeId}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-zimson-100">
+                    <th className="bg-zimson-50/70 px-3 py-2">Timeline</th>
+                    <td className="px-3 py-2 text-xs text-stone-700">
+                      Dispatched to SC: {selectedJob.dispatchedToScAt ? new Date(selectedJob.dispatchedToScAt).toLocaleString() : "-"}<br />
+                      SC inward: {selectedJob.inwardAt ? new Date(selectedJob.inwardAt).toLocaleString() : "-"}<br />
+                      Dispatched to store: {selectedJob.dispatchedToStoreAt ? new Date(selectedJob.dispatchedToStoreAt).toLocaleString() : "-"}<br />
+                      Store inward: {selectedJob.receivedBackAtStoreAt ? new Date(selectedJob.receivedBackAtStoreAt).toLocaleString() : "-"}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th className="bg-zimson-50/70 px-3 py-2">Complaint</th>
+                    <td className="px-3 py-2">{selectedJob.complaint || "-"}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

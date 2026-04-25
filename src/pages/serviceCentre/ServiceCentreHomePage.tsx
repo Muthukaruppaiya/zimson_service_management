@@ -35,12 +35,20 @@ export function ServiceCentreHomePage() {
         title="Service centre (HO / regional)"
         description="Store DC inward → supervisor assigns → technician completes repair → logistics outward (ODC) to originating or alternate store."
         actions={
-          <Link
-            to="/service"
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Store / SRF
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/service-centre/watch-inventory"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Watch inventory
+            </Link>
+            <Link
+              to="/service"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Store / SRF
+            </Link>
+          </div>
         }
       />
 

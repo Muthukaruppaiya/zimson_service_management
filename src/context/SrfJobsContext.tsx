@@ -24,7 +24,10 @@ type SrfJobsContextValue = {
   technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<void>;
   submitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   technicianMarkRepairComplete: (jobId: string, technicianProfileId: string) => Promise<void>;
-  createOutwardBatch: (items: { jobId: string; destinationStoreId: string }[]) => Promise<{ odcNumber: string; moved: number }>;
+  createOutwardBatch: (
+    items: { jobId: string; destinationStoreId: string }[],
+    opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
+  ) => Promise<{ odcNumber: string; moved: number }>;
   receiveOutwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   closeWithInvoice: (srfId: string, payload?: { hoSparesBillRef?: string; storeBillRef?: string }) => Promise<void>;
   getStatusHistory: (srfId: string) => Promise<Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }>>;
@@ -175,10 +178,17 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
-  const createOutwardBatch = useCallback(async (items: { jobId: string; destinationStoreId: string }[]) => {
+  const createOutwardBatch = useCallback(async (
+    items: { jobId: string; destinationStoreId: string }[],
+    opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
+  ) => {
     const out = await apiJson<{ odcNumber: string; moved: number }>("/api/service/odcs", {
       method: "POST",
-      json: { items: items.map((x) => ({ srfId: x.jobId, destinationStoreId: x.destinationStoreId })) },
+      json: {
+        items: items.map((x) => ({ srfId: x.jobId, destinationStoreId: x.destinationStoreId })),
+        hoInvoiceRef: opts?.hoInvoiceRef,
+        storeInvoiceRef: opts?.storeInvoiceRef,
+      },
     });
     await refreshJobs();
     return out;

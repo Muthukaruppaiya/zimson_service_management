@@ -388,6 +388,8 @@ app.get("/api/users", requireAuth, async (req, res) => {
   let list = (await allUsers()).map(stripPassword);
   if (actor.role === "regional_admin") {
     list = list.filter((u) => u.regionId === actor.regionId);
+  } else if (actor.role === "ho_admin" && actor.regionId) {
+    list = list.filter((u) => u.regionId === actor.regionId);
   } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
     res.status(403).json({ error: "Forbidden." });
     return;
@@ -443,9 +445,30 @@ app.post("/api/users", requireAuth, async (req, res) => {
     return;
   }
 
+  if (actor.role === "ho_admin") {
+    if (!actor.regionId) {
+      res.status(403).json({ ok: false, message: "Your HO Admin account has no region; user creation is disabled." });
+      return;
+    }
+    if (input.regionId !== actor.regionId) {
+      res.status(400).json({ ok: false, message: "HO Admin may only create users in the same HO region as their account." });
+      return;
+    }
+  }
+
   if (STORE_ROLES.has(input.role) && !input.storeId) {
     res.status(400).json({ ok: false, message: "Store is required for store roles." });
     return;
+  }
+  if (STORE_ROLES.has(input.role) && input.storeId) {
+    const { rows: storeRows } = await dbPool.query<{ ok: number }>(
+      `SELECT 1 AS ok FROM stores WHERE id = $1 AND region_id = $2 LIMIT 1`,
+      [input.storeId, input.regionId],
+    );
+    if (storeRows.length === 0) {
+      res.status(400).json({ ok: false, message: "Selected store does not belong to the chosen region." });
+      return;
+    }
   }
   const overrideModules = moduleKeys(input.moduleAccessOverride);
 
