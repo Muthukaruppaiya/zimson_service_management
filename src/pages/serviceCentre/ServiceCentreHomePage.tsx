@@ -33,7 +33,7 @@ export function ServiceCentreHomePage() {
     <div>
       <PageHeader
         title="Service centre (HO / regional)"
-        description="Store DC inward → supervisor assigns → technician completes repair → logistics outward (ODC) to originating or alternate store."
+        description=""
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -53,11 +53,7 @@ export function ServiceCentreHomePage() {
       />
 
       <div className="grid gap-6 md:grid-cols-3">
-        <Card title="1. Logistics — inward &amp; outward" subtitle="Service centre clerk">
-          <p className="text-sm text-stone-600">
-            <strong>Inward:</strong> enter the store DC. <strong>Outward:</strong> after repair, select ready watches,
-            choose destination store per SRF if needed, and generate one ODC batch.
-          </p>
+        <Card title="Logistics">
           {inwardOk ? (
             <Link to="/service-centre/logistics" className={cardBtn}>
               Open logistics
@@ -67,10 +63,7 @@ export function ServiceCentreHomePage() {
           )}
         </Card>
 
-        <Card title="2. Supervisor" subtitle="Assign to technician by grade">
-          <p className="text-sm text-stone-600">
-            After inward, distribute each SRF to a technician based on skill level / grade for analysis.
-          </p>
+        <Card title="Supervisor">
           {supervisorOk ? (
             <Link to="/service-centre/supervisor" className={cardBtn}>
               Open supervisor desk
@@ -80,11 +73,7 @@ export function ServiceCentreHomePage() {
           )}
         </Card>
 
-        <Card title="3. Technician" subtitle="Analysis → estimate OK → repair complete">
-          <p className="text-sm text-stone-600">
-            Confirm the estimate, complete repair — job moves to <strong>ready for outward</strong>; clerk creates ODC
-            and may route to another store if the customer requested.
-          </p>
+        <Card title="Technician">
           {techOk ? (
             <Link to="/service-centre/technician" className={cardBtn}>
               Open technician queue

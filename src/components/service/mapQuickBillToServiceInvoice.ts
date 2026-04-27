@@ -47,7 +47,7 @@ export function buildDemoServiceInvoiceViewModel(
   if (input.watchRef.trim()) serviceMeta.push({ label: "Serial / ref.", value: input.watchRef.trim() });
   if (input.technicianName) serviceMeta.push({ label: "Technician", value: input.technicianName });
   serviceMeta.push({ label: "Payment mode", value: input.paymentMode });
-  serviceMeta.push({ label: "Mode", value: "Demo (not saved)" });
+  serviceMeta.push({ label: "Mode", value: "Counter billing" });
 
   const lines = input.lines
     .map((l, i) => ({

@@ -20,7 +20,7 @@ type DemoOtpGateProps = {
 
 export function DemoOtpGate({
   title,
-  subtitle = "In production this code would be sent by SMS/email. For the demo it is shown below — enter it to continue.",
+  subtitle = "For this environment, enter the verification code shown below to continue.",
   issuedCode,
   value,
   onChange,
@@ -35,7 +35,7 @@ export function DemoOtpGate({
     <Card title={title} subtitle={subtitle}>
       <div className="rounded-xl border-2 border-dashed border-zimson-400 bg-zimson-100/80 px-4 py-4 text-center">
         <p className="text-xs font-semibold uppercase tracking-wide text-zimson-900">
-          Demo verification code
+          Verification code
         </p>
         <p
           className="mt-2 font-mono text-3xl font-bold tracking-[0.2em] text-stone-900"

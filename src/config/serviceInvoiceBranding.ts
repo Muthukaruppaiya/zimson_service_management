@@ -3,14 +3,14 @@
  * Replace these values from org settings or API when you implement dynamic branding.
  */
 export const SERVICE_INVOICE_BRANDING = {
-  sellerLegalName: "Zimson Watches & Services Pvt. Ltd. (Demo)",
+  sellerLegalName: "Zimson Watches & Services Pvt. Ltd.",
   sellerAddressLines: [
     "Corporate / registered office address line 1",
     "City, State — PIN (placeholder)",
   ] as string[],
   sellerGstin: "29AABCU9603R1ZX (placeholder)",
   sellerPhone: "+91-0000-000000",
-  sellerEmail: "accounts@zimson.demo",
+  sellerEmail: "accounts@zimson.com",
   sellerStateCode: "29",
   bankDetailsLines: [
     "Bank: — (configure in settings)",

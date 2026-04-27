@@ -159,7 +159,7 @@ export function ServiceTaxSettingsPage() {
     <div>
       <PageHeader
         title="Tax & billing settings"
-        description="Organisation-wide defaults for GST percentages, default SAC/HSN on service invoices, and whether line rates are entered tax-inclusive. Counter billing screens load these values when the API is on."
+        description=""
         actions={
           <div className="flex gap-2">
             <Link

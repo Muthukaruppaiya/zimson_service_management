@@ -534,7 +534,7 @@ export function QuickBillPage() {
     return (
       <div>
         <ServiceBreadcrumb current="Quick bill" className="print:hidden" />
-        <PageHeader title="Quick bill" description="Demo mode — bill not persisted (API off)." className="print:hidden" />
+        <PageHeader title="Quick bill" description="Quick bill preview." className="print:hidden" />
         <QuickBillInvoicePanel viewModel={demoVm} onNew={resetForm} />
       </div>
     );
@@ -545,7 +545,7 @@ export function QuickBillPage() {
       <ServiceBreadcrumb current="Quick bill" />
       <PageHeader
         title="Quick bill"
-        description="B2C: customer fields are optional. B2B: GSTIN and PAN required. After OTP, the bill is saved (API on) and the invoice appears below on this page — no separate billing route."
+        description=""
       />
 
       {apiMode && user?.role === "super_admin" ? (
@@ -723,7 +723,7 @@ export function QuickBillPage() {
           </div>
         </Card>
 
-        <Card title="Watch (catalog)" subtitle="Brand list from master data; models from demo catalog for that brand">
+        <Card title="Watch (catalog)" subtitle="Brand list from master data; models from catalog for that brand">
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label htmlFor="qb-brand" className="text-xs font-medium text-stone-600">

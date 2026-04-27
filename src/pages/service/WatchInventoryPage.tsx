@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -133,28 +132,6 @@ export function WatchInventoryPage() {
       <PageHeader
         title="Watch inventory (HO + Store)"
         description="Listed register with status, filters, and click-to-open full SRF movement details."
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              to="/service/store-dispatch"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Store dispatch
-            </Link>
-            <Link
-              to="/service-centre/logistics"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              HO logistics
-            </Link>
-            <Link
-              to="/service/store-billing"
-              className="inline-flex rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
-            >
-              Store billing
-            </Link>
-          </div>
-        }
       />
 
       <Card title={`Open watch count: ${totalOpen}`} subtitle="Closed / cancelled are excluded" className="mb-6">

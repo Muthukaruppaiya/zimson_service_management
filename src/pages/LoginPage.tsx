@@ -66,7 +66,7 @@ export function LoginPage() {
 
         <div className="w-full max-w-md rounded-2xl border border-zimson-300/80 bg-white/95 p-6 shadow-lg backdrop-blur-sm md:p-8">
           <h2 className="text-lg font-semibold text-stone-900">Sign in</h2>
-          <p className="mt-1 text-sm text-stone-600">Use seeded demo credentials or your own account.</p>
+          <p className="mt-1 text-sm text-stone-600">Use available credentials or your own account.</p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
@@ -112,7 +112,7 @@ export function LoginPage() {
         </div>
 
         <div className="mt-8 w-full max-w-4xl rounded-2xl border border-zimson-300/70 bg-white/80 p-4 shadow-sm backdrop-blur-sm md:p-6">
-          <h3 className="text-sm font-semibold text-stone-900">Seeded demo logins</h3>
+          <h3 className="text-sm font-semibold text-stone-900">Available logins</h3>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[620px] border-collapse text-left text-sm">
               <thead>

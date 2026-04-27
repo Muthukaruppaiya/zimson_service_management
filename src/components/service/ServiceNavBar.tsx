@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 
-const navItems: Array<{ to: string; label: string }> = [
+const baseNavItems: Array<{ to: string; label: string }> = [
   { to: "/service", label: "Home" },
   { to: "/service/quick-bill", label: "Quick bill" },
   { to: "/service/quick-bill-history", label: "Quick bill history" },
@@ -12,7 +12,15 @@ const navItems: Array<{ to: string; label: string }> = [
   { to: "/service/store-billing", label: "Store billing" },
 ];
 
-export function ServiceNavBar() {
+type ServiceNavBarProps = {
+  includeServiceCentre?: boolean;
+};
+
+export function ServiceNavBar({ includeServiceCentre = false }: ServiceNavBarProps) {
+  const navItems = includeServiceCentre
+    ? [...baseNavItems, { to: "/service-centre", label: "Service centre" }]
+    : baseNavItems;
+
   return (
     <div className="mb-6 overflow-x-auto rounded-2xl border border-zimson-200/80 bg-zimson-50/60 p-2">
       <nav className="flex min-w-max items-center gap-2" aria-label="Service module sections">
