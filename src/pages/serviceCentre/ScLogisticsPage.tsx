@@ -70,7 +70,9 @@ export function ScLogisticsPage() {
 
   const [selectedDc, setSelectedDc] = useState("");
   const [inwardMsg, setInwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const [inwardQuery, setInwardQuery] = useState("");
+  const [inwardQuery, setInwardQuery] = useState(
+    searchParams.get("tab") !== "outward" ? searchParams.get("q") ?? "" : "",
+  );
   const [inwardFromDate, setInwardFromDate] = useState("");
   const [inwardToDate, setInwardToDate] = useState("");
 
@@ -79,9 +81,18 @@ export function ScLogisticsPage() {
   const [repairHoInvoiceRef, setRepairHoInvoiceRef] = useState("");
   const [senderHoInvoiceRef, setSenderHoInvoiceRef] = useState("");
   const [outwardMsg, setOutwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const [outwardQuery, setOutwardQuery] = useState("");
+  const [outwardQuery, setOutwardQuery] = useState(
+    searchParams.get("tab") === "outward" ? searchParams.get("q") ?? "" : "",
+  );
   const [outwardFromDate, setOutwardFromDate] = useState("");
   const [outwardToDate, setOutwardToDate] = useState("");
+
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (!q) return;
+    if (searchParams.get("tab") === "outward") setOutwardQuery(q);
+    else setInwardQuery(q);
+  }, [searchParams]);
   const [selectedJob, setSelectedJob] = useState<SrfJob | null>(null);
 
   const inTransit = useMemo(() => {

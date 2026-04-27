@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -71,12 +72,18 @@ function timelineLabel(job: SrfJob): string {
 export function WatchInventoryPage() {
   const { user } = useAuth();
   const { jobs } = useSrfJobs();
+  const [searchParams] = useSearchParams();
   const [laneFilter, setLaneFilter] = useState<"ALL" | "HO" | "STORE">("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | SrfJobStatus>("ALL");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) setQuery(q);
+  }, [searchParams]);
 
   const isAdminAllData =
     user?.role === "super_admin" || user?.role === "ho_admin" || user?.role === "regional_admin";

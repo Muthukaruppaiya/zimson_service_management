@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -15,14 +15,20 @@ function customerLabel(row: QuickBillHistoryRow): string {
 export function QuickBillHistoryPage() {
   const apiMode = useApiMode();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [rows, setRows] = useState<QuickBillHistoryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [payment, setPayment] = useState<"ALL" | "Cash" | "Card" | "UPI">("ALL");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [selected, setSelected] = useState<QuickBillHistoryRow | null>(null);
+
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) setQuery(q);
+  }, [searchParams]);
 
   const load = useCallback(async () => {
     if (!apiMode || !user) {
