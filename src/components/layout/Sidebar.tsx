@@ -3,6 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
 import { useAuth } from "../../context/AuthContext";
 import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } from "../../lib/appBranding";
+import type { UserRole } from "../../types/user";
 
 type IconName =
   | "dashboard"
@@ -12,7 +13,9 @@ type IconName =
   | "billing"
   | "settings"
   | "chevron"
-  | "sparkle";
+  | "sparkle"
+  | "logistics"
+  | "supervisor";
 
 function NavIcon({ name, className = "" }: { name: IconName; className?: string }) {
   const cls = `h-4 w-4 shrink-0 stroke-[1.75] ${className}`.trim();
@@ -70,17 +73,39 @@ function NavIcon({ name, className = "" }: { name: IconName; className?: string 
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
         </svg>
       );
+    case "logistics":
+      return (
+        <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zm10 0a2 2 0 11-4 0 2 2 0 014 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 011-1h2.05a2.5 2.5 0 014.9 0H20a1 1 0 011 1m-8 0h2m-9-9h6" />
+        </svg>
+      );
+    case "supervisor":
+      return (
+        <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      );
     default:
       return null;
   }
 }
 
-type ModuleKey = "dashboard" | "service" | "inventory" | "regions" | "users" | "settings";
+type ModuleKey =
+  | "dashboard"
+  | "service"
+  | "inventory"
+  | "regions"
+  | "users"
+  | "settings"
+  | "service_centre";
 
 type SidebarItem = {
   to: string;
   label: string;
   module: ModuleKey;
+  /** If provided, only these roles see the item (admins always see). */
+  roles?: UserRole[];
 };
 
 type SidebarSection = {
@@ -113,6 +138,23 @@ const ROLE_LABELS: Record<string, string> = {
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
   return parts.map((p) => p.charAt(0).toUpperCase()).join("") || "U";
+}
+
+function matchItem(itemTo: string, pathname: string, search: string): boolean {
+  const [itemPath, itemQuery] = itemTo.split("?");
+  const pathOk = pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+  if (!pathOk) return false;
+  if (!itemQuery) return true;
+  const itemParams = new URLSearchParams(itemQuery);
+  const currentParams = new URLSearchParams(search);
+  for (const [k, v] of itemParams.entries()) {
+    if (currentParams.get(k) !== v) {
+      // For service-centre/logistics?tab=inward, treat empty current tab as inward (page default).
+      if (k === "tab" && v === "inward" && !currentParams.get("tab")) continue;
+      return false;
+    }
+  }
+  return true;
 }
 
 export function Sidebar() {
@@ -172,6 +214,40 @@ export function Sidebar() {
         ],
       },
       {
+        title: "Logistics",
+        icon: "logistics",
+        accent: "from-orange-200/90 via-orange-100 to-orange-50",
+        iconText: "text-orange-800",
+        items: [
+          {
+            to: "/service-centre/logistics?tab=inward",
+            label: "Inward (DC)",
+            module: "service_centre",
+            roles: ["service_centre_inward", "service_centre_clerk"],
+          },
+          {
+            to: "/service-centre/logistics?tab=outward",
+            label: "Outward (ODC)",
+            module: "service_centre",
+            roles: ["service_centre_outward", "service_centre_clerk"],
+          },
+        ],
+      },
+      {
+        title: "Supervision",
+        icon: "supervisor",
+        accent: "from-teal-200/90 via-teal-100 to-teal-50",
+        iconText: "text-teal-800",
+        items: [
+          {
+            to: "/service-centre/supervisor",
+            label: "Assigning",
+            module: "service_centre",
+            roles: ["service_centre_supervisor", "ho_supervisor"],
+          },
+        ],
+      },
+      {
         title: "Settings",
         icon: "settings",
         accent: "from-violet-200/90 via-violet-100 to-violet-50",
@@ -186,19 +262,31 @@ export function Sidebar() {
       },
     ];
 
+    const isAdmin =
+      user.role === "super_admin" ||
+      user.role === "regional_admin" ||
+      user.role === "ho_admin";
+
     return all
       .map((section) => ({
         ...section,
-        items: section.items.filter((item) => canAccessModule(user, item.module)),
+        items: section.items.filter((item) => {
+          if (!canAccessModule(user, item.module)) return false;
+          if (item.roles && item.roles.length > 0) {
+            if (!isAdmin && !item.roles.includes(user.role)) return false;
+          }
+          return true;
+        }),
       }))
       .filter((section) => section.items.length > 0);
   }, [user]);
 
   useEffect(() => {
-    const current = location.pathname;
-    const hit = sections.find((s) => s.items.some((i) => current === i.to || current.startsWith(`${i.to}/`)));
+    const hit = sections.find((s) =>
+      s.items.some((i) => matchItem(i.to, location.pathname, location.search)),
+    );
     if (hit) setOpenSection(hit.title);
-  }, [location.pathname, sections]);
+  }, [location.pathname, location.search, sections]);
 
   useEffect(() => {
     const refresh = () => setLogoUrl(getAppLogoUrl());
@@ -295,8 +383,8 @@ export function Sidebar() {
         <div className="space-y-1">
           {sections.map((section) => {
             const isOpen = openSection === section.title;
-            const hasActiveChild = section.items.some(
-              (i) => location.pathname === i.to || location.pathname.startsWith(`${i.to}/`),
+            const hasActiveChild = section.items.some((i) =>
+              matchItem(i.to, location.pathname, location.search),
             );
             return (
               <div key={section.title}>
@@ -350,27 +438,28 @@ export function Sidebar() {
                 >
                   <div className="overflow-hidden">
                     <div className="ml-4 space-y-0.5 border-l border-dashed border-zimson-300/70 pl-3">
-                      {section.items.map((item) => (
-                        <NavLink
-                          key={item.to}
-                          to={item.to}
-                          end={
-                            item.to === "/service/srf" ||
-                            item.to === "/service/quick-bill" ||
-                            item.to === "/service/billing"
-                          }
-                          className={({ isActive }) =>
-                            [
+                      {section.items.map((item) => {
+                        const active = matchItem(item.to, location.pathname, location.search);
+                        return (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            end={
+                              item.to === "/service/srf" ||
+                              item.to === "/service/quick-bill" ||
+                              item.to === "/service/billing"
+                            }
+                            className={[
                               "relative block rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all",
-                              isActive
+                              active
                                 ? "bg-gradient-to-r from-zimson-50 to-white text-zimson-900 shadow-sm ring-1 ring-zimson-200/70 before:absolute before:-left-[14px] before:top-1/2 before:h-2 before:w-2 before:-translate-y-1/2 before:rounded-full before:bg-zimson-600 before:shadow-[0_0_0_3px_rgba(255,255,255,1)] before:content-['']"
                                 : "text-stone-600 hover:translate-x-0.5 hover:bg-white/90 hover:text-stone-900",
-                            ].join(" ")
-                          }
-                        >
-                          {item.label}
-                        </NavLink>
-                      ))}
+                            ].join(" ")}
+                          >
+                            {item.label}
+                          </NavLink>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
