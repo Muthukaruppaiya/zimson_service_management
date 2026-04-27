@@ -29,7 +29,10 @@ type SrfJobsContextValue = {
     opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
   ) => Promise<{ odcNumber: string; moved: number }>;
   receiveOutwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
-  closeWithInvoice: (srfId: string, payload?: { hoSparesBillRef?: string; storeBillRef?: string }) => Promise<void>;
+  closeWithInvoice: (
+    srfId: string,
+    payload?: { hoSparesBillRef?: string; storeBillRef?: string; noBillingHandover?: boolean },
+  ) => Promise<void>;
   getStatusHistory: (srfId: string) => Promise<Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }>>;
   cancelDraftSrf: (srfId: string, reason: string) => Promise<void>;
   patchStoreDraftSrf: (
@@ -202,7 +205,10 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     return out;
   }, [refreshJobs]);
 
-  const closeWithInvoice = useCallback(async (srfId: string, payload?: { hoSparesBillRef?: string; storeBillRef?: string }) => {
+  const closeWithInvoice = useCallback(async (
+    srfId: string,
+    payload?: { hoSparesBillRef?: string; storeBillRef?: string; noBillingHandover?: boolean },
+  ) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/close`, { method: "POST", json: payload ?? {} });
     await refreshJobs();
   }, [refreshJobs]);

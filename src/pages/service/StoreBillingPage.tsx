@@ -49,6 +49,8 @@ export function StoreBillingPage() {
     return receivedAtStore.find((j) => j.id === billingSelectedId) ?? null;
   }, [receivedAtStore, billingSelectedId]);
 
+  const isRejectedNoRepairFlow = billingJob?.customerReestimateResponse === "rejected";
+
   function startCollectionOtp(jobId: string) {
     const code = generateDemoOtp();
     setIssuedOtpByJob((prev) => ({ ...prev, [jobId]: code }));
@@ -60,6 +62,25 @@ export function StoreBillingPage() {
 
   async function closeJob(jobId: string) {
     await closeWithInvoice(jobId, { hoSparesBillRef, storeBillRef });
+    setIssuedOtpByJob((prev) => {
+      const next = { ...prev };
+      delete next[jobId];
+      return next;
+    });
+    setOtpInputByJob((prev) => {
+      const next = { ...prev };
+      delete next[jobId];
+      return next;
+    });
+    setOtpErrorByJob((prev) => {
+      const next = { ...prev };
+      delete next[jobId];
+      return next;
+    });
+  }
+
+  async function closeRejectedNoBilling(jobId: string) {
+    await closeWithInvoice(jobId, { noBillingHandover: true });
     setIssuedOtpByJob((prev) => {
       const next = { ...prev };
       delete next[jobId];
@@ -218,6 +239,11 @@ export function StoreBillingPage() {
               <span className="font-mono font-semibold text-zimson-900">{billingJob.reference}</span> ·{" "}
               {billingJob.customerName} · {billingJob.watchBrand} {billingJob.watchModel}
             </div>
+            {isRejectedNoRepairFlow ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Customer rejected re-estimate. This watch can be handed over without billing after store inward.
+              </div>
+            ) : null}
             <div className="rounded-xl bg-zimson-50 p-3 text-sm text-stone-700">
               <p className="font-semibold text-zimson-900">Supervisor used spares</p>
               {billingJob.usedSpares && billingJob.usedSpares.length > 0 ? (
@@ -247,6 +273,7 @@ export function StoreBillingPage() {
                 <p className="mt-1 text-xs text-amber-700">No spares slip submitted yet.</p>
               )}
             </div>
+            {!isRejectedNoRepairFlow ? (
             <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
               <table className="min-w-full text-left text-sm">
                 <tbody>
@@ -274,6 +301,9 @@ export function StoreBillingPage() {
                 </tbody>
               </table>
             </div>
+            ) : null}
+            {!isRejectedNoRepairFlow ? (
+              <>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="text-sm">
                 HO bill reference
@@ -321,7 +351,27 @@ export function StoreBillingPage() {
                 />
               </label>
             </div>
-            {!issuedOtpByJob[billingJob.id] ? (
+              </>
+            ) : null}
+            {isRejectedNoRepairFlow ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void closeRejectedNoBilling(billingJob.id)
+                    .then(() => {
+                      setMessage({ type: "ok", text: "Watch handed over and SRF closed without billing (re-estimate rejected)." });
+                      setBillingSelectedId("");
+                      setBillingRefInput("");
+                    })
+                    .catch((e) => {
+                      setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not complete no-billing handover." });
+                    });
+                }}
+                className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+              >
+                Handover to customer without billing
+              </button>
+            ) : !issuedOtpByJob[billingJob.id] ? (
               <button
                 type="button"
                 onClick={() => startCollectionOtp(billingJob.id)}

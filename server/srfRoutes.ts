@@ -1808,6 +1808,7 @@ export function registerSrfRoutes(
     const srfId = String(req.params.srfId ?? "").trim();
     const hoSparesBillRef = String(req.body?.hoSparesBillRef ?? "").trim();
     const storeBillRef = String(req.body?.storeBillRef ?? "").trim();
+    const noBillingHandover = Boolean(req.body?.noBillingHandover);
     try {
       const upd = await pool.query(
         `UPDATE srf_jobs
@@ -1820,18 +1821,29 @@ export function registerSrfRoutes(
          WHERE id = $1::uuid
            AND status = 'received_at_store'
            AND destination_store_id = $3::text
-           AND spares_slip_submitted_at IS NOT NULL`,
-        [srfId, actor.id, actor.storeId, hoSparesBillRef, storeBillRef],
+           AND (
+             spares_slip_submitted_at IS NOT NULL
+             OR ($6 AND customer_reestimate_response = 'rejected')
+           )`,
+        [srfId, actor.id, actor.storeId, hoSparesBillRef, storeBillRef, noBillingHandover],
       );
       if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "Only received SRF with submitted spares slip at your store can be closed." });
+        res.status(400).json({ error: "Only received SRF with billed repair (spares slip) or rejected re-estimate handover can be closed." });
         return;
       }
       const srfPhone = await pool.query<{ phone: string }>(`SELECT phone FROM srf_jobs WHERE id = $1::uuid`, [srfId]);
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        await appendStatusHistory(client, srfId, "closed", actor.id, "Closed after customer invoice.");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "closed",
+          actor.id,
+          noBillingHandover
+            ? "Closed after customer handover without billing (re-estimate rejected)."
+            : "Closed after customer invoice.",
+        );
         await maybeDisableTrackingToken(client, srfPhone.rows[0]?.phone ?? "");
         await client.query("COMMIT");
       } catch {
@@ -2058,14 +2070,22 @@ export function registerSrfRoutes(
       } else {
         await client.query(
           `UPDATE srf_jobs
-           SET status = 'customer_rejected',
+           SET status = 'ready_for_outward',
                customer_reestimate_response = 'rejected',
                customer_reestimate_responded_at = now(),
+               ready_for_outward_at = now(),
                updated_at = now()
            WHERE id = $1::uuid`,
           [srfId],
         );
         await appendStatusHistory(client, srfId, "customer_rejected", null, note || "Customer rejected re-estimate.");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "ready_for_outward",
+          null,
+          "Customer rejected re-estimate. Move watch back to store without repair billing.",
+        );
         await sendReestimateDecisionNotification({
           srfReference: srf.reference,
           customerName: srf.customer_name,
