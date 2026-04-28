@@ -6,6 +6,7 @@ import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
+import { resolvePublicAppBaseUrl } from "./publicAppUrl";
 
 type Authed = Request & { userId: string };
 
@@ -210,6 +211,126 @@ async function appendStatusHistory(
   );
 }
 
+type ActionLogInput = {
+  action: string;
+  description: string;
+  details?: unknown;
+  amountInr?: number | null;
+  referenceDoc?: string | null;
+  actor?: DemoUser | null;
+  actorOverride?: { id?: string | null; role?: string | null; name?: string | null };
+};
+
+type Queryable = Pool | PoolClient;
+
+async function appendActionLog(executor: Queryable, srfId: string, input: ActionLogInput): Promise<void> {
+  const actorId = input.actorOverride?.id ?? input.actor?.id ?? null;
+  const actorRole = input.actorOverride?.role ?? input.actor?.role ?? null;
+  const actorName = input.actorOverride?.name ?? input.actor?.displayName ?? null;
+  await executor.query(
+    `INSERT INTO srf_action_log
+       (srf_id, action, description, details, amount_inr, reference_doc, actor_id, actor_role, actor_name)
+     VALUES ($1::uuid, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)`,
+    [
+      srfId,
+      input.action,
+      input.description,
+      input.details === undefined ? null : JSON.stringify(input.details),
+      input.amountInr ?? null,
+      input.referenceDoc ?? null,
+      actorId,
+      actorRole,
+      actorName,
+    ],
+  );
+}
+
+async function startReestimateAttempt(
+  client: PoolClient,
+  srfId: string,
+  payload: { amountInr: number; remark: string; raisedBy: DemoUser | null },
+): Promise<{ id: string; attemptNo: number }> {
+  await client.query(
+    `UPDATE srf_reestimate_attempts
+       SET closed_at = COALESCE(closed_at, now())
+     WHERE srf_id = $1::uuid AND closed_at IS NULL`,
+    [srfId],
+  );
+  const { rows } = await client.query<{ next_no: number }>(
+    `SELECT COALESCE(MAX(attempt_no), 0) + 1 AS next_no
+       FROM srf_reestimate_attempts
+      WHERE srf_id = $1::uuid`,
+    [srfId],
+  );
+  const attemptNo = rows[0]?.next_no ?? 1;
+  const ins = await client.query<{ id: string }>(
+    `INSERT INTO srf_reestimate_attempts
+       (srf_id, attempt_no, amount_inr, remark, raised_by_id, raised_by_role, raised_by_name)
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+     RETURNING id`,
+    [
+      srfId,
+      attemptNo,
+      payload.amountInr,
+      payload.remark,
+      payload.raisedBy?.id ?? null,
+      payload.raisedBy?.role ?? null,
+      payload.raisedBy?.displayName ?? null,
+    ],
+  );
+  return { id: ins.rows[0]!.id, attemptNo };
+}
+
+async function recordReestimateCustomerResponse(
+  client: PoolClient,
+  srfId: string,
+  payload: { response: "accepted" | "rejected"; note: string },
+): Promise<void> {
+  await client.query(
+    `UPDATE srf_reestimate_attempts
+       SET customer_response = $2,
+           customer_response_at = now(),
+           customer_response_note = $3,
+           closed_at = CASE WHEN $2 = 'accepted' THEN now() ELSE closed_at END
+     WHERE id = (
+       SELECT id FROM srf_reestimate_attempts
+        WHERE srf_id = $1::uuid AND customer_response IS NULL
+        ORDER BY attempt_no DESC
+        LIMIT 1
+     )`,
+    [srfId, payload.response, payload.note],
+  );
+}
+
+async function recordSupervisorFollowup(
+  client: PoolClient,
+  srfId: string,
+  payload: { followup: "negotiate" | "move_to_odc"; note: string; actor: DemoUser | null },
+): Promise<void> {
+  await client.query(
+    `UPDATE srf_reestimate_attempts
+       SET supervisor_followup = $2,
+           supervisor_followup_note = $3,
+           supervisor_followup_at = now(),
+           supervisor_followup_by_id = $4,
+           supervisor_followup_by_name = $5,
+           closed_at = CASE WHEN $2 = 'move_to_odc' THEN now() ELSE closed_at END
+     WHERE id = (
+       SELECT id FROM srf_reestimate_attempts
+        WHERE srf_id = $1::uuid AND customer_response = 'rejected'
+        ORDER BY attempt_no DESC
+        LIMIT 1
+     )`,
+    [
+      srfId,
+      payload.followup,
+      payload.note,
+      payload.actor?.id ?? null,
+      payload.actor?.displayName ?? null,
+    ],
+  );
+}
+
 function ensurePhotoTokenSession(row: {
   id: string;
   status: string;
@@ -229,18 +350,6 @@ function normalizePhotoKind(input: string): "front" | "back" | "strap" | "serial
   const v = input.trim().toLowerCase();
   if (v === "front" || v === "back" || v === "strap" || v === "serial" || v === "damage") return v;
   return "other";
-}
-
-function appBaseUrlFromRequest(req: Request): string {
-  const protoHeader = String(req.headers["x-forwarded-proto"] ?? "").trim();
-  const hostHeader = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").trim();
-  if (protoHeader && hostHeader) {
-    return `${protoHeader.split(",")[0].trim()}://${hostHeader.split(",")[0].trim()}`.replace(/\/+$/, "");
-  }
-  if (hostHeader) {
-    return `${req.protocol}://${hostHeader.split(",")[0].trim()}`.replace(/\/+$/, "");
-  }
-  return "http://127.0.0.1:5173";
 }
 
 function parseReestimateEntry(
@@ -390,7 +499,7 @@ export function registerSrfRoutes(
          ORDER BY j.created_at DESC`,
         params,
       );
-      const baseUrl = appBaseUrlFromRequest(req);
+      const baseUrl = resolvePublicAppBaseUrl(req);
       const jobs = rows.map((r) => {
         const trackingToken = (r as { trackingToken?: string | null }).trackingToken;
         return {
@@ -413,16 +522,155 @@ export function registerSrfRoutes(
     }
     try {
       const { rows } = await pool.query(
-        `SELECT id, status, note, changed_by AS "changedBy", changed_at AS "changedAt"
-         FROM srf_status_history
-         WHERE srf_id = $1::uuid
-         ORDER BY changed_at DESC`,
+        `SELECT h.id,
+                h.status,
+                h.note,
+                h.changed_by AS "changedBy",
+                u.display_name AS "changedByName",
+                u.role AS "changedByRole",
+                h.changed_at AS "changedAt"
+         FROM srf_status_history h
+         LEFT JOIN app_users u ON u.id = h.changed_by
+         WHERE h.srf_id = $1::uuid
+         ORDER BY h.changed_at DESC`,
         [req.params.srfId],
       );
       res.json({ rows });
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not load status history." });
+    }
+  });
+
+  app.get("/api/service/srf-jobs/:srfId/trace", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanView(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    if (!srfId) {
+      res.status(400).json({ error: "Invalid SRF id." });
+      return;
+    }
+    try {
+      const jobRes = await pool.query<{
+        id: string;
+        reference: string;
+        status: string;
+        customerName: string;
+        phone: string;
+        watchBrand: string;
+        watchModel: string;
+        serial: string;
+        complaint: string;
+        estimateTotalInr: number;
+        regionId: string;
+        storeId: string;
+        destinationStoreId: string | null;
+        dcNumber: string | null;
+        outwardDcNumber: string | null;
+        hoSparesBillRef: string | null;
+        storeBillRef: string | null;
+        transferSourceReference: string | null;
+        transferSourceRegionId: string | null;
+        transferTargetRegionId: string | null;
+        createdAt: string;
+      }>(
+        `SELECT id, reference, status,
+                customer_name AS "customerName",
+                phone,
+                watch_brand AS "watchBrand",
+                watch_model AS "watchModel",
+                serial,
+                complaint,
+                estimate_total_inr::float8 AS "estimateTotalInr",
+                region_id AS "regionId",
+                store_id AS "storeId",
+                destination_store_id AS "destinationStoreId",
+                dc_number AS "dcNumber",
+                outward_dc_number AS "outwardDcNumber",
+                ho_spares_bill_ref AS "hoSparesBillRef",
+                store_bill_ref AS "storeBillRef",
+                transfer_source_reference AS "transferSourceReference",
+                transfer_source_region_id AS "transferSourceRegionId",
+                transfer_target_region_id AS "transferTargetRegionId",
+                created_at AS "createdAt"
+         FROM srf_jobs
+         WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const job = jobRes.rows[0];
+      if (!job) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+
+      const statusHistoryRes = await pool.query(
+        `SELECT h.id,
+                h.status,
+                h.note,
+                h.changed_by AS "changedById",
+                u.display_name AS "changedByName",
+                u.role AS "changedByRole",
+                h.changed_at AS "changedAt"
+         FROM srf_status_history h
+         LEFT JOIN app_users u ON u.id = h.changed_by
+         WHERE h.srf_id = $1::uuid
+         ORDER BY h.changed_at ASC`,
+        [srfId],
+      );
+
+      const actionsRes = await pool.query(
+        `SELECT id,
+                action,
+                description,
+                details,
+                amount_inr::float8 AS "amountInr",
+                reference_doc AS "referenceDoc",
+                actor_id AS "actorId",
+                actor_role AS "actorRole",
+                actor_name AS "actorName",
+                created_at AS "createdAt"
+         FROM srf_action_log
+         WHERE srf_id = $1::uuid
+         ORDER BY created_at ASC`,
+        [srfId],
+      );
+
+      const reestimatesRes = await pool.query(
+        `SELECT id,
+                attempt_no AS "attemptNo",
+                amount_inr::float8 AS "amountInr",
+                remark,
+                raised_by_id AS "raisedById",
+                raised_by_name AS "raisedByName",
+                raised_by_role AS "raisedByRole",
+                raised_at AS "raisedAt",
+                customer_response AS "customerResponse",
+                customer_response_at AS "customerResponseAt",
+                customer_response_note AS "customerResponseNote",
+                supervisor_followup AS "supervisorFollowup",
+                supervisor_followup_note AS "supervisorFollowupNote",
+                supervisor_followup_at AS "supervisorFollowupAt",
+                supervisor_followup_by_id AS "supervisorFollowupById",
+                supervisor_followup_by_name AS "supervisorFollowupByName",
+                closed_at AS "closedAt"
+         FROM srf_reestimate_attempts
+         WHERE srf_id = $1::uuid
+         ORDER BY attempt_no ASC`,
+        [srfId],
+      );
+
+      res.json({
+        job,
+        statusHistory: statusHistoryRes.rows,
+        actions: actionsRes.rows,
+        reestimates: reestimatesRes.rows,
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not load SRF trace." });
     }
   });
 
@@ -469,6 +717,13 @@ export function registerSrfRoutes(
       const srfId = ins.rows[0]?.id;
       if (!srfId) throw new Error("Could not create SRF draft.");
       await appendStatusHistory(client, srfId, "photo_pending", actor.id, "SRF draft created.");
+      await appendActionLog(client, srfId, {
+        action: "srf_draft_created",
+        description: `SRF draft created for ${customerName} (${watchBrand} ${watchModel}).`,
+        actor,
+        details: { regionId, storeId, customerKind, watchBrand, watchModel, serial },
+        referenceDoc: ref,
+      });
 
       const token = crypto.randomBytes(24).toString("hex");
       await client.query(
@@ -605,6 +860,13 @@ export function registerSrfRoutes(
         [srfId],
       );
       await appendStatusHistory(client, srfId, "at_store", actor.id, "SRF finalized after OTP.");
+      await appendActionLog(client, srfId, {
+        action: "srf_finalized",
+        description: `SRF finalized with estimate INR ${estimateTotalInr.toFixed(2)}.`,
+        amountInr: estimateTotalInr,
+        actor,
+        details: { complaint, selectedPartIds },
+      });
       const refRows = await client.query<{ reference: string; customer_name: string; phone: string }>(
         `SELECT reference, customer_name, phone FROM srf_jobs WHERE id = $1::uuid`,
         [srfId],
@@ -616,7 +878,7 @@ export function registerSrfRoutes(
         [phoneLast10(refRow?.phone ?? "")],
       );
       await client.query("COMMIT");
-      const trackingUrl = `${appBaseUrlFromRequest(req)}/track?t=${encodeURIComponent(trackingToken)}`;
+      const trackingUrl = `${resolvePublicAppBaseUrl(req)}/track?t=${encodeURIComponent(trackingToken)}`;
       await sendTrackingLink({
         phone: refRow?.phone ?? "",
         name: refRow?.customer_name ?? "Customer",
@@ -690,6 +952,12 @@ export function registerSrfRoutes(
         [srfId],
       );
       await appendStatusHistory(client, srfId, "cancelled", actor.id, reason);
+      await appendActionLog(client, srfId, {
+        action: "srf_cancelled",
+        description: `SRF cancelled by ${actor.displayName}. Reason: ${reason}`,
+        actor,
+        details: { reason, fromStatus: row.status },
+      });
       await client.query("COMMIT");
       res.json({ ok: true });
     } catch (e) {
@@ -842,6 +1110,12 @@ export function registerSrfRoutes(
           [srfId, dcNumber, actor.id],
         );
         await appendStatusHistory(client, srfId, "in_transit_sc", actor.id, `Dispatched to HO in ${dcNumber}.`);
+        await appendActionLog(client, srfId, {
+          action: "store_dc_dispatch",
+          description: `Watch dispatched to service centre via DC ${dcNumber}.`,
+          actor,
+          referenceDoc: dcNumber,
+        });
         moved += 1;
       }
       if (moved === 0) {
@@ -936,6 +1210,12 @@ export function registerSrfRoutes(
               actor.id,
               `Inwarded return DC ${dcNumber}. Sender HO can now dispatch to store.`,
             );
+            await appendActionLog(client, line.srf_id, {
+              action: "sender_ho_inward_return_dc",
+              description: `Sender HO inwarded the return DC ${dcNumber} after repair at other HO. Ready to dispatch to store.`,
+              actor,
+              referenceDoc: dcNumber,
+            });
             updated += 1;
           }
         } else {
@@ -951,6 +1231,12 @@ export function registerSrfRoutes(
           );
           if ((upd.rowCount ?? 0) > 0) {
             await appendStatusHistory(client, line.srf_id, "received_at_sc", actor.id, `Inwarded by DC ${dcNumber}.`);
+            await appendActionLog(client, line.srf_id, {
+              action: "sc_inward_dc",
+              description: `Service centre inwarded watch via DC ${dcNumber}.`,
+              actor,
+              referenceDoc: dcNumber,
+            });
             updated += 1;
           }
         }
@@ -1005,6 +1291,12 @@ export function registerSrfRoutes(
       try {
         await client.query("BEGIN");
         await appendStatusHistory(client, srfId, "assigned", actor.id, `Assigned to technician ${technicianId}.`);
+        await appendActionLog(client, srfId, {
+          action: "supervisor_assign_technician",
+          description: `Supervisor assigned technician ${technicianId}.`,
+          actor,
+          details: { technicianId },
+        });
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
@@ -1037,6 +1329,11 @@ export function registerSrfRoutes(
       return;
     }
     try {
+      const prior = await pool.query<{ status: string }>(
+        `SELECT status FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const wasRejected = prior.rows[0]?.status === "customer_rejected";
       const upd = await pool.query(
         `UPDATE srf_jobs
          SET status = 'reestimate_required',
@@ -1058,7 +1355,33 @@ export function registerSrfRoutes(
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+        if (wasRejected) {
+          await recordSupervisorFollowup(client, srfId, {
+            followup: "negotiate",
+            note,
+            actor,
+          });
+          await appendActionLog(client, srfId, {
+            action: "supervisor_negotiate_after_rejection",
+            description: `Supervisor negotiated with customer after rejection and is sending a revised estimate of INR ${amount.toFixed(2)}.`,
+            amountInr: amount,
+            actor,
+            details: { remark: note },
+          });
+        }
         await appendStatusHistory(client, srfId, "reestimate_required", actor.id, `Re-estimate INR ${amount.toFixed(2)}: ${note}`);
+        const attempt = await startReestimateAttempt(client, srfId, {
+          amountInr: amount,
+          remark: note,
+          raisedBy: actor,
+        });
+        await appendActionLog(client, srfId, {
+          action: "supervisor_request_reestimate",
+          description: `Supervisor raised re-estimate attempt #${attempt.attemptNo} for INR ${amount.toFixed(2)}: ${note}`,
+          amountInr: amount,
+          actor,
+          details: { attemptNo: attempt.attemptNo, remark: note },
+        });
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
@@ -1112,6 +1435,11 @@ export function registerSrfRoutes(
       try {
         await client.query("BEGIN");
         await appendStatusHistory(client, srfId, "ready_for_outward", actor.id, "Supervisor marked repair completed.");
+        await appendActionLog(client, srfId, {
+          action: "supervisor_repair_complete",
+          description: "Supervisor marked repair complete. Ready for outward.",
+          actor,
+        });
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
@@ -1122,6 +1450,69 @@ export function registerSrfRoutes(
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not mark repair complete." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/supervisor/move-to-odc", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can move SRF to outward queue." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    try {
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'ready_for_outward',
+             completed_at_sc = COALESCE(completed_at_sc, now()),
+             ready_for_outward_at = now(),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND status = 'customer_rejected'`,
+        [srfId, actor.id],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({
+          error: "Only customer-rejected SRFs can be moved to outward queue from this action.",
+        });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "ready_for_outward",
+          actor.id,
+          note ||
+            "Supervisor moved SRF to outward queue after customer declined re-estimate over phone. No repair done; customer will receive watch without billing.",
+        );
+        await recordSupervisorFollowup(client, srfId, {
+          followup: "move_to_odc",
+          note,
+          actor,
+        });
+        await appendActionLog(client, srfId, {
+          action: "supervisor_move_to_odc",
+          description:
+            note ||
+            "Supervisor moved SRF to outward queue (customer declined re-estimate; no repair).",
+          actor,
+          details: { reason: note },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not move SRF to outward queue." });
     }
   });
 
@@ -1202,6 +1593,18 @@ export function registerSrfRoutes(
           actor.id,
           note || `Queued for transfer to HO ${targetRegionId}. Create Outward DC to dispatch.`,
         );
+        await appendActionLog(client, srfId, {
+          action: "supervisor_transfer_other_ho",
+          description:
+            note || `Queued SRF for transfer to HO region ${targetRegionId}.`,
+          actor,
+          details: {
+            targetRegionId,
+            targetStoreId,
+            sourceRegionId: current.region_id,
+            sourceStoreId: current.store_id,
+          },
+        });
         await client.query("COMMIT");
         res.json({ ok: true, queued: true });
       } catch (e) {
@@ -1352,6 +1755,19 @@ export function registerSrfRoutes(
         actor.id,
         `Auto-created local SRF ${newRef}. Source HO reference: ${row.transfer_source_reference ?? row.reference}.`,
       );
+      await appendActionLog(client, srfId, {
+        action: "convert_to_local_close_source",
+        description: `Source SRF closed; cloned as local SRF ${newRef}.`,
+        actor,
+        details: { newSrfId, newReference: newRef },
+      });
+      await appendActionLog(client, newSrfId, {
+        action: "convert_to_local_create",
+        description: `Local SRF ${newRef} created from inter-HO transfer ${row.transfer_source_reference ?? row.reference}.`,
+        actor,
+        referenceDoc: newRef,
+        details: { sourceSrfId: srfId, sourceReference: row.transfer_source_reference ?? row.reference },
+      });
       await client.query("COMMIT");
       res.json({ ok: true, reference: newRef, newSrfId });
     } catch (e) {
@@ -1390,6 +1806,11 @@ export function registerSrfRoutes(
       try {
         await client.query("BEGIN");
         await appendStatusHistory(client, srfId, "estimate_ok", actor.id, "Technician confirmed estimate OK.");
+        await appendActionLog(client, srfId, {
+          action: "technician_estimate_ok",
+          description: `Technician ${actor.displayName} confirmed estimate OK.`,
+          actor,
+        });
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
@@ -1435,6 +1856,23 @@ export function registerSrfRoutes(
       try {
         await client.query("BEGIN");
         await appendStatusHistory(client, srfId, "reestimate_required", actor.id, note || "Technician requested re-estimate.");
+        const baseRow = await client.query<{ amt: number | null }>(
+          `SELECT estimate_total_inr::float8 AS amt FROM srf_jobs WHERE id = $1::uuid`,
+          [srfId],
+        );
+        const baseAmount = Number(baseRow.rows[0]?.amt ?? 0);
+        const attempt = await startReestimateAttempt(client, srfId, {
+          amountInr: baseAmount,
+          remark: note || "Technician requested re-estimate.",
+          raisedBy: actor,
+        });
+        await appendActionLog(client, srfId, {
+          action: "technician_request_reestimate",
+          description: `Technician raised re-estimate attempt #${attempt.attemptNo}: ${note || "(no remark)"}`,
+          amountInr: baseAmount,
+          actor,
+          details: { attemptNo: attempt.attemptNo, remark: note },
+        });
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
@@ -1494,6 +1932,18 @@ export function registerSrfRoutes(
       try {
         await client.query("BEGIN");
         await appendStatusHistory(client, srfId, "estimate_ok", actor.id, "Used spares slip submitted.");
+        const totalInr = lines.reduce(
+          (sum: number, l: { lineTotalInr: number; unitPriceInr: number; qty: number }) =>
+            sum + (Number.isFinite(l.lineTotalInr) ? l.lineTotalInr : l.unitPriceInr * l.qty),
+          0,
+        );
+        await appendActionLog(client, srfId, {
+          action: "spares_slip_submitted",
+          description: `Used spares slip submitted (${lines.length} line${lines.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}).`,
+          amountInr: totalInr,
+          actor,
+          details: { lines },
+        });
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
@@ -1536,6 +1986,11 @@ export function registerSrfRoutes(
       try {
         await client.query("BEGIN");
         await appendStatusHistory(client, srfId, "ready_for_outward", actor.id, "Repair completed.");
+        await appendActionLog(client, srfId, {
+          action: "technician_repair_complete",
+          description: `Technician ${actor.displayName} marked repair complete.`,
+          actor,
+        });
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
@@ -1707,6 +2162,15 @@ export function registerSrfRoutes(
               ? `Transferred to other HO in DC ${dcNumber}.`
               : `Returned to source HO in DC ${dcNumber} (source SRF reference restored).`,
           );
+          await appendActionLog(client, it.srfId, {
+            action: movingToTargetHo ? "inter_ho_dispatch_to_repair" : "inter_ho_return_to_sender",
+            description: movingToTargetHo
+              ? `Dispatched to repair HO via inter-HO DC ${dcNumber}.`
+              : `Returned to source HO via DC ${dcNumber} after repair (HO invoice ref ${hoInvoiceRef || "-"}).`,
+            actor,
+            referenceDoc: dcNumber,
+            details: { hoInvoiceRef },
+          });
         } else {
           await client.query(
             `UPDATE srf_jobs
@@ -1721,6 +2185,13 @@ export function registerSrfRoutes(
             [it.srfId, it.destinationStoreId, dcNumber, actor.id, storeInvoiceRef],
           );
           await appendStatusHistory(client, it.srfId, "dispatched_to_store", actor.id, `Dispatched in outward DC ${dcNumber}.`);
+          await appendActionLog(client, it.srfId, {
+            action: "ho_dispatch_to_store",
+            description: `Dispatched to store ${it.destinationStoreId} via ODC ${dcNumber}${storeInvoiceRef ? ` (Store invoice ref ${storeInvoiceRef})` : ""}.`,
+            actor,
+            referenceDoc: dcNumber,
+            details: { destinationStoreId: it.destinationStoreId, storeInvoiceRef },
+          });
         }
         moved += 1;
       }
@@ -1779,6 +2250,12 @@ export function registerSrfRoutes(
         );
         if ((upd.rowCount ?? 0) > 0) {
           await appendStatusHistory(client, line.srf_id, "received_at_store", actor.id, `Received against ODC ${dcNumber}.`);
+          await appendActionLog(client, line.srf_id, {
+            action: "store_inward_odc",
+            description: `Store inwarded watch via ODC ${dcNumber}.`,
+            actor,
+            referenceDoc: dcNumber,
+          });
           updated += 1;
         }
       }
@@ -1844,6 +2321,15 @@ export function registerSrfRoutes(
             ? "Closed after customer handover without billing (re-estimate rejected)."
             : "Closed after customer invoice.",
         );
+        await appendActionLog(client, srfId, {
+          action: noBillingHandover ? "store_no_billing_handover" : "store_close_with_invoice",
+          description: noBillingHandover
+            ? "Watch handed over to customer without billing (re-estimate rejected)."
+            : `Customer invoice raised and SRF closed. HO ref: ${hoSparesBillRef || "-"}; Store ref: ${storeBillRef || "-"}.`,
+          actor,
+          referenceDoc: storeBillRef || hoSparesBillRef || null,
+          details: { hoSparesBillRef, storeBillRef, noBillingHandover },
+        });
         await maybeDisableTrackingToken(client, srfPhone.rows[0]?.phone ?? "");
         await client.query("COMMIT");
       } catch {
@@ -2048,6 +2534,11 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Re-estimate response is not allowed for this SRF status." });
         return;
       }
+      const customerActor = {
+        id: null as string | null,
+        role: "customer",
+        name: srf.customer_name,
+      };
       if (accepted) {
         await client.query(
           `UPDATE srf_jobs
@@ -2060,6 +2551,13 @@ export function registerSrfRoutes(
           [srfId, srf.reestimate_requested_inr],
         );
         await appendStatusHistory(client, srfId, "assigned", null, note || "Customer accepted re-estimate.");
+        await recordReestimateCustomerResponse(client, srfId, { response: "accepted", note });
+        await appendActionLog(client, srfId, {
+          action: "customer_accept_reestimate",
+          description: `Customer accepted the proposed re-estimate.${note ? ` Note: ${note}` : ""}`,
+          amountInr: Number(srf.reestimate_requested_inr ?? 0),
+          actorOverride: customerActor,
+        });
         await sendReestimateDecisionNotification({
           srfReference: srf.reference,
           customerName: srf.customer_name,
@@ -2070,22 +2568,26 @@ export function registerSrfRoutes(
       } else {
         await client.query(
           `UPDATE srf_jobs
-           SET status = 'ready_for_outward',
+           SET status = 'customer_rejected',
                customer_reestimate_response = 'rejected',
                customer_reestimate_responded_at = now(),
-               ready_for_outward_at = now(),
                updated_at = now()
            WHERE id = $1::uuid`,
           [srfId],
         );
-        await appendStatusHistory(client, srfId, "customer_rejected", null, note || "Customer rejected re-estimate.");
         await appendStatusHistory(
           client,
           srfId,
-          "ready_for_outward",
+          "customer_rejected",
           null,
-          "Customer rejected re-estimate. Move watch back to store without repair billing.",
+          note || "Customer rejected re-estimate. Awaiting supervisor follow-up call.",
         );
+        await recordReestimateCustomerResponse(client, srfId, { response: "rejected", note });
+        await appendActionLog(client, srfId, {
+          action: "customer_reject_reestimate",
+          description: `Customer rejected the proposed re-estimate.${note ? ` Note: ${note}` : ""}`,
+          actorOverride: customerActor,
+        });
         await sendReestimateDecisionNotification({
           srfReference: srf.reference,
           customerName: srf.customer_name,

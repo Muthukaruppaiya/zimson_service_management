@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
+import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
@@ -79,6 +80,7 @@ export function WatchInventoryPage() {
   const [toDate, setToDate] = useState("");
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [traceId, setTraceId] = useState<string | null>(null);
 
   useEffect(() => {
     const q = searchParams.get("q");
@@ -231,6 +233,7 @@ export function WatchInventoryPage() {
                   <th className="px-3 py-2">Current stage</th>
                   <th className="px-3 py-2">Date</th>
                   <th className="px-3 py-2 text-right">Estimate</th>
+                  <th className="px-3 py-2 text-right">Trace</th>
                 </tr>
               </thead>
               <tbody>
@@ -255,6 +258,18 @@ export function WatchInventoryPage() {
                     <td className="px-3 py-2 text-xs text-stone-700">{timelineLabel(j)}</td>
                     <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleDateString()}</td>
                     <td className="px-3 py-2 text-right font-semibold text-stone-900">{asCurrency(Number(j.estimateTotalInr ?? 0))}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTraceId(j.id);
+                        }}
+                        className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                      >
+                        View trace
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -271,13 +286,22 @@ export function WatchInventoryPage() {
                 <h3 className="text-lg font-semibold text-stone-900">SRF details — {detail.reference}</h3>
                 <p className="text-sm text-stone-600">{detail.customerName} · {detail.watchBrand} {detail.watchModel}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setDetailId(null)}
-                className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm font-semibold text-stone-700"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTraceId(detail.id)}
+                  className="rounded-xl border border-zimson-300 bg-white px-3 py-1.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                >
+                  View full trace
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDetailId(null)}
+                  className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm font-semibold text-stone-700"
+                >
+                  Close
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
               <table className="min-w-full text-left text-sm">
@@ -298,6 +322,8 @@ export function WatchInventoryPage() {
           </div>
         </div>
       ) : null}
+
+      {traceId ? <SrfTraceModal srfId={traceId} onClose={() => setTraceId(null)} /> : null}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
+import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -460,14 +461,8 @@ export function SrfBookingV2Page() {
             <div className="mt-5 rounded-xl border border-zimson-200 bg-zimson-50/40 p-4">
               <p className="text-sm font-semibold text-zimson-900">Customer tracking link</p>
               <p className="mt-1 break-all font-mono text-xs text-stone-700">{trackingUrl}</p>
-              <p className="mt-1 text-xs text-stone-600">Share this URL with the customer via SMS/WhatsApp.</p>
-              <div className="mt-3">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(trackingUrl)}`}
-                  alt="tracking qr"
-                  className="h-[150px] w-[150px] rounded border border-zimson-200 bg-white p-1"
-                />
-              </div>
+              <p className="mt-1 text-xs text-stone-600">Share this URL with the customer via SMS/WhatsApp or scan the QR.</p>
+              <CustomerLinkQr url={trackingUrl} size={160} caption="Scan to open tracking" className="mt-3" />
             </div>
           ) : null}
         </Card>
@@ -539,7 +534,11 @@ export function SrfBookingV2Page() {
         <Card title="Step 3 — Photos">
           <div className="grid gap-5 md:grid-cols-[220px,1fr]">
             <div className="rounded-xl border border-zimson-200 p-3 text-center">
-              {captureUrl ? <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(captureUrl)}`} alt="capture qr" className="mx-auto h-48 w-48" /> : <p className="text-sm">Generating QR...</p>}
+              {captureUrl ? (
+                <CustomerLinkQr url={captureUrl} size={200} caption="Scan to upload photos" className="mx-auto text-center" />
+              ) : (
+                <p className="text-sm">Generating QR...</p>
+              )}
               <p className="mt-2 break-all text-xs text-stone-500">{captureUrl}</p>
             </div>
             <div className="space-y-3">

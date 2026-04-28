@@ -616,6 +616,46 @@ CREATE TABLE IF NOT EXISTS srf_status_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_srf_status_history_srf ON srf_status_history (srf_id, changed_at DESC);
+
+CREATE TABLE IF NOT EXISTS srf_action_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+  action VARCHAR(64) NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  details JSONB,
+  amount_inr NUMERIC(12,2),
+  reference_doc VARCHAR(120),
+  actor_id VARCHAR(80),
+  actor_role VARCHAR(64),
+  actor_name VARCHAR(240),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_srf_action_log_srf ON srf_action_log (srf_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_srf_action_log_action ON srf_action_log (action);
+
+CREATE TABLE IF NOT EXISTS srf_reestimate_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+  attempt_no INT NOT NULL,
+  amount_inr NUMERIC(12,2) NOT NULL,
+  remark TEXT NOT NULL DEFAULT '',
+  raised_by_id VARCHAR(80),
+  raised_by_role VARCHAR(64),
+  raised_by_name VARCHAR(240),
+  raised_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  customer_response VARCHAR(16),
+  customer_response_at TIMESTAMPTZ,
+  customer_response_note TEXT,
+  supervisor_followup VARCHAR(32),
+  supervisor_followup_note TEXT,
+  supervisor_followup_at TIMESTAMPTZ,
+  supervisor_followup_by_id VARCHAR(80),
+  supervisor_followup_by_name VARCHAR(240),
+  closed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_srf_reestimate_attempts_srf ON srf_reestimate_attempts (srf_id, attempt_no DESC);
 `;
 
 export async function runMigrations(pool: Pool): Promise<void> {

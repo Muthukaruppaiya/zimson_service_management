@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
+import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
@@ -17,7 +19,17 @@ export function ScSupervisorPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
   const { activeSpares } = useSpares();
-  const { jobs, assignTechnician, convertTransferredSrfToLocal, supervisorRequestReestimate, supervisorTransferToOtherHo, submitSparesSlip, supervisorMarkRepairComplete, getStatusHistory } = useSrfJobs();
+  const {
+    jobs,
+    assignTechnician,
+    convertTransferredSrfToLocal,
+    supervisorRequestReestimate,
+    supervisorTransferToOtherHo,
+    submitSparesSlip,
+    supervisorMarkRepairComplete,
+    supervisorMoveRejectedToOdc,
+    getStatusHistory,
+  } = useSrfJobs();
   const [pickTech, setPickTech] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<Record<string, string>>({});
   const [historyByJob, setHistoryByJob] = useState<Record<string, Array<{ id: string; status: string; note: string; changedAt: string }>>>({});
@@ -30,6 +42,9 @@ export function ScSupervisorPage() {
   const [repairPopupJobId, setRepairPopupJobId] = useState<string | null>(null);
   const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string }>>([{ spareId: "", qty: "1" }]);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
+  const [moveToOdcPopupJobId, setMoveToOdcPopupJobId] = useState<string | null>(null);
+  const [moveToOdcNote, setMoveToOdcNote] = useState("");
+  const [traceJobId, setTraceJobId] = useState<string | null>(null);
 
   const received = useMemo(() => {
     if (!user) return [];
@@ -41,7 +56,10 @@ export function ScSupervisorPage() {
     if (!user) return [];
     return jobs.filter(
       (j) =>
-        (j.status === "assigned" || j.status === "estimate_ok" || j.status === "reestimate_required") &&
+        (j.status === "assigned" ||
+          j.status === "estimate_ok" ||
+          j.status === "reestimate_required" ||
+          j.status === "customer_rejected") &&
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
@@ -122,6 +140,34 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({
         ...f,
         [reestimatePopupJobId]: e instanceof Error ? e.message : "Could not mark re-estimate.",
+      }));
+    }
+  }
+
+  function openMoveToOdcPopup(jobId: string) {
+    setMoveToOdcPopupJobId(jobId);
+    setMoveToOdcNote("");
+  }
+
+  function closeMoveToOdcPopup() {
+    setMoveToOdcPopupJobId(null);
+    setMoveToOdcNote("");
+  }
+
+  async function confirmMoveToOdc() {
+    if (!moveToOdcPopupJobId) return;
+    try {
+      await supervisorMoveRejectedToOdc(moveToOdcPopupJobId, moveToOdcNote.trim());
+      setFeedback((f) => ({
+        ...f,
+        [moveToOdcPopupJobId]:
+          "Moved to outward queue. Logistics can now create ODC and watch will be returned to store without billing.",
+      }));
+      closeMoveToOdcPopup();
+    } catch (e) {
+      setFeedback((f) => ({
+        ...f,
+        [moveToOdcPopupJobId]: e instanceof Error ? e.message : "Could not move to ODC.",
       }));
     }
   }
@@ -348,6 +394,13 @@ export function ScSupervisorPage() {
                   >
                     {historyByJob[j.id] ? "Hide history" : "Show history"}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setTraceJobId(j.id)}
+                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                  >
+                    View full trace
+                  </button>
                 </div>
                 {feedback[j.id] ? (
                   <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p>
@@ -429,15 +482,30 @@ export function ScSupervisorPage() {
                       <p className="font-semibold">Waiting for customer approval from tracking link.</p>
                       {j.trackingUrl ? (
                         <>
-                          <p className="mt-2 text-[11px]">Share this link with customer:</p>
+                          <p className="mt-2 text-[11px]">Share this link with customer (SMS / WhatsApp / QR):</p>
                           <p className="mt-1 break-all rounded bg-white/80 px-2 py-1 font-mono text-[11px] text-stone-700">{j.trackingUrl}</p>
+                          <CustomerLinkQr url={j.trackingUrl} size={140} caption="Customer scans to open tracking" className="mt-2" />
                         </>
                       ) : (
                         <p className="mt-1 text-[11px]">Tracking link is not available.</p>
                       )}
                     </div>
                   ) : null}
-                  {j.status !== "reestimate_required" ? (
+                  {j.status === "customer_rejected" ? (
+                    <div className="w-full rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+                      <p className="font-semibold">
+                        Customer rejected the re-estimate. Watch is on hold for supervisor follow-up.
+                      </p>
+                      <p className="mt-1 text-[11px]">
+                        Call the customer and try to negotiate. If they agree on a revised amount, click
+                        <span className="font-semibold"> &quot;Negotiate &amp; send re-estimate&quot;</span> to share the new
+                        estimate via tracking link. If the customer still does not want the repair, click
+                        <span className="font-semibold"> &quot;Move to ODC&quot;</span> to send the watch back to the store
+                        without billing.
+                      </p>
+                    </div>
+                  ) : null}
+                  {j.status !== "reestimate_required" && j.status !== "customer_rejected" ? (
                     <button
                       type="button"
                       onClick={() => openRepairPopup(j.id)}
@@ -452,8 +520,17 @@ export function ScSupervisorPage() {
                     disabled={j.status === "reestimate_required"}
                     className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Need re-estimate
+                    {j.status === "customer_rejected" ? "Negotiate & send re-estimate" : "Need re-estimate"}
                   </button>
+                  {j.status === "customer_rejected" ? (
+                    <button
+                      type="button"
+                      onClick={() => openMoveToOdcPopup(j.id)}
+                      className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+                    >
+                      Move to ODC (no repair)
+                    </button>
+                  ) : null}
                   {(j.status === "assigned" || j.status === "estimate_ok") ? (
                     <button
                       type="button"
@@ -469,6 +546,13 @@ export function ScSupervisorPage() {
                     className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
                   >
                     {historyByJob[j.id] ? "Hide history" : "Show history"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTraceJobId(j.id)}
+                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                  >
+                    View full trace
                   </button>
                 </div>
                 {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
@@ -656,6 +740,42 @@ export function ScSupervisorPage() {
           </div>
         </div>
       ) : null}
+      {moveToOdcPopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-rose-900">Move SRF to outward queue</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Use this only after speaking with the customer and confirming they do not want the repair. The
+              watch will be returned to the store via ODC and handed over without billing.
+            </p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Reason / call summary (optional)
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={3}
+                  value={moveToOdcNote}
+                  onChange={(e) => setMoveToOdcNote(e.target.value)}
+                  placeholder="e.g. Spoke with customer on 12-Apr; declined revised estimate of INR 2,500."
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={closeMoveToOdcPopup} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmMoveToOdc()}
+                className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Confirm — move to ODC
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {traceJobId ? <SrfTraceModal srfId={traceJobId} onClose={() => setTraceJobId(null)} /> : null}
     </div>
   );
 }

@@ -3,6 +3,78 @@ import { apiJson } from "../lib/api";
 import type { CreateSrfJobInput, SrfJob, UsedSpareLine } from "../types/srfJob";
 import { useAuth } from "./AuthContext";
 
+export type SrfTraceStatusRow = {
+  id: string;
+  status: string;
+  note: string;
+  changedById: string | null;
+  changedByName: string | null;
+  changedByRole: string | null;
+  changedAt: string;
+};
+
+export type SrfTraceActionRow = {
+  id: string;
+  action: string;
+  description: string;
+  details: unknown;
+  amountInr: number | null;
+  referenceDoc: string | null;
+  actorId: string | null;
+  actorRole: string | null;
+  actorName: string | null;
+  createdAt: string;
+};
+
+export type SrfTraceReestimateAttempt = {
+  id: string;
+  attemptNo: number;
+  amountInr: number;
+  remark: string;
+  raisedById: string | null;
+  raisedByName: string | null;
+  raisedByRole: string | null;
+  raisedAt: string;
+  customerResponse: "accepted" | "rejected" | null;
+  customerResponseAt: string | null;
+  customerResponseNote: string | null;
+  supervisorFollowup: "negotiate" | "move_to_odc" | null;
+  supervisorFollowupNote: string | null;
+  supervisorFollowupAt: string | null;
+  supervisorFollowupById: string | null;
+  supervisorFollowupByName: string | null;
+  closedAt: string | null;
+};
+
+export type SrfTrace = {
+  job: {
+    id: string;
+    reference: string;
+    status: string;
+    customerName: string;
+    phone: string;
+    watchBrand: string;
+    watchModel: string;
+    serial: string;
+    complaint: string;
+    estimateTotalInr: number;
+    regionId: string;
+    storeId: string;
+    destinationStoreId: string | null;
+    dcNumber: string | null;
+    outwardDcNumber: string | null;
+    hoSparesBillRef: string | null;
+    storeBillRef: string | null;
+    transferSourceReference: string | null;
+    transferSourceRegionId: string | null;
+    transferTargetRegionId: string | null;
+    createdAt: string;
+  };
+  statusHistory: SrfTraceStatusRow[];
+  actions: SrfTraceActionRow[];
+  reestimates: SrfTraceReestimateAttempt[];
+};
+
 type SrfJobsContextValue = {
   jobs: SrfJob[];
   refreshJobs: () => Promise<void>;
@@ -20,6 +92,7 @@ type SrfJobsContextValue = {
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
+  supervisorMoveRejectedToOdc: (jobId: string, note?: string) => Promise<void>;
   technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
   technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<void>;
   submitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
@@ -34,6 +107,7 @@ type SrfJobsContextValue = {
     payload?: { hoSparesBillRef?: string; storeBillRef?: string; noBillingHandover?: boolean },
   ) => Promise<void>;
   getStatusHistory: (srfId: string) => Promise<Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }>>;
+  getSrfTrace: (srfId: string) => Promise<SrfTrace>;
   cancelDraftSrf: (srfId: string, reason: string) => Promise<void>;
   patchStoreDraftSrf: (
     srfId: string,
@@ -149,6 +223,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const supervisorMoveRejectedToOdc = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/move-to-odc`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
   const technicianEstimateOk = useCallback(async (jobId: string, technicianProfileId: string) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/estimate-ok`, {
       method: "POST",
@@ -220,6 +302,10 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     return out.rows;
   }, []);
 
+  const getSrfTrace = useCallback(async (srfId: string) => {
+    return apiJson<SrfTrace>(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/trace`);
+  }, []);
+
   const cancelDraftSrf = useCallback(
     async (srfId: string, reason: string) => {
       await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/cancel`, {
@@ -260,6 +346,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
+      supervisorMoveRejectedToOdc,
       technicianEstimateOk,
       technicianRequestReestimate,
       submitSparesSlip,
@@ -268,6 +355,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       receiveOutwardByDc,
       closeWithInvoice,
       getStatusHistory,
+      getSrfTrace,
       cancelDraftSrf,
       patchStoreDraftSrf,
     }),
@@ -285,6 +373,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
+      supervisorMoveRejectedToOdc,
       technicianEstimateOk,
       technicianRequestReestimate,
       submitSparesSlip,
@@ -293,6 +382,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       receiveOutwardByDc,
       closeWithInvoice,
       getStatusHistory,
+      getSrfTrace,
       cancelDraftSrf,
       patchStoreDraftSrf,
     ],
