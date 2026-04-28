@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
@@ -14,6 +14,35 @@ import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import { printAssignmentSlip } from "../../lib/serviceDocuments";
 import type { SparePriceLine } from "../../types/spare";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
+
+type InterHoSpareOrder = {
+  id: string;
+  orderNumber: string;
+  srfId: string;
+  srfReference: string;
+  fromRegionId: string;
+  fromRegionName: string;
+  toRegionId: string;
+  toRegionName: string;
+  status: "REQUESTED" | "FULFILLED" | "CANCELLED";
+  note: string;
+  requestedBy: string;
+  requestedByName: string | null;
+  requestedAt: string;
+  invoiceRef: string | null;
+  fulfilledNote: string;
+  fulfilledBy: string | null;
+  fulfilledByName: string | null;
+  fulfilledAt: string | null;
+  lines: Array<{
+    id: string;
+    spareId: string;
+    spareName: string;
+    qty: number;
+    unitPriceInr: number;
+    lineTotalInr: number;
+  }>;
+};
 
 export function ScSupervisorPage() {
   const { user } = useAuth();
@@ -45,6 +74,17 @@ export function ScSupervisorPage() {
   const [moveToOdcPopupJobId, setMoveToOdcPopupJobId] = useState<string | null>(null);
   const [moveToOdcNote, setMoveToOdcNote] = useState("");
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
+  const [spareOrderRows, setSpareOrderRows] = useState<InterHoSpareOrder[]>([]);
+  const [spareOrderMsg, setSpareOrderMsg] = useState("");
+  const [requestSparesJobId, setRequestSparesJobId] = useState<string | null>(null);
+  const [requestSparesTargetRegionId, setRequestSparesTargetRegionId] = useState("");
+  const [requestSparesNote, setRequestSparesNote] = useState("");
+  const [requestSparesLines, setRequestSparesLines] = useState<Array<{ spareId: string; qty: string; unitPriceInr: string }>>([
+    { spareId: "", qty: "1", unitPriceInr: "0" },
+  ]);
+  const [fulfillOrderId, setFulfillOrderId] = useState<string | null>(null);
+  const [fulfillInvoiceRef, setFulfillInvoiceRef] = useState("");
+  const [fulfillNote, setFulfillNote] = useState("");
 
   const received = useMemo(() => {
     if (!user) return [];
@@ -192,6 +232,31 @@ export function ScSupervisorPage() {
       .map((r) => ({ id: r.id, label: r.name }));
   }, [regions, user]);
 
+  const incomingSpareOrders = useMemo(
+    () => spareOrderRows.filter((o) => o.toRegionId === (user?.regionId ?? "") || user?.role === "super_admin" || user?.role === "ho_admin"),
+    [spareOrderRows, user?.regionId, user?.role],
+  );
+  const outgoingSpareOrders = useMemo(
+    () => spareOrderRows.filter((o) => o.fromRegionId === (user?.regionId ?? "") || user?.role === "super_admin" || user?.role === "ho_admin"),
+    [spareOrderRows, user?.regionId, user?.role],
+  );
+
+  async function refreshSpareOrders() {
+    try {
+      const out = await apiJson<{ rows: InterHoSpareOrder[] }>("/api/service/inter-ho-spare-orders");
+      setSpareOrderRows(out.rows);
+      setSpareOrderMsg("");
+    } catch (e) {
+      setSpareOrderMsg(e instanceof Error ? e.message : "Could not load inter-HO spare orders.");
+    }
+  }
+
+  useEffect(() => {
+    if (!user) return;
+    void refreshSpareOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   function openTransferPopup(jobId: string) {
     setTransferPopupJobId(jobId);
     setTransferTargetRegionId(transferRegionOptions[0]?.id ?? "");
@@ -222,6 +287,88 @@ export function ScSupervisorPage() {
       closeTransferPopup();
     } catch (e) {
       setFeedback((f) => ({ ...f, [transferPopupJobId]: e instanceof Error ? e.message : "Could not transfer to other HO." }));
+    }
+  }
+
+  function openRequestSparesPopup(jobId: string) {
+    setRequestSparesJobId(jobId);
+    setRequestSparesTargetRegionId(transferRegionOptions[0]?.id ?? "");
+    setRequestSparesNote("");
+    setRequestSparesLines([{ spareId: "", qty: "1", unitPriceInr: "0" }]);
+  }
+
+  function closeRequestSparesPopup() {
+    setRequestSparesJobId(null);
+    setRequestSparesTargetRegionId("");
+    setRequestSparesNote("");
+    setRequestSparesLines([{ spareId: "", qty: "1", unitPriceInr: "0" }]);
+  }
+
+  async function confirmRequestSparesOtherHo() {
+    if (!requestSparesJobId) return;
+    const lines = requestSparesLines
+      .map((x) => ({
+        spareId: x.spareId,
+        qty: Number(x.qty),
+        unitPriceInr: Number(x.unitPriceInr || 0),
+      }))
+      .filter((x) => x.spareId && Number.isFinite(x.qty) && x.qty > 0);
+    if (!requestSparesTargetRegionId) {
+      setFeedback((f) => ({ ...f, [requestSparesJobId]: "Choose supplier HO region." }));
+      return;
+    }
+    if (lines.length === 0) {
+      setFeedback((f) => ({ ...f, [requestSparesJobId]: "Add at least one spare line." }));
+      return;
+    }
+    try {
+      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(requestSparesJobId)}/supervisor/request-spares-other-ho`, {
+        method: "POST",
+        json: {
+          targetRegionId: requestSparesTargetRegionId,
+          note: requestSparesNote,
+          lines,
+        },
+      });
+      setFeedback((f) => ({
+        ...f,
+        [requestSparesJobId]: "Inter-HO spare order created. Supplier HO can now dispatch spares with invoice.",
+      }));
+      closeRequestSparesPopup();
+      await refreshSpareOrders();
+    } catch (e) {
+      setFeedback((f) => ({ ...f, [requestSparesJobId]: e instanceof Error ? e.message : "Could not raise spare order." }));
+    }
+  }
+
+  function openFulfillOrder(orderId: string) {
+    setFulfillOrderId(orderId);
+    setFulfillInvoiceRef("");
+    setFulfillNote("");
+  }
+
+  function closeFulfillOrder() {
+    setFulfillOrderId(null);
+    setFulfillInvoiceRef("");
+    setFulfillNote("");
+  }
+
+  async function confirmFulfillOrder() {
+    if (!fulfillOrderId) return;
+    if (!fulfillInvoiceRef.trim()) {
+      setSpareOrderMsg("Enter invoice reference.");
+      return;
+    }
+    try {
+      await apiJson(`/api/service/inter-ho-spare-orders/${encodeURIComponent(fulfillOrderId)}/fulfill`, {
+        method: "POST",
+        json: { invoiceRef: fulfillInvoiceRef.trim(), note: fulfillNote.trim() },
+      });
+      closeFulfillOrder();
+      await refreshSpareOrders();
+      setSpareOrderMsg("Spare order fulfilled and stock deducted.");
+    } catch (e) {
+      setSpareOrderMsg(e instanceof Error ? e.message : "Could not fulfill spare order.");
     }
   }
 
@@ -540,6 +687,15 @@ export function ScSupervisorPage() {
                       Send to other HO
                     </button>
                   ) : null}
+                  {(j.status === "assigned" || j.status === "estimate_ok" || j.status === "reestimate_required") ? (
+                    <button
+                      type="button"
+                      onClick={() => openRequestSparesPopup(j.id)}
+                      className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-900 hover:bg-cyan-100"
+                    >
+                      Order spares from other HO
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void toggleHistory(j.id)}
@@ -576,6 +732,65 @@ export function ScSupervisorPage() {
                         </li>
                       ))}
                     </ul>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      <Card title="Inter-HO spare online orders" subtitle="SRF-linked spare sales between HOs" className="mt-8">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-xs text-stone-600">
+            Outgoing requests from your HO: {outgoingSpareOrders.length} · Incoming to your HO: {incomingSpareOrders.length}
+          </p>
+          <button
+            type="button"
+            onClick={() => void refreshSpareOrders()}
+            className="rounded-xl border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+          >
+            Refresh
+          </button>
+        </div>
+        {spareOrderMsg ? <p className="mb-2 text-xs text-stone-600">{spareOrderMsg}</p> : null}
+        {spareOrderRows.length === 0 ? (
+          <p className="text-sm text-stone-600">No inter-HO spare orders yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {spareOrderRows.map((o) => (
+              <div key={o.id} className="rounded-xl border border-zimson-200/80 bg-white p-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-mono font-semibold text-zimson-900">
+                    {o.orderNumber} · SRF {o.srfReference}
+                  </p>
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${o.status === "FULFILLED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                    {o.status}
+                  </span>
+                </div>
+                <p className="mt-1 text-stone-700">
+                  {o.fromRegionName} → {o.toRegionName} · Requested by {o.requestedByName ?? o.requestedBy} on{" "}
+                  {new Date(o.requestedAt).toLocaleString()}
+                </p>
+                {o.note ? <p className="mt-1 text-stone-600">Note: {o.note}</p> : null}
+                <p className="mt-2 text-stone-700">
+                  {o.lines.map((l) => `${l.spareName} x${l.qty}`).join(", ")}
+                </p>
+                {o.status === "FULFILLED" ? (
+                  <p className="mt-1 text-emerald-700">
+                    Fulfilled by {o.fulfilledByName ?? o.fulfilledBy ?? "-"} · Invoice {o.invoiceRef ?? "-"} ·{" "}
+                    {o.fulfilledAt ? new Date(o.fulfilledAt).toLocaleString() : "-"}
+                  </p>
+                ) : null}
+                {o.status === "REQUESTED" &&
+                (user?.role === "super_admin" || user?.role === "ho_admin" || o.toRegionId === (user?.regionId ?? "")) ? (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => openFulfillOrder(o.id)}
+                      className="rounded-lg bg-zimson-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zimson-800"
+                    >
+                      Fulfill & invoice
+                    </button>
                   </div>
                 ) : null}
               </div>
@@ -735,6 +950,149 @@ export function ScSupervisorPage() {
                 className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
               >
                 Queue transfer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {requestSparesJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Inter-HO spare online order</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Raise spare requirement against this SRF. Destination HO will fulfill with invoice (different GST), then repair flow continues as usual.
+            </p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Supplier HO region
+                <select
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={requestSparesTargetRegionId}
+                  onChange={(e) => setRequestSparesTargetRegionId(e.target.value)}
+                >
+                  <option value="">Select supplier HO</option>
+                  {transferRegionOptions.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                Requirement note
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={2}
+                  value={requestSparesNote}
+                  onChange={(e) => setRequestSparesNote(e.target.value)}
+                />
+              </label>
+              <div className="space-y-2">
+                {requestSparesLines.map((line, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2">
+                    <select
+                      value={line.spareId}
+                      onChange={(e) =>
+                        setRequestSparesLines((prev) =>
+                          prev.map((x, i) => (i === idx ? { ...x, spareId: e.target.value } : x)),
+                        )
+                      }
+                      className="col-span-7 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                    >
+                      <option value="">Select spare...</option>
+                      {activeSpares.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.sku} - {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={line.qty}
+                      onChange={(e) =>
+                        setRequestSparesLines((prev) =>
+                          prev.map((x, i) => (i === idx ? { ...x, qty: e.target.value } : x)),
+                        )
+                      }
+                      className="col-span-2 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                      placeholder="Qty"
+                    />
+                    <input
+                      value={line.unitPriceInr}
+                      onChange={(e) =>
+                        setRequestSparesLines((prev) =>
+                          prev.map((x, i) => (i === idx ? { ...x, unitPriceInr: e.target.value } : x)),
+                        )
+                      }
+                      className="col-span-2 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                      placeholder="Rate"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setRequestSparesLines((prev) => prev.filter((_, i) => i !== idx))}
+                      className="col-span-1 rounded-xl border border-zimson-300 bg-white text-sm"
+                    >
+                      x
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setRequestSparesLines((prev) => [...prev, { spareId: "", qty: "1", unitPriceInr: "0" }])}
+                  className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900"
+                >
+                  Add spare
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={closeRequestSparesPopup} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmRequestSparesOtherHo()}
+                className="rounded-xl bg-cyan-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Raise spare order
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {fulfillOrderId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Fulfill inter-HO spare order</h3>
+            <p className="mt-1 text-sm text-stone-600">Enter invoice reference. Stock will be deducted from this HO.</p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Invoice reference
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={fulfillInvoiceRef}
+                  onChange={(e) => setFulfillInvoiceRef(e.target.value)}
+                />
+              </label>
+              <label className="text-sm">
+                Note (optional)
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={2}
+                  value={fulfillNote}
+                  onChange={(e) => setFulfillNote(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={closeFulfillOrder} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmFulfillOrder()}
+                className="rounded-xl bg-zimson-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Fulfill now
               </button>
             </div>
           </div>

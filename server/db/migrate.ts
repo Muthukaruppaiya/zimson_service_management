@@ -656,6 +656,41 @@ CREATE TABLE IF NOT EXISTS srf_reestimate_attempts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_srf_reestimate_attempts_srf ON srf_reestimate_attempts (srf_id, attempt_no DESC);
+
+CREATE TABLE IF NOT EXISTS srf_inter_ho_spare_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_number VARCHAR(40) NOT NULL UNIQUE,
+  srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+  srf_reference VARCHAR(40) NOT NULL,
+  from_region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+  to_region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('REQUESTED', 'FULFILLED', 'CANCELLED')),
+  note TEXT NOT NULL DEFAULT '',
+  requested_by VARCHAR(80) NOT NULL,
+  requested_by_name VARCHAR(240),
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  invoice_ref VARCHAR(120),
+  fulfilled_note TEXT NOT NULL DEFAULT '',
+  fulfilled_by VARCHAR(80),
+  fulfilled_by_name VARCHAR(240),
+  fulfilled_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_srf_inter_ho_spare_orders_srf ON srf_inter_ho_spare_orders (srf_id, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_srf_inter_ho_spare_orders_from ON srf_inter_ho_spare_orders (from_region_id, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_srf_inter_ho_spare_orders_to ON srf_inter_ho_spare_orders (to_region_id, requested_at DESC);
+
+CREATE TABLE IF NOT EXISTS srf_inter_ho_spare_order_lines (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES srf_inter_ho_spare_orders(id) ON DELETE CASCADE,
+  spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE RESTRICT,
+  spare_name VARCHAR(240) NOT NULL,
+  qty NUMERIC(18,3) NOT NULL CHECK (qty > 0),
+  unit_price_inr NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (unit_price_inr >= 0),
+  line_total_inr NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (line_total_inr >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_srf_inter_ho_spare_order_lines_order ON srf_inter_ho_spare_order_lines (order_id);
 `;
 
 export async function runMigrations(pool: Pool): Promise<void> {
