@@ -30,12 +30,12 @@ const statusClass: Record<string, string> = {
 function buildSrfTimeline(job: SrfJob): Array<{ label: string; done: boolean; at?: string | null }> {
   return [
     { label: "SRF created", done: true, at: job.createdAt },
-    { label: "Store dispatched (DC)", done: Boolean(job.dcNumber), at: job.dispatchedToScAt },
+    { label: "Store dispatched (Internal transfer)", done: Boolean(job.dcNumber), at: job.dispatchedToScAt },
     { label: "HO inward", done: Boolean(job.inwardAt), at: job.inwardAt },
     { label: "Technician assigned", done: Boolean(job.assignedAt), at: job.assignedAt },
     { label: "Estimate approved", done: Boolean(job.estimateOkAt), at: job.estimateOkAt },
     { label: "Repair complete", done: Boolean(job.completedAtSc), at: job.completedAtSc },
-    { label: "Outward from HO (ODC)", done: Boolean(job.outwardDcNumber), at: job.dispatchedToStoreAt },
+    { label: "Outward from HO (Internal transfer)", done: Boolean(job.outwardDcNumber), at: job.dispatchedToStoreAt },
     { label: "Received at store", done: Boolean(job.receivedBackAtStoreAt), at: job.receivedBackAtStoreAt },
     { label: "Billed & closed", done: Boolean(job.closedAt), at: job.closedAt },
   ];
@@ -70,10 +70,10 @@ export function StoreDispatchPage() {
     setMessage(null);
     try {
       const out = await receiveOutwardByDc(outwardDcInput);
-      setMessage({ type: "ok", text: `Received ${out.updated} watch(es) against ODC ${outwardDcInput}.` });
+      setMessage({ type: "ok", text: `Received ${out.updated} watch(es) against internal transfer ${outwardDcInput}.` });
       setOutwardDcInput("");
     } catch (e) {
-      setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not receive ODC." });
+      setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not receive internal transfer." });
     }
   }
 
@@ -139,7 +139,7 @@ export function StoreDispatchPage() {
       });
       setMessage({
         type: "ok",
-        text: `Delivery challan ${result.dcNumber} created for this store only. Hand over watches with the DC copy; your regional HO inward desk will select this DC from their pending list (no manual typing).`,
+        text: `Internal transfer ${result.dcNumber} created for this store only. Hand over watches with transfer copy; your regional HO inward desk will select this transfer from pending list (no manual typing).`,
       });
       void apiJson("/api/notifications/service-dispatch", {
         method: "POST",
@@ -147,7 +147,7 @@ export function StoreDispatchPage() {
       }).catch(() => {});
       setSelected({});
     } catch (e) {
-      setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not create DC." });
+      setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not create internal transfer." });
     }
   }
 
@@ -158,7 +158,7 @@ export function StoreDispatchPage() {
       <ServiceBreadcrumb current="Send to service centre" />
       <PageHeader
         title="Send watches to service centre (HO)"
-        description="End of day: select SRFs that are still at the store and generate one DC to ship them to your regional service centre / HO."
+        description="End of day: select SRFs still at the store and generate one internal transfer to your regional service centre / HO."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -206,7 +206,7 @@ export function StoreDispatchPage() {
                 onClick={() => void handleDispatch()}
                 className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
               >
-                Create DC &amp; mark in transit
+                Create internal transfer &amp; mark in transit
               </button>
             </div>
             <div className="overflow-x-auto">
@@ -267,16 +267,16 @@ export function StoreDispatchPage() {
         ) : null}
       </Card>
 
-      <Card title="Receive from HO (ODC)" subtitle="Scan/type ODC and confirm receipt at store" className="mt-8">
+      <Card title="Receive from HO (Internal transfer)" subtitle="Select/enter transfer number and confirm receipt at store" className="mt-8">
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm">
-            Pending ODC number
+            Pending internal transfer number
             <select
               className="mt-1 min-w-[280px] rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
               value={outwardDcInput}
               onChange={(e) => setOutwardDcInput(e.target.value)}
             >
-              <option value="">Select pending ODC…</option>
+              <option value="">Select pending transfer…</option>
               {pendingOdcOptions.map((dc) => (
                 <option key={dc} value={dc}>
                   {dc}
@@ -349,7 +349,7 @@ export function StoreDispatchPage() {
         </div>
       </Card>
 
-      <Card title="SRF master table (all data)" subtitle="Track complete SRF lifecycle with DC/ODC and status" className="mt-8">
+      <Card title="SRF master table (all data)" subtitle="Track complete SRF lifecycle with internal transfer refs and status" className="mt-8">
         <div className="mb-3 grid gap-2 md:grid-cols-5">
           <input
             value={masterQuery}

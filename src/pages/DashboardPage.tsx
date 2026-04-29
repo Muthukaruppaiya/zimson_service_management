@@ -27,9 +27,9 @@ export function DashboardPage() {
             What are you looking for, {user?.displayName?.split(" ")[0] ?? "there"}?
           </h1>
           <p className="mb-6 text-sm text-stone-600">
-            Search or scan any SRF, DC, ODC, or Quick bill number to jump straight to it.
+            Search or scan any SRF, Internal Transfer ref, DC/ODC (inter-HO), or Quick bill number.
           </p>
-          <GlobalSearch />
+          <GlobalSearch autoFocus />
         </div>
       </section>
 

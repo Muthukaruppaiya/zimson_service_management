@@ -24,6 +24,7 @@ import { StoreDispatchPage } from "./pages/service/StoreDispatchPage";
 import { WatchInventoryPage } from "./pages/service/WatchInventoryPage";
 import { ScInwardPage } from "./pages/serviceCentre/ScInwardPage";
 import { ScLogisticsPage } from "./pages/serviceCentre/ScLogisticsPage";
+import { ScOnlineStorePage } from "./pages/serviceCentre/ScOnlineStorePage";
 import { ScSupervisorPage } from "./pages/serviceCentre/ScSupervisorPage";
 import { ServiceCentreHomePage } from "./pages/serviceCentre/ServiceCentreHomePage";
 import { TechnicianWorkbenchPage } from "./pages/serviceCentre/TechnicianWorkbenchPage";
@@ -198,6 +199,22 @@ export default function App() {
                   element={
                     <ModuleRoute module="service_centre">
                       <ScInwardPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service-centre/online-store"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <ScOnlineStorePage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service-centre/online-store/invoice"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <ServiceBillingPage />
                     </ModuleRoute>
                   }
                 />

@@ -15,7 +15,8 @@ type IconName =
   | "chevron"
   | "sparkle"
   | "logistics"
-  | "supervisor";
+  | "supervisor"
+  | "online";
 
 function NavIcon({ name, className = "" }: { name: IconName; className?: string }) {
   const cls = `h-4 w-4 shrink-0 stroke-[1.75] ${className}`.trim();
@@ -84,6 +85,12 @@ function NavIcon({ name, className = "" }: { name: IconName; className?: string 
       return (
         <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      );
+    case "online":
+      return (
+        <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M6 7V5a2 2 0 012-2h8a2 2 0 012 2v2m-1 5l-5 5-3-3" />
         </svg>
       );
     default:
@@ -221,15 +228,29 @@ export function Sidebar() {
         items: [
           {
             to: "/service-centre/logistics?tab=inward",
-            label: "Inward (DC)",
+            label: "Internal inward (Store -> HO)",
             module: "service_centre",
             roles: ["service_centre_inward", "service_centre_clerk"],
           },
           {
             to: "/service-centre/logistics?tab=outward",
-            label: "Outward (ODC)",
+            label: "Internal outward (HO -> Store)",
             module: "service_centre",
             roles: ["service_centre_outward", "service_centre_clerk"],
+          },
+        ],
+      },
+      {
+        title: "Online Store",
+        icon: "online",
+        accent: "from-cyan-200/90 via-cyan-100 to-cyan-50",
+        iconText: "text-cyan-800",
+        items: [
+          {
+            to: "/service-centre/online-store",
+            label: "Inter-HO online orders",
+            module: "service_centre",
+            roles: ["service_centre_supervisor", "ho_supervisor"],
           },
         ],
       },

@@ -312,8 +312,8 @@ export function WatchInventoryPage() {
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Customer phone</th><td className="px-3 py-2">{detail.phone}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Estimate</th><td className="px-3 py-2">{asCurrency(Number(detail.estimateTotalInr ?? 0))}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Created</th><td className="px-3 py-2">{new Date(detail.createdAt).toLocaleString()}</td></tr>
-                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">DC number</th><td className="px-3 py-2 font-mono">{detail.dcNumber ?? "-"}</td></tr>
-                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Outward ODC</th><td className="px-3 py-2 font-mono">{detail.outwardDcNumber ?? "-"}</td></tr>
+                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Internal inward transfer ref</th><td className="px-3 py-2 font-mono">{detail.dcNumber ?? "-"}</td></tr>
+                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Internal outward transfer ref</th><td className="px-3 py-2 font-mono">{detail.outwardDcNumber ?? "-"}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">HO invoice ref</th><td className="px-3 py-2">{detail.hoSparesBillRef ?? "-"}</td></tr>
                   <tr><th className="bg-zimson-50/70 px-3 py-2">Store invoice ref</th><td className="px-3 py-2">{detail.storeBillRef ?? "-"}</td></tr>
                 </tbody>

@@ -13,6 +13,24 @@ import type { CustomerRecord } from "../../types/customer";
 type Phase = "name" | "phone" | "match" | "bill" | "done";
 
 type LineItem = { id: string; description: string; qty: string; rate: string };
+type OnlineOrderPrefill = {
+  id: string;
+  orderNumber: string;
+  srfReference: string;
+  fromRegionName: string;
+  toRegionName: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  watchBrand: string | null;
+  watchModel: string | null;
+  serial: string | null;
+  complaint: string | null;
+  lines: Array<{
+    spareName: string;
+    qty: number;
+    unitPriceInr: number;
+  }>;
+};
 
 function emptyLine(): LineItem {
   return {
@@ -49,8 +67,11 @@ export function ServiceBillingPage() {
   const [pricesTaxInclusive, setPricesTaxInclusive] = useState(false);
   const [defaultSacHsn, setDefaultSacHsn] = useState("9987");
   const [billRef, setBillRef] = useState<string | null>(null);
+  const [onlineOrder, setOnlineOrder] = useState<OnlineOrderPrefill | null>(null);
 
   const customerIdParam = searchParams.get("customerId");
+  const onlineOrderIdParam = searchParams.get("onlineOrderId");
+  const isOnlineOrderFlow = Boolean(onlineOrderIdParam);
 
   useEffect(() => {
     if (!customerIdParam) return;
@@ -62,6 +83,49 @@ export function ServiceBillingPage() {
       setError(null);
     }
   }, [customerIdParam, getById]);
+
+  useEffect(() => {
+    if (!onlineOrderIdParam) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const out = await apiJson<{ rows: OnlineOrderPrefill[] }>(
+          `/api/service/inter-ho-spare-orders?orderId=${encodeURIComponent(onlineOrderIdParam)}`,
+        );
+        const order = out.rows[0] ?? null;
+        if (cancelled) return;
+        if (!order) {
+          setError("Online spare order not found.");
+          return;
+        }
+        setOnlineOrder(order);
+        setLines(
+          order.lines.map((l) => ({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            description: l.spareName,
+            qty: String(Number(l.qty || 0)),
+            rate: String(Number(l.unitPriceInr || 0)),
+          })),
+        );
+        setSelectedCustomer({
+          id: `ONLINE-${order.id}`,
+          displayName: order.customerName?.trim() || "Walk-in customer",
+          phone: order.customerPhone?.trim() || "-",
+          email: "",
+          customerKind: "B2C",
+          createdAt: new Date().toISOString(),
+        });
+        setPhase("bill");
+        setError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Could not load online spare order.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [onlineOrderIdParam]);
 
   useEffect(() => {
     if (!apiMode) return;
@@ -148,6 +212,10 @@ export function ServiceBillingPage() {
   }
 
   function restartLookup() {
+    if (isOnlineOrderFlow) {
+      navigate("/service-centre/online-store");
+      return;
+    }
     setSelectedCustomer(null);
     setPhase("name");
     setDraftName("");
@@ -194,7 +262,7 @@ export function ServiceBillingPage() {
   const sgstAmt = taxPct > 0 ? taxAmt - cgstAmt : 0;
   const canOpenTaxSettings = user ? canAccessModule(user, "settings") : false;
 
-  function recordBill(e: React.FormEvent) {
+  async function recordBill(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     if (!selectedCustomer) return;
@@ -207,8 +275,22 @@ export function ServiceBillingPage() {
       setError("Add at least one line with description, quantity, and rate.");
       return;
     }
-    setBillRef(nextBillRef());
-    setPhase("done");
+    const generatedRef = nextBillRef();
+    try {
+      if (onlineOrder && onlineOrderIdParam) {
+        await apiJson(`/api/service/inter-ho-spare-orders/${encodeURIComponent(onlineOrderIdParam)}/fulfill`, {
+          method: "POST",
+          json: {
+            invoiceRef: generatedRef,
+            note: "Invoice created from HO billing page.",
+          },
+        });
+      }
+      setBillRef(generatedRef);
+      setPhase("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create invoice.");
+    }
   }
 
   if (phase === "done" && billRef && selectedCustomer) {
@@ -222,6 +304,11 @@ export function ServiceBillingPage() {
           <p className="mt-2 text-sm text-stone-600">
             Bill to: <strong>{selectedCustomer.displayName}</strong> · {selectedCustomer.phone}
           </p>
+          {onlineOrder ? (
+            <p className="mt-2 text-sm text-emerald-700">
+              Online order {onlineOrder.orderNumber} invoiced. It is now in sender HO ODC pending queue.
+            </p>
+          ) : null}
           <p className="mt-2 text-sm text-stone-600">
             Taxable value:{" "}
             <span className="font-semibold text-stone-900">
@@ -255,6 +342,14 @@ export function ServiceBillingPage() {
             >
               Service home
             </Link>
+            {onlineOrder ? (
+              <Link
+                to="/service-centre/online-store"
+                className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              >
+                Back to online store
+              </Link>
+            ) : null}
             {canOpenTaxSettings ? (
               <Link
                 to="/settings/tax"
@@ -274,7 +369,11 @@ export function ServiceBillingPage() {
       <ServiceBreadcrumb current="Billing" />
       <PageHeader
         title="Billing"
-        description="Customer lookup (name → mobile), then line items — aligned with quick bill and SRF at the counter. No separate invoicing module."
+        description={
+          onlineOrder
+            ? `Sender HO invoice mode for ${onlineOrder.orderNumber} (${onlineOrder.srfReference}).`
+            : "Customer lookup (name → mobile), then line items — aligned with quick bill and SRF at the counter. No separate invoicing module."
+        }
         actions={
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <Link
@@ -307,15 +406,17 @@ export function ServiceBillingPage() {
         }
       />
 
-      <div className="mb-8 flex gap-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
-        <span className={phase === "name" ? "text-zimson-800" : ""}>1. Name</span>
-        <span aria-hidden>→</span>
-        <span className={phase === "phone" ? "text-zimson-800" : ""}>2. Mobile</span>
-        <span aria-hidden>→</span>
-        <span className={phase === "match" ? "text-zimson-800" : ""}>3. Confirm</span>
-        <span aria-hidden>→</span>
-        <span className={phase === "bill" ? "text-zimson-800" : ""}>4. Bill</span>
-      </div>
+      {!isOnlineOrderFlow ? (
+        <div className="mb-8 flex gap-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
+          <span className={phase === "name" ? "text-zimson-800" : ""}>1. Name</span>
+          <span aria-hidden>→</span>
+          <span className={phase === "phone" ? "text-zimson-800" : ""}>2. Mobile</span>
+          <span aria-hidden>→</span>
+          <span className={phase === "match" ? "text-zimson-800" : ""}>3. Confirm</span>
+          <span aria-hidden>→</span>
+          <span className={phase === "bill" ? "text-zimson-800" : ""}>4. Bill</span>
+        </div>
+      ) : null}
 
       {error ? (
         <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">
@@ -465,6 +566,19 @@ export function ServiceBillingPage() {
 
       {phase === "bill" && selectedCustomer ? (
         <>
+          {onlineOrder ? (
+            <Card title="Sender SRF details" subtitle="Fetched from requested SRF for invoice validation">
+              <div className="grid gap-2 text-sm text-stone-700 sm:grid-cols-2">
+                <p><span className="font-semibold text-stone-900">Order:</span> {onlineOrder.orderNumber}</p>
+                <p><span className="font-semibold text-stone-900">SRF:</span> {onlineOrder.srfReference}</p>
+                <p><span className="font-semibold text-stone-900">Flow:</span> {onlineOrder.fromRegionName} to {onlineOrder.toRegionName}</p>
+                <p><span className="font-semibold text-stone-900">Customer:</span> {onlineOrder.customerName || "-"}</p>
+                <p><span className="font-semibold text-stone-900">Watch:</span> {onlineOrder.watchBrand || "-"} {onlineOrder.watchModel || "-"}</p>
+                <p><span className="font-semibold text-stone-900">Serial:</span> {onlineOrder.serial || "-"}</p>
+                <p className="sm:col-span-2"><span className="font-semibold text-stone-900">Complaint:</span> {onlineOrder.complaint || "-"}</p>
+              </div>
+            </Card>
+          ) : null}
           <Card title="Bill to" subtitle="Read-only from customer master">
             <p className="text-sm font-semibold text-stone-900">{selectedCustomer.displayName}</p>
             <p className="text-sm text-stone-600">
@@ -481,7 +595,7 @@ export function ServiceBillingPage() {
               onClick={restartLookup}
               className="mt-3 text-xs font-medium text-zimson-800 underline"
             >
-              Change customer
+              {isOnlineOrderFlow ? "Back to online store" : "Change customer"}
             </button>
           </Card>
 
@@ -643,7 +757,7 @@ export function ServiceBillingPage() {
                 type="submit"
                 className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
               >
-                Record bill
+                {isOnlineOrderFlow ? "Create invoice" : "Record bill"}
               </button>
             </div>
           </form>

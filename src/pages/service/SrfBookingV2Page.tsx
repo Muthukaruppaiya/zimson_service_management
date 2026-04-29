@@ -447,7 +447,7 @@ export function SrfBookingV2Page() {
             SRF reference <span className="font-mono font-bold text-zimson-900">{srfRef}</span>
           </p>
           <p className="mt-2 text-sm text-stone-600">
-            Status is now <strong>At store</strong>. Use store dispatch to create DC at end of day.
+            Status is now <strong>At store</strong>. Use store dispatch to create internal transfer at end of day.
           </p>
           <div className="mt-4 flex gap-3">
             <Link to="/service/srf" className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">
@@ -461,8 +461,8 @@ export function SrfBookingV2Page() {
             <div className="mt-5 rounded-xl border border-zimson-200 bg-zimson-50/40 p-4">
               <p className="text-sm font-semibold text-zimson-900">Customer tracking link</p>
               <p className="mt-1 break-all font-mono text-xs text-stone-700">{trackingUrl}</p>
-              <p className="mt-1 text-xs text-stone-600">Share this URL with the customer via SMS/WhatsApp or scan the QR.</p>
-              <CustomerLinkQr url={trackingUrl} size={160} caption="Scan to open tracking" className="mt-3" />
+              <p className="mt-1 text-xs text-stone-600">Share this URL with the customer via SMS/WhatsApp or scan the QR code.</p>
+              <CustomerLinkQr url={trackingUrl} size={240} mode="qr" caption="Scan QR code to open customer review" className="mt-3" />
             </div>
           ) : null}
         </Card>
@@ -473,7 +473,7 @@ export function SrfBookingV2Page() {
   return (
     <div>
       <ServiceBreadcrumb current="SRF booking" />
-      <PageHeader title="SRF booking" description="Customer → Watch → Photo QR upload → Estimate OTP → Review" />
+      <PageHeader title="SRF booking" description="Customer -> Watch -> Photo QR upload -> Estimate OTP -> Review" />
       <div className="mb-6 rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
         <Stepper steps={[...steps]} activeIndex={step} />
       </div>
@@ -535,7 +535,7 @@ export function SrfBookingV2Page() {
           <div className="grid gap-5 md:grid-cols-[220px,1fr]">
             <div className="rounded-xl border border-zimson-200 p-3 text-center">
               {captureUrl ? (
-                <CustomerLinkQr url={captureUrl} size={200} caption="Scan to upload photos" className="mx-auto text-center" />
+                <CustomerLinkQr url={captureUrl} size={260} mode="qr" caption="Scan QR to upload photos" className="mx-auto text-center" />
               ) : (
                 <p className="text-sm">Generating QR...</p>
               )}

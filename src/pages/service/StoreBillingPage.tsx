@@ -159,7 +159,7 @@ export function StoreBillingPage() {
         }
       />
 
-      <Card title="Billing module" subtitle="Pending watches available in store inventory (received from ODC)">
+      <Card title="Billing module" subtitle="Pending watches available in store inventory (received from internal outward transfer)">
         <div className="mb-3 grid gap-3 md:grid-cols-4">
           <label className="text-sm md:col-span-2">
             SRF reference search

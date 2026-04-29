@@ -695,6 +695,17 @@ CREATE INDEX IF NOT EXISTS idx_srf_inter_ho_spare_order_lines_order ON srf_inter
 
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(SCHEMA);
+  await pool.query(`
+    ALTER TABLE srf_inter_ho_spare_orders
+      ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS dispatched_by VARCHAR(80),
+      ADD COLUMN IF NOT EXISTS dispatched_by_name VARCHAR(240),
+      ADD COLUMN IF NOT EXISTS dispatch_note TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS inward_received_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS inward_received_by VARCHAR(80),
+      ADD COLUMN IF NOT EXISTS inward_received_by_name VARCHAR(240),
+      ADD COLUMN IF NOT EXISTS inward_note TEXT NOT NULL DEFAULT '';
+  `);
 
   const { rows: rc } = await pool.query<{ c: number }>("SELECT COUNT(*)::int AS c FROM regions");
   if ((rc[0]?.c ?? 0) === 0) {

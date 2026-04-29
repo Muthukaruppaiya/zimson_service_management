@@ -109,7 +109,7 @@ function KindBadge({ kind }: { kind: HitKind }) {
   );
 }
 
-export function GlobalSearch() {
+export function GlobalSearch({ autoFocus = true }: { autoFocus?: boolean }) {
   const navigate = useNavigate();
   const apiMode = useApiMode();
   const { user } = useAuth();
@@ -120,6 +120,7 @@ export function GlobalSearch() {
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scannerCaptureUntilRef = useRef(0);
 
   useEffect(() => {
     if (!apiMode || !user) return;
@@ -138,6 +139,56 @@ export function GlobalSearch() {
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const t = window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [autoFocus]);
+
+  useEffect(() => {
+    function isEditable(el: EventTarget | null): boolean {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      return el.isContentEditable;
+    }
+
+    function onGlobalKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (isEditable(e.target)) return;
+
+      const now = Date.now();
+      const active = document.activeElement;
+      const isInputActive = active === inputRef.current;
+
+      const isPrintableKey = e.key.length === 1;
+      if (isPrintableKey) {
+        // Scanner keyboard wedges type very fast; keep capture window alive while keys are streaming.
+        scannerCaptureUntilRef.current = now + 250;
+        if (!isInputActive) {
+          e.preventDefault();
+          inputRef.current?.focus();
+          setOpen(true);
+          setQuery((prev) => `${prev}${e.key}`);
+        }
+        return;
+      }
+
+      if (e.key === "Enter" && scannerCaptureUntilRef.current > now && !isInputActive) {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+    }
+
+    window.addEventListener("keydown", onGlobalKeyDown, true);
+    return () => window.removeEventListener("keydown", onGlobalKeyDown, true);
   }, []);
 
   const detectedKind = useMemo(() => categorize(query), [query]);
@@ -238,7 +289,7 @@ export function GlobalSearch() {
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Search SRF, DC, ODC, Quick bill — or scan a barcode"
+          placeholder="Search SRF, Internal Transfer, DC/ODC, Quick bill — or scan a barcode"
           className="h-12 min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-stone-400"
         />
         {query ? (
@@ -277,7 +328,7 @@ export function GlobalSearch() {
               No matches for{" "}
               <span className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-stone-800">{query}</span>
               <p className="mt-1 text-xs text-stone-400">
-                Try an SRF reference (SRF…), DC, ODC, or Quick bill number.
+                Try SRF ref, internal transfer ref, DC/ODC (inter-HO), or Quick bill number.
               </p>
             </div>
           ) : (

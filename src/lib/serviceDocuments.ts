@@ -13,10 +13,10 @@ function base(title: string, body: string): string {
   </html>`;
 }
 
-function qrBlock(reference: string): string {
+function barcodeBlock(reference: string): string {
   const q = encodeURIComponent(reference);
   return `<div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-    <img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${q}" alt="QR ${reference}" style="border:1px solid #111;padding:4px;background:#fff"/>
+    <img src="https://bwipjs-api.metafloor.com/?bcid=code128&text=${q}&scale=2&includetext=true&textxalign=center" alt="BARCODE ${reference}" style="border:1px solid #111;padding:4px;background:#fff;max-width:240px"/>
   </div>`;
 }
 
@@ -57,7 +57,7 @@ export function printSrfDocument(job: {
     .join("");
   const html = base(
     `SRF ${job.reference}`,
-    `${qrBlock(job.reference)}<h2 style="margin:0 0 12px">Service Request Form</h2>
+    `${barcodeBlock(job.reference)}<h2 style="margin:0 0 12px">Service Request Form</h2>
      <div><strong>SRF:</strong> ${job.reference}</div>
      <div><strong>Customer:</strong> ${job.customerName} (${job.phone})</div>
      <div><strong>Watch:</strong> ${job.watchBrand} ${job.watchModel} · ${job.serial}</div>
@@ -109,7 +109,7 @@ export function printFullSrfDocument(
     .join("");
   const html = base(
     `SRF ${job.reference}`,
-    `${qrBlock(job.reference)}
+    `${barcodeBlock(job.reference)}
      <h2 style="margin:0 0 12px">Service Request Form - Full Lifecycle</h2>
      <h3 style="margin:12px 0 6px">Customer and watch details</h3>
      <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
@@ -190,7 +190,7 @@ export function printDcDocument(
 
   const html = base(
     `${kind} ${number}`,
-    `${qrBlock(number)}<h2 style="margin:0 0 12px">${kind} Document</h2>
+    `${barcodeBlock(number)}<h2 style="margin:0 0 12px">${kind} Document</h2>
      <div><strong>No:</strong> ${number}</div>
      <div><strong>From Location:</strong> ${fromLocation}</div>
      <div><strong>To Location:</strong> ${toLocation}</div>
@@ -211,7 +211,7 @@ export function printDcDocument(
 export function printAssignmentSlip(job: SrfJob, technicianLabel: string): void {
   const html = base(
     `Assignment ${job.reference}`,
-    `${qrBlock(job.reference)}<h2 style="margin:0 0 12px">Technician Assignment Slip</h2>
+    `${barcodeBlock(job.reference)}<h2 style="margin:0 0 12px">Technician Assignment Slip</h2>
      <div><strong>SRF:</strong> ${job.reference}</div>
      <div><strong>Technician:</strong> ${technicianLabel}</div>
      <div><strong>Customer:</strong> ${job.customerName} (${job.phone})</div>
@@ -234,7 +234,7 @@ export function printStoreServiceInvoice(
     .join("");
   const html = base(
     `Invoice ${job.reference}`,
-    `${qrBlock(job.reference)}<h2 style="margin:0 0 12px">Service Handover Invoice</h2>
+    `${barcodeBlock(job.reference)}<h2 style="margin:0 0 12px">Service Handover Invoice</h2>
      <div><strong>SRF:</strong> ${job.reference}</div>
      <div><strong>Date:</strong> ${billedAt.toLocaleString()}</div>
      <div><strong>Customer:</strong> ${job.customerName} (${job.phone})</div>

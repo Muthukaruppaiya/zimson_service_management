@@ -5,6 +5,7 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
+import { apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import type { SrfJob } from "../../types/srfJob";
 import { printDcDocument } from "../../lib/serviceDocuments";
@@ -16,6 +17,17 @@ const tabBtn =
   "rounded-xl px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-zimson-400";
 const tabActive = "bg-zimson-600 text-white shadow-sm";
 const tabIdle = "border border-zimson-300 bg-white text-zimson-900 hover:bg-zimson-50";
+
+type OnlineSpareOrderRow = {
+  id: string;
+  orderNumber: string;
+  srfReference: string;
+  fromRegionName: string;
+  toRegionName: string;
+  invoiceRef: string | null;
+  fulfilledAt: string | null;
+  dispatchedAt: string | null;
+};
 
 export function ScLogisticsPage() {
   const { user } = useAuth();
@@ -86,6 +98,7 @@ export function ScLogisticsPage() {
   );
   const [outwardFromDate, setOutwardFromDate] = useState("");
   const [outwardToDate, setOutwardToDate] = useState("");
+  const [onlineSpareRows, setOnlineSpareRows] = useState<OnlineSpareOrderRow[]>([]);
 
   useEffect(() => {
     const q = searchParams.get("q");
@@ -94,6 +107,23 @@ export function ScLogisticsPage() {
     else setInwardQuery(q);
   }, [searchParams]);
   const [selectedJob, setSelectedJob] = useState<SrfJob | null>(null);
+
+  useEffect(() => {
+    if (!user || tab !== "outward") return;
+    let cancelled = false;
+    void apiJson<{ rows: OnlineSpareOrderRow[] }>("/api/service/inter-ho-spare-orders?status=FULFILLED")
+      .then((out) => {
+        if (cancelled) return;
+        setOnlineSpareRows(out.rows);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setOnlineSpareRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, tab]);
 
   const inTransit = useMemo(() => {
     if (!user) return [];
@@ -311,13 +341,13 @@ export function ScLogisticsPage() {
       });
       setOutwardMsg({
         type: "ok",
-        text: `Outward challan ${result.odcNumber} created. Selected watches are dispatched to their destination stores.`,
+        text: `Internal outward transfer ${result.odcNumber} created. Selected watches are dispatched to destination stores.`,
       });
       setSelectedOut({});
       setRepairHoInvoiceRef("");
       setSenderHoInvoiceRef("");
     } catch (e) {
-      setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not create outward ODC." });
+      setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not create internal outward transfer." });
     }
   }
 
@@ -337,7 +367,7 @@ export function ScLogisticsPage() {
           }
         />
         <p className="text-sm text-stone-600">
-          Your role cannot confirm store DC inward or generate outward ODC batches. Use the supervisor or technician
+          Your role cannot confirm internal inward from store or generate internal outward batches. Use supervisor/technician
           areas instead, or ask an administrator for the inward/outward logistics role.
         </p>
       </div>
@@ -348,7 +378,7 @@ export function ScLogisticsPage() {
     <div>
       <PageHeader
         title="Service centre logistics"
-        description="Each regional HO only sees its own pending DCs and queues. Inward: pick the store’s open DC from the list (no typing). Outward: ODC per batch, destination store separate from HO."
+        description="Each regional HO sees its own internal transfers. Inward: pick the store transfer from list (no typing). Outward: transfer per batch back to store."
         actions={
           <Link
             to="/service-centre"
@@ -361,27 +391,27 @@ export function ScLogisticsPage() {
 
       <div className="mb-6 flex flex-wrap gap-2">
         <button type="button" className={`${tabBtn} ${tab === "inward" ? tabActive : tabIdle}`} onClick={() => setTab("inward")}>
-          Inward (DC)
+          Internal inward (Store to HO)
         </button>
         <button
           type="button"
           className={`${tabBtn} ${tab === "outward" ? tabActive : tabIdle}`}
           onClick={() => setTab("outward")}
         >
-          Outward (ODC)
+          Internal outward (HO to Store)
         </button>
       </div>
 
       {tab === "inward" ? (
         <>
           <Card
-            title="Inward by delivery challan (DC)"
-            subtitle="Pending DCs from stores shipping to this HO only — each line is one store batch, separate from the service centre (HO)"
+            title="Internal inward from store"
+            subtitle="Pending store-to-HO internal transfers only — each line is one store batch"
           >
             <form onSubmit={(e) => void handleInward(e)} className="max-w-2xl space-y-4">
               <div>
                 <label htmlFor="dc-pending" className="text-xs font-medium text-stone-600">
-                  Select pending DC
+                  Select pending internal transfer
                 </label>
                 <select
                   id="dc-pending"
@@ -389,7 +419,7 @@ export function ScLogisticsPage() {
                   onChange={(e) => setSelectedDc(e.target.value)}
                   className={selectClass}
                 >
-                  <option value="">— Choose a DC awaiting inward —</option>
+                  <option value="">— Choose a pending internal transfer —</option>
                   {pendingDcOptions.map((o) => (
                     <option key={o.dcNumber} value={o.dcNumber}>
                       {o.dcNumber} · HO: {o.hoLabel} · From store: {o.storeLabel} · {o.count} watch
@@ -398,7 +428,7 @@ export function ScLogisticsPage() {
                   ))}
                 </select>
                 <p className="mt-2 text-xs text-stone-500">
-                  Stores create DCs from their counter; this list is built from shipments still in transit to{" "}
+                  Stores create internal transfers from counter; this list is built from shipments in transit to{" "}
                   <strong>your</strong> regional HO. Other HOs and other stores stay isolated in their own data.
                 </p>
               </div>
@@ -506,12 +536,12 @@ export function ScLogisticsPage() {
             )}
           </Card>
           <Card
-            title={`All DC list (${allDcRows.length})`}
-            subtitle="Complete DC visibility for this HO scope (pending + completed)"
+            title={`All internal inward list (${allDcRows.length})`}
+            subtitle="Complete internal transfer visibility for this HO scope (pending + completed)"
             className="mt-8"
           >
             {allDcRows.length === 0 ? (
-              <p className="text-sm text-stone-600">No DC records found.</p>
+              <p className="text-sm text-stone-600">No internal inward records found.</p>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
                 <table className="min-w-full text-left text-sm">
@@ -548,7 +578,51 @@ export function ScLogisticsPage() {
         </>
       ) : (
         <>
-          <Card title="Create outward challan (ODC)" subtitle="After technician marks repair complete">
+          <Card
+            title="Online spare ODC pending (sender HO)"
+            subtitle="Cross-region HO-to-HO outward uses ODC terminology."
+          >
+            {onlineSpareRows.filter((o) => !o.dispatchedAt).length === 0 ? (
+              <p className="text-sm text-stone-600">No online spare orders pending outward dispatch.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                    <tr>
+                      <th className="px-3 py-2">Order</th>
+                      <th className="px-3 py-2">SRF</th>
+                      <th className="px-3 py-2">Route</th>
+                      <th className="px-3 py-2">Invoice</th>
+                      <th className="px-3 py-2">Invoiced at</th>
+                      <th className="px-3 py-2">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {onlineSpareRows
+                      .filter((o) => !o.dispatchedAt)
+                      .map((o) => (
+                        <tr key={o.id} className="border-b border-zimson-100 last:border-0">
+                          <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{o.orderNumber}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{o.srfReference}</td>
+                          <td className="px-3 py-2 text-xs">{o.fromRegionName} to {o.toRegionName}</td>
+                          <td className="px-3 py-2 text-xs">{o.invoiceRef ?? "-"}</td>
+                          <td className="px-3 py-2 text-xs">{o.fulfilledAt ? new Date(o.fulfilledAt).toLocaleString() : "-"}</td>
+                          <td className="px-3 py-2">
+                            <Link
+                              to="/service-centre/online-store"
+                              className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                            >
+                              Open online store
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+          <Card title="Create internal outward transfer" subtitle="After technician marks repair complete">
             <p className="text-sm text-stone-600">
               Select watches that are <strong>ready for outward</strong>, set each <strong>destination store</strong>{" "}
               (defaults to the store that raised the SRF), then generate one ODC for the batch.
@@ -663,7 +737,7 @@ export function ScLogisticsPage() {
                     onClick={() => void handleCreateOdc()}
                     className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Generate ODC &amp; dispatch
+                    Generate internal outward &amp; dispatch
                   </button>
                 </div>
                 <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
@@ -731,12 +805,12 @@ export function ScLogisticsPage() {
             )}
           </Card>
           <Card
-            title={`All ODC list (${allOdcRows.length})`}
-            subtitle="Complete ODC visibility for this HO scope (created + already dispatched)"
+            title={`All internal outward list (${allOdcRows.length})`}
+            subtitle="Complete internal outward visibility for this HO scope (created + dispatched)"
             className="mt-8"
           >
             {allOdcRows.length === 0 ? (
-              <p className="text-sm text-stone-600">No ODC records found.</p>
+              <p className="text-sm text-stone-600">No internal outward records found.</p>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
                 <table className="min-w-full text-left text-sm">

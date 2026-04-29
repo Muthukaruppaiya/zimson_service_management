@@ -25,6 +25,7 @@ export type SrfJobPhoto = {
 };
 
 export type UsedSpareLine = {
+  spareId?: string | null;
   name: string;
   qty: number;
   unitPriceInr?: number | null;

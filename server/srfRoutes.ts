@@ -702,12 +702,13 @@ export function registerSrfRoutes(
   app.get("/api/service/inter-ho-spare-orders", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canManageInterHoSpareOrders(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can view inter-HO spare orders." });
+      res.status(403).json({ error: "Only supervisor/admin can view online spare orders." });
       return;
     }
     const direction = String(req.query.direction ?? "all").trim().toLowerCase();
     const status = String(req.query.status ?? "").trim().toUpperCase();
     const srfId = String(req.query.srfId ?? "").trim();
+    const orderId = String(req.query.orderId ?? "").trim();
     try {
       const params: unknown[] = [];
       const where: string[] = [];
@@ -737,6 +738,10 @@ export function registerSrfRoutes(
         where.push(`o.srf_id = $${i++}::uuid`);
         params.push(srfId);
       }
+      if (orderId) {
+        where.push(`o.id = $${i++}::uuid`);
+        params.push(orderId);
+      }
       const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
       const { rows } = await pool.query(
         `SELECT o.id,
@@ -757,6 +762,20 @@ export function registerSrfRoutes(
                 o.fulfilled_by AS "fulfilledBy",
                 o.fulfilled_by_name AS "fulfilledByName",
                 o.fulfilled_at AS "fulfilledAt",
+                o.dispatch_note AS "dispatchNote",
+                o.dispatched_by AS "dispatchedBy",
+                o.dispatched_by_name AS "dispatchedByName",
+                o.dispatched_at AS "dispatchedAt",
+                o.inward_note AS "inwardNote",
+                o.inward_received_by AS "inwardReceivedBy",
+                o.inward_received_by_name AS "inwardReceivedByName",
+                o.inward_received_at AS "inwardReceivedAt",
+                j.customer_name AS "customerName",
+                j.phone AS "customerPhone",
+                j.watch_brand AS "watchBrand",
+                j.watch_model AS "watchModel",
+                j.serial,
+                j.complaint,
                 COALESCE((
                   SELECT json_agg(
                     json_build_object(
@@ -772,6 +791,7 @@ export function registerSrfRoutes(
                   WHERE l.order_id = o.id
                 ), '[]'::json) AS lines
          FROM srf_inter_ho_spare_orders o
+         JOIN srf_jobs j ON j.id = o.srf_id
          JOIN regions fr ON fr.id = o.from_region_id
          JOIN regions tr ON tr.id = o.to_region_id
          ${whereSql}
@@ -781,7 +801,7 @@ export function registerSrfRoutes(
       res.json({ rows });
     } catch (e) {
       console.error(e);
-      res.status(400).json({ error: "Could not load inter-HO spare orders." });
+      res.status(400).json({ error: "Could not load online spare orders." });
     }
   });
 
@@ -873,7 +893,7 @@ export function registerSrfRoutes(
       }
       await appendActionLog(client, srfId, {
         action: "inter_ho_spare_order_requested",
-        description: `Inter-HO spare order ${orderNumber} raised from ${srf.region_id} to ${targetRegionId}.`,
+        description: `Online spare sales order ${orderNumber} raised from ${srf.region_id} to authorized partner ${targetRegionId}.`,
         actor,
         referenceDoc: orderNumber,
         details: { targetRegionId, note, lines },
@@ -883,14 +903,14 @@ export function registerSrfRoutes(
         srfId,
         srf.status,
         actor.id,
-        `Inter-HO spare order ${orderNumber} raised to ${targetRegionId}${note ? `: ${note}` : ""}`,
+        `Online spare order ${orderNumber} raised to ${targetRegionId}${note ? `: ${note}` : ""}`,
       );
       await client.query("COMMIT");
       res.json({ ok: true, orderId, orderNumber });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not create inter-HO spare order." });
+      res.status(400).json({ error: "Could not create online spare order." });
     } finally {
       client.release();
     }
@@ -899,7 +919,7 @@ export function registerSrfRoutes(
   app.post("/api/service/inter-ho-spare-orders/:orderId/fulfill", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canManageInterHoSpareOrders(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can fulfill inter-HO spare order." });
+      res.status(403).json({ error: "Only supervisor/admin can fulfill online spare order." });
       return;
     }
     const orderId = String(req.params.orderId ?? "").trim();
@@ -955,8 +975,9 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Order has no lines." });
         return;
       }
+      const key = `HO:${order.to_region_id}`;
+      const shortages: Array<{ spareName: string; available: number; required: number }> = [];
       for (const line of lineRes.rows) {
-        const key = `HO:${order.to_region_id}`;
         const stockRes = await client.query<{ quantity: number }>(
           `SELECT quantity::float8 AS quantity
            FROM spare_stock
@@ -966,10 +987,21 @@ export function registerSrfRoutes(
         );
         const currentQty = Number(stockRes.rows[0]?.quantity ?? 0);
         if (currentQty < Number(line.qty)) {
-          await client.query("ROLLBACK");
-          res.status(400).json({ error: `Insufficient HO stock for ${line.spare_name}. Available ${currentQty}, required ${line.qty}.` });
-          return;
+          shortages.push({ spareName: line.spare_name, available: currentQty, required: Number(line.qty) });
         }
+      }
+      if (shortages.length > 0) {
+        await client.query("ROLLBACK");
+        const msg = shortages
+          .map((s) => `${s.spareName} (available ${s.available}, required ${s.required})`)
+          .join(", ");
+        res.status(400).json({
+          error: `Cannot fulfill. Supplier HO stock is insufficient for: ${msg}.`,
+          shortages,
+        });
+        return;
+      }
+      for (const line of lineRes.rows) {
         await client.query(
           `UPDATE spare_stock
            SET quantity = quantity - $3, updated_at = now()
@@ -992,7 +1024,7 @@ export function registerSrfRoutes(
           balanceAfter: Number(updated.rows[0]?.quantity ?? 0),
           referenceType: "MANUAL",
           referenceNumber: order.order_number,
-          note: `Inter-HO spare sale/dispatch for SRF ${order.srf_id}. Invoice ${invoiceRef}.`,
+          note: `Online spare order invoiced for SRF ${order.srf_id}. Awaiting outward + inward flow. Invoice ${invoiceRef}.`,
           createdBy: actor.id,
         });
       }
@@ -1017,7 +1049,7 @@ export function registerSrfRoutes(
       );
       await appendActionLog(client, order.srf_id, {
         action: "inter_ho_spare_order_fulfilled",
-        description: `Inter-HO spare order ${order.order_number} fulfilled from ${order.to_region_id}. Invoice ${invoiceRef}.`,
+        description: `Online spare order ${order.order_number} invoice created by supplier HO ${order.to_region_id}.`,
         actor,
         referenceDoc: order.order_number,
         details: { invoiceRef, fulfilledNote },
@@ -1028,14 +1060,226 @@ export function registerSrfRoutes(
         order.srf_id,
         srfState.rows[0]?.status ?? "assigned",
         actor.id,
-        `Inter-HO spare order ${order.order_number} fulfilled. Invoice ${invoiceRef}${fulfilledNote ? `: ${fulfilledNote}` : ""}`,
+        `Online spare order ${order.order_number} invoice created. Await outward dispatch + inward receive. Invoice ${invoiceRef}${fulfilledNote ? `: ${fulfilledNote}` : ""}`,
       );
       await client.query("COMMIT");
       res.json({ ok: true });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not fulfill inter-HO spare order." });
+      res.status(400).json({ error: "Could not fulfill online spare order." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/inter-ho-spare-orders/:orderId/dispatch", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canManageInterHoSpareOrders(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can mark online spare dispatch." });
+      return;
+    }
+    const orderId = String(req.params.orderId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const orderRes = await client.query<{
+        id: string;
+        order_number: string;
+        status: string;
+        srf_id: string;
+        to_region_id: string;
+        dispatched_at: string | null;
+      }>(
+        `SELECT id, order_number, status, srf_id, to_region_id, dispatched_at
+         FROM srf_inter_ho_spare_orders
+         WHERE id = $1::uuid
+         FOR UPDATE`,
+        [orderId],
+      );
+      const order = orderRes.rows[0];
+      if (!order) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Spare order not found." });
+        return;
+      }
+      if (order.status !== "FULFILLED") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Only fulfilled orders can be dispatched outward." });
+        return;
+      }
+      if (order.dispatched_at) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Outward dispatch already completed." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+        if (!actor.regionId || actor.regionId !== order.to_region_id) {
+          await client.query("ROLLBACK");
+          res.status(403).json({ error: "Only supplier HO can mark outward dispatch." });
+          return;
+        }
+      }
+      await client.query(
+        `UPDATE srf_inter_ho_spare_orders
+         SET dispatch_note = $2,
+             dispatched_by = $3,
+             dispatched_by_name = $4,
+             dispatched_at = now()
+         WHERE id = $1::uuid`,
+        [order.id, note, actor.id, actor.displayName],
+      );
+      await appendActionLog(client, order.srf_id, {
+        action: "inter_ho_spare_order_dispatched",
+        description: `Online spare order ${order.order_number} outward dispatched by supplier HO.`,
+        actor,
+        referenceDoc: order.order_number,
+        details: { note },
+      });
+      const srfState = await client.query<{ status: string }>(`SELECT status FROM srf_jobs WHERE id = $1::uuid`, [order.srf_id]);
+      await appendStatusHistory(
+        client,
+        order.srf_id,
+        srfState.rows[0]?.status ?? "assigned",
+        actor.id,
+        `Online spare order ${order.order_number} outward dispatched${note ? `: ${note}` : ""}`,
+      );
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not mark outward dispatch." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/inter-ho-spare-orders/:orderId/inward-receive", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canManageInterHoSpareOrders(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can mark online spare inward." });
+      return;
+    }
+    const orderId = String(req.params.orderId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const orderRes = await client.query<{
+        id: string;
+        order_number: string;
+        status: string;
+        srf_id: string;
+        from_region_id: string;
+        dispatched_at: string | null;
+        inward_received_at: string | null;
+      }>(
+        `SELECT id, order_number, status, srf_id, from_region_id, dispatched_at, inward_received_at
+         FROM srf_inter_ho_spare_orders
+         WHERE id = $1::uuid
+         FOR UPDATE`,
+        [orderId],
+      );
+      const order = orderRes.rows[0];
+      if (!order) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Spare order not found." });
+        return;
+      }
+      if (order.status !== "FULFILLED") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Only fulfilled orders can be inwarded." });
+        return;
+      }
+      if (!order.dispatched_at) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Complete outward dispatch first." });
+        return;
+      }
+      if (order.inward_received_at) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Inward already completed." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+        if (!actor.regionId || actor.regionId !== order.from_region_id) {
+          await client.query("ROLLBACK");
+          res.status(403).json({ error: "Only requested HO can mark inward receive." });
+          return;
+        }
+      }
+      const lineRes = await client.query<{ spare_id: string; spare_name: string; qty: number }>(
+        `SELECT spare_id, spare_name, qty::float8 AS qty
+         FROM srf_inter_ho_spare_order_lines
+         WHERE order_id = $1::uuid`,
+        [order.id],
+      );
+      if (lineRes.rows.length === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Order has no lines." });
+        return;
+      }
+      for (const line of lineRes.rows) {
+        const inboundKey = `HO:${order.from_region_id}`;
+        await client.query(
+          `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
+           VALUES ($1::uuid, $2, 'HO', $3::text, NULL, $4)
+           ON CONFLICT (spare_id, location_key)
+           DO UPDATE SET quantity = spare_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
+          [line.spare_id, inboundKey, order.from_region_id, line.qty],
+        );
+        const inboundBal = await client.query<{ quantity: number }>(
+          `SELECT quantity::float8 AS quantity
+           FROM spare_stock
+           WHERE spare_id = $1::uuid AND location_key = $2`,
+          [line.spare_id, inboundKey],
+        );
+        await appendStockHistory(client, {
+          spareId: line.spare_id,
+          eventType: "TRANSFER_IN",
+          locationKey: inboundKey,
+          locationType: "HO",
+          regionId: order.from_region_id,
+          quantityChange: Number(line.qty),
+          balanceAfter: Number(inboundBal.rows[0]?.quantity ?? 0),
+          referenceType: "MANUAL",
+          referenceNumber: order.order_number,
+          note: `Online spare order inward received for SRF ${order.srf_id}.`,
+          createdBy: actor.id,
+        });
+      }
+      await client.query(
+        `UPDATE srf_inter_ho_spare_orders
+         SET inward_note = $2,
+             inward_received_by = $3,
+             inward_received_by_name = $4,
+             inward_received_at = now()
+         WHERE id = $1::uuid`,
+        [order.id, note, actor.id, actor.displayName],
+      );
+      await appendActionLog(client, order.srf_id, {
+        action: "inter_ho_spare_order_inward_received",
+        description: `Online spare order ${order.order_number} inward received at requesting HO.`,
+        actor,
+        referenceDoc: order.order_number,
+        details: { note },
+      });
+      const srfState = await client.query<{ status: string }>(`SELECT status FROM srf_jobs WHERE id = $1::uuid`, [order.srf_id]);
+      await appendStatusHistory(
+        client,
+        order.srf_id,
+        srfState.rows[0]?.status ?? "assigned",
+        actor.id,
+        `Online spare order ${order.order_number} inward completed${note ? `: ${note}` : ""}`,
+      );
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not mark inward receive." });
     } finally {
       client.release();
     }
@@ -2263,64 +2507,116 @@ export function registerSrfRoutes(
     const lines = Array.isArray(req.body?.lines)
       ? req.body.lines
           .map((x: unknown) => ({
+            spareId: String((x as { spareId?: unknown })?.spareId ?? "").trim(),
             name: String((x as { name?: unknown })?.name ?? "").trim(),
             qty: Number((x as { qty?: unknown })?.qty ?? 0),
             unitPriceInr: Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0),
             lineTotalInr: Number((x as { lineTotalInr?: unknown })?.lineTotalInr ?? 0),
           }))
-          .filter((x: { name: string; qty: number; unitPriceInr: number; lineTotalInr: number }) => x.name.length > 0 && Number.isFinite(x.qty) && x.qty > 0)
+          .filter((x: { spareId: string; name: string; qty: number; unitPriceInr: number; lineTotalInr: number }) => x.spareId.length > 0 && x.name.length > 0 && Number.isFinite(x.qty) && x.qty > 0)
       : [];
     if (lines.length === 0) {
-      res.status(400).json({ error: "Provide at least one spare line with name and qty." });
+      res.status(400).json({ error: "Provide at least one spare line with spareId, name, and qty." });
       return;
     }
+    const client = await pool.connect();
     try {
+      await client.query("BEGIN");
       const params: unknown[] = [srfId, actor.id, JSON.stringify(lines)];
       let where = `id = $1::uuid AND status IN ('assigned', 'estimate_ok')`;
       if (actor.role === "technician") {
         where += " AND assigned_technician_id = $4";
         params.push(actor.technicianProfileId);
       }
-      const upd = await pool.query(
+      const upd = await client.query<{ region_id: string; reference: string }>(
         `UPDATE srf_jobs
          SET used_spares = $3::jsonb,
              spares_slip_submitted_at = now(),
              spares_slip_submitted_by = $2,
              updated_at = now(),
              modified_by = $2
-         WHERE ${where}`,
+         WHERE ${where}
+         RETURNING region_id, reference`,
         params,
       );
       if ((upd.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
         res.status(400).json({ error: "SRF must be assigned/estimate-ok and visible to you." });
         return;
       }
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await appendStatusHistory(client, srfId, "estimate_ok", actor.id, "Used spares slip submitted.");
-        const totalInr = lines.reduce(
-          (sum: number, l: { lineTotalInr: number; unitPriceInr: number; qty: number }) =>
-            sum + (Number.isFinite(l.lineTotalInr) ? l.lineTotalInr : l.unitPriceInr * l.qty),
-          0,
-        );
-        await appendActionLog(client, srfId, {
-          action: "spares_slip_submitted",
-          description: `Used spares slip submitted (${lines.length} line${lines.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}).`,
-          amountInr: totalInr,
-          actor,
-          details: { lines },
-        });
-        await client.query("COMMIT");
-      } catch {
-        await client.query("ROLLBACK").catch(() => {});
-      } finally {
-        client.release();
+      const regionId = upd.rows[0]!.region_id;
+      const srfRef = upd.rows[0]!.reference;
+      const locationKey = `HO:${regionId}`;
+      const usage = new Map<string, { qty: number; name: string }>();
+      for (const l of lines) {
+        const prev = usage.get(l.spareId) ?? { qty: 0, name: l.name };
+        usage.set(l.spareId, { qty: prev.qty + Number(l.qty), name: prev.name || l.name });
       }
+      for (const [spareId, entry] of usage.entries()) {
+        const stock = await client.query<{ quantity: number }>(
+          `SELECT quantity::float8 AS quantity
+           FROM spare_stock
+           WHERE spare_id = $1::uuid AND location_key = $2
+           FOR UPDATE`,
+          [spareId, locationKey],
+        );
+        const available = Number(stock.rows[0]?.quantity ?? 0);
+        if (available < entry.qty) {
+          await client.query("ROLLBACK");
+          res.status(400).json({
+            error: `Insufficient HO stock for ${entry.name}. Available ${available}, required ${entry.qty}.`,
+          });
+          return;
+        }
+      }
+      for (const [spareId, entry] of usage.entries()) {
+        await client.query(
+          `UPDATE spare_stock
+           SET quantity = quantity - $3, updated_at = now()
+           WHERE spare_id = $1::uuid AND location_key = $2`,
+          [spareId, locationKey, entry.qty],
+        );
+        const bal = await client.query<{ quantity: number }>(
+          `SELECT quantity::float8 AS quantity
+           FROM spare_stock
+           WHERE spare_id = $1::uuid AND location_key = $2`,
+          [spareId, locationKey],
+        );
+        await appendStockHistory(client, {
+          spareId,
+          eventType: "TRANSFER_OUT",
+          locationKey,
+          locationType: "HO",
+          regionId,
+          quantityChange: -entry.qty,
+          balanceAfter: Number(bal.rows[0]?.quantity ?? 0),
+          referenceType: "MANUAL",
+          referenceNumber: srfRef,
+          note: `SRF used spares deducted for ${srfRef}.`,
+          createdBy: actor.id,
+        });
+      }
+      await appendStatusHistory(client, srfId, "estimate_ok", actor.id, "Used spares slip submitted.");
+      const totalInr = lines.reduce(
+        (sum: number, l: { lineTotalInr: number; unitPriceInr: number; qty: number }) =>
+          sum + (Number.isFinite(l.lineTotalInr) ? l.lineTotalInr : l.unitPriceInr * l.qty),
+        0,
+      );
+      await appendActionLog(client, srfId, {
+        action: "spares_slip_submitted",
+        description: `Used spares slip submitted (${lines.length} line${lines.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}).`,
+        amountInr: totalInr,
+        actor,
+        details: { lines },
+      });
+      await client.query("COMMIT");
       res.json({ ok: true });
     } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
       console.error(e);
       res.status(400).json({ error: "Could not submit used spares slip." });
+    } finally {
+      client.release();
     }
   });
 

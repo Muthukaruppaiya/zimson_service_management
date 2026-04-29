@@ -195,8 +195,8 @@ export function SrfBookingsRegisterPage() {
                   <tr className="border-b border-zimson-100"><th className="w-56 bg-zimson-50/70 px-3 py-2">Status</th><td className="px-3 py-2">{detail.status}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Phone</th><td className="px-3 py-2">{detail.phone}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Complaint</th><td className="px-3 py-2">{detail.complaint}</td></tr>
-                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">DC</th><td className="px-3 py-2 font-mono">{detail.dcNumber ?? "-"}</td></tr>
-                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">ODC</th><td className="px-3 py-2 font-mono">{detail.outwardDcNumber ?? "-"}</td></tr>
+                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Internal inward transfer</th><td className="px-3 py-2 font-mono">{detail.dcNumber ?? "-"}</td></tr>
+                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Internal outward transfer</th><td className="px-3 py-2 font-mono">{detail.outwardDcNumber ?? "-"}</td></tr>
                   <tr><th className="bg-zimson-50/70 px-3 py-2">Estimate</th><td className="px-3 py-2 font-semibold text-zimson-900">{Number(detail.estimateTotalInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })}</td></tr>
                 </tbody>
               </table>

@@ -27,6 +27,7 @@ export function ServiceCentreHomePage() {
     "super_admin",
   ]);
   const supervisorOk = can(user?.role, ["service_centre_supervisor"]);
+  const onlineStoreOk = can(user?.role, ["service_centre_supervisor", "ho_supervisor"]);
   const techOk = can(user?.role, ["technician"]);
 
   return (
@@ -52,7 +53,7 @@ export function ServiceCentreHomePage() {
         }
       />
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-4">
         <Card title="Logistics">
           {inwardOk ? (
             <Link to="/service-centre/logistics" className={cardBtn}>
@@ -67,6 +68,16 @@ export function ServiceCentreHomePage() {
           {supervisorOk ? (
             <Link to="/service-centre/supervisor" className={cardBtn}>
               Open supervisor desk
+            </Link>
+          ) : (
+            <p className={disabledNote}>Access restricted for this role.</p>
+          )}
+        </Card>
+
+        <Card title="Online store">
+          {onlineStoreOk ? (
+            <Link to="/service-centre/online-store" className={cardBtn}>
+              Open online orders
             </Link>
           ) : (
             <p className={disabledNote}>Access restricted for this role.</p>

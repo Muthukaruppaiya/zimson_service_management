@@ -9,7 +9,7 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { SEED_TECHNICIANS } from "../../data/serviceSeed";
-import { apiJson } from "../../lib/api";
+import { ApiError, apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import { printAssignmentSlip } from "../../lib/serviceDocuments";
 import type { SparePriceLine } from "../../types/spare";
@@ -34,6 +34,8 @@ type InterHoSpareOrder = {
   fulfilledBy: string | null;
   fulfilledByName: string | null;
   fulfilledAt: string | null;
+  dispatchedAt?: string | null;
+  inwardReceivedAt?: string | null;
   lines: Array<{
     id: string;
     spareId: string;
@@ -85,6 +87,7 @@ export function ScSupervisorPage() {
   const [fulfillOrderId, setFulfillOrderId] = useState<string | null>(null);
   const [fulfillInvoiceRef, setFulfillInvoiceRef] = useState("");
   const [fulfillNote, setFulfillNote] = useState("");
+  const [orderDetailsId, setOrderDetailsId] = useState<string | null>(null);
 
   const received = useMemo(() => {
     if (!user) return [];
@@ -201,13 +204,13 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({
         ...f,
         [moveToOdcPopupJobId]:
-          "Moved to outward queue. Logistics can now create ODC and watch will be returned to store without billing.",
+          "Moved to internal outward queue. Logistics can now create internal outward transfer and return watch without billing.",
       }));
       closeMoveToOdcPopup();
     } catch (e) {
       setFeedback((f) => ({
         ...f,
-        [moveToOdcPopupJobId]: e instanceof Error ? e.message : "Could not move to ODC.",
+        [moveToOdcPopupJobId]: e instanceof Error ? e.message : "Could not move to internal outward queue.",
       }));
     }
   }
@@ -218,7 +221,7 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({
         ...f,
         [jobId]:
-          "Repair recorded successfully. The job is now in the outward (ODC) queue for logistics to dispatch to the store.",
+          "Repair recorded successfully. The job is now in internal outward queue for logistics dispatch to store.",
       }));
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not mark repaired." }));
@@ -240,6 +243,21 @@ export function ScSupervisorPage() {
     () => spareOrderRows.filter((o) => o.fromRegionId === (user?.regionId ?? "") || user?.role === "super_admin" || user?.role === "ho_admin"),
     [spareOrderRows, user?.regionId, user?.role],
   );
+  const selectedOrder = useMemo(
+    () => spareOrderRows.find((o) => o.id === orderDetailsId) ?? null,
+    [spareOrderRows, orderDetailsId],
+  );
+  const spareFlowBySrfId = useMemo(() => {
+    const m = new Map<string, InterHoSpareOrder>();
+    const sorted = [...spareOrderRows].sort(
+      (a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime(),
+    );
+    for (const row of sorted) {
+      if (row.status === "CANCELLED") continue;
+      if (!m.has(row.srfId)) m.set(row.srfId, row);
+    }
+    return m;
+  }, [spareOrderRows]);
 
   async function refreshSpareOrders() {
     try {
@@ -332,7 +350,7 @@ export function ScSupervisorPage() {
       });
       setFeedback((f) => ({
         ...f,
-        [requestSparesJobId]: "Inter-HO spare order created. Supplier HO can now dispatch spares with invoice.",
+        [requestSparesJobId]: "Online spare sales order created. Authorized CBE partner can dispatch spares with invoice.",
       }));
       closeRequestSparesPopup();
       await refreshSpareOrders();
@@ -366,15 +384,56 @@ export function ScSupervisorPage() {
       });
       closeFulfillOrder();
       await refreshSpareOrders();
-      setSpareOrderMsg("Spare order fulfilled and stock deducted.");
+      setSpareOrderMsg("Online spare order fulfilled, invoice recorded, and stock deducted.");
     } catch (e) {
+      if (e instanceof ApiError && e.body && typeof e.body === "object") {
+        const b = e.body as { error?: unknown; shortages?: Array<{ spareName?: unknown; available?: unknown; required?: unknown }> };
+        const msg = typeof b.error === "string" ? b.error : e.message;
+        const parts = Array.isArray(b.shortages)
+          ? b.shortages
+              .map((s) => {
+                const name = String(s.spareName ?? "Spare");
+                const available = Number(s.available ?? 0);
+                const required = Number(s.required ?? 0);
+                return `${name} (available ${available}, required ${required})`;
+              })
+              .filter(Boolean)
+          : [];
+        setSpareOrderMsg(parts.length > 0 ? `${msg} Details: ${parts.join(", ")}` : msg);
+        return;
+      }
       setSpareOrderMsg(e instanceof Error ? e.message : "Could not fulfill spare order.");
     }
   }
 
   function openRepairPopup(jobId: string) {
+    const flow = spareFlowBySrfId.get(jobId);
+    if (flow?.status === "FULFILLED" && flow.inwardReceivedAt && flow.lines.length > 0) {
+      setUnitPriceBySpareId((prev) => {
+        const next = { ...prev };
+        for (const l of flow.lines) {
+          if (l.spareId) next[l.spareId] = Number(l.unitPriceInr ?? 0);
+        }
+        return next;
+      });
+      setRepairLines([
+        ...flow.lines.map((l) => ({ spareId: l.spareId, qty: String(Number(l.qty || 0)) })),
+        { spareId: "", qty: "1" },
+      ]);
+      setFeedback((f) => ({
+        ...f,
+        [jobId]: `Requested spares from ${flow.orderNumber} auto-loaded. Add extra rows only if needed.`,
+      }));
+    } else {
+      setRepairLines([{ spareId: "", qty: "1" }]);
+      if (flow && !flow.inwardReceivedAt) {
+        setFeedback((f) => ({
+          ...f,
+          [jobId]: `Spare order ${flow.orderNumber} is not inwarded yet. Complete inward before repair.`,
+        }));
+      }
+    }
     setRepairPopupJobId(jobId);
-    setRepairLines([{ spareId: "", qty: "1" }]);
   }
 
   function closeRepairPopup() {
@@ -410,6 +469,7 @@ export function ScSupervisorPage() {
         const spare = activeSpares.find((s) => s.id === x.spareId);
         const unitPriceInr = Number(unitPriceBySpareId[x.spareId] ?? spare?.mrpInr ?? 0);
         return {
+          spareId: x.spareId,
           name: spare?.name ?? x.spareId,
           qty: x.qty,
           unitPriceInr,
@@ -457,12 +517,20 @@ export function ScSupervisorPage() {
         title="Supervisor — assign technicians"
         description="Match repair complexity to technician grade. Technician then analyses the watch and confirms whether the estimate stands (re-estimate is a later phase)."
         actions={
-          <Link
-            to="/service-centre"
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Service centre home
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/service-centre/online-store"
+              className="inline-flex rounded-xl border border-cyan-400 bg-cyan-50 px-4 py-2.5 text-sm font-semibold text-cyan-900 shadow-sm transition hover:bg-cyan-100"
+            >
+              Open online store
+            </Link>
+            <Link
+              to="/service-centre"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Service centre home
+            </Link>
+          </div>
         }
       />
 
@@ -585,7 +653,14 @@ export function ScSupervisorPage() {
           <p className="text-sm text-stone-600">No assigned SRFs pending decision.</p>
         ) : (
           <div className="space-y-4">
-            {decisionQueue.map((j) => (
+            {decisionQueue.map((j) => {
+              const spareFlow = spareFlowBySrfId.get(j.id) ?? null;
+              const hasSpareFlow = !!spareFlow;
+              const spareFlowInwardDone = Boolean(spareFlow?.inwardReceivedAt);
+              const hasTransferFlow = Boolean(j.transferTargetRegionId || j.transferSourceRegionId || j.requiresLocalConversion);
+              const lockToRepairOnly = hasTransferFlow || hasSpareFlow;
+              const canOpenRepair = j.status !== "reestimate_required" && j.status !== "customer_rejected";
+              return (
               <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -621,6 +696,12 @@ export function ScSupervisorPage() {
                         Spares: {j.usedSpares.map((x) => `${x.name} x${x.qty}`).join(", ")}
                       </p>
                     ) : null}
+                    {hasSpareFlow ? (
+                      <p className="mt-1 text-xs font-medium text-cyan-700">
+                        Spare flow active ({spareFlow?.orderNumber}) ·{" "}
+                        {spareFlowInwardDone ? "Inward completed" : "Waiting inward"}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -631,7 +712,7 @@ export function ScSupervisorPage() {
                         <>
                           <p className="mt-2 text-[11px]">Share this link with customer (SMS / WhatsApp / QR):</p>
                           <p className="mt-1 break-all rounded bg-white/80 px-2 py-1 font-mono text-[11px] text-stone-700">{j.trackingUrl}</p>
-                          <CustomerLinkQr url={j.trackingUrl} size={140} caption="Customer scans to open tracking" className="mt-2" />
+                          <CustomerLinkQr url={j.trackingUrl} size={220} mode="qr" caption="Customer scans QR to open customer review" className="mt-2" />
                         </>
                       ) : (
                         <p className="mt-1 text-[11px]">Tracking link is not available.</p>
@@ -647,24 +728,29 @@ export function ScSupervisorPage() {
                         Call the customer and try to negotiate. If they agree on a revised amount, click
                         <span className="font-semibold"> &quot;Negotiate &amp; send re-estimate&quot;</span> to share the new
                         estimate via tracking link. If the customer still does not want the repair, click
-                        <span className="font-semibold"> &quot;Move to ODC&quot;</span> to send the watch back to the store
+                        <span className="font-semibold"> &quot;Move to internal outward&quot;</span> to send the watch back to the store
                         without billing.
                       </p>
                     </div>
                   ) : null}
-                  {j.status !== "reestimate_required" && j.status !== "customer_rejected" ? (
+                  {canOpenRepair ? (
                     <button
                       type="button"
                       onClick={() => openRepairPopup(j.id)}
-                      className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                      disabled={hasSpareFlow && !spareFlowInwardDone}
+                      className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      Watch repaired
+                      {hasSpareFlow
+                        ? spareFlowInwardDone
+                          ? "Watch repaired (auto spare lines)"
+                          : "Waiting spare inward"
+                        : "Watch repaired"}
                     </button>
                   ) : null}
                   <button
                     type="button"
                     onClick={() => openReestimatePopup(j.id)}
-                    disabled={j.status === "reestimate_required"}
+                    disabled={j.status === "reestimate_required" || lockToRepairOnly}
                     className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {j.status === "customer_rejected" ? "Negotiate & send re-estimate" : "Need re-estimate"}
@@ -675,10 +761,10 @@ export function ScSupervisorPage() {
                       onClick={() => openMoveToOdcPopup(j.id)}
                       className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
                     >
-                      Move to ODC (no repair)
+                      Move to internal outward (no repair)
                     </button>
                   ) : null}
-                  {(j.status === "assigned" || j.status === "estimate_ok") ? (
+                  {(j.status === "assigned" || j.status === "estimate_ok") && !lockToRepairOnly ? (
                     <button
                       type="button"
                       onClick={() => openTransferPopup(j.id)}
@@ -687,7 +773,7 @@ export function ScSupervisorPage() {
                       Send to other HO
                     </button>
                   ) : null}
-                  {(j.status === "assigned" || j.status === "estimate_ok" || j.status === "reestimate_required") ? (
+                  {(j.status === "assigned" || j.status === "estimate_ok") && !lockToRepairOnly ? (
                     <button
                       type="button"
                       onClick={() => openRequestSparesPopup(j.id)}
@@ -735,11 +821,12 @@ export function ScSupervisorPage() {
                   </div>
                 ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
-      <Card title="Inter-HO spare online orders" subtitle="SRF-linked spare sales between HOs" className="mt-8">
+      <Card title="Online spare sales orders" subtitle="External-style sales flow (internally inter-HO stock transfer)" className="mt-8">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-xs text-stone-600">
             Outgoing requests from your HO: {outgoingSpareOrders.length} · Incoming to your HO: {incomingSpareOrders.length}
@@ -754,7 +841,7 @@ export function ScSupervisorPage() {
         </div>
         {spareOrderMsg ? <p className="mb-2 text-xs text-stone-600">{spareOrderMsg}</p> : null}
         {spareOrderRows.length === 0 ? (
-          <p className="text-sm text-stone-600">No inter-HO spare orders yet.</p>
+          <p className="text-sm text-stone-600">No online spare sales orders yet.</p>
         ) : (
           <div className="space-y-3">
             {spareOrderRows.map((o) => (
@@ -789,10 +876,27 @@ export function ScSupervisorPage() {
                       onClick={() => openFulfillOrder(o.id)}
                       className="rounded-lg bg-zimson-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zimson-800"
                     >
-                      Fulfill & invoice
+                      Process sale & invoice
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrderDetailsId(o.id)}
+                      className="ml-2 rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                    >
+                      View details
                     </button>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setOrderDetailsId(o.id)}
+                      className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                    >
+                      View details
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -958,7 +1062,7 @@ export function ScSupervisorPage() {
       {requestSparesJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Inter-HO spare online order</h3>
+            <h3 className="text-lg font-semibold text-zimson-900">Online spare sales order</h3>
             <p className="mt-1 text-sm text-stone-600">
               Raise spare requirement against this SRF. Destination HO will fulfill with invoice (different GST), then repair flow continues as usual.
             </p>
@@ -1053,7 +1157,7 @@ export function ScSupervisorPage() {
                 onClick={() => void confirmRequestSparesOtherHo()}
                 className="rounded-xl bg-cyan-700 px-4 py-2 text-sm font-semibold text-white"
               >
-                Raise spare order
+              Place online order
               </button>
             </div>
           </div>
@@ -1062,7 +1166,7 @@ export function ScSupervisorPage() {
       {fulfillOrderId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Fulfill inter-HO spare order</h3>
+            <h3 className="text-lg font-semibold text-zimson-900">Process online spare sale</h3>
             <p className="mt-1 text-sm text-stone-600">Enter invoice reference. Stock will be deducted from this HO.</p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
@@ -1098,13 +1202,68 @@ export function ScSupervisorPage() {
           </div>
         </div>
       ) : null}
+      {selectedOrder ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-3 flex items-start justify-between">
+              <div>
+            <h3 className="text-lg font-semibold text-zimson-900">Online order details — {selectedOrder.orderNumber}</h3>
+                <p className="text-xs text-stone-600">
+                  SRF {selectedOrder.srfReference} · {selectedOrder.fromRegionName} → {selectedOrder.toRegionName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOrderDetailsId(null)}
+                className="rounded-xl border border-zimson-300 px-3 py-1.5 text-sm"
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid gap-2 rounded-xl border border-zimson-200 bg-zimson-50/40 p-3 text-xs text-stone-700 sm:grid-cols-2">
+              <p><span className="font-semibold text-stone-900">Status:</span> {selectedOrder.status}</p>
+              <p><span className="font-semibold text-stone-900">Requested by:</span> {selectedOrder.requestedByName ?? selectedOrder.requestedBy}</p>
+              <p><span className="font-semibold text-stone-900">Requested at:</span> {new Date(selectedOrder.requestedAt).toLocaleString()}</p>
+              <p><span className="font-semibold text-stone-900">Invoice ref:</span> {selectedOrder.invoiceRef ?? "-"}</p>
+              <p className="sm:col-span-2"><span className="font-semibold text-stone-900">Request note:</span> {selectedOrder.note || "-"}</p>
+              <p className="sm:col-span-2"><span className="font-semibold text-stone-900">Fulfill note:</span> {selectedOrder.fulfilledNote || "-"}</p>
+            </div>
+            <div className="mt-3 overflow-x-auto rounded-xl border border-zimson-200/80">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-zimson-50/90 text-stone-600">
+                  <tr>
+                    <th className="px-3 py-2">Spare</th>
+                    <th className="px-3 py-2 text-right">Qty</th>
+                    <th className="px-3 py-2 text-right">Rate</th>
+                    <th className="px-3 py-2 text-right">Line total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedOrder.lines.map((l) => (
+                    <tr key={l.id} className="border-t border-zimson-100">
+                      <td className="px-3 py-2">{l.spareName}</td>
+                      <td className="px-3 py-2 text-right">{l.qty}</td>
+                      <td className="px-3 py-2 text-right">
+                        {Number(l.unitPriceInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold">
+                        {Number(l.lineTotalInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {moveToOdcPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-rose-900">Move SRF to outward queue</h3>
             <p className="mt-1 text-sm text-stone-600">
               Use this only after speaking with the customer and confirming they do not want the repair. The
-              watch will be returned to the store via ODC and handed over without billing.
+              watch will be returned to store via internal outward transfer and handed over without billing.
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
@@ -1127,7 +1286,7 @@ export function ScSupervisorPage() {
                 onClick={() => void confirmMoveToOdc()}
                 className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white"
               >
-                Confirm — move to ODC
+                Confirm — move to internal outward
               </button>
             </div>
           </div>

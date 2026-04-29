@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
+import { appendStockHistory } from "./db/stockHistory";
 
 type Authed = Request & { userId: string };
 
@@ -381,6 +382,59 @@ export function registerQuickBillRoutes(
            VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6)`,
           [billId, ln.lineNo, ln.description, ln.amountInr, ln.spareId, ln.qty],
         );
+      }
+
+      const spareUsage = new Map<string, number>();
+      for (const ln of lines) {
+        if (!ln.spareId) continue;
+        spareUsage.set(ln.spareId, Number(spareUsage.get(ln.spareId) ?? 0) + Number(ln.qty));
+      }
+      if (spareUsage.size > 0) {
+        const locationType: "HO" | "STORE" = storeId ? "STORE" : "HO";
+        const locationKey = storeId ? `STORE:${regionId}:${storeId}` : `HO:${regionId}`;
+        for (const [spareId, qty] of spareUsage.entries()) {
+          const stock = await client.query<{ quantity: number }>(
+            `SELECT quantity::float8 AS quantity
+             FROM spare_stock
+             WHERE spare_id = $1::uuid AND location_key = $2
+             FOR UPDATE`,
+            [spareId, locationKey],
+          );
+          const available = Number(stock.rows[0]?.quantity ?? 0);
+          if (available < qty) {
+            await client.query("ROLLBACK");
+            res.status(400).json({
+              error: `Insufficient stock for quick bill spare. Available ${available}, required ${qty}.`,
+            });
+            return;
+          }
+          await client.query(
+            `UPDATE spare_stock
+             SET quantity = quantity - $3, updated_at = now()
+             WHERE spare_id = $1::uuid AND location_key = $2`,
+            [spareId, locationKey, qty],
+          );
+          const bal = await client.query<{ quantity: number }>(
+            `SELECT quantity::float8 AS quantity
+             FROM spare_stock
+             WHERE spare_id = $1::uuid AND location_key = $2`,
+            [spareId, locationKey],
+          );
+          await appendStockHistory(client, {
+            spareId,
+            eventType: "TRANSFER_OUT",
+            locationKey,
+            locationType,
+            regionId,
+            storeId,
+            quantityChange: -qty,
+            balanceAfter: Number(bal.rows[0]?.quantity ?? 0),
+            referenceType: "MANUAL",
+            referenceNumber: billNumber,
+            note: `Quick bill spare usage (${billNumber}).`,
+            createdBy: actor.id,
+          });
+        }
       }
 
       const detail = await client.query(
