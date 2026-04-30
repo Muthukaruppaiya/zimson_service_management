@@ -1882,6 +1882,18 @@ export function registerSrfRoutes(
       return;
     }
     try {
+      const techRes = await pool.query<{ full_name: string; grade: string; is_active: boolean }>(
+        `SELECT full_name, grade, is_active
+         FROM technician_profiles
+         WHERE id = $1::uuid
+         LIMIT 1`,
+        [technicianId],
+      );
+      const tech = techRes.rows[0];
+      if (!tech || !tech.is_active) {
+        res.status(400).json({ error: "Selected technician is invalid or inactive." });
+        return;
+      }
       const upd = await pool.query(
         `UPDATE srf_jobs
          SET status = 'assigned',
@@ -1901,12 +1913,12 @@ export function registerSrfRoutes(
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        await appendStatusHistory(client, srfId, "assigned", actor.id, `Assigned to technician ${technicianId}.`);
+        await appendStatusHistory(client, srfId, "assigned", actor.id, `Assigned to technician ${tech.full_name} (${tech.grade}).`);
         await appendActionLog(client, srfId, {
           action: "supervisor_assign_technician",
-          description: `Supervisor assigned technician ${technicianId}.`,
+          description: `Supervisor assigned technician ${tech.full_name} (${tech.grade}).`,
           actor,
-          details: { technicianId },
+          details: { technicianId, technicianName: tech.full_name, technicianGrade: tech.grade },
         });
         await client.query("COMMIT");
       } catch {

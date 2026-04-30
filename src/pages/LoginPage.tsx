@@ -3,8 +3,12 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { SEED_USERS } from "../data/seed";
 
+function displayEmployeeCode(seedIdOrCode: string): string {
+  return String(seedIdOrCode).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
+}
+
 const demoRows = SEED_USERS.filter((u) => u.isSeed).map((u) => ({
-  email: u.email,
+  employeeCode: displayEmployeeCode(u.employeeCode ?? u.id),
   password: u.password,
   role: u.role,
   note: u.displayName,
@@ -17,8 +21,10 @@ export function LoginPage() {
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "/";
 
-  const [email, setEmail] = useState("");
+  const [employeeCode, setEmployeeCode] = useState("");
   const [password, setPassword] = useState("");
+  const [storeId, setStoreId] = useState("");
+  const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   if (user) {
@@ -36,18 +42,25 @@ export function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const result = await login(email, password);
+    const result = await login(employeeCode, password, storeId || null);
     if (result.ok) {
       navigate(from === "/login" ? "/" : from, { replace: true });
+    } else if ("code" in result && result.code === "STORE_SELECTION_REQUIRED") {
+      setStoreOptions(result.stores);
+      setStoreId("");
+      setError(result.message);
     } else {
+      setStoreOptions([]);
       setError(result.message);
     }
   }
 
   function fillDemo(row: (typeof demoRows)[number]) {
     if (!row.canLogin) return;
-    setEmail(row.email);
+    setEmployeeCode(row.employeeCode);
     setPassword(row.password);
+    setStoreOptions([]);
+    setStoreId("");
     setError(null);
   }
 
@@ -70,19 +83,42 @@ export function LoginPage() {
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
-              <label htmlFor="login-email" className="text-xs font-medium text-stone-600">
-                Email
+              <label htmlFor="login-emp" className="text-xs font-medium text-stone-600">
+                Employee number
               </label>
               <input
-                id="login-email"
-                type="email"
+                id="login-emp"
+                type="text"
                 autoComplete="username"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={employeeCode}
+                onChange={(e) => setEmployeeCode(e.target.value)}
                 className="mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/40 px-3 py-2.5 text-sm outline-none ring-zimson-400/40 focus:ring-2"
-                placeholder="you@company.com"
+                placeholder="Employee number"
               />
             </div>
+            {storeOptions.length > 0 ? (
+              <div>
+                <label htmlFor="login-store" className="text-xs font-medium text-stone-600">
+                  Which store do you want to login?
+                </label>
+                <select
+                  id="login-store"
+                  value={storeId}
+                  onChange={(e) => setStoreId(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/40 px-3 py-2.5 text-sm outline-none ring-zimson-400/40 focus:ring-2"
+                >
+                  <option value="">Select store</option>
+                  {storeOptions.map((store) => (
+                    <option key={store.id} value={store.id}>
+                      {store.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-stone-500">
+                  This user has multiple store access. Choose one store, then click Sign in.
+                </p>
+              </div>
+            ) : null}
             <div>
               <label htmlFor="login-password" className="text-xs font-medium text-stone-600">
                 Password
@@ -104,7 +140,8 @@ export function LoginPage() {
             ) : null}
             <button
               type="submit"
-              className="w-full rounded-xl bg-zimson-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+              disabled={storeOptions.length > 0 && !storeId}
+              className="w-full rounded-xl bg-zimson-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Sign in
             </button>
@@ -117,7 +154,7 @@ export function LoginPage() {
             <table className="w-full min-w-[620px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-zimson-200 text-xs uppercase tracking-wide text-stone-500">
-                  <th className="py-2 pr-3 font-medium">Email</th>
+                  <th className="py-2 pr-3 font-medium">Employee No</th>
                   <th className="py-2 pr-3 font-medium">Password</th>
                   <th className="py-2 pr-3 font-medium">Role</th>
                   <th className="py-2 pr-3 font-medium">User</th>
@@ -126,7 +163,7 @@ export function LoginPage() {
               </thead>
               <tbody>
                 {demoRows.map((row) => (
-                  <tr key={row.email} className="border-b border-zimson-100 last:border-0">
+                  <tr key={row.employeeCode} className="border-b border-zimson-100 last:border-0">
                     <td className="py-2 pr-3">
                       <button
                         type="button"
@@ -134,7 +171,7 @@ export function LoginPage() {
                         disabled={!row.canLogin}
                         className="text-left font-mono text-xs text-zimson-800 underline decoration-zimson-300 underline-offset-2 hover:text-zimson-950 disabled:no-underline disabled:opacity-60"
                       >
-                        {row.email}
+                        {row.employeeCode}
                       </button>
                     </td>
                     <td className="py-2 pr-3 font-mono text-xs text-stone-600">{row.password}</td>

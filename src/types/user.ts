@@ -28,6 +28,7 @@ export type ModuleKey =
 
 export type DemoUser = {
   id: string;
+  employeeCode?: string;
   email: string;
   password: string;
   displayName: string;
@@ -36,6 +37,8 @@ export type DemoUser = {
   regionId: string | null;
   /** Set for store_user */
   storeId: string | null;
+  /** Optional multi-store access for store roles. */
+  storeIds?: string[];
   /** For technician role — matches `SEED_TECHNICIANS` id */
   technicianProfileId?: string | null;
   /** If false, account is directory-only and cannot sign in (e.g. technicians). */

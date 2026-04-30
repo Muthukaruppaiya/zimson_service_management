@@ -5,6 +5,7 @@ export type ServiceTaxSettings = {
   igstRatePercent: number;
   defaultSacHsn: string;
   pricesTaxInclusive: boolean;
+  supplierTaxPersonTypes: string[];
   srfPrefix: string;
   srfSuffix: string;
   prPrefix: string;

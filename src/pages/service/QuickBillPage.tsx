@@ -20,9 +20,9 @@ import {
   isValidGstFormat,
   isValidPanFormat,
   nextQuickBillRef,
-  SEED_TECHNICIANS,
   watchModelsForBrand,
 } from "../../data/serviceSeed";
+import type { TechnicianProfile } from "../../types/technician";
 
 type LineItem = { id: string; description: string; amount: string; spareId?: string; qty?: number };
 
@@ -105,7 +105,8 @@ export function QuickBillPage() {
   const [lines, setLines] = useState<LineItem[]>([emptyLine()]);
   const [serviceChargeInr, setServiceChargeInr] = useState("");
   const [partPick, setPartPick] = useState("");
-  const [technicianId, setTechnicianId] = useState<string>(SEED_TECHNICIANS[0]?.id ?? "");
+  const [technicianId, setTechnicianId] = useState<string>("");
+  const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [paymentMode, setPaymentMode] = useState<"Cash" | "Card" | "UPI">("Cash");
   const [notes, setNotes] = useState("");
 
@@ -156,6 +157,15 @@ export function QuickBillPage() {
     if (!apiMode || user?.role !== "super_admin") return;
     if (regions.length > 0 && !billingRegionId) setBillingRegionId(regions[0]!.id);
   }, [apiMode, user?.role, regions, billingRegionId]);
+
+  useEffect(() => {
+    void apiJson<{ rows: TechnicianProfile[] }>("/api/service/technicians?activeOnly=1")
+      .then((out) => {
+        setTechnicians(out.rows);
+        setTechnicianId((prev) => prev || out.rows[0]?.id || "");
+      })
+      .catch(() => setTechnicians([]));
+  }, []);
 
   const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
@@ -368,7 +378,7 @@ export function QuickBillPage() {
         setOtpError("Missing region for this account. Select billing region or re-login.");
         return;
       }
-      const tech = SEED_TECHNICIANS.find((t) => t.id === technicianId);
+      const tech = technicians.find((t) => t.id === technicianId);
       setIsSavingBill(true);
       try {
         const { invoice } = await apiJson<{ invoice: QuickBillInvoice }>("/api/service/quick-bills", {
@@ -387,7 +397,7 @@ export function QuickBillPage() {
             watchModel,
             watchRef: watchRef.trim() || null,
             technicianId: technicianId || null,
-            technicianName: tech?.name ?? null,
+            technicianName: tech?.fullName ?? null,
             paymentMode,
             notes: notes.trim(),
             serviceChargeInr: (() => {
@@ -461,7 +471,7 @@ export function QuickBillPage() {
     setLines([emptyLine()]);
     setServiceChargeInr("");
     setPartPick("");
-    setTechnicianId(SEED_TECHNICIANS[0]?.id ?? "");
+    setTechnicianId(technicians[0]?.id ?? "");
     setPaymentMode("Cash");
     setNotes("");
     setError(null);
@@ -498,7 +508,7 @@ export function QuickBillPage() {
   }
 
   if (completion?.mode === "demo") {
-    const techName = SEED_TECHNICIANS.find((t) => t.id === technicianId)?.name ?? null;
+    const techName = technicians.find((t) => t.id === technicianId)?.fullName ?? null;
     const placeOfSupply =
       user?.regionId != null
         ? (regions.find((r) => r.id === user.regionId)?.name ?? user.regionId)
@@ -906,9 +916,10 @@ export function QuickBillPage() {
                 onChange={(e) => setTechnicianId(e.target.value)}
                 className={inputClass}
               >
-                {SEED_TECHNICIANS.map((t) => (
+                <option value="">Select technician</option>
+                {technicians.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.name} · {t.grade}
+                    {t.fullName} · {t.grade}
                   </option>
                 ))}
               </select>

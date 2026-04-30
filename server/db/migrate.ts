@@ -38,6 +38,38 @@ CREATE TABLE IF NOT EXISTS app_users (
 CREATE INDEX IF NOT EXISTS idx_app_users_role ON app_users (role);
 CREATE INDEX IF NOT EXISTS idx_app_users_region ON app_users (region_id);
 CREATE INDEX IF NOT EXISTS idx_app_users_store ON app_users (store_id);
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS employee_code VARCHAR(64);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_app_users_employee_code ON app_users(employee_code) WHERE employee_code IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS user_store_access (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, store_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_store_access_user ON user_store_access (user_id);
+CREATE INDEX IF NOT EXISTS idx_user_store_access_store ON user_store_access (store_id);
+
+CREATE TABLE IF NOT EXISTS technician_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_code VARCHAR(64) NOT NULL UNIQUE,
+  full_name VARCHAR(240) NOT NULL,
+  email VARCHAR(240),
+  phone VARCHAR(80),
+  grade VARCHAR(80) NOT NULL,
+  region_id TEXT REFERENCES regions(id) ON DELETE SET NULL,
+  specialization VARCHAR(240) NOT NULL DEFAULT '',
+  experience_years NUMERIC(5,2) NOT NULL DEFAULT 0,
+  notes TEXT NOT NULL DEFAULT '',
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_technician_profiles_active ON technician_profiles (is_active, full_name);
+CREATE INDEX IF NOT EXISTS idx_technician_profiles_region ON technician_profiles (region_id, is_active, full_name);
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
   id TEXT PRIMARY KEY,
@@ -72,6 +104,8 @@ CREATE TABLE IF NOT EXISTS spares (
   category VARCHAR(128) NOT NULL DEFAULT 'Other',
   hsn VARCHAR(32),
   mrp_inr NUMERIC(14, 2),
+  cost_price_inr NUMERIC(14, 2),
+  selling_price_inr NUMERIC(14, 2),
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -79,6 +113,8 @@ CREATE TABLE IF NOT EXISTS spares (
 
 ALTER TABLE spares ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
 ALTER TABLE spares ADD COLUMN IF NOT EXISTS mrp_inr NUMERIC(14, 2);
+ALTER TABLE spares ADD COLUMN IF NOT EXISTS cost_price_inr NUMERIC(14, 2);
+ALTER TABLE spares ADD COLUMN IF NOT EXISTS selling_price_inr NUMERIC(14, 2);
 
 CREATE TABLE IF NOT EXISTS spare_prices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -230,18 +266,28 @@ CREATE INDEX IF NOT EXISTS idx_pr_items_pr ON purchase_request_items (pr_id);
 
 CREATE TABLE IF NOT EXISTS suppliers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  supplier_code VARCHAR(64) NOT NULL UNIQUE,
   name VARCHAR(240) NOT NULL,
   contact_name VARCHAR(160),
   email VARCHAR(200),
   phone VARCHAR(64),
   address TEXT,
+  locations_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   gst VARCHAR(20),
+  tax_person_type VARCHAR(80),
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers (name);
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS supplier_code VARCHAR(64);
+UPDATE suppliers
+SET supplier_code = 'SUP' || LPAD(SUBSTRING(REPLACE(id::text, '-', '') FROM 1 FOR 6), 6, '0')
+WHERE supplier_code IS NULL OR BTRIM(supplier_code) = '';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_suppliers_code ON suppliers(supplier_code);
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS locations_json JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS tax_person_type VARCHAR(80);
 
 CREATE TABLE IF NOT EXISTS purchase_orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -389,6 +435,7 @@ CREATE TABLE IF NOT EXISTS service_tax_settings (
     CHECK (igst_rate_percent >= 0 AND igst_rate_percent <= 100),
   default_sac_hsn VARCHAR(32) NOT NULL DEFAULT '9987',
   prices_tax_inclusive BOOLEAN NOT NULL DEFAULT false,
+  supplier_tax_person_types JSONB NOT NULL DEFAULT '["INTRASTATE_TAXABLE_PERSON","INTERSTATE_TAXABLE_PERSON"]'::jsonb,
   srf_prefix VARCHAR(16) NOT NULL DEFAULT 'SRF',
   srf_suffix VARCHAR(16) NOT NULL DEFAULT '',
   pr_prefix VARCHAR(16) NOT NULL DEFAULT 'PR',
@@ -450,6 +497,7 @@ ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS odc_prefix VARCHAR(16)
 ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS odc_suffix VARCHAR(16) NOT NULL DEFAULT '';
 ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS app_logo_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS app_favicon_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS supplier_tax_person_types JSONB NOT NULL DEFAULT '["INTRASTATE_TAXABLE_PERSON","INTERSTATE_TAXABLE_PERSON"]'::jsonb;
 
 ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
 ALTER TABLE spare_stock ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
@@ -695,6 +743,23 @@ CREATE INDEX IF NOT EXISTS idx_srf_inter_ho_spare_order_lines_order ON srf_inter
 
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(SCHEMA);
+  await pool.query(
+    `UPDATE spares
+     SET selling_price_inr = mrp_inr
+     WHERE selling_price_inr IS NULL AND mrp_inr IS NOT NULL`,
+  );
+  await pool.query(
+    `UPDATE app_users
+     SET employee_code = UPPER(SUBSTRING(REGEXP_REPLACE(id, '[^A-Za-z0-9]', '', 'g') FROM 1 FOR 24))
+     WHERE employee_code IS NULL OR BTRIM(employee_code) = ''`,
+  );
+  await pool.query(
+    `INSERT INTO user_store_access (user_id, store_id)
+     SELECT id, store_id
+     FROM app_users
+     WHERE store_id IS NOT NULL
+     ON CONFLICT (user_id, store_id) DO NOTHING`,
+  );
   await pool.query(`
     ALTER TABLE srf_inter_ho_spare_orders
       ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ,

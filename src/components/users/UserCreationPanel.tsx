@@ -4,15 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { ROLE_MODULE_ACCESS } from "../../config/moduleAccess";
 import type { ModuleKey, UserRole } from "../../types/user";
-import {
-  ALL_MODULE_KEYS,
-  CREATION_POLICY_BULLETS,
-  MODULE_LABELS,
-  ROLE_CREATION_META,
-  creatableRolesForActor,
-  effectiveModuleAccess,
-  isStoreRole,
-} from "../../lib/userCreationPolicy";
+import { ALL_MODULE_KEYS, MODULE_LABELS, ROLE_CREATION_META, creatableRolesForActor, effectiveModuleAccess, isStoreRole } from "../../lib/userCreationPolicy";
 
 const inputCls =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm outline-none ring-zimson-400/40 focus:ring-2";
@@ -28,16 +20,18 @@ export function UserCreationPanel() {
   const { regions } = useRegions();
 
   const [email, setEmail] = useState("");
+  const [employeeCode, setEmployeeCode] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("store_user");
   const [regionId, setRegionId] = useState("");
   const [storeId, setStoreId] = useState("");
+  const [storeIds, setStoreIds] = useState<string[]>([]);
+  const [storePickerOpen, setStorePickerOpen] = useState(false);
   const [canLogin, setCanLogin] = useState(true);
   const [useCustomModules, setUseCustomModules] = useState(false);
   const [selectedModules, setSelectedModules] = useState<ModuleKey[]>(() => [...ROLE_MODULE_ACCESS["store_user"]]);
   const [formMessage, setFormMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const [policyOpen, setPolicyOpen] = useState(true);
 
   const creatable = useMemo(() => creatableRolesForActor(user?.role), [user?.role]);
   const creatableSet = useMemo(() => new Set(creatable.map((r) => r.value)), [creatable]);
@@ -98,9 +92,11 @@ export function UserCreationPanel() {
   const storeName = storeId ? storesForRegion.find((s) => s.id === storeId)?.name ?? storeId : "—";
 
   const validateStoreBelongsToRegion = useCallback(() => {
-    if (!storeRole || !storeId || !regionId) return true;
-    return storesForRegion.some((s) => s.id === storeId);
-  }, [storeRole, storeId, regionId, storesForRegion]);
+    if (!storeRole || !regionId) return true;
+    if (storeIds.length === 0) return false;
+    const allowed = new Set(storesForRegion.map((s) => s.id));
+    return storeIds.every((id) => allowed.has(id));
+  }, [storeRole, storeIds, regionId, storesForRegion]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,8 +111,8 @@ export function UserCreationPanel() {
       setFormMessage({ type: "err", text: "Select a region (HO scope)." });
       return;
     }
-    if (storeRole && !storeId) {
-      setFormMessage({ type: "err", text: "Store roles require a store under that region." });
+    if (storeRole && storeIds.length === 0) {
+      setFormMessage({ type: "err", text: "Store roles require at least one store under that region." });
       return;
     }
     if (storeRole && !validateStoreBelongsToRegion()) {
@@ -127,8 +123,8 @@ export function UserCreationPanel() {
       setFormMessage({ type: "err", text: "Your role is not allowed to create this account type." });
       return;
     }
-    if (canLogin && (!email.trim() || password.length < 4)) {
-      setFormMessage({ type: "err", text: "Login-enabled users need a unique email and password (minimum 4 characters)." });
+    if (canLogin && (!employeeCode.trim() || password.length < 4)) {
+      setFormMessage({ type: "err", text: "Login-enabled users need employee number and password (minimum 4 characters)." });
       return;
     }
     if (useCustomModules && selectedModules.length === 0) {
@@ -142,12 +138,14 @@ export function UserCreationPanel() {
     const moduleAccessOverride = useCustomModules ? selectedModules : null;
 
     const result = await createUser({
+        employeeCode,
       email,
       displayName,
       password,
       role,
       regionId: resolvedRegionId,
-      storeId: storeRole ? storeId : null,
+        storeId: storeRole ? storeIds[0] ?? null : null,
+        storeIds: storeRole ? storeIds : [],
       canLogin,
       moduleAccessOverride,
     });
@@ -159,9 +157,12 @@ export function UserCreationPanel() {
           : "User created using role default modules.",
       });
       setEmail("");
+      setEmployeeCode("");
       setDisplayName("");
       setPassword("");
       setStoreId("");
+      setStoreIds([]);
+      setStorePickerOpen(false);
       setUseCustomModules(false);
     } else {
       setFormMessage({ type: "err", text: result.message });
@@ -174,35 +175,12 @@ export function UserCreationPanel() {
 
   return (
     <div className="space-y-5">
-      {hoAdminBlocked ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-          Your HO Admin profile has no <strong className="font-semibold">region</strong> assigned. The server will reject user
-          creation until your account is linked to an HO region (see Super Admin / data setup).
-        </div>
-      ) : null}
-      <div className="rounded-xl border border-amber-200/90 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
-        <button
-          type="button"
-          onClick={() => setPolicyOpen((o) => !o)}
-          className="flex w-full items-center justify-between gap-2 text-left font-semibold text-amber-950"
-        >
-          <span>Who can create users &amp; what the app enforces</span>
-          <span className="text-xs font-normal opacity-80">{policyOpen ? "Hide" : "Show"}</span>
-        </button>
-        {policyOpen ? (
-          <ul className="mt-3 list-disc space-y-1.5 pl-5 text-xs leading-relaxed text-amber-950/95">
-            {CREATION_POLICY_BULLETS.map((line, i) => (
-              <li key={i}>{line}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
+      {hoAdminBlocked ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">Region is not mapped for this HO admin account.</div> : null}
 
       <form onSubmit={handleCreate} className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-4 lg:col-span-3">
           <div className={sectionCls}>
             <h3 className="text-sm font-semibold text-stone-900">1. Role &amp; description</h3>
-            <p className="mt-1 text-xs text-stone-600">Pick a role first; scope and defaults follow from it.</p>
             <label htmlFor="uc-role" className="mt-3 block text-xs font-medium text-stone-600">
               Role
             </label>
@@ -213,6 +191,8 @@ export function UserCreationPanel() {
                 const next = e.target.value as UserRole;
                 setRole(next);
                 setStoreId("");
+                setStoreIds([]);
+                setStorePickerOpen(false);
               }}
               className={inputCls}
             >
@@ -251,11 +231,6 @@ export function UserCreationPanel() {
 
           <div className={sectionCls}>
             <h3 className="text-sm font-semibold text-stone-900">2. Organisation scope</h3>
-            <p className="mt-1 text-xs text-stone-600">
-              {user.role === "ho_admin"
-                ? "Your HO Admin account is fixed to your HO region; new users are created only in this region."
-                : "Region is the HO boundary. Store roles also need a store in that region."}
-            </p>
             {user.role !== "regional_admin" ? (
               <div className="mt-3">
                 <label htmlFor="uc-region" className="text-xs font-medium text-stone-600">
@@ -268,6 +243,8 @@ export function UserCreationPanel() {
                   onChange={(e) => {
                     setRegionId(e.target.value);
                     setStoreId("");
+                    setStoreIds([]);
+                    setStorePickerOpen(false);
                   }}
                   className={inputCls + (user.role === "ho_admin" && user.regionId ? " opacity-80" : "")}
                 >
@@ -278,29 +255,61 @@ export function UserCreationPanel() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-stone-500">
-                  Manage master data in{" "}
-                  <Link to="/regions" className="font-medium text-zimson-800 underline">
-                    Regions &amp; stores
-                  </Link>
-                  .
-                </p>
+                <p className="mt-1 text-xs text-stone-500">Manage regions and stores in <Link to="/regions" className="font-medium text-zimson-800 underline">Regions &amp; stores</Link>.</p>
               </div>
             ) : null}
 
             {storeRole ? (
               <div className="mt-3">
                 <label htmlFor="uc-store" className="text-xs font-medium text-stone-600">
-                  Store
+                  Stores (multiple allowed)
                 </label>
-                <select id="uc-store" value={storeId} onChange={(e) => setStoreId(e.target.value)} className={inputCls}>
-                  <option value="">Select store</option>
-                  {storesForRegion.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative mt-1">
+                  <button
+                    id="uc-store"
+                    type="button"
+                    onClick={() => setStorePickerOpen((prev) => !prev)}
+                    className={inputCls + " flex items-center justify-between text-left"}
+                  >
+                    <span className="truncate text-sm text-stone-800">
+                      {storeIds.length > 0
+                        ? storeIds.map((id) => storesForRegion.find((s) => s.id === id)?.name ?? id).join(", ")
+                        : "Select one or more stores"}
+                    </span>
+                    <span className="ml-3 text-xs text-stone-500">{storePickerOpen ? "Close" : "Open"}</span>
+                  </button>
+                  {storePickerOpen ? (
+                    <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-zimson-200 bg-white p-2 shadow-lg">
+                      {storesForRegion.length === 0 ? (
+                        <p className="px-2 py-1 text-xs text-stone-500">No stores available in selected region.</p>
+                      ) : (
+                        storesForRegion.map((s) => {
+                          const checked = storeIds.includes(s.id);
+                          return (
+                            <label
+                              key={s.id}
+                              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-stone-700 hover:bg-zimson-50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const next = e.target.checked
+                                    ? Array.from(new Set([...storeIds, s.id]))
+                                    : storeIds.filter((id) => id !== s.id);
+                                  setStoreIds(next);
+                                  setStoreId(next[0] ?? "");
+                                }}
+                              />
+                              <span>{s.name}</span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs text-stone-500">Dropdown multi-select enabled. Tick required stores.</p>
               </div>
             ) : (
               <p className="mt-3 text-xs text-stone-500">This role is not store-bound; store stays empty.</p>
@@ -311,7 +320,7 @@ export function UserCreationPanel() {
             <h3 className="text-sm font-semibold text-stone-900">3. Identity &amp; sign-in</h3>
             <div className="mt-3">
               <label htmlFor="uc-name" className="text-xs font-medium text-stone-600">
-                Display name <span className="text-red-600">*</span>
+                Display name
               </label>
               <input
                 id="uc-name"
@@ -340,8 +349,20 @@ export function UserCreationPanel() {
             {canLogin ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div>
+                  <label htmlFor="uc-emp-code" className="text-xs font-medium text-stone-600">
+                    Employee number
+                  </label>
+                  <input
+                    id="uc-emp-code"
+                    value={employeeCode}
+                    onChange={(e) => setEmployeeCode(e.target.value)}
+                    className={inputCls}
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
                   <label htmlFor="uc-email" className="text-xs font-medium text-stone-600">
-                    Email (unique) <span className="text-red-600">*</span>
+                    Email (optional)
                   </label>
                   <input
                     id="uc-email"
@@ -354,7 +375,7 @@ export function UserCreationPanel() {
                 </div>
                 <div>
                   <label htmlFor="uc-password" className="text-xs font-medium text-stone-600">
-                    Initial password <span className="text-red-600">*</span>
+                    Initial password
                   </label>
                   <input
                     id="uc-password"
@@ -374,10 +395,6 @@ export function UserCreationPanel() {
 
           <div className={sectionCls}>
             <h3 className="text-sm font-semibold text-stone-900">4. Navigation (modules)</h3>
-            <p className="mt-1 text-xs text-stone-600">
-              Default behaviour matches <code className="rounded bg-stone-100 px-1">ROLE_MODULE_ACCESS</code> for the chosen role.
-              Custom list <strong className="font-semibold">replaces</strong> that list (it is not merged on top).
-            </p>
             <label className="mt-3 flex items-start gap-2 text-sm text-stone-800">
               <input
                 type="checkbox"
@@ -467,7 +484,13 @@ export function UserCreationPanel() {
               </div>
               <div>
                 <dt className="text-stone-500">Store</dt>
-                <dd className="font-medium text-stone-900">{storeRole ? storeName : "— (not applicable)"}</dd>
+                <dd className="font-medium text-stone-900">
+                  {storeRole
+                    ? storeIds.length > 0
+                      ? storeIds.map((id) => storesForRegion.find((s) => s.id === id)?.name ?? id).join(", ")
+                      : storeName
+                    : "— (not applicable)"}
+                </dd>
               </div>
               <div>
                 <dt className="text-stone-500">Login</dt>

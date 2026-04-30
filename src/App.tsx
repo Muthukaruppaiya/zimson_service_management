@@ -28,7 +28,9 @@ import { ScOnlineStorePage } from "./pages/serviceCentre/ScOnlineStorePage";
 import { ScSupervisorPage } from "./pages/serviceCentre/ScSupervisorPage";
 import { ServiceCentreHomePage } from "./pages/serviceCentre/ServiceCentreHomePage";
 import { TechnicianWorkbenchPage } from "./pages/serviceCentre/TechnicianWorkbenchPage";
+import { TechnicianMasterPage } from "./pages/serviceCentre/TechnicianMasterPage";
 import { UsersPrivilegesPage } from "./pages/UsersPrivilegesPage";
+import { UsersListPage } from "./pages/UsersListPage";
 import { ServiceTaxSettingsPage } from "./pages/settings/ServiceTaxSettingsPage";
 import { DocumentTemplatesPage } from "./pages/settings/DocumentTemplatesPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
@@ -41,6 +43,7 @@ import { InventoryBulkImportPage } from "./pages/inventory/InventoryBulkImportPa
 import { InventorySparePriceFixingPage } from "./pages/inventory/InventorySparePriceFixingPage";
 import { InventoryStockPriceOverviewPage } from "./pages/inventory/InventoryStockPriceOverviewPage";
 import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPage";
+import { InventoryStockAdjustmentPage } from "./pages/inventory/InventoryStockAdjustmentPage";
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
 import { SrfPhotoCapturePage } from "./pages/public/SrfPhotoCapturePage";
@@ -235,6 +238,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service-centre/technicians-master"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <TechnicianMasterPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service-centre/watch-inventory"
                   element={
                     <ModuleRoute module="service_centre">
@@ -255,6 +266,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="inventory">
                       <InventoryStoreStockPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/stock-adjustment"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventoryStockAdjustmentPage />
                     </ModuleRoute>
                   }
                 />
@@ -351,6 +370,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="users">
                       <UsersPrivilegesPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/users/list"
+                  element={
+                    <ModuleRoute module="users">
+                      <UsersListPage />
                     </ModuleRoute>
                   }
                 />

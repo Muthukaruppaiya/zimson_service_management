@@ -11,6 +11,7 @@ type IconName =
   | "inventory"
   | "purchase"
   | "billing"
+  | "master"
   | "settings"
   | "chevron"
   | "sparkle"
@@ -49,6 +50,12 @@ function NavIcon({ name, className = "" }: { name: IconName; className?: string 
       return (
         <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21l-7-3-7 3V5a2 2 0 012-2h10a2 2 0 012 2v16z" />
+        </svg>
+      );
+    case "master":
+      return (
+        <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m6-6H6M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z" />
         </svg>
       );
     case "settings":
@@ -183,7 +190,7 @@ export function Sidebar() {
           { to: "/service/quick-bill-history", label: "Quick bill history", module: "service" },
           { to: "/service/srf", label: "SRF booking", module: "service" },
           { to: "/service/srf-register", label: "SRF history", module: "service" },
-          { to: "/service/customers/master", label: "Customer master", module: "service" },
+          { to: "/service/store-dispatch", label: "Store dispatch", module: "service" },
         ],
       },
       {
@@ -193,9 +200,9 @@ export function Sidebar() {
         iconText: "text-emerald-800",
         items: [
           { to: "/inventory/spares", label: "Spares", module: "inventory" },
+          { to: "/inventory/stock-adjustment", label: "Stock adjustment", module: "inventory" },
           { to: "/service/watch-inventory", label: "Watch inventory", module: "service" },
           { to: "/inventory/stock-prices", label: "Stock & prices", module: "inventory" },
-          { to: "/service/store-dispatch", label: "Store dispatch", module: "service" },
         ],
       },
       {
@@ -207,7 +214,6 @@ export function Sidebar() {
           { to: "/inventory/purchase-requests", label: "PR", module: "inventory" },
           { to: "/inventory/purchase-orders", label: "PO", module: "inventory" },
           { to: "/inventory/po-inward", label: "GRN", module: "inventory" },
-          { to: "/inventory/suppliers", label: "Suppliers", module: "inventory" },
         ],
       },
       {
@@ -269,13 +275,30 @@ export function Sidebar() {
         ],
       },
       {
+        title: "Master Data",
+        icon: "master",
+        accent: "from-fuchsia-200/90 via-fuchsia-100 to-fuchsia-50",
+        iconText: "text-fuchsia-800",
+        items: [
+          { to: "/service/customers/master", label: "Customer master", module: "service" },
+          { to: "/inventory/suppliers", label: "Supplier master", module: "inventory" },
+          { to: "/users", label: "Users creation", module: "users" },
+          { to: "/users/list", label: "Users list", module: "users" },
+          {
+            to: "/service-centre/technicians-master",
+            label: "Technician creation/list",
+            module: "service_centre",
+            roles: ["service_centre_supervisor", "ho_supervisor", "ho_manager"],
+          },
+        ],
+      },
+      {
         title: "Settings",
         icon: "settings",
         accent: "from-violet-200/90 via-violet-100 to-violet-50",
         iconText: "text-violet-800",
         items: [
           { to: "/regions", label: "Regions & stores", module: "regions" },
-          { to: "/users", label: "User & privileges", module: "users" },
           { to: "/settings/tax", label: "Tax & billing", module: "settings" },
           { to: "/settings/document-templates", label: "Document templates", module: "settings" },
           { to: "/inventory/brands", label: "Brand", module: "inventory" },

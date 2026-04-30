@@ -49,6 +49,8 @@ function rowToSpare(r: {
   category: string;
   hsn: string | null;
   mrp_inr: number | null;
+  cost_price_inr: number | null;
+  selling_price_inr: number | null;
   is_active: boolean;
   created_at: Date | string;
 }): SparePart {
@@ -61,6 +63,8 @@ function rowToSpare(r: {
     description: r.description,
     category: r.category,
     hsn: r.hsn,
+    costPriceInr: r.cost_price_inr == null ? null : Number(r.cost_price_inr),
+    sellingPriceInr: r.selling_price_inr == null ? (r.mrp_inr == null ? null : Number(r.mrp_inr)) : Number(r.selling_price_inr),
     mrpInr: r.mrp_inr == null ? null : Number(r.mrp_inr),
     isActive: r.is_active,
     createdAt,
@@ -76,7 +80,7 @@ export function registerCatalogRoutes(
   app.get("/api/spares", requireAuth, async (_req, res) => {
     try {
       const { rows } = await pool.query(
-        `SELECT id, sku, name, description, category, hsn, mrp_inr, is_active, created_at
+        `SELECT id, sku, name, description, category, hsn, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at
          FROM spares
          ORDER BY created_at DESC`,
       );
@@ -106,10 +110,20 @@ export function registerCatalogRoutes(
     }
     try {
       const ins = await pool.query(
-        `INSERT INTO spares (sku, name, description, category, hsn, mrp_inr, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, sku, name, description, category, hsn, mrp_inr, is_active, created_at`,
-        [sku, name, description, category, input.hsn?.trim() || null, input.mrpInr ?? null, isActive],
+        `INSERT INTO spares (sku, name, description, category, hsn, mrp_inr, cost_price_inr, selling_price_inr, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, sku, name, description, category, hsn, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at`,
+        [
+          sku,
+          name,
+          description,
+          category,
+          input.hsn?.trim() || null,
+          input.sellingPriceInr ?? input.mrpInr ?? null,
+          input.costPriceInr ?? null,
+          input.sellingPriceInr ?? input.mrpInr ?? null,
+          isActive,
+        ],
       );
       const row = ins.rows[0] as Parameters<typeof rowToSpare>[0];
       await appendStockHistory(pool, {

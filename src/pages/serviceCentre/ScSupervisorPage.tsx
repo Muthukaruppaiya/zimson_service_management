@@ -8,11 +8,11 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
-import { SEED_TECHNICIANS } from "../../data/serviceSeed";
 import { ApiError, apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import { printAssignmentSlip } from "../../lib/serviceDocuments";
 import type { SparePriceLine } from "../../types/spare";
+import type { TechnicianProfile } from "../../types/technician";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 
 type InterHoSpareOrder = {
@@ -88,6 +88,7 @@ export function ScSupervisorPage() {
   const [fulfillInvoiceRef, setFulfillInvoiceRef] = useState("");
   const [fulfillNote, setFulfillNote] = useState("");
   const [orderDetailsId, setOrderDetailsId] = useState<string | null>(null);
+  const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
 
   const received = useMemo(() => {
     if (!user) return [];
@@ -116,8 +117,8 @@ export function ScSupervisorPage() {
     try {
       await assignTechnician(jobId, techId);
       const job = jobs.find((x) => x.id === jobId);
-      const tech = SEED_TECHNICIANS.find((x) => x.id === techId);
-      if (job) printAssignmentSlip(job, tech ? `${tech.name} (${tech.grade})` : techId);
+      const tech = technicians.find((x) => x.id === techId);
+      if (job) printAssignmentSlip(job, tech ? `${tech.fullName} (${tech.grade})` : techId);
       setFeedback((f) => ({ ...f, [jobId]: "Assigned." }));
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not assign." }));
@@ -272,6 +273,9 @@ export function ScSupervisorPage() {
   useEffect(() => {
     if (!user) return;
     void refreshSpareOrders();
+    void apiJson<{ rows: TechnicianProfile[] }>("/api/service/technicians?activeOnly=1")
+      .then((out) => setTechnicians(out.rows))
+      .catch(() => setTechnicians([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -443,7 +447,8 @@ export function ScSupervisorPage() {
 
   async function ensureSparePrice(spareId: string) {
     if (!spareId || unitPriceBySpareId[spareId] != null) return;
-    const fromMaster = Number(activeSpares.find((s) => s.id === spareId)?.mrpInr ?? 0);
+    const spare = activeSpares.find((s) => s.id === spareId);
+    const fromMaster = Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
     if (fromMaster > 0) {
       setUnitPriceBySpareId((prev) => ({ ...prev, [spareId]: fromMaster }));
       return;
@@ -467,7 +472,7 @@ export function ScSupervisorPage() {
       .filter((x) => x.spareId && Number.isFinite(x.qty) && x.qty > 0)
       .map((x) => {
         const spare = activeSpares.find((s) => s.id === x.spareId);
-        const unitPriceInr = Number(unitPriceBySpareId[x.spareId] ?? spare?.mrpInr ?? 0);
+        const unitPriceInr = Number(unitPriceBySpareId[x.spareId] ?? spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
         return {
           spareId: x.spareId,
           name: spare?.name ?? x.spareId,
@@ -578,9 +583,10 @@ export function ScSupervisorPage() {
                       className="mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zimson-400/40"
                     >
                       <option value="">Select…</option>
-                      {SEED_TECHNICIANS.map((t) => (
+                      {technicians.length === 0 ? <option value="" disabled>No technicians in master</option> : null}
+                      {technicians.map((t) => (
                         <option key={t.id} value={t.id}>
-                          {t.name} — {t.grade}
+                          {t.fullName} — {t.grade}
                         </option>
                       ))}
                     </select>
@@ -944,7 +950,7 @@ export function ScSupervisorPage() {
                   <div className="col-span-12 text-xs text-stone-600">
                     Amount: INR {(() => {
                       const spare = activeSpares.find((s) => s.id === line.spareId);
-                      const unit = Number(unitPriceBySpareId[line.spareId] ?? spare?.mrpInr ?? 0);
+                      const unit = Number(unitPriceBySpareId[line.spareId] ?? spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
                       const qty = Number(line.qty || 0);
                       return (unit * (Number.isFinite(qty) ? qty : 0)).toFixed(2);
                     })()}

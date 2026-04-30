@@ -244,7 +244,7 @@ export function InventoryStockPriceOverviewPage() {
                     <th className="px-3 py-2">SKU</th>
                     <th className="px-3 py-2">Name</th>
                     <th className="px-3 py-2">Category</th>
-                    <th className="px-3 py-2">MRP</th>
+                    <th className="px-3 py-2">Selling price</th>
                     <th className="px-3 py-2">Total stock</th>
                     <th className="px-3 py-2">Locations</th>
                     <th className="px-3 py-2">Price lines</th>
@@ -264,7 +264,11 @@ export function InventoryStockPriceOverviewPage() {
                       <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{row.spare.sku}</td>
                       <td className="px-3 py-2">{row.spare.name}</td>
                       <td className="px-3 py-2 text-stone-600">{row.spare.category}</td>
-                      <td className="px-3 py-2">{row.spare.mrpInr == null ? "—" : row.spare.mrpInr.toLocaleString()}</td>
+                      <td className="px-3 py-2">
+                        {(row.spare.sellingPriceInr ?? row.spare.mrpInr) == null
+                          ? "—"
+                          : Number(row.spare.sellingPriceInr ?? row.spare.mrpInr).toLocaleString()}
+                      </td>
                       <td className="px-3 py-2 font-semibold">{(totalStockBySpare.get(row.spare.id) ?? 0).toLocaleString()}</td>
                       <td className="px-3 py-2">{row.stock.length}</td>
                       <td className="px-3 py-2">{row.prices.length}</td>

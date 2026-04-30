@@ -6,18 +6,21 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
-import type { Supplier } from "../../types/supplier";
+import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
+import type { Supplier, SupplierLocation } from "../../types/supplier";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2";
 
 const emptyForm = {
+  supplierCode: "",
   name: "",
   contactName: "",
   email: "",
   phone: "",
-  address: "",
   gst: "",
+  taxPersonType: "",
+  locations: [{ doorNo: "", street: "", place: "", district: "", state: "Tamil Nadu", pinCode: "" }] as SupplierLocation[],
 };
 
 type SupplierSpareMapRow = {
@@ -47,11 +50,22 @@ export function InventorySuppliersPage() {
   const [mappingRows, setMappingRows] = useState<SupplierSpareMapRow[]>([]);
   const [mapBusy, setMapBusy] = useState(false);
   const [newSpareId, setNewSpareId] = useState("");
+  const [taxPersonTypeOptions, setTaxPersonTypeOptions] = useState<string[]>([
+    "INTRASTATE_TAXABLE_PERSON",
+    "INTERSTATE_TAXABLE_PERSON",
+  ]);
 
   const load = useCallback(async () => {
     try {
       const data = await apiJson<{ suppliers: Supplier[] }>("/api/inventory/suppliers");
       setSuppliers(data.suppliers);
+      try {
+        const tax = await apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax");
+        const opts = (tax.settings.supplierTaxPersonTypes ?? []).map((x) => x.trim()).filter(Boolean);
+        if (opts.length > 0) setTaxPersonTypeOptions(opts);
+      } catch {
+        /* ignore */
+      }
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not load suppliers.");
     }
@@ -64,12 +78,17 @@ export function InventorySuppliersPage() {
   function selectForEdit(s: Supplier) {
     setEditingId(s.id);
     setForm({
+      supplierCode: s.supplierCode,
       name: s.name,
       contactName: s.contactName ?? "",
       email: s.email ?? "",
       phone: s.phone ?? "",
-      address: s.address ?? "",
       gst: s.gst ?? "",
+      taxPersonType: s.taxPersonType ?? "",
+      locations:
+        s.locations && s.locations.length > 0
+          ? s.locations
+          : [{ doorNo: "", street: "", place: "", district: "", state: "Tamil Nadu", pinCode: "" }],
     });
     setErr(null);
     setOk(null);
@@ -89,17 +108,23 @@ export function InventorySuppliersPage() {
       setErr("Name is required.");
       return;
     }
+    if (!form.supplierCode.trim()) {
+      setErr("Supplier code is required.");
+      return;
+    }
     try {
       if (editingId) {
         await apiJson(`/api/inventory/suppliers/${encodeURIComponent(editingId)}`, {
           method: "PATCH",
           json: {
             name: form.name.trim(),
+            supplierCode: form.supplierCode.trim().toUpperCase(),
             contactName: form.contactName.trim() || null,
             email: form.email.trim() || null,
             phone: form.phone.trim() || null,
-            address: form.address.trim() || null,
+            locations: form.locations,
             gst: form.gst.trim().toUpperCase() || null,
+            taxPersonType: form.taxPersonType.trim().toUpperCase() || null,
           },
         });
         setOk("Supplier updated.");
@@ -108,11 +133,13 @@ export function InventorySuppliersPage() {
           method: "POST",
           json: {
             name: form.name.trim(),
+            supplierCode: form.supplierCode.trim().toUpperCase(),
             contactName: form.contactName.trim() || null,
             email: form.email.trim() || null,
             phone: form.phone.trim() || null,
-            address: form.address.trim() || null,
+            locations: form.locations,
             gst: form.gst.trim().toUpperCase() || null,
+            taxPersonType: form.taxPersonType.trim().toUpperCase() || null,
           },
         });
         setOk("Supplier created.");
@@ -246,6 +273,14 @@ export function InventorySuppliersPage() {
         <Card title={editingId ? "Edit supplier" : "Add supplier"} subtitle="Used when creating POs" className="mb-8">
           <form onSubmit={saveSupplier} className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
+              <label className="text-xs font-medium text-stone-600">Supplier code *</label>
+              <input
+                className={inputClass}
+                value={form.supplierCode}
+                onChange={(e) => setForm((f) => ({ ...f, supplierCode: e.target.value }))}
+              />
+            </div>
+            <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Name *</label>
               <input className={inputClass} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             </div>
@@ -269,14 +304,138 @@ export function InventorySuppliersPage() {
               <label className="text-xs font-medium text-stone-600">GST</label>
               <input className={inputClass} value={form.gst} onChange={(e) => setForm((f) => ({ ...f, gst: e.target.value }))} />
             </div>
-            <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-stone-600">Address</label>
-              <textarea
+            <div>
+              <label className="text-xs font-medium text-stone-600">Tax person type</label>
+              <select
                 className={inputClass}
-                rows={2}
-                value={form.address}
-                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-              />
+                value={form.taxPersonType}
+                onChange={(e) => setForm((f) => ({ ...f, taxPersonType: e.target.value }))}
+              >
+                <option value="">Select type</option>
+                {taxPersonTypeOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-stone-600">Supplier locations</label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      locations: [...f.locations, { doorNo: "", street: "", place: "", district: "", state: "Tamil Nadu", pinCode: "" }],
+                    }))
+                  }
+                  className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900"
+                >
+                  Add location
+                </button>
+              </div>
+              {form.locations.map((loc, idx) => (
+                <div key={idx} className="rounded-xl border border-zimson-200 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs font-semibold text-stone-700">Location {idx + 1}</p>
+                    {form.locations.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            locations: f.locations.filter((_, i) => i !== idx),
+                          }))
+                        }
+                        className="text-xs font-semibold text-red-700 underline"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="text-xs font-medium text-stone-600">Door number</label>
+                      <input
+                        className={inputClass}
+                        value={loc.doorNo}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            locations: f.locations.map((x, i) => (i === idx ? { ...x, doorNo: e.target.value } : x)),
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-stone-600">Street</label>
+                      <input
+                        className={inputClass}
+                        value={loc.street}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            locations: f.locations.map((x, i) => (i === idx ? { ...x, street: e.target.value } : x)),
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-stone-600">Place</label>
+                      <input
+                        className={inputClass}
+                        value={loc.place}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            locations: f.locations.map((x, i) => (i === idx ? { ...x, place: e.target.value } : x)),
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-stone-600">District</label>
+                      <input
+                        className={inputClass}
+                        value={loc.district}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            locations: f.locations.map((x, i) => (i === idx ? { ...x, district: e.target.value } : x)),
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-stone-600">State</label>
+                      <input
+                        className={inputClass}
+                        value={loc.state}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            locations: f.locations.map((x, i) => (i === idx ? { ...x, state: e.target.value } : x)),
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-stone-600">Pin code</label>
+                      <input
+                        className={inputClass}
+                        value={loc.pinCode}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            locations: f.locations.map((x, i) => (i === idx ? { ...x, pinCode: e.target.value } : x)),
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               <button type="submit" className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white">
@@ -301,6 +460,7 @@ export function InventorySuppliersPage() {
           <table className="min-w-full text-left text-sm">
             <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
               <tr>
+                <th className="px-3 py-2">Code</th>
                 <th className="px-3 py-2">Name</th>
                 <th className="px-3 py-2">Contact</th>
                 <th className="px-3 py-2">Phone</th>
@@ -311,6 +471,7 @@ export function InventorySuppliersPage() {
             <tbody>
               {suppliers.map((s) => (
                 <tr key={s.id} className="border-b border-zimson-100">
+                  <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{s.supplierCode}</td>
                   <td className="px-3 py-2 font-medium text-stone-900">{s.name}</td>
                   <td className="px-3 py-2 text-stone-700">{s.contactName ?? "—"}</td>
                   <td className="px-3 py-2 text-stone-600">{s.phone ?? "—"}</td>

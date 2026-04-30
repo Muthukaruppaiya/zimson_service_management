@@ -1,17 +1,25 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
-import { SEED_TECHNICIANS } from "../../data/serviceSeed";
 import { technicianCanActOnJob } from "../../lib/srfAccess";
+import { apiJson } from "../../lib/api";
+import type { TechnicianProfile } from "../../types/technician";
 
 export function TechnicianWorkbenchPage() {
   const { user } = useAuth();
   const { jobs, technicianEstimateOk, technicianRequestReestimate, submitSparesSlip, technicianMarkRepairComplete } = useSrfJobs();
   const [note, setNote] = useState<string | null>(null);
   const [sparesTextByJob, setSparesTextByJob] = useState<Record<string, string>>({});
+  const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
+
+  useEffect(() => {
+    void apiJson<{ rows: TechnicianProfile[] }>("/api/service/technicians?activeOnly=1")
+      .then((out) => setTechnicians(out.rows))
+      .catch(() => setTechnicians([]));
+  }, []);
 
   const myJobs = useMemo(() => {
     if (!user || user.role !== "technician" || !user.technicianProfileId) return [];
@@ -24,9 +32,9 @@ export function TechnicianWorkbenchPage() {
 
   const techLabel = useMemo(() => {
     if (!user?.technicianProfileId) return "";
-    const t = SEED_TECHNICIANS.find((x) => x.id === user.technicianProfileId);
-    return t ? `${t.name} (${t.grade})` : user.technicianProfileId;
-  }, [user]);
+    const t = technicians.find((x) => x.id === user.technicianProfileId);
+    return t ? `${t.fullName} (${t.grade})` : user.technicianProfileId;
+  }, [user, technicians]);
 
   async function ok(jobId: string) {
     setNote(null);

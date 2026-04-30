@@ -12,6 +12,7 @@ type TaxRow = {
   igst_rate_percent: string;
   default_sac_hsn: string;
   prices_tax_inclusive: boolean;
+  supplier_tax_person_types: unknown;
   srf_prefix: string;
   srf_suffix: string;
   pr_prefix: string;
@@ -37,6 +38,9 @@ function num(v: string): number {
 }
 
 function rowToPayload(row: TaxRow) {
+  const supplierTaxPersonTypes = Array.isArray(row.supplier_tax_person_types)
+    ? row.supplier_tax_person_types.map((x) => String(x ?? "").trim()).filter(Boolean)
+    : ["INTRASTATE_TAXABLE_PERSON", "INTERSTATE_TAXABLE_PERSON"];
   return {
     gstRatePercent: num(row.gst_rate_percent),
     cgstRatePercent: num(row.cgst_rate_percent),
@@ -44,6 +48,7 @@ function rowToPayload(row: TaxRow) {
     igstRatePercent: num(row.igst_rate_percent),
     defaultSacHsn: row.default_sac_hsn.trim() || "9987",
     pricesTaxInclusive: Boolean(row.prices_tax_inclusive),
+    supplierTaxPersonTypes,
     srfPrefix: row.srf_prefix ?? "SRF",
     srfSuffix: row.srf_suffix ?? "",
     prPrefix: row.pr_prefix ?? "PR",
@@ -101,7 +106,7 @@ export function registerTaxSettingsRoutes(
     try {
       const { rows } = await pool.query<TaxRow>(
         `SELECT id, gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
-                igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive,
+                igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive, supplier_tax_person_types,
                 srf_prefix, srf_suffix, pr_prefix, pr_suffix, po_prefix, po_suffix,
                 grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix,
                 notes,
@@ -141,6 +146,9 @@ export function registerTaxSettingsRoutes(
       return;
     }
     const pricesTaxInclusive = Boolean(body.pricesTaxInclusive);
+    const supplierTaxPersonTypes = Array.isArray(body.supplierTaxPersonTypes)
+      ? body.supplierTaxPersonTypes.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 20)
+      : ["INTRASTATE_TAXABLE_PERSON", "INTERSTATE_TAXABLE_PERSON"];
     const srfPrefix = parseSeriesPart(body.srfPrefix, "SRF");
     const srfSuffix = parseSeriesSuffix(body.srfSuffix);
     const prPrefix = parseSeriesPart(body.prPrefix, "PR");
@@ -167,26 +175,27 @@ export function registerTaxSettingsRoutes(
            igst_rate_percent = $4,
            default_sac_hsn = $5,
            prices_tax_inclusive = $6,
-           srf_prefix = $7,
-           srf_suffix = $8,
-           pr_prefix = $9,
-           pr_suffix = $10,
-           po_prefix = $11,
-           po_suffix = $12,
-           grn_prefix = $13,
-           grn_suffix = $14,
-           dc_prefix = $15,
-           dc_suffix = $16,
-           odc_prefix = $17,
-           odc_suffix = $18,
-           app_logo_url = $19,
-           app_favicon_url = $20,
-           notes = $21,
+           supplier_tax_person_types = $7::jsonb,
+           srf_prefix = $8,
+           srf_suffix = $9,
+           pr_prefix = $10,
+           pr_suffix = $11,
+           po_prefix = $12,
+           po_suffix = $13,
+           grn_prefix = $14,
+           grn_suffix = $15,
+           dc_prefix = $16,
+           dc_suffix = $17,
+           odc_prefix = $18,
+           odc_suffix = $19,
+           app_logo_url = $20,
+           app_favicon_url = $21,
+           notes = $22,
            updated_at = now(),
-           updated_by = $22
+           updated_by = $23
          WHERE id = 1
          RETURNING id, gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
-                   igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive,
+                  igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive, supplier_tax_person_types,
                    srf_prefix, srf_suffix, pr_prefix, pr_suffix, po_prefix, po_suffix,
                   grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix,
                   app_logo_url, app_favicon_url, notes,
@@ -198,6 +207,7 @@ export function registerTaxSettingsRoutes(
           igstRatePercent,
           sac,
           pricesTaxInclusive,
+          JSON.stringify(supplierTaxPersonTypes),
           srfPrefix,
           srfSuffix,
           prPrefix,

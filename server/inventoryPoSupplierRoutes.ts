@@ -75,17 +75,53 @@ export function registerInventoryPoSupplierRoutes(
   requireAuth: (req: Request, res: Response, next: NextFunction) => void,
   getActor: (userId: string) => DemoUser | undefined,
 ): void {
+  function normalizeLocations(raw: unknown): Array<{
+    doorNo: string;
+    street: string;
+    place: string;
+    district: string;
+    state: string;
+    pinCode: string;
+  }> {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((x) => {
+        const row = typeof x === "object" && x !== null ? (x as Record<string, unknown>) : {};
+        return {
+          doorNo: String(row.doorNo ?? "").trim(),
+          street: String(row.street ?? "").trim(),
+          place: String(row.place ?? "").trim(),
+          district: String(row.district ?? "").trim(),
+          state: String(row.state ?? "").trim(),
+          pinCode: String(row.pinCode ?? "").trim(),
+        };
+      })
+      .filter((r) => r.doorNo || r.street || r.place || r.district || r.state || r.pinCode);
+  }
+
+  function toLegacyAddress(
+    locations: Array<{ doorNo: string; street: string; place: string; district: string; state: string; pinCode: string }>,
+  ): string | null {
+    if (locations.length === 0) return null;
+    const first = locations[0]!;
+    const parts = [first.doorNo, first.street, first.place, first.district, first.state, first.pinCode].filter(Boolean);
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
+
   /** Suppliers — read for anyone with inventory; write for HO admins */
   app.get("/api/inventory/suppliers", requireAuth, async (_req, res) => {
     try {
       const { rows } = await pool.query(
         `SELECT id,
+                supplier_code AS "supplierCode",
                 name,
                 contact_name AS "contactName",
                 email,
                 phone,
                 address,
+                locations_json AS locations,
                 gst,
+                tax_person_type AS "taxPersonType",
                 is_active AS "isActive",
                 created_at AS "createdAt",
                 updated_at AS "updatedAt"
@@ -110,26 +146,36 @@ export function registerInventoryPoSupplierRoutes(
       res.status(400).json({ error: "Supplier name is required." });
       return;
     }
+    const supplierCode = String(req.body?.supplierCode ?? "").trim().toUpperCase();
+    if (!supplierCode) {
+      res.status(400).json({ error: "Supplier code is required." });
+      return;
+    }
     const contactName = String(req.body?.contactName ?? "").trim() || null;
     const email = String(req.body?.email ?? "").trim() || null;
     const phone = String(req.body?.phone ?? "").trim() || null;
-    const address = String(req.body?.address ?? "").trim() || null;
+    const locations = normalizeLocations(req.body?.locations);
+    const address = toLegacyAddress(locations);
     const gst = String(req.body?.gst ?? "").trim().toUpperCase() || null;
+    const taxPersonType = String(req.body?.taxPersonType ?? "").trim().toUpperCase() || null;
     try {
       const { rows } = await pool.query(
-        `INSERT INTO suppliers (name, contact_name, email, phone, address, gst, created_by, modified_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+        `INSERT INTO suppliers (supplier_code, name, contact_name, email, phone, address, locations_json, gst, tax_person_type, created_by, modified_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $10)
          RETURNING id,
+                   supplier_code AS "supplierCode",
                    name,
                    contact_name AS "contactName",
                    email,
                    phone,
                    address,
+                   locations_json AS locations,
                    gst,
+                   tax_person_type AS "taxPersonType",
                    is_active AS "isActive",
                    created_at AS "createdAt",
                    updated_at AS "updatedAt"`,
-        [name, contactName, email, phone, address, gst, actor?.id ?? null],
+        [supplierCode, name, contactName, email, phone, address, JSON.stringify(locations), gst, taxPersonType, actor?.id ?? null],
       );
       res.json({ supplier: rows[0] });
     } catch (e) {
@@ -145,6 +191,7 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     const id = req.params.supplierId;
+    const supplierCode = req.body?.supplierCode !== undefined ? String(req.body.supplierCode ?? "").trim().toUpperCase() : undefined;
     let name: string | null = null;
     if (req.body?.name !== undefined) {
       const n = String(req.body.name ?? "").trim();
@@ -157,12 +204,28 @@ export function registerInventoryPoSupplierRoutes(
     const contactName = req.body?.contactName !== undefined ? String(req.body.contactName ?? "").trim() || null : undefined;
     const email = req.body?.email !== undefined ? String(req.body.email ?? "").trim() || null : undefined;
     const phone = req.body?.phone !== undefined ? String(req.body.phone ?? "").trim() || null : undefined;
-    const address = req.body?.address !== undefined ? String(req.body.address ?? "").trim() || null : undefined;
+    const locations = req.body?.locations !== undefined ? normalizeLocations(req.body?.locations) : undefined;
+    const address =
+      req.body?.address !== undefined
+        ? String(req.body.address ?? "").trim() || null
+        : locations !== undefined
+          ? toLegacyAddress(locations)
+          : undefined;
     const gst = req.body?.gst !== undefined ? String(req.body.gst ?? "").trim().toUpperCase() || null : undefined;
+    const taxPersonType =
+      req.body?.taxPersonType !== undefined ? String(req.body.taxPersonType ?? "").trim().toUpperCase() || null : undefined;
     const isActive = req.body?.isActive !== undefined ? Boolean(req.body.isActive) : undefined;
     const sets: string[] = [];
     const params: unknown[] = [];
     let i = 1;
+    if (supplierCode !== undefined) {
+      if (!supplierCode) {
+        res.status(400).json({ error: "Supplier code cannot be empty." });
+        return;
+      }
+      sets.push(`supplier_code = $${i++}`);
+      params.push(supplierCode);
+    }
     if (name !== null) {
       sets.push(`name = $${i++}`);
       params.push(name);
@@ -183,9 +246,17 @@ export function registerInventoryPoSupplierRoutes(
       sets.push(`address = $${i++}`);
       params.push(address);
     }
+    if (locations !== undefined) {
+      sets.push(`locations_json = $${i++}::jsonb`);
+      params.push(JSON.stringify(locations));
+    }
     if (gst !== undefined) {
       sets.push(`gst = $${i++}`);
       params.push(gst);
+    }
+    if (taxPersonType !== undefined) {
+      sets.push(`tax_person_type = $${i++}`);
+      params.push(taxPersonType);
     }
     if (isActive !== undefined) {
       sets.push(`is_active = $${i++}`);
@@ -202,12 +273,15 @@ export function registerInventoryPoSupplierRoutes(
     try {
       const upd = await pool.query(
         `UPDATE suppliers SET ${sets.join(", ")} WHERE id = $${i}::uuid RETURNING id,
+                supplier_code AS "supplierCode",
                 name,
                 contact_name AS "contactName",
                 email,
                 phone,
                 address,
+                locations_json AS locations,
                 gst,
+                tax_person_type AS "taxPersonType",
                 is_active AS "isActive",
                 created_at AS "createdAt",
                 updated_at AS "updatedAt"`,

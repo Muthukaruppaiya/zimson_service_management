@@ -362,14 +362,15 @@ async function commitImport(
     const before = await client.query<{ id: string }>(`SELECT id FROM spares WHERE UPPER(TRIM(sku)) = $1`, [s.sku]);
     const wasExisting = before.rows.length > 0;
     const ins = await client.query<{ id: string }>(
-      `INSERT INTO spares (sku, name, description, category, hsn, mrp_inr, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO spares (sku, name, description, category, hsn, mrp_inr, selling_price_inr, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
        ON CONFLICT (sku) DO UPDATE SET
          name = EXCLUDED.name,
          description = EXCLUDED.description,
          category = EXCLUDED.category,
          hsn = EXCLUDED.hsn,
          mrp_inr = EXCLUDED.mrp_inr,
+         selling_price_inr = EXCLUDED.selling_price_inr,
          is_active = EXCLUDED.is_active,
          updated_at = now()
        RETURNING id`,

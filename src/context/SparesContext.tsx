@@ -103,7 +103,9 @@ export function SparesProvider({ children }: { children: ReactNode }) {
         description,
         category,
         hsn: input.hsn?.trim() || null,
-        mrpInr: input.mrpInr ?? null,
+        costPriceInr: input.costPriceInr ?? null,
+        sellingPriceInr: input.sellingPriceInr ?? input.mrpInr ?? null,
+        mrpInr: input.sellingPriceInr ?? input.mrpInr ?? null,
         isActive: input.isActive ?? true,
         createdAt: new Date().toISOString(),
       };

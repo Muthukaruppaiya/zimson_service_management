@@ -27,6 +27,7 @@ export function ServiceTaxSettingsPage() {
   const [igstRatePercent, setIgstRatePercent] = useState("18");
   const [defaultSacHsn, setDefaultSacHsn] = useState("9987");
   const [pricesTaxInclusive, setPricesTaxInclusive] = useState(false);
+  const [supplierTaxPersonTypesText, setSupplierTaxPersonTypesText] = useState("INTRASTATE_TAXABLE_PERSON\nINTERSTATE_TAXABLE_PERSON");
   const [srfPrefix, setSrfPrefix] = useState("SRF");
   const [srfSuffix, setSrfSuffix] = useState("");
   const [prPrefix, setPrPrefix] = useState("PR");
@@ -61,6 +62,7 @@ export function ServiceTaxSettingsPage() {
       setIgstRatePercent(String(s.igstRatePercent));
       setDefaultSacHsn(s.defaultSacHsn);
       setPricesTaxInclusive(s.pricesTaxInclusive);
+      setSupplierTaxPersonTypesText((s.supplierTaxPersonTypes ?? []).join("\n"));
       setSrfPrefix(s.srfPrefix ?? "SRF");
       setSrfSuffix(s.srfSuffix ?? "");
       setPrPrefix(s.prPrefix ?? "PR");
@@ -102,6 +104,10 @@ export function ServiceTaxSettingsPage() {
         igstRatePercent: Number.parseFloat(igstRatePercent),
         defaultSacHsn: defaultSacHsn.trim(),
         pricesTaxInclusive,
+        supplierTaxPersonTypes: supplierTaxPersonTypesText
+          .split("\n")
+          .map((x) => x.trim().toUpperCase())
+          .filter(Boolean),
         srfPrefix: srfPrefix.trim(),
         srfSuffix: srfSuffix.trim(),
         prPrefix: prPrefix.trim(),
@@ -129,6 +135,7 @@ export function ServiceTaxSettingsPage() {
       setIgstRatePercent(String(s.igstRatePercent));
       setDefaultSacHsn(s.defaultSacHsn);
       setPricesTaxInclusive(s.pricesTaxInclusive);
+      setSupplierTaxPersonTypesText((s.supplierTaxPersonTypes ?? []).join("\n"));
       setSrfPrefix(s.srfPrefix ?? "SRF");
       setSrfSuffix(s.srfSuffix ?? "");
       setPrPrefix(s.prPrefix ?? "PR");
@@ -297,6 +304,19 @@ export function ServiceTaxSettingsPage() {
                   Line rates are tax-inclusive (billing backs out taxable value)
                 </label>
               </div>
+            </div>
+            <div>
+              <label htmlFor="tax-supplier-types" className="text-xs font-medium text-stone-600">
+                Supplier tax person types (one per line)
+              </label>
+              <textarea
+                id="tax-supplier-types"
+                value={supplierTaxPersonTypesText}
+                onChange={(e) => setSupplierTaxPersonTypesText(e.target.value)}
+                rows={3}
+                className={inputClass}
+                placeholder={"INTRASTATE_TAXABLE_PERSON\nINTERSTATE_TAXABLE_PERSON"}
+              />
             </div>
             <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-4">
               <p className="text-xs font-semibold text-stone-700">Document number prefix / suffix settings</p>

@@ -12,6 +12,7 @@ import { registerQuickBillRoutes } from "./quickBillRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
+import { registerTechnicianRoutes } from "./technicianRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { appendStockHistory } from "./db/stockHistory";
@@ -29,6 +30,7 @@ const dbPool = createPool();
 
 type DbUserRow = {
   id: string;
+  employee_code: string | null;
   email: string;
   password_hash: string;
   display_name: string;
@@ -40,6 +42,7 @@ type DbUserRow = {
   module_access_override: ModuleKey[] | null;
   is_seed: boolean;
   created_at: Date | string;
+  store_ids: string[] | null;
 };
 let userDirectory: DemoUser[] = [];
 
@@ -70,6 +73,10 @@ function parseCookies(header: string | undefined): Record<string, string> {
 
 function hashPassword(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function normalizeEmployeeCode(value: string): string {
+  return String(value).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
 }
 
 const MODULE_KEY_ALLOWLIST: ModuleKey[] = [
@@ -105,12 +112,14 @@ function normalizeModuleAccessOverride(raw: unknown): ModuleKey[] | null {
 function mapDbUser(row: DbUserRow): DemoUser {
   return {
     id: row.id,
+    employeeCode: row.employee_code ?? undefined,
     email: row.email,
     password: row.password_hash,
     displayName: row.display_name,
     role: row.role,
     regionId: row.region_id,
     storeId: row.store_id,
+    storeIds: Array.isArray(row.store_ids) ? row.store_ids : row.store_id ? [row.store_id] : [],
     technicianProfileId: row.technician_profile_id,
     canLogin: row.can_login,
     moduleAccessOverride: normalizeModuleAccessOverride(row.module_access_override as unknown),
@@ -125,10 +134,15 @@ function allUsers(): DemoUser[] {
 
 async function refreshUsersFromDb(): Promise<void> {
   const { rows } = await dbPool.query<DbUserRow>(
-    `SELECT id, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
-            can_login, module_access_override, is_seed, created_at
-     FROM app_users
-     ORDER BY created_at`,
+    `SELECT u.id, u.email, u.password_hash, u.display_name, u.role, u.region_id, u.store_id, u.technician_profile_id,
+            u.employee_code, u.can_login, u.module_access_override, u.is_seed, u.created_at,
+            COALESCE((
+              SELECT array_agg(usa.store_id ORDER BY usa.store_id)
+              FROM user_store_access usa
+              WHERE usa.user_id = u.id
+            ), ARRAY[]::text[]) AS store_ids
+     FROM app_users u
+     ORDER BY u.created_at`,
   );
   userDirectory = rows.map(mapDbUser);
 }
@@ -287,13 +301,15 @@ app.use("/uploads", express.static(join(process.cwd(), "uploads")));
 
 async function ensureSeedUsers(): Promise<void> {
   for (const user of SEED_USERS) {
+    const employeeCode = normalizeEmployeeCode(String(user.employeeCode ?? "")) || normalizeEmployeeCode(user.id);
     await dbPool.query(
       `INSERT INTO app_users (
-         id, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
+         id, employee_code, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
          can_login, module_access_override, is_seed
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, true)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, true)
        ON CONFLICT (id) DO UPDATE
-       SET email = EXCLUDED.email,
+       SET employee_code = EXCLUDED.employee_code,
+           email = EXCLUDED.email,
            password_hash = EXCLUDED.password_hash,
            display_name = EXCLUDED.display_name,
            role = EXCLUDED.role,
@@ -306,6 +322,7 @@ async function ensureSeedUsers(): Promise<void> {
            updated_at = now()`,
       [
         user.id,
+        employeeCode,
         user.email.toLowerCase(),
         hashPassword(user.password),
         user.displayName,
@@ -317,26 +334,67 @@ async function ensureSeedUsers(): Promise<void> {
         JSON.stringify(user.moduleAccessOverride ?? null),
       ],
     );
+    if (user.storeId) {
+      await dbPool.query(
+        `INSERT INTO user_store_access (user_id, store_id)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, store_id) DO NOTHING`,
+        [user.id, user.storeId],
+      );
+    }
   }
 }
 
 app.post("/api/auth/login", async (req, res) => {
-  const email = String(req.body?.email ?? "")
-    .trim()
-    .toLowerCase();
+  const employeeCode = normalizeEmployeeCode(String(req.body?.employeeCode ?? ""));
   const password = String(req.body?.password ?? "");
+  const selectedStoreId = String(req.body?.storeId ?? "").trim() || null;
   const users = await allUsers();
   const found = users.find(
-    (u) => u.email.toLowerCase() === email && u.password === hashPassword(password),
+    (u) => normalizeEmployeeCode(String(u.employeeCode ?? u.id)) === employeeCode && u.password === hashPassword(password),
   );
   if (!found) {
-    res.status(401).json({ ok: false, message: "Invalid email or password." });
+    res.status(401).json({ ok: false, message: "Invalid employee number or password." });
     return;
   }
   if (found.canLogin === false) {
     res.status(403).json({ ok: false, message: "This profile is directory-only and cannot sign in." });
     return;
   }
+  if (STORE_ROLES.has(found.role)) {
+    const allowedStores = (found.storeIds ?? []).filter(Boolean);
+    if (allowedStores.length === 0) {
+      res.status(403).json({ ok: false, message: "No store mapping found for this account." });
+      return;
+    }
+    if (!selectedStoreId && allowedStores.length > 1) {
+      const { rows: storeRows } = await dbPool.query<{ id: string; name: string }>(
+        `SELECT id, name FROM stores WHERE id = ANY($1::text[]) ORDER BY name`,
+        [allowedStores],
+      );
+      res.status(400).json({
+        ok: false,
+        code: "STORE_SELECTION_REQUIRED",
+        message: "Select a store to continue login.",
+        stores: storeRows,
+      });
+      return;
+    }
+    const effectiveStoreId = selectedStoreId ?? allowedStores[0]!;
+    if (!allowedStores.includes(effectiveStoreId)) {
+      res.status(400).json({ ok: false, message: "Selected store is not assigned for this user." });
+      return;
+    }
+    await dbPool.query(
+      `UPDATE app_users
+       SET store_id = $2,
+           updated_at = now()
+       WHERE id = $1`,
+      [found.id, effectiveStoreId],
+    );
+    await refreshUsersFromDb();
+  }
+  const refreshed = allUsers().find((u) => u.id === found.id) ?? found;
   const sid = createId("sid");
   await dbPool.query(
     `INSERT INTO auth_sessions (id, user_id, expires_at)
@@ -349,7 +407,7 @@ app.post("/api/auth/login", async (req, res) => {
     path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
-  res.json({ ok: true, user: stripPassword(found) });
+  res.json({ ok: true, user: stripPassword(refreshed) });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -406,30 +464,37 @@ app.post("/api/users", requireAuth, async (req, res) => {
   }
 
   const input = req.body as {
+    employeeCode?: string;
     email?: string;
     displayName: string;
     password?: string;
     role: UserRole;
     regionId: string;
     storeId: string | null;
+    storeIds?: string[] | null;
     canLogin?: boolean;
     moduleAccessOverride?: string[] | null;
   };
   const canLogin = input.canLogin !== false;
+  const employeeCode = normalizeEmployeeCode(String(input.employeeCode ?? ""));
   const email = String(input.email ?? "").trim().toLowerCase();
   if (!input.displayName.trim()) {
     res.status(400).json({ ok: false, message: "Display name is required." });
     return;
   }
   if (canLogin) {
-    if (!email) {
-      res.status(400).json({ ok: false, message: "Email is required for login-enabled users." });
+    if (!employeeCode) {
+      res.status(400).json({ ok: false, message: "Employee number is required for login-enabled users." });
       return;
     }
     if (String(input.password ?? "").length < 4) {
       res.status(400).json({ ok: false, message: "Password must be at least 4 characters." });
       return;
     }
+  }
+  if (employeeCode && (await allUsers()).some((u) => normalizeEmployeeCode(String(u.employeeCode ?? u.id)) === employeeCode)) {
+    res.status(400).json({ ok: false, message: "An account with this employee number already exists." });
+    return;
   }
   if (email && (await allUsers()).some((u) => u.email.toLowerCase() === email)) {
     res.status(400).json({ ok: false, message: "An account with this email already exists." });
@@ -456,17 +521,25 @@ app.post("/api/users", requireAuth, async (req, res) => {
     }
   }
 
-  if (STORE_ROLES.has(input.role) && !input.storeId) {
-    res.status(400).json({ ok: false, message: "Store is required for store roles." });
+  const requestedStoreIds = Array.isArray(input.storeIds)
+    ? input.storeIds.map((s) => String(s ?? "").trim()).filter(Boolean)
+    : input.storeId
+      ? [String(input.storeId).trim()]
+      : [];
+  if (STORE_ROLES.has(input.role) && requestedStoreIds.length === 0) {
+    res.status(400).json({ ok: false, message: "At least one store is required for store roles." });
     return;
   }
-  if (STORE_ROLES.has(input.role) && input.storeId) {
-    const { rows: storeRows } = await dbPool.query<{ ok: number }>(
-      `SELECT 1 AS ok FROM stores WHERE id = $1 AND region_id = $2 LIMIT 1`,
-      [input.storeId, input.regionId],
+  if (STORE_ROLES.has(input.role) && requestedStoreIds.length > 0) {
+    const { rows: storeRows } = await dbPool.query<{ id: string }>(
+      `SELECT id
+       FROM stores
+       WHERE id = ANY($1::text[])
+         AND region_id = $2`,
+      [requestedStoreIds, input.regionId],
     );
-    if (storeRows.length === 0) {
-      res.status(400).json({ ok: false, message: "Selected store does not belong to the chosen region." });
+    if (storeRows.length !== requestedStoreIds.length) {
+      res.status(400).json({ ok: false, message: "One or more selected stores do not belong to the chosen region." });
       return;
     }
   }
@@ -474,12 +547,14 @@ app.post("/api/users", requireAuth, async (req, res) => {
 
   const newUser: DemoUser = {
     id: createId("user"),
+    employeeCode: employeeCode || normalizeEmployeeCode(createId("emp")),
     email: email || `${createId("user")}@directory.local`,
     password: hashPassword(String(input.password ?? "") || createId("pwd")),
     displayName: input.displayName.trim(),
     role: input.role as UserRole,
     regionId: input.regionId,
-    storeId: STORE_ROLES.has(input.role) ? input.storeId : null,
+    storeId: STORE_ROLES.has(input.role) ? requestedStoreIds[0] ?? null : null,
+    storeIds: STORE_ROLES.has(input.role) ? requestedStoreIds : [],
     technicianProfileId: null,
     canLogin,
     moduleAccessOverride: overrideModules,
@@ -488,12 +563,13 @@ app.post("/api/users", requireAuth, async (req, res) => {
 
   await dbPool.query(
     `INSERT INTO app_users (
-       id, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
+       id, employee_code, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
        can_login, module_access_override, is_seed
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, false)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, false)`,
     [
       newUser.id,
+      newUser.employeeCode ?? null,
       newUser.email,
       newUser.password,
       newUser.displayName,
@@ -505,6 +581,16 @@ app.post("/api/users", requireAuth, async (req, res) => {
       JSON.stringify(newUser.moduleAccessOverride ?? null),
     ],
   );
+  if (STORE_ROLES.has(newUser.role) && (newUser.storeIds?.length ?? 0) > 0) {
+    for (const sid of newUser.storeIds ?? []) {
+      await dbPool.query(
+        `INSERT INTO user_store_access (user_id, store_id)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, store_id) DO NOTHING`,
+        [newUser.id, sid],
+      );
+    }
+  }
   await refreshUsersFromDb();
   res.json({ ok: true });
 });
@@ -1931,10 +2017,12 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
       category: string;
       hsn: string | null;
       mrp_inr: number | null;
+      cost_price_inr: number | null;
+      selling_price_inr: number | null;
       is_active: boolean;
       created_at: Date;
     }>(
-      `SELECT id, sku, name, description, category, hsn, mrp_inr, is_active, created_at
+      `SELECT id, sku, name, description, category, hsn, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at
        FROM spares
        ${spareWhere}
        ORDER BY sku ASC
@@ -2044,6 +2132,13 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
           description: r.description,
           category: r.category,
           hsn: r.hsn,
+          costPriceInr: r.cost_price_inr == null ? null : Number(r.cost_price_inr),
+          sellingPriceInr:
+            r.selling_price_inr == null
+              ? r.mrp_inr == null
+                ? null
+                : Number(r.mrp_inr)
+              : Number(r.selling_price_inr),
           mrpInr: r.mrp_inr == null ? null : Number(r.mrp_inr),
           isActive: r.is_active,
           createdAt,
@@ -2441,6 +2536,7 @@ async function main() {
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
+  registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);

@@ -5,6 +5,8 @@ export type SparePart = {
   description: string;
   category: string;
   hsn: string | null;
+  costPriceInr?: number | null;
+  sellingPriceInr?: number | null;
   mrpInr: number | null;
   isActive: boolean;
   createdAt: string;
@@ -16,6 +18,8 @@ export type CreateSpareInput = {
   description: string;
   category: string;
   hsn?: string | null;
+  costPriceInr?: number | null;
+  sellingPriceInr?: number | null;
   mrpInr?: number | null;
   isActive?: boolean;
 };

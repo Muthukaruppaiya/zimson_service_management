@@ -6,6 +6,7 @@ const navItems: Array<{ to: string; label: string }> = [
   { to: "/inventory/bulk-import", label: "Bulk import" },
   { to: "/inventory/brands", label: "Brands" },
   { to: "/inventory/store-stock", label: "Store stock" },
+  { to: "/inventory/stock-adjustment", label: "Stock adjustment" },
   { to: "/inventory/stock-prices", label: "Stock & prices" },
   { to: "/inventory/purchase-requests", label: "PR" },
   { to: "/inventory/suppliers", label: "Suppliers" },
