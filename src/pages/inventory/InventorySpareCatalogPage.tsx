@@ -436,7 +436,6 @@ export function InventorySpareCatalogPage() {
                   <th className="px-3 py-2">Category</th>
                   <th className="px-3 py-2">HSN</th>
                   <th className="px-3 py-2">Cost price</th>
-                  <th className="px-3 py-2">Selling price</th>
                   <th className="px-3 py-2">Active</th>
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
@@ -454,9 +453,6 @@ export function InventorySpareCatalogPage() {
                     <td className="px-3 py-2 font-mono text-xs text-stone-600">{s.hsn ?? "-"}</td>
                     <td className="px-3 py-2 text-stone-700">
                       {s.costPriceInr == null ? "-" : s.costPriceInr}
-                    </td>
-                    <td className="px-3 py-2 text-stone-700">
-                      {s.sellingPriceInr ?? s.mrpInr ?? "-"}
                     </td>
                     <td className="px-3 py-2">
                       <span
@@ -744,6 +740,22 @@ export function InventorySpareCatalogPage() {
                 Print barcode
               </button>
             </div>
+            <Card title="Master prices" subtitle="Spare master values">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-zimson-200 bg-zimson-50/40 px-3 py-2">
+                  <p className="text-xs text-stone-500">Cost price</p>
+                  <p className="text-sm font-semibold text-stone-900">
+                    {selectedSpare.costPriceInr == null ? "-" : selectedSpare.costPriceInr}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-zimson-200 bg-zimson-50/40 px-3 py-2">
+                  <p className="text-xs text-stone-500">Selling price</p>
+                  <p className="text-sm font-semibold text-stone-900">
+                    {selectedSpare.sellingPriceInr ?? selectedSpare.mrpInr ?? "-"}
+                  </p>
+                </div>
+              </div>
+            </Card>
             <div className="grid gap-8 lg:grid-cols-2">
           <Card title="Brand price lines" subtitle={`Price lines for ${selectedSpare.sku}`}>
             <div className="mb-3">
