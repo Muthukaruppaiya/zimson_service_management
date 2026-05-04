@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
+import { APP_PAYMENT_MODES, sumAdvanceCashDenominations, type AdvancePaymentDetails } from "../src/lib/paymentModes";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
 import { resolvePublicAppBaseUrl } from "./publicAppUrl";
@@ -450,6 +451,8 @@ export function registerSrfRoutes(
                 j.complaint,
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
                 j.advance_inr::float8 AS "advanceInr",
+                j.advance_payment_mode AS "advancePaymentMode",
+                j.advance_payment_details AS "advancePaymentDetails",
                 j.selected_part_ids AS "selectedPartIds",
                 j.status,
                 j.dc_number AS "dcNumber",
@@ -592,6 +595,8 @@ export function registerSrfRoutes(
         complaint: string;
         estimateTotalInr: number;
         advanceInr: number;
+        advancePaymentMode: string | null;
+        advancePaymentDetails: unknown;
         regionId: string;
         storeId: string;
         destinationStoreId: string | null;
@@ -613,6 +618,8 @@ export function registerSrfRoutes(
                 complaint,
                 estimate_total_inr::float8 AS "estimateTotalInr",
                 advance_inr::float8 AS "advanceInr",
+                advance_payment_mode AS "advancePaymentMode",
+                advance_payment_details AS "advancePaymentDetails",
                 region_id AS "regionId",
                 store_id AS "storeId",
                 destination_store_id AS "destinationStoreId",
@@ -1440,6 +1447,27 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "advanceInr must be a valid non-negative number." });
       return;
     }
+    let advancePaymentMode: string | null = null;
+    let advancePaymentDetails: AdvancePaymentDetails = {};
+    if (advanceInr > 0) {
+      advancePaymentMode = String(req.body?.advancePaymentMode ?? "").trim();
+      if (!advancePaymentMode || !(APP_PAYMENT_MODES as readonly string[]).includes(advancePaymentMode)) {
+        res.status(400).json({ error: "Valid advance payment mode is required when advance amount is entered." });
+        return;
+      }
+      const rawDet = req.body?.advancePaymentDetails;
+      advancePaymentDetails =
+        rawDet && typeof rawDet === "object" && !Array.isArray(rawDet) ? (rawDet as AdvancePaymentDetails) : {};
+      if (advancePaymentMode === "Cash") {
+        const cashSum = sumAdvanceCashDenominations(advancePaymentDetails.cash);
+        if (Math.abs(cashSum - advanceInr) > 0.02) {
+          res.status(400).json({
+            error: `Cash denomination total INR ${cashSum.toFixed(2)} must match advance amount INR ${advanceInr.toFixed(2)}.`,
+          });
+          return;
+        }
+      }
+    }
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -1467,13 +1495,24 @@ export function registerSrfRoutes(
              estimate_total_inr = $3,
              advance_inr = $4,
              selected_part_ids = $5::jsonb,
+             advance_payment_mode = $7,
+             advance_payment_details = $8::jsonb,
              status = 'at_store',
              photo_session_active = false,
              capture_link_disabled_at = now(),
              updated_at = now(),
              modified_by = $6
          WHERE id = $1::uuid`,
-        [srfId, complaint, estimateTotalInr, advanceInr, JSON.stringify(selectedPartIds), actor.id],
+        [
+          srfId,
+          complaint,
+          estimateTotalInr,
+          advanceInr,
+          JSON.stringify(selectedPartIds),
+          actor.id,
+          advancePaymentMode,
+          JSON.stringify(advancePaymentDetails),
+        ],
       );
       await client.query(
         `UPDATE srf_photo_sessions SET revoked_at = now() WHERE srf_id = $1::uuid AND revoked_at IS NULL`,
@@ -1485,7 +1524,13 @@ export function registerSrfRoutes(
         description: `SRF finalized with estimate INR ${estimateTotalInr.toFixed(2)} and advance INR ${advanceInr.toFixed(2)}.`,
         amountInr: estimateTotalInr,
         actor,
-        details: { complaint, selectedPartIds, advanceInr },
+        details: {
+          complaint,
+          selectedPartIds,
+          advanceInr,
+          advancePaymentMode,
+          advancePaymentDetails,
+        },
       });
       const refRows = await client.query<{ reference: string; customer_name: string; phone: string }>(
         `SELECT reference, customer_name, phone FROM srf_jobs WHERE id = $1::uuid`,
@@ -2275,6 +2320,9 @@ export function registerSrfRoutes(
         serial: string;
         complaint: string;
         estimate_total_inr: number;
+        advance_inr: number;
+        advance_payment_mode: string | null;
+        advance_payment_details: unknown;
         selected_part_ids: unknown;
         status: string;
         dc_number: string | null;
@@ -2289,7 +2337,8 @@ export function registerSrfRoutes(
         transfer_target_store_id: string | null;
       }>(
         `SELECT reference, region_id, store_id, customer_name, phone, customer_kind, company,
-                watch_brand, watch_model, serial, complaint, estimate_total_inr::float8, selected_part_ids,
+                watch_brand, watch_model, serial, complaint, estimate_total_inr::float8,
+                advance_inr::float8, advance_payment_mode, advance_payment_details, selected_part_ids,
                 status, dc_number, dispatched_to_sc_at, inward_at, destination_store_id, requires_local_conversion,
                 transfer_source_reference, transfer_source_region_id, transfer_source_store_id,
                 transfer_target_region_id, transfer_target_store_id
@@ -2313,16 +2362,16 @@ export function registerSrfRoutes(
       const ins = await client.query<{ id: string }>(
         `INSERT INTO srf_jobs (
           reference, region_id, store_id, customer_name, phone, customer_kind, company,
-          watch_brand, watch_model, serial, complaint, estimate_total_inr, selected_part_ids,
+          watch_brand, watch_model, serial, complaint, estimate_total_inr, advance_inr, advance_payment_mode, advance_payment_details, selected_part_ids,
           status, dc_number, dispatched_to_sc_at, inward_at, destination_store_id, photo_session_active,
           requires_local_conversion, transfer_target_region_id, transfer_target_store_id,
           transfer_source_region_id, transfer_source_store_id, transfer_source_reference,
           created_by, modified_by
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7,
-          $8, $9, $10, $11, $12, $13::jsonb,
-          'received_at_sc', $14, $15, $16, $17, false,
-          false, $18, $19, $20, $21, $22, $23, $23
+          $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb,
+          'received_at_sc', $17, $18, $19, $20, false,
+          false, $21, $22, $23, $24, $25, $26, $26
         )
         RETURNING id`,
         [
@@ -2338,6 +2387,9 @@ export function registerSrfRoutes(
           row.serial,
           row.complaint,
           row.estimate_total_inr,
+          row.advance_inr ?? 0,
+          row.advance_payment_mode,
+          JSON.stringify(row.advance_payment_details ?? {}),
           JSON.stringify(row.selected_part_ids ?? []),
           row.dc_number,
           row.dispatched_to_sc_at,

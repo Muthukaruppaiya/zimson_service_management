@@ -1,3 +1,5 @@
+import type { AdvancePaymentDetails } from "../lib/paymentModes";
+
 /** Store ↔ service centre workflow statuses. */
 export type SrfJobStatus =
   | "draft"
@@ -50,6 +52,8 @@ export type SrfJob = {
   complaint: string;
   estimateTotalInr: number;
   advanceInr?: number;
+  advancePaymentMode?: string | null;
+  advancePaymentDetails?: AdvancePaymentDetails | null;
   selectedPartIds: string[];
   createdAt: string;
   status: SrfJobStatus;

@@ -58,6 +58,9 @@ export type SrfTrace = {
     serial: string;
     complaint: string;
     estimateTotalInr: number;
+    advanceInr?: number;
+    advancePaymentMode?: string | null;
+    advancePaymentDetails?: unknown;
     regionId: string;
     storeId: string;
     destinationStoreId: string | null;
@@ -82,7 +85,14 @@ type SrfJobsContextValue = {
   refreshPhotoSession: (srfId: string) => Promise<{ token: string; captureUrl: string }>;
   finalizeJob: (
     srfId: string,
-    payload: { complaint: string; estimateTotalInr: number; advanceInr?: number; selectedPartIds: string[] },
+    payload: {
+      complaint: string;
+      estimateTotalInr: number;
+      advanceInr?: number;
+      advancePaymentMode?: string | null;
+      advancePaymentDetails?: unknown;
+      selectedPartIds: string[];
+    },
   ) => Promise<{ trackingUrl?: string }>;
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
   confirmInwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
@@ -148,7 +158,17 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const finalizeJob = useCallback(
-    async (srfId: string, payload: { complaint: string; estimateTotalInr: number; advanceInr?: number; selectedPartIds: string[] }) => {
+    async (
+      srfId: string,
+      payload: {
+        complaint: string;
+        estimateTotalInr: number;
+        advanceInr?: number;
+        advancePaymentMode?: string | null;
+        advancePaymentDetails?: unknown;
+        selectedPartIds: string[];
+      },
+    ) => {
       const out = await apiJson<{ trackingUrl?: string }>(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`, {
         method: "POST",
         json: payload,

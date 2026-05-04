@@ -5,6 +5,8 @@ import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
+import { APP_PAYMENT_MODES } from "../../lib/paymentModes";
+import type { AppPaymentMode } from "../../lib/paymentModes";
 import type { QuickBillHistoryRow } from "../../types/quickBill";
 
 function customerLabel(row: QuickBillHistoryRow): string {
@@ -20,7 +22,7 @@ export function QuickBillHistoryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
-  const [payment, setPayment] = useState<"ALL" | "Cash" | "Card" | "UPI">("ALL");
+  const [payment, setPayment] = useState<"ALL" | AppPaymentMode>("ALL");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [selected, setSelected] = useState<QuickBillHistoryRow | null>(null);
@@ -99,11 +101,17 @@ export function QuickBillHistoryPage() {
         {error ? <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
         <div className="mb-3 grid gap-2 md:grid-cols-5">
           <input value={query} onChange={(e) => setQuery(e.target.value)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" placeholder="Search invoice/customer/brand/location" />
-          <select value={payment} onChange={(e) => setPayment(e.target.value as "ALL" | "Cash" | "Card" | "UPI")} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm">
+          <select
+            value={payment}
+            onChange={(e) => setPayment(e.target.value as "ALL" | AppPaymentMode)}
+            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+          >
             <option value="ALL">All payment modes</option>
-            <option value="Cash">Cash</option>
-            <option value="Card">Card</option>
-            <option value="UPI">UPI</option>
+            {APP_PAYMENT_MODES.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
           </select>
           <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />

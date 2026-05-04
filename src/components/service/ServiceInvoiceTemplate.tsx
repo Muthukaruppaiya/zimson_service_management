@@ -149,6 +149,12 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </table>
         </div>
 
+        {data.paymentMode ? (
+          <p className="mt-3 rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-900 print:bg-white">
+            Payment mode: <span className="font-bold text-stone-950">{data.paymentMode}</span>
+          </p>
+        ) : null}
+
         {data.amountInWordsNote ? (
           <p className="mt-3 border border-dashed border-stone-400 px-3 py-2 text-xs italic text-stone-600">
             {data.amountInWordsNote}

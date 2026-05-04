@@ -11,6 +11,14 @@ import { useBrands } from "../../context/BrandsContext";
 import { useCustomers } from "../../context/CustomersContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
+import {
+  APP_PAYMENT_MODES,
+  ADVANCE_CASH_DENOMS,
+  advanceDetailsFromFormStrings,
+  emptyCashDenomStrings,
+  sumAdvanceCashDenominations,
+  type AppPaymentMode,
+} from "../../lib/paymentModes";
 import { printSrfDocument } from "../../lib/serviceDocuments";
 import {
   generateDemoOtp,
@@ -47,6 +55,9 @@ export function SrfBookingV2Page() {
   const [complaint, setComplaint] = useState("");
   const [estimateAmount, setEstimateAmount] = useState("");
   const [advanceAmount, setAdvanceAmount] = useState("");
+  const [advancePaymentMode, setAdvancePaymentMode] = useState<AppPaymentMode>("Cash");
+  const [cashDenomStrings, setCashDenomStrings] = useState(emptyCashDenomStrings);
+  const [advancePaymentRef, setAdvancePaymentRef] = useState("");
   const [estimateRemarks, setEstimateRemarks] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [srfRef, setSrfRef] = useState<string | null>(null);
@@ -74,6 +85,10 @@ export function SrfBookingV2Page() {
   const models = watchModelsForBrand(watchBrand);
   const estimateTotal = Number.parseFloat(estimateAmount) || 0;
   const advanceTotal = Number.parseFloat(advanceAmount) || 0;
+  const cashDenomTotal = useMemo(() => {
+    const det = advanceDetailsFromFormStrings("Cash", cashDenomStrings, "");
+    return sumAdvanceCashDenominations(det.cash);
+  }, [cashDenomStrings]);
 
   const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
@@ -125,6 +140,16 @@ export function SrfBookingV2Page() {
     if (advanceAmount.trim() && (!Number.isFinite(advanceTotal) || advanceTotal < 0)) {
       setError("Advance amount must be a valid non-negative number.");
       return false;
+    }
+    if (advanceTotal > 0) {
+      if (advancePaymentMode === "Cash") {
+        if (Math.abs(cashDenomTotal - advanceTotal) > 0.02) {
+          setError(
+            `Cash notes/coins total (INR ${cashDenomTotal.toFixed(2)}) must match advance amount (INR ${advanceTotal.toFixed(2)}).`,
+          );
+          return false;
+        }
+      }
     }
     return true;
   }
@@ -444,10 +469,16 @@ export function SrfBookingV2Page() {
   async function finalizeAndPrint() {
     try {
       const row = await ensureDraft();
+      const advanceDetails =
+        advanceTotal > 0
+          ? advanceDetailsFromFormStrings(advancePaymentMode, cashDenomStrings, advancePaymentRef)
+          : {};
       const out = await finalizeJob(row.srfId, {
         complaint,
         estimateTotalInr: estimateTotal,
         advanceInr: advanceTotal,
+        advancePaymentMode: advanceTotal > 0 ? advancePaymentMode : null,
+        advancePaymentDetails: advanceTotal > 0 ? advanceDetails : {},
         selectedPartIds: [],
       });
       printSrfDocument({
@@ -459,6 +490,9 @@ export function SrfBookingV2Page() {
         serial,
         complaint,
         estimateTotalInr: estimateTotal,
+        advanceInr: advanceTotal,
+        advancePaymentMode: advanceTotal > 0 ? advancePaymentMode : null,
+        advancePaymentDetails: advanceTotal > 0 ? advanceDetails : null,
         photos: photoPreview,
       });
       setSrfRef(row.reference);
@@ -631,6 +665,74 @@ export function SrfBookingV2Page() {
             <label className="text-sm md:col-span-2">Watch complaint<textarea className={inputClass} rows={3} value={complaint} onChange={(e) => setComplaint(e.target.value)} /></label>
             <label className="text-sm">Estimate amount (INR)<input className={inputClass} value={estimateAmount} onChange={(e) => setEstimateAmount(e.target.value)} /></label>
             <label className="text-sm">Advance amount (INR)<input className={inputClass} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0.00" /></label>
+            {advanceTotal > 0 ? (
+              <>
+                <label className="text-sm">
+                  Advance payment method
+                  <select
+                    className={inputClass}
+                    value={advancePaymentMode}
+                    onChange={(e) => setAdvancePaymentMode(e.target.value as AppPaymentMode)}
+                  >
+                    {APP_PAYMENT_MODES.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {advancePaymentMode === "Cash" ? (
+                  <div className="md:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
+                    <p className="text-sm font-semibold text-zimson-900">Cash denomination (must total advance)</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                      {ADVANCE_CASH_DENOMS.map(({ key, label }) => (
+                        <label key={key} className="text-xs text-stone-600">
+                          {label}
+                          <input
+                            className={inputClass}
+                            inputMode="numeric"
+                            value={cashDenomStrings[key]}
+                            onChange={(e) =>
+                              setCashDenomStrings((prev) => ({ ...prev, [key]: e.target.value }))
+                            }
+                          />
+                        </label>
+                      ))}
+                      <label className="text-xs text-stone-600 sm:col-span-2">
+                        Coins / loose (INR)
+                        <input
+                          className={inputClass}
+                          inputMode="decimal"
+                          value={cashDenomStrings.coinsInr}
+                          onChange={(e) =>
+                            setCashDenomStrings((prev) => ({ ...prev, coinsInr: e.target.value }))
+                          }
+                          placeholder="0.00"
+                        />
+                      </label>
+                    </div>
+                    <p className="mt-2 text-xs text-stone-600">
+                      Denomination total: <strong className="text-zimson-900">INR {cashDenomTotal.toFixed(2)}</strong>
+                      {Math.abs(cashDenomTotal - advanceTotal) > 0.02 ? (
+                        <span className="ml-2 text-amber-700">(does not match advance yet)</span>
+                      ) : (
+                        <span className="ml-2 text-emerald-700">(matches advance)</span>
+                      )}
+                    </p>
+                  </div>
+                ) : (
+                  <label className="text-sm md:col-span-2">
+                    Payment reference (optional)
+                    <input
+                      className={inputClass}
+                      value={advancePaymentRef}
+                      onChange={(e) => setAdvancePaymentRef(e.target.value)}
+                      placeholder="UPI UTR / card auth / bank transfer ref"
+                    />
+                  </label>
+                )}
+              </>
+            ) : null}
             <label className="text-sm md:col-span-2">Remarks<input className={inputClass} value={estimateRemarks} onChange={(e) => setEstimateRemarks(e.target.value)} placeholder="Optional remarks" /></label>
             <div className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm">
               Estimate: <strong>INR {estimateTotal.toFixed(2)}</strong> · Advance: <strong>INR {advanceTotal.toFixed(2)}</strong>
@@ -676,6 +778,24 @@ export function SrfBookingV2Page() {
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance</th>
                   <td className="px-3 py-2 font-semibold text-zimson-900">INR {advanceTotal.toFixed(2)}</td>
                 </tr>
+                {advanceTotal > 0 ? (
+                  <>
+                    <tr>
+                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance payment</th>
+                      <td className="px-3 py-2 text-stone-800">
+                        {advancePaymentMode}
+                        {advancePaymentMode !== "Cash" && advancePaymentRef.trim() ? (
+                          <span className="block text-xs text-stone-600">Ref: {advancePaymentRef.trim()}</span>
+                        ) : null}
+                        {advancePaymentMode === "Cash" ? (
+                          <span className="mt-1 block text-xs text-stone-600">
+                            Notes/coins total INR {cashDenomTotal.toFixed(2)}
+                          </span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  </>
+                ) : null}
               </tbody>
             </table>
           </div>

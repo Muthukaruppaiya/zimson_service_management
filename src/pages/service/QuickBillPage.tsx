@@ -10,6 +10,7 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { buildDemoServiceInvoiceViewModel, mapQuickBillInvoiceToViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
+import { APP_PAYMENT_MODES, type AppPaymentMode } from "../../lib/paymentModes";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import type { QuickBillInvoice } from "../../types/quickBill";
@@ -107,7 +108,7 @@ export function QuickBillPage() {
   const [partPick, setPartPick] = useState("");
   const [technicianId, setTechnicianId] = useState<string>("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
-  const [paymentMode, setPaymentMode] = useState<"Cash" | "Card" | "UPI">("Cash");
+  const [paymentMode, setPaymentMode] = useState<AppPaymentMode>("Cash");
   const [notes, setNotes] = useState("");
 
   const [error, setError] = useState<string | null>(null);
@@ -931,12 +932,14 @@ export function QuickBillPage() {
               <select
                 id="qb-pay"
                 value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value as typeof paymentMode)}
+                onChange={(e) => setPaymentMode(e.target.value as AppPaymentMode)}
                 className={inputClass}
               >
-                <option value="Cash">Cash</option>
-                <option value="Card">Card</option>
-                <option value="UPI">UPI</option>
+                {APP_PAYMENT_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="sm:col-span-2">

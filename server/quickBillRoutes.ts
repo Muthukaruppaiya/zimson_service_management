@@ -244,8 +244,13 @@ export function registerQuickBillRoutes(
         : String(technicianNameRaw).trim();
 
     const paymentMode = String(req.body?.paymentMode ?? "Cash");
-    if (paymentMode !== "Cash" && paymentMode !== "Card" && paymentMode !== "UPI") {
-      res.status(400).json({ error: "paymentMode must be Cash, Card, or UPI." });
+    if (
+      paymentMode !== "Cash" &&
+      paymentMode !== "Card" &&
+      paymentMode !== "UPI" &&
+      paymentMode !== "Bank Transfer"
+    ) {
+      res.status(400).json({ error: "paymentMode must be Cash, Card, UPI, or Bank Transfer." });
       return;
     }
 

@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS quick_bills (
   watch_ref VARCHAR(200),
   technician_id VARCHAR(80),
   technician_name VARCHAR(160),
-  payment_mode VARCHAR(16) NOT NULL CHECK (payment_mode IN ('Cash', 'Card', 'UPI')),
+  payment_mode VARCHAR(24) NOT NULL CHECK (payment_mode IN ('Cash', 'Card', 'UPI', 'Bank Transfer')),
   notes TEXT NOT NULL DEFAULT '',
   total_inr NUMERIC(14, 2) NOT NULL CHECK (total_inr >= 0),
   created_by VARCHAR(80) NOT NULL,
@@ -539,6 +539,8 @@ CREATE TABLE IF NOT EXISTS srf_jobs (
   complaint TEXT NOT NULL DEFAULT '',
   estimate_total_inr NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (estimate_total_inr >= 0),
   advance_inr NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (advance_inr >= 0),
+  advance_payment_mode VARCHAR(32),
+  advance_payment_details JSONB NOT NULL DEFAULT '{}'::jsonb,
   selected_part_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   status VARCHAR(40) NOT NULL DEFAULT 'draft',
   dc_number VARCHAR(64),
@@ -579,6 +581,8 @@ CREATE INDEX IF NOT EXISTS idx_srf_jobs_dc ON srf_jobs (dc_number);
 CREATE INDEX IF NOT EXISTS idx_srf_jobs_outward_dc ON srf_jobs (outward_dc_number);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_requested_note TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS advance_inr NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS advance_payment_mode VARCHAR(32);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS advance_payment_details JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_requested_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_approved_note TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_approved_at TIMESTAMPTZ;
@@ -814,6 +818,13 @@ export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(
     `INSERT INTO service_tax_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`,
   );
+
+  await pool.query(`
+    ALTER TABLE quick_bills DROP CONSTRAINT IF EXISTS quick_bills_payment_mode_check;
+    ALTER TABLE quick_bills ALTER COLUMN payment_mode TYPE VARCHAR(24);
+    ALTER TABLE quick_bills ADD CONSTRAINT quick_bills_payment_mode_check
+      CHECK (payment_mode IN ('Cash', 'Card', 'UPI', 'Bank Transfer'));
+  `);
 
   const prFlowDefaults: Array<[string, string, number]> = [
     ["PR_CREATED", "PR creation", 10],

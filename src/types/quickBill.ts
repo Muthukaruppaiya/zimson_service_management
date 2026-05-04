@@ -1,3 +1,5 @@
+import type { AppPaymentMode } from "../lib/paymentModes";
+
 export type QuickBillLineInvoice = {
   lineNo: number;
   description: string;
@@ -19,7 +21,7 @@ export type QuickBillHistoryRow = {
   customerName: string | null;
   company: string | null;
   watchBrand: string;
-  paymentMode: "Cash" | "Card" | "UPI";
+  paymentMode: AppPaymentMode;
   totalInr: number;
   createdBy: string;
 };
@@ -44,7 +46,7 @@ export type QuickBillInvoice = {
   watchRef: string | null;
   technicianId: string | null;
   technicianName: string | null;
-  paymentMode: "Cash" | "Card" | "UPI";
+  paymentMode: AppPaymentMode;
   notes: string;
   totalInr: number;
   lines: QuickBillLineInvoice[];

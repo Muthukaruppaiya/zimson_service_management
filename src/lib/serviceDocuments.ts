@@ -1,4 +1,5 @@
 import { openPrintDocument } from "./inventoryDocuments";
+import { ADVANCE_CASH_DENOMS, type AdvancePaymentDetails } from "./paymentModes";
 import type { SrfJob } from "../types/srfJob";
 
 function base(title: string, body: string): string {
@@ -35,6 +36,31 @@ function absolutePhotoSrc(filePath: string): string {
   return `${backendOrigin()}${clean}`;
 }
 
+function formatAdvanceForPrint(
+  advanceInr: number | undefined,
+  mode: string | null | undefined,
+  details: AdvancePaymentDetails | null | undefined,
+): string {
+  if (!advanceInr || advanceInr <= 0) return "";
+  const parts: string[] = [`<div style="margin-top:8px"><strong>Advance collected:</strong> INR ${advanceInr.toFixed(2)} (${mode ?? "-"})</div>`];
+  if (mode === "Cash" && details?.cash) {
+    const c = details.cash;
+    const lines: string[] = [];
+    for (const { key, face, label } of ADVANCE_CASH_DENOMS) {
+      const q = Number(c[key]);
+      if (Number.isFinite(q) && q > 0) lines.push(`${label.replace(" ×", "")}: ${q} note(s) = INR ${(q * face).toFixed(2)}`);
+    }
+    const coins = Number(c.coinsInr);
+    if (Number.isFinite(coins) && coins > 0) lines.push(`Coins / loose: INR ${coins.toFixed(2)}`);
+    if (lines.length) {
+      parts.push(`<div style="margin-top:4px;font-size:12px"><strong>Cash breakdown:</strong><br/>${lines.join("<br/>")}</div>`);
+    }
+  } else if (details?.reference) {
+    parts.push(`<div style="margin-top:4px;font-size:12px"><strong>Payment ref:</strong> ${details.reference}</div>`);
+  }
+  return parts.join("");
+}
+
 export function printSrfDocument(job: {
   reference: string;
   customerName: string;
@@ -44,6 +70,9 @@ export function printSrfDocument(job: {
   serial: string;
   complaint: string;
   estimateTotalInr: number;
+  advanceInr?: number;
+  advancePaymentMode?: string | null;
+  advancePaymentDetails?: AdvancePaymentDetails | null;
   photos?: Array<{ id: string; photoKind?: string; filePath: string }>;
 }): void {
   const photoBlocks = (job.photos ?? [])
@@ -63,6 +92,7 @@ export function printSrfDocument(job: {
      <div><strong>Watch:</strong> ${job.watchBrand} ${job.watchModel} · ${job.serial}</div>
      <div style="margin-top:8px"><strong>Complaint:</strong> ${job.complaint}</div>
      <div style="margin-top:8px"><strong>Estimate:</strong> INR ${job.estimateTotalInr.toFixed(2)}</div>
+     ${formatAdvanceForPrint(job.advanceInr, job.advancePaymentMode, job.advancePaymentDetails ?? null)}
      <h3 style="margin:16px 0 6px">Watch images</h3>
      <div style="display:flex;flex-wrap:wrap;gap:8px">${photoBlocks || "<div>No images uploaded</div>"}</div>
      <div style="margin-top:24px">Customer Sign: _____________________</div>

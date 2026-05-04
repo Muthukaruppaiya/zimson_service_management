@@ -9,6 +9,7 @@ import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { generateDemoOtp } from "../../data/serviceSeed";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
+import { ADVANCE_CASH_DENOMS, type AdvancePaymentDetails } from "../../lib/paymentModes";
 import { printStoreServiceInvoice } from "../../lib/serviceDocuments";
 
 type AdditionalChargeLine = {
@@ -531,6 +532,39 @@ export function StoreBillingPage() {
                       INR {advanceAmount.toFixed(2)}
                     </td>
                   </tr>
+                  {advanceAmount > 0 && billingJob?.advancePaymentMode ? (
+                    <tr className="border-b border-zimson-100">
+                      <th className="bg-zimson-50/70 px-3 py-2 align-top font-semibold text-stone-700">
+                        Advance payment (at booking)
+                      </th>
+                      <td className="px-3 py-2 text-sm text-stone-800">
+                        <span className="font-semibold text-zimson-900">{billingJob.advancePaymentMode}</span>
+                        {(() => {
+                          const det = billingJob.advancePaymentDetails as AdvancePaymentDetails | null | undefined;
+                          if (!det) return null;
+                          if (billingJob.advancePaymentMode === "Cash" && det.cash) {
+                            const c = det.cash;
+                            const parts: string[] = [];
+                            for (const { key, label } of ADVANCE_CASH_DENOMS) {
+                              const q = Number(c[key]);
+                              if (Number.isFinite(q) && q > 0) parts.push(`${label.replace(" ×", "")}: ${q}`);
+                            }
+                            const coins = Number(c.coinsInr);
+                            if (Number.isFinite(coins) && coins > 0) parts.push(`Coins: INR ${coins.toFixed(2)}`);
+                            return parts.length ? (
+                              <span className="mt-1 block text-xs text-stone-600">{parts.join(" · ")}</span>
+                            ) : null;
+                          }
+                          if (det.reference) {
+                            return (
+                              <span className="mt-1 block text-xs text-stone-600">Ref: {det.reference}</span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </td>
+                    </tr>
+                  ) : null}
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Additional charges</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
@@ -586,10 +620,10 @@ export function StoreBillingPage() {
                   value={paymentMode}
                   onChange={(e) => setPaymentMode(e.target.value)}
                 >
-                  <option>UPI</option>
-                  <option>Cash</option>
-                  <option>Card</option>
-                  <option>Bank Transfer</option>
+                  <option value="UPI">UPI</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Card">Card</option>
+                  <option value="Bank Transfer">Bank Transfer</option>
                 </select>
               </label>
               <label className="text-sm">
