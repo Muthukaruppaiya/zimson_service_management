@@ -5,21 +5,37 @@ import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
+import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { generateDemoOtp } from "../../data/serviceSeed";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { printStoreServiceInvoice } from "../../lib/serviceDocuments";
 
+type AdditionalChargeLine = {
+  id: string;
+  lineType: "charge" | "spare";
+  description: string;
+  spareId: string;
+  qty: string;
+  amount: string;
+};
+
 export function StoreBillingPage() {
   const { user } = useAuth();
+  const { activeSpares } = useSpares();
   const { jobs, closeWithInvoice } = useSrfJobs();
+  const [screenMode, setScreenMode] = useState<"select" | "invoice">("select");
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [billingRefInput, setBillingRefInput] = useState("");
+  const [scanSrfInput, setScanSrfInput] = useState("");
   const [billingSelectedId, setBillingSelectedId] = useState("");
   const [paymentMode, setPaymentMode] = useState("UPI");
   const [paidAmountInput, setPaidAmountInput] = useState("");
   const [hoSparesBillRef, setHoSparesBillRef] = useState("");
   const [storeBillRef, setStoreBillRef] = useState("");
+  const [additionalChargeLines, setAdditionalChargeLines] = useState<AdditionalChargeLine[]>([
+    { id: `${Date.now()}-charge`, lineType: "charge", description: "", spareId: "", qty: "1", amount: "" },
+  ]);
   const [issuedOtpByJob, setIssuedOtpByJob] = useState<Record<string, string>>({});
   const [otpInputByJob, setOtpInputByJob] = useState<Record<string, string>>({});
   const [otpErrorByJob, setOtpErrorByJob] = useState<Record<string, string>>({});
@@ -28,14 +44,6 @@ export function StoreBillingPage() {
   const receivedAtStore = useMemo(() => {
     if (!user) return [];
     return jobs.filter((j) => j.status === "received_at_store" && jobVisibleToStoreUser(j, user));
-  }, [jobs, user]);
-
-  const recentClosedBilling = useMemo(() => {
-    if (!user) return [];
-    return jobs
-      .filter((j) => j.status === "closed" && jobVisibleToStoreUser(j, user))
-      .sort((a, b) => String(b.closedAt ?? b.updatedAt ?? "").localeCompare(String(a.closedAt ?? a.updatedAt ?? "")))
-      .slice(0, 60);
   }, [jobs, user]);
 
   const filteredInventory = useMemo(() => {
@@ -50,6 +58,49 @@ export function StoreBillingPage() {
   }, [receivedAtStore, billingSelectedId]);
 
   const isRejectedNoRepairFlow = billingJob?.customerReestimateResponse === "rejected";
+  function getSpareUnitPrice(spareId: string): number {
+    const spare = activeSpares.find((s) => s.id === spareId);
+    return Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
+  }
+
+  function getLineAmount(line: AdditionalChargeLine): number {
+    if (line.lineType === "spare") {
+      const unit = getSpareUnitPrice(line.spareId);
+      const qty = Number.parseFloat(line.qty);
+      if (!Number.isFinite(unit) || unit <= 0) return 0;
+      if (!Number.isFinite(qty) || qty <= 0) return 0;
+      return unit * qty;
+    }
+    const amt = Number.parseFloat(line.amount);
+    return Number.isFinite(amt) && amt > 0 ? amt : 0;
+  }
+
+  const additionalChargesTotal = additionalChargeLines.reduce((sum, line) => sum + getLineAmount(line), 0);
+  const estimateAmount = Number(billingJob?.estimateTotalInr ?? 0);
+  const advanceAmount = Number(billingJob?.advanceInr ?? 0);
+  const standardBillingTotal = Math.max(estimateAmount - advanceAmount + additionalChargesTotal, 0);
+
+  function addChargeLine() {
+    setAdditionalChargeLines((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        lineType: "charge",
+        description: "",
+        spareId: "",
+        qty: "1",
+        amount: "",
+      },
+    ]);
+  }
+
+  function removeChargeLine(id: string) {
+    setAdditionalChargeLines((prev) => (prev.length <= 1 ? prev : prev.filter((line) => line.id !== id)));
+  }
+
+  function updateChargeLine(id: string, patch: Partial<AdditionalChargeLine>) {
+    setAdditionalChargeLines((prev) => prev.map((line) => (line.id === id ? { ...line, ...patch } : line)));
+  }
 
   function startCollectionOtp(jobId: string) {
     const code = generateDemoOtp();
@@ -58,6 +109,20 @@ export function StoreBillingPage() {
     setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
     setOtpModalJobId(jobId);
     setMessage({ type: "ok", text: "Customer collection OTP generated. Verify OTP before invoicing." });
+  }
+
+  function applyScannedSrf(raw: string) {
+    const scanned = raw.trim().toUpperCase();
+    if (!scanned) return;
+    const hit = receivedAtStore.find((j) => j.reference.trim().toUpperCase() === scanned);
+    if (!hit) {
+      setMessage({ type: "err", text: `Scanned SRF not found in pending list: ${scanned}` });
+      return;
+    }
+    setBillingRefInput(scanned);
+    setBillingSelectedId(hit.id);
+    setScreenMode("invoice");
+    setMessage({ type: "ok", text: `SRF ${hit.reference} selected from barcode scan.` });
   }
 
   async function closeJob(jobId: string) {
@@ -115,9 +180,9 @@ export function StoreBillingPage() {
       return;
     }
     const estimateAmount = Number(job.estimateTotalInr ?? 0);
-    const sparesAmount = (job.usedSpares ?? []).reduce((sum, x) => sum + Number(x.lineTotalInr ?? 0), 0);
-    const hoBillingAmount = estimateAmount + sparesAmount;
-    const finalAmount = paidAmountInput.trim() ? Number(paidAmountInput) : hoBillingAmount;
+    const advanceAmount = Number(job.advanceInr ?? 0);
+    const computedTotal = Math.max(estimateAmount - advanceAmount + additionalChargesTotal, 0);
+    const finalAmount = paidAmountInput.trim() ? Number(paidAmountInput) : computedTotal;
     if (!Number.isFinite(finalAmount) || finalAmount < 0) {
       setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "Enter valid paid amount." }));
       return;
@@ -125,17 +190,36 @@ export function StoreBillingPage() {
     setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
     try {
       await closeJob(jobId);
+      const additionalCharges = additionalChargeLines
+        .map((line) => {
+          if (line.lineType === "spare") {
+            const spare = activeSpares.find((s) => s.id === line.spareId);
+            const qty = Number.parseFloat(line.qty);
+            return {
+              description: spare
+                ? `Spare: ${spare.sku} - ${spare.name} x ${Number.isFinite(qty) && qty > 0 ? qty : 0}`
+                : "",
+              amountInr: getLineAmount(line),
+            };
+          }
+          return { description: line.description.trim(), amountInr: getLineAmount(line) };
+        })
+        .filter((line) => line.description && Number.isFinite(line.amountInr) && line.amountInr > 0);
       printStoreServiceInvoice(job, {
         paymentMode,
         paidAmountInr: finalAmount,
         otpCode: entered,
         hoSparesBillRef,
         storeBillRef,
+        additionalCharges,
       });
       setMessage({ type: "ok", text: "SRF closed and invoice generated." });
       setBillingSelectedId("");
       setBillingRefInput("");
       setPaidAmountInput("");
+      setAdditionalChargeLines([
+        { id: `${Date.now()}-charge`, lineType: "charge", description: "", spareId: "", qty: "1", amount: "" },
+      ]);
     } catch (e) {
       setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not close SRF." });
     }
@@ -150,91 +234,158 @@ export function StoreBillingPage() {
         title="Store billing / customer collection"
         description="Select inwarded SRF by reference, verify OTP when customer collects, take payment, and generate invoice."
         actions={
-          <Link
-            to="/service/store-dispatch"
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Back to store dispatch
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/service/store-billing-master"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Open billing master
+            </Link>
+            <Link
+              to="/service/store-dispatch"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Back to store dispatch
+            </Link>
+          </div>
         }
       />
 
       <Card title="Billing module" subtitle="Pending watches available in store inventory (received from internal outward transfer)">
-        <div className="mb-3 grid gap-3 md:grid-cols-4">
-          <label className="text-sm md:col-span-2">
-            SRF reference search
-            <input
-              className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-              placeholder="Enter SRF reference"
-              value={billingRefInput}
-              onChange={(e) => setBillingRefInput(e.target.value)}
-            />
-          </label>
-          <label className="text-sm">
-            Select SRF
-            <select
-              className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-              value={billingSelectedId}
-              onChange={(e) => setBillingSelectedId(e.target.value)}
-            >
-              <option value="">Select...</option>
-              {filteredInventory.map((j) => (
-                <option key={j.id} value={j.id}>
-                  {j.reference} - {j.customerName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/60 px-3 py-2 text-sm">
-            <p className="text-xs text-stone-600">Pending in store inventory</p>
-            <p className="text-lg font-semibold text-zimson-900">{filteredInventory.length}</p>
-          </div>
-        </div>
-        <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-zimson-200 bg-zimson-50/70 text-xs font-semibold uppercase text-stone-600">
-              <tr>
-                <th className="px-3 py-2">SRF</th>
-                <th className="px-3 py-2">Customer</th>
-                <th className="px-3 py-2">Watch</th>
-                <th className="px-3 py-2">Estimate</th>
-                <th className="px-3 py-2">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredInventory.length === 0 ? (
-                <tr>
-                  <td className="px-3 py-3 text-stone-500" colSpan={5}>
-                    No pending SRFs found for billing.
-                  </td>
-                </tr>
-              ) : (
-                filteredInventory.map((j) => (
-                  <tr key={j.id} className="border-b border-zimson-100 last:border-0">
-                    <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
-                    <td className="px-3 py-2">{j.customerName}</td>
-                    <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
-                    <td className="px-3 py-2">INR {Number(j.estimateTotalInr ?? 0).toFixed(2)}</td>
-                    <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => setBillingSelectedId(j.id)}
-                        className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-                      >
-                        Select
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setScreenMode("select")}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+              screenMode === "select"
+                ? "bg-zimson-600 text-white"
+                : "border border-zimson-300 bg-white text-zimson-900 hover:bg-zimson-50"
+            }`}
+          >
+            1. Select SRF
+          </button>
+          <button
+            type="button"
+            onClick={() => setScreenMode("invoice")}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+              screenMode === "invoice"
+                ? "bg-zimson-600 text-white"
+                : "border border-zimson-300 bg-white text-zimson-900 hover:bg-zimson-50"
+            }`}
+          >
+            2. Invoice Details
+          </button>
         </div>
 
-        {!billingJob ? (
-          <p className="mt-4 text-sm text-stone-600">Select SRF from inventory to start billing.</p>
+        {screenMode === "select" ? (
+          <>
+            <div className="mb-3 grid gap-3 md:grid-cols-4">
+              <label className="text-sm md:col-span-2">
+                SRF reference search
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  placeholder="Enter SRF reference"
+                  value={billingRefInput}
+                  onChange={(e) => setBillingRefInput(e.target.value)}
+                />
+              </label>
+              <label className="text-sm">
+                Select SRF
+                <select
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={billingSelectedId}
+                  onChange={(e) => {
+                    setBillingSelectedId(e.target.value);
+                    if (e.target.value) setScreenMode("invoice");
+                  }}
+                >
+                  <option value="">Select...</option>
+                  {filteredInventory.map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {j.reference} - {j.customerName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                Scan SRF barcode
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  placeholder="Scan SRF barcode and press Enter"
+                  value={scanSrfInput}
+                  onChange={(e) => setScanSrfInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    applyScannedSrf(scanSrfInput);
+                    setScanSrfInput("");
+                  }}
+                />
+              </label>
+              <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/60 px-3 py-2 text-sm">
+                <p className="text-xs text-stone-600">Pending in store inventory</p>
+                <p className="text-lg font-semibold text-zimson-900">{filteredInventory.length}</p>
+              </div>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+              <table className="min-w-full text-left text-sm">
+                <thead className="border-b border-zimson-200 bg-zimson-50/70 text-xs font-semibold uppercase text-stone-600">
+                  <tr>
+                    <th className="px-3 py-2">SRF</th>
+                    <th className="px-3 py-2">Customer</th>
+                    <th className="px-3 py-2">Watch</th>
+                    <th className="px-3 py-2">Estimate</th>
+                    <th className="px-3 py-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredInventory.length === 0 ? (
+                    <tr>
+                      <td className="px-3 py-3 text-stone-500" colSpan={5}>
+                        No pending SRFs found for billing.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredInventory.map((j) => (
+                      <tr key={j.id} className="border-b border-zimson-100 last:border-0">
+                        <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                        <td className="px-3 py-2">{j.customerName}</td>
+                        <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
+                        <td className="px-3 py-2">INR {Number(j.estimateTotalInr ?? 0).toFixed(2)}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBillingSelectedId(j.id);
+                              setScreenMode("invoice");
+                            }}
+                            className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                          >
+                            Select & continue
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : !billingJob ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Select SRF first from step 1 to continue invoice creation.
+          </div>
         ) : (
           <div className="mt-4 space-y-4 rounded-xl border border-zimson-200/80 p-4">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setScreenMode("select")}
+                className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+              >
+                Change selected SRF
+              </button>
+            </div>
             <div className="text-sm text-stone-700">
               <span className="font-mono font-semibold text-zimson-900">{billingJob.reference}</span> ·{" "}
               {billingJob.customerName} · {billingJob.watchBrand} {billingJob.watchModel}
@@ -274,19 +425,122 @@ export function StoreBillingPage() {
               )}
             </div>
             {!isRejectedNoRepairFlow ? (
+              <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-sm font-semibold text-zimson-900">Additional line items (labour / service charges)</p>
+                  <button
+                    type="button"
+                    onClick={addChargeLine}
+                    className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                  >
+                    Add line item
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {additionalChargeLines.map((line) => (
+                    <div key={line.id} className="grid gap-2 md:grid-cols-[120px_1fr_130px_130px_76px]">
+                      <select
+                        className="rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
+                        value={line.lineType}
+                        onChange={(e) =>
+                          updateChargeLine(line.id, {
+                            lineType: e.target.value as "charge" | "spare",
+                            description: "",
+                            spareId: "",
+                            qty: "1",
+                            amount: "",
+                          })
+                        }
+                      >
+                        <option value="charge">Charge</option>
+                        <option value="spare">Spare</option>
+                      </select>
+                      {line.lineType === "spare" ? (
+                        <select
+                          className="rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
+                          value={line.spareId}
+                          onChange={(e) => updateChargeLine(line.id, { spareId: e.target.value })}
+                        >
+                          <option value="">Select spare</option>
+                          {activeSpares.map((sp) => (
+                            <option key={sp.id} value={sp.id}>
+                              {sp.sku} - {sp.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          className="rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
+                          placeholder="Description (e.g. Labour charge)"
+                          value={line.description}
+                          onChange={(e) => updateChargeLine(line.id, { description: e.target.value })}
+                        />
+                      )}
+                      {line.lineType === "spare" ? (
+                        <input
+                          className="rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
+                          type="number"
+                          min={1}
+                          step={1}
+                          placeholder="Qty"
+                          value={line.qty}
+                          onChange={(e) => updateChargeLine(line.id, { qty: e.target.value })}
+                        />
+                      ) : (
+                        <input
+                          className="rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          placeholder="Amount"
+                          value={line.amount}
+                          onChange={(e) => updateChargeLine(line.id, { amount: e.target.value })}
+                        />
+                      )}
+                      <input
+                        className="rounded-xl border border-zimson-300 bg-zimson-50 px-3 py-2 text-sm"
+                        readOnly
+                        value={`INR ${getLineAmount(line).toFixed(2)}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeChargeLine(line.id)}
+                        disabled={additionalChargeLines.length <= 1}
+                        className="rounded-xl border border-zimson-300 bg-white px-2 py-2 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {!isRejectedNoRepairFlow ? (
             <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
               <table className="min-w-full text-left text-sm">
                 <tbody>
                   <tr className="border-b border-zimson-100">
                     <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimate amount</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
-                      INR {Number(billingJob.estimateTotalInr ?? 0).toFixed(2)}
+                      INR {estimateAmount.toFixed(2)}
                     </td>
                   </tr>
                   <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">HO billing amount</th>
+                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance received</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
-                      INR {(Number(billingJob.estimateTotalInr ?? 0) + (billingJob.usedSpares ?? []).reduce((sum, x) => sum + Number(x.lineTotalInr ?? 0), 0)).toFixed(2)}
+                      INR {advanceAmount.toFixed(2)}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-zimson-100">
+                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Additional charges</th>
+                    <td className="px-3 py-2 font-semibold text-zimson-900">
+                      INR {additionalChargesTotal.toFixed(2)}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-zimson-100">
+                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Standard billing total</th>
+                    <td className="px-3 py-2 font-semibold text-zimson-900">
+                      INR {standardBillingTotal.toFixed(2)}
                     </td>
                   </tr>
                   <tr>
@@ -294,7 +548,7 @@ export function StoreBillingPage() {
                     <td className="px-3 py-2 font-semibold text-zimson-900">
                       INR {(paidAmountInput.trim()
                         ? Number(paidAmountInput)
-                        : Number(billingJob.estimateTotalInr ?? 0) + (billingJob.usedSpares ?? []).reduce((sum, x) => sum + Number(x.lineTotalInr ?? 0), 0)
+                        : standardBillingTotal
                       ).toFixed(2)}
                     </td>
                   </tr>
@@ -344,10 +598,7 @@ export function StoreBillingPage() {
                   className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                   value={paidAmountInput}
                   onChange={(e) => setPaidAmountInput(e.target.value)}
-                  placeholder={String(
-                    Number(billingJob.estimateTotalInr ?? 0) +
-                      (billingJob.usedSpares ?? []).reduce((sum, x) => sum + Number(x.lineTotalInr ?? 0), 0),
-                  )}
+                  placeholder={String(standardBillingTotal)}
                 />
               </label>
             </div>
@@ -403,43 +654,6 @@ export function StoreBillingPage() {
             {message.text}
           </p>
         ) : null}
-      </Card>
-
-      <Card title="Store billing history" subtitle="SRFs already closed after customer collection (newest first)" className="mt-8">
-        {recentClosedBilling.length === 0 ? (
-          <p className="text-sm text-stone-600">No closed SRFs in your visible scope yet.</p>
-        ) : (
-          <div className="max-h-[360px] overflow-auto rounded-xl border border-zimson-200/80">
-            <table className="min-w-full text-left text-sm">
-              <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-                <tr>
-                  <th className="px-3 py-2">SRF</th>
-                  <th className="px-3 py-2">Customer</th>
-                  <th className="px-3 py-2">Watch</th>
-                  <th className="px-3 py-2">Closed</th>
-                  <th className="px-3 py-2 text-right">Estimate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentClosedBilling.map((j) => (
-                  <tr key={j.id} className="border-b border-zimson-100 last:border-0">
-                    <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
-                    <td className="px-3 py-2 text-stone-800">{j.customerName}</td>
-                    <td className="px-3 py-2 text-stone-700">
-                      {j.watchBrand} {j.watchModel}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-stone-600">
-                      {j.closedAt ? new Date(j.closedAt).toLocaleString() : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-stone-900">
-                      {Number(j.estimateTotalInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </Card>
 
       {otpModalJobId ? (

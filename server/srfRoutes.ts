@@ -449,6 +449,7 @@ export function registerSrfRoutes(
                 j.serial,
                 j.complaint,
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
+                j.advance_inr::float8 AS "advanceInr",
                 j.selected_part_ids AS "selectedPartIds",
                 j.status,
                 j.dc_number AS "dcNumber",
@@ -590,6 +591,7 @@ export function registerSrfRoutes(
         serial: string;
         complaint: string;
         estimateTotalInr: number;
+        advanceInr: number;
         regionId: string;
         storeId: string;
         destinationStoreId: string | null;
@@ -610,6 +612,7 @@ export function registerSrfRoutes(
                 serial,
                 complaint,
                 estimate_total_inr::float8 AS "estimateTotalInr",
+                advance_inr::float8 AS "advanceInr",
                 region_id AS "regionId",
                 store_id AS "storeId",
                 destination_store_id AS "destinationStoreId",
@@ -1421,6 +1424,7 @@ export function registerSrfRoutes(
     const srfId = String(req.params.srfId ?? "").trim();
     const complaint = String(req.body?.complaint ?? "").trim();
     const estimateTotalInr = Number(req.body?.estimateTotalInr ?? 0);
+    const advanceInr = Number(req.body?.advanceInr ?? 0);
     const selectedPartIds = Array.isArray(req.body?.selectedPartIds)
       ? req.body.selectedPartIds.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
       : [];
@@ -1430,6 +1434,10 @@ export function registerSrfRoutes(
     }
     if (!Number.isFinite(estimateTotalInr) || estimateTotalInr < 0) {
       res.status(400).json({ error: "estimateTotalInr must be a valid non-negative number." });
+      return;
+    }
+    if (!Number.isFinite(advanceInr) || advanceInr < 0) {
+      res.status(400).json({ error: "advanceInr must be a valid non-negative number." });
       return;
     }
     const client = await pool.connect();
@@ -1457,14 +1465,15 @@ export function registerSrfRoutes(
         `UPDATE srf_jobs
          SET complaint = $2,
              estimate_total_inr = $3,
-             selected_part_ids = $4::jsonb,
+             advance_inr = $4,
+             selected_part_ids = $5::jsonb,
              status = 'at_store',
              photo_session_active = false,
              capture_link_disabled_at = now(),
              updated_at = now(),
-             modified_by = $5
+             modified_by = $6
          WHERE id = $1::uuid`,
-        [srfId, complaint, estimateTotalInr, JSON.stringify(selectedPartIds), actor.id],
+        [srfId, complaint, estimateTotalInr, advanceInr, JSON.stringify(selectedPartIds), actor.id],
       );
       await client.query(
         `UPDATE srf_photo_sessions SET revoked_at = now() WHERE srf_id = $1::uuid AND revoked_at IS NULL`,
@@ -1473,10 +1482,10 @@ export function registerSrfRoutes(
       await appendStatusHistory(client, srfId, "at_store", actor.id, "SRF finalized after OTP.");
       await appendActionLog(client, srfId, {
         action: "srf_finalized",
-        description: `SRF finalized with estimate INR ${estimateTotalInr.toFixed(2)}.`,
+        description: `SRF finalized with estimate INR ${estimateTotalInr.toFixed(2)} and advance INR ${advanceInr.toFixed(2)}.`,
         amountInr: estimateTotalInr,
         actor,
-        details: { complaint, selectedPartIds },
+        details: { complaint, selectedPartIds, advanceInr },
       });
       const refRows = await client.query<{ reference: string; customer_name: string; phone: string }>(
         `SELECT reference, customer_name, phone FROM srf_jobs WHERE id = $1::uuid`,
@@ -2679,6 +2688,147 @@ export function registerSrfRoutes(
     }
   });
 
+  app.get("/api/service/srf-jobs/:srfId/inter-ho-invoice-prefill", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanView(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    try {
+      const { rows } = await pool.query<{
+        id: string;
+        reference: string;
+        customerName: string;
+        watchBrand: string;
+        watchModel: string;
+        serial: string;
+        complaint: string;
+        fromRegionId: string;
+        fromRegionName: string;
+        toRegionId: string;
+        toRegionName: string;
+        status: string;
+        usedSpares: Array<{ name: string; qty: number; unitPriceInr?: number | null }> | null;
+      }>(
+        `SELECT j.id,
+                j.reference,
+                j.customer_name AS "customerName",
+                j.watch_brand AS "watchBrand",
+                j.watch_model AS "watchModel",
+                j.serial,
+                j.complaint,
+                j.region_id AS "fromRegionId",
+                rr.name AS "fromRegionName",
+                j.transfer_source_region_id AS "toRegionId",
+                sr.name AS "toRegionName",
+                j.status,
+                j.used_spares AS "usedSpares"
+         FROM srf_jobs j
+         JOIN regions rr ON rr.id = j.region_id
+         LEFT JOIN regions sr ON sr.id = j.transfer_source_region_id
+         WHERE j.id = $1::uuid`,
+        [srfId],
+      );
+      const row = rows[0];
+      if (!row) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (!row.toRegionId || !row.toRegionName) {
+        res.status(400).json({ error: "This SRF is not in inter-HO return billing flow." });
+        return;
+      }
+      if (row.status !== "ready_for_outward") {
+        res.status(400).json({ error: "Inter-HO invoice can be created only when SRF is ready for outward." });
+        return;
+      }
+      res.json({
+        ...row,
+        usedSpares: Array.isArray(row.usedSpares) ? row.usedSpares : [],
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not load inter-HO invoice prefill." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/inter-ho-invoice", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !SC_ODC_OUTWARD_ROLES.has(actor.role)) {
+      res.status(403).json({ error: "Only supervisor/admin can create inter-HO invoice." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const invoiceRef = String(req.body?.invoiceRef ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    if (!invoiceRef) {
+      res.status(400).json({ error: "invoiceRef is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const lockRes = await client.query<{
+        id: string;
+        reference: string;
+        status: string;
+        region_id: string;
+        transfer_source_region_id: string | null;
+      }>(
+        `SELECT id, reference, status, region_id, transfer_source_region_id
+         FROM srf_jobs
+         WHERE id = $1::uuid
+         FOR UPDATE`,
+        [srfId],
+      );
+      const row = lockRes.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (!row.transfer_source_region_id) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "This SRF is not eligible for inter-HO sender invoice." });
+        return;
+      }
+      if (row.status !== "ready_for_outward") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Invoice can be created only when SRF is ready for outward dispatch." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "ho_admin" && actor.regionId !== row.region_id) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only current repair HO can create this invoice." });
+        return;
+      }
+      await client.query(
+        `UPDATE srf_jobs
+         SET ho_spares_bill_ref = $2,
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid`,
+        [srfId, invoiceRef, actor.id],
+      );
+      await appendActionLog(client, srfId, {
+        action: "inter_ho_sender_invoice_created",
+        description: `Repair HO invoice created against sender HO. Invoice ${invoiceRef}.`,
+        actor,
+        referenceDoc: invoiceRef,
+        details: { invoiceRef, note },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not create inter-HO invoice." });
+    } finally {
+      client.release();
+    }
+  });
+
   app.post("/api/service/odcs", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !SC_ODC_OUTWARD_ROLES.has(actor.role)) {
@@ -2710,6 +2860,7 @@ export function registerSrfRoutes(
         status: string;
         region_id: string;
         store_id: string;
+        ho_spares_bill_ref: string | null;
         requires_local_conversion: boolean;
         transfer_target_region_id: string | null;
         transfer_target_store_id: string | null;
@@ -2717,7 +2868,7 @@ export function registerSrfRoutes(
         transfer_source_store_id: string | null;
         transfer_source_reference: string | null;
       }>(
-        `SELECT id, status, region_id, store_id, requires_local_conversion,
+        `SELECT id, status, region_id, store_id, ho_spares_bill_ref, requires_local_conversion,
                 transfer_target_region_id, transfer_target_store_id,
                 transfer_source_region_id, transfer_source_store_id, transfer_source_reference
          FROM srf_jobs
@@ -2734,9 +2885,9 @@ export function registerSrfRoutes(
       const firstTransfer = transferCandidates[0] ?? null;
       const isInterHoBatch = !!firstTransfer;
       const isReturnToSenderBatch = !!firstTransfer && !firstTransfer.requires_local_conversion;
-      if (isReturnToSenderBatch && !hoInvoiceRef) {
+      if (isReturnToSenderBatch && !hoInvoiceRef && transferCandidates.some((r) => !(r.ho_spares_bill_ref ?? "").trim())) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Repair HO invoice ref is required for return-to-sender dispatch." });
+        res.status(400).json({ error: "Create repair HO invoice first (or provide invoice ref) before return-to-sender dispatch." });
         return;
       }
       const interHoTargetRegionId = firstTransfer?.requires_local_conversion
@@ -3055,6 +3206,7 @@ export function registerSrfRoutes(
           status: string;
           complaint: string;
           estimateTotalInr: number;
+          advanceInr: number;
           reestimateRequestedNote: string | null;
           reestimateRequestedInr: number | null;
           customerReestimateResponse: string | null;
@@ -3079,6 +3231,7 @@ export function registerSrfRoutes(
                 j.status,
                 j.complaint,
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
+                j.advance_inr::float8 AS "advanceInr",
                 j.reestimate_requested_note AS "reestimateRequestedNote",
                 j.reestimate_requested_inr::float8 AS "reestimateRequestedInr",
                 j.customer_reestimate_response AS "customerReestimateResponse",

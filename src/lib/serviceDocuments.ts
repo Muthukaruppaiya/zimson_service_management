@@ -226,11 +226,25 @@ export function printAssignmentSlip(job: SrfJob, technicianLabel: string): void 
 
 export function printStoreServiceInvoice(
   job: SrfJob,
-  payload: { paymentMode: string; paidAmountInr: number; otpCode: string; billedAt?: Date; hoSparesBillRef?: string; storeBillRef?: string },
+  payload: {
+    paymentMode: string;
+    paidAmountInr: number;
+    otpCode: string;
+    billedAt?: Date;
+    hoSparesBillRef?: string;
+    storeBillRef?: string;
+    additionalCharges?: Array<{ description: string; amountInr: number }>;
+  },
 ): void {
   const billedAt = payload.billedAt ?? new Date();
   const spareRows = (job.usedSpares ?? [])
     .map((x, idx) => `<tr><td>${idx + 1}</td><td>${x.name}</td><td>${x.qty}</td></tr>`)
+    .join("");
+  const additionalChargeRows = (payload.additionalCharges ?? [])
+    .map(
+      (line, idx) =>
+        `<tr><td>${idx + 1}</td><td>${line.description}</td><td>INR ${Number(line.amountInr ?? 0).toFixed(2)}</td></tr>`,
+    )
     .join("");
   const html = base(
     `Invoice ${job.reference}`,
@@ -249,6 +263,11 @@ export function printStoreServiceInvoice(
      <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
        <thead><tr><th>#</th><th>Spare</th><th>Qty</th></tr></thead>
        <tbody>${spareRows || '<tr><td colspan="3">No spares entered</td></tr>'}</tbody>
+     </table>
+     <h3 style="margin:16px 0 8px">Additional line items</h3>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <thead><tr><th>#</th><th>Description</th><th>Amount</th></tr></thead>
+       <tbody>${additionalChargeRows || '<tr><td colspan="3">No additional charges</td></tr>'}</tbody>
      </table>
      <div style="margin-top:24px">Customer Sign: _____________________</div>
      <div style="margin-top:16px">Store Sign: _____________________</div>`,

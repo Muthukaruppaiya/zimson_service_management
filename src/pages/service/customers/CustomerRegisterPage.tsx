@@ -74,7 +74,7 @@ export function CustomerRegisterPage() {
       gst: customerKind === "B2B" ? gst : undefined,
       pan: customerKind === "B2B" ? pan : undefined,
     });
-    navigate(`/service/billing?customerId=${encodeURIComponent(row.id)}`, { replace: true });
+    navigate(`/service/billing/create?customerId=${encodeURIComponent(row.id)}`, { replace: true });
   }
 
   async function checkByPhone() {
@@ -119,7 +119,7 @@ export function CustomerRegisterPage() {
         description="Step 1: check mobile in database. If existing, use same customer. If new, create in popup."
         actions={
           <Link
-            to="/service/billing"
+            to="/service/billing/create"
             className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
           >
             Back to billing lookup
@@ -162,7 +162,7 @@ export function CustomerRegisterPage() {
           <div className="mt-4 flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => navigate(`/service/billing?customerId=${encodeURIComponent(checkedCustomer.id)}`, { replace: true })}
+              onClick={() => navigate(`/service/billing/create?customerId=${encodeURIComponent(checkedCustomer.id)}`, { replace: true })}
               className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
             >
               Use this customer

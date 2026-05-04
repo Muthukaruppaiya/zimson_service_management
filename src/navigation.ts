@@ -23,6 +23,13 @@ export const mainNav: NavItem[] = [
     badge: "Store",
   },
   {
+    to: "/accounts/setup",
+    label: "Accounts",
+    description: "Ledgers, vouchers and posting defaults",
+    module: "accounts",
+    badge: "Finance",
+  },
+  {
     to: "/service-centre",
     label: "Service centre",
     description: "Inward, assign, technician",

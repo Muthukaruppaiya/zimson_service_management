@@ -32,6 +32,26 @@ type OnlineOrderPrefill = {
   }>;
 };
 
+type InterHoSrfInvoicePrefill = {
+  id: string;
+  reference: string;
+  customerName: string;
+  watchBrand: string;
+  watchModel: string;
+  serial: string;
+  complaint: string;
+  fromRegionId: string;
+  fromRegionName: string;
+  toRegionId: string;
+  toRegionName: string;
+  status: string;
+  usedSpares: Array<{
+    name: string;
+    qty: number;
+    unitPriceInr?: number | null;
+  }>;
+};
+
 function emptyLine(): LineItem {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -68,10 +88,14 @@ export function ServiceBillingPage() {
   const [defaultSacHsn, setDefaultSacHsn] = useState("9987");
   const [billRef, setBillRef] = useState<string | null>(null);
   const [onlineOrder, setOnlineOrder] = useState<OnlineOrderPrefill | null>(null);
+  const [interHoSrfInvoice, setInterHoSrfInvoice] = useState<InterHoSrfInvoicePrefill | null>(null);
 
   const customerIdParam = searchParams.get("customerId");
   const onlineOrderIdParam = searchParams.get("onlineOrderId");
+  const srfIdParam = searchParams.get("srfId");
+  const invoiceForParam = searchParams.get("invoiceFor");
   const isOnlineOrderFlow = Boolean(onlineOrderIdParam);
+  const isInterHoSrfInvoiceFlow = Boolean(srfIdParam && invoiceForParam === "sender-ho");
 
   useEffect(() => {
     if (!customerIdParam) return;
@@ -126,6 +150,45 @@ export function ServiceBillingPage() {
       cancelled = true;
     };
   }, [onlineOrderIdParam]);
+
+  useEffect(() => {
+    if (!isInterHoSrfInvoiceFlow || !srfIdParam) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const out = await apiJson<InterHoSrfInvoicePrefill>(
+          `/api/service/srf-jobs/${encodeURIComponent(srfIdParam)}/inter-ho-invoice-prefill`,
+        );
+        if (cancelled) return;
+        setInterHoSrfInvoice(out);
+        const senderHoLabel = `${out.toRegionName} HO`;
+        setSelectedCustomer({
+          id: `HO-${out.toRegionId}`,
+          displayName: senderHoLabel,
+          phone: "-",
+          email: "",
+          customerKind: "B2B",
+          company: senderHoLabel,
+          createdAt: new Date().toISOString(),
+        });
+        const prefillLines = (out.usedSpares ?? []).map((l) => ({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          description: l.name,
+          qty: String(Number(l.qty || 0)),
+          rate: String(Number(l.unitPriceInr || 0)),
+        }));
+        setLines(prefillLines.length > 0 ? prefillLines : [emptyLine()]);
+        setPhase("bill");
+        setError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Could not load inter-HO SRF invoice prefill.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isInterHoSrfInvoiceFlow, srfIdParam]);
 
   useEffect(() => {
     if (!apiMode) return;
@@ -212,7 +275,7 @@ export function ServiceBillingPage() {
   }
 
   function restartLookup() {
-    if (isOnlineOrderFlow) {
+    if (isOnlineOrderFlow || isInterHoSrfInvoiceFlow) {
       navigate("/service-centre/online-store");
       return;
     }
@@ -286,6 +349,15 @@ export function ServiceBillingPage() {
           },
         });
       }
+      if (interHoSrfInvoice && srfIdParam && invoiceForParam === "sender-ho") {
+        await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfIdParam)}/inter-ho-invoice`, {
+          method: "POST",
+          json: {
+            invoiceRef: generatedRef,
+            note: "Repair HO invoice created against sender HO.",
+          },
+        });
+      }
       setBillRef(generatedRef);
       setPhase("done");
     } catch (e) {
@@ -307,6 +379,11 @@ export function ServiceBillingPage() {
           {onlineOrder ? (
             <p className="mt-2 text-sm text-emerald-700">
               Online order {onlineOrder.orderNumber} invoiced. It is now in sender HO ODC pending queue.
+            </p>
+          ) : null}
+          {interHoSrfInvoice ? (
+            <p className="mt-2 text-sm text-emerald-700">
+              Inter-HO repair invoice recorded for SRF {interHoSrfInvoice.reference}. Logistics can now dispatch return to sender HO.
             </p>
           ) : null}
           <p className="mt-2 text-sm text-stone-600">
@@ -372,6 +449,8 @@ export function ServiceBillingPage() {
         description={
           onlineOrder
             ? `Sender HO invoice mode for ${onlineOrder.orderNumber} (${onlineOrder.srfReference}).`
+            : interHoSrfInvoice
+              ? `Repair HO invoice mode for SRF ${interHoSrfInvoice.reference} against sender HO ${interHoSrfInvoice.toRegionName}.`
             : "Customer lookup (name → mobile), then line items — aligned with quick bill and SRF at the counter. No separate invoicing module."
         }
         actions={
@@ -389,10 +468,10 @@ export function ServiceBillingPage() {
               New SRF
             </Link>
             <Link
-              to="/service"
+              to="/service/billing"
               className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
             >
-              Service home
+              Billing home
             </Link>
             {canOpenTaxSettings ? (
               <Link
@@ -406,7 +485,7 @@ export function ServiceBillingPage() {
         }
       />
 
-      {!isOnlineOrderFlow ? (
+      {!isOnlineOrderFlow && !isInterHoSrfInvoiceFlow ? (
         <div className="mb-8 flex gap-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
           <span className={phase === "name" ? "text-zimson-800" : ""}>1. Name</span>
           <span aria-hidden>→</span>
@@ -576,6 +655,19 @@ export function ServiceBillingPage() {
                 <p><span className="font-semibold text-stone-900">Watch:</span> {onlineOrder.watchBrand || "-"} {onlineOrder.watchModel || "-"}</p>
                 <p><span className="font-semibold text-stone-900">Serial:</span> {onlineOrder.serial || "-"}</p>
                 <p className="sm:col-span-2"><span className="font-semibold text-stone-900">Complaint:</span> {onlineOrder.complaint || "-"}</p>
+              </div>
+            </Card>
+          ) : null}
+          {interHoSrfInvoice ? (
+            <Card title="Inter-HO SRF details" subtitle="Repair HO invoice against sender HO">
+              <div className="grid gap-2 text-sm text-stone-700 sm:grid-cols-2">
+                <p><span className="font-semibold text-stone-900">SRF:</span> {interHoSrfInvoice.reference}</p>
+                <p><span className="font-semibold text-stone-900">Status:</span> {interHoSrfInvoice.status.replace(/_/g, " ")}</p>
+                <p><span className="font-semibold text-stone-900">Flow:</span> {interHoSrfInvoice.fromRegionName} to {interHoSrfInvoice.toRegionName}</p>
+                <p><span className="font-semibold text-stone-900">Customer:</span> {interHoSrfInvoice.customerName}</p>
+                <p><span className="font-semibold text-stone-900">Watch:</span> {interHoSrfInvoice.watchBrand} {interHoSrfInvoice.watchModel}</p>
+                <p><span className="font-semibold text-stone-900">Serial:</span> {interHoSrfInvoice.serial}</p>
+                <p className="sm:col-span-2"><span className="font-semibold text-stone-900">Complaint:</span> {interHoSrfInvoice.complaint || "-"}</p>
               </div>
             </Card>
           ) : null}
@@ -757,7 +849,7 @@ export function ServiceBillingPage() {
                 type="submit"
                 className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
               >
-                {isOnlineOrderFlow ? "Create invoice" : "Record bill"}
+              {isOnlineOrderFlow || isInterHoSrfInvoiceFlow ? "Create invoice" : "Record bill"}
               </button>
             </div>
           </form>

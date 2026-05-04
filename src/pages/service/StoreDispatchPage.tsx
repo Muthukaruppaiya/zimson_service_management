@@ -7,51 +7,21 @@ import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
-import { printDcDocument, printFullSrfDocument } from "../../lib/serviceDocuments";
-import type { SrfJob } from "../../types/srfJob";
+import { printDcDocument } from "../../lib/serviceDocuments";
 
 const rowClass = "border-b border-zimson-100 last:border-0";
-const statusClass: Record<string, string> = {
-  draft: "bg-slate-100 text-slate-800",
-  photo_pending: "bg-amber-50 text-amber-900",
-  at_store: "bg-stone-100 text-stone-700",
-  in_transit_sc: "bg-blue-100 text-blue-700",
-  received_at_sc: "bg-violet-100 text-violet-700",
-  assigned: "bg-indigo-100 text-indigo-700",
-  estimate_ok: "bg-amber-100 text-amber-700",
-  reestimate_required: "bg-rose-100 text-rose-700",
-  ready_for_outward: "bg-cyan-100 text-cyan-700",
-  dispatched_to_store: "bg-orange-100 text-orange-700",
-  received_at_store: "bg-emerald-100 text-emerald-700",
-  closed: "bg-emerald-200 text-emerald-900",
-  cancelled: "bg-stone-200 text-stone-600 line-through decoration-stone-500",
-};
 
-function buildSrfTimeline(job: SrfJob): Array<{ label: string; done: boolean; at?: string | null }> {
-  return [
-    { label: "SRF created", done: true, at: job.createdAt },
-    { label: "Store dispatched (Internal transfer)", done: Boolean(job.dcNumber), at: job.dispatchedToScAt },
-    { label: "HO inward", done: Boolean(job.inwardAt), at: job.inwardAt },
-    { label: "Technician assigned", done: Boolean(job.assignedAt), at: job.assignedAt },
-    { label: "Estimate approved", done: Boolean(job.estimateOkAt), at: job.estimateOkAt },
-    { label: "Repair complete", done: Boolean(job.completedAtSc), at: job.completedAtSc },
-    { label: "Outward from HO (Internal transfer)", done: Boolean(job.outwardDcNumber), at: job.dispatchedToStoreAt },
-    { label: "Received at store", done: Boolean(job.receivedBackAtStoreAt), at: job.receivedBackAtStoreAt },
-    { label: "Billed & closed", done: Boolean(job.closedAt), at: job.closedAt },
-  ];
-}
+type DispatchMode = "outward" | "inward";
 
 export function StoreDispatchPage() {
   const { user } = useAuth();
   const { jobs, dispatchToServiceCentre, receiveOutwardByDc } = useSrfJobs();
+  const [mode, setMode] = useState<DispatchMode>("outward");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [outwardDcInput, setOutwardDcInput] = useState("");
-  const [detailJobId, setDetailJobId] = useState<string | null>(null);
-  const [masterQuery, setMasterQuery] = useState("");
-  const [masterStatus, setMasterStatus] = useState<string>("ALL");
-  const [masterFromDate, setMasterFromDate] = useState("");
-  const [masterToDate, setMasterToDate] = useState("");
+  const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
+  const [scanInwardDcInput, setScanInwardDcInput] = useState("");
 
   const atStore = useMemo(() => {
     if (!user) return [];
@@ -64,6 +34,30 @@ export function StoreDispatchPage() {
 
   function toggle(id: string) {
     setSelected((s) => ({ ...s, [id]: !s[id] }));
+  }
+
+  function applyScannedOutwardSrf(raw: string) {
+    const scanned = raw.trim().toUpperCase();
+    if (!scanned) return;
+    const hit = atStore.find((j) => j.reference.trim().toUpperCase() === scanned);
+    if (!hit) {
+      setMessage({ type: "err", text: `Scanned SRF not found in outward list: ${scanned}` });
+      return;
+    }
+    setSelected((prev) => ({ ...prev, [hit.id]: true }));
+    setMessage({ type: "ok", text: `SRF ${hit.reference} selected from barcode scan.` });
+  }
+
+  function applyScannedInwardDc(raw: string) {
+    const scanned = raw.trim().toUpperCase();
+    if (!scanned) return;
+    const hit = pendingOdcOptions.find((dc) => dc.trim().toUpperCase() === scanned);
+    if (!hit) {
+      setMessage({ type: "err", text: `Scanned DC/ODC not found in pending inward list: ${scanned}` });
+      return;
+    }
+    setOutwardDcInput(hit);
+    setMessage({ type: "ok", text: `Transfer ${hit} selected from barcode scan.` });
   }
 
   async function handleReceiveOutward() {
@@ -87,35 +81,6 @@ export function StoreDispatchPage() {
     }
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [jobs, user]);
-
-  const visibleJobs = useMemo(() => {
-    if (!user) return [];
-    return jobs.filter((j) => jobVisibleToStoreUser(j, user));
-  }, [jobs, user]);
-
-  const masterRows = useMemo(() => {
-    const q = masterQuery.trim().toLowerCase();
-    const from = masterFromDate ? new Date(`${masterFromDate}T00:00:00`).getTime() : null;
-    const to = masterToDate ? new Date(`${masterToDate}T23:59:59`).getTime() : null;
-    return visibleJobs
-      .filter((j) => (masterStatus === "ALL" ? true : j.status === masterStatus))
-      .filter((j) => {
-        const ts = new Date(j.createdAt).getTime();
-        if (from != null && ts < from) return false;
-        if (to != null && ts > to) return false;
-        return true;
-      })
-      .filter((j) => {
-        if (!q) return true;
-        return (
-          j.reference.toLowerCase().includes(q) ||
-          j.customerName.toLowerCase().includes(q) ||
-          j.phone.toLowerCase().includes(q) ||
-          `${j.watchBrand} ${j.watchModel}`.toLowerCase().includes(q)
-        );
-      })
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [visibleJobs, masterQuery, masterStatus, masterFromDate, masterToDate]);
 
   function toggleAll(checked: boolean) {
     const next: Record<string, boolean> = {};
@@ -158,14 +123,14 @@ export function StoreDispatchPage() {
       <ServiceBreadcrumb current="Send to service centre" />
       <PageHeader
         title="Send watches to service centre (HO)"
-        description="End of day: select SRFs still at the store and generate one internal transfer to your regional service centre / HO."
+        description="Choose SRF outward or inward flow for store operations."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
-              to="/service/store-billing"
-              className="inline-flex rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+              to="/service/srf-master"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
             >
-              Open store billing
+              Open SRF master table
             </Link>
             <Link
               to="/service"
@@ -177,349 +142,226 @@ export function StoreDispatchPage() {
         }
       />
 
-      <Card
-        title="SRFs at this store"
-        subtitle="Each store ships separately to its regional HO — only this store’s SRFs appear here"
-      >
-        {atStore.length === 0 ? (
-          <p className="text-sm text-stone-600">
-            No open SRFs at your store. Create one from{" "}
-            <Link className="font-medium text-zimson-800 underline" to="/service/srf">
-              SRF booking
-            </Link>
-            .
-          </p>
-        ) : (
-          <>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <label className="flex items-center gap-2 text-sm text-stone-700">
+      <Card title="SRF store flow options" subtitle="Choose one flow: inward SRF or outward SRF">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("outward")}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+              mode === "outward"
+                ? "bg-zimson-600 text-white"
+                : "border border-zimson-300 bg-white text-zimson-900 hover:bg-zimson-50"
+            }`}
+          >
+            Outward SRF
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("inward")}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+              mode === "inward"
+                ? "bg-zimson-600 text-white"
+                : "border border-zimson-300 bg-white text-zimson-900 hover:bg-zimson-50"
+            }`}
+          >
+            Inward SRF
+          </button>
+        </div>
+      </Card>
+
+      {mode === "outward" ? (
+        <Card
+          title="Outward SRF (Store to HO)"
+          subtitle="Select SRFs at this store and create internal transfer to service centre."
+          className="mt-8"
+        >
+          {atStore.length === 0 ? (
+            <p className="text-sm text-stone-600">
+              No open SRFs at your store. Create one from{" "}
+              <Link className="font-medium text-zimson-800 underline" to="/service/srf">
+                SRF booking
+              </Link>
+              .
+            </p>
+          ) : (
+            <>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <label className="flex items-center gap-2 text-sm text-stone-700">
+                  <input
+                    type="checkbox"
+                    checked={atStore.length > 0 && atStore.every((j) => selected[j.id])}
+                    onChange={(e) => toggleAll(e.target.checked)}
+                    className="rounded border-zimson-300 text-zimson-600 focus:ring-zimson-500"
+                  />
+                  Select all ({atStore.length})
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void handleDispatch()}
+                  className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+                >
+                  Create internal transfer &amp; mark in transit
+                </button>
+              </div>
+              <div className="mb-3 max-w-md">
+                <label className="text-sm">
+                  Scan SRF barcode
+                  <input
+                    className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                    placeholder="Scan SRF barcode and press Enter"
+                    value={scanOutwardSrfInput}
+                    onChange={(e) => setScanOutwardSrfInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      applyScannedOutwardSrf(scanOutwardSrfInput);
+                      setScanOutwardSrfInput("");
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-wide text-stone-500">
+                      <th className="py-2 pr-2 w-10" />
+                      <th className="py-2 pr-3">SRF</th>
+                      <th className="py-2 pr-3">Customer</th>
+                      <th className="py-2 pr-3">Watch</th>
+                      <th className="py-2">Est. (INR)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {atStore.map((j) => (
+                      <tr key={j.id} className={rowClass}>
+                        <td className="py-2 pr-2">
+                          <input
+                            type="checkbox"
+                            checked={!!selected[j.id]}
+                            onChange={() => toggle(j.id)}
+                            className="rounded border-zimson-300 text-zimson-600 focus:ring-zimson-500"
+                          />
+                        </td>
+                        <td className="py-2 pr-3 font-mono text-xs font-semibold text-zimson-900">
+                          {j.reference}
+                        </td>
+                        <td className="py-2 pr-3 text-stone-800">
+                          {j.customerName}
+                          <span className="block text-xs text-stone-500">{j.phone}</span>
+                        </td>
+                        <td className="py-2 pr-3 text-stone-700">
+                          {j.watchBrand} {j.watchModel}
+                        </td>
+                        <td className="py-2 tabular-nums text-stone-800">
+                          {j.estimateTotalInr.toLocaleString(undefined, {
+                            style: "currency",
+                            currency: "INR",
+                          })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </Card>
+      ) : (
+        <>
+          <Card title="Inward SRF (HO to Store)" subtitle="Select pending internal transfer and confirm inward at store." className="mt-8">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-sm">
+                Pending internal transfer number
+                <select
+                  className="mt-1 min-w-[280px] rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={outwardDcInput}
+                  onChange={(e) => setOutwardDcInput(e.target.value)}
+                >
+                  <option value="">Select pending transfer…</option>
+                  {pendingOdcOptions.map((dc) => (
+                    <option key={dc} value={dc}>
+                      {dc}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                Scan DC/ODC barcode
                 <input
-                  type="checkbox"
-                  checked={atStore.length > 0 && atStore.every((j) => selected[j.id])}
-                  onChange={(e) => toggleAll(e.target.checked)}
-                  className="rounded border-zimson-300 text-zimson-600 focus:ring-zimson-500"
+                  className="mt-1 min-w-[280px] rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  placeholder="Scan DC/ODC and press Enter"
+                  value={scanInwardDcInput}
+                  onChange={(e) => setScanInwardDcInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    applyScannedInwardDc(scanInwardDcInput);
+                    setScanInwardDcInput("");
+                  }}
                 />
-                Select all ({atStore.length})
               </label>
               <button
                 type="button"
-                onClick={() => void handleDispatch()}
-                className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+                onClick={() => void handleReceiveOutward()}
+                disabled={!outwardDcInput}
+                className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white"
               >
-                Create internal transfer &amp; mark in transit
+                Confirm store receive
               </button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead>
-                  <tr className="text-xs uppercase tracking-wide text-stone-500">
-                    <th className="py-2 pr-2 w-10" />
-                    <th className="py-2 pr-3">SRF</th>
-                    <th className="py-2 pr-3">Customer</th>
-                    <th className="py-2 pr-3">Watch</th>
-                    <th className="py-2">Est. (INR)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {atStore.map((j) => (
-                    <tr key={j.id} className={rowClass}>
-                      <td className="py-2 pr-2">
-                        <input
-                          type="checkbox"
-                          checked={!!selected[j.id]}
-                          onChange={() => toggle(j.id)}
-                          className="rounded border-zimson-300 text-zimson-600 focus:ring-zimson-500"
-                        />
-                      </td>
-                      <td className="py-2 pr-3 font-mono text-xs font-semibold text-zimson-900">
-                        {j.reference}
-                      </td>
-                      <td className="py-2 pr-3 text-stone-800">
-                        {j.customerName}
-                        <span className="block text-xs text-stone-500">{j.phone}</span>
-                      </td>
-                      <td className="py-2 pr-3 text-stone-700">
-                        {j.watchBrand} {j.watchModel}
-                      </td>
-                      <td className="py-2 tabular-nums text-stone-800">
-                        {j.estimateTotalInr.toLocaleString(undefined, {
-                          style: "currency",
-                          currency: "INR",
-                        })}
-                      </td>
+          </Card>
+
+          <Card
+            title="Inwarded SRF inventory at store"
+            subtitle="Inwarded watches stay in store inventory until customer collection."
+            className="mt-8"
+          >
+            {receivedAtStore.length === 0 ? (
+              <p className="text-sm text-stone-600">No inwarded watches in store inventory.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-wide text-stone-500">
+                      <th className="py-2 pr-3">SRF</th>
+                      <th className="py-2 pr-3">Customer</th>
+                      <th className="py-2 pr-3">Watch</th>
+                      <th className="py-2 pr-3">Inward at store</th>
+                      <th className="py-2">Estimate</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-        {message ? (
-          <p
-            className={
-              message.type === "ok"
-                ? "mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200"
-                : "mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
-            }
-          >
-            {message.text}
-          </p>
-        ) : null}
-      </Card>
-
-      <Card title="Receive from HO (Internal transfer)" subtitle="Select/enter transfer number and confirm receipt at store" className="mt-8">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-sm">
-            Pending internal transfer number
-            <select
-              className="mt-1 min-w-[280px] rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-              value={outwardDcInput}
-              onChange={(e) => setOutwardDcInput(e.target.value)}
-            >
-              <option value="">Select pending transfer…</option>
-              {pendingOdcOptions.map((dc) => (
-                <option key={dc} value={dc}>
-                  {dc}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={() => void handleReceiveOutward()}
-            disabled={!outwardDcInput}
-            className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white"
-          >
-            Confirm store receive
-          </button>
-        </div>
-      </Card>
-
-      <Card
-        title="SRF inventory at store"
-        subtitle="Inwarded watches stay in store inventory until customer comes for collection."
-        className="mt-8"
-      >
-        {receivedAtStore.length === 0 ? (
-          <p className="text-sm text-stone-600">No inwarded watches in store inventory.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="text-xs uppercase tracking-wide text-stone-500">
-                  <th className="py-2 pr-3">SRF</th>
-                  <th className="py-2 pr-3">Customer</th>
-                  <th className="py-2 pr-3">Watch</th>
-                  <th className="py-2 pr-3">Inward at store</th>
-                  <th className="py-2">Estimate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {receivedAtStore.map((j) => (
-                  <tr key={j.id} className={rowClass}>
-                    <td className="py-2 pr-3 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
-                    <td className="py-2 pr-3 text-stone-800">
-                      {j.customerName}
-                      <span className="block text-xs text-stone-500">{j.phone}</span>
-                    </td>
-                    <td className="py-2 pr-3 text-stone-700">{j.watchBrand} {j.watchModel}</td>
-                    <td className="py-2 pr-3 text-stone-700">{j.receivedBackAtStoreAt ? new Date(j.receivedBackAtStoreAt).toLocaleString() : "-"}</td>
-                    <td className="py-2 tabular-nums text-stone-800">
-                      {j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      <Card title="Store billing module" subtitle="Customer collection and invoicing happens in a dedicated page." className="mt-8">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-stone-600">
-            Use the separate billing module to search SRF by reference, verify OTP, record payment, and generate invoice.
-          </p>
-          <Link
-            to="/service/store-billing"
-            className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
-          >
-            Go to store billing
-          </Link>
-        </div>
-      </Card>
-
-      <Card title="SRF master table (all data)" subtitle="Track complete SRF lifecycle with internal transfer refs and status" className="mt-8">
-        <div className="mb-3 grid gap-2 md:grid-cols-5">
-          <input
-            value={masterQuery}
-            onChange={(e) => setMasterQuery(e.target.value)}
-            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-            placeholder="Search SRF / customer / phone / watch"
-          />
-          <select
-            value={masterStatus}
-            onChange={(e) => setMasterStatus(e.target.value)}
-            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-          >
-            <option value="ALL">All status</option>
-            {Array.from(new Set(visibleJobs.map((j) => j.status))).map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-          <input
-            type="date"
-            value={masterFromDate}
-            onChange={(e) => setMasterFromDate(e.target.value)}
-            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            value={masterToDate}
-            onChange={(e) => setMasterToDate(e.target.value)}
-            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              setMasterQuery("");
-              setMasterStatus("ALL");
-              setMasterFromDate("");
-              setMasterToDate("");
-            }}
-            className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
-          >
-            Reset
-          </button>
-        </div>
-        <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
-          <table className="w-full min-w-[1080px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-zimson-200 bg-zimson-50/80 text-xs uppercase tracking-wide text-stone-600">
-                <th className="px-3 py-2">SRF</th>
-                <th className="px-3 py-2">Customer</th>
-                <th className="px-3 py-2">Watch</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">DC</th>
-                <th className="px-3 py-2">ODC</th>
-                <th className="px-3 py-2">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {masterRows.map((j) => (
-                <tr key={j.id} className={`${rowClass} cursor-pointer hover:bg-zimson-50/70`} onClick={() => setDetailJobId(j.id)}>
-                  <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
-                  <td className="px-3 py-2">{j.customerName}</td>
-                  <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
-                  <td className="px-3 py-2">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass[j.status] ?? "bg-stone-100 text-stone-700"}`}>
-                      {j.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">{j.dcNumber ?? "-"}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{j.outwardDcNumber ?? "-"}</td>
-                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => setDetailJobId(j.id)}
-                      className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-                    >
-                      Details
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      {detailJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[85vh] w-full max-w-4xl overflow-auto rounded-2xl bg-white p-6 shadow-xl">
-            {(() => {
-              const j = masterRows.find((x) => x.id === detailJobId) ?? visibleJobs.find((x) => x.id === detailJobId);
-              if (!j) return <p className="text-sm text-stone-600">SRF details not found.</p>;
-              const timeline = buildSrfTimeline(j);
-              return (
-                <div className="space-y-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-stone-900">SRF details — {j.reference}</h3>
-                      <p className="text-sm text-stone-600">{j.customerName} · {j.watchBrand} {j.watchModel}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            const out = await apiJson<{ rows: Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }> }>(
-                              `/api/service/srf-jobs/${encodeURIComponent(j.id)}/status-history`,
-                            );
-                            printFullSrfDocument(
-                              j,
-                              (out.rows ?? []).map((x) => ({
-                                id: x.id,
-                                status: x.status,
-                                note: x.note,
-                                changedAt: x.changedAt,
-                              })),
-                            );
-                          } catch {
-                            printFullSrfDocument(j, []);
-                          }
-                        }}
-                        className="rounded-xl border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-sm font-semibold text-zimson-900"
-                      >
-                        Print document
-                      </button>
-                      <button type="button" onClick={() => setDetailJobId(null)} className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm">
-                        Close
-                      </button>
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
-                    <table className="min-w-full text-left text-sm">
-                      <tbody>
-                        <tr className="border-b border-zimson-100"><th className="w-52 bg-zimson-50/70 px-3 py-2">Status</th><td className="px-3 py-2">{j.status}</td></tr>
-                        <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">DC number</th><td className="px-3 py-2 font-mono">{j.dcNumber ?? "-"}</td></tr>
-                        <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">ODC number</th><td className="px-3 py-2 font-mono">{j.outwardDcNumber ?? "-"}</td></tr>
-                        <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Estimate</th><td className="px-3 py-2">INR {Number(j.estimateTotalInr ?? 0).toFixed(2)}</td></tr>
-                        <tr><th className="bg-zimson-50/70 px-3 py-2">Store</th><td className="px-3 py-2">{j.storeName ?? j.storeId}</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="rounded-xl border border-zimson-200/80 p-4">
-                    <h4 className="mb-2 text-sm font-semibold text-stone-900">Step status</h4>
-                    <div className="space-y-2">
-                      {timeline.map((s) => (
-                        <div key={s.label} className="flex items-center justify-between rounded-lg border border-zimson-100 px-3 py-2 text-sm">
-                          <span className={s.done ? "font-medium text-stone-900" : "text-stone-500"}>{s.label}</span>
-                          <span className={s.done ? "text-emerald-700" : "text-stone-400"}>
-                            {s.done ? (s.at ? new Date(s.at).toLocaleString() : "Done") : "Pending"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {j.photos && j.photos.length > 0 ? (
-                    <div className="rounded-xl border border-zimson-200/80 p-4">
-                      <h4 className="mb-2 text-sm font-semibold text-stone-900">Uploaded watch photos</h4>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {j.photos.map((p) => (
-                          <div key={p.id} className="rounded-lg border border-zimson-200 p-1.5">
-                            <img src={`/${p.filePath}`} alt={p.photoKind ?? "watch photo"} className="h-24 w-full rounded object-cover" />
-                            <p className="mt-1 text-[11px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })()}
-          </div>
-        </div>
+                  </thead>
+                  <tbody>
+                    {receivedAtStore.map((j) => (
+                      <tr key={j.id} className={rowClass}>
+                        <td className="py-2 pr-3 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                        <td className="py-2 pr-3 text-stone-800">
+                          {j.customerName}
+                          <span className="block text-xs text-stone-500">{j.phone}</span>
+                        </td>
+                        <td className="py-2 pr-3 text-stone-700">{j.watchBrand} {j.watchModel}</td>
+                        <td className="py-2 pr-3 text-stone-700">{j.receivedBackAtStoreAt ? new Date(j.receivedBackAtStoreAt).toLocaleString() : "-"}</td>
+                        <td className="py-2 tabular-nums text-stone-800">
+                          {j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+      {message ? (
+        <p
+          className={
+            message.type === "ok"
+              ? "mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200"
+              : "mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+          }
+        >
+          {message.text}
+        </p>
       ) : null}
     </div>
   );

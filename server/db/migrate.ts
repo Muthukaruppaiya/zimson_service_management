@@ -538,6 +538,7 @@ CREATE TABLE IF NOT EXISTS srf_jobs (
   serial VARCHAR(200) NOT NULL,
   complaint TEXT NOT NULL DEFAULT '',
   estimate_total_inr NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (estimate_total_inr >= 0),
+  advance_inr NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (advance_inr >= 0),
   selected_part_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   status VARCHAR(40) NOT NULL DEFAULT 'draft',
   dc_number VARCHAR(64),
@@ -577,6 +578,7 @@ CREATE INDEX IF NOT EXISTS idx_srf_jobs_store_status ON srf_jobs (store_id, stat
 CREATE INDEX IF NOT EXISTS idx_srf_jobs_dc ON srf_jobs (dc_number);
 CREATE INDEX IF NOT EXISTS idx_srf_jobs_outward_dc ON srf_jobs (outward_dc_number);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_requested_note TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS advance_inr NUMERIC(14, 2) NOT NULL DEFAULT 0;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_requested_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_approved_note TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS reestimate_approved_at TIMESTAMPTZ;

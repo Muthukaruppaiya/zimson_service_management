@@ -8,6 +8,7 @@ import type { UserRole } from "../../types/user";
 type IconName =
   | "dashboard"
   | "service"
+  | "accounts"
   | "inventory"
   | "purchase"
   | "billing"
@@ -32,6 +33,12 @@ function NavIcon({ name, className = "" }: { name: IconName; className?: string 
       return (
         <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      );
+    case "accounts":
+      return (
+        <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.9 0-3.5.9-3.5 2s1.6 2 3.5 2 3.5.9 3.5 2-1.6 2-3.5 2m0-10v10m0-10c1.2 0 2.3.35 3 .9M12 8c-1.2 0-2.3.35-3 .9" />
         </svg>
       );
     case "inventory":
@@ -108,6 +115,7 @@ function NavIcon({ name, className = "" }: { name: IconName; className?: string 
 type ModuleKey =
   | "dashboard"
   | "service"
+  | "accounts"
   | "inventory"
   | "regions"
   | "users"
@@ -190,8 +198,15 @@ export function Sidebar() {
           { to: "/service/quick-bill-history", label: "Quick bill history", module: "service" },
           { to: "/service/srf", label: "SRF booking", module: "service" },
           { to: "/service/srf-register", label: "SRF history", module: "service" },
-          { to: "/service/store-dispatch", label: "Store dispatch", module: "service" },
+          { to: "/service/srf-master", label: "SRF master table", module: "service" },
         ],
+      },
+      {
+        title: "Accounts",
+        icon: "accounts",
+        accent: "from-lime-200/90 via-lime-100 to-lime-50",
+        iconText: "text-lime-800",
+        items: [{ to: "/accounts/setup", label: "Accounts setup", module: "accounts" }],
       },
       {
         title: "Inventory",
@@ -223,6 +238,7 @@ export function Sidebar() {
         iconText: "text-rose-800",
         items: [
           { to: "/service/store-billing", label: "Store billing", module: "service" },
+          { to: "/service/store-billing-master", label: "Store billing history", module: "service" },
           { to: "/service/billing", label: "HO billing", module: "service" },
         ],
       },
@@ -232,6 +248,7 @@ export function Sidebar() {
         accent: "from-orange-200/90 via-orange-100 to-orange-50",
         iconText: "text-orange-800",
         items: [
+          { to: "/service/store-dispatch", label: "Store dispatch", module: "service" },
           {
             to: "/service-centre/logistics?tab=inward",
             label: "Internal inward (Store -> HO)",

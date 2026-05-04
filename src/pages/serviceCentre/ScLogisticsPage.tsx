@@ -81,6 +81,7 @@ export function ScLogisticsPage() {
   }, [regions]);
 
   const [selectedDc, setSelectedDc] = useState("");
+  const [scanInwardDcInput, setScanInwardDcInput] = useState("");
   const [inwardMsg, setInwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [inwardQuery, setInwardQuery] = useState(
     searchParams.get("tab") !== "outward" ? searchParams.get("q") ?? "" : "",
@@ -89,9 +90,8 @@ export function ScLogisticsPage() {
   const [inwardToDate, setInwardToDate] = useState("");
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
+  const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
   const [destByJob, setDestByJob] = useState<Record<string, string>>({});
-  const [repairHoInvoiceRef, setRepairHoInvoiceRef] = useState("");
-  const [senderHoInvoiceRef, setSenderHoInvoiceRef] = useState("");
   const [outwardMsg, setOutwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [outwardQuery, setOutwardQuery] = useState(
     searchParams.get("tab") === "outward" ? searchParams.get("q") ?? "" : "",
@@ -269,6 +269,18 @@ export function ScLogisticsPage() {
     }
   }
 
+  function applyScannedInwardDc(raw: string) {
+    const scanned = raw.trim().toUpperCase();
+    if (!scanned) return;
+    const hit = pendingDcOptions.find((o) => o.dcNumber.trim().toUpperCase() === scanned);
+    if (!hit) {
+      setInwardMsg({ type: "err", text: `Scanned DC not found in pending inward list: ${scanned}` });
+      return;
+    }
+    setSelectedDc(hit.dcNumber);
+    setInwardMsg({ type: "ok", text: `DC ${hit.dcNumber} selected from barcode scan.` });
+  }
+
   function destinationFor(jobId: string, originatingStoreId: string) {
     const j = jobs.find((x) => x.id === jobId);
     if (j?.transferTargetStoreId && j.requiresLocalConversion) return j.transferTargetStoreId;
@@ -278,6 +290,18 @@ export function ScLogisticsPage() {
 
   function toggleOut(id: string) {
     setSelectedOut((s) => ({ ...s, [id]: !s[id] }));
+  }
+
+  function applyScannedOutwardSrf(raw: string) {
+    const scanned = raw.trim().toUpperCase();
+    if (!scanned) return;
+    const hit = outwardRows.find((j) => j.reference.trim().toUpperCase() === scanned);
+    if (!hit) {
+      setOutwardMsg({ type: "err", text: `Scanned SRF not found in outward queue: ${scanned}` });
+      return;
+    }
+    setSelectedOut((prev) => ({ ...prev, [hit.id]: true }));
+    setOutwardMsg({ type: "ok", text: `SRF ${hit.reference} selected from barcode scan.` });
   }
 
   function toggleAllOut(checked: boolean, rows: SrfJob[]) {
@@ -303,19 +327,17 @@ export function ScLogisticsPage() {
     });
     const selectedRows = jobs.filter((j) => ids.includes(j.id));
     const hasReturnToSender = selectedRows.some((j) => !!j.transferTargetRegionId && !j.requiresLocalConversion);
-    const hasNormalStoreDispatch = selectedRows.some((j) => !j.transferTargetRegionId);
-    if (hasReturnToSender && !repairHoInvoiceRef.trim()) {
-      setOutwardMsg({ type: "err", text: "Enter repair HO invoice ref before return-to-sender dispatch." });
-      return;
-    }
-    if (hasNormalStoreDispatch && !senderHoInvoiceRef.trim()) {
-      setOutwardMsg({ type: "err", text: "Enter sender HO invoice ref before dispatch to store." });
+    const missingRepairInvoiceRefs = selectedRows.filter(
+      (j) => !!j.transferTargetRegionId && !j.requiresLocalConversion && !(j.hoSparesBillRef ?? "").trim(),
+    );
+    if (hasReturnToSender && missingRepairInvoiceRefs.length > 0) {
+      const refs = missingRepairInvoiceRefs.map((j) => j.reference).join(", ");
+      setOutwardMsg({ type: "err", text: `Create repair HO invoice first for: ${refs}` });
       return;
     }
     try {
       const result = await createOutwardBatch(items, {
-        hoInvoiceRef: hasReturnToSender ? repairHoInvoiceRef.trim() : undefined,
-        storeInvoiceRef: hasNormalStoreDispatch ? senderHoInvoiceRef.trim() : undefined,
+        storeInvoiceRef: undefined,
       });
       const rows = jobs.filter((j) => ids.includes(j.id));
       const first = rows[0];
@@ -336,16 +358,14 @@ export function ScLogisticsPage() {
         toLocation,
         fromHo,
         toHo,
-        hoInvoiceRef: hasReturnToSender ? repairHoInvoiceRef.trim() : undefined,
-        storeInvoiceRef: hasNormalStoreDispatch ? senderHoInvoiceRef.trim() : undefined,
+        hoInvoiceRef: hasReturnToSender ? (selectedRows[0]?.hoSparesBillRef ?? undefined) : undefined,
+        storeInvoiceRef: undefined,
       });
       setOutwardMsg({
         type: "ok",
         text: `Internal outward transfer ${result.odcNumber} created. Selected watches are dispatched to destination stores.`,
       });
       setSelectedOut({});
-      setRepairHoInvoiceRef("");
-      setSenderHoInvoiceRef("");
     } catch (e) {
       setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not create internal outward transfer." });
     }
@@ -432,6 +452,21 @@ export function ScLogisticsPage() {
                   <strong>your</strong> regional HO. Other HOs and other stores stay isolated in their own data.
                 </p>
               </div>
+              <label className="text-sm">
+                Scan DC barcode
+                <input
+                  className={selectClass}
+                  placeholder="Scan DC and press Enter"
+                  value={scanInwardDcInput}
+                  onChange={(e) => setScanInwardDcInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    applyScannedInwardDc(scanInwardDcInput);
+                    setScanInwardDcInput("");
+                  }}
+                />
+              </label>
               <button
                 type="submit"
                 disabled={!canPostDcInward || !selectedDc || pendingDcOptions.length === 0}
@@ -645,50 +680,6 @@ export function ScLogisticsPage() {
               </p>
             ) : (
               <>
-                {(() => {
-                  const selectedRows = readyOutward.filter((j) => !!selectedOut[j.id]);
-                  const needsRepairHoInvoice = selectedRows.some(
-                    (j) => !!j.transferTargetRegionId && !j.requiresLocalConversion,
-                  );
-                  if (!needsRepairHoInvoice) return null;
-                  return (
-                    <div className="mt-4 max-w-md rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-stone-600">
-                        Repair HO invoice ref (for sender HO)
-                      </label>
-                      <input
-                        value={repairHoInvoiceRef}
-                        onChange={(e) => setRepairHoInvoiceRef(e.target.value)}
-                        className={selectClass}
-                        placeholder="e.g. HO-REP-INV-1023"
-                      />
-                      <p className="mt-1 text-xs text-stone-500">
-                        This ref is carried to sender HO and auto-used as HO-to-store bill reference.
-                      </p>
-                    </div>
-                  );
-                })()}
-                {(() => {
-                  const selectedRows = readyOutward.filter((j) => !!selectedOut[j.id]);
-                  const needsSenderHoInvoice = selectedRows.some((j) => !j.transferTargetRegionId);
-                  if (!needsSenderHoInvoice) return null;
-                  return (
-                    <div className="mt-3 max-w-md rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-stone-600">
-                        Sender HO invoice ref (for store billing)
-                      </label>
-                      <input
-                        value={senderHoInvoiceRef}
-                        onChange={(e) => setSenderHoInvoiceRef(e.target.value)}
-                        className={selectClass}
-                        placeholder="e.g. HO-SND-INV-2099"
-                      />
-                      <p className="mt-1 text-xs text-stone-500">
-                        This invoice is attached during ODC dispatch and printed on the challan.
-                      </p>
-                    </div>
-                  );
-                })()}
                 <div className="mt-4 mb-3 grid gap-2 md:grid-cols-4">
                   <input
                     value={outwardQuery}
@@ -740,6 +731,23 @@ export function ScLogisticsPage() {
                     Generate internal outward &amp; dispatch
                   </button>
                 </div>
+                <div className="mb-3 max-w-md">
+                  <label className="text-sm">
+                    Scan SRF barcode
+                    <input
+                      className="mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                      placeholder="Scan SRF and press Enter"
+                      value={scanOutwardSrfInput}
+                      onChange={(e) => setScanOutwardSrfInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        e.preventDefault();
+                        applyScannedOutwardSrf(scanOutwardSrfInput);
+                        setScanOutwardSrfInput("");
+                      }}
+                    />
+                  </label>
+                </div>
                 <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
                   <table className="min-w-full text-left text-sm">
                     <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
@@ -747,6 +755,7 @@ export function ScLogisticsPage() {
                         <th className="px-3 py-2 w-10" />
                         <th className="px-3 py-2">SRF</th>
                         <th className="px-3 py-2">Watch</th>
+                        <th className="px-3 py-2 min-w-[220px]">Repair HO invoice</th>
                         <th className="px-3 py-2 min-w-[220px]">Destination store</th>
                       </tr>
                     </thead>
@@ -773,6 +782,25 @@ export function ScLogisticsPage() {
                           <td className="px-3 py-2 align-top text-stone-700">
                             {j.watchBrand} {j.watchModel}
                             <span className="mt-0.5 block text-xs text-stone-500">{j.customerName}</span>
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            {!!j.transferTargetRegionId && !j.requiresLocalConversion ? (
+                              j.hoSparesBillRef ? (
+                                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+                                  {j.hoSparesBillRef}
+                                </p>
+                              ) : (
+                                <Link
+                                  to={`/service-centre/online-store/invoice?srfId=${encodeURIComponent(j.id)}&invoiceFor=sender-ho`}
+                                  className="inline-flex rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  Create repair HO invoice
+                                </Link>
+                              )
+                            ) : (
+                              <span className="text-xs text-stone-500">Not required</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 align-top">
                             <select

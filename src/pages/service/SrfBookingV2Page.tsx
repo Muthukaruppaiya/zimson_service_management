@@ -46,6 +46,7 @@ export function SrfBookingV2Page() {
   const [serial, setSerial] = useState("");
   const [complaint, setComplaint] = useState("");
   const [estimateAmount, setEstimateAmount] = useState("");
+  const [advanceAmount, setAdvanceAmount] = useState("");
   const [estimateRemarks, setEstimateRemarks] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [srfRef, setSrfRef] = useState<string | null>(null);
@@ -72,6 +73,7 @@ export function SrfBookingV2Page() {
 
   const models = watchModelsForBrand(watchBrand);
   const estimateTotal = Number.parseFloat(estimateAmount) || 0;
+  const advanceTotal = Number.parseFloat(advanceAmount) || 0;
 
   const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
@@ -120,21 +122,45 @@ export function SrfBookingV2Page() {
       setError("Enter a valid estimate amount.");
       return false;
     }
+    if (advanceAmount.trim() && (!Number.isFinite(advanceTotal) || advanceTotal < 0)) {
+      setError("Advance amount must be a valid non-negative number.");
+      return false;
+    }
     return true;
   }
 
   async function ensureDraft() {
     if (draft) return draft;
+    const regionId = String(user?.regionId ?? "").trim();
+    const fallbackStoreId = Array.isArray(user?.storeIds) && user.storeIds.length > 0 ? user.storeIds[0] : "";
+    const storeId = String(user?.storeId ?? fallbackStoreId ?? "").trim();
+    const customerNameValue = customerName.trim();
+    const phoneValue = phone.trim();
+    const watchBrandValue = watchBrand.trim();
+    const watchModelValue = watchModel.trim();
+    const serialValue = serial.trim();
+    if (!regionId || !storeId) {
+      throw new Error("Current login is not mapped to store/region. Please re-login and select the store.");
+    }
+    if (
+      !customerNameValue ||
+      !phoneValue ||
+      !watchBrandValue ||
+      !watchModelValue ||
+      !serialValue
+    ) {
+      throw new Error("Customer and watch details are required before creating SRF draft.");
+    }
     const row = await createDraftJob({
-      regionId: user?.regionId ?? "",
-      storeId: user?.storeId ?? "",
-      customerName,
-      phone,
+      regionId,
+      storeId,
+      customerName: customerNameValue,
+      phone: phoneValue,
       customerKind: customerType,
       company: customerType === "B2B" ? company : undefined,
-      watchBrand,
-      watchModel,
-      serial,
+      watchBrand: watchBrandValue,
+      watchModel: watchModelValue,
+      serial: serialValue,
       complaint: "",
       estimateTotalInr: 0,
       selectedPartIds: [],
@@ -167,17 +193,21 @@ export function SrfBookingV2Page() {
 
   async function goNext() {
     setError(null);
-    if (step === 0 && !validateCustomer()) return;
-    if (step === 1) {
-      if (!validateWatch()) return;
-      await ensureDraft();
+    try {
+      if (step === 0 && !validateCustomer()) return;
+      if (step === 1) {
+        if (!validateWatch()) return;
+        await ensureDraft();
+      }
+      if (step === 2 && photoCount <= 0) {
+        setError("Upload at least one photo to continue.");
+        return;
+      }
+      if (step === 3 && !validateEstimate()) return;
+      setStep((s) => Math.min(s + 1, steps.length - 1));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not proceed to next step.");
     }
-    if (step === 2 && photoCount <= 0) {
-      setError("Upload at least one photo to continue.");
-      return;
-    }
-    if (step === 3 && !validateEstimate()) return;
-    setStep((s) => Math.min(s + 1, steps.length - 1));
   }
   function goBack() {
     setError(null);
@@ -414,7 +444,12 @@ export function SrfBookingV2Page() {
   async function finalizeAndPrint() {
     try {
       const row = await ensureDraft();
-      const out = await finalizeJob(row.srfId, { complaint, estimateTotalInr: estimateTotal, selectedPartIds: [] });
+      const out = await finalizeJob(row.srfId, {
+        complaint,
+        estimateTotalInr: estimateTotal,
+        advanceInr: advanceTotal,
+        selectedPartIds: [],
+      });
       printSrfDocument({
         reference: row.reference,
         customerName,
@@ -595,8 +630,11 @@ export function SrfBookingV2Page() {
           <div className="grid gap-3 md:grid-cols-2">
             <label className="text-sm md:col-span-2">Watch complaint<textarea className={inputClass} rows={3} value={complaint} onChange={(e) => setComplaint(e.target.value)} /></label>
             <label className="text-sm">Estimate amount (INR)<input className={inputClass} value={estimateAmount} onChange={(e) => setEstimateAmount(e.target.value)} /></label>
-            <label className="text-sm">Remarks<input className={inputClass} value={estimateRemarks} onChange={(e) => setEstimateRemarks(e.target.value)} placeholder="Optional remarks" /></label>
-            <div className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm">Estimate amount: <strong>INR {estimateTotal.toFixed(2)}</strong></div>
+            <label className="text-sm">Advance amount (INR)<input className={inputClass} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0.00" /></label>
+            <label className="text-sm md:col-span-2">Remarks<input className={inputClass} value={estimateRemarks} onChange={(e) => setEstimateRemarks(e.target.value)} placeholder="Optional remarks" /></label>
+            <div className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm">
+              Estimate: <strong>INR {estimateTotal.toFixed(2)}</strong> · Advance: <strong>INR {advanceTotal.toFixed(2)}</strong>
+            </div>
           </div>
           <div className="mt-4 flex justify-between">
             <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
@@ -633,6 +671,10 @@ export function SrfBookingV2Page() {
                 <tr>
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimate</th>
                   <td className="px-3 py-2 font-semibold text-zimson-900">INR {estimateTotal.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance</th>
+                  <td className="px-3 py-2 font-semibold text-zimson-900">INR {advanceTotal.toFixed(2)}</td>
                 </tr>
               </tbody>
             </table>

@@ -49,6 +49,7 @@ export type SrfJob = {
   serial: string;
   complaint: string;
   estimateTotalInr: number;
+  advanceInr?: number;
   selectedPartIds: string[];
   createdAt: string;
   status: SrfJobStatus;
@@ -109,5 +110,6 @@ export type CreateSrfJobInput = {
   serial: string;
   complaint: string;
   estimateTotalInr: number;
+  advanceInr?: number;
   selectedPartIds: string[];
 };

@@ -9,6 +9,7 @@ import { RegionsProvider } from "./context/RegionsContext";
 import { SparesProvider } from "./context/SparesContext";
 import { SrfJobsProvider } from "./context/SrfJobsContext";
 import { DashboardPage } from "./pages/DashboardPage";
+import { AccountsSetupPage } from "./pages/accounts/AccountsSetupPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegionsPage } from "./pages/RegionsPage";
 import { QuickBillPage } from "./pages/service/QuickBillPage";
@@ -17,9 +18,12 @@ import { ServiceModulePage } from "./pages/service/ServiceModulePage";
 import { CustomerRegisterPage } from "./pages/service/customers/CustomerRegisterPage";
 import { CustomerMasterPage } from "./pages/service/customers/CustomerMasterPage";
 import { ServiceBillingPage } from "./pages/service/ServiceBillingPage";
+import { ServiceBillingHomePage } from "./pages/service/ServiceBillingHomePage";
 import { SrfBookingsRegisterPage } from "./pages/service/SrfBookingsRegisterPage";
 import { SrfBookingV2Page } from "./pages/service/SrfBookingV2Page";
+import { SrfMasterTablePage } from "./pages/service/SrfMasterTablePage";
 import { StoreBillingPage } from "./pages/service/StoreBillingPage";
+import { StoreBillingMasterPage } from "./pages/service/StoreBillingMasterPage";
 import { StoreDispatchPage } from "./pages/service/StoreDispatchPage";
 import { WatchInventoryPage } from "./pages/service/WatchInventoryPage";
 import { ScInwardPage } from "./pages/serviceCentre/ScInwardPage";
@@ -78,6 +82,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/accounts/setup"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <AccountsSetupPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service"
                   element={
                     <ModuleRoute module="service">
@@ -126,10 +138,26 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service/srf-master"
+                  element={
+                    <ModuleRoute module="service">
+                      <SrfMasterTablePage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service/store-billing"
                   element={
                     <ModuleRoute module="service">
                       <StoreBillingPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/store-billing-master"
+                  element={
+                    <ModuleRoute module="service">
+                      <StoreBillingMasterPage />
                     </ModuleRoute>
                   }
                 />
@@ -143,6 +171,14 @@ export default function App() {
                 />
                 <Route
                   path="/service/billing"
+                  element={
+                    <ModuleRoute module="service">
+                      <ServiceBillingHomePage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/billing/create"
                   element={
                     <ModuleRoute module="service">
                       <ServiceBillingPage />
@@ -169,7 +205,7 @@ export default function App() {
                   path="/service/invoicing"
                   element={
                     <ModuleRoute module="service">
-                      <RedirectPreserveSearch to="/service/billing" />
+                      <RedirectPreserveSearch to="/service/billing/create" />
                     </ModuleRoute>
                   }
                 />
