@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useCustomers } from "../../context/CustomersContext";
+import { generateDemoOtp } from "../../data/serviceSeed";
 import { isValidGstFormat, isValidPanFormat } from "../../data/serviceSeed";
 import type { CustomerKind } from "../../types/customer";
 
@@ -41,42 +43,47 @@ export function SrfCustomerRegisterPage() {
   const [pan, setPan] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [issuedOtp, setIssuedOtp] = useState<string | null>(null);
+  const [otpInput, setOtpInput] = useState("");
+  const [otpError, setOtpError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function validateCustomerForm(): boolean {
     setError(null);
     if (!displayName.trim() || !phone.trim()) {
       setError("Full name and mobile are required.");
-      return;
+      return false;
     }
     const p10 = phone.replace(/\D/g, "");
     if (p10.length !== 10) {
       setError("Enter a valid 10-digit mobile number.");
-      return;
+      return false;
     }
     if (!addressLine.trim() || !city.trim() || !stateName.trim() || !pinCode.trim()) {
       setError("Address, city, state, and PIN are required.");
-      return;
+      return false;
     }
     if (pinCode.replace(/\D/g, "").length < 6) {
       setError("PIN code should be at least 6 digits.");
-      return;
+      return false;
     }
     if (customerKind === "B2B") {
       if (!company.trim()) {
         setError("Company name is required for B2B.");
-        return;
+        return false;
       }
       if (!isValidGstFormat(gst)) {
         setError("Enter a valid 15-character GSTIN.");
-        return;
+        return false;
       }
       if (!isValidPanFormat(pan)) {
         setError("Enter a valid PAN (e.g. ABCDE1234F).");
-        return;
+        return false;
       }
     }
+    return true;
+  }
 
+  async function createCustomerAfterOtp() {
     const addrParts = [
       addressLine.trim(),
       landmark.trim() ? `Near ${landmark.trim()}` : "",
@@ -116,6 +123,26 @@ export function SrfCustomerRegisterPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!validateCustomerForm()) return;
+    setOtpError(null);
+    setOtpInput("");
+    setIssuedOtp(generateDemoOtp());
+  }
+
+  async function verifyOtpAndSave() {
+    if (!issuedOtp) return;
+    if (otpInput.trim() !== issuedOtp) {
+      setOtpError("Incorrect OTP.");
+      return;
+    }
+    setOtpError(null);
+    await createCustomerAfterOtp();
+    setIssuedOtp(null);
+    setOtpInput("");
   }
 
   return (
@@ -319,7 +346,7 @@ export function SrfCustomerRegisterPage() {
             disabled={saving}
             className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? "Saving…" : forQuickBill ? "Save & continue quick bill" : "Save & continue SRF"}
+            {saving ? "Saving…" : "Send OTP"}
           </button>
           <Link
             to={
@@ -333,6 +360,41 @@ export function SrfCustomerRegisterPage() {
           </Link>
         </div>
       </form>
+      {issuedOtp ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <DemoOtpGate
+              title="OTP for customer creation"
+              subtitle="Verify OTP before saving customer profile."
+              issuedCode={issuedOtp}
+              value={otpInput}
+              onChange={setOtpInput}
+              error={otpError}
+              onVerify={() => void verifyOtpAndSave()}
+              onRegenerate={() => {
+                setOtpError(null);
+                setOtpInput("");
+                setIssuedOtp(generateDemoOtp());
+              }}
+              verifyBusy={saving}
+            />
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  if (saving) return;
+                  setIssuedOtp(null);
+                  setOtpInput("");
+                  setOtpError(null);
+                }}
+                className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900"
+              >
+                Cancel verification
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
