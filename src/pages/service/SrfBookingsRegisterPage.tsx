@@ -43,6 +43,8 @@ export function SrfBookingsRegisterPage() {
   const [toDate, setToDate] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   useEffect(() => {
     const q = searchParams.get("q");
@@ -77,6 +79,12 @@ export function SrfBookingsRegisterPage() {
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [visible, query, status, fromDate, toDate]);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return rows.slice(start, start + pageSize);
+  }, [rows, currentPage]);
 
   const detail = rows.find((j) => j.id === detailId) ?? visible.find((j) => j.id === detailId) ?? null;
 
@@ -106,15 +114,15 @@ export function SrfBookingsRegisterPage() {
 
       <Card title={`Bookings (${rows.length})`} subtitle="Filter by date, status and search">
         <div className="mb-3 grid gap-2 md:grid-cols-5">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" placeholder="Search SRF / customer / phone / watch" />
-          <select value={status} onChange={(e) => setStatus(e.target.value as "ALL" | SrfJobStatus)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm">
+              <input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" placeholder="Search SRF / customer / phone / watch" />
+          <select value={status} onChange={(e) => { setStatus(e.target.value as "ALL" | SrfJobStatus); setPage(1); }} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm">
             <option value="ALL">All status</option>
             {Array.from(new Set(visible.map((j) => j.status))).map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />
+          <input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setPage(1); }} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />
+          <input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setPage(1); }} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />
           <button
             type="button"
             onClick={() => {
@@ -122,6 +130,7 @@ export function SrfBookingsRegisterPage() {
               setStatus("ALL");
               setFromDate("");
               setToDate("");
+              setPage(1);
             }}
             className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
           >
@@ -142,7 +151,7 @@ export function SrfBookingsRegisterPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((j) => (
+              {pagedRows.map((j) => (
                 <tr key={j.id} onClick={() => setDetailId(j.id)} className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60">
                   <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
                   <td className="px-3 py-2">
@@ -173,6 +182,29 @@ export function SrfBookingsRegisterPage() {
             </tbody>
           </table>
         </div>
+        {rows.length > 0 ? (
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-xs text-stone-600">Showing page {currentPage} of {totalPages}</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </Card>
 
       {detail ? (

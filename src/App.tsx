@@ -28,6 +28,7 @@ import { StoreBillingMasterPage } from "./pages/service/StoreBillingMasterPage";
 import { StoreDispatchPage } from "./pages/service/StoreDispatchPage";
 import { WatchInventoryPage } from "./pages/service/WatchInventoryPage";
 import { ScInwardPage } from "./pages/serviceCentre/ScInwardPage";
+import { ScLogisticsHistoryPage } from "./pages/serviceCentre/ScLogisticsHistoryPage";
 import { ScLogisticsPage } from "./pages/serviceCentre/ScLogisticsPage";
 import { ScOnlineStorePage } from "./pages/serviceCentre/ScOnlineStorePage";
 import { ScSupervisorPage } from "./pages/serviceCentre/ScSupervisorPage";
@@ -251,6 +252,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service-centre/logistics-history"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <ScLogisticsHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service-centre/inward"
                   element={
                     <ModuleRoute module="service_centre">
@@ -267,6 +276,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service-centre/online-store/order/:orderId"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <ScOnlineStorePage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service-centre/online-store/invoice"
                   element={
                     <ModuleRoute module="service_centre">
@@ -276,6 +293,14 @@ export default function App() {
                 />
                 <Route
                   path="/service-centre/supervisor"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <ScSupervisorPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service-centre/supervisor/srf/:srfId"
                   element={
                     <ModuleRoute module="service_centre">
                       <ScSupervisorPage />

@@ -55,6 +55,8 @@ export function SrfMasterTablePage() {
   const [masterStatus, setMasterStatus] = useState<string>("ALL");
   const [masterFromDate, setMasterFromDate] = useState("");
   const [masterToDate, setMasterToDate] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   const visibleJobs = useMemo(() => {
     if (!user) return [];
@@ -84,6 +86,12 @@ export function SrfMasterTablePage() {
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [visibleJobs, masterQuery, masterStatus, masterFromDate, masterToDate]);
+  const totalPages = Math.max(1, Math.ceil(masterRows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return masterRows.slice(start, start + pageSize);
+  }, [masterRows, currentPage]);
 
   if (!user) return null;
 
@@ -99,13 +107,13 @@ export function SrfMasterTablePage() {
         <div className="mb-3 grid gap-2 md:grid-cols-5">
           <input
             value={masterQuery}
-            onChange={(e) => setMasterQuery(e.target.value)}
+            onChange={(e) => { setMasterQuery(e.target.value); setPage(1); }}
             className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
             placeholder="Search SRF / customer / phone / watch"
           />
           <select
             value={masterStatus}
-            onChange={(e) => setMasterStatus(e.target.value)}
+            onChange={(e) => { setMasterStatus(e.target.value); setPage(1); }}
             className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
           >
             <option value="ALL">All status</option>
@@ -116,13 +124,13 @@ export function SrfMasterTablePage() {
           <input
             type="date"
             value={masterFromDate}
-            onChange={(e) => setMasterFromDate(e.target.value)}
+            onChange={(e) => { setMasterFromDate(e.target.value); setPage(1); }}
             className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
           />
           <input
             type="date"
             value={masterToDate}
-            onChange={(e) => setMasterToDate(e.target.value)}
+            onChange={(e) => { setMasterToDate(e.target.value); setPage(1); }}
             className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
           />
           <button
@@ -132,6 +140,7 @@ export function SrfMasterTablePage() {
               setMasterStatus("ALL");
               setMasterFromDate("");
               setMasterToDate("");
+              setPage(1);
             }}
             className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
           >
@@ -152,7 +161,7 @@ export function SrfMasterTablePage() {
               </tr>
             </thead>
             <tbody>
-              {masterRows.map((j) => (
+              {pagedRows.map((j) => (
                 <tr key={j.id} className={`${rowClass} cursor-pointer hover:bg-zimson-50/70`} onClick={() => setDetailJobId(j.id)}>
                   <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
                   <td className="px-3 py-2">{j.customerName}</td>
@@ -178,6 +187,29 @@ export function SrfMasterTablePage() {
             </tbody>
           </table>
         </div>
+        {masterRows.length > 0 ? (
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-xs text-stone-600">Showing page {currentPage} of {totalPages}</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </Card>
 
       {detailJobId ? (

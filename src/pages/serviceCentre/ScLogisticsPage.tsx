@@ -83,11 +83,6 @@ export function ScLogisticsPage() {
   const [selectedDc, setSelectedDc] = useState("");
   const [scanInwardDcInput, setScanInwardDcInput] = useState("");
   const [inwardMsg, setInwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const [inwardQuery, setInwardQuery] = useState(
-    searchParams.get("tab") !== "outward" ? searchParams.get("q") ?? "" : "",
-  );
-  const [inwardFromDate, setInwardFromDate] = useState("");
-  const [inwardToDate, setInwardToDate] = useState("");
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
@@ -104,7 +99,6 @@ export function ScLogisticsPage() {
     const q = searchParams.get("q");
     if (!q) return;
     if (searchParams.get("tab") === "outward") setOutwardQuery(q);
-    else setInwardQuery(q);
   }, [searchParams]);
   const [selectedJob, setSelectedJob] = useState<SrfJob | null>(null);
 
@@ -158,57 +152,10 @@ export function ScLogisticsPage() {
     }
   }, [pendingDcOptions, selectedDc]);
 
-  const inwardRows = useMemo(() => {
-    const q = inwardQuery.trim().toLowerCase();
-    const from = inwardFromDate ? new Date(`${inwardFromDate}T00:00:00`).getTime() : null;
-    const to = inwardToDate ? new Date(`${inwardToDate}T23:59:59`).getTime() : null;
-    return inTransit
-      .filter((j) => {
-        const ts = new Date(j.createdAt).getTime();
-        if (from != null && ts < from) return false;
-        if (to != null && ts > to) return false;
-        return true;
-      })
-      .filter((j) => {
-        if (!q) return true;
-        const loc = storeById.get(j.storeId);
-        return (
-          j.reference.toLowerCase().includes(q) ||
-          j.customerName.toLowerCase().includes(q) ||
-          j.phone.toLowerCase().includes(q) ||
-          `${j.watchBrand} ${j.watchModel}`.toLowerCase().includes(q) ||
-          (j.dcNumber ?? "").toLowerCase().includes(q) ||
-          (loc?.storeName ?? "").toLowerCase().includes(q)
-        );
-      })
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [inTransit, inwardQuery, inwardFromDate, inwardToDate, storeById]);
-
   const readyOutward = useMemo(() => {
     if (!user) return [];
     return jobs.filter((j) => j.status === "ready_for_outward" && jobVisibleToServiceCentre(j, user));
   }, [jobs, user]);
-
-  const allVisibleJobs = useMemo(() => {
-    if (!user) return [];
-    return jobs.filter((j) => jobVisibleToServiceCentre(j, user));
-  }, [jobs, user]);
-
-  const allDcRows = useMemo(() => {
-    const rows = allVisibleJobs
-      .filter((j) => !!j.dcNumber)
-      .map((j) => ({ ...j, challan: j.dcNumber as string }))
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return rows;
-  }, [allVisibleJobs]);
-
-  const allOdcRows = useMemo(() => {
-    const rows = allVisibleJobs
-      .filter((j) => !!j.outwardDcNumber)
-      .map((j) => ({ ...j, challan: j.outwardDcNumber as string }))
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return rows;
-  }, [allVisibleJobs]);
 
   const outwardRows = useMemo(() => {
     const q = outwardQuery.trim().toLowerCase();
@@ -398,14 +345,22 @@ export function ScLogisticsPage() {
     <div>
       <PageHeader
         title="Service centre logistics"
-        description="Each regional HO sees its own internal transfers. Inward: pick the store transfer from list (no typing). Outward: transfer per batch back to store."
+        description=""
         actions={
-          <Link
-            to="/service-centre"
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Service centre home
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/service-centre/logistics-history"
+              className="inline-flex rounded-xl border border-zimson-300 bg-zimson-50 px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-100"
+            >
+              DC / ODC history
+            </Link>
+            <Link
+              to="/service-centre"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Service centre home
+            </Link>
+          </div>
         }
       />
 
@@ -426,7 +381,6 @@ export function ScLogisticsPage() {
         <>
           <Card
             title="Internal inward from store"
-            subtitle="Pending store-to-HO internal transfers only — each line is one store batch"
           >
             <form onSubmit={(e) => void handleInward(e)} className="max-w-2xl space-y-4">
               <div>
@@ -447,10 +401,6 @@ export function ScLogisticsPage() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-2 text-xs text-stone-500">
-                  Stores create internal transfers from counter; this list is built from shipments in transit to{" "}
-                  <strong>your</strong> regional HO. Other HOs and other stores stay isolated in their own data.
-                </p>
               </div>
               <label className="text-sm">
                 Scan DC barcode
@@ -491,134 +441,14 @@ export function ScLogisticsPage() {
             ) : null}
           </Card>
 
-          <Card
-            title={`Inward transit list (${inwardRows.length})`}
-            subtitle="Listed format with filters; click any row for full details"
-            className="mt-8"
-          >
-            {inTransit.length === 0 ? (
-              <p className="text-sm text-stone-600">
-                Nothing in transit for this regional HO. Each store dispatches separately; their open DCs will
-                appear in the dropdown above.
-              </p>
-            ) : (
-              <div>
-                <div className="mb-3 grid gap-2 md:grid-cols-4">
-                  <input
-                    value={inwardQuery}
-                    onChange={(e) => setInwardQuery(e.target.value)}
-                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-                    placeholder="Search SRF/customer/phone/watch/DC/store"
-                  />
-                  <input
-                    type="date"
-                    value={inwardFromDate}
-                    onChange={(e) => setInwardFromDate(e.target.value)}
-                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-                  />
-                  <input
-                    type="date"
-                    value={inwardToDate}
-                    onChange={(e) => setInwardToDate(e.target.value)}
-                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setInwardQuery("");
-                      setInwardFromDate("");
-                      setInwardToDate("");
-                    }}
-                    className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
-                  >
-                    Reset
-                  </button>
-                </div>
-                <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
-                      <tr>
-                        <th className="px-3 py-2">Date</th>
-                        <th className="px-3 py-2">DC</th>
-                        <th className="px-3 py-2">SRF</th>
-                        <th className="px-3 py-2">Customer</th>
-                        <th className="px-3 py-2">Watch</th>
-                        <th className="px-3 py-2">Store</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inwardRows.map((j) => {
-                        const loc = storeById.get(j.storeId);
-                        return (
-                          <tr
-                            key={j.id}
-                            onClick={() => setSelectedJob(j)}
-                            className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
-                          >
-                            <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleString()}</td>
-                            <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.dcNumber ?? "-"}</td>
-                            <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
-                            <td className="px-3 py-2">{j.customerName}</td>
-                            <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
-                            <td className="px-3 py-2 text-xs text-stone-600">{loc?.storeName ?? j.storeId}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </Card>
-          <Card
-            title={`All internal inward list (${allDcRows.length})`}
-            subtitle="Complete internal transfer visibility for this HO scope (pending + completed)"
-            className="mt-8"
-          >
-            {allDcRows.length === 0 ? (
-              <p className="text-sm text-stone-600">No internal inward records found.</p>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
-                    <tr>
-                      <th className="px-3 py-2">Date</th>
-                      <th className="px-3 py-2">DC</th>
-                      <th className="px-3 py-2">SRF</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">Customer</th>
-                      <th className="px-3 py-2">Store</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allDcRows.map((j) => (
-                      <tr
-                        key={`all-dc-${j.id}`}
-                        onClick={() => setSelectedJob(j)}
-                        className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
-                      >
-                        <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleString()}</td>
-                        <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.dcNumber}</td>
-                        <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
-                        <td className="px-3 py-2 text-xs text-stone-700">{j.status.replace(/_/g, " ")}</td>
-                        <td className="px-3 py-2">{j.customerName}</td>
-                        <td className="px-3 py-2 text-xs text-stone-600">{storeById.get(j.storeId)?.storeName ?? j.storeId}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
         </>
       ) : (
         <>
           <Card
             title="Online spare ODC pending (sender HO)"
-            subtitle="Cross-region HO-to-HO outward uses ODC terminology."
           >
             {onlineSpareRows.filter((o) => !o.dispatchedAt).length === 0 ? (
-              <p className="text-sm text-stone-600">No online spare orders pending outward dispatch.</p>
+              <p className="text-sm text-stone-600">No pending records.</p>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
                 <table className="min-w-full text-left text-sm">
@@ -657,11 +487,7 @@ export function ScLogisticsPage() {
               </div>
             )}
           </Card>
-          <Card title="Create internal outward transfer" subtitle="After technician marks repair complete">
-            <p className="text-sm text-stone-600">
-              Select watches that are <strong>ready for outward</strong>, set each <strong>destination store</strong>{" "}
-              (defaults to the store that raised the SRF), then generate one ODC for the batch.
-            </p>
+          <Card title="Create internal outward transfer">
             {outwardMsg ? (
               <p
                 className={
@@ -830,46 +656,6 @@ export function ScLogisticsPage() {
                   </table>
                 </div>
               </>
-            )}
-          </Card>
-          <Card
-            title={`All internal outward list (${allOdcRows.length})`}
-            subtitle="Complete internal outward visibility for this HO scope (created + dispatched)"
-            className="mt-8"
-          >
-            {allOdcRows.length === 0 ? (
-              <p className="text-sm text-stone-600">No internal outward records found.</p>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
-                    <tr>
-                      <th className="px-3 py-2">Date</th>
-                      <th className="px-3 py-2">ODC</th>
-                      <th className="px-3 py-2">SRF</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">Customer</th>
-                      <th className="px-3 py-2">Store</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allOdcRows.map((j) => (
-                      <tr
-                        key={`all-odc-${j.id}`}
-                        onClick={() => setSelectedJob(j)}
-                        className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
-                      >
-                        <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleString()}</td>
-                        <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.outwardDcNumber}</td>
-                        <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
-                        <td className="px-3 py-2 text-xs text-stone-700">{j.status.replace(/_/g, " ")}</td>
-                        <td className="px-3 py-2">{j.customerName}</td>
-                        <td className="px-3 py-2 text-xs text-stone-600">{storeById.get(j.storeId)?.storeName ?? j.storeId}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
             )}
           </Card>
         </>

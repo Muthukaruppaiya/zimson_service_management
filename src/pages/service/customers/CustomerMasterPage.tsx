@@ -46,6 +46,8 @@ export function CustomerMasterPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [edit, setEdit] = useState<EditableCustomer | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   async function load() {
     setLoading(true);
@@ -74,6 +76,12 @@ export function CustomerMasterPage() {
         .includes(q),
     );
   }, [rows, query]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, currentPage]);
 
   async function saveEdit() {
     if (!edit) return;
@@ -145,7 +153,7 @@ export function CustomerMasterPage() {
             <input
               className={inputClass}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => { setQuery(e.target.value); setPage(1); }}
               placeholder="Name, phone, email, city, company"
             />
           </label>
@@ -159,49 +167,74 @@ export function CustomerMasterPage() {
         </div>
         {loading ? <p className="text-sm text-stone-600">Loading customers...</p> : null}
         {!loading ? (
-          <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-zimson-50/70 text-stone-700">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Name</th>
-                  <th className="px-3 py-2 font-semibold">Primary mobile</th>
-                  <th className="px-3 py-2 font-semibold">Alternate mobile</th>
-                  <th className="px-3 py-2 font-semibold">Email</th>
-                  <th className="px-3 py-2 font-semibold">City</th>
-                  <th className="px-3 py-2 font-semibold">Type</th>
-                  <th className="px-3 py-2 font-semibold">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((c) => (
-                  <tr key={c.id} className="border-t border-zimson-100">
-                    <td className="px-3 py-2">{c.displayName}</td>
-                    <td className="px-3 py-2">{c.phone}</td>
-                    <td className="px-3 py-2">{c.alternatePhone || "-"}</td>
-                    <td className="px-3 py-2">{c.email || "-"}</td>
-                    <td className="px-3 py-2">{c.city || "-"}</td>
-                    <td className="px-3 py-2">{c.customerKind}</td>
-                    <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => setEdit(toEditable(c))}
-                        className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900"
-                      >
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {filtered.length === 0 ? (
+          <>
+            <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-zimson-50/70 text-stone-700">
                   <tr>
-                    <td className="px-3 py-6 text-sm text-stone-500" colSpan={7}>
-                      No customers found.
-                    </td>
+                    <th className="px-3 py-2 font-semibold">Name</th>
+                    <th className="px-3 py-2 font-semibold">Primary mobile</th>
+                    <th className="px-3 py-2 font-semibold">Alternate mobile</th>
+                    <th className="px-3 py-2 font-semibold">Email</th>
+                    <th className="px-3 py-2 font-semibold">City</th>
+                    <th className="px-3 py-2 font-semibold">Type</th>
+                    <th className="px-3 py-2 font-semibold">Action</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {pagedRows.map((c) => (
+                    <tr key={c.id} className="border-t border-zimson-100">
+                      <td className="px-3 py-2">{c.displayName}</td>
+                      <td className="px-3 py-2">{c.phone}</td>
+                      <td className="px-3 py-2">{c.alternatePhone || "-"}</td>
+                      <td className="px-3 py-2">{c.email || "-"}</td>
+                      <td className="px-3 py-2">{c.city || "-"}</td>
+                      <td className="px-3 py-2">{c.customerKind}</td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => setEdit(toEditable(c))}
+                          className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900"
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td className="px-3 py-6 text-sm text-stone-500" colSpan={7}>
+                        No customers found.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+            {filtered.length > 0 ? (
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="text-xs text-stone-600">Showing page {currentPage} of {totalPages}</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </Card>
 

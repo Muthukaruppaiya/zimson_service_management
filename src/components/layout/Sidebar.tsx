@@ -261,6 +261,12 @@ export function Sidebar() {
             module: "service_centre",
             roles: ["service_centre_outward", "service_centre_clerk"],
           },
+          {
+            to: "/service-centre/logistics-history",
+            label: "DC / ODC history",
+            module: "service_centre",
+            roles: ["service_centre_inward", "service_centre_outward", "service_centre_clerk"],
+          },
         ],
       },
       {

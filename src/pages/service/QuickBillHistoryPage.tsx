@@ -26,6 +26,8 @@ export function QuickBillHistoryPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [selected, setSelected] = useState<QuickBillHistoryRow | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   useEffect(() => {
     const q = searchParams.get("q");
@@ -72,6 +74,12 @@ export function QuickBillHistoryPage() {
       );
     });
   }, [rows, query, payment, fromDate, toDate]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, currentPage]);
 
   return (
     <div>
@@ -100,10 +108,10 @@ export function QuickBillHistoryPage() {
       <Card title={`History list (${filtered.length})`} subtitle="Invoice register">
         {error ? <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
         <div className="mb-3 grid gap-2 md:grid-cols-5">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" placeholder="Search invoice/customer/brand/location" />
+          <input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" placeholder="Search invoice/customer/brand/location" />
           <select
             value={payment}
-            onChange={(e) => setPayment(e.target.value as "ALL" | AppPaymentMode)}
+            onChange={(e) => { setPayment(e.target.value as "ALL" | AppPaymentMode); setPage(1); }}
             className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
           >
             <option value="ALL">All payment modes</option>
@@ -113,43 +121,66 @@ export function QuickBillHistoryPage() {
               </option>
             ))}
           </select>
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />
-          <button type="button" onClick={() => { setQuery(""); setPayment("ALL"); setFromDate(""); setToDate(""); }} className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50">
+          <input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setPage(1); }} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />
+          <input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setPage(1); }} className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm" />
+          <button type="button" onClick={() => { setQuery(""); setPayment("ALL"); setFromDate(""); setToDate(""); setPage(1); }} className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50">
             Reset
           </button>
         </div>
         {loading ? <p className="text-sm text-stone-600">Loading...</p> : null}
         {!loading && filtered.length === 0 ? <p className="text-sm text-stone-600">No history rows found.</p> : null}
         {filtered.length > 0 ? (
-          <div className="max-h-[70vh] overflow-auto rounded-xl border border-zimson-200/80">
-            <table className="min-w-full text-left text-sm">
-              <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase tracking-wide text-stone-600">
-                <tr>
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Invoice</th>
-                  <th className="px-3 py-2">Customer</th>
-                  <th className="px-3 py-2">Brand</th>
-                  <th className="px-3 py-2">Location</th>
-                  <th className="px-3 py-2">Payment</th>
-                  <th className="px-3 py-2 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <tr key={r.id} onClick={() => setSelected(r)} className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60">
-                    <td className="px-3 py-2 text-xs text-stone-600">{new Date(r.createdAt).toLocaleString()}</td>
-                    <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{r.billNumber}</td>
-                    <td className="px-3 py-2">{customerLabel(r)}</td>
-                    <td className="px-3 py-2">{r.watchBrand}</td>
-                    <td className="px-3 py-2 text-xs text-stone-600">{r.storeName ?? r.regionName ?? r.regionId}</td>
-                    <td className="px-3 py-2">{r.paymentMode}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-stone-900">{r.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}</td>
+          <>
+            <div className="max-h-[70vh] overflow-auto rounded-xl border border-zimson-200/80">
+              <table className="min-w-full text-left text-sm">
+                <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                  <tr>
+                    <th className="px-3 py-2">Date</th>
+                    <th className="px-3 py-2">Invoice</th>
+                    <th className="px-3 py-2">Customer</th>
+                    <th className="px-3 py-2">Brand</th>
+                    <th className="px-3 py-2">Location</th>
+                    <th className="px-3 py-2">Payment</th>
+                    <th className="px-3 py-2 text-right">Total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {pagedRows.map((r) => (
+                    <tr key={r.id} onClick={() => setSelected(r)} className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60">
+                      <td className="px-3 py-2 text-xs text-stone-600">{new Date(r.createdAt).toLocaleString()}</td>
+                      <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{r.billNumber}</td>
+                      <td className="px-3 py-2">{customerLabel(r)}</td>
+                      <td className="px-3 py-2">{r.watchBrand}</td>
+                      <td className="px-3 py-2 text-xs text-stone-600">{r.storeName ?? r.regionName ?? r.regionId}</td>
+                      <td className="px-3 py-2">{r.paymentMode}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-stone-900">{r.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-stone-600">Showing page {currentPage} of {totalPages}</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </>
         ) : null}
       </Card>
 

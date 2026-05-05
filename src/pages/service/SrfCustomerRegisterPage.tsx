@@ -10,7 +10,7 @@ import { isValidGstFormat, isValidPanFormat } from "../../data/serviceSeed";
 import type { CustomerKind } from "../../types/customer";
 
 const inputClass =
-  "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 placeholder:text-stone-400 focus:ring-2";
+  "mt-1 w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
 
 function digitsOnly(v: string, maxLen: number): string {
   return v.replace(/\D/g, "").slice(0, maxLen);
@@ -146,7 +146,7 @@ export function SrfCustomerRegisterPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-4">
       <ServiceBreadcrumb current={forQuickBill ? "Quick bill — new customer" : "SRF — new customer"} />
       <PageHeader
         title={forQuickBill ? "Register customer for quick bill" : "Register customer for SRF"}
@@ -169,16 +169,14 @@ export function SrfCustomerRegisterPage() {
         }
       />
 
-      <p className="mb-4 text-xs text-stone-500">
-        {forQuickBill
-          ? "About 12 fields for B2C (more for B2B). After save you return to quick bill to complete the sale."
-          : "About 12 fields for B2C (more for B2B). After save you return to SRF on the watch step."}
-      </p>
-
-      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6">
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6 rounded-2xl border border-zimson-200/80 bg-zimson-50/40 p-4 sm:p-6">
         <Card title="Customer type">
-          <div className="flex gap-6">
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-3 text-sm shadow-sm transition ${
+                customerKind === "B2C" ? "border-zimson-500 bg-zimson-100/80" : "border-zimson-200 bg-white hover:bg-zimson-50"
+              }`}
+            >
               <input
                 type="radio"
                 name="srf-reg-kind"
@@ -188,7 +186,11 @@ export function SrfCustomerRegisterPage() {
               />
               B2C
             </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <label
+              className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-3 text-sm shadow-sm transition ${
+                customerKind === "B2B" ? "border-zimson-500 bg-zimson-100/80" : "border-zimson-200 bg-white hover:bg-zimson-50"
+              }`}
+            >
               <input
                 type="radio"
                 name="srf-reg-kind"
@@ -216,20 +218,22 @@ export function SrfCustomerRegisterPage() {
               <label className="text-xs font-medium text-stone-600">Mobile *</label>
               <input
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhone(digitsOnly(e.target.value, 10))}
                 className={inputClass}
                 placeholder="10-digit mobile"
                 inputMode="tel"
+                maxLength={10}
               />
             </div>
             <div>
               <label className="text-xs font-medium text-stone-600">Alternate mobile</label>
               <input
                 value={alternatePhone}
-                onChange={(e) => setAlternatePhone(e.target.value)}
+                onChange={(e) => setAlternatePhone(digitsOnly(e.target.value, 10))}
                 className={inputClass}
                 placeholder="Optional"
                 inputMode="tel"
+                maxLength={10}
               />
             </div>
             <div className="sm:col-span-2">
@@ -340,7 +344,7 @@ export function SrfCustomerRegisterPage() {
           <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">{error}</p>
         ) : null}
 
-        <div className="flex flex-wrap gap-3">
+        <div className="sticky bottom-2 z-10 flex flex-wrap gap-3 rounded-xl border border-zimson-200 bg-white/90 p-3 shadow-lg backdrop-blur">
           <button
             type="submit"
             disabled={saving}
@@ -361,8 +365,11 @@ export function SrfCustomerRegisterPage() {
         </div>
       </form>
       {issuedOtp ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-zimson-200 bg-white p-5 shadow-2xl">
+            <div className="mb-3 rounded-xl bg-zimson-50 px-3 py-2 text-xs text-zimson-900">
+              OTP sent to {phone || "mobile number"}
+            </div>
             <DemoOtpGate
               title="OTP for customer creation"
               subtitle="Verify OTP before saving customer profile."

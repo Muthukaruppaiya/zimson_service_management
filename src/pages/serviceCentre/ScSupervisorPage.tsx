@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
@@ -10,9 +10,8 @@ import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
-import { printAssignmentSlip, printBrandDispatchDocument } from "../../lib/serviceDocuments";
+import { printBrandDispatchDocument } from "../../lib/serviceDocuments";
 import type { SparePriceLine } from "../../types/spare";
-import type { TechnicianProfile } from "../../types/technician";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 
 type InterHoSpareOrder = {
@@ -60,13 +59,13 @@ function sparesAmountInr(job: { usedSpares?: Array<{ qty: number; unitPriceInr?:
 }
 
 export function ScSupervisorPage() {
+  const navigate = useNavigate();
+  const { srfId } = useParams<{ srfId?: string }>();
   const { user } = useAuth();
   const { regions } = useRegions();
   const { activeSpares } = useSpares();
   const {
     jobs,
-    assignTechnician,
-    convertTransferredSrfToLocal,
     supervisorRequestReestimate,
     technicianSendToBrand,
     supervisorTransferToOtherHo,
@@ -74,14 +73,11 @@ export function ScSupervisorPage() {
     supervisorMarkRepairComplete,
     supervisorMoveRejectedToOdc,
     supervisorLogBrandEstimate,
-    supervisorApproveBrandEstimate,
-    supervisorReceiveFromBrand,
     supervisorLogBrandInvoice,
     supervisorLogBrandCreditNote,
     supervisorNotifyBrandCoupon,
     getStatusHistory,
   } = useSrfJobs();
-  const [pickTech, setPickTech] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<Record<string, string>>({});
   const [historyByJob, setHistoryByJob] = useState<Record<string, Array<{ id: string; status: string; note: string; changedAt: string }>>>({});
   const [reestimatePopupJobId, setReestimatePopupJobId] = useState<string | null>(null);
@@ -108,7 +104,6 @@ export function ScSupervisorPage() {
   const [fulfillInvoiceRef, setFulfillInvoiceRef] = useState("");
   const [fulfillNote, setFulfillNote] = useState("");
   const [orderDetailsId, setOrderDetailsId] = useState<string | null>(null);
-  const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [sendBrandPopupJobId, setSendBrandPopupJobId] = useState<string | null>(null);
   const [sendBrandDispatchRef, setSendBrandDispatchRef] = useState("");
   const [sendBrandReason, setSendBrandReason] = useState("Cannot be repaired at HO");
@@ -126,6 +121,8 @@ export function ScSupervisorPage() {
   const [brandCouponNoteInput, setBrandCouponNoteInput] = useState("");
   const [brandNotifyPopupJobId, setBrandNotifyPopupJobId] = useState<string | null>(null);
   const [brandNotifyNoteInput, setBrandNotifyNoteInput] = useState("Customer informed through web, SMS and WhatsApp copy.");
+  void spareOrderMsg;
+  const [scanSrfInput, setScanSrfInput] = useState("");
 
   const received = useMemo(() => {
     if (!user) return [];
@@ -144,47 +141,10 @@ export function ScSupervisorPage() {
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
-  const brandDeskQueue = useMemo(() => {
-    if (!user) return [];
-    return jobs.filter(
-      (j) =>
-        [
-          "sent_to_brand",
-          "brand_estimate_pending",
-          "brand_approved",
-          "brand_repair_in_progress",
-          "received_from_brand",
-          "brand_credit_note_pending",
-          "brand_credit_note_active",
-        ].includes(j.status) && jobVisibleToServiceCentre(j, user),
-    );
-  }, [jobs, user]);
-
-  async function handleAssign(jobId: string) {
-    const techId = pickTech[jobId];
-    if (!techId) {
-      setFeedback((f) => ({ ...f, [jobId]: "Choose a technician." }));
-      return;
-    }
-    try {
-      await assignTechnician(jobId, techId);
-      const job = jobs.find((x) => x.id === jobId);
-      const tech = technicians.find((x) => x.id === techId);
-      if (job) printAssignmentSlip(job, tech ? `${tech.fullName} (${tech.grade})` : techId);
-      setFeedback((f) => ({ ...f, [jobId]: "Assigned." }));
-    } catch (e) {
-      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not assign." }));
-    }
-  }
-
-  async function convertLocal(jobId: string) {
-    try {
-      await convertTransferredSrfToLocal(jobId);
-      setFeedback((f) => ({ ...f, [jobId]: "Converted to local SRF. You can assign technician now." }));
-    } catch (e) {
-      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not convert SRF." }));
-    }
-  }
+  const decisionView = useMemo(
+    () => (srfId ? decisionQueue.filter((j) => j.id === srfId) : decisionQueue),
+    [decisionQueue, srfId],
+  );
 
   async function toggleHistory(jobId: string) {
     if (historyByJob[jobId]) {
@@ -313,12 +273,6 @@ export function ScSupervisorPage() {
     }
   }
 
-  async function logBrandEstimate(jobId: string) {
-    setBrandEstimatePopupJobId(jobId);
-    setBrandEstimateAmountInput(String(Number(jobs.find((x) => x.id === jobId)?.estimateTotalInr ?? 0).toFixed(2)));
-    setBrandEstimateNoteInput("");
-  }
-
   async function confirmBrandEstimate() {
     if (!brandEstimatePopupJobId) return;
     const jobId = brandEstimatePopupJobId;
@@ -335,31 +289,6 @@ export function ScSupervisorPage() {
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand estimate." }));
     }
-  }
-
-  async function approveBrandEstimate(jobId: string) {
-    try {
-      await supervisorApproveBrandEstimate(jobId, { note: "Approved by HO" });
-      setFeedback((f) => ({ ...f, [jobId]: "Brand estimate approved by HO." }));
-    } catch (e) {
-      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not approve brand estimate." }));
-    }
-  }
-
-  async function receiveFromBrand(jobId: string) {
-    try {
-      await supervisorReceiveFromBrand(jobId, { note: "Watch received at HO from brand." });
-      setFeedback((f) => ({ ...f, [jobId]: "Watch marked as received from brand." }));
-    } catch (e) {
-      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not mark return receipt." }));
-    }
-  }
-
-  async function logBrandInvoice(jobId: string) {
-    setBrandInvoicePopupJobId(jobId);
-    setBrandInvoiceRefInput("");
-    setBrandInvoiceAmountInput(String(Number(jobs.find((x) => x.id === jobId)?.estimateTotalInr ?? 0).toFixed(2)));
-    setBrandInvoiceNoteInput("");
   }
 
   async function confirmBrandInvoice() {
@@ -383,14 +312,6 @@ export function ScSupervisorPage() {
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand invoice." }));
     }
-  }
-
-  async function logBrandCreditNote(jobId: string) {
-    setBrandCreditPopupJobId(jobId);
-    setBrandCouponCodeInput("");
-    setBrandCouponValueInput("");
-    setBrandCouponValidUntilInput("");
-    setBrandCouponNoteInput("Brand could not repair; credit note issued.");
   }
 
   async function confirmBrandCreditNote() {
@@ -417,11 +338,6 @@ export function ScSupervisorPage() {
     }
   }
 
-  async function notifyCoupon(jobId: string) {
-    setBrandNotifyPopupJobId(jobId);
-    setBrandNotifyNoteInput("Customer informed through web, SMS and WhatsApp copy.");
-  }
-
   async function confirmNotifyCoupon() {
     if (!brandNotifyPopupJobId) return;
     const jobId = brandNotifyPopupJobId;
@@ -445,14 +361,6 @@ export function ScSupervisorPage() {
       .map((r) => ({ id: r.id, label: r.name }));
   }, [regions, user]);
 
-  const incomingSpareOrders = useMemo(
-    () => spareOrderRows.filter((o) => o.toRegionId === (user?.regionId ?? "") || user?.role === "super_admin" || user?.role === "ho_admin"),
-    [spareOrderRows, user?.regionId, user?.role],
-  );
-  const outgoingSpareOrders = useMemo(
-    () => spareOrderRows.filter((o) => o.fromRegionId === (user?.regionId ?? "") || user?.role === "super_admin" || user?.role === "ho_admin"),
-    [spareOrderRows, user?.regionId, user?.role],
-  );
   const selectedOrder = useMemo(
     () => spareOrderRows.find((o) => o.id === orderDetailsId) ?? null,
     [spareOrderRows, orderDetailsId],
@@ -482,9 +390,6 @@ export function ScSupervisorPage() {
   useEffect(() => {
     if (!user) return;
     void refreshSpareOrders();
-    void apiJson<{ rows: TechnicianProfile[] }>("/api/service/technicians?activeOnly=1")
-      .then((out) => setTechnicians(out.rows))
-      .catch(() => setTechnicians([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -570,12 +475,6 @@ export function ScSupervisorPage() {
     } catch (e) {
       setFeedback((f) => ({ ...f, [requestSparesJobId]: e instanceof Error ? e.message : "Could not raise spare order." }));
     }
-  }
-
-  function openFulfillOrder(orderId: string) {
-    setFulfillOrderId(orderId);
-    setFulfillInvoiceRef("");
-    setFulfillNote("");
   }
 
   function closeFulfillOrder() {
@@ -729,146 +628,84 @@ export function ScSupervisorPage() {
     <div>
       <PageHeader
         title="Supervisor — assign technicians"
-        description="Match repair complexity to technician grade. Technician then analyses the watch and confirms whether the estimate stands (re-estimate is a later phase)."
+        description=""
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link
-              to="/service-centre/online-store"
-              className="inline-flex rounded-xl border border-cyan-400 bg-cyan-50 px-4 py-2.5 text-sm font-semibold text-cyan-900 shadow-sm transition hover:bg-cyan-100"
-            >
-              Open online store
-            </Link>
-            <Link
-              to="/service-centre"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Service centre home
-            </Link>
+            {srfId ? (
+              <Link
+                to="/service-centre/supervisor"
+                className="inline-flex rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100"
+              >
+                Back to SRF list
+              </Link>
+            ) : null}
           </div>
         }
       />
-
-      <Card title="Queue — received at service centre" subtitle="Not yet assigned">
-        {received.length === 0 ? (
-          <p className="text-sm text-stone-600">
-            No watches waiting for assignment. Complete inward first, or dispatch from the store with a
-            DC.
-          </p>
-        ) : (
-          <div className="space-y-6">
-            {received.map((j) => (
-              <div
-                key={j.id}
-                className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
-                    <p className="text-sm text-stone-800">
-                      {j.customerName} · {j.phone}
-                    </p>
-                    <p className="mt-1 text-sm text-stone-600">
-                      {j.watchBrand} {j.watchModel} · {j.serial}
-                    </p>
-                    <p className="mt-2 text-xs text-stone-500">{j.complaint}</p>
-                  </div>
-                  <div className="text-right text-sm tabular-nums text-stone-700">
-                    Spares amount{" "}
-                    {sparesAmountInr(j).toLocaleString(undefined, {
-                      style: "currency",
-                      currency: "INR",
-                    })}
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <div className="min-w-[200px] flex-1">
-                    <label className="text-xs font-medium text-stone-600">Technician (by grade)</label>
-                    <select
-                      value={pickTech[j.id] ?? ""}
-                      onChange={(e) =>
-                        setPickTech((p) => ({ ...p, [j.id]: e.target.value }))
-                      }
-                      disabled={!!j.requiresLocalConversion}
-                      className="mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zimson-400/40"
-                    >
-                      <option value="">Select…</option>
-                      {technicians.length === 0 ? <option value="" disabled>No technicians in master</option> : null}
-                      {technicians.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.fullName} — {t.grade}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleAssign(j.id)}
-                    disabled={!!j.requiresLocalConversion}
-                    className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
-                  >
-                    Assign
-                  </button>
-                  {j.requiresLocalConversion ? (
-                    <button
-                      type="button"
-                      onClick={() => void convertLocal(j.id)}
-                      className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
-                    >
-                      Convert to local SRF
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void toggleHistory(j.id)}
-                    className="rounded-xl border border-zimson-300 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
-                  >
-                    {historyByJob[j.id] ? "Hide history" : "Show history"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTraceJobId(j.id)}
-                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 hover:bg-amber-100"
-                  >
-                    View full trace
-                  </button>
-                </div>
-                {feedback[j.id] ? (
-                  <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p>
-                ) : null}
-                {historyByJob[j.id] ? (
-                  <div className="mt-3 rounded-xl bg-zimson-50 p-3 text-xs text-stone-700">
-                    <div className="mb-2 flex justify-end">
+      {!srfId ? (
+        <Card title="Supervisor SRF list">
+          <div className="mb-3 flex flex-wrap gap-2">
+            <input
+              value={scanSrfInput}
+              onChange={(e) => setScanSrfInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                const ref = scanSrfInput.trim().toLowerCase();
+                if (!ref) return;
+                const row = [...received, ...decisionQueue].find((j) => j.reference.toLowerCase() === ref);
+                if (row) {
+                  navigate(`/service-centre/supervisor/srf/${encodeURIComponent(row.id)}`);
+                  setScanSrfInput("");
+                }
+              }}
+              placeholder="Scan SRF barcode/reference and press Enter"
+              className="w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                <tr>
+                  <th className="px-3 py-2">SRF</th>
+                  <th className="px-3 py-2">Customer</th>
+                  <th className="px-3 py-2">Watch</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...received, ...decisionQueue].map((j) => (
+                  <tr key={j.id} className="border-b border-zimson-100 last:border-0">
+                    <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                    <td className="px-3 py-2">{j.customerName}</td>
+                    <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
+                    <td className="px-3 py-2 text-xs text-stone-700">{j.status.replace(/_/g, " ")}</td>
+                    <td className="px-3 py-2">
                       <button
                         type="button"
-                        onClick={() => printHistory(j.reference, historyByJob[j.id]!)}
-                        className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900"
+                        onClick={() => navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)}
+                        className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
                       >
-                        Print document
+                        Open SRF
                       </button>
-                    </div>
-                    <ul className="space-y-1">
-                      {historyByJob[j.id]!.map((h) => (
-                        <li key={h.id}>
-                          <span className="font-mono">{new Date(h.changedAt).toLocaleString()}</span> ·{" "}
-                          <span className="font-semibold">{h.status.replace(/_/g, " ")}</span>
-                          {h.note ? ` — ${h.note}` : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
-      </Card>
+        </Card>
+      ) : null}
 
+      {srfId ? (
+      <>
       <Card title="Supervisor decision queue" subtitle="From supervisor login: mark repaired or need re-estimate" className="mt-8">
-        {decisionQueue.length === 0 ? (
+        {decisionView.length === 0 ? (
           <p className="text-sm text-stone-600">No assigned SRFs pending decision.</p>
         ) : (
           <div className="space-y-4">
-            {decisionQueue.map((j) => {
+            {decisionView.map((j) => {
               const spareFlow = spareFlowBySrfId.get(j.id) ?? null;
               const hasSpareFlow = !!spareFlow;
               const spareFlowInwardDone = Boolean(spareFlow?.inwardReceivedAt);
@@ -1043,202 +880,8 @@ export function ScSupervisorPage() {
           </div>
         )}
       </Card>
-      <Card
-        title="Brand desk queue"
-        subtitle="Jobs moved to brand for external repair or credit-note handling"
-        className="mt-8"
-      >
-        {brandDeskQueue.length === 0 ? (
-          <p className="text-sm text-stone-600">No SRFs in brand workflow.</p>
-        ) : (
-          <div className="space-y-4">
-            {brandDeskQueue.map((j) => (
-              <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
-                <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
-                <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
-                <p className="mt-1 text-sm text-stone-600">
-                  {j.watchBrand} {j.watchModel} · {j.serial}
-                </p>
-                <p className="mt-1 text-xs text-stone-500">Status: {j.status.replace(/_/g, " ")}</p>
-                {(j.brandDispatchRef || j.brandEstimateInr || j.brandInvoiceRef || j.brandCouponCode) ? (
-                  <div className="mt-2 rounded-lg border border-zimson-100 bg-zimson-50/50 px-3 py-2 text-xs text-stone-700">
-                    {j.brandOdcNumber ? <p>Brand ODC: {j.brandOdcNumber}</p> : null}
-                    {j.brandInwardRef ? <p>Brand inward ref: {j.brandInwardRef}</p> : null}
-                    {j.brandDispatchRef ? <p>Dispatch ref: {j.brandDispatchRef}</p> : null}
-                    {j.brandEstimateInr ? <p>Brand estimate: INR {Number(j.brandEstimateInr).toFixed(2)}</p> : null}
-                    {j.brandInvoiceRef ? <p>Brand invoice: {j.brandInvoiceRef}</p> : null}
-                    {j.brandInvoiceAmountInr ? <p>Main amount: INR {Number(j.brandInvoiceAmountInr).toFixed(2)}</p> : null}
-                    {j.brandCouponCode ? (
-                      <p>
-                        Coupon: {j.brandCouponCode}
-                        {j.brandCouponValueInr ? ` · INR ${Number(j.brandCouponValueInr).toFixed(2)}` : ""}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {j.status === "sent_to_brand" ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => void logBrandEstimate(j.id)}
-                        className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
-                      >
-                        Log brand estimate
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void logBrandCreditNote(j.id)}
-                        className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100"
-                      >
-                        Brand gave credit note
-                      </button>
-                    </>
-                  ) : null}
-                  {j.status === "brand_estimate_pending" ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => void approveBrandEstimate(j.id)}
-                        className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
-                      >
-                        Approve estimate to brand
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void logBrandCreditNote(j.id)}
-                        className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100"
-                      >
-                        Convert to credit note
-                      </button>
-                    </>
-                  ) : null}
-                  {(j.status === "brand_approved" || j.status === "brand_repair_in_progress") ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => void receiveFromBrand(j.id)}
-                        className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-900 hover:bg-cyan-100"
-                      >
-                        Receive watch from brand
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void logBrandCreditNote(j.id)}
-                        className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100"
-                      >
-                        Brand gave credit note
-                      </button>
-                    </>
-                  ) : null}
-                  {j.status === "received_from_brand" ? (
-                    <button
-                      type="button"
-                      onClick={() => void logBrandInvoice(j.id)}
-                      className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                    >
-                      Log brand invoice and move to outward
-                    </button>
-                  ) : null}
-                  {(j.status === "brand_credit_note_pending" || j.status === "brand_credit_note_active") ? (
-                    <button
-                      type="button"
-                      onClick={() => void notifyCoupon(j.id)}
-                      className="rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100"
-                    >
-                      Mark customer notified (web/msg/whatsapp)
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void setTraceJobId(j.id)}
-                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
-                  >
-                    View full trace
-                  </button>
-                </div>
-                {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-      <Card title="Online spare sales orders" subtitle="External-style sales flow (internally inter-HO stock transfer)" className="mt-8">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-xs text-stone-600">
-            Outgoing requests from your HO: {outgoingSpareOrders.length} · Incoming to your HO: {incomingSpareOrders.length}
-          </p>
-          <button
-            type="button"
-            onClick={() => void refreshSpareOrders()}
-            className="rounded-xl border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-          >
-            Refresh
-          </button>
-        </div>
-        {spareOrderMsg ? <p className="mb-2 text-xs text-stone-600">{spareOrderMsg}</p> : null}
-        {spareOrderRows.length === 0 ? (
-          <p className="text-sm text-stone-600">No online spare sales orders yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {spareOrderRows.map((o) => (
-              <div key={o.id} className="rounded-xl border border-zimson-200/80 bg-white p-3 text-xs">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-mono font-semibold text-zimson-900">
-                    {o.orderNumber} · SRF {o.srfReference}
-                  </p>
-                  <span className={`rounded-full px-2 py-0.5 font-semibold ${o.status === "FULFILLED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                    {o.status}
-                  </span>
-                </div>
-                <p className="mt-1 text-stone-700">
-                  {o.fromRegionName} → {o.toRegionName} · Requested by {o.requestedByName ?? o.requestedBy} on{" "}
-                  {new Date(o.requestedAt).toLocaleString()}
-                </p>
-                {o.note ? <p className="mt-1 text-stone-600">Note: {o.note}</p> : null}
-                <p className="mt-2 text-stone-700">
-                  {o.lines.map((l) => `${l.spareName} x${l.qty}`).join(", ")}
-                </p>
-                {o.status === "FULFILLED" ? (
-                  <p className="mt-1 text-emerald-700">
-                    Fulfilled by {o.fulfilledByName ?? o.fulfilledBy ?? "-"} · Invoice {o.invoiceRef ?? "-"} ·{" "}
-                    {o.fulfilledAt ? new Date(o.fulfilledAt).toLocaleString() : "-"}
-                  </p>
-                ) : null}
-                {o.status === "REQUESTED" &&
-                (user?.role === "super_admin" || user?.role === "ho_admin" || o.toRegionId === (user?.regionId ?? "")) ? (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={() => openFulfillOrder(o.id)}
-                      className="rounded-lg bg-zimson-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zimson-800"
-                    >
-                      Process sale & invoice
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setOrderDetailsId(o.id)}
-                      className="ml-2 rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-                    >
-                      View details
-                    </button>
-                  </div>
-                ) : (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setOrderDetailsId(o.id)}
-                      className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-                    >
-                      View details
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      </>
+      ) : null}
       {repairPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
