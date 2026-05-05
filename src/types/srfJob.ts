@@ -88,6 +88,7 @@ export type SrfJob = {
   brandHoApprovalEmailMeta?: Record<string, unknown> | null;
   brandReturnReceivedAt?: string | null;
   brandInvoiceRef?: string | null;
+  brandInvoiceAmountInr?: number | null;
   brandInvoiceMeta?: Record<string, unknown> | null;
   brandCouponCode?: string | null;
   brandCouponValueInr?: number | null;

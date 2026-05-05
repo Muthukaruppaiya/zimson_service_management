@@ -13,6 +13,21 @@ function asCurrency(value: number): string {
   return value.toLocaleString(undefined, { style: "currency", currency: "INR" });
 }
 
+function sparesAmount(job: SrfJob): number {
+  const lines = job.usedSpares ?? [];
+  if (lines.length > 0) {
+    return lines.reduce((sum, l) => {
+      const lineTotal = Number(l.lineTotalInr ?? NaN);
+      if (Number.isFinite(lineTotal)) return sum + lineTotal;
+      const unit = Number(l.unitPriceInr ?? 0);
+      const qty = Number(l.qty ?? 0);
+      return sum + unit * qty;
+    }, 0);
+  }
+  if (Number.isFinite(Number(job.brandInvoiceAmountInr ?? NaN))) return Number(job.brandInvoiceAmountInr);
+  return 0;
+}
+
 const statusPill: Record<string, string> = {
   draft: "bg-slate-100 text-slate-800",
   photo_pending: "bg-amber-50 text-amber-900",
@@ -249,7 +264,7 @@ export function WatchInventoryPage() {
                   <th className="px-3 py-2">Watch</th>
                   <th className="px-3 py-2">Current stage</th>
                   <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2 text-right">Estimate</th>
+                  <th className="px-3 py-2 text-right">Spares / brand amount</th>
                   <th className="px-3 py-2 text-right">Trace</th>
                 </tr>
               </thead>
@@ -274,7 +289,7 @@ export function WatchInventoryPage() {
                     <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
                     <td className="px-3 py-2 text-xs text-stone-700">{timelineLabel(j)}</td>
                     <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleDateString()}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-stone-900">{asCurrency(Number(j.estimateTotalInr ?? 0))}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-stone-900">{asCurrency(sparesAmount(j))}</td>
                     <td className="px-3 py-2 text-right">
                       <button
                         type="button"
@@ -327,7 +342,7 @@ export function WatchInventoryPage() {
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Status</th><td className="px-3 py-2">{detail.status}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Stage</th><td className="px-3 py-2">{timelineLabel(detail)}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Customer phone</th><td className="px-3 py-2">{detail.phone}</td></tr>
-                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Estimate</th><td className="px-3 py-2">{asCurrency(Number(detail.estimateTotalInr ?? 0))}</td></tr>
+                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Spares / brand amount</th><td className="px-3 py-2">{asCurrency(sparesAmount(detail))}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Created</th><td className="px-3 py-2">{new Date(detail.createdAt).toLocaleString()}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Internal inward transfer ref</th><td className="px-3 py-2 font-mono">{detail.dcNumber ?? "-"}</td></tr>
                   <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Internal outward transfer ref</th><td className="px-3 py-2 font-mono">{detail.outwardDcNumber ?? "-"}</td></tr>

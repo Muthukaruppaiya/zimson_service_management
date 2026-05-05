@@ -615,6 +615,7 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_ho_approval_sent_at TIMESTAM
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_ho_approval_email_meta JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_return_received_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_invoice_ref VARCHAR(120);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_invoice_amount_inr NUMERIC(14, 2);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_invoice_meta JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_coupon_code VARCHAR(120);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_coupon_value_inr NUMERIC(14, 2);

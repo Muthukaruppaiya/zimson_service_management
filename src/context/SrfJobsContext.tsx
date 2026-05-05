@@ -130,7 +130,7 @@ type SrfJobsContextValue = {
   supervisorReceiveFromBrand: (jobId: string, payload?: { note?: string }) => Promise<void>;
   supervisorLogBrandInvoice: (
     jobId: string,
-    payload: { invoiceRef: string; note?: string; invoiceMeta?: Record<string, unknown> },
+    payload: { invoiceRef: string; invoiceAmountInr: number; note?: string; invoiceMeta?: Record<string, unknown> },
   ) => Promise<void>;
   supervisorLogBrandCreditNote: (
     jobId: string,
@@ -359,7 +359,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
 
   const supervisorLogBrandInvoice = useCallback(async (
     jobId: string,
-    payload: { invoiceRef: string; note?: string; invoiceMeta?: Record<string, unknown> },
+    payload: { invoiceRef: string; invoiceAmountInr: number; note?: string; invoiceMeta?: Record<string, unknown> },
   ) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/invoice`, {
       method: "POST",

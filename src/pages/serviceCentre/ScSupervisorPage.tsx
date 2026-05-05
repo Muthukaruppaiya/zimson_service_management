@@ -46,6 +46,19 @@ type InterHoSpareOrder = {
   }>;
 };
 
+function sparesAmountInr(job: { usedSpares?: Array<{ qty: number; unitPriceInr?: number | null; lineTotalInr?: number | null }>; brandInvoiceAmountInr?: number | null }): number {
+  const lines = job.usedSpares ?? [];
+  if (lines.length > 0) {
+    return lines.reduce((sum, l) => {
+      const lineTotal = Number(l.lineTotalInr ?? NaN);
+      if (Number.isFinite(lineTotal)) return sum + lineTotal;
+      return sum + Number(l.unitPriceInr ?? 0) * Number(l.qty ?? 0);
+    }, 0);
+  }
+  if (Number.isFinite(Number(job.brandInvoiceAmountInr ?? NaN))) return Number(job.brandInvoiceAmountInr);
+  return 0;
+}
+
 export function ScSupervisorPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
@@ -99,6 +112,20 @@ export function ScSupervisorPage() {
   const [sendBrandPopupJobId, setSendBrandPopupJobId] = useState<string | null>(null);
   const [sendBrandDispatchRef, setSendBrandDispatchRef] = useState("");
   const [sendBrandReason, setSendBrandReason] = useState("Cannot be repaired at HO");
+  const [brandEstimatePopupJobId, setBrandEstimatePopupJobId] = useState<string | null>(null);
+  const [brandEstimateAmountInput, setBrandEstimateAmountInput] = useState("");
+  const [brandEstimateNoteInput, setBrandEstimateNoteInput] = useState("");
+  const [brandInvoicePopupJobId, setBrandInvoicePopupJobId] = useState<string | null>(null);
+  const [brandInvoiceRefInput, setBrandInvoiceRefInput] = useState("");
+  const [brandInvoiceAmountInput, setBrandInvoiceAmountInput] = useState("");
+  const [brandInvoiceNoteInput, setBrandInvoiceNoteInput] = useState("");
+  const [brandCreditPopupJobId, setBrandCreditPopupJobId] = useState<string | null>(null);
+  const [brandCouponCodeInput, setBrandCouponCodeInput] = useState("");
+  const [brandCouponValueInput, setBrandCouponValueInput] = useState("");
+  const [brandCouponValidUntilInput, setBrandCouponValidUntilInput] = useState("");
+  const [brandCouponNoteInput, setBrandCouponNoteInput] = useState("");
+  const [brandNotifyPopupJobId, setBrandNotifyPopupJobId] = useState<string | null>(null);
+  const [brandNotifyNoteInput, setBrandNotifyNoteInput] = useState("Customer informed through web, SMS and WhatsApp copy.");
 
   const received = useMemo(() => {
     if (!user) return [];
@@ -287,25 +314,32 @@ export function ScSupervisorPage() {
   }
 
   async function logBrandEstimate(jobId: string) {
-    const amountRaw = window.prompt("Brand estimate amount (INR):", "0");
-    const amount = Number(amountRaw ?? "");
+    setBrandEstimatePopupJobId(jobId);
+    setBrandEstimateAmountInput(String(Number(jobs.find((x) => x.id === jobId)?.estimateTotalInr ?? 0).toFixed(2)));
+    setBrandEstimateNoteInput("");
+  }
+
+  async function confirmBrandEstimate() {
+    if (!brandEstimatePopupJobId) return;
+    const jobId = brandEstimatePopupJobId;
+    const amount = Number(brandEstimateAmountInput);
+    const note = brandEstimateNoteInput.trim();
     if (!Number.isFinite(amount) || amount <= 0) {
       setFeedback((f) => ({ ...f, [jobId]: "Enter valid brand estimate amount." }));
       return;
     }
-    const note = window.prompt("Brand estimate note (mail reference / remarks):", "")?.trim() ?? "";
     try {
       await supervisorLogBrandEstimate(jobId, { estimateInr: amount, currency: "INR", note });
       setFeedback((f) => ({ ...f, [jobId]: `Brand estimate logged: INR ${amount.toFixed(2)}.` }));
+      setBrandEstimatePopupJobId(null);
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand estimate." }));
     }
   }
 
   async function approveBrandEstimate(jobId: string) {
-    const note = window.prompt("HO approval note to brand:", "Approved by HO")?.trim() ?? "";
     try {
-      await supervisorApproveBrandEstimate(jobId, { note });
+      await supervisorApproveBrandEstimate(jobId, { note: "Approved by HO" });
       setFeedback((f) => ({ ...f, [jobId]: "Brand estimate approved by HO." }));
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not approve brand estimate." }));
@@ -313,9 +347,8 @@ export function ScSupervisorPage() {
   }
 
   async function receiveFromBrand(jobId: string) {
-    const note = window.prompt("Return receipt note:", "Watch received at HO from brand.")?.trim() ?? "";
     try {
-      await supervisorReceiveFromBrand(jobId, { note });
+      await supervisorReceiveFromBrand(jobId, { note: "Watch received at HO from brand." });
       setFeedback((f) => ({ ...f, [jobId]: "Watch marked as received from brand." }));
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not mark return receipt." }));
@@ -323,50 +356,83 @@ export function ScSupervisorPage() {
   }
 
   async function logBrandInvoice(jobId: string) {
-    const invoiceRef = window.prompt("Brand invoice reference:", "")?.trim() ?? "";
+    setBrandInvoicePopupJobId(jobId);
+    setBrandInvoiceRefInput("");
+    setBrandInvoiceAmountInput(String(Number(jobs.find((x) => x.id === jobId)?.estimateTotalInr ?? 0).toFixed(2)));
+    setBrandInvoiceNoteInput("");
+  }
+
+  async function confirmBrandInvoice() {
+    if (!brandInvoicePopupJobId) return;
+    const jobId = brandInvoicePopupJobId;
+    const invoiceRef = brandInvoiceRefInput.trim();
+    const invoiceAmountInr = Number(brandInvoiceAmountInput);
+    const note = brandInvoiceNoteInput.trim();
     if (!invoiceRef) {
       setFeedback((f) => ({ ...f, [jobId]: "Invoice reference is required." }));
       return;
     }
-    const note = window.prompt("Invoice note (optional):", "")?.trim() ?? "";
+    if (!Number.isFinite(invoiceAmountInr) || invoiceAmountInr <= 0) {
+      setFeedback((f) => ({ ...f, [jobId]: "Brand invoice amount is required." }));
+      return;
+    }
     try {
-      await supervisorLogBrandInvoice(jobId, { invoiceRef, note });
+      await supervisorLogBrandInvoice(jobId, { invoiceRef, invoiceAmountInr, note });
       setFeedback((f) => ({ ...f, [jobId]: `Brand invoice logged (${invoiceRef}). Sent to outward queue.` }));
+      setBrandInvoicePopupJobId(null);
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand invoice." }));
     }
   }
 
   async function logBrandCreditNote(jobId: string) {
-    const couponCode = window.prompt("Coupon / credit note code:", "")?.trim() ?? "";
+    setBrandCreditPopupJobId(jobId);
+    setBrandCouponCodeInput("");
+    setBrandCouponValueInput("");
+    setBrandCouponValidUntilInput("");
+    setBrandCouponNoteInput("Brand could not repair; credit note issued.");
+  }
+
+  async function confirmBrandCreditNote() {
+    if (!brandCreditPopupJobId) return;
+    const jobId = brandCreditPopupJobId;
+    const couponCode = brandCouponCodeInput.trim();
+    const valueInr = Number(brandCouponValueInput);
+    const validUntil = brandCouponValidUntilInput.trim();
+    const note = brandCouponNoteInput.trim();
     if (!couponCode) {
       setFeedback((f) => ({ ...f, [jobId]: "Coupon code is required." }));
       return;
     }
-    const valueRaw = window.prompt("Coupon value (INR):", "0");
-    const valueInr = Number(valueRaw ?? "");
     if (!Number.isFinite(valueInr) || valueInr <= 0) {
       setFeedback((f) => ({ ...f, [jobId]: "Enter valid coupon value." }));
       return;
     }
-    const validUntil = window.prompt("Valid until (YYYY-MM-DD, optional):", "")?.trim() ?? "";
-    const note = window.prompt("Credit note remark:", "Brand could not repair; credit note issued.")?.trim() ?? "";
     try {
       await supervisorLogBrandCreditNote(jobId, { couponCode, valueInr, validUntil: validUntil || undefined, note });
       setFeedback((f) => ({ ...f, [jobId]: `Brand credit note logged (${couponCode}).` }));
+      setBrandCreditPopupJobId(null);
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand credit note." }));
     }
   }
 
   async function notifyCoupon(jobId: string) {
-    const note = window.prompt("Customer notification note:", "Customer informed through web, SMS and WhatsApp copy.")?.trim() ?? "";
+    setBrandNotifyPopupJobId(jobId);
+    setBrandNotifyNoteInput("Customer informed through web, SMS and WhatsApp copy.");
+  }
+
+  async function confirmNotifyCoupon() {
+    if (!brandNotifyPopupJobId) return;
+    const jobId = brandNotifyPopupJobId;
+    const note = brandNotifyNoteInput.trim();
     try {
       await supervisorNotifyBrandCoupon(jobId, {
         channels: { web: true, smsTemplateShared: true, whatsappTemplateShared: true },
         note,
       });
       setFeedback((f) => ({ ...f, [jobId]: "Customer coupon notification recorded." }));
+      setBrandNotifyPopupJobId(null);
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not mark customer notification." }));
     }
@@ -707,8 +773,8 @@ export function ScSupervisorPage() {
                     <p className="mt-2 text-xs text-stone-500">{j.complaint}</p>
                   </div>
                   <div className="text-right text-sm tabular-nums text-stone-700">
-                    Est.{" "}
-                    {j.estimateTotalInr.toLocaleString(undefined, {
+                    Spares amount{" "}
+                    {sparesAmountInr(j).toLocaleString(undefined, {
                       style: "currency",
                       currency: "INR",
                     })}
@@ -819,16 +885,9 @@ export function ScSupervisorPage() {
                     <p className="mt-1 text-xs text-stone-500">Status: {j.status.replace(/_/g, " ")}</p>
                     <div className="mt-2 rounded-lg border border-zimson-100 bg-zimson-50/50 px-3 py-2 text-xs text-stone-700">
                       <p>
-                        <span className="font-semibold text-stone-900">Current approved estimate:</span>{" "}
-                        {j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        <span className="font-semibold text-stone-900">Spares / brand amount:</span>{" "}
+                        {sparesAmountInr(j).toLocaleString(undefined, { style: "currency", currency: "INR" })}
                       </p>
-                      {j.reestimateRequestedInr != null && j.reestimateRequestedInr > 0 ? (
-                        <p className="mt-1">
-                          <span className="font-semibold text-stone-900">Last proposed re-estimate:</span>{" "}
-                          {j.reestimateRequestedInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                          {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
-                        </p>
-                      ) : null}
                     </div>
                     {j.customerReestimateResponse === "accepted" ? (
                       <p className="mt-1 text-xs font-semibold text-emerald-700">
@@ -1288,6 +1347,86 @@ export function ScSupervisorPage() {
               >
                 Send to brand
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {brandEstimatePopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Log brand estimate</h3>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">Estimate amount (INR)
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandEstimateAmountInput} onChange={(e) => setBrandEstimateAmountInput(e.target.value)} />
+              </label>
+              <label className="text-sm">Mail note / remarks
+                <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={3} value={brandEstimateNoteInput} onChange={(e) => setBrandEstimateNoteInput(e.target.value)} />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setBrandEstimatePopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
+              <button type="button" onClick={() => void confirmBrandEstimate()} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white">Save</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {brandInvoicePopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Log brand invoice</h3>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">Brand invoice reference *
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandInvoiceRefInput} onChange={(e) => setBrandInvoiceRefInput(e.target.value)} />
+              </label>
+              <label className="text-sm">Brand invoice amount (main amount) *
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandInvoiceAmountInput} onChange={(e) => setBrandInvoiceAmountInput(e.target.value)} />
+              </label>
+              <label className="text-sm">Note (optional)
+                <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={2} value={brandInvoiceNoteInput} onChange={(e) => setBrandInvoiceNoteInput(e.target.value)} />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setBrandInvoicePopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
+              <button type="button" onClick={() => void confirmBrandInvoice()} className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Save and move outward</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {brandCreditPopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Log brand credit note</h3>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">Coupon / credit note code *
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandCouponCodeInput} onChange={(e) => setBrandCouponCodeInput(e.target.value)} />
+              </label>
+              <label className="text-sm">Coupon value (INR) *
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandCouponValueInput} onChange={(e) => setBrandCouponValueInput(e.target.value)} />
+              </label>
+              <label className="text-sm">Valid until
+                <input type="date" className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandCouponValidUntilInput} onChange={(e) => setBrandCouponValidUntilInput(e.target.value)} />
+              </label>
+              <label className="text-sm">Remark
+                <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={2} value={brandCouponNoteInput} onChange={(e) => setBrandCouponNoteInput(e.target.value)} />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setBrandCreditPopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
+              <button type="button" onClick={() => void confirmBrandCreditNote()} className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white">Save coupon</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {brandNotifyPopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Customer coupon notification</h3>
+            <label className="mt-3 block text-sm">Note
+              <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={3} value={brandNotifyNoteInput} onChange={(e) => setBrandNotifyNoteInput(e.target.value)} />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setBrandNotifyPopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
+              <button type="button" onClick={() => void confirmNotifyCoupon()} className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white">Mark notified</button>
             </div>
           </div>
         </div>

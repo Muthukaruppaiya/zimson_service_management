@@ -519,6 +519,7 @@ export function registerSrfRoutes(
                 j.brand_ho_approval_email_meta AS "brandHoApprovalEmailMeta",
                 j.brand_return_received_at AS "brandReturnReceivedAt",
                 j.brand_invoice_ref AS "brandInvoiceRef",
+                j.brand_invoice_amount_inr::float8 AS "brandInvoiceAmountInr",
                 j.brand_invoice_meta AS "brandInvoiceMeta",
                 j.brand_coupon_code AS "brandCouponCode",
                 j.brand_coupon_value_inr::float8 AS "brandCouponValueInr",
@@ -648,6 +649,7 @@ export function registerSrfRoutes(
         brandHoApprovalSentAt: string | null;
         brandReturnReceivedAt: string | null;
         brandInvoiceRef: string | null;
+        brandInvoiceAmountInr: number | null;
         brandCouponCode: string | null;
         brandCouponValueInr: number | null;
         brandCouponReceivedAt: string | null;
@@ -687,6 +689,7 @@ export function registerSrfRoutes(
                 brand_ho_approval_sent_at AS "brandHoApprovalSentAt",
                 brand_return_received_at AS "brandReturnReceivedAt",
                 brand_invoice_ref AS "brandInvoiceRef",
+                brand_invoice_amount_inr::float8 AS "brandInvoiceAmountInr",
                 brand_coupon_code AS "brandCouponCode",
                 brand_coupon_value_inr::float8 AS "brandCouponValueInr",
                 brand_coupon_received_at AS "brandCouponReceivedAt",
@@ -3045,9 +3048,14 @@ export function registerSrfRoutes(
     }
     const srfId = String(req.params.srfId ?? "").trim();
     const invoiceRef = String(req.body?.invoiceRef ?? "").trim();
+    const invoiceAmountInr = Number(req.body?.invoiceAmountInr ?? 0);
     const note = String(req.body?.note ?? "").trim();
     if (!invoiceRef) {
       res.status(400).json({ error: "Brand invoice reference is required." });
+      return;
+    }
+    if (!Number.isFinite(invoiceAmountInr) || invoiceAmountInr <= 0) {
+      res.status(400).json({ error: "Valid brand invoice amount is required." });
       return;
     }
     try {
@@ -3057,13 +3065,15 @@ export function registerSrfRoutes(
              completed_at_sc = COALESCE(completed_at_sc, now()),
              ready_for_outward_at = COALESCE(ready_for_outward_at, now()),
              estimate_ok_at = COALESCE(estimate_ok_at, now()),
+             estimate_total_inr = $3,
              brand_invoice_ref = $2,
-             brand_invoice_meta = $3::jsonb,
+             brand_invoice_amount_inr = $3,
+             brand_invoice_meta = $4::jsonb,
              updated_at = now(),
-             modified_by = $4
+             modified_by = $5
          WHERE id = $1::uuid
            AND status = 'received_from_brand'`,
-        [srfId, invoiceRef, JSON.stringify(toJsonMeta(req.body?.invoiceMeta)), actor?.id ?? null],
+        [srfId, invoiceRef, invoiceAmountInr, JSON.stringify(toJsonMeta(req.body?.invoiceMeta)), actor?.id ?? null],
       );
       if ((upd.rowCount ?? 0) === 0) {
         res.status(400).json({ error: "SRF must be in received_from_brand state." });
@@ -3075,8 +3085,9 @@ export function registerSrfRoutes(
         await appendStatusHistory(client, srfId, "ready_for_outward", actor?.id ?? null, note || `Brand invoice logged (${invoiceRef}).`);
         await appendActionLog(client, srfId, {
           action: "brand_invoice_logged",
-          description: `Brand invoice logged: ${invoiceRef}.`,
+          description: `Brand invoice logged: ${invoiceRef} (INR ${invoiceAmountInr.toFixed(2)}).`,
           actor: actor ?? undefined,
+          amountInr: invoiceAmountInr,
           referenceDoc: invoiceRef,
           details: { note, invoiceMeta: toJsonMeta(req.body?.invoiceMeta) },
         });
