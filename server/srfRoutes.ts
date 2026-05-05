@@ -136,12 +136,27 @@ async function nextDocNumber(client: PoolClient, prefix: string, suffix: string,
   return `${prefix}${yy}${scopeCode}${num}${suffix}`;
 }
 
-function scopeCode(code: string, fallback: string): string {
+function scopeCode(code: string, fallback: string, maxLen = 3): string {
   return (code || fallback)
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 3)
-    .padEnd(3, "X");
+    .slice(0, maxLen)
+    .padEnd(maxLen, "X");
+}
+
+function srfStoreScopeCode(storeName: string | null | undefined, storeId: string): string {
+  const normalizedName = String(storeName ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .trim();
+  const parts = normalizedName.split(/\s+/).filter(Boolean);
+  const preferred = parts.find((p) => /[A-Z]{2,}[0-9]{0,3}/.test(p) && p.length >= 3);
+  if (preferred) return scopeCode(preferred, "STR", 6);
+  const compactName = normalizedName.replace(/\s+/g, "");
+  if (compactName.length >= 3) return scopeCode(compactName, "STR", 6);
+  const idTail = String(storeId ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(-6);
+  if (idTail.length >= 3) return scopeCode(idTail, "STR", 6);
+  return scopeCode("STR", "STR", 6);
 }
 
 function tokenHash(token: string): string {
@@ -1391,7 +1406,7 @@ export function registerSrfRoutes(
         [storeId],
       );
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
-      const ref = await nextDocNumber(client, prefix, suffix, scopeCode(storeRows[0]?.name ?? storeId, "STR"));
+      const ref = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(storeRows[0]?.name, storeId));
       const ins = await client.query<{ id: string }>(
         `INSERT INTO srf_jobs (
            reference, region_id, store_id, customer_name, phone, customer_kind, company, watch_brand, watch_model, serial,
@@ -2423,7 +2438,7 @@ export function registerSrfRoutes(
         [row.store_id],
       );
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
-      const newRef = await nextDocNumber(client, prefix, suffix, scopeCode(storeRows[0]?.name ?? row.store_id, "STR"));
+      const newRef = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(storeRows[0]?.name, row.store_id));
       const ins = await client.query<{ id: string }>(
         `INSERT INTO srf_jobs (
           reference, region_id, store_id, customer_name, phone, customer_kind, company,

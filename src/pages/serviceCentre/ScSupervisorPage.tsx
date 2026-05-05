@@ -1062,9 +1062,12 @@ export function ScSupervisorPage() {
                 <p className="mt-1 text-xs text-stone-500">Status: {j.status.replace(/_/g, " ")}</p>
                 {(j.brandDispatchRef || j.brandEstimateInr || j.brandInvoiceRef || j.brandCouponCode) ? (
                   <div className="mt-2 rounded-lg border border-zimson-100 bg-zimson-50/50 px-3 py-2 text-xs text-stone-700">
+                    {j.brandOdcNumber ? <p>Brand ODC: {j.brandOdcNumber}</p> : null}
+                    {j.brandInwardRef ? <p>Brand inward ref: {j.brandInwardRef}</p> : null}
                     {j.brandDispatchRef ? <p>Dispatch ref: {j.brandDispatchRef}</p> : null}
                     {j.brandEstimateInr ? <p>Brand estimate: INR {Number(j.brandEstimateInr).toFixed(2)}</p> : null}
                     {j.brandInvoiceRef ? <p>Brand invoice: {j.brandInvoiceRef}</p> : null}
+                    {j.brandInvoiceAmountInr ? <p>Main amount: INR {Number(j.brandInvoiceAmountInr).toFixed(2)}</p> : null}
                     {j.brandCouponCode ? (
                       <p>
                         Coupon: {j.brandCouponCode}

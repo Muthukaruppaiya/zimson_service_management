@@ -257,29 +257,58 @@ export function printAssignmentSlip(job: SrfJob, technicianLabel: string): void 
 export function printBrandDispatchDocument(job: SrfJob, payload?: { dispatchRef?: string; note?: string }): void {
   const dispatchRef = payload?.dispatchRef?.trim() || "-";
   const note = payload?.note?.trim() || "External brand repair required (cannot be repaired at HO).";
+  const now = new Date();
+  const bookingCenter = job.storeName ?? job.storeId ?? "-";
+  const bookingAddress = [job.storeName, job.regionName].filter(Boolean).join(", ") || "-";
+  const sparesRows = (job.usedSpares ?? [])
+    .map(
+      (x, idx) =>
+        `<tr>
+           <td>${idx + 1}</td>
+           <td>${x.spareId ?? "-"}</td>
+           <td>${x.name}</td>
+           <td>${Number(x.qty ?? 0)}</td>
+           <td>INR ${Number(x.unitPriceInr ?? 0).toFixed(2)}</td>
+           <td>INR ${Number(x.lineTotalInr ?? Number(x.unitPriceInr ?? 0) * Number(x.qty ?? 0)).toFixed(2)}</td>
+         </tr>`,
+    )
+    .join("");
   const html = base(
     `Brand Dispatch ${job.reference}`,
     `${barcodeBlock(job.reference)}
-     <h2 style="margin:0 0 12px">Brand Service Dispatch Note</h2>
-     <div><strong>SRF:</strong> ${job.reference}</div>
-     <div><strong>Dispatch ref:</strong> ${dispatchRef}</div>
-     <div><strong>Customer:</strong> ${job.customerName} (${job.phone})</div>
-     <div><strong>Watch:</strong> ${job.watchBrand} ${job.watchModel} · ${job.serial}</div>
-     <div style="margin-top:8px"><strong>Complaint:</strong> ${job.complaint || "-"}</div>
-     <div style="margin-top:8px"><strong>Current estimate:</strong> INR ${Number(job.estimateTotalInr ?? 0).toFixed(2)}</div>
-     <div style="margin-top:8px"><strong>Reason to brand:</strong> ${note}</div>
-     <h3 style="margin:16px 0 6px">Checklist</h3>
-     <ul style="margin-top:0">
-       <li>Watch condition verified with photos and serial</li>
-       <li>SRF copy attached</li>
-       <li>Accessories sent (if any) listed below</li>
-     </ul>
-     <div style="height:70px;border:1px solid #ccc;padding:8px">Accessories / remarks:</div>
+     <h2 style="margin:0 0 10px">Service Acknowledgment / Brand Dispatch Form</h2>
+     <div style="font-size:12px;color:#555">Internal Copy · Printed on ${now.toLocaleString()}</div>
+     <table style="width:100%;border-collapse:collapse;margin-top:12px" border="1" cellspacing="0" cellpadding="6">
+       <tbody>
+         <tr><td><strong>Service Entry Number</strong></td><td>${job.reference}</td><td><strong>Dispatch ODC</strong></td><td>${job.brandOdcNumber ?? "-"}</td></tr>
+         <tr><td><strong>Booking Date</strong></td><td>${new Date(job.createdAt).toLocaleString()}</td><td><strong>Booking Center</strong></td><td>${bookingCenter}</td></tr>
+         <tr><td><strong>Dispatch Ref / AWB</strong></td><td>${dispatchRef}</td><td><strong>Brand Inward Ref</strong></td><td>${job.brandInwardRef ?? "-"}</td></tr>
+         <tr><td><strong>Brand Invoice Ref</strong></td><td>${job.brandInvoiceRef ?? "-"}</td><td><strong>Brand Invoice Amount</strong></td><td>INR ${Number(job.brandInvoiceAmountInr ?? 0).toFixed(2)}</td></tr>
+       </tbody>
+     </table>
+     <h3 style="margin:14px 0 6px">Customer &amp; Product Information</h3>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <tbody>
+         <tr><td><strong>Customer Name</strong></td><td>${job.customerName}</td><td><strong>Mobile</strong></td><td>${job.phone}</td></tr>
+         <tr><td><strong>Brand / Model</strong></td><td>${job.watchBrand} ${job.watchModel}</td><td><strong>Serial</strong></td><td>${job.serial}</td></tr>
+         <tr><td><strong>Nature of Repair</strong></td><td colspan="3">Chargeable / Brand External Service</td></tr>
+         <tr><td><strong>Customer Remarks</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
+         <tr><td><strong>Supervisor Note</strong></td><td colspan="3">${note}</td></tr>
+         <tr><td><strong>Center Address</strong></td><td colspan="3">${bookingAddress}</td></tr>
+       </tbody>
+     </table>
+     <h3 style="margin:14px 0 6px">Technician / Spares Entry</h3>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <thead><tr><th>#</th><th>Stock No</th><th>Part Name</th><th>Qty</th><th>Unit</th><th>Line Total</th></tr></thead>
+       <tbody>${sparesRows || '<tr><td colspan="6">No spares lines entered yet.</td></tr>'}</tbody>
+     </table>
+     <div style="margin-top:12px"><strong>Total Spares / Main Amount:</strong> INR ${Number(job.brandInvoiceAmountInr ?? job.estimateTotalInr ?? 0).toFixed(2)}</div>
+     <div style="margin-top:18px;height:70px;border:1px solid #ccc;padding:8px"><strong>Accessories / Packing Remarks:</strong></div>
      <div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:18px">
-       <div>Prepared by (HO): _____________________</div>
-       <div>Received by (Brand): _____________________</div>
-       <div>Date &amp; time out: _____________________</div>
-       <div>Date &amp; time in: _____________________</div>
+       <div>Prepared By (Supervisor): _____________________</div>
+       <div>Received By (Brand Service): _____________________</div>
+       <div>Outward Date/Time: _____________________</div>
+       <div>Inward Date/Time: _____________________</div>
      </div>`,
   );
   openPrintDocument(`Brand Dispatch ${job.reference}`, html);
