@@ -17,6 +17,11 @@ type TrackJob = {
   reestimateRequestedInr?: number | null;
   customerReestimateResponse: "accepted" | "rejected" | null;
   customerReestimateRespondedAt?: string | null;
+  brandCouponCode?: string | null;
+  brandCouponValueInr?: number | null;
+  brandCouponReceivedAt?: string | null;
+  brandCouponValidUntil?: string | null;
+  customerCouponNotifiedAt?: string | null;
   reestimateHistory?: Array<{ amountInr: number | null; note: string; requestedAt: string }>;
   photos?: Array<{ id: string; photoKind?: string; filePath: string }>;
   timeline: TrackHistory[];
@@ -32,6 +37,13 @@ const statusClass: Record<string, string> = {
   estimate_ok: "bg-cyan-100 text-cyan-800",
   reestimate_required: "bg-rose-100 text-rose-800",
   customer_rejected: "bg-red-100 text-red-800",
+  sent_to_brand: "bg-violet-100 text-violet-800",
+  brand_estimate_pending: "bg-violet-100 text-violet-800",
+  brand_approved: "bg-indigo-100 text-indigo-800",
+  brand_repair_in_progress: "bg-indigo-100 text-indigo-800",
+  received_from_brand: "bg-cyan-100 text-cyan-800",
+  brand_credit_note_pending: "bg-amber-100 text-amber-800",
+  brand_credit_note_active: "bg-emerald-100 text-emerald-800",
   ready_for_outward: "bg-lime-100 text-lime-800",
   dispatched_to_store: "bg-orange-100 text-orange-800",
   received_at_store: "bg-emerald-100 text-emerald-800",
@@ -43,6 +55,9 @@ function customerStatusLabel(status: string, hasPendingReestimate: boolean): str
   if (status === "draft" || status === "photo_pending" || status === "at_store") return "Booking confirmed";
   if (status === "in_transit_sc" || status === "received_at_sc") return "In service movement";
   if (status === "assigned" || status === "estimate_ok" || status === "reestimate_required") return "Under repair";
+  if (status === "sent_to_brand" || status === "brand_estimate_pending" || status === "brand_approved" || status === "brand_repair_in_progress") return "With brand service";
+  if (status === "received_from_brand") return "Returned from brand";
+  if (status === "brand_credit_note_pending" || status === "brand_credit_note_active") return "Brand credit note issued";
   if (status === "customer_rejected") return "Awaiting confirmation";
   if (status === "ready_for_outward" || status === "dispatched_to_store") return "Ready for return";
   if (status === "received_at_store") return "Ready for delivery";
@@ -60,8 +75,29 @@ const flow = [
 function flowIndex(status: string): number {
   if (status === "draft" || status === "photo_pending" || status === "at_store") return 0;
   if (status === "in_transit_sc" || status === "received_at_sc") return 1;
-  if (status === "assigned" || status === "estimate_ok" || status === "reestimate_required" || status === "customer_rejected") return 2;
+  if (
+    status === "assigned" ||
+    status === "estimate_ok" ||
+    status === "reestimate_required" ||
+    status === "customer_rejected" ||
+    status === "sent_to_brand" ||
+    status === "brand_estimate_pending" ||
+    status === "brand_approved" ||
+    status === "brand_repair_in_progress" ||
+    status === "received_from_brand" ||
+    status === "brand_credit_note_pending" ||
+    status === "brand_credit_note_active"
+  ) {
+    return 2;
+  }
   return 3;
+}
+
+function buildCouponMessage(job: TrackJob): string {
+  const coupon = job.brandCouponCode ?? "-";
+  const value = Number(job.brandCouponValueInr ?? 0).toFixed(2);
+  const validity = job.brandCouponValidUntil ? ` Valid till ${new Date(job.brandCouponValidUntil).toLocaleDateString()}.` : "";
+  return `Dear customer, SRF ${job.reference}: Brand could not repair your watch. Coupon code ${coupon} of INR ${value} has been issued. You can redeem it at any Zimson store.${validity}`;
 }
 
 export function SrfTrackingPage() {
@@ -231,6 +267,34 @@ export function SrfTrackingPage() {
                       >
                         Reject
                       </button>
+                    </div>
+                  </div>
+                ) : null}
+                {(job.status === "brand_credit_note_pending" || job.status === "brand_credit_note_active") && job.brandCouponCode ? (
+                  <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                    <p className="text-xs font-semibold text-emerald-800">Brand coupon / credit note</p>
+                    <p className="mt-1 text-sm text-stone-700">
+                      Coupon code <strong>{job.brandCouponCode}</strong>
+                      {job.brandCouponValueInr ? ` · INR ${Number(job.brandCouponValueInr).toFixed(2)}` : ""}
+                      {job.brandCouponValidUntil ? ` · valid till ${new Date(job.brandCouponValidUntil).toLocaleDateString()}` : ""}
+                    </p>
+                    <p className="mt-1 text-xs text-stone-600">This coupon can be redeemed at any Zimson store.</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void navigator.clipboard.writeText(buildCouponMessage(job))}
+                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900"
+                      >
+                        Copy SMS text
+                      </button>
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent(buildCouponMessage(job))}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900"
+                      >
+                        Open WhatsApp message
+                      </a>
                     </div>
                   </div>
                 ) : null}

@@ -51,6 +51,13 @@ function laneOf(job: SrfJob): "HO" | "STORE" {
     s === "assigned" ||
     s === "estimate_ok" ||
     s === "reestimate_required" ||
+    s === "sent_to_brand" ||
+    s === "brand_estimate_pending" ||
+    s === "brand_approved" ||
+    s === "brand_repair_in_progress" ||
+    s === "received_from_brand" ||
+    s === "brand_credit_note_pending" ||
+    s === "brand_credit_note_active" ||
     s === "ready_for_outward" ||
     s === "in_transit_sc"
   ) {
@@ -62,6 +69,16 @@ function laneOf(job: SrfJob): "HO" | "STORE" {
 function timelineLabel(job: SrfJob): string {
   if (job.status === "at_store") return "Store waiting to dispatch for repair";
   if (job.status === "received_at_sc" || job.status === "assigned" || job.status === "estimate_ok") return "Repair in progress at HO";
+  if (
+    job.status === "sent_to_brand" ||
+    job.status === "brand_estimate_pending" ||
+    job.status === "brand_approved" ||
+    job.status === "brand_repair_in_progress"
+  ) {
+    return "With brand service centre";
+  }
+  if (job.status === "received_from_brand") return "Returned from brand, in HO processing";
+  if (job.status === "brand_credit_note_pending" || job.status === "brand_credit_note_active") return "Brand issued coupon / credit note";
   if (job.status === "ready_for_outward") return "Repaired, waiting dispatch";
   if (job.status === "dispatched_to_store") return "Dispatched from HO, waiting store inward";
   if (job.status === "received_at_store") return "Waiting customer handover";

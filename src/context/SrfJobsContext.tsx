@@ -71,6 +71,20 @@ export type SrfTrace = {
     transferSourceReference: string | null;
     transferSourceRegionId: string | null;
     transferTargetRegionId: string | null;
+    brandSentAt?: string | null;
+    brandDispatchRef?: string | null;
+    brandDispatchNote?: string | null;
+    brandEstimateInr?: number | null;
+    brandEstimateCurrency?: string | null;
+    brandEstimateReceivedAt?: string | null;
+    brandHoApprovalSentAt?: string | null;
+    brandReturnReceivedAt?: string | null;
+    brandInvoiceRef?: string | null;
+    brandCouponCode?: string | null;
+    brandCouponValueInr?: number | null;
+    brandCouponReceivedAt?: string | null;
+    brandCouponValidUntil?: string | null;
+    customerCouponNotifiedAt?: string | null;
     createdAt: string;
   };
   statusHistory: SrfTraceStatusRow[];
@@ -105,8 +119,27 @@ type SrfJobsContextValue = {
   supervisorMoveRejectedToOdc: (jobId: string, note?: string) => Promise<void>;
   technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
   technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<void>;
+  technicianSendToBrand: (jobId: string, payload: { dispatchRef?: string; note?: string; dispatchDocPath?: string }) => Promise<void>;
   submitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   technicianMarkRepairComplete: (jobId: string, technicianProfileId: string) => Promise<void>;
+  supervisorLogBrandEstimate: (
+    jobId: string,
+    payload: { estimateInr: number; currency?: string; note?: string; emailMeta?: Record<string, unknown> },
+  ) => Promise<void>;
+  supervisorApproveBrandEstimate: (jobId: string, payload?: { note?: string; emailMeta?: Record<string, unknown> }) => Promise<void>;
+  supervisorReceiveFromBrand: (jobId: string, payload?: { note?: string }) => Promise<void>;
+  supervisorLogBrandInvoice: (
+    jobId: string,
+    payload: { invoiceRef: string; note?: string; invoiceMeta?: Record<string, unknown> },
+  ) => Promise<void>;
+  supervisorLogBrandCreditNote: (
+    jobId: string,
+    payload: { couponCode: string; valueInr: number; validUntil?: string; note?: string },
+  ) => Promise<void>;
+  supervisorNotifyBrandCoupon: (
+    jobId: string,
+    payload?: { channels?: Record<string, unknown>; note?: string },
+  ) => Promise<void>;
   createOutwardBatch: (
     items: { jobId: string; destinationStoreId: string }[],
     opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
@@ -267,6 +300,17 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const technicianSendToBrand = useCallback(async (
+    jobId: string,
+    payload: { dispatchRef?: string; note?: string; dispatchDocPath?: string },
+  ) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/send`, {
+      method: "POST",
+      json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
   const submitSparesSlip = useCallback(async (jobId: string, lines: UsedSpareLine[]) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/spares-slip`, {
       method: "POST",
@@ -279,6 +323,69 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/repair-complete`, {
       method: "POST",
       json: { technicianProfileId },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorLogBrandEstimate = useCallback(async (
+    jobId: string,
+    payload: { estimateInr: number; currency?: string; note?: string; emailMeta?: Record<string, unknown> },
+  ) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/estimate`, {
+      method: "POST",
+      json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorApproveBrandEstimate = useCallback(async (
+    jobId: string,
+    payload?: { note?: string; emailMeta?: Record<string, unknown> },
+  ) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/approve`, {
+      method: "POST",
+      json: payload ?? {},
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorReceiveFromBrand = useCallback(async (jobId: string, payload?: { note?: string }) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/receive-return`, {
+      method: "POST",
+      json: payload ?? {},
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorLogBrandInvoice = useCallback(async (
+    jobId: string,
+    payload: { invoiceRef: string; note?: string; invoiceMeta?: Record<string, unknown> },
+  ) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/invoice`, {
+      method: "POST",
+      json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorLogBrandCreditNote = useCallback(async (
+    jobId: string,
+    payload: { couponCode: string; valueInr: number; validUntil?: string; note?: string },
+  ) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/credit-note`, {
+      method: "POST",
+      json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorNotifyBrandCoupon = useCallback(async (
+    jobId: string,
+    payload?: { channels?: Record<string, unknown>; note?: string },
+  ) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/notify-customer-coupon`, {
+      method: "POST",
+      json: payload ?? {},
     });
     await refreshJobs();
   }, [refreshJobs]);
@@ -369,8 +476,15 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorMoveRejectedToOdc,
       technicianEstimateOk,
       technicianRequestReestimate,
+      technicianSendToBrand,
       submitSparesSlip,
       technicianMarkRepairComplete,
+      supervisorLogBrandEstimate,
+      supervisorApproveBrandEstimate,
+      supervisorReceiveFromBrand,
+      supervisorLogBrandInvoice,
+      supervisorLogBrandCreditNote,
+      supervisorNotifyBrandCoupon,
       createOutwardBatch,
       receiveOutwardByDc,
       closeWithInvoice,
@@ -396,8 +510,15 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorMoveRejectedToOdc,
       technicianEstimateOk,
       technicianRequestReestimate,
+      technicianSendToBrand,
       submitSparesSlip,
       technicianMarkRepairComplete,
+      supervisorLogBrandEstimate,
+      supervisorApproveBrandEstimate,
+      supervisorReceiveFromBrand,
+      supervisorLogBrandInvoice,
+      supervisorLogBrandCreditNote,
+      supervisorNotifyBrandCoupon,
       createOutwardBatch,
       receiveOutwardByDc,
       closeWithInvoice,

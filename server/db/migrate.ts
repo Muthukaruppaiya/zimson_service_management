@@ -601,6 +601,27 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_target_store_id TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_source_region_id TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_source_store_id TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_source_reference VARCHAR(64);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_sent_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_ref VARCHAR(120);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_note TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_doc_path TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_odc_number VARCHAR(64);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_inward_ref VARCHAR(64);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_estimate_inr NUMERIC(14, 2);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_estimate_currency VARCHAR(12) NOT NULL DEFAULT 'INR';
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_estimate_received_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_estimate_email_meta JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_ho_approval_sent_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_ho_approval_email_meta JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_return_received_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_invoice_ref VARCHAR(120);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_invoice_meta JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_coupon_code VARCHAR(120);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_coupon_value_inr NUMERIC(14, 2);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_coupon_received_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_coupon_valid_until DATE;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_coupon_notified_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_coupon_notify_channels JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS srf_job_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

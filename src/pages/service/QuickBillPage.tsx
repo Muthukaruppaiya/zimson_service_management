@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
+import { useCustomers } from "../../context/CustomersContext";
 import { useBrands } from "../../context/BrandsContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
@@ -24,6 +25,24 @@ import {
   watchModelsForBrand,
 } from "../../data/serviceSeed";
 import type { TechnicianProfile } from "../../types/technician";
+
+type LoadedCustomerRow = {
+  displayName: string;
+  phone: string;
+  alternatePhone?: string;
+  email: string;
+  address?: string;
+  city?: string;
+  customerKind: "B2C" | "B2B";
+  company?: string;
+  gst?: string;
+  pan?: string;
+};
+
+function phoneLast10(v: string): string {
+  const digits = v.replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
 
 type LineItem = { id: string; description: string; amount: string; spareId?: string; qty?: number };
 
@@ -85,6 +104,9 @@ function QuickBillInvoicePanel({
 export function QuickBillPage() {
   const apiMode = useApiMode();
   const { user } = useAuth();
+  const { getById, customers } = useCustomers();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { regions } = useRegions();
   const { brands: catalogBrands } = useBrands();
   const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
@@ -122,6 +144,168 @@ export function QuickBillPage() {
   const [spareOptionsLoading, setSpareOptionsLoading] = useState(false);
   const [barcodeSku, setBarcodeSku] = useState("");
   const [invoiceHsnSac, setInvoiceHsnSac] = useState("9987");
+
+  const [customerChecked, setCustomerChecked] = useState(false);
+  const [customerCheckMsg, setCustomerCheckMsg] = useState<string | null>(null);
+  const [checkingCustomer, setCheckingCustomer] = useState(false);
+  const autoLookupTimerRef = useRef<number | null>(null);
+  const lastAutoLookupPhoneRef = useRef("");
+
+  const applyLoadedCustomer = useCallback((data: LoadedCustomerRow) => {
+    setCustomerType(data.customerKind);
+    setCustomerName((data.displayName ?? "").trim());
+    setPhone((data.phone ?? "").trim());
+    setEmail(data.email ?? "");
+    setCompany(data.company ?? "");
+    setGst(data.gst ?? "");
+    setPan(data.pan ?? "");
+    setCustomerChecked(true);
+    lastAutoLookupPhoneRef.current = phoneLast10((data.phone ?? "").trim());
+  }, []);
+
+  const checkCustomerInDb = useCallback(async () => {
+    setError(null);
+    setCustomerCheckMsg(null);
+    if (!phone.trim()) {
+      setCustomerChecked(false);
+      setCustomerCheckMsg(null);
+      return;
+    }
+    const p10 = phoneLast10(phone.trim());
+    if (p10.length !== 10) {
+      setCustomerChecked(false);
+      setCustomerCheckMsg(p10.length > 0 ? "Enter full 10-digit mobile number." : null);
+      return;
+    }
+    setCheckingCustomer(true);
+    try {
+      const data = await apiJson<{ customer: LoadedCustomerRow | null }>(
+        `/api/customers?phone=${encodeURIComponent(phone.trim())}`,
+      );
+      if (data.customer) {
+        applyLoadedCustomer(data.customer);
+        setCustomerCheckMsg("Existing customer found and loaded.");
+      } else {
+        const local = customers.find((c) => phoneLast10(c.phone) === p10);
+        if (local) {
+          applyLoadedCustomer({
+            displayName: local.displayName,
+            phone: local.phone,
+            alternatePhone: local.alternatePhone,
+            email: local.email,
+            address: local.address,
+            city: local.city,
+            customerKind: local.customerKind,
+            company: local.company,
+            gst: local.gst,
+            pan: local.pan,
+          });
+          setCustomerCheckMsg("Existing customer found locally.");
+        } else {
+          setCustomerChecked(false);
+          setCustomerCheckMsg("New customer — opening full registration.");
+          navigate(
+            `/service/quick-bill/new-customer?phone=${encodeURIComponent(phone.trim())}&name=${encodeURIComponent(customerName.trim())}`,
+          );
+        }
+      }
+    } catch (e) {
+      const local = customers.find((c) => phoneLast10(c.phone) === p10);
+      if (local) {
+        applyLoadedCustomer({
+          displayName: local.displayName,
+          phone: local.phone,
+          alternatePhone: local.alternatePhone,
+          email: local.email,
+          address: local.address,
+          city: local.city,
+          customerKind: local.customerKind,
+          company: local.company,
+          gst: local.gst,
+          pan: local.pan,
+        });
+        setCustomerCheckMsg("Customer found locally (server lookup unavailable).");
+      } else {
+        setError(e instanceof Error ? e.message : "Could not check customer.");
+      }
+    } finally {
+      setCheckingCustomer(false);
+    }
+  }, [applyLoadedCustomer, customers, navigate, phone, customerName]);
+
+  useEffect(() => {
+    const rp = searchParams.get("restorePhone");
+    if (!rp) return;
+    setPhone(rp);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useLayoutEffect(() => {
+    const resume = searchParams.get("resumeCustomer");
+    const customerId = searchParams.get("customerId");
+    const phoneHint = searchParams.get("phone");
+    if (resume !== "1" || !customerId) return;
+
+    const fromRecord = (row: LoadedCustomerRow) => {
+      applyLoadedCustomer(row);
+      setCustomerCheckMsg("Customer saved — continue with watch and bill lines.");
+    };
+
+    const local = getById(customerId);
+    if (local) {
+      fromRecord({
+        displayName: local.displayName,
+        phone: local.phone,
+        alternatePhone: local.alternatePhone,
+        email: local.email,
+        address: local.address,
+        city: local.city,
+        customerKind: local.customerKind,
+        company: local.company,
+        gst: local.gst,
+        pan: local.pan,
+      });
+      setSearchParams({}, { replace: true });
+      return;
+    }
+
+    if (!phoneHint) {
+      setSearchParams({}, { replace: true });
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await apiJson<{ customer: LoadedCustomerRow | null }>(
+          `/api/customers?phone=${encodeURIComponent(phoneHint)}`,
+        );
+        if (!cancelled && data.customer) fromRecord(data.customer);
+        else if (!cancelled) setError("Could not load the new customer. Try registration again.");
+      } catch {
+        if (!cancelled) setError("Could not load saved customer. Check API connection.");
+      } finally {
+        if (!cancelled) setSearchParams({}, { replace: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, getById, setSearchParams, applyLoadedCustomer]);
+
+  useEffect(() => {
+    const normalized = phoneLast10(phone);
+    if (normalized === lastAutoLookupPhoneRef.current) return;
+    setCustomerChecked(false);
+    if (autoLookupTimerRef.current) window.clearTimeout(autoLookupTimerRef.current);
+    autoLookupTimerRef.current = window.setTimeout(() => {
+      lastAutoLookupPhoneRef.current = normalized;
+      void checkCustomerInDb();
+    }, 450);
+    return () => {
+      if (autoLookupTimerRef.current) window.clearTimeout(autoLookupTimerRef.current);
+    };
+  }, [phone, checkCustomerInDb]);
 
   useEffect(() => {
     if (!apiMode || !user) return;
@@ -320,6 +504,11 @@ export function QuickBillPage() {
         return false;
       }
     }
+    const phoneDigits = phoneLast10(phone.trim());
+    if (phoneDigits.length === 10 && !customerChecked) {
+      setError("For this mobile number, wait for lookup to finish or complete customer registration.");
+      return false;
+    }
     if (!watchBrand || !watchModel.trim()) {
       setError("Choose a watch brand and model from the catalog.");
       return false;
@@ -481,6 +670,9 @@ export function QuickBillPage() {
     setAwaitingOtp(null);
     setOtpInput("");
     setOtpError(null);
+    setCustomerChecked(false);
+    setCustomerCheckMsg(null);
+    lastAutoLookupPhoneRef.current = "";
   }
 
   if (completion?.mode === "api") {
@@ -644,8 +836,8 @@ export function QuickBillPage() {
             </p>
           ) : (
             <p className="mb-4 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
-              For B2C, name and phone are <strong>optional</strong>. Leave blank for anonymous counter
-              sales if your policy allows it.
+              For B2C, name and phone are <strong>optional</strong> for walk-in sales. If you enter a
+              10-digit mobile, we load the customer master or send you to registration when new.
             </p>
           )}
 
@@ -731,6 +923,12 @@ export function QuickBillPage() {
                 placeholder="optional"
               />
             </div>
+            <p className="sm:col-span-2 text-xs text-stone-500">
+              {checkingCustomer ? "Checking customer in DB…" : "Enter a full mobile number to load or register the customer."}
+            </p>
+            {customerCheckMsg ? (
+              <p className="sm:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">{customerCheckMsg}</p>
+            ) : null}
           </div>
         </Card>
 

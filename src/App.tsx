@@ -21,6 +21,7 @@ import { ServiceBillingPage } from "./pages/service/ServiceBillingPage";
 import { ServiceBillingHomePage } from "./pages/service/ServiceBillingHomePage";
 import { SrfBookingsRegisterPage } from "./pages/service/SrfBookingsRegisterPage";
 import { SrfBookingV2Page } from "./pages/service/SrfBookingV2Page";
+import { SrfCustomerRegisterPage } from "./pages/service/SrfCustomerRegisterPage";
 import { SrfMasterTablePage } from "./pages/service/SrfMasterTablePage";
 import { StoreBillingPage } from "./pages/service/StoreBillingPage";
 import { StoreBillingMasterPage } from "./pages/service/StoreBillingMasterPage";
@@ -106,6 +107,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service/quick-bill/new-customer"
+                  element={
+                    <ModuleRoute module="service">
+                      <SrfCustomerRegisterPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service/quick-bill-history"
                   element={
                     <ModuleRoute module="service">
@@ -118,6 +127,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service">
                       <SrfBookingV2Page />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/srf/new-customer"
+                  element={
+                    <ModuleRoute module="service">
+                      <SrfCustomerRegisterPage />
                     </ModuleRoute>
                   }
                 />

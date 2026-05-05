@@ -10,7 +10,13 @@ import type { TechnicianProfile } from "../../types/technician";
 
 export function TechnicianWorkbenchPage() {
   const { user } = useAuth();
-  const { jobs, technicianEstimateOk, technicianRequestReestimate, submitSparesSlip, technicianMarkRepairComplete } = useSrfJobs();
+  const {
+    jobs,
+    technicianEstimateOk,
+    technicianRequestReestimate,
+    submitSparesSlip,
+    technicianMarkRepairComplete,
+  } = useSrfJobs();
   const [note, setNote] = useState<string | null>(null);
   const [sparesTextByJob, setSparesTextByJob] = useState<Record<string, string>>({});
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);

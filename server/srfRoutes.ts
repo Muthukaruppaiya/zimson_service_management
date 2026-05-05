@@ -58,6 +58,15 @@ function canSupervisorDecide(actor: DemoUser | null): boolean {
   return !!actor && (actor.role === "service_centre_supervisor" || actor.role === "super_admin" || actor.role === "ho_admin");
 }
 
+function canManageBrandDesk(actor: DemoUser | null): boolean {
+  return !!actor && (actor.role === "service_centre_supervisor" || actor.role === "super_admin" || actor.role === "ho_admin");
+}
+
+function toJsonMeta(input: unknown): Record<string, unknown> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return input as Record<string, unknown>;
+}
+
 const SRF_UPLOAD_ROOT = path.resolve(process.cwd(), "uploads", "srf");
 fs.mkdirSync(SRF_UPLOAD_ROOT, { recursive: true });
 
@@ -496,6 +505,27 @@ export function registerSrfRoutes(
                 j.transfer_source_region_id AS "transferSourceRegionId",
                 j.transfer_source_store_id AS "transferSourceStoreId",
                 j.transfer_source_reference AS "transferSourceReference",
+                j.brand_sent_at AS "brandSentAt",
+                j.brand_dispatch_ref AS "brandDispatchRef",
+                j.brand_dispatch_note AS "brandDispatchNote",
+                j.brand_dispatch_doc_path AS "brandDispatchDocPath",
+                j.brand_odc_number AS "brandOdcNumber",
+                j.brand_inward_ref AS "brandInwardRef",
+                j.brand_estimate_inr::float8 AS "brandEstimateInr",
+                j.brand_estimate_currency AS "brandEstimateCurrency",
+                j.brand_estimate_received_at AS "brandEstimateReceivedAt",
+                j.brand_estimate_email_meta AS "brandEstimateEmailMeta",
+                j.brand_ho_approval_sent_at AS "brandHoApprovalSentAt",
+                j.brand_ho_approval_email_meta AS "brandHoApprovalEmailMeta",
+                j.brand_return_received_at AS "brandReturnReceivedAt",
+                j.brand_invoice_ref AS "brandInvoiceRef",
+                j.brand_invoice_meta AS "brandInvoiceMeta",
+                j.brand_coupon_code AS "brandCouponCode",
+                j.brand_coupon_value_inr::float8 AS "brandCouponValueInr",
+                j.brand_coupon_received_at AS "brandCouponReceivedAt",
+                j.brand_coupon_valid_until AS "brandCouponValidUntil",
+                j.customer_coupon_notified_at AS "customerCouponNotifiedAt",
+                j.customer_coupon_notify_channels AS "customerCouponNotifyChannels",
                 j.created_by AS "createdBy",
                 j.modified_by AS "modifiedBy",
                 j.created_at AS "createdAt",
@@ -607,6 +637,22 @@ export function registerSrfRoutes(
         transferSourceReference: string | null;
         transferSourceRegionId: string | null;
         transferTargetRegionId: string | null;
+        brandSentAt: string | null;
+        brandDispatchRef: string | null;
+        brandDispatchNote: string | null;
+        brandOdcNumber: string | null;
+        brandInwardRef: string | null;
+        brandEstimateInr: number | null;
+        brandEstimateCurrency: string | null;
+        brandEstimateReceivedAt: string | null;
+        brandHoApprovalSentAt: string | null;
+        brandReturnReceivedAt: string | null;
+        brandInvoiceRef: string | null;
+        brandCouponCode: string | null;
+        brandCouponValueInr: number | null;
+        brandCouponReceivedAt: string | null;
+        brandCouponValidUntil: string | null;
+        customerCouponNotifiedAt: string | null;
         createdAt: string;
       }>(
         `SELECT id, reference, status,
@@ -630,6 +676,22 @@ export function registerSrfRoutes(
                 transfer_source_reference AS "transferSourceReference",
                 transfer_source_region_id AS "transferSourceRegionId",
                 transfer_target_region_id AS "transferTargetRegionId",
+                brand_sent_at AS "brandSentAt",
+                brand_dispatch_ref AS "brandDispatchRef",
+                brand_dispatch_note AS "brandDispatchNote",
+                brand_odc_number AS "brandOdcNumber",
+                brand_inward_ref AS "brandInwardRef",
+                brand_estimate_inr::float8 AS "brandEstimateInr",
+                brand_estimate_currency AS "brandEstimateCurrency",
+                brand_estimate_received_at AS "brandEstimateReceivedAt",
+                brand_ho_approval_sent_at AS "brandHoApprovalSentAt",
+                brand_return_received_at AS "brandReturnReceivedAt",
+                brand_invoice_ref AS "brandInvoiceRef",
+                brand_coupon_code AS "brandCouponCode",
+                brand_coupon_value_inr::float8 AS "brandCouponValueInr",
+                brand_coupon_received_at AS "brandCouponReceivedAt",
+                brand_coupon_valid_until AS "brandCouponValidUntil",
+                customer_coupon_notified_at AS "customerCouponNotifiedAt",
                 created_at AS "createdAt"
          FROM srf_jobs
          WHERE id = $1::uuid`,
@@ -2740,6 +2802,419 @@ export function registerSrfRoutes(
     }
   });
 
+  app.post("/api/service/srf-jobs/:srfId/brand/send", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can send to brand." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const dispatchRef = String(req.body?.dispatchRef ?? "").trim() || null;
+    const note = String(req.body?.note ?? "").trim();
+    const docPath = String(req.body?.dispatchDocPath ?? "").trim() || null;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const row = await client.query<{ status: string; assigned_technician_id: string | null; region_id: string }>(
+        `SELECT status, assigned_technician_id, region_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const srf = row.rows[0];
+      if (!srf) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (!["assigned", "estimate_ok", "reestimate_required"].includes(srf.status)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "SRF must be assigned/estimate_ok/reestimate_required to send to brand." });
+        return;
+      }
+      const brandOdcNumber = await nextDocNumber(client, "ODC", "", scopeCode(srf.region_id, "BRD"));
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'sent_to_brand',
+             brand_sent_at = now(),
+             brand_dispatch_ref = $2,
+             brand_dispatch_note = $3,
+             brand_dispatch_doc_path = $4,
+             brand_odc_number = $5,
+             updated_at = now(),
+             modified_by = $6
+         WHERE id = $1::uuid`,
+        [srfId, dispatchRef, note || null, docPath, brandOdcNumber, actor.id],
+      );
+      await appendStatusHistory(
+        client,
+        srfId,
+        "sent_to_brand",
+        actor.id,
+        note || `Sent to brand for external repair via ODC ${brandOdcNumber}.`,
+      );
+      await appendActionLog(client, srfId, {
+        action: "brand_send",
+        description: "Watch sent to brand for external repair.",
+        actor,
+        referenceDoc: brandOdcNumber,
+        details: { dispatchRef, dispatchDocPath: docPath, brandOdcNumber, note },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true, brandOdcNumber });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not mark SRF as sent to brand." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/estimate", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can log brand estimate." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const estimateInr = Number(req.body?.estimateInr ?? 0);
+    const currency = String(req.body?.currency ?? "INR").trim().toUpperCase() || "INR";
+    const note = String(req.body?.note ?? "").trim();
+    if (!Number.isFinite(estimateInr) || estimateInr <= 0) {
+      res.status(400).json({ error: "Valid brand estimate amount is required." });
+      return;
+    }
+    try {
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_estimate_pending',
+             brand_estimate_inr = $2,
+             brand_estimate_currency = $3,
+             brand_estimate_received_at = now(),
+             brand_estimate_email_meta = $4::jsonb,
+             updated_at = now(),
+             modified_by = $5
+         WHERE id = $1::uuid
+           AND status IN ('sent_to_brand', 'brand_estimate_pending')`,
+        [srfId, estimateInr, currency, JSON.stringify(toJsonMeta(req.body?.emailMeta)), actor?.id ?? null],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({ error: "SRF must be in sent_to_brand/brand_estimate_pending state." });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "brand_estimate_pending",
+          actor?.id ?? null,
+          note || `Brand estimate received: ${currency} ${estimateInr.toFixed(2)}.`,
+        );
+        await appendActionLog(client, srfId, {
+          action: "brand_estimate_received",
+          description: `Brand estimate logged (${currency} ${estimateInr.toFixed(2)}).`,
+          actor: actor ?? undefined,
+          amountInr: currency === "INR" ? estimateInr : null,
+          details: { estimateInr, currency, note, emailMeta: toJsonMeta(req.body?.emailMeta) },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not log brand estimate." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/approve", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can approve brand estimate." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    try {
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_approved',
+             brand_ho_approval_sent_at = now(),
+             brand_ho_approval_email_meta = $2::jsonb,
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid
+           AND status = 'brand_estimate_pending'`,
+        [srfId, JSON.stringify(toJsonMeta(req.body?.emailMeta)), actor?.id ?? null],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({ error: "SRF must be in brand_estimate_pending state." });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(client, srfId, "brand_approved", actor?.id ?? null, note || "HO approved brand estimate.");
+        await appendActionLog(client, srfId, {
+          action: "brand_estimate_approved",
+          description: "HO approval sent to brand.",
+          actor: actor ?? undefined,
+          details: { note, emailMeta: toJsonMeta(req.body?.emailMeta) },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not approve brand estimate." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/receive-return", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can mark brand return receipt." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    try {
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'received_from_brand',
+             brand_return_received_at = now(),
+             brand_inward_ref = COALESCE(brand_inward_ref, brand_odc_number),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND status IN ('brand_approved', 'brand_repair_in_progress')`,
+        [srfId, actor?.id ?? null],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({ error: "SRF must be in brand_approved/brand_repair_in_progress state." });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const r = await client.query<{ brand_odc_number: string | null }>(
+          `SELECT brand_odc_number FROM srf_jobs WHERE id = $1::uuid`,
+          [srfId],
+        );
+        const ref = r.rows[0]?.brand_odc_number ?? null;
+        await appendStatusHistory(
+          client,
+          srfId,
+          "received_from_brand",
+          actor?.id ?? null,
+          note || `Watch received back from brand against DC ${ref ?? "-"}.`,
+        );
+        await appendActionLog(client, srfId, {
+          action: "brand_return_received",
+          description: "Watch received at HO from brand.",
+          actor: actor ?? undefined,
+          referenceDoc: ref,
+          details: { note, inwardAgainstDc: ref },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not mark brand return receipt." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/invoice", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can log brand invoice." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const invoiceRef = String(req.body?.invoiceRef ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    if (!invoiceRef) {
+      res.status(400).json({ error: "Brand invoice reference is required." });
+      return;
+    }
+    try {
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'ready_for_outward',
+             completed_at_sc = COALESCE(completed_at_sc, now()),
+             ready_for_outward_at = COALESCE(ready_for_outward_at, now()),
+             estimate_ok_at = COALESCE(estimate_ok_at, now()),
+             brand_invoice_ref = $2,
+             brand_invoice_meta = $3::jsonb,
+             updated_at = now(),
+             modified_by = $4
+         WHERE id = $1::uuid
+           AND status = 'received_from_brand'`,
+        [srfId, invoiceRef, JSON.stringify(toJsonMeta(req.body?.invoiceMeta)), actor?.id ?? null],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({ error: "SRF must be in received_from_brand state." });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(client, srfId, "ready_for_outward", actor?.id ?? null, note || `Brand invoice logged (${invoiceRef}).`);
+        await appendActionLog(client, srfId, {
+          action: "brand_invoice_logged",
+          description: `Brand invoice logged: ${invoiceRef}.`,
+          actor: actor ?? undefined,
+          referenceDoc: invoiceRef,
+          details: { note, invoiceMeta: toJsonMeta(req.body?.invoiceMeta) },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not log brand invoice." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/credit-note", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can log brand credit note." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const couponCode = String(req.body?.couponCode ?? "").trim();
+    const valueInr = Number(req.body?.valueInr ?? 0);
+    const validUntil = String(req.body?.validUntil ?? "").trim() || null;
+    const note = String(req.body?.note ?? "").trim();
+    if (!couponCode) {
+      res.status(400).json({ error: "Coupon / credit note code is required." });
+      return;
+    }
+    if (!Number.isFinite(valueInr) || valueInr <= 0) {
+      res.status(400).json({ error: "Valid coupon value is required." });
+      return;
+    }
+    try {
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_credit_note_pending',
+             brand_coupon_code = $2,
+             brand_coupon_value_inr = $3,
+             brand_coupon_received_at = now(),
+             brand_coupon_valid_until = $4::date,
+             updated_at = now(),
+             modified_by = $5
+         WHERE id = $1::uuid
+           AND status IN ('sent_to_brand', 'brand_estimate_pending', 'brand_approved', 'brand_repair_in_progress', 'received_from_brand')`,
+        [srfId, couponCode, valueInr, validUntil, actor?.id ?? null],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({ error: "SRF is not in a valid brand status for coupon entry." });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "brand_credit_note_pending",
+          actor?.id ?? null,
+          note || `Brand issued coupon ${couponCode} for INR ${valueInr.toFixed(2)}.`,
+        );
+        await appendActionLog(client, srfId, {
+          action: "brand_credit_note_received",
+          description: `Brand credit note logged (${couponCode}, INR ${valueInr.toFixed(2)}).`,
+          actor: actor ?? undefined,
+          amountInr: valueInr,
+          referenceDoc: couponCode,
+          details: { validUntil, note },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not log brand credit note." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/notify-customer-coupon", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can mark coupon notification." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const channels = toJsonMeta(req.body?.channels);
+    const note = String(req.body?.note ?? "").trim();
+    try {
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_credit_note_active',
+             customer_coupon_notified_at = now(),
+             customer_coupon_notify_channels = $2::jsonb,
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid
+           AND status IN ('brand_credit_note_pending', 'brand_credit_note_active')`,
+        [srfId, JSON.stringify(channels), actor?.id ?? null],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({ error: "SRF must be in brand_credit_note_pending/active state." });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "brand_credit_note_active",
+          actor?.id ?? null,
+          note || "Customer informed about brand coupon / credit note.",
+        );
+        await appendActionLog(client, srfId, {
+          action: "brand_coupon_customer_notified",
+          description: "Customer notification recorded for brand coupon.",
+          actor: actor ?? undefined,
+          details: { channels, note },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not mark coupon notification." });
+    }
+  });
+
   app.get("/api/service/srf-jobs/:srfId/inter-ho-invoice-prefill", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !roleCanView(actor)) {
@@ -3262,6 +3737,11 @@ export function registerSrfRoutes(
           reestimateRequestedNote: string | null;
           reestimateRequestedInr: number | null;
           customerReestimateResponse: string | null;
+          brandCouponCode: string | null;
+          brandCouponValueInr: number | null;
+          brandCouponReceivedAt: string | null;
+          brandCouponValidUntil: string | null;
+          customerCouponNotifiedAt: string | null;
           createdAt: string;
           photos: Array<{
             id: string;
@@ -3287,6 +3767,11 @@ export function registerSrfRoutes(
                 j.reestimate_requested_note AS "reestimateRequestedNote",
                 j.reestimate_requested_inr::float8 AS "reestimateRequestedInr",
                 j.customer_reestimate_response AS "customerReestimateResponse",
+                j.brand_coupon_code AS "brandCouponCode",
+                j.brand_coupon_value_inr::float8 AS "brandCouponValueInr",
+                j.brand_coupon_received_at AS "brandCouponReceivedAt",
+                j.brand_coupon_valid_until AS "brandCouponValidUntil",
+                j.customer_coupon_notified_at AS "customerCouponNotifiedAt",
                 j.created_at AS "createdAt",
                 COALESCE((
                   SELECT json_agg(

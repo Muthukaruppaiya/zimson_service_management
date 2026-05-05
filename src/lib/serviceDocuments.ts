@@ -254,6 +254,37 @@ export function printAssignmentSlip(job: SrfJob, technicianLabel: string): void 
   openPrintDocument(`Assignment ${job.reference}`, html);
 }
 
+export function printBrandDispatchDocument(job: SrfJob, payload?: { dispatchRef?: string; note?: string }): void {
+  const dispatchRef = payload?.dispatchRef?.trim() || "-";
+  const note = payload?.note?.trim() || "External brand repair required (cannot be repaired at HO).";
+  const html = base(
+    `Brand Dispatch ${job.reference}`,
+    `${barcodeBlock(job.reference)}
+     <h2 style="margin:0 0 12px">Brand Service Dispatch Note</h2>
+     <div><strong>SRF:</strong> ${job.reference}</div>
+     <div><strong>Dispatch ref:</strong> ${dispatchRef}</div>
+     <div><strong>Customer:</strong> ${job.customerName} (${job.phone})</div>
+     <div><strong>Watch:</strong> ${job.watchBrand} ${job.watchModel} · ${job.serial}</div>
+     <div style="margin-top:8px"><strong>Complaint:</strong> ${job.complaint || "-"}</div>
+     <div style="margin-top:8px"><strong>Current estimate:</strong> INR ${Number(job.estimateTotalInr ?? 0).toFixed(2)}</div>
+     <div style="margin-top:8px"><strong>Reason to brand:</strong> ${note}</div>
+     <h3 style="margin:16px 0 6px">Checklist</h3>
+     <ul style="margin-top:0">
+       <li>Watch condition verified with photos and serial</li>
+       <li>SRF copy attached</li>
+       <li>Accessories sent (if any) listed below</li>
+     </ul>
+     <div style="height:70px;border:1px solid #ccc;padding:8px">Accessories / remarks:</div>
+     <div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:18px">
+       <div>Prepared by (HO): _____________________</div>
+       <div>Received by (Brand): _____________________</div>
+       <div>Date &amp; time out: _____________________</div>
+       <div>Date &amp; time in: _____________________</div>
+     </div>`,
+  );
+  openPrintDocument(`Brand Dispatch ${job.reference}`, html);
+}
+
 export function printStoreServiceInvoice(
   job: SrfJob,
   payload: {

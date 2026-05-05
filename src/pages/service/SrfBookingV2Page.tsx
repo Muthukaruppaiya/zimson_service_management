@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
@@ -34,7 +34,9 @@ const inputClass =
 export function SrfBookingV2Page() {
   const { user } = useAuth();
   const { brands: catalogBrands } = useBrands();
-  const { registerCustomer } = useCustomers();
+  const { getById, customers } = useCustomers();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { createDraftJob, refreshPhotoSession, finalizeJob, cancelDraftSrf, patchStoreDraftSrf } = useSrfJobs();
   const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
 
@@ -73,10 +75,6 @@ export function SrfBookingV2Page() {
   const [customerExists, setCustomerExists] = useState(false);
   const [customerCheckMsg, setCustomerCheckMsg] = useState<string | null>(null);
   const [checkingCustomer, setCheckingCustomer] = useState(false);
-  const [showCreateCustomerPopup, setShowCreateCustomerPopup] = useState(false);
-  const [newCustomerOtpIssued, setNewCustomerOtpIssued] = useState<string | null>(null);
-  const [newCustomerOtpInput, setNewCustomerOtpInput] = useState("");
-  const [newCustomerOtpError, setNewCustomerOtpError] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
   const autoLookupTimerRef = useRef<number | null>(null);
@@ -281,13 +279,105 @@ export function SrfBookingV2Page() {
     return digits.length > 10 ? digits.slice(-10) : digits;
   }
 
+  type LoadedCustomer = {
+    displayName: string;
+    phone: string;
+    alternatePhone?: string;
+    email: string;
+    address?: string;
+    city?: string;
+    customerKind: "B2C" | "B2B";
+    company?: string;
+    gst?: string;
+    pan?: string;
+  };
+
+  function applyLoadedCustomer(data: LoadedCustomer) {
+    setCustomerExists(true);
+    setCustomerChecked(true);
+    setCustomerType(data.customerKind);
+    setCustomerName((data.displayName ?? "").trim());
+    setPhone((data.phone ?? "").trim());
+    setAlternatePhone(data.alternatePhone ?? "");
+    setEmail(data.email ?? "");
+    setAddress(data.address ?? "");
+    setCity(data.city ?? "");
+    setCompany(data.company ?? "");
+    setGst(data.gst ?? "");
+    setPan(data.pan ?? "");
+    lastAutoLookupPhoneRef.current = phone10((data.phone ?? "").trim());
+  }
+
+  useEffect(() => {
+    const rp = searchParams.get("restorePhone");
+    if (!rp) return;
+    setPhone(rp);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useLayoutEffect(() => {
+    const resumeStep = searchParams.get("resumeStep");
+    const customerId = searchParams.get("customerId");
+    const phoneHint = searchParams.get("phone");
+    if (resumeStep !== "1" || !customerId) return;
+
+    const fromRecord = (row: LoadedCustomer) => {
+      applyLoadedCustomer(row);
+      setCustomerCheckMsg("Customer registered. Continue with watch details.");
+      setStep(1);
+    };
+
+    const local = getById(customerId);
+    if (local) {
+      fromRecord({
+        displayName: local.displayName,
+        phone: local.phone,
+        alternatePhone: local.alternatePhone,
+        email: local.email,
+        address: local.address,
+        city: local.city,
+        customerKind: local.customerKind,
+        company: local.company,
+        gst: local.gst,
+        pan: local.pan,
+      });
+      setSearchParams({}, { replace: true });
+      return;
+    }
+
+    if (!phoneHint) {
+      setSearchParams({}, { replace: true });
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await apiJson<{ customer: LoadedCustomer | null }>(
+          `/api/customers?phone=${encodeURIComponent(phoneHint)}`,
+        );
+        if (!cancelled && data.customer) {
+          fromRecord(data.customer);
+        } else if (!cancelled) {
+          setError("Could not load the new customer. Try the registration page again.");
+        }
+      } catch {
+        if (!cancelled) setError("Could not load saved customer. Check API connection.");
+      } finally {
+        if (!cancelled) setSearchParams({}, { replace: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, getById, setSearchParams]);
+
   async function checkCustomerInDb() {
     setError(null);
     setCustomerCheckMsg(null);
     if (!phone.trim()) {
       setCustomerChecked(false);
       setCustomerExists(false);
-      setShowCreateCustomerPopup(false);
       setCustomerCheckMsg(null);
       return;
     }
@@ -295,132 +385,62 @@ export function SrfBookingV2Page() {
     if (p10.length !== 10) {
       setCustomerChecked(false);
       setCustomerExists(false);
-      setShowCreateCustomerPopup(false);
       setCustomerCheckMsg("Enter full 10-digit mobile number.");
       return;
     }
     setCheckingCustomer(true);
     try {
-      const data = await apiJson<{
-        customer: {
-          id: string;
-          displayName: string;
-          phone: string;
-          alternatePhone?: string;
-          email: string;
-          address?: string;
-          city?: string;
-          customerKind: "B2C" | "B2B";
-          company?: string;
-          gst?: string;
-          pan?: string;
-        } | null;
-      }>(`/api/customers?phone=${encodeURIComponent(phone.trim())}`);
+      const data = await apiJson<{ customer: LoadedCustomer | null }>(`/api/customers?phone=${encodeURIComponent(phone.trim())}`);
       if (data.customer) {
-        setCustomerExists(true);
-        setCustomerChecked(true);
-        setCustomerType(data.customer.customerKind);
-        setCustomerName(data.customer.displayName || customerName);
-        setPhone(data.customer.phone || phone);
-        setAlternatePhone(data.customer.alternatePhone ?? "");
-        setEmail(data.customer.email ?? "");
-        setAddress(data.customer.address ?? "");
-        setCity(data.customer.city ?? "");
-        setCompany(data.customer.company ?? "");
-        setGst(data.customer.gst ?? "");
-        setPan(data.customer.pan ?? "");
+        applyLoadedCustomer(data.customer);
         setCustomerCheckMsg("Existing customer found and loaded from DB.");
-        setShowCreateCustomerPopup(false);
       } else {
-        setCustomerExists(false);
-        setCustomerChecked(false);
-        setCustomerCheckMsg("New customer number. Please complete customer creation.");
-        setShowCreateCustomerPopup(true);
+        const local = customers.find((c) => phone10(c.phone) === p10);
+        if (local) {
+          applyLoadedCustomer({
+            displayName: local.displayName,
+            phone: local.phone,
+            alternatePhone: local.alternatePhone,
+            email: local.email,
+            address: local.address,
+            city: local.city,
+            customerKind: local.customerKind,
+            company: local.company,
+            gst: local.gst,
+            pan: local.pan,
+          });
+          setCustomerCheckMsg("Existing customer found locally.");
+        } else {
+          setCustomerExists(false);
+          setCustomerChecked(false);
+          setCustomerCheckMsg("New customer — opening full registration.");
+          navigate(
+            `/service/srf/new-customer?phone=${encodeURIComponent(phone.trim())}&name=${encodeURIComponent(customerName.trim())}`,
+          );
+        }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not check customer.");
+      const local = customers.find((c) => phone10(c.phone) === p10);
+      if (local) {
+        applyLoadedCustomer({
+          displayName: local.displayName,
+          phone: local.phone,
+          alternatePhone: local.alternatePhone,
+          email: local.email,
+          address: local.address,
+          city: local.city,
+          customerKind: local.customerKind,
+          company: local.company,
+          gst: local.gst,
+          pan: local.pan,
+        });
+        setCustomerCheckMsg("Customer found locally (server lookup unavailable).");
+      } else {
+        setError(e instanceof Error ? e.message : "Could not check customer.");
+      }
     } finally {
       setCheckingCustomer(false);
     }
-  }
-
-  async function createCustomerNow() {
-    setError(null);
-    if (!customerName.trim() || !phone.trim()) {
-      setError("Name and phone are required.");
-      return;
-    }
-    if (!email.trim() || !email.includes("@")) {
-      setError("Valid email is required.");
-      return;
-    }
-    if (!address.trim() || !city.trim()) {
-      setError("Address and city are required.");
-      return;
-    }
-    if (customerType === "B2B") {
-      if (!company.trim() || !isValidGstFormat(gst) || !isValidPanFormat(pan)) {
-        setError("For B2B, company + valid GSTIN + valid PAN are required.");
-        return;
-      }
-    }
-    try {
-      await registerCustomer({
-        displayName: customerName,
-        phone,
-        alternatePhone,
-        email,
-        address,
-        city,
-        customerKind: customerType,
-        company: customerType === "B2B" ? company : undefined,
-        gst: customerType === "B2B" ? gst : undefined,
-        pan: customerType === "B2B" ? pan : undefined,
-      });
-      setCustomerChecked(true);
-      setCustomerExists(true);
-      setShowCreateCustomerPopup(false);
-      setCustomerCheckMsg("Customer created and linked.");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not create customer.");
-    }
-  }
-
-  function beginNewCustomerOtp() {
-    setError(null);
-    if (!customerName.trim() || !phone.trim()) {
-      setError("Name and phone are required.");
-      return;
-    }
-    if (!email.trim() || !email.includes("@")) {
-      setError("Valid email is required.");
-      return;
-    }
-    if (!address.trim() || !city.trim()) {
-      setError("Address and city are required.");
-      return;
-    }
-    if (customerType === "B2B") {
-      if (!company.trim() || !isValidGstFormat(gst) || !isValidPanFormat(pan)) {
-        setError("For B2B, company + valid GSTIN + valid PAN are required.");
-        return;
-      }
-    }
-    setNewCustomerOtpIssued(generateDemoOtp());
-    setNewCustomerOtpInput("");
-    setNewCustomerOtpError(null);
-  }
-
-  async function verifyNewCustomerOtpAndCreate() {
-    if (!newCustomerOtpIssued) return;
-    if (newCustomerOtpInput.trim() !== newCustomerOtpIssued) {
-      setNewCustomerOtpError("Incorrect OTP.");
-      return;
-    }
-    setNewCustomerOtpError(null);
-    await createCustomerNow();
-    setNewCustomerOtpIssued(null);
-    setNewCustomerOtpInput("");
   }
 
   useEffect(() => {
@@ -832,57 +852,6 @@ export function SrfBookingV2Page() {
               onVerify={verifyOtpAndProceed}
               onRegenerate={beginOtp}
             />
-          </div>
-        </div>
-      ) : null}
-
-      {showCreateCustomerPopup ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Create customer</h3>
-            <p className="mt-1 text-sm text-stone-600">Customer not found. Verify OTP and save customer to continue SRF booking.</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="text-sm">Customer name<input className={inputClass} value={customerName} onChange={(e) => setCustomerName(e.target.value)} /></label>
-              <label className="text-sm">Primary mobile<input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-              <label className="text-sm">Email<input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-              <label className="text-sm">Alternate mobile<input className={inputClass} value={alternatePhone} onChange={(e) => setAlternatePhone(e.target.value)} /></label>
-              <label className="text-sm">Address<input className={inputClass} value={address} onChange={(e) => setAddress(e.target.value)} /></label>
-              <label className="text-sm">City<input className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} /></label>
-            </div>
-            {newCustomerOtpIssued ? (
-              <div className="mt-4">
-                <DemoOtpGate
-                  title="OTP for new customer creation"
-                  issuedCode={newCustomerOtpIssued}
-                  value={newCustomerOtpInput}
-                  onChange={setNewCustomerOtpInput}
-                  error={newCustomerOtpError}
-                  onVerify={() => void verifyNewCustomerOtpAndCreate()}
-                  onRegenerate={beginNewCustomerOtp}
-                />
-              </div>
-            ) : null}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCreateCustomerPopup(false);
-                  setNewCustomerOtpIssued(null);
-                  setNewCustomerOtpInput("");
-                  setNewCustomerOtpError(null);
-                }}
-                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={beginNewCustomerOtp}
-                className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-700"
-              >
-                Send OTP
-              </button>
-            </div>
           </div>
         </div>
       ) : null}

@@ -11,6 +11,13 @@ export type SrfJobStatus =
   | "estimate_ok"
   | "reestimate_required"
   | "customer_rejected"
+  | "sent_to_brand"
+  | "brand_estimate_pending"
+  | "brand_approved"
+  | "brand_repair_in_progress"
+  | "received_from_brand"
+  | "brand_credit_note_pending"
+  | "brand_credit_note_active"
   | "ready_for_outward"
   | "dispatched_to_store"
   | "received_at_store"
@@ -67,6 +74,27 @@ export type SrfJob = {
   transferSourceRegionId?: string | null;
   transferSourceStoreId?: string | null;
   transferSourceReference?: string | null;
+  brandSentAt?: string | null;
+  brandDispatchRef?: string | null;
+  brandDispatchNote?: string | null;
+  brandDispatchDocPath?: string | null;
+  brandOdcNumber?: string | null;
+  brandInwardRef?: string | null;
+  brandEstimateInr?: number | null;
+  brandEstimateCurrency?: string | null;
+  brandEstimateReceivedAt?: string | null;
+  brandEstimateEmailMeta?: Record<string, unknown> | null;
+  brandHoApprovalSentAt?: string | null;
+  brandHoApprovalEmailMeta?: Record<string, unknown> | null;
+  brandReturnReceivedAt?: string | null;
+  brandInvoiceRef?: string | null;
+  brandInvoiceMeta?: Record<string, unknown> | null;
+  brandCouponCode?: string | null;
+  brandCouponValueInr?: number | null;
+  brandCouponReceivedAt?: string | null;
+  brandCouponValidUntil?: string | null;
+  customerCouponNotifiedAt?: string | null;
+  customerCouponNotifyChannels?: Record<string, unknown> | null;
   trackingUrl?: string | null;
   /** Store → SC challan */
   dcNumber: string | null;
