@@ -6,6 +6,7 @@ import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
+import { printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
 import { jobVisibleToServiceCentre, jobVisibleToStoreUser } from "../../lib/srfAccess";
 import type { SrfJobStatus } from "../../types/srfJob";
 
@@ -216,6 +217,32 @@ export function SrfBookingsRegisterPage() {
                 <p className="text-sm text-stone-600">{detail.customerName} · {detail.watchBrand} {detail.watchModel}</p>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    printSrfDocument({
+                      reference: detail.reference,
+                      customerName: detail.customerName,
+                      phone: detail.phone,
+                      watchBrand: detail.watchBrand,
+                      watchModel: detail.watchModel,
+                      serial: detail.serial,
+                      complaint: detail.complaint || "-",
+                      estimateTotalInr: Number(detail.estimateTotalInr ?? 0),
+                      photos: detail.photos ?? [],
+                    })
+                  }
+                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-100"
+                >
+                  Print SRF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => printEstimateDocument(detail)}
+                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-100"
+                >
+                  Print estimate
+                </button>
                 <button
                   type="button"
                   onClick={() => setTraceId(detail.id)}

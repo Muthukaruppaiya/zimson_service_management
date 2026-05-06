@@ -6,7 +6,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
-import { printFullSrfDocument } from "../../lib/serviceDocuments";
+import { printEstimateDocument, printFullSrfDocument } from "../../lib/serviceDocuments";
 import type { SrfJob } from "../../types/srfJob";
 
 const rowClass = "border-b border-zimson-100 last:border-0";
@@ -227,6 +227,13 @@ export function SrfMasterTablePage() {
                       <p className="text-sm text-stone-600">{j.customerName} · {j.watchBrand} {j.watchModel}</p>
                     </div>
                     <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => printEstimateDocument(j)}
+                        className="rounded-xl border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-sm font-semibold text-zimson-900"
+                      >
+                        Print estimate
+                      </button>
                       <button
                         type="button"
                         onClick={async () => {

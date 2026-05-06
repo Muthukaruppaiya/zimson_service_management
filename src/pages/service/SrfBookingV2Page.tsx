@@ -19,7 +19,7 @@ import {
   sumAdvanceCashDenominations,
   type AppPaymentMode,
 } from "../../lib/paymentModes";
-import { printSrfDocument } from "../../lib/serviceDocuments";
+import { printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
 import {
   generateDemoOtp,
   isValidGstFormat,
@@ -61,6 +61,21 @@ export function SrfBookingV2Page() {
   const [cashDenomStrings, setCashDenomStrings] = useState(emptyCashDenomStrings);
   const [advancePaymentRef, setAdvancePaymentRef] = useState("");
   const [estimateRemarks, setEstimateRemarks] = useState("");
+  const [obsCaseCrystal, setObsCaseCrystal] = useState("");
+  const [obsGlassCrystal, setObsGlassCrystal] = useState("");
+  const [obsStrapBracelet, setObsStrapBracelet] = useState("");
+  const [obsHands, setObsHands] = useState("");
+  const [obsCrownPushers, setObsCrownPushers] = useState("");
+  const [obsMovement, setObsMovement] = useState("");
+  const [obsWaterResistance, setObsWaterResistance] = useState("");
+  const [obsAdditionalNotes, setObsAdditionalNotes] = useState("");
+  const [repMovementOverhaul, setRepMovementOverhaul] = useState("");
+  const [repPolishing, setRepPolishing] = useState("");
+  const [repWaterKit, setRepWaterKit] = useState("");
+  const [repBezel, setRepBezel] = useState("");
+  const [repCrownStem, setRepCrownStem] = useState("");
+  const [repGlassCrystal, setRepGlassCrystal] = useState("");
+  const [repDialHands, setRepDialHands] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [srfRef, setSrfRef] = useState<string | null>(null);
   const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
@@ -515,6 +530,42 @@ export function SrfBookingV2Page() {
         advancePaymentDetails: advanceTotal > 0 ? advanceDetails : null,
         photos: photoPreview,
       });
+      printEstimateDocument(
+        {
+          ...(row as unknown as object),
+          id: row.srfId,
+          reference: row.reference,
+          customerName,
+          phone,
+          watchBrand,
+          watchModel,
+          serial,
+          complaint,
+          estimateTotalInr: estimateTotal,
+          usedSpares: [],
+        } as unknown as import("../../types/srfJob").SrfJob,
+        {
+          observations: {
+            caseCrystal: obsCaseCrystal,
+            glassCrystal: obsGlassCrystal,
+            strapBracelet: obsStrapBracelet,
+            hands: obsHands,
+            crownPushers: obsCrownPushers,
+            movement: obsMovement,
+            waterResistance: obsWaterResistance,
+            additionalNotes: obsAdditionalNotes || estimateRemarks,
+          },
+          suggestedRepairs: {
+            movementOverhaul: repMovementOverhaul,
+            polishing: repPolishing,
+            waterKit: repWaterKit,
+            bezel: repBezel,
+            crownStem: repCrownStem,
+            glassCrystal: repGlassCrystal,
+            dialHands: repDialHands,
+          },
+        },
+      );
       setSrfRef(row.reference);
       setTrackingUrl(out.trackingUrl ?? null);
     } catch (e) {
@@ -754,6 +805,31 @@ export function SrfBookingV2Page() {
               </>
             ) : null}
             <label className="text-sm md:col-span-2">Remarks<input className={inputClass} value={estimateRemarks} onChange={(e) => setEstimateRemarks(e.target.value)} placeholder="Optional remarks" /></label>
+            <div className="md:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
+              <p className="text-sm font-semibold text-zimson-900">Watch condition / observation</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <label className="text-xs text-stone-600">Case / Crystal<input className={inputClass} value={obsCaseCrystal} onChange={(e) => setObsCaseCrystal(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Glass / Crystal<input className={inputClass} value={obsGlassCrystal} onChange={(e) => setObsGlassCrystal(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Strap / Bracelet<input className={inputClass} value={obsStrapBracelet} onChange={(e) => setObsStrapBracelet(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Hands<input className={inputClass} value={obsHands} onChange={(e) => setObsHands(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Crown / Pushers<input className={inputClass} value={obsCrownPushers} onChange={(e) => setObsCrownPushers(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Movement<input className={inputClass} value={obsMovement} onChange={(e) => setObsMovement(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Water resistance<input className={inputClass} value={obsWaterResistance} onChange={(e) => setObsWaterResistance(e.target.value)} /></label>
+                <label className="text-xs text-stone-600 sm:col-span-2">Additional notes<input className={inputClass} value={obsAdditionalNotes} onChange={(e) => setObsAdditionalNotes(e.target.value)} /></label>
+              </div>
+            </div>
+            <div className="md:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
+              <p className="text-sm font-semibold text-zimson-900">Suggested repairs</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <label className="text-xs text-stone-600">Movement overhaul<input className={inputClass} value={repMovementOverhaul} onChange={(e) => setRepMovementOverhaul(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Polishing (Case / Bracelet)<input className={inputClass} value={repPolishing} onChange={(e) => setRepPolishing(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Replace water resistant kit<input className={inputClass} value={repWaterKit} onChange={(e) => setRepWaterKit(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Replace bezel<input className={inputClass} value={repBezel} onChange={(e) => setRepBezel(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Replace Crown / Stem<input className={inputClass} value={repCrownStem} onChange={(e) => setRepCrownStem(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Replace Glass / Crystal<input className={inputClass} value={repGlassCrystal} onChange={(e) => setRepGlassCrystal(e.target.value)} /></label>
+                <label className="text-xs text-stone-600">Replace Dial / Hands<input className={inputClass} value={repDialHands} onChange={(e) => setRepDialHands(e.target.value)} /></label>
+              </div>
+            </div>
             <div className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm">
               Estimate: <strong>INR {estimateTotal.toFixed(2)}</strong> · Advance: <strong>INR {advanceTotal.toFixed(2)}</strong>
             </div>

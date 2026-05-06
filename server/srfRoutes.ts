@@ -141,7 +141,7 @@ function scopeCode(code: string, fallback: string, maxLen = 3): string {
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, maxLen)
-    .padEnd(maxLen, "X");
+    .padEnd(maxLen, "0");
 }
 
 function srfStoreScopeCode(storeName: string | null | undefined, storeId: string): string {

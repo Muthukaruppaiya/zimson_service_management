@@ -10,7 +10,7 @@ import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
-import { printBrandDispatchDocument } from "../../lib/serviceDocuments";
+import { printBrandDispatchDocument, printEstimateDocument } from "../../lib/serviceDocuments";
 import type { SparePriceLine } from "../../types/spare";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 
@@ -849,6 +849,13 @@ export function ScSupervisorPage() {
                     className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
                   >
                     View full trace
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => printEstimateDocument(j)}
+                    className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                  >
+                    Print estimate
                   </button>
                 </div>
                 {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}

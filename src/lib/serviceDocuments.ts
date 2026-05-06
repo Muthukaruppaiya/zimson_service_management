@@ -87,11 +87,14 @@ export function printSrfDocument(job: {
   const html = base(
     `SRF ${job.reference}`,
     `${barcodeBlock(job.reference)}<h2 style="margin:0 0 12px">Service Request Form</h2>
-     <div><strong>SRF:</strong> ${job.reference}</div>
-     <div><strong>Customer:</strong> ${job.customerName} (${job.phone})</div>
-     <div><strong>Watch:</strong> ${job.watchBrand} ${job.watchModel} · ${job.serial}</div>
-     <div style="margin-top:8px"><strong>Complaint:</strong> ${job.complaint}</div>
-     <div style="margin-top:8px"><strong>Estimate:</strong> INR ${job.estimateTotalInr.toFixed(2)}</div>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <tbody>
+         <tr><td><strong>SRF</strong></td><td>${job.reference}</td><td><strong>Customer</strong></td><td>${job.customerName}</td></tr>
+         <tr><td><strong>Phone</strong></td><td>${job.phone}</td><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td></tr>
+         <tr><td><strong>Serial</strong></td><td>${job.serial}</td><td><strong>Estimate</strong></td><td>INR ${job.estimateTotalInr.toFixed(2)}</td></tr>
+         <tr><td><strong>Complaint</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
+       </tbody>
+     </table>
      ${formatAdvanceForPrint(job.advanceInr, job.advancePaymentMode, job.advancePaymentDetails ?? null)}
      <h3 style="margin:16px 0 6px">Watch images</h3>
      <div style="display:flex;flex-wrap:wrap;gap:8px">${photoBlocks || "<div>No images uploaded</div>"}</div>
@@ -242,12 +245,15 @@ export function printAssignmentSlip(job: SrfJob, technicianLabel: string): void 
   const html = base(
     `Assignment ${job.reference}`,
     `${barcodeBlock(job.reference)}<h2 style="margin:0 0 12px">Technician Assignment Slip</h2>
-     <div><strong>SRF:</strong> ${job.reference}</div>
-     <div><strong>Technician:</strong> ${technicianLabel}</div>
-     <div><strong>Customer:</strong> ${job.customerName} (${job.phone})</div>
-     <div><strong>Watch:</strong> ${job.watchBrand} ${job.watchModel} · ${job.serial}</div>
-     <div style="margin-top:10px"><strong>Complaint:</strong> ${job.complaint || "-"}</div>
-     <div style="margin-top:10px"><strong>Estimate:</strong> INR ${(job.estimateTotalInr ?? 0).toFixed(2)}</div>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <tbody>
+         <tr><td><strong>SRF</strong></td><td>${job.reference}</td><td><strong>Technician</strong></td><td>${technicianLabel}</td></tr>
+         <tr><td><strong>Customer</strong></td><td>${job.customerName}</td><td><strong>Phone</strong></td><td>${job.phone}</td></tr>
+         <tr><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td><td><strong>Serial</strong></td><td>${job.serial}</td></tr>
+         <tr><td><strong>Estimate</strong></td><td>INR ${(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Status</strong></td><td>${job.status}</td></tr>
+         <tr><td><strong>Complaint</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
+       </tbody>
+     </table>
      <div style="margin-top:20px">Technician Notes:</div>
      <div style="height:120px;border:1px solid #333;margin-top:8px"></div>`,
   );
@@ -314,6 +320,120 @@ export function printBrandDispatchDocument(job: SrfJob, payload?: { dispatchRef?
   openPrintDocument(`Brand Dispatch ${job.reference}`, html);
 }
 
+export function printEstimateDocument(
+  job: SrfJob,
+  payload?: {
+    observations?: Partial<Record<"caseCrystal" | "glassCrystal" | "strapBracelet" | "hands" | "crownPushers" | "movement" | "waterResistance" | "additionalNotes", string>>;
+    suggestedRepairs?: Partial<Record<"movementOverhaul" | "polishing" | "waterKit" | "bezel" | "crownStem" | "glassCrystal" | "dialHands", string>>;
+  },
+): void {
+  const spareRows = (job.usedSpares ?? [])
+    .map(
+      (x) =>
+        `<tr>
+          <td style="padding:6px;border:1px solid #111">A</td>
+          <td style="padding:6px;border:1px solid #111">${x.name}</td>
+          <td style="padding:6px;border:1px solid #111;text-align:right">INR ${Number(x.lineTotalInr ?? Number(x.unitPriceInr ?? 0) * Number(x.qty ?? 0)).toFixed(2)}</td>
+        </tr>`,
+    )
+    .join("");
+  const baseRepair = Number(job.estimateTotalInr ?? 0);
+  const spareTotal = (job.usedSpares ?? []).reduce((sum, x) => {
+    const lineTotal = Number(x.lineTotalInr ?? NaN);
+    if (Number.isFinite(lineTotal)) return sum + lineTotal;
+    return sum + Number(x.unitPriceInr ?? 0) * Number(x.qty ?? 0);
+  }, 0);
+  const mandatoryRepair = Math.max(baseRepair - spareTotal, 0);
+  const obs = payload?.observations ?? {};
+  const repairs = payload?.suggestedRepairs ?? {};
+  const html = base(
+    `Estimate ${job.reference}`,
+    `${barcodeBlock(job.reference)}
+     <h2 style="margin:0 0 6px">WATCH OBSERVATION &amp; SERVICE ESTIMATION</h2>
+     <table style="width:100%;border-collapse:collapse;margin-top:10px" border="1" cellspacing="0" cellpadding="6">
+       <tbody>
+         <tr><td><strong>SRF No</strong></td><td>${job.reference}</td><td><strong>Date of Estimation</strong></td><td>${new Date().toLocaleDateString()}</td></tr>
+         <tr><td><strong>Customer</strong></td><td>${job.customerName}</td><td><strong>Phone</strong></td><td>${job.phone}</td></tr>
+         <tr><td><strong>Brand</strong></td><td>${job.watchBrand}</td><td><strong>Model</strong></td><td>${job.watchModel}</td></tr>
+         <tr><td><strong>Serial Number</strong></td><td>${job.serial}</td><td><strong>Service Ref</strong></td><td>${job.reference}</td></tr>
+       </tbody>
+     </table>
+
+     <h3 style="margin:14px 0 6px">Watch Condition / Observation</h3>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <thead><tr><th>Component</th><th>Condition / Observation</th></tr></thead>
+       <tbody>
+         <tr><td>Case / Crystal</td><td>${obs.caseCrystal || job.complaint || "-"}</td></tr>
+         <tr><td>Glass / Crystal</td><td>${obs.glassCrystal || "-"}</td></tr>
+         <tr><td>Strap / Bracelet</td><td>${obs.strapBracelet || "-"}</td></tr>
+         <tr><td>Hands</td><td>${obs.hands || "-"}</td></tr>
+         <tr><td>Crown / Pushers</td><td>${obs.crownPushers || "-"}</td></tr>
+         <tr><td>Movement</td><td>${obs.movement || "-"}</td></tr>
+         <tr><td>Water resistance</td><td>${obs.waterResistance || "-"}</td></tr>
+         <tr><td>Additional notes</td><td>${obs.additionalNotes || job.complaint || "-"}</td></tr>
+       </tbody>
+     </table>
+
+     <h3 style="margin:14px 0 6px">Suggested Repairs</h3>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <thead><tr><th>Repair / Service Item</th><th>Remarks</th></tr></thead>
+       <tbody>
+         <tr><td>Movement overhaul</td><td>${repairs.movementOverhaul || "-"}</td></tr>
+         <tr><td>Polishing (Case / Bracelet)</td><td>${repairs.polishing || "-"}</td></tr>
+         <tr><td>Replace water resistant kit</td><td>${repairs.waterKit || "-"}</td></tr>
+         <tr><td>Replace bezel</td><td>${repairs.bezel || "-"}</td></tr>
+         <tr><td>Replace Crown / Stem</td><td>${repairs.crownStem || "-"}</td></tr>
+         <tr><td>Replace Glass / Crystal</td><td>${repairs.glassCrystal || "-"}</td></tr>
+         <tr><td>Replace Dial / Hands</td><td>${repairs.dialHands || "-"}</td></tr>
+       </tbody>
+     </table>
+
+     <h3 style="margin:14px 0 6px">Service Cost Breakdown</h3>
+     <table style="width:100%;border-collapse:collapse" cellspacing="0" cellpadding="0">
+       <tbody>
+         <tr>
+           <td style="width:100%;vertical-align:top">
+             <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+               <thead><tr><th style="width:80px">Mandatory Repair (A)</th><th>Description</th><th style="width:180px">Amount (INR)</th></tr></thead>
+               <tbody>
+                 <tr><td style="border:1px solid #111;padding:6px">A</td><td style="border:1px solid #111;padding:6px">Service / Labour</td><td style="border:1px solid #111;padding:6px;text-align:right">INR ${mandatoryRepair.toFixed(2)}</td></tr>
+                 ${spareRows || '<tr><td style="border:1px solid #111;padding:6px">A</td><td style="border:1px solid #111;padding:6px">Spare parts</td><td style="border:1px solid #111;padding:6px;text-align:right">INR 0.00</td></tr>'}
+                 <tr><td colspan="2" style="border:1px solid #111;padding:6px;text-align:right"><strong>TOTAL (A)</strong></td><td style="border:1px solid #111;padding:6px;text-align:right"><strong>INR ${baseRepair.toFixed(2)}</strong></td></tr>
+               </tbody>
+             </table>
+             <table style="width:100%;border-collapse:collapse;margin-top:6px" border="1" cellspacing="0" cellpadding="6">
+               <thead><tr><th style="width:80px">Optional Repair (B)</th><th>Description</th><th style="width:180px">Amount (INR)</th></tr></thead>
+               <tbody>
+                 <tr><td style="border:1px solid #111;padding:6px">B</td><td style="border:1px solid #111;padding:6px">-</td><td style="border:1px solid #111;padding:6px;text-align:right">INR 0.00</td></tr>
+                 <tr><td colspan="2" style="border:1px solid #111;padding:6px;text-align:right"><strong>TOTAL (B)</strong></td><td style="border:1px solid #111;padding:6px;text-align:right"><strong>INR 0.00</strong></td></tr>
+               </tbody>
+             </table>
+           </td>
+         </tr>
+       </tbody>
+     </table>
+
+     <div style="margin-top:10px;border:1px solid #111;padding:8px;text-align:right"><strong>Total Estimated Cost (A+B): INR ${baseRepair.toFixed(2)}</strong></div>
+     <div style="margin-top:8px;font-size:12px"><strong>Rupees:</strong> ${baseRepair.toLocaleString("en-IN")} only</div>
+
+     <h3 style="margin:14px 0 6px">Terms and Conditions</h3>
+     <ol style="margin:0;padding-left:18px;font-size:12px;line-height:1.45">
+       <li>The estimation provided is an approximate cost. Final cost may vary based on actual condition.</li>
+       <li>Customer approval is required before initiating service.</li>
+       <li>Any additional faults found during service will be informed with revised cost.</li>
+       <li>Watch should be collected within 30 days after service completion.</li>
+       <li>Replaced parts will be discarded unless requested at submission time.</li>
+       <li>Functional warranty is applicable only for serviced components.</li>
+       <li>Computer-generated document; physical signature may be captured where needed.</li>
+     </ol>
+
+     <div style="margin-top:26px">Customer Signature: ____________________________</div>
+     <div style="margin-top:16px">Date: ____________________________</div>
+     <div style="margin-top:16px">Authorized Personnel: ____________________________</div>`,
+  );
+  openPrintDocument(`Estimate ${job.reference}`, html);
+}
+
 export function printStoreServiceInvoice(
   job: SrfJob,
   payload: {
@@ -339,16 +459,16 @@ export function printStoreServiceInvoice(
   const html = base(
     `Invoice ${job.reference}`,
     `${barcodeBlock(job.reference)}<h2 style="margin:0 0 12px">Service Handover Invoice</h2>
-     <div><strong>SRF:</strong> ${job.reference}</div>
-     <div><strong>Date:</strong> ${billedAt.toLocaleString()}</div>
-     <div><strong>Customer:</strong> ${job.customerName} (${job.phone})</div>
-     <div><strong>Watch:</strong> ${job.watchBrand} ${job.watchModel} · ${job.serial}</div>
-     <div style="margin-top:10px"><strong>Service estimate:</strong> INR ${(job.estimateTotalInr ?? 0).toFixed(2)}</div>
-     <div><strong>Paid amount:</strong> INR ${payload.paidAmountInr.toFixed(2)}</div>
-     <div><strong>Payment mode:</strong> ${payload.paymentMode}</div>
-     <div><strong>Collection OTP verified:</strong> ${payload.otpCode}</div>
-     <div><strong>HO spare bill ref:</strong> ${payload.hoSparesBillRef || "-"}</div>
-     <div><strong>Store bill ref:</strong> ${payload.storeBillRef || "-"}</div>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <tbody>
+         <tr><td><strong>SRF</strong></td><td>${job.reference}</td><td><strong>Date</strong></td><td>${billedAt.toLocaleString()}</td></tr>
+         <tr><td><strong>Customer</strong></td><td>${job.customerName}</td><td><strong>Phone</strong></td><td>${job.phone}</td></tr>
+         <tr><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td><td><strong>Serial</strong></td><td>${job.serial}</td></tr>
+         <tr><td><strong>Service estimate</strong></td><td>INR ${(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Paid amount</strong></td><td>INR ${payload.paidAmountInr.toFixed(2)}</td></tr>
+         <tr><td><strong>Payment mode</strong></td><td>${payload.paymentMode}</td><td><strong>Collection OTP</strong></td><td>${payload.otpCode}</td></tr>
+         <tr><td><strong>HO spare bill ref</strong></td><td>${payload.hoSparesBillRef || "-"}</td><td><strong>Store bill ref</strong></td><td>${payload.storeBillRef || "-"}</td></tr>
+       </tbody>
+     </table>
      <h3 style="margin:16px 0 8px">Used spares</h3>
      <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
        <thead><tr><th>#</th><th>Spare</th><th>Qty</th></tr></thead>
