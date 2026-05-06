@@ -12,6 +12,7 @@ import { ApiError, apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import { printBrandDispatchDocument, printEstimateDocument } from "../../lib/serviceDocuments";
 import type { SparePriceLine } from "../../types/spare";
+import type { TechnicianProfile } from "../../types/technician";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 
 type InterHoSpareOrder = {
@@ -66,6 +67,8 @@ export function ScSupervisorPage() {
   const { activeSpares } = useSpares();
   const {
     jobs,
+    assignTechnician,
+    convertTransferredSrfToLocal,
     supervisorRequestReestimate,
     technicianSendToBrand,
     supervisorTransferToOtherHo,
@@ -79,6 +82,7 @@ export function ScSupervisorPage() {
     getStatusHistory,
   } = useSrfJobs();
   const [feedback, setFeedback] = useState<Record<string, string>>({});
+  const [pickTech, setPickTech] = useState<Record<string, string>>({});
   const [historyByJob, setHistoryByJob] = useState<Record<string, Array<{ id: string; status: string; note: string; changedAt: string }>>>({});
   const [reestimatePopupJobId, setReestimatePopupJobId] = useState<string | null>(null);
   const [reestimateAmountInput, setReestimateAmountInput] = useState("");
@@ -104,6 +108,7 @@ export function ScSupervisorPage() {
   const [fulfillInvoiceRef, setFulfillInvoiceRef] = useState("");
   const [fulfillNote, setFulfillNote] = useState("");
   const [orderDetailsId, setOrderDetailsId] = useState<string | null>(null);
+  const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [sendBrandPopupJobId, setSendBrandPopupJobId] = useState<string | null>(null);
   const [sendBrandDispatchRef, setSendBrandDispatchRef] = useState("");
   const [sendBrandReason, setSendBrandReason] = useState("Cannot be repaired at HO");
@@ -145,6 +150,33 @@ export function ScSupervisorPage() {
     () => (srfId ? decisionQueue.filter((j) => j.id === srfId) : decisionQueue),
     [decisionQueue, srfId],
   );
+  const receivedView = useMemo(
+    () => (srfId ? received.filter((j) => j.id === srfId) : received),
+    [received, srfId],
+  );
+
+  async function handleAssign(jobId: string) {
+    const techId = pickTech[jobId];
+    if (!techId) {
+      setFeedback((f) => ({ ...f, [jobId]: "Choose a technician." }));
+      return;
+    }
+    try {
+      await assignTechnician(jobId, techId);
+      setFeedback((f) => ({ ...f, [jobId]: "Assigned." }));
+    } catch (e) {
+      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not assign." }));
+    }
+  }
+
+  async function convertLocal(jobId: string) {
+    try {
+      await convertTransferredSrfToLocal(jobId);
+      setFeedback((f) => ({ ...f, [jobId]: "Converted to local SRF. You can assign technician now." }));
+    } catch (e) {
+      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not convert SRF." }));
+    }
+  }
 
   async function toggleHistory(jobId: string) {
     if (historyByJob[jobId]) {
@@ -390,6 +422,9 @@ export function ScSupervisorPage() {
   useEffect(() => {
     if (!user) return;
     void refreshSpareOrders();
+    void apiJson<{ rows: TechnicianProfile[] }>("/api/service/technicians?activeOnly=1")
+      .then((out) => setTechnicians(out.rows))
+      .catch(() => setTechnicians([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -700,9 +735,57 @@ export function ScSupervisorPage() {
 
       {srfId ? (
       <>
+      {receivedView.length > 0 ? (
+        <Card title="Assignment" subtitle="Assign technician for this SRF" className="mb-6">
+          {receivedView.map((j) => (
+            <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
+              <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+              <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
+              <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="min-w-[240px] flex-1">
+                  <label className="text-xs font-medium text-stone-600">Technician</label>
+                  <select
+                    value={pickTech[j.id] ?? ""}
+                    onChange={(e) => setPickTech((p) => ({ ...p, [j.id]: e.target.value }))}
+                    disabled={!!j.requiresLocalConversion}
+                    className="mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zimson-400/40"
+                  >
+                    <option value="">Select…</option>
+                    {technicians.length === 0 ? <option value="" disabled>No technicians in master</option> : null}
+                    {technicians.map((t) => (
+                      <option key={t.id} value={t.id}>{t.fullName} — {t.grade}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleAssign(j.id)}
+                  disabled={!!j.requiresLocalConversion}
+                  className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+                >
+                  Assign
+                </button>
+                {j.requiresLocalConversion ? (
+                  <button
+                    type="button"
+                    onClick={() => void convertLocal(j.id)}
+                    className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
+                  >
+                    Convert to local SRF
+                  </button>
+                ) : null}
+              </div>
+              {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
+            </div>
+          ))}
+        </Card>
+      ) : null}
       <Card title="Supervisor decision queue" subtitle="From supervisor login: mark repaired or need re-estimate" className="mt-8">
         {decisionView.length === 0 ? (
-          <p className="text-sm text-stone-600">No assigned SRFs pending decision.</p>
+          <p className="text-sm text-stone-600">
+            {receivedView.length > 0 ? "No decision-pending SRFs for this item yet." : "No assigned SRFs pending decision."}
+          </p>
         ) : (
           <div className="space-y-4">
             {decisionView.map((j) => {
