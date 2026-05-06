@@ -74,7 +74,7 @@ export const ROLE_CREATION_META: RoleCreationMeta[] = [
     value: "service_centre_clerk",
     label: "Service centre clerk",
     group: "ho",
-    summary: "SC logistics and desk workflows.",
+    summary: "Single-login SC logistics role (both inward + outward in one account).",
     blockedForHoAdmin: false,
   },
   {
@@ -106,8 +106,11 @@ export const ROLE_CREATION_META: RoleCreationMeta[] = [
 ];
 
 export function creatableRolesForActor(actorRole: UserRole | undefined): RoleCreationMeta[] {
-  if (actorRole === "super_admin") return ROLE_CREATION_META;
-  if (actorRole === "ho_admin") return ROLE_CREATION_META.filter((r) => !r.blockedForHoAdmin);
+  const withoutSplitLogisticsRoles = ROLE_CREATION_META.filter(
+    (r) => r.value !== "service_centre_inward" && r.value !== "service_centre_outward",
+  );
+  if (actorRole === "super_admin") return withoutSplitLogisticsRoles;
+  if (actorRole === "ho_admin") return withoutSplitLogisticsRoles.filter((r) => !r.blockedForHoAdmin);
   return [];
 }
 
@@ -125,6 +128,7 @@ export const CREATION_POLICY_BULLETS = [
   "HO Admin cannot assign Super Admin or Regional Admin.",
   "HO Admin can only create users in the same HO region as their own account. For store roles, the store must belong to that region.",
   "Store roles require a store; HO and system roles use region only (no store).",
+  "For service-centre logistics, create `service_centre_clerk` for one login handling both inward and outward. Do not create separate inward/outward users.",
   "Login disabled: a directory-only profile is created with a generated email; the person cannot sign in until login is enabled and credentials are set.",
   "Module access: “Role default” uses the built-in module list for that role. “Custom list” replaces that list entirely — if you omit a module, the user loses it even if the role normally includes it.",
 ];
