@@ -3243,8 +3243,8 @@ export function registerSrfRoutes(
 
   app.get("/api/service/srf-jobs/:srfId/inter-ho-invoice-prefill", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || !roleCanView(actor)) {
-      res.status(403).json({ error: "Forbidden." });
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can create inter-HO sender invoice." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -3308,7 +3308,7 @@ export function registerSrfRoutes(
 
   app.post("/api/service/srf-jobs/:srfId/inter-ho-invoice", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || !SC_ODC_OUTWARD_ROLES.has(actor.role)) {
+    if (!actor || !canSupervisorDecide(actor)) {
       res.status(403).json({ error: "Only supervisor/admin can create inter-HO invoice." });
       return;
     }

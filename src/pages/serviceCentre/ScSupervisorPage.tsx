@@ -154,6 +154,20 @@ export function ScSupervisorPage() {
     () => (srfId ? received.filter((j) => j.id === srfId) : received),
     [received, srfId],
   );
+  const interHoInvoiceQueue = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter(
+      (j) =>
+        j.status === "ready_for_outward" &&
+        !!j.transferSourceRegionId &&
+        !j.hoSparesBillRef &&
+        jobVisibleToServiceCentre(j, user),
+    );
+  }, [jobs, user]);
+  const interHoInvoiceView = useMemo(
+    () => (srfId ? interHoInvoiceQueue.filter((j) => j.id === srfId) : interHoInvoiceQueue),
+    [interHoInvoiceQueue, srfId],
+  );
 
   async function handleAssign(jobId: string) {
     const techId = pickTech[jobId];
@@ -688,7 +702,7 @@ export function ScSupervisorPage() {
                 e.preventDefault();
                 const ref = scanSrfInput.trim().toLowerCase();
                 if (!ref) return;
-                const row = [...received, ...decisionQueue].find((j) => j.reference.toLowerCase() === ref);
+                const row = [...received, ...decisionQueue, ...interHoInvoiceQueue].find((j) => j.reference.toLowerCase() === ref);
                 if (row) {
                   navigate(`/service-centre/supervisor/srf/${encodeURIComponent(row.id)}`);
                   setScanSrfInput("");
@@ -710,7 +724,7 @@ export function ScSupervisorPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...received, ...decisionQueue].map((j) => (
+                {[...received, ...decisionQueue, ...interHoInvoiceQueue].map((j) => (
                   <tr key={j.id} className="border-b border-zimson-100 last:border-0">
                     <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
                     <td className="px-3 py-2">{j.customerName}</td>
@@ -781,10 +795,34 @@ export function ScSupervisorPage() {
           ))}
         </Card>
       ) : null}
+      {interHoInvoiceView.length > 0 ? (
+        <Card title="Inter-HO sender invoice" subtitle="Supervisor must create sender-HO invoice before outward dispatch" className="mb-6">
+          {interHoInvoiceView.map((j) => (
+            <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
+              <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+              <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
+              <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
+              <p className="mt-2 text-xs text-amber-800">
+                Create invoice against sender HO, then logistics can generate ODC.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Link
+                  to={`/service-centre/online-store/invoice?srfId=${encodeURIComponent(j.id)}&invoiceFor=sender-ho`}
+                  className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                >
+                  Create sender-HO invoice
+                </Link>
+              </div>
+            </div>
+          ))}
+        </Card>
+      ) : null}
       <Card title="Supervisor decision queue" subtitle="From supervisor login: mark repaired or need re-estimate" className="mt-8">
         {decisionView.length === 0 ? (
           <p className="text-sm text-stone-600">
-            {receivedView.length > 0 ? "No decision-pending SRFs for this item yet." : "No assigned SRFs pending decision."}
+            {receivedView.length > 0 || interHoInvoiceView.length > 0
+              ? "No decision-pending SRFs for this item yet."
+              : "No assigned SRFs pending decision."}
           </p>
         ) : (
           <div className="space-y-4">

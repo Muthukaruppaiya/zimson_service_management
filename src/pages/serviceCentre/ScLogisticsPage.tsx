@@ -616,13 +616,9 @@ export function ScLogisticsPage() {
                                   {j.hoSparesBillRef}
                                 </p>
                               ) : (
-                                <Link
-                                  to={`/service-centre/online-store/invoice?srfId=${encodeURIComponent(j.id)}&invoiceFor=sender-ho`}
-                                  className="inline-flex rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  Create repair HO invoice
-                                </Link>
+                                <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">
+                                  Pending supervisor invoice
+                                </p>
                               )
                             ) : (
                               <span className="text-xs text-stone-500">Not required</span>
