@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -72,6 +72,7 @@ export function ServiceBillingPage() {
   const apiMode = useApiMode();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { lookup, getById } = useCustomers();
 
@@ -275,7 +276,15 @@ export function ServiceBillingPage() {
   }
 
   function restartLookup() {
-    if (isOnlineOrderFlow || isInterHoSrfInvoiceFlow) {
+    if (isOnlineOrderFlow) {
+      navigate("/service-centre/online-store");
+      return;
+    }
+    if (isInterHoSrfInvoiceFlow) {
+      if (location.pathname.startsWith("/service-centre/inter-ho-invoice")) {
+        navigate("/service-centre/supervisor");
+        return;
+      }
       navigate("/service-centre/online-store");
       return;
     }
@@ -450,11 +459,19 @@ export function ServiceBillingPage() {
           onlineOrder
             ? `Sender HO invoice mode for ${onlineOrder.orderNumber} (${onlineOrder.srfReference}).`
             : interHoSrfInvoice
-              ? `Repair HO invoice mode for SRF ${interHoSrfInvoice.reference} against sender HO ${interHoSrfInvoice.toRegionName}.`
+              ? `Inter-HO invoice (receiver HO billing against sender HO) for SRF ${interHoSrfInvoice.reference} (${interHoSrfInvoice.toRegionName}).`
             : "Customer lookup (name → mobile), then line items — aligned with quick bill and SRF at the counter. No separate invoicing module."
         }
         actions={
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {isInterHoSrfInvoiceFlow ? (
+              <Link
+                to="/service-centre/supervisor"
+                className="inline-flex rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100"
+              >
+                Back to supervisor
+              </Link>
+            ) : null}
             <Link
               to="/service/quick-bill"
               className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"

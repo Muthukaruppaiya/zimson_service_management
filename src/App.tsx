@@ -292,6 +292,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service-centre/inter-ho-invoice"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <ServiceBillingPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service-centre/supervisor"
                   element={
                     <ModuleRoute module="service_centre">

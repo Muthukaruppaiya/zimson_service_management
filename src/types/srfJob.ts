@@ -7,6 +7,7 @@ export type SrfJobStatus =
   | "at_store"
   | "in_transit_sc"
   | "received_at_sc"
+  | "sent_to_other_ho"
   | "assigned"
   | "estimate_ok"
   | "reestimate_required"
@@ -58,6 +59,7 @@ export type SrfJob = {
   serial: string;
   complaint: string;
   estimateTotalInr: number;
+  estimatedFinishDate?: string | null;
   advanceInr?: number;
   advancePaymentMode?: string | null;
   advancePaymentDetails?: AdvancePaymentDetails | null;
@@ -143,6 +145,8 @@ export type CreateSrfJobInput = {
   serial: string;
   complaint: string;
   estimateTotalInr: number;
+  destinationStoreId?: string;
+  estimatedFinishDate?: string | null;
   advanceInr?: number;
   selectedPartIds: string[];
 };

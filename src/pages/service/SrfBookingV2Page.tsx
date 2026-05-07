@@ -9,6 +9,7 @@ import { Stepper } from "../../components/ui/Stepper";
 import { useAuth } from "../../context/AuthContext";
 import { useBrands } from "../../context/BrandsContext";
 import { useCustomers } from "../../context/CustomersContext";
+import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
 import {
@@ -33,6 +34,7 @@ const inputClass =
 
 export function SrfBookingV2Page() {
   const { user } = useAuth();
+  const { regions } = useRegions();
   const { brands: catalogBrands } = useBrands();
   const { getById, customers } = useCustomers();
   const navigate = useNavigate();
@@ -54,8 +56,10 @@ export function SrfBookingV2Page() {
   const [watchBrand, setWatchBrand] = useState("");
   const [watchModel, setWatchModel] = useState("");
   const [serial, setSerial] = useState("");
+  const [handoverStoreId, setHandoverStoreId] = useState("");
   const [complaint, setComplaint] = useState("");
   const [estimateAmount, setEstimateAmount] = useState("");
+  const [estimatedFinishDate, setEstimatedFinishDate] = useState("");
   const [advanceAmount, setAdvanceAmount] = useState("");
   const [advancePaymentMode, setAdvancePaymentMode] = useState<AppPaymentMode>("Cash");
   const [cashDenomStrings, setCashDenomStrings] = useState(emptyCashDenomStrings);
@@ -96,6 +100,13 @@ export function SrfBookingV2Page() {
   const lastAutoLookupPhoneRef = useRef("");
 
   const models = watchModelsForBrand(watchBrand);
+  const fallbackStoreId = Array.isArray(user?.storeIds) && user.storeIds.length > 0 ? user.storeIds[0] : "";
+  const currentStoreId = String(user?.storeId ?? fallbackStoreId ?? "").trim();
+  const currentRegionId = String(user?.regionId ?? "").trim();
+  const handoverStoreOptions = useMemo(() => {
+    const region = regions.find((r) => r.id === currentRegionId);
+    return region?.stores ?? [];
+  }, [regions, currentRegionId]);
   const estimateTotal = Number.parseFloat(estimateAmount) || 0;
   const advanceTotal = Number.parseFloat(advanceAmount) || 0;
   const cashDenomTotal = useMemo(() => {
@@ -116,6 +127,10 @@ export function SrfBookingV2Page() {
       syncModelForBrand(brandNames[0]!);
     }
   }, [brandNames, watchBrand, syncModelForBrand]);
+
+  useEffect(() => {
+    if (!handoverStoreId && currentStoreId) setHandoverStoreId(currentStoreId);
+  }, [handoverStoreId, currentStoreId]);
 
   function validateCustomer() {
     if (!customerName.trim() || !phone.trim()) {
@@ -170,8 +185,8 @@ export function SrfBookingV2Page() {
   async function ensureDraft() {
     if (draft) return draft;
     const regionId = String(user?.regionId ?? "").trim();
-    const fallbackStoreId = Array.isArray(user?.storeIds) && user.storeIds.length > 0 ? user.storeIds[0] : "";
-    const storeId = String(user?.storeId ?? fallbackStoreId ?? "").trim();
+    const storeId = currentStoreId;
+    const destinationStoreId = String(handoverStoreId || currentStoreId).trim();
     const customerNameValue = customerName.trim();
     const phoneValue = phone.trim();
     const watchBrandValue = watchBrand.trim();
@@ -185,7 +200,8 @@ export function SrfBookingV2Page() {
       !phoneValue ||
       !watchBrandValue ||
       !watchModelValue ||
-      !serialValue
+      !serialValue ||
+      !destinationStoreId
     ) {
       throw new Error("Customer and watch details are required before creating SRF draft.");
     }
@@ -199,6 +215,7 @@ export function SrfBookingV2Page() {
       watchBrand: watchBrandValue,
       watchModel: watchModelValue,
       serial: serialValue,
+      destinationStoreId,
       complaint: "",
       estimateTotalInr: 0,
       selectedPartIds: [],
@@ -511,6 +528,7 @@ export function SrfBookingV2Page() {
       const out = await finalizeJob(row.srfId, {
         complaint,
         estimateTotalInr: estimateTotal,
+        estimatedFinishDate: estimatedFinishDate || null,
         advanceInr: advanceTotal,
         advancePaymentMode: advanceTotal > 0 ? advancePaymentMode : null,
         advancePaymentDetails: advanceTotal > 0 ? advanceDetails : {},
@@ -525,6 +543,7 @@ export function SrfBookingV2Page() {
         serial,
         complaint,
         estimateTotalInr: estimateTotal,
+        estimatedFinishDate: estimatedFinishDate || null,
         advanceInr: advanceTotal,
         advancePaymentMode: advanceTotal > 0 ? advancePaymentMode : null,
         advancePaymentDetails: advanceTotal > 0 ? advanceDetails : null,
@@ -542,6 +561,7 @@ export function SrfBookingV2Page() {
           serial,
           complaint,
           estimateTotalInr: estimateTotal,
+          estimatedFinishDate: estimatedFinishDate || null,
           usedSpares: [],
         } as unknown as import("../../types/srfJob").SrfJob,
         {
@@ -662,6 +682,12 @@ export function SrfBookingV2Page() {
             <label className="text-sm">Brand<select className={inputClass} value={watchBrand} onChange={(e) => syncModelForBrand(e.target.value)}>{brandNames.map((b) => <option key={b}>{b}</option>)}</select></label>
             <label className="text-sm">Model<select className={inputClass} value={watchModel} onChange={(e) => setWatchModel(e.target.value)}>{models.map((m) => <option key={m.model}>{m.model}</option>)}</select></label>
             <label className="text-sm">Serial<input className={inputClass} value={serial} onChange={(e) => setSerial(e.target.value)} /></label>
+            <label className="text-sm">
+              After-service handover store
+              <select className={inputClass} value={handoverStoreId} onChange={(e) => setHandoverStoreId(e.target.value)}>
+                {handoverStoreOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </label>
           </div>
           <div className="mt-4 flex justify-between">
             <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
@@ -736,6 +762,7 @@ export function SrfBookingV2Page() {
             <label className="text-sm md:col-span-2">Watch complaint<textarea className={inputClass} rows={3} value={complaint} onChange={(e) => setComplaint(e.target.value)} /></label>
             <label className="text-sm">Estimate amount (INR)<input className={inputClass} value={estimateAmount} onChange={(e) => setEstimateAmount(e.target.value)} /></label>
             <label className="text-sm">Advance amount (INR)<input className={inputClass} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0.00" /></label>
+            <label className="text-sm">Estimated service finish date<input type="date" className={inputClass} value={estimatedFinishDate} onChange={(e) => setEstimatedFinishDate(e.target.value)} /></label>
             {advanceTotal > 0 ? (
               <>
                 <label className="text-sm">
@@ -855,6 +882,10 @@ export function SrfBookingV2Page() {
                   <td className="px-3 py-2 text-stone-800">{watchBrand} {watchModel} · {serial}</td>
                 </tr>
                 <tr className="border-b border-zimson-100">
+                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">After-service handover store</th>
+                  <td className="px-3 py-2 text-stone-800">{handoverStoreOptions.find((s) => s.id === handoverStoreId)?.name ?? handoverStoreId || "-"}</td>
+                </tr>
+                <tr className="border-b border-zimson-100">
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Watch complaint</th>
                   <td className="px-3 py-2 text-stone-800">{complaint}</td>
                 </tr>
@@ -865,6 +896,10 @@ export function SrfBookingV2Page() {
                 <tr className="border-b border-zimson-100">
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Uploaded photos</th>
                   <td className="px-3 py-2 text-stone-800">{photoCount}</td>
+                </tr>
+                <tr>
+                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimated service finish date</th>
+                  <td className="px-3 py-2 text-stone-800">{estimatedFinishDate || "-"}</td>
                 </tr>
                 <tr>
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimate</th>

@@ -70,23 +70,12 @@ export function ScLogisticsPage() {
     return m;
   }, [regions]);
 
-  const storeOptions = useMemo(() => {
-    const rows: { id: string; label: string }[] = [];
-    for (const r of regions) {
-      for (const s of r.stores) {
-        rows.push({ id: s.id, label: `HO: ${r.name} · Store: ${s.name}` });
-      }
-    }
-    return rows;
-  }, [regions]);
-
   const [selectedDc, setSelectedDc] = useState("");
   const [scanInwardDcInput, setScanInwardDcInput] = useState("");
   const [inwardMsg, setInwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
-  const [destByJob, setDestByJob] = useState<Record<string, string>>({});
   const [outwardMsg, setOutwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [outwardQuery, setOutwardQuery] = useState(
     searchParams.get("tab") === "outward" ? searchParams.get("q") ?? "" : "",
@@ -232,7 +221,7 @@ export function ScLogisticsPage() {
     const j = jobs.find((x) => x.id === jobId);
     if (j?.transferTargetStoreId && j.requiresLocalConversion) return j.transferTargetStoreId;
     if (j?.transferSourceStoreId && !j.requiresLocalConversion) return j.transferSourceStoreId;
-    return destByJob[jobId] ?? originatingStoreId;
+    return j?.destinationStoreId ?? originatingStoreId;
   }
 
   function toggleOut(id: string) {
@@ -625,25 +614,16 @@ export function ScLogisticsPage() {
                             )}
                           </td>
                           <td className="px-3 py-2 align-top">
-                            <select
-                              value={destinationFor(j.id, j.storeId)}
-                              onChange={(e) =>
-                                setDestByJob((prev) => ({ ...prev, [j.id]: e.target.value }))
-                              }
-                              onClick={(e) => e.stopPropagation()}
-                              disabled={Boolean(j.transferTargetStoreId || j.transferSourceStoreId)}
-                              className="w-full max-w-xs rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zimson-400/40"
-                            >
-                              {storeOptions.map((opt) => (
-                                <option key={opt.id} value={opt.id}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
+                            <p className="rounded-lg border border-zimson-200 bg-zimson-50 px-2 py-1 text-xs font-semibold text-zimson-900">
+                              {(storeById.get(destinationFor(j.id, j.storeId))?.regionName
+                                ? `HO: ${storeById.get(destinationFor(j.id, j.storeId))?.regionName} · `
+                                : "")
+                                + `Store: ${storeById.get(destinationFor(j.id, j.storeId))?.storeName ?? destinationFor(j.id, j.storeId)}`}
+                            </p>
                             <p className="mt-1 text-xs text-stone-500">
                               {j.transferTargetStoreId
                                 ? "Inter-HO transfer: destination is auto-fixed."
-                                : "Originating store is pre-selected."}
+                                : "Set at SRF booking (same-region store)."}
                             </p>
                           </td>
                         </tr>

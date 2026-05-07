@@ -70,6 +70,7 @@ export function printSrfDocument(job: {
   serial: string;
   complaint: string;
   estimateTotalInr: number;
+  estimatedFinishDate?: string | null;
   advanceInr?: number;
   advancePaymentMode?: string | null;
   advancePaymentDetails?: AdvancePaymentDetails | null;
@@ -91,7 +92,8 @@ export function printSrfDocument(job: {
        <tbody>
          <tr><td><strong>SRF</strong></td><td>${job.reference}</td><td><strong>Customer</strong></td><td>${job.customerName}</td></tr>
          <tr><td><strong>Phone</strong></td><td>${job.phone}</td><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td></tr>
-         <tr><td><strong>Serial</strong></td><td>${job.serial}</td><td><strong>Estimate</strong></td><td>INR ${job.estimateTotalInr.toFixed(2)}</td></tr>
+        <tr><td><strong>Serial</strong></td><td>${job.serial}</td><td><strong>Estimate</strong></td><td>INR ${job.estimateTotalInr.toFixed(2)}</td></tr>
+        <tr><td><strong>Estimated service finish</strong></td><td>${job.estimatedFinishDate || "-"}</td><td><strong></strong></td><td></td></tr>
          <tr><td><strong>Complaint</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
        </tbody>
      </table>
@@ -356,6 +358,7 @@ export function printEstimateDocument(
          <tr><td><strong>Customer</strong></td><td>${job.customerName}</td><td><strong>Phone</strong></td><td>${job.phone}</td></tr>
          <tr><td><strong>Brand</strong></td><td>${job.watchBrand}</td><td><strong>Model</strong></td><td>${job.watchModel}</td></tr>
          <tr><td><strong>Serial Number</strong></td><td>${job.serial}</td><td><strong>Service Ref</strong></td><td>${job.reference}</td></tr>
+        <tr><td><strong>Estimated service finish</strong></td><td>${job.estimatedFinishDate || "-"}</td><td><strong></strong></td><td></td></tr>
        </tbody>
      </table>
 

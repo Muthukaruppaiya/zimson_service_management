@@ -16,6 +16,7 @@ const statusCls: Record<string, string> = {
   at_store: "bg-stone-100 text-stone-700",
   in_transit_sc: "bg-blue-100 text-blue-700",
   received_at_sc: "bg-violet-100 text-violet-700",
+  sent_to_other_ho: "bg-indigo-100 text-indigo-700",
   assigned: "bg-indigo-100 text-indigo-700",
   estimate_ok: "bg-amber-100 text-amber-700",
   reestimate_required: "bg-rose-100 text-rose-700",

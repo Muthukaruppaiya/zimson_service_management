@@ -33,6 +33,7 @@ const statusClass: Record<string, string> = {
   at_store: "bg-blue-100 text-blue-800",
   in_transit_sc: "bg-violet-100 text-violet-800",
   received_at_sc: "bg-violet-100 text-violet-800",
+  sent_to_other_ho: "bg-indigo-100 text-indigo-800",
   assigned: "bg-indigo-100 text-indigo-800",
   estimate_ok: "bg-cyan-100 text-cyan-800",
   reestimate_required: "bg-rose-100 text-rose-800",
@@ -54,6 +55,7 @@ function customerStatusLabel(status: string, hasPendingReestimate: boolean): str
   if (hasPendingReestimate) return "Approval required";
   if (status === "draft" || status === "photo_pending" || status === "at_store") return "Booking confirmed";
   if (status === "in_transit_sc" || status === "received_at_sc") return "In service movement";
+  if (status === "sent_to_other_ho") return "Sent to other HO for repair";
   if (status === "assigned" || status === "estimate_ok" || status === "reestimate_required") return "Under repair";
   if (status === "sent_to_brand" || status === "brand_estimate_pending" || status === "brand_approved" || status === "brand_repair_in_progress") return "With brand service";
   if (status === "received_from_brand") return "Returned from brand";
@@ -74,7 +76,7 @@ const flow = [
 
 function flowIndex(status: string): number {
   if (status === "draft" || status === "photo_pending" || status === "at_store") return 0;
-  if (status === "in_transit_sc" || status === "received_at_sc") return 1;
+  if (status === "in_transit_sc" || status === "received_at_sc" || status === "sent_to_other_ho") return 1;
   if (
     status === "assigned" ||
     status === "estimate_ok" ||

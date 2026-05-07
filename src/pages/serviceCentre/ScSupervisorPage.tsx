@@ -10,7 +10,7 @@ import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
-import { printBrandDispatchDocument, printEstimateDocument } from "../../lib/serviceDocuments";
+import { printAssignmentSlip, printBrandDispatchDocument, printEstimateDocument } from "../../lib/serviceDocuments";
 import type { SparePriceLine } from "../../types/spare";
 import type { TechnicianProfile } from "../../types/technician";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
@@ -177,7 +177,13 @@ export function ScSupervisorPage() {
     }
     try {
       await assignTechnician(jobId, techId);
-      setFeedback((f) => ({ ...f, [jobId]: "Assigned." }));
+      const job = jobs.find((x) => x.id === jobId);
+      const tech = technicians.find((t) => t.id === techId);
+      if (job && tech) {
+        const techLabel = `${tech.fullName} (${tech.grade})`;
+        printAssignmentSlip(job, techLabel);
+      }
+      setFeedback((f) => ({ ...f, [jobId]: "Assigned. Assignment note printed." }));
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not assign." }));
     }
@@ -807,10 +813,10 @@ export function ScSupervisorPage() {
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Link
-                  to={`/service-centre/online-store/invoice?srfId=${encodeURIComponent(j.id)}&invoiceFor=sender-ho`}
+                  to={`/service-centre/inter-ho-invoice?srfId=${encodeURIComponent(j.id)}&invoiceFor=sender-ho`}
                   className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
                 >
-                  Create sender-HO invoice
+                  Create Inter-HO invoice
                 </Link>
               </div>
             </div>

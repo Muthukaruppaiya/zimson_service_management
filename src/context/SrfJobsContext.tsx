@@ -196,6 +196,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       payload: {
         complaint: string;
         estimateTotalInr: number;
+        estimatedFinishDate?: string | null;
         advanceInr?: number;
         advancePaymentMode?: string | null;
         advancePaymentDetails?: unknown;

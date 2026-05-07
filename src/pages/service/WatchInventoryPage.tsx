@@ -34,6 +34,7 @@ const statusPill: Record<string, string> = {
   at_store: "bg-stone-100 text-stone-700",
   in_transit_sc: "bg-blue-100 text-blue-700",
   received_at_sc: "bg-violet-100 text-violet-700",
+  sent_to_other_ho: "bg-indigo-100 text-indigo-700",
   assigned: "bg-indigo-100 text-indigo-700",
   estimate_ok: "bg-amber-100 text-amber-700",
   reestimate_required: "bg-rose-100 text-rose-700",
@@ -48,6 +49,7 @@ const statusPill: Record<string, string> = {
 const statusOptions: Array<{ value: "ALL" | SrfJobStatus; label: string }> = [
   { value: "ALL", label: "All status" },
   { value: "at_store", label: "Store waiting dispatch" },
+  { value: "sent_to_other_ho", label: "Sent to other HO" },
   { value: "received_at_sc", label: "HO received" },
   { value: "assigned", label: "Assigned to technician" },
   { value: "estimate_ok", label: "Estimate ok" },
@@ -63,6 +65,7 @@ function laneOf(job: SrfJob): "HO" | "STORE" {
   const s = job.status;
   if (
     s === "received_at_sc" ||
+    s === "sent_to_other_ho" ||
     s === "assigned" ||
     s === "estimate_ok" ||
     s === "reestimate_required" ||
@@ -83,6 +86,7 @@ function laneOf(job: SrfJob): "HO" | "STORE" {
 
 function timelineLabel(job: SrfJob): string {
   if (job.status === "at_store") return "Store waiting to dispatch for repair";
+  if (job.status === "sent_to_other_ho") return "Sent to other HO for repair";
   if (job.status === "received_at_sc" || job.status === "assigned" || job.status === "estimate_ok") return "Repair in progress at HO";
   if (
     job.status === "sent_to_brand" ||

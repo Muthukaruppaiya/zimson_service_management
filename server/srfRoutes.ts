@@ -55,7 +55,14 @@ const SC_ODC_OUTWARD_ROLES = new Set<UserRole>([
 ]);
 
 function canSupervisorDecide(actor: DemoUser | null): boolean {
-  return !!actor && (actor.role === "service_centre_supervisor" || actor.role === "super_admin" || actor.role === "ho_admin");
+  return (
+    !!actor &&
+    (actor.role === "service_centre_supervisor" ||
+      actor.role === "ho_supervisor" ||
+      actor.role === "ho_manager" ||
+      actor.role === "super_admin" ||
+      actor.role === "ho_admin")
+  );
 }
 
 function canManageBrandDesk(actor: DemoUser | null): boolean {
@@ -474,6 +481,7 @@ export function registerSrfRoutes(
                 j.serial,
                 j.complaint,
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
+                j.estimated_finish_date::text AS "estimatedFinishDate",
                 j.advance_inr::float8 AS "advanceInr",
                 j.advance_payment_mode AS "advancePaymentMode",
                 j.advance_payment_details AS "advancePaymentDetails",
@@ -640,6 +648,7 @@ export function registerSrfRoutes(
         serial: string;
         complaint: string;
         estimateTotalInr: number;
+        estimatedFinishDate: string | null;
         advanceInr: number;
         advancePaymentMode: string | null;
         advancePaymentDetails: unknown;
@@ -680,6 +689,7 @@ export function registerSrfRoutes(
                 serial,
                 complaint,
                 estimate_total_inr::float8 AS "estimateTotalInr",
+                estimated_finish_date::text AS "estimatedFinishDate",
                 advance_inr::float8 AS "advanceInr",
                 advance_payment_mode AS "advancePaymentMode",
                 advance_payment_details AS "advancePaymentDetails",
@@ -1387,6 +1397,7 @@ export function registerSrfRoutes(
     }
     const regionId = String(req.body?.regionId ?? actor.regionId ?? "").trim();
     const storeId = String(req.body?.storeId ?? actor.storeId ?? "").trim();
+    const destinationStoreId = String(req.body?.destinationStoreId ?? storeId).trim();
     const customerName = String(req.body?.customerName ?? "").trim();
     const phone = String(req.body?.phone ?? "").trim();
     const customerKind = String(req.body?.customerKind ?? "B2C").toUpperCase() === "B2B" ? "B2B" : "B2C";
@@ -1394,8 +1405,8 @@ export function registerSrfRoutes(
     const watchBrand = String(req.body?.watchBrand ?? "").trim();
     const watchModel = String(req.body?.watchModel ?? "").trim();
     const serial = String(req.body?.serial ?? "").trim();
-    if (!regionId || !storeId || !customerName || !phone || !watchBrand || !watchModel || !serial) {
-      res.status(400).json({ error: "regionId, storeId, customerName, phone, watchBrand, watchModel, serial are required." });
+    if (!regionId || !storeId || !destinationStoreId || !customerName || !phone || !watchBrand || !watchModel || !serial) {
+      res.status(400).json({ error: "regionId, storeId, destinationStoreId, customerName, phone, watchBrand, watchModel, serial are required." });
       return;
     }
     const client = await pool.connect();
@@ -1405,15 +1416,24 @@ export function registerSrfRoutes(
         `SELECT name FROM stores WHERE id = $1::text`,
         [storeId],
       );
+      const { rows: destStoreRows } = await client.query<{ id: string }>(
+        `SELECT id FROM stores WHERE id = $1::text AND region_id = $2::text LIMIT 1`,
+        [destinationStoreId, regionId],
+      );
+      if (!destStoreRows[0]) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Destination store must belong to the same region as SRF booking store." });
+        return;
+      }
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
       const ref = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(storeRows[0]?.name, storeId));
       const ins = await client.query<{ id: string }>(
         `INSERT INTO srf_jobs (
            reference, region_id, store_id, customer_name, phone, customer_kind, company, watch_brand, watch_model, serial,
-           status, photo_session_active, created_by, modified_by
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'photo_pending', true, $11, $11)
+           destination_store_id, status, photo_session_active, created_by, modified_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'photo_pending', true, $12, $12)
          RETURNING id`,
-        [ref, regionId, storeId, customerName, phone, customerKind, company, watchBrand, watchModel, serial, actor.id],
+        [ref, regionId, storeId, customerName, phone, customerKind, company, watchBrand, watchModel, serial, destinationStoreId, actor.id],
       );
       const srfId = ins.rows[0]?.id;
       if (!srfId) throw new Error("Could not create SRF draft.");
@@ -1511,6 +1531,11 @@ export function registerSrfRoutes(
     const srfId = String(req.params.srfId ?? "").trim();
     const complaint = String(req.body?.complaint ?? "").trim();
     const estimateTotalInr = Number(req.body?.estimateTotalInr ?? 0);
+    const estimatedFinishDateRaw = String(req.body?.estimatedFinishDate ?? "").trim();
+    const estimatedFinishDate =
+      estimatedFinishDateRaw && /^\d{4}-\d{2}-\d{2}$/.test(estimatedFinishDateRaw)
+        ? estimatedFinishDateRaw
+        : null;
     const advanceInr = Number(req.body?.advanceInr ?? 0);
     const selectedPartIds = Array.isArray(req.body?.selectedPartIds)
       ? req.body.selectedPartIds.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
@@ -1575,6 +1600,7 @@ export function registerSrfRoutes(
              estimate_total_inr = $3,
              advance_inr = $4,
              selected_part_ids = $5::jsonb,
+             estimated_finish_date = $9::date,
              advance_payment_mode = $7,
              advance_payment_details = $8::jsonb,
              status = 'at_store',
@@ -1592,6 +1618,7 @@ export function registerSrfRoutes(
           actor.id,
           advancePaymentMode,
           JSON.stringify(advancePaymentDetails),
+          estimatedFinishDate,
         ],
       );
       await client.query(
@@ -1608,6 +1635,7 @@ export function registerSrfRoutes(
           complaint,
           selectedPartIds,
           advanceInr,
+          estimatedFinishDate,
           advancePaymentMode,
           advancePaymentDetails,
         },
@@ -2400,6 +2428,7 @@ export function registerSrfRoutes(
         serial: string;
         complaint: string;
         estimate_total_inr: number;
+        estimated_finish_date: string | null;
         advance_inr: number;
         advance_payment_mode: string | null;
         advance_payment_details: unknown;
@@ -2418,6 +2447,7 @@ export function registerSrfRoutes(
       }>(
         `SELECT reference, region_id, store_id, customer_name, phone, customer_kind, company,
                 watch_brand, watch_model, serial, complaint, estimate_total_inr::float8,
+                estimated_finish_date::text,
                 advance_inr::float8, advance_payment_mode, advance_payment_details, selected_part_ids,
                 status, dc_number, dispatched_to_sc_at, inward_at, destination_store_id, requires_local_conversion,
                 transfer_source_reference, transfer_source_region_id, transfer_source_store_id,
@@ -2433,31 +2463,44 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "SRF is not pending local conversion." });
         return;
       }
-      const { rows: storeRows } = await client.query<{ name: string }>(
-        `SELECT name FROM stores WHERE id = $1::text`,
-        [row.store_id],
+      const receiverRegionId = String(actor.regionId ?? "").trim();
+      if (!receiverRegionId) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Receiver HO region is not mapped for this login." });
+        return;
+      }
+      const { rows: receiverStoreRows } = await client.query<{ id: string; name: string }>(
+        `SELECT id, name FROM stores WHERE region_id = $1::text ORDER BY created_at ASC LIMIT 1`,
+        [receiverRegionId],
       );
+      const receiverStoreId = receiverStoreRows[0]?.id;
+      const receiverStoreName = receiverStoreRows[0]?.name;
+      if (!receiverStoreId) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "No HO store configured for receiver region." });
+        return;
+      }
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
-      const newRef = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(storeRows[0]?.name, row.store_id));
+      const newRef = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(receiverStoreName, receiverStoreId));
       const ins = await client.query<{ id: string }>(
         `INSERT INTO srf_jobs (
           reference, region_id, store_id, customer_name, phone, customer_kind, company,
-          watch_brand, watch_model, serial, complaint, estimate_total_inr, advance_inr, advance_payment_mode, advance_payment_details, selected_part_ids,
+          watch_brand, watch_model, serial, complaint, estimate_total_inr, estimated_finish_date, advance_inr, advance_payment_mode, advance_payment_details, selected_part_ids,
           status, dc_number, dispatched_to_sc_at, inward_at, destination_store_id, photo_session_active,
           requires_local_conversion, transfer_target_region_id, transfer_target_store_id,
           transfer_source_region_id, transfer_source_store_id, transfer_source_reference,
           created_by, modified_by
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7,
-          $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb,
-          'received_at_sc', $17, $18, $19, $20, false,
-          false, $21, $22, $23, $24, $25, $26, $26
+          $8, $9, $10, $11, $12, $13::date, $14, $15, $16::jsonb, $17::jsonb,
+          'received_at_sc', $18, $19, $20, $21, false,
+          false, $22, $23, $24, $25, $26, $27, $27
         )
         RETURNING id`,
         [
           newRef,
-          row.region_id,
-          row.store_id,
+          receiverRegionId,
+          receiverStoreId,
           row.customer_name,
           row.phone,
           row.customer_kind,
@@ -2467,14 +2510,15 @@ export function registerSrfRoutes(
           row.serial,
           row.complaint,
           row.estimate_total_inr,
+          row.estimated_finish_date,
           row.advance_inr ?? 0,
           row.advance_payment_mode,
           JSON.stringify(row.advance_payment_details ?? {}),
           JSON.stringify(row.selected_part_ids ?? []),
-          row.dc_number,
-          row.dispatched_to_sc_at,
-          row.inward_at,
-          row.transfer_source_store_id ?? row.destination_store_id ?? row.store_id,
+          null,
+          null,
+          null,
+          row.store_id,
           row.transfer_target_region_id,
           row.transfer_target_store_id,
           row.transfer_source_region_id,
@@ -2491,15 +2535,7 @@ export function registerSrfRoutes(
       }
       await client.query(
         `UPDATE srf_jobs
-         SET status = 'closed',
-             reference = CONCAT(reference, '-TMP-', LEFT(id::text, 8)),
-             closed_at = now(),
-             destination_store_id = NULL,
-             dc_number = NULL,
-             outward_dc_number = NULL,
-             ready_for_outward_at = NULL,
-             dispatched_to_store_at = NULL,
-             received_back_at_store_at = NULL,
+         SET status = 'sent_to_other_ho',
              updated_at = now(),
              modified_by = $2
          WHERE id = $1::uuid`,
@@ -2508,9 +2544,9 @@ export function registerSrfRoutes(
       await appendStatusHistory(
         client,
         srfId,
-        "closed",
+        "sent_to_other_ho",
         actor.id,
-        `Temporary source SRF closed after local conversion. New local SRF: ${newRef}.`,
+        `Converted by receiver HO. Local SRF created: ${newRef}. Sender SRF remains for tracking.`,
       );
       await appendStatusHistory(
         client,
