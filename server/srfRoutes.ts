@@ -55,15 +55,19 @@ const SC_ODC_OUTWARD_ROLES = new Set<UserRole>([
 ]);
 
 function canSupervisorDecide(actor: DemoUser | null): boolean {
+  if (!actor) return false;
+  const role = String(actor.role ?? "").trim().toLowerCase();
   return (
-    !!actor &&
-    (actor.role === "service_centre_supervisor" ||
-      actor.role === "service_centre_clerk" ||
-      actor.role === "ho_supervisor" ||
-      actor.role === "ho_manager" ||
-      actor.role === "regional_admin" ||
-      actor.role === "super_admin" ||
-      actor.role === "ho_admin")
+    role === "service_centre_supervisor" ||
+    role === "sc_supervisor" ||
+    role === "service centre supervisor" ||
+    role === "service_centre_clerk" ||
+    role === "sc_clerk" ||
+    role === "ho_supervisor" ||
+    role === "ho_manager" ||
+    role === "regional_admin" ||
+    role === "super_admin" ||
+    role === "ho_admin"
   );
 }
 
