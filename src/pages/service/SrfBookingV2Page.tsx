@@ -883,7 +883,7 @@ export function SrfBookingV2Page() {
                 </tr>
                 <tr className="border-b border-zimson-100">
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">After-service handover store</th>
-                  <td className="px-3 py-2 text-stone-800">{handoverStoreOptions.find((s) => s.id === handoverStoreId)?.name ?? handoverStoreId || "-"}</td>
+                  <td className="px-3 py-2 text-stone-800">{handoverStoreOptions.find((s) => s.id === handoverStoreId)?.name ?? (handoverStoreId || "-")}</td>
                 </tr>
                 <tr className="border-b border-zimson-100">
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Watch complaint</th>
