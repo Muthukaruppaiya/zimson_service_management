@@ -578,7 +578,12 @@ export function ScSupervisorPage() {
       setUnitPriceBySpareId((prev) => {
         const next = { ...prev };
         for (const l of flow.lines) {
-          if (l.spareId) next[l.spareId] = Number(l.unitPriceInr ?? 0);
+          if (!l.spareId) continue;
+          const unit = Number(l.unitPriceInr ?? 0);
+          const qty = Number(l.qty ?? 0);
+          const lineTotal = Number(l.lineTotalInr ?? 0);
+          const resolvedUnit = unit > 0 ? unit : qty > 0 && lineTotal > 0 ? lineTotal / qty : 0;
+          next[l.spareId] = resolvedUnit;
         }
         return next;
       });

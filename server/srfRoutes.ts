@@ -1120,6 +1120,11 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Invoice line qty must be greater than 0." });
         return;
       }
+      if (effectiveLines.some((l) => l.unit_price_inr <= 0)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Invoice line rate must be greater than 0." });
+        return;
+      }
       for (const line of effectiveLines) {
         await client.query(
           `UPDATE srf_inter_ho_spare_order_lines

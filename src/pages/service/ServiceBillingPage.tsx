@@ -346,10 +346,17 @@ export function ServiceBillingPage() {
     const validLines = lines.filter((l) => {
       const q = Number.parseFloat(l.qty) || 0;
       const r = Number.parseFloat(l.rate) || 0;
+      if (isOnlineOrderFlow || isInterHoSrfInvoiceFlow) {
+        return l.description.trim() && q > 0 && r > 0;
+      }
       return l.description.trim() && q > 0 && r >= 0;
     });
     if (validLines.length === 0) {
-      setError("Add at least one line with description, quantity, and rate.");
+      setError(
+        isOnlineOrderFlow || isInterHoSrfInvoiceFlow
+          ? "Add at least one line with description, quantity, and invoice rate (> 0)."
+          : "Add at least one line with description, quantity, and rate.",
+      );
       return;
     }
     const generatedRef = nextBillRef();
