@@ -58,8 +58,10 @@ function canSupervisorDecide(actor: DemoUser | null): boolean {
   return (
     !!actor &&
     (actor.role === "service_centre_supervisor" ||
+      actor.role === "service_centre_clerk" ||
       actor.role === "ho_supervisor" ||
       actor.role === "ho_manager" ||
+      actor.role === "regional_admin" ||
       actor.role === "super_admin" ||
       actor.role === "ho_admin")
   );
