@@ -12,7 +12,7 @@ import type { CustomerRecord } from "../../types/customer";
 
 type Phase = "name" | "phone" | "match" | "bill" | "done";
 
-type LineItem = { id: string; description: string; qty: string; rate: string; spareId?: string };
+type LineItem = { id: string; description: string; qty: string; rate: string; spareId?: string; orderLineId?: string };
 type OnlineOrderPrefill = {
   id: string;
   orderNumber: string;
@@ -26,6 +26,7 @@ type OnlineOrderPrefill = {
   serial: string | null;
   complaint: string | null;
   lines: Array<{
+    id: string;
     spareId: string;
     spareName: string;
     qty: number;
@@ -130,6 +131,7 @@ export function ServiceBillingPage() {
           order.lines.map((l) => ({
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
             spareId: l.spareId,
+            orderLineId: l.id,
             description: l.spareName,
             qty: String(Number(l.qty || 0)),
             rate: String(Number(l.unitPriceInr || 0)),
@@ -359,8 +361,9 @@ export function ServiceBillingPage() {
             invoiceRef: generatedRef,
             note: "Invoice created from HO billing page.",
             lines: validLines
-              .filter((l) => !!l.spareId)
+              .filter((l) => !!l.spareId || !!l.orderLineId)
               .map((l) => ({
+                lineId: l.orderLineId ? String(l.orderLineId) : undefined,
                 spareId: String(l.spareId),
                 qty: Number.parseFloat(l.qty) || 0,
                 unitPriceInr: Number.parseFloat(l.rate) || 0,

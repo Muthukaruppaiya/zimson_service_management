@@ -1034,11 +1034,12 @@ export function registerSrfRoutes(
     const invoiceLines = Array.isArray(req.body?.lines)
       ? req.body.lines
           .map((x: unknown) => ({
+            lineId: String((x as { lineId?: unknown })?.lineId ?? "").trim(),
             spareId: String((x as { spareId?: unknown })?.spareId ?? "").trim(),
             qty: Number((x as { qty?: unknown })?.qty ?? 0),
             unitPriceInr: Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0),
           }))
-          .filter((x: { spareId: string; qty: number; unitPriceInr: number }) => x.spareId)
+          .filter((x: { lineId: string; spareId: string; qty: number; unitPriceInr: number }) => x.lineId || x.spareId)
       : [];
     if (!invoiceRef) {
       res.status(400).json({ error: "invoiceRef is required." });
@@ -1079,8 +1080,8 @@ export function registerSrfRoutes(
           return;
         }
       }
-      const lineRes = await client.query<{ spare_id: string; spare_name: string; qty: number; unit_price_inr: number }>(
-        `SELECT spare_id, spare_name, qty::float8 AS qty, unit_price_inr::float8 AS unit_price_inr
+      const lineRes = await client.query<{ id: string; spare_id: string; spare_name: string; qty: number; unit_price_inr: number }>(
+        `SELECT id, spare_id, spare_name, qty::float8 AS qty, unit_price_inr::float8 AS unit_price_inr
          FROM srf_inter_ho_spare_order_lines
          WHERE order_id = $1::uuid`,
         [order.id],
@@ -1090,9 +1091,14 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Order has no lines." });
         return;
       }
-      const invoiceLineMap = new Map(invoiceLines.map((l: { spareId: string; qty: number; unitPriceInr: number }) => [l.spareId, l]));
-      if (invoiceLineMap.size > 0) {
-        const unknown = invoiceLines.filter((l: { spareId: string }) => !lineRes.rows.some((x) => x.spare_id === l.spareId));
+      const invoiceLineById = new Map(invoiceLines.filter((l: { lineId: string }) => !!l.lineId).map((l: { lineId: string; spareId: string; qty: number; unitPriceInr: number }) => [l.lineId, l]));
+      const invoiceLineBySpare = new Map(invoiceLines.filter((l: { spareId: string }) => !!l.spareId).map((l: { lineId: string; spareId: string; qty: number; unitPriceInr: number }) => [l.spareId, l]));
+      if (invoiceLines.length > 0) {
+        const unknown = invoiceLines.filter((l: { lineId: string; spareId: string }) =>
+          l.lineId
+            ? !lineRes.rows.some((x) => x.id === l.lineId)
+            : !lineRes.rows.some((x) => x.spare_id === l.spareId),
+        );
         if (unknown.length > 0) {
           await client.query("ROLLBACK");
           res.status(400).json({ error: "Invoice lines contain unknown spare ids." });
@@ -1100,10 +1106,11 @@ export function registerSrfRoutes(
         }
       }
       const effectiveLines = lineRes.rows.map((line) => {
-        const override = invoiceLineMap.get(line.spare_id);
+        const override = invoiceLineById.get(line.id) ?? invoiceLineBySpare.get(line.spare_id);
         const qty = Number(override?.qty ?? line.qty ?? 0);
         const unitPriceInr = Number(override?.unitPriceInr ?? line.unit_price_inr ?? 0);
         return {
+          id: line.id,
           spare_id: line.spare_id,
           spare_name: line.spare_name,
           qty: Number.isFinite(qty) && qty > 0 ? qty : 0,
@@ -1122,8 +1129,8 @@ export function registerSrfRoutes(
                unit_price_inr = $4,
                line_total_inr = $3 * $4
            WHERE order_id = $1::uuid
-             AND spare_id = $2::uuid`,
-          [order.id, line.spare_id, line.qty, line.unit_price_inr],
+             AND id = $2::uuid`,
+          [order.id, line.id, line.qty, line.unit_price_inr],
         );
       }
       const key = `HO:${order.to_region_id}`;
