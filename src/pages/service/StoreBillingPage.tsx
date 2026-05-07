@@ -78,8 +78,17 @@ export function StoreBillingPage() {
 
   const additionalChargesTotal = additionalChargeLines.reduce((sum, line) => sum + getLineAmount(line), 0);
   const estimateAmount = Number(billingJob?.estimateTotalInr ?? 0);
+  const usedSparesAmount = Number(
+    (billingJob?.usedSpares ?? []).reduce((sum, line) => {
+      const lineTotal = Number(line.lineTotalInr ?? NaN);
+      if (Number.isFinite(lineTotal)) return sum + lineTotal;
+      const qty = Number(line.qty ?? 0);
+      const unit = Number(line.unitPriceInr ?? 0);
+      return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
+    }, 0),
+  );
   const advanceAmount = Number(billingJob?.advanceInr ?? 0);
-  const standardBillingTotal = Math.max(estimateAmount - advanceAmount + additionalChargesTotal, 0);
+  const standardBillingTotal = Math.max(usedSparesAmount + additionalChargesTotal - advanceAmount, 0);
 
   function addChargeLine() {
     setAdditionalChargeLines((prev) => [
@@ -180,9 +189,17 @@ export function StoreBillingPage() {
       setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "SRF not found in store inventory." }));
       return;
     }
-    const estimateAmount = Number(job.estimateTotalInr ?? 0);
+    const usedSparesAmount = Number(
+      (job.usedSpares ?? []).reduce((sum, line) => {
+        const lineTotal = Number(line.lineTotalInr ?? NaN);
+        if (Number.isFinite(lineTotal)) return sum + lineTotal;
+        const qty = Number(line.qty ?? 0);
+        const unit = Number(line.unitPriceInr ?? 0);
+        return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
+      }, 0),
+    );
     const advanceAmount = Number(job.advanceInr ?? 0);
-    const computedTotal = Math.max(estimateAmount - advanceAmount + additionalChargesTotal, 0);
+    const computedTotal = Math.max(usedSparesAmount + additionalChargesTotal - advanceAmount, 0);
     const finalAmount = paidAmountInput.trim() ? Number(paidAmountInput) : computedTotal;
     if (!Number.isFinite(finalAmount) || finalAmount < 0) {
       setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "Enter valid paid amount." }));
@@ -521,9 +538,9 @@ export function StoreBillingPage() {
               <table className="min-w-full text-left text-sm">
                 <tbody>
                   <tr className="border-b border-zimson-100">
-                    <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimate amount</th>
+                    <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Spares amount (actual)</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
-                      INR {estimateAmount.toFixed(2)}
+                      INR {usedSparesAmount.toFixed(2)}
                     </td>
                   </tr>
                   <tr className="border-b border-zimson-100">
