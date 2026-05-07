@@ -925,9 +925,8 @@ export function registerSrfRoutes(
           .map((x: unknown) => ({
             spareId: String((x as { spareId?: unknown })?.spareId ?? "").trim(),
             qty: Number((x as { qty?: unknown })?.qty ?? 0),
-            unitPriceInr: Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0),
           }))
-          .filter((x: { spareId: string; qty: number; unitPriceInr: number }) => x.spareId && Number.isFinite(x.qty) && x.qty > 0)
+          .filter((x: { spareId: string; qty: number }) => x.spareId && Number.isFinite(x.qty) && x.qty > 0)
       : [];
     if (!targetRegionId) {
       res.status(400).json({ error: "targetRegionId is required." });
@@ -989,12 +988,11 @@ export function registerSrfRoutes(
       const orderId = orderIns.rows[0]?.id;
       if (!orderId) throw new Error("Could not create spare order.");
       for (const line of lines) {
-        const unitPriceInr = Number.isFinite(line.unitPriceInr) && line.unitPriceInr >= 0 ? line.unitPriceInr : 0;
         const qty = Number(line.qty);
         await client.query(
           `INSERT INTO srf_inter_ho_spare_order_lines (order_id, spare_id, spare_name, qty, unit_price_inr, line_total_inr)
            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)`,
-          [orderId, line.spareId, nameById.get(line.spareId) ?? line.spareId, qty, unitPriceInr, unitPriceInr * qty],
+          [orderId, line.spareId, nameById.get(line.spareId) ?? line.spareId, qty, 0, 0],
         );
       }
       await appendActionLog(client, srfId, {

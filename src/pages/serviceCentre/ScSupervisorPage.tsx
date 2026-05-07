@@ -101,8 +101,8 @@ export function ScSupervisorPage() {
   const [requestSparesJobId, setRequestSparesJobId] = useState<string | null>(null);
   const [requestSparesTargetRegionId, setRequestSparesTargetRegionId] = useState("");
   const [requestSparesNote, setRequestSparesNote] = useState("");
-  const [requestSparesLines, setRequestSparesLines] = useState<Array<{ spareId: string; qty: string; unitPriceInr: string }>>([
-    { spareId: "", qty: "1", unitPriceInr: "0" },
+  const [requestSparesLines, setRequestSparesLines] = useState<Array<{ spareId: string; qty: string }>>([
+    { spareId: "", qty: "1" },
   ]);
   const [fulfillOrderId, setFulfillOrderId] = useState<string | null>(null);
   const [fulfillInvoiceRef, setFulfillInvoiceRef] = useState("");
@@ -485,14 +485,14 @@ export function ScSupervisorPage() {
     setRequestSparesJobId(jobId);
     setRequestSparesTargetRegionId(transferRegionOptions[0]?.id ?? "");
     setRequestSparesNote("");
-    setRequestSparesLines([{ spareId: "", qty: "1", unitPriceInr: "0" }]);
+    setRequestSparesLines([{ spareId: "", qty: "1" }]);
   }
 
   function closeRequestSparesPopup() {
     setRequestSparesJobId(null);
     setRequestSparesTargetRegionId("");
     setRequestSparesNote("");
-    setRequestSparesLines([{ spareId: "", qty: "1", unitPriceInr: "0" }]);
+    setRequestSparesLines([{ spareId: "", qty: "1" }]);
   }
 
   async function confirmRequestSparesOtherHo() {
@@ -501,7 +501,6 @@ export function ScSupervisorPage() {
       .map((x) => ({
         spareId: x.spareId,
         qty: Number(x.qty),
-        unitPriceInr: Number(x.unitPriceInr || 0),
       }))
       .filter((x) => x.spareId && Number.isFinite(x.qty) && x.qty > 0);
     if (!requestSparesTargetRegionId) {
@@ -1301,7 +1300,7 @@ export function ScSupervisorPage() {
           <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Online spare sales order</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Raise spare requirement against this SRF. Destination HO will fulfill with invoice (different GST), then repair flow continues as usual.
+              Raise spare requirement against this SRF (spare + qty only). Destination HO invoice price will be used after fulfill/inward.
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
@@ -1357,20 +1356,10 @@ export function ScSupervisorPage() {
                       className="col-span-2 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                       placeholder="Qty"
                     />
-                    <input
-                      value={line.unitPriceInr}
-                      onChange={(e) =>
-                        setRequestSparesLines((prev) =>
-                          prev.map((x, i) => (i === idx ? { ...x, unitPriceInr: e.target.value } : x)),
-                        )
-                      }
-                      className="col-span-2 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                      placeholder="Rate"
-                    />
                     <button
                       type="button"
                       onClick={() => setRequestSparesLines((prev) => prev.filter((_, i) => i !== idx))}
-                      className="col-span-1 rounded-xl border border-zimson-300 bg-white text-sm"
+                      className="col-span-3 rounded-xl border border-zimson-300 bg-white text-sm"
                     >
                       x
                     </button>
@@ -1378,7 +1367,7 @@ export function ScSupervisorPage() {
                 ))}
                 <button
                   type="button"
-                  onClick={() => setRequestSparesLines((prev) => [...prev, { spareId: "", qty: "1", unitPriceInr: "0" }])}
+                  onClick={() => setRequestSparesLines((prev) => [...prev, { spareId: "", qty: "1" }])}
                   className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900"
                 >
                   Add spare
