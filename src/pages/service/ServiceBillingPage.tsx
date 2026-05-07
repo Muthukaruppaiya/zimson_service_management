@@ -12,7 +12,7 @@ import type { CustomerRecord } from "../../types/customer";
 
 type Phase = "name" | "phone" | "match" | "bill" | "done";
 
-type LineItem = { id: string; description: string; qty: string; rate: string };
+type LineItem = { id: string; description: string; qty: string; rate: string; spareId?: string };
 type OnlineOrderPrefill = {
   id: string;
   orderNumber: string;
@@ -26,6 +26,7 @@ type OnlineOrderPrefill = {
   serial: string | null;
   complaint: string | null;
   lines: Array<{
+    spareId: string;
     spareName: string;
     qty: number;
     unitPriceInr: number;
@@ -58,6 +59,7 @@ function emptyLine(): LineItem {
     description: "",
     qty: "1",
     rate: "",
+    spareId: undefined,
   };
 }
 
@@ -127,6 +129,7 @@ export function ServiceBillingPage() {
         setLines(
           order.lines.map((l) => ({
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            spareId: l.spareId,
             description: l.spareName,
             qty: String(Number(l.qty || 0)),
             rate: String(Number(l.unitPriceInr || 0)),
@@ -355,6 +358,13 @@ export function ServiceBillingPage() {
           json: {
             invoiceRef: generatedRef,
             note: "Invoice created from HO billing page.",
+            lines: validLines
+              .filter((l) => !!l.spareId)
+              .map((l) => ({
+                spareId: String(l.spareId),
+                qty: Number.parseFloat(l.qty) || 0,
+                unitPriceInr: Number.parseFloat(l.rate) || 0,
+              })),
           },
         });
       }

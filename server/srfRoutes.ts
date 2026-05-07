@@ -1031,6 +1031,15 @@ export function registerSrfRoutes(
     const orderId = String(req.params.orderId ?? "").trim();
     const invoiceRef = String(req.body?.invoiceRef ?? "").trim();
     const fulfilledNote = String(req.body?.note ?? "").trim();
+    const invoiceLines = Array.isArray(req.body?.lines)
+      ? req.body.lines
+          .map((x: unknown) => ({
+            spareId: String((x as { spareId?: unknown })?.spareId ?? "").trim(),
+            qty: Number((x as { qty?: unknown })?.qty ?? 0),
+            unitPriceInr: Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0),
+          }))
+          .filter((x: { spareId: string; qty: number; unitPriceInr: number }) => x.spareId)
+      : [];
     if (!invoiceRef) {
       res.status(400).json({ error: "invoiceRef is required." });
       return;
@@ -1070,8 +1079,8 @@ export function registerSrfRoutes(
           return;
         }
       }
-      const lineRes = await client.query<{ spare_id: string; spare_name: string; qty: number }>(
-        `SELECT spare_id, spare_name, qty::float8 AS qty
+      const lineRes = await client.query<{ spare_id: string; spare_name: string; qty: number; unit_price_inr: number }>(
+        `SELECT spare_id, spare_name, qty::float8 AS qty, unit_price_inr::float8 AS unit_price_inr
          FROM srf_inter_ho_spare_order_lines
          WHERE order_id = $1::uuid`,
         [order.id],
@@ -1081,9 +1090,45 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Order has no lines." });
         return;
       }
+      const invoiceLineMap = new Map(invoiceLines.map((l: { spareId: string; qty: number; unitPriceInr: number }) => [l.spareId, l]));
+      if (invoiceLineMap.size > 0) {
+        const unknown = invoiceLines.filter((l: { spareId: string }) => !lineRes.rows.some((x) => x.spare_id === l.spareId));
+        if (unknown.length > 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Invoice lines contain unknown spare ids." });
+          return;
+        }
+      }
+      const effectiveLines = lineRes.rows.map((line) => {
+        const override = invoiceLineMap.get(line.spare_id);
+        const qty = Number(override?.qty ?? line.qty ?? 0);
+        const unitPriceInr = Number(override?.unitPriceInr ?? line.unit_price_inr ?? 0);
+        return {
+          spare_id: line.spare_id,
+          spare_name: line.spare_name,
+          qty: Number.isFinite(qty) && qty > 0 ? qty : 0,
+          unit_price_inr: Number.isFinite(unitPriceInr) && unitPriceInr >= 0 ? unitPriceInr : 0,
+        };
+      });
+      if (effectiveLines.some((l) => l.qty <= 0)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Invoice line qty must be greater than 0." });
+        return;
+      }
+      for (const line of effectiveLines) {
+        await client.query(
+          `UPDATE srf_inter_ho_spare_order_lines
+           SET qty = $3,
+               unit_price_inr = $4,
+               line_total_inr = $3 * $4
+           WHERE order_id = $1::uuid
+             AND spare_id = $2::uuid`,
+          [order.id, line.spare_id, line.qty, line.unit_price_inr],
+        );
+      }
       const key = `HO:${order.to_region_id}`;
       const shortages: Array<{ spareName: string; available: number; required: number }> = [];
-      for (const line of lineRes.rows) {
+      for (const line of effectiveLines) {
         const stockRes = await client.query<{ quantity: number }>(
           `SELECT quantity::float8 AS quantity
            FROM spare_stock
@@ -1107,7 +1152,7 @@ export function registerSrfRoutes(
         });
         return;
       }
-      for (const line of lineRes.rows) {
+      for (const line of effectiveLines) {
         await client.query(
           `UPDATE spare_stock
            SET quantity = quantity - $3, updated_at = now()
@@ -1158,7 +1203,17 @@ export function registerSrfRoutes(
         description: `Online spare order ${order.order_number} invoice created by supplier HO ${order.to_region_id}.`,
         actor,
         referenceDoc: order.order_number,
-        details: { invoiceRef, fulfilledNote },
+        details: {
+          invoiceRef,
+          fulfilledNote,
+          lines: effectiveLines.map((l) => ({
+            spareId: l.spare_id,
+            spareName: l.spare_name,
+            qty: l.qty,
+            unitPriceInr: l.unit_price_inr,
+            lineTotalInr: l.qty * l.unit_price_inr,
+          })),
+        },
       });
       const srfState = await client.query<{ status: string }>(`SELECT status FROM srf_jobs WHERE id = $1::uuid`, [order.srf_id]);
       await appendStatusHistory(
