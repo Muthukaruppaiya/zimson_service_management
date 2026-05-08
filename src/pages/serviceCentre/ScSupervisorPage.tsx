@@ -107,6 +107,7 @@ export function ScSupervisorPage() {
   const [fulfillOrderId, setFulfillOrderId] = useState<string | null>(null);
   const [fulfillInvoiceRef, setFulfillInvoiceRef] = useState("");
   const [fulfillNote, setFulfillNote] = useState("");
+  const [fulfillLines, setFulfillLines] = useState<Array<{ lineId: string; spareId: string; spareName: string; qty: string; unitPriceInr: string }>>([]);
   const [orderDetailsId, setOrderDetailsId] = useState<string | null>(null);
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [sendBrandPopupJobId, setSendBrandPopupJobId] = useState<string | null>(null);
@@ -448,6 +449,24 @@ export function ScSupervisorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!fulfillOrderId) return;
+    const order = spareOrderRows.find((o) => o.id === fulfillOrderId);
+    if (!order) {
+      setFulfillLines([]);
+      return;
+    }
+    setFulfillLines(
+      order.lines.map((l) => ({
+        lineId: l.id,
+        spareId: l.spareId,
+        spareName: l.spareName,
+        qty: String(Number(l.qty || 0)),
+        unitPriceInr: String(Number(l.unitPriceInr || 0)),
+      })),
+    );
+  }, [fulfillOrderId, spareOrderRows]);
+
   function openTransferPopup(jobId: string) {
     setTransferPopupJobId(jobId);
     setTransferTargetRegionId(transferRegionOptions[0]?.id ?? "");
@@ -535,6 +554,7 @@ export function ScSupervisorPage() {
     setFulfillOrderId(null);
     setFulfillInvoiceRef("");
     setFulfillNote("");
+    setFulfillLines([]);
   }
 
   async function confirmFulfillOrder() {
@@ -543,10 +563,26 @@ export function ScSupervisorPage() {
       setSpareOrderMsg("Enter invoice reference.");
       return;
     }
+    const invoiceLines = fulfillLines
+      .map((l) => ({
+        lineId: l.lineId,
+        spareId: l.spareId,
+        qty: Number(l.qty),
+        unitPriceInr: Number(l.unitPriceInr),
+      }))
+      .filter((l) => l.spareId && Number.isFinite(l.qty) && l.qty > 0);
+    if (invoiceLines.length === 0) {
+      setSpareOrderMsg("Add valid invoice line qty and rate.");
+      return;
+    }
+    if (invoiceLines.some((l) => !Number.isFinite(l.unitPriceInr) || l.unitPriceInr <= 0)) {
+      setSpareOrderMsg("Invoice line rate must be greater than 0.");
+      return;
+    }
     try {
       await apiJson(`/api/service/inter-ho-spare-orders/${encodeURIComponent(fulfillOrderId)}/fulfill`, {
         method: "POST",
-        json: { invoiceRef: fulfillInvoiceRef.trim(), note: fulfillNote.trim() },
+        json: { invoiceRef: fulfillInvoiceRef.trim(), note: fulfillNote.trim(), lines: invoiceLines },
       });
       closeFulfillOrder();
       await refreshSpareOrders();
@@ -1398,7 +1434,7 @@ export function ScSupervisorPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Process online spare sale</h3>
-            <p className="mt-1 text-sm text-stone-600">Enter invoice reference. Stock will be deducted from this HO.</p>
+            <p className="mt-1 text-sm text-stone-600">Enter invoice reference and invoice rates. Stock will be deducted from this HO.</p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Invoice reference
@@ -1417,6 +1453,43 @@ export function ScSupervisorPage() {
                   onChange={(e) => setFulfillNote(e.target.value)}
                 />
               </label>
+              <div className="rounded-xl border border-zimson-200/80">
+                <div className="grid grid-cols-12 gap-2 border-b border-zimson-200 bg-zimson-50/70 px-3 py-2 text-xs font-semibold text-stone-700">
+                  <div className="col-span-5">Spare</div>
+                  <div className="col-span-2 text-right">Qty</div>
+                  <div className="col-span-3 text-right">Rate (INR)</div>
+                  <div className="col-span-2 text-right">Total</div>
+                </div>
+                <div className="max-h-56 space-y-2 overflow-auto p-2">
+                  {fulfillLines.map((line, idx) => {
+                    const qty = Number(line.qty || 0);
+                    const rate = Number(line.unitPriceInr || 0);
+                    const total = (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(rate) ? rate : 0);
+                    return (
+                      <div key={line.lineId} className="grid grid-cols-12 items-center gap-2 rounded-lg bg-white px-1 py-1 text-xs">
+                        <div className="col-span-5 truncate text-stone-800">{line.spareName}</div>
+                        <div className="col-span-2 text-right text-stone-700">{qty}</div>
+                        <div className="col-span-3">
+                          <input
+                            value={line.unitPriceInr}
+                            onChange={(e) =>
+                              setFulfillLines((prev) =>
+                                prev.map((x, i) => (i === idx ? { ...x, unitPriceInr: e.target.value.replace(/[^\d.]/g, "") } : x)),
+                              )
+                            }
+                            className="w-full rounded-lg border border-zimson-300 bg-zimson-50/50 px-2 py-1 text-right text-xs"
+                            placeholder="0"
+                          />
+                        </div>
+                        <div className="col-span-2 text-right font-semibold text-stone-800">{total.toFixed(2)}</div>
+                      </div>
+                    );
+                  })}
+                  {fulfillLines.length === 0 ? (
+                    <p className="px-1 py-2 text-xs text-stone-500">No order lines found for this online order.</p>
+                  ) : null}
+                </div>
+              </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" onClick={closeFulfillOrder} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">
