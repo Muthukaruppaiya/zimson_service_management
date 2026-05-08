@@ -1128,9 +1128,9 @@ export function registerSrfRoutes(
       for (const line of effectiveLines) {
         await client.query(
           `UPDATE srf_inter_ho_spare_order_lines
-           SET qty = $3,
-               unit_price_inr = $4,
-               line_total_inr = $3 * $4
+           SET qty = $3::numeric,
+               unit_price_inr = $4::numeric,
+               line_total_inr = ($3::numeric * $4::numeric)
            WHERE order_id = $1::uuid
              AND id = $2::uuid`,
           [order.id, line.id, line.qty, line.unit_price_inr],
