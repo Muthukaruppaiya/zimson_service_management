@@ -3521,6 +3521,7 @@ export function registerSrfRoutes(
         region_id: string;
         store_id: string;
         ho_spares_bill_ref: string | null;
+        destination_store_id: string | null;
         requires_local_conversion: boolean;
         transfer_target_region_id: string | null;
         transfer_target_store_id: string | null;
@@ -3528,7 +3529,7 @@ export function registerSrfRoutes(
         transfer_source_store_id: string | null;
         transfer_source_reference: string | null;
       }>(
-        `SELECT id, status, region_id, store_id, ho_spares_bill_ref, requires_local_conversion,
+        `SELECT id, status, region_id, store_id, ho_spares_bill_ref, destination_store_id, requires_local_conversion,
                 transfer_target_region_id, transfer_target_store_id,
                 transfer_source_region_id, transfer_source_store_id, transfer_source_reference
          FROM srf_jobs
@@ -3576,13 +3577,14 @@ export function registerSrfRoutes(
           id: string;
           status: string;
           region_id: string;
+          destination_store_id: string | null;
           requires_local_conversion: boolean;
           transfer_target_region_id: string | null;
           transfer_source_region_id: string | null;
           transfer_source_store_id: string | null;
           transfer_source_reference: string | null;
         }>(
-          `SELECT id, status, region_id, requires_local_conversion,
+          `SELECT id, status, region_id, destination_store_id, requires_local_conversion,
                   transfer_target_region_id, transfer_source_region_id, transfer_source_store_id, transfer_source_reference
            FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
           [it.srfId],
@@ -3605,7 +3607,8 @@ export function registerSrfRoutes(
             // Return leg is dispatched by the current (receiving/repairing) HO region.
             if (row.region_id !== actor.regionId) continue;
             // Strict guard: return transfer can only go back to original source store.
-            if (it.destinationStoreId !== row.transfer_source_store_id) {
+            const fixedReturnStoreId = row.transfer_source_store_id ?? row.destination_store_id;
+            if (fixedReturnStoreId && it.destinationStoreId !== fixedReturnStoreId) {
               await client.query("ROLLBACK");
               res.status(400).json({ error: "Return transfer destination is fixed to source HO/store." });
               return;
@@ -3633,11 +3636,11 @@ export function registerSrfRoutes(
                  dc_number = $2,
                  dispatched_to_sc_at = now(),
                  outward_dc_number = NULL,
-                 destination_store_id = COALESCE(destination_store_id, transfer_source_store_id),
+                 destination_store_id = COALESCE(destination_store_id, transfer_source_store_id, $6::text),
                  updated_at = now(),
                  modified_by = $3
              WHERE id = $1::uuid`,
-            [it.srfId, dcNumber, actor.id, movingToTargetHo, hoInvoiceRef],
+            [it.srfId, dcNumber, actor.id, movingToTargetHo, hoInvoiceRef, it.destinationStoreId],
           );
           await appendStatusHistory(
             client,
