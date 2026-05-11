@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
+import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
@@ -11,6 +12,7 @@ export function StoreBillingMasterPage() {
   const { user } = useAuth();
   const { jobs } = useSrfJobs();
   const [page, setPage] = useState(1);
+  const [traceId, setTraceId] = useState<string | null>(null);
   const pageSize = 10;
 
   const recentClosedBilling = useMemo(() => {
@@ -58,12 +60,21 @@ export function StoreBillingMasterPage() {
                     <th className="px-3 py-2">Watch</th>
                     <th className="px-3 py-2">Closed</th>
                     <th className="px-3 py-2 text-right">Estimate</th>
+                    <th className="px-3 py-2 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedRows.map((j) => (
                     <tr key={j.id} className="border-b border-zimson-100 last:border-0">
-                      <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                      <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">
+                        <button
+                          type="button"
+                          onClick={() => setTraceId(j.id)}
+                          className="hover:text-indigo-600 hover:underline"
+                        >
+                          {j.reference}
+                        </button>
+                      </td>
                       <td className="px-3 py-2 text-stone-800">{j.customerName}</td>
                       <td className="px-3 py-2 text-stone-700">
                         {j.watchBrand} {j.watchModel}
@@ -73,6 +84,15 @@ export function StoreBillingMasterPage() {
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-stone-900">
                         {Number(j.estimateTotalInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setTraceId(j.id)}
+                          className="rounded-lg border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-900 hover:bg-indigo-100"
+                        >
+                          View details
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -103,6 +123,7 @@ export function StoreBillingMasterPage() {
           </>
         )}
       </Card>
+      {traceId ? <SrfTraceModal srfId={traceId} onClose={() => setTraceId(null)} /> : null}
     </div>
   );
 }

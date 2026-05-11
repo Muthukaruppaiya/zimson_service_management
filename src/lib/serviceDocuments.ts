@@ -472,11 +472,20 @@ export function printStoreServiceInvoice(
          <tr><td><strong>HO spare bill ref</strong></td><td>${payload.hoSparesBillRef || "-"}</td><td><strong>Store bill ref</strong></td><td>${payload.storeBillRef || "-"}</td></tr>
        </tbody>
      </table>
+     ${Number(job.brandInvoiceAmountInr ?? 0) > 0 ? `
+     <h3 style="margin:16px 0 8px">Brand repair invoice</h3>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <tbody>
+         <tr><td><strong>Brand invoice ref</strong></td><td>${job.brandInvoiceRef ?? "-"}</td></tr>
+         <tr><td><strong>Brand invoice amount</strong></td><td>INR ${Number(job.brandInvoiceAmountInr ?? 0).toFixed(2)}</td></tr>
+         ${Number(job.brandEstimateInr ?? 0) > 0 ? `<tr><td><strong>Brand estimate</strong></td><td>INR ${Number(job.brandEstimateInr ?? 0).toFixed(2)}</td></tr>` : ""}
+       </tbody>
+     </table>` : `
      <h3 style="margin:16px 0 8px">Used spares</h3>
      <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
        <thead><tr><th>#</th><th>Spare</th><th>Qty</th></tr></thead>
        <tbody>${spareRows || '<tr><td colspan="3">No spares entered</td></tr>'}</tbody>
-     </table>
+     </table>`}
      <h3 style="margin:16px 0 8px">Additional line items</h3>
      <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
        <thead><tr><th>#</th><th>Description</th><th>Amount</th></tr></thead>

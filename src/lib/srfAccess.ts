@@ -10,7 +10,10 @@ export function jobVisibleToStoreUser(job: SrfJob, user: SessionUser): boolean {
     user.role === "store_manager" ||
     user.role === "store_accounts"
   ) {
-    return user.regionId === job.regionId && (user.storeId === job.storeId || user.storeId === job.destinationStoreId);
+    return (
+      (user.regionId === job.regionId && user.storeId === job.storeId) ||
+      user.storeId === job.destinationStoreId
+    );
   }
   return false;
 }
@@ -26,7 +29,7 @@ export function jobVisibleToServiceCentre(job: SrfJob, user: SessionUser): boole
     user.role === "ho_manager" ||
     user.role === "ho_user"
   ) {
-    return user.regionId != null && user.regionId === job.regionId;
+    return user.regionId != null && (user.regionId === job.regionId || user.regionId === job.transferSourceRegionId);
   }
   if (user.role === "regional_admin") return user.regionId === job.regionId;
   return false;

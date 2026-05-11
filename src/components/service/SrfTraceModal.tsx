@@ -252,6 +252,22 @@ function SrfHeader({ trace }: { trace: SrfTrace }) {
           </p>
         ) : null}
       </div>
+      <div className="sm:col-span-2 mt-2 border-t border-zimson-200 pt-2 text-[10px] text-stone-500 uppercase tracking-wider font-semibold">
+        Mapping &amp; Logistics
+      </div>
+      <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <p>
+          <span className="font-semibold text-stone-900">Booked at:</span> {j.storeName ?? j.storeId} ({j.regionName ?? j.regionId})
+        </p>
+        <p>
+          <span className="font-semibold text-stone-900">Customer destination:</span> {j.destinationStoreId}
+        </p>
+        {j.transferTargetRegionId && (
+          <p className="text-amber-700">
+            <span className="font-semibold">Transferred to HO:</span> {j.transferTargetRegionId}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

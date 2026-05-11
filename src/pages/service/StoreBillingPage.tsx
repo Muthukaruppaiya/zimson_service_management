@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
+import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
@@ -41,6 +42,7 @@ export function StoreBillingPage() {
   const [otpInputByJob, setOtpInputByJob] = useState<Record<string, string>>({});
   const [otpErrorByJob, setOtpErrorByJob] = useState<Record<string, string>>({});
   const [otpModalJobId, setOtpModalJobId] = useState<string | null>(null);
+  const [traceJobId, setTraceJobId] = useState<string | null>(null);
 
   const receivedAtStore = useMemo(() => {
     if (!user) return [];
@@ -59,6 +61,7 @@ export function StoreBillingPage() {
   }, [receivedAtStore, billingSelectedId]);
 
   const isRejectedNoRepairFlow = billingJob?.customerReestimateResponse === "rejected";
+  const isBrandRepairFlow = Boolean(billingJob?.brandInvoiceAmountInr && billingJob.brandInvoiceAmountInr > 0);
   function getSpareUnitPrice(spareId: string): number {
     const spare = activeSpares.find((s) => s.id === spareId);
     return Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
@@ -77,7 +80,6 @@ export function StoreBillingPage() {
   }
 
   const additionalChargesTotal = additionalChargeLines.reduce((sum, line) => sum + getLineAmount(line), 0);
-  const estimateAmount = Number(billingJob?.estimateTotalInr ?? 0);
   const usedSparesAmount = Number(
     (billingJob?.usedSpares ?? []).reduce((sum, line) => {
       const lineTotal = Number(line.lineTotalInr ?? NaN);
@@ -87,8 +89,10 @@ export function StoreBillingPage() {
       return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
     }, 0),
   );
+  const brandInvoiceAmount = isBrandRepairFlow ? Number(billingJob?.brandInvoiceAmountInr ?? 0) : 0;
+  const repairBaseAmount = isBrandRepairFlow ? brandInvoiceAmount : usedSparesAmount;
   const advanceAmount = Number(billingJob?.advanceInr ?? 0);
-  const standardBillingTotal = Math.max(usedSparesAmount + additionalChargesTotal - advanceAmount, 0);
+  const standardBillingTotal = Math.max(repairBaseAmount + additionalChargesTotal - advanceAmount, 0);
 
   function addChargeLine() {
     setAdditionalChargeLines((prev) => [
@@ -189,7 +193,7 @@ export function StoreBillingPage() {
       setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "SRF not found in store inventory." }));
       return;
     }
-    const usedSparesAmount = Number(
+    const jobUsedSparesAmount = Number(
       (job.usedSpares ?? []).reduce((sum, line) => {
         const lineTotal = Number(line.lineTotalInr ?? NaN);
         if (Number.isFinite(lineTotal)) return sum + lineTotal;
@@ -198,8 +202,10 @@ export function StoreBillingPage() {
         return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
       }, 0),
     );
+    const jobBrandAmount = (job.brandInvoiceAmountInr && job.brandInvoiceAmountInr > 0) ? Number(job.brandInvoiceAmountInr) : 0;
+    const jobRepairBase = jobBrandAmount > 0 ? jobBrandAmount : jobUsedSparesAmount;
     const advanceAmount = Number(job.advanceInr ?? 0);
-    const computedTotal = Math.max(usedSparesAmount + additionalChargesTotal - advanceAmount, 0);
+    const computedTotal = Math.max(jobRepairBase + additionalChargesTotal - advanceAmount, 0);
     const finalAmount = paidAmountInput.trim() ? Number(paidAmountInput) : computedTotal;
     if (!Number.isFinite(finalAmount) || finalAmount < 0) {
       setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "Enter valid paid amount." }));
@@ -366,7 +372,15 @@ export function StoreBillingPage() {
                   ) : (
                     filteredInventory.map((j) => (
                       <tr key={j.id} className="border-b border-zimson-100 last:border-0">
-                        <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                        <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">
+                          <button
+                            type="button"
+                            onClick={() => setTraceJobId(j.id)}
+                            className="hover:text-indigo-600 hover:underline"
+                          >
+                            {j.reference}
+                          </button>
+                        </td>
                         <td className="px-3 py-2">{j.customerName}</td>
                         <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
                         <td className="px-3 py-2">INR {Number(j.estimateTotalInr ?? 0).toFixed(2)}</td>
@@ -380,6 +394,13 @@ export function StoreBillingPage() {
                             className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
                           >
                             Select & continue
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTraceJobId(j.id)}
+                            className="ml-2 rounded-lg border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-900 hover:bg-indigo-100"
+                          >
+                            View details
                           </button>
                         </td>
                       </tr>
@@ -395,18 +416,27 @@ export function StoreBillingPage() {
           </div>
         ) : (
           <div className="mt-4 space-y-4 rounded-xl border border-zimson-200/80 p-4">
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => setScreenMode("select")}
-                className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-              >
-                Change selected SRF
-              </button>
-            </div>
-            <div className="text-sm text-stone-700">
-              <span className="font-mono font-semibold text-zimson-900">{billingJob.reference}</span> ·{" "}
-              {billingJob.customerName} · {billingJob.watchBrand} {billingJob.watchModel}
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-stone-700">
+                <span className="font-mono font-semibold text-zimson-900">{billingJob.reference}</span> ·{" "}
+                {billingJob.customerName} · {billingJob.watchBrand} {billingJob.watchModel}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTraceJobId(billingJob.id)}
+                  className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-100"
+                >
+                  View full details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScreenMode("select")}
+                  className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                >
+                  Change selected SRF
+                </button>
+              </div>
             </div>
             {isRejectedNoRepairFlow ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -414,8 +444,29 @@ export function StoreBillingPage() {
               </div>
             ) : null}
             <div className="rounded-xl bg-zimson-50 p-3 text-sm text-stone-700">
-              <p className="font-semibold text-zimson-900">Supervisor used spares</p>
-              {billingJob.usedSpares && billingJob.usedSpares.length > 0 ? (
+              <p className="font-semibold text-zimson-900">{isBrandRepairFlow ? "Brand repair invoice" : "Supervisor used spares"}</p>
+              {isBrandRepairFlow ? (
+                <div className="mt-2 overflow-x-auto rounded-xl border border-violet-200/80 bg-white">
+                  <table className="min-w-full text-left text-xs">
+                    <tbody>
+                      <tr className="border-b border-violet-100">
+                        <th className="w-48 bg-violet-50/60 px-3 py-2 font-semibold text-stone-700">Brand invoice ref</th>
+                        <td className="px-3 py-2 font-semibold text-zimson-900">{billingJob.brandInvoiceRef ?? "-"}</td>
+                      </tr>
+                      <tr className="border-b border-violet-100">
+                        <th className="bg-violet-50/60 px-3 py-2 font-semibold text-stone-700">Brand invoice amount</th>
+                        <td className="px-3 py-2 font-semibold text-zimson-900">INR {brandInvoiceAmount.toFixed(2)}</td>
+                      </tr>
+                      {billingJob.brandEstimateInr ? (
+                        <tr>
+                          <th className="bg-violet-50/60 px-3 py-2 font-semibold text-stone-700">Brand estimate</th>
+                          <td className="px-3 py-2 text-stone-700">INR {Number(billingJob.brandEstimateInr).toFixed(2)}</td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              ) : billingJob.usedSpares && billingJob.usedSpares.length > 0 ? (
                 <div className="mt-2 overflow-x-auto rounded-xl border border-zimson-200/80 bg-white">
                   <table className="min-w-full text-left text-xs">
                     <thead className="border-b border-zimson-200 bg-zimson-50/60 text-stone-600">
@@ -538,9 +589,9 @@ export function StoreBillingPage() {
               <table className="min-w-full text-left text-sm">
                 <tbody>
                   <tr className="border-b border-zimson-100">
-                    <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Spares amount (actual)</th>
+                    <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">{isBrandRepairFlow ? "Brand invoice amount" : "Spares amount (actual)"}</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
-                      INR {usedSparesAmount.toFixed(2)}
+                      INR {repairBaseAmount.toFixed(2)}
                     </td>
                   </tr>
                   <tr className="border-b border-zimson-100">
@@ -677,7 +728,7 @@ export function StoreBillingPage() {
               <button
                 type="button"
                 onClick={() => startCollectionOtp(billingJob.id)}
-                disabled={!billingJob.usedSpares || billingJob.usedSpares.length === 0}
+                disabled={(!billingJob.usedSpares || billingJob.usedSpares.length === 0) && !isBrandRepairFlow}
                 className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Customer present — generate OTP
@@ -732,6 +783,7 @@ export function StoreBillingPage() {
           </div>
         </div>
       ) : null}
+      {traceJobId ? <SrfTraceModal srfId={traceJobId} onClose={() => setTraceJobId(null)} /> : null}
     </div>
   );
 }

@@ -76,6 +76,8 @@ export function ScSupervisorPage() {
     supervisorMarkRepairComplete,
     supervisorMoveRejectedToOdc,
     supervisorLogBrandEstimate,
+    supervisorApproveBrandEstimate,
+    supervisorReceiveFromBrand,
     supervisorLogBrandInvoice,
     supervisorLogBrandCreditNote,
     supervisorNotifyBrandCoupon,
@@ -155,6 +157,22 @@ export function ScSupervisorPage() {
     () => (srfId ? received.filter((j) => j.id === srfId) : received),
     [received, srfId],
   );
+  const brandDeskQueue = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter(
+      (j) =>
+        (j.status === "sent_to_brand" ||
+          j.status === "brand_estimate_pending" ||
+          j.status === "brand_approved" ||
+          j.status === "brand_repair_in_progress" ||
+          j.status === "received_from_brand") &&
+        jobVisibleToServiceCentre(j, user),
+    );
+  }, [jobs, user]);
+  const brandDeskView = useMemo(
+    () => (srfId ? brandDeskQueue.filter((j) => j.id === srfId) : brandDeskQueue),
+    [brandDeskQueue, srfId],
+  );
   const interHoInvoiceQueue = useMemo(() => {
     if (!user) return [];
     return jobs.filter(
@@ -165,6 +183,16 @@ export function ScSupervisorPage() {
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
+  const transferredQueue = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter(
+      (j) => j.status === "sent_to_other_ho" && jobVisibleToServiceCentre(j, user),
+    );
+  }, [jobs, user]);
+  const transferredView = useMemo(
+    () => (srfId ? transferredQueue.filter((j) => j.id === srfId) : transferredQueue),
+    [transferredQueue, srfId],
+  );
   const interHoInvoiceView = useMemo(
     () => (srfId ? interHoInvoiceQueue.filter((j) => j.id === srfId) : interHoInvoiceQueue),
     [interHoInvoiceQueue, srfId],
@@ -748,7 +776,7 @@ export function ScSupervisorPage() {
                 e.preventDefault();
                 const ref = scanSrfInput.trim().toLowerCase();
                 if (!ref) return;
-                const row = [...received, ...decisionQueue, ...interHoInvoiceQueue].find((j) => j.reference.toLowerCase() === ref);
+                const row = [...received, ...decisionQueue, ...brandDeskQueue, ...interHoInvoiceQueue, ...transferredQueue].find((j) => j.reference.toLowerCase() === ref);
                 if (row) {
                   navigate(`/service-centre/supervisor/srf/${encodeURIComponent(row.id)}`);
                   setScanSrfInput("");
@@ -770,7 +798,7 @@ export function ScSupervisorPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...received, ...decisionQueue, ...interHoInvoiceQueue].map((j) => (
+                {[...received, ...decisionQueue, ...brandDeskQueue, ...interHoInvoiceQueue, ...transferredQueue].map((j) => (
                   <tr key={j.id} className="border-b border-zimson-100 last:border-0">
                     <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
                     <td className="px-3 py-2">{j.customerName}</td>
@@ -861,6 +889,196 @@ export function ScSupervisorPage() {
               </div>
             </div>
           ))}
+        </Card>
+      ) : null}
+      {brandDeskView.length > 0 ? (
+        <Card title="Brand desk" subtitle="SRFs sent to brand — track estimate, approval, receive and invoice" className="mb-6">
+          <div className="space-y-4">
+            {brandDeskView.map((j) => (
+              <div key={j.id} className="rounded-2xl border border-violet-200/80 bg-white/90 p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+                    <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
+                    <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
+                    <p className="mt-1 text-xs text-stone-500">Status: <span className="font-semibold text-violet-700">{j.status.replace(/_/g, " ")}</span></p>
+                    {j.brandEstimateInr ? (
+                      <p className="mt-1 text-xs text-stone-600">
+                        <span className="font-semibold">Brand estimate:</span>{" "}
+                        {Number(j.brandEstimateInr).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </p>
+                    ) : null}
+                    {j.brandInvoiceAmountInr ? (
+                      <p className="mt-1 text-xs text-stone-600">
+                        <span className="font-semibold">Brand invoice:</span>{" "}
+                        {Number(j.brandInvoiceAmountInr).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {j.status === "sent_to_brand" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBrandEstimatePopupJobId(j.id);
+                        setBrandEstimateAmountInput("");
+                        setBrandEstimateNoteInput("");
+                      }}
+                      className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                    >
+                      Log brand estimate
+                    </button>
+                  ) : null}
+                  {j.status === "brand_estimate_pending" ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await supervisorApproveBrandEstimate(j.id, { note: "" });
+                          setFeedback((f) => ({ ...f, [j.id]: "Brand estimate approved." }));
+                        } catch (e) {
+                          setFeedback((f) => ({ ...f, [j.id]: e instanceof Error ? e.message : "Could not approve." }));
+                        }
+                      }}
+                      className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                    >
+                      Approve brand estimate
+                    </button>
+                  ) : null}
+                  {j.status === "brand_approved" || j.status === "brand_repair_in_progress" ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await supervisorReceiveFromBrand(j.id, { note: "" });
+                          setFeedback((f) => ({ ...f, [j.id]: "Watch received from brand." }));
+                        } catch (e) {
+                          setFeedback((f) => ({ ...f, [j.id]: e instanceof Error ? e.message : "Could not receive." }));
+                        }
+                      }}
+                      className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800"
+                    >
+                      Mark received from brand
+                    </button>
+                  ) : null}
+                  {j.status === "received_from_brand" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBrandInvoicePopupJobId(j.id);
+                          setBrandInvoiceRefInput("");
+                          setBrandInvoiceAmountInput(j.brandEstimateInr ? String(Number(j.brandEstimateInr).toFixed(2)) : "");
+                          setBrandInvoiceNoteInput("");
+                        }}
+                        className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                      >
+                        Log brand invoice
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBrandCreditPopupJobId(j.id);
+                          setBrandCouponCodeInput("");
+                          setBrandCouponValueInput("");
+                          setBrandCouponValidUntilInput("");
+                          setBrandCouponNoteInput("");
+                        }}
+                        className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100"
+                      >
+                        Log brand credit note
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void toggleHistory(j.id)}
+                    className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                  >
+                    {historyByJob[j.id] ? "Hide history" : "Show history"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTraceJobId(j.id)}
+                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                  >
+                    View full trace
+                  </button>
+                </div>
+                {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
+                {historyByJob[j.id] ? (
+                  <div className="mt-3 rounded-xl bg-zimson-50 p-3 text-xs text-stone-700">
+                    <div className="mb-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => printHistory(j.reference, historyByJob[j.id]!)}
+                        className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900"
+                      >
+                        Print document
+                      </button>
+                    </div>
+                    <ul className="space-y-1">
+                      {historyByJob[j.id]!.map((h) => (
+                        <li key={h.id}>
+                          <span className="font-mono">{new Date(h.changedAt).toLocaleString()}</span> ·{" "}
+                          <span className="font-semibold">{h.status.replace(/_/g, " ")}</span>
+                          {h.note ? ` — ${h.note}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+         </Card>
+      ) : null}
+      {transferredView.length > 0 ? (
+        <Card title="Transferred to Other HO" subtitle="These SRFs are currently at another HO for repair. Original reference is preserved for tracking." className="mt-8">
+          <div className="space-y-4">
+            {transferredView.map((j) => (
+              <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+                    <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
+                    <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
+                    <p className="mt-1 text-xs text-amber-700 font-semibold italic">Sent to Other HO for repair. Awaiting return dispatch from repair HO.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleHistory(j.id)}
+                      className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                    >
+                      {historyByJob[j.id] ? "Hide history" : "View history"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTraceJobId(j.id)}
+                      className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
+                    >
+                      View full trace
+                    </button>
+                  </div>
+                </div>
+                {historyByJob[j.id] ? (
+                  <div className="mt-3 rounded-xl bg-zimson-50 p-3 text-xs text-stone-700">
+                    <ul className="space-y-1">
+                      {historyByJob[j.id]!.map((h) => (
+                        <li key={h.id}>
+                          <span className="font-mono">{new Date(h.changedAt).toLocaleString()}</span> ·{" "}
+                          <span className="font-semibold">{h.status.replace(/_/g, " ")}</span>
+                          {h.note ? ` — ${h.note}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </Card>
       ) : null}
       <Card title="Supervisor decision queue" subtitle="From supervisor login: mark repaired or need re-estimate" className="mt-8">

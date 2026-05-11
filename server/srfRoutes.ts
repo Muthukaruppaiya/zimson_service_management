@@ -1488,12 +1488,12 @@ export function registerSrfRoutes(
         [storeId],
       );
       const { rows: destStoreRows } = await client.query<{ id: string }>(
-        `SELECT id FROM stores WHERE id = $1::text AND region_id = $2::text LIMIT 1`,
-        [destinationStoreId, regionId],
+        `SELECT id FROM stores WHERE id = $1::text LIMIT 1`,
+        [destinationStoreId],
       );
       if (!destStoreRows[0]) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Destination store must belong to the same region as SRF booking store." });
+        res.status(400).json({ error: "Destination store not found." });
         return;
       }
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
@@ -2028,7 +2028,7 @@ export function registerSrfRoutes(
         );
         const row = current.rows[0];
         if (!row || row.status !== "in_transit_sc") continue;
-        const isReturnToSenderHo = !row.requires_local_conversion && !!row.transfer_target_region_id;
+        const isReturnToSenderHo = !row.requires_local_conversion && !!row.transfer_source_region_id;
         if (isReturnToSenderHo) {
           const updReturn = await client.query(
             `UPDATE srf_jobs
@@ -2589,12 +2589,12 @@ export function registerSrfRoutes(
           null,
           null,
           null,
-          row.store_id,
-          row.transfer_target_region_id,
-          row.transfer_target_store_id,
-          row.transfer_source_region_id,
-          row.transfer_source_store_id,
-          row.transfer_source_reference ?? row.reference,
+          row.store_id, // destination_store_id ($21) - use the original booking store
+          null, // transfer_target_region_id ($22) - reset since we are now at the target
+          null, // transfer_target_store_id ($23) - reset
+          row.region_id, // transfer_source_region_id ($24) - map to parent region
+          row.store_id, // transfer_source_store_id ($25) - map to parent store
+          row.transfer_source_reference ?? row.reference, // transfer_source_reference ($26) - map to parent ref
           actor.id,
         ],
       );
@@ -2619,6 +2619,25 @@ export function registerSrfRoutes(
         actor.id,
         `Converted by receiver HO. Local SRF created: ${newRef}. Sender SRF remains for tracking.`,
       );
+
+      // Deep Clone: Copy photos from sender SRF to local SRF
+      await client.query(
+        `INSERT INTO srf_job_photos (srf_id, photo_kind, file_path, mime, bytes, created_by)
+         SELECT $2::uuid, photo_kind, file_path, mime, bytes, created_by
+         FROM srf_job_photos
+         WHERE srf_id = $1::uuid`,
+        [srfId, newSrfId],
+      );
+
+      // Deep Clone: Copy history from sender SRF to local SRF
+      await client.query(
+        `INSERT INTO srf_status_history (srf_id, status, note, changed_by, changed_at)
+         SELECT $2::uuid, status, note, changed_by, changed_at
+         FROM srf_status_history
+         WHERE srf_id = $1::uuid`,
+        [srfId, newSrfId],
+      );
+
       await appendStatusHistory(
         client,
         newSrfId,
@@ -2630,14 +2649,13 @@ export function registerSrfRoutes(
         action: "convert_to_local_close_source",
         description: `Source SRF closed; cloned as local SRF ${newRef}.`,
         actor,
-        details: { newSrfId, newReference: newRef },
+        details: { childSrfId: newSrfId, childReference: newRef },
       });
       await appendActionLog(client, newSrfId, {
-        action: "convert_to_local_create",
-        description: `Local SRF ${newRef} created from inter-HO transfer ${row.transfer_source_reference ?? row.reference}.`,
+        action: "convert_to_local_new_child",
+        description: `Local SRF created from source ${row.transfer_source_reference ?? row.reference}.`,
         actor,
-        referenceDoc: newRef,
-        details: { sourceSrfId: srfId, sourceReference: row.transfer_source_reference ?? row.reference },
+        details: { parentSrfId: srfId, parentReference: row.transfer_source_reference ?? row.reference },
       });
       await client.query("COMMIT");
       res.json({ ok: true, reference: newRef, newSrfId });
@@ -3536,8 +3554,18 @@ export function registerSrfRoutes(
          WHERE id = ANY($1::uuid[])`,
         [items.map((x: { srfId: string }) => x.srfId)],
       );
-      const transferCandidates = transferRows.rows.filter((r) => r.status === "ready_for_outward" && r.transfer_target_region_id);
-      const normalCandidates = transferRows.rows.filter((r) => !r.transfer_target_region_id);
+      const transferCandidates = transferRows.rows.filter((r) => 
+        r.status === "ready_for_outward" && (
+          (r.requires_local_conversion && r.transfer_target_region_id) || 
+          (!r.requires_local_conversion && r.transfer_source_region_id)
+        )
+      );
+      const normalCandidates = transferRows.rows.filter((r) => 
+        !(
+          (r.requires_local_conversion && r.transfer_target_region_id) || 
+          (!r.requires_local_conversion && r.transfer_source_region_id)
+        )
+      );
       if (transferCandidates.length > 0 && normalCandidates.length > 0) {
         await client.query("ROLLBACK");
         res.status(400).json({ error: "Create separate outward batches: normal store dispatch and inter-HO transfer." });
@@ -3557,6 +3585,15 @@ export function registerSrfRoutes(
       const interHoFromStoreId = firstTransfer?.requires_local_conversion
         ? firstTransfer.transfer_target_store_id
         : firstTransfer?.transfer_source_store_id;
+      let fromStoreId = actor.storeId;
+      if (!fromStoreId) {
+        const { rows: regionalStores } = await client.query<{ id: string }>(
+          `SELECT id FROM stores WHERE region_id = $1::text ORDER BY created_at ASC LIMIT 1`,
+          [regionId],
+        );
+        fromStoreId = regionalStores[0]?.id ?? "unknown";
+      }
+
       const dcIns = await client.query<{ id: string }>(
         `INSERT INTO delivery_challans (dc_number, region_id, from_store_id, to_location, status, created_by, modified_by)
          VALUES ($1, $2, $3, $4, $5, $6, $6)
@@ -3564,7 +3601,7 @@ export function registerSrfRoutes(
         [
           dcNumber,
           isInterHoBatch ? interHoTargetRegionId : regionId,
-          (isInterHoBatch ? interHoFromStoreId : items[0]?.destinationStoreId ?? actor.storeId ?? "unknown") as string,
+          fromStoreId,
           isInterHoBatch ? "SERVICE_CENTRE" : "STORE",
           isInterHoBatch ? "CREATED" : "DISPATCHED",
           actor.id,
@@ -3598,7 +3635,13 @@ export function registerSrfRoutes(
            ON CONFLICT (dc_id, srf_id) DO NOTHING`,
           [dcId, it.srfId, actor.id],
         );
-        if (row.transfer_target_region_id) {
+        // Inter-HO row when:
+        //  - source HO dispatching to target HO (requires_local_conversion=true + transfer_target_region_id), OR
+        //  - receiver HO returning the converted local SRF to source HO (requires_local_conversion=false + transfer_source_region_id).
+        const isInterHoRow =
+          (row.requires_local_conversion && !!row.transfer_target_region_id) ||
+          (!row.requires_local_conversion && !!row.transfer_source_region_id);
+        if (isInterHoRow) {
           const movingToTargetHo = row.requires_local_conversion;
           if (movingToTargetHo) {
             // Source HO dispatches the inter-HO transfer; actor must match current owning region.
@@ -3622,7 +3665,7 @@ export function registerSrfRoutes(
                      modified_by = $2
                  WHERE reference = $1
                    AND id <> $3::uuid
-                   AND status = 'closed'`,
+                   AND (status = 'closed' OR status = 'sent_to_other_ho')`,
                 [row.transfer_source_reference, actor.id, it.srfId],
               );
             }
@@ -3790,6 +3833,7 @@ export function registerSrfRoutes(
            AND (
              spares_slip_submitted_at IS NOT NULL
              OR ($6 AND customer_reestimate_response = 'rejected')
+             OR brand_invoice_amount_inr IS NOT NULL
            )`,
         [srfId, actor.id, actor.storeId, hoSparesBillRef, storeBillRef, noBillingHandover],
       );

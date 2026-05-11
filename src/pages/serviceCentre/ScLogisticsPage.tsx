@@ -219,9 +219,9 @@ export function ScLogisticsPage() {
 
   function destinationFor(jobId: string, originatingStoreId: string) {
     const j = jobs.find((x) => x.id === jobId);
-    if (j?.transferTargetStoreId && j.requiresLocalConversion) return j.transferTargetStoreId;
-    if (j?.transferSourceStoreId && !j.requiresLocalConversion) return j.transferSourceStoreId;
-    return j?.destinationStoreId ?? originatingStoreId;
+    // Priority: Root customer collection store. 
+    // Internal HO-to-HO routing is handled by transferTargetRegionId, not the destination store ID.
+    return j?.destinationStoreId || originatingStoreId;
   }
 
   function toggleOut(id: string) {
@@ -281,6 +281,15 @@ export function ScLogisticsPage() {
       const destLabels = Array.from(new Set(items.map((it) => it.destinationStoreId)))
         .map((sid) => {
           const loc = storeById.get(sid);
+          const transferJob = jobs.find(x => items.some(it => it.jobId === x.id) && x.destinationStoreId === sid && (
+             (x.requiresLocalConversion && x.transferTargetRegionId) ||
+             (!x.requiresLocalConversion && x.transferSourceRegionId)
+          ));
+          if (transferJob) {
+             const targetRegId = transferJob.requiresLocalConversion ? transferJob.transferTargetRegionId : transferJob.transferSourceRegionId;
+             const reg = regions.find(r => r.id === targetRegId);
+             return `HO: ${reg?.name ?? targetRegId}`;
+          }
           return loc ? `Store: ${loc.storeName} (HO: ${loc.regionName})` : `Store: ${sid}`;
         });
       const toLocation = destLabels.length === 1 ? destLabels[0] : `Multiple stores (${destLabels.length})`;
@@ -615,11 +624,25 @@ export function ScLogisticsPage() {
                           </td>
                           <td className="px-3 py-2 align-top">
                             <p className="rounded-lg border border-zimson-200 bg-zimson-50 px-2 py-1 text-xs font-semibold text-zimson-900">
-                              {(storeById.get(destinationFor(j.id, j.storeId))?.regionName
-                                ? `HO: ${storeById.get(destinationFor(j.id, j.storeId))?.regionName} · `
-                                : "")
-                                + `Store: ${storeById.get(destinationFor(j.id, j.storeId))?.storeName ?? destinationFor(j.id, j.storeId)}`}
+                              {(() => {
+                                const destId = destinationFor(j.id, j.storeId);
+                                if (j.requiresLocalConversion && j.transferTargetRegionId) {
+                                  const reg = regions.find(r => r.id === j.transferTargetRegionId);
+                                  return `HO: ${reg?.name ?? j.transferTargetRegionId}`;
+                                }
+                                if (!j.requiresLocalConversion && j.transferSourceRegionId) {
+                                  const reg = regions.find(r => r.id === j.transferSourceRegionId);
+                                  return `HO: ${reg?.name ?? j.transferSourceRegionId}`;
+                                }
+                                const loc = storeById.get(destId);
+                                return (loc?.regionName ? `HO: ${loc.regionName} · ` : "") + `Store: ${loc?.storeName ?? destId}`;
+                              })()}
                             </p>
+                            {j.requiresLocalConversion && (
+                              <p className="mt-1 text-[10px] text-stone-500">
+                                Original Store: {storeById.get(j.storeId)?.storeName ?? j.storeId}
+                              </p>
+                            )}
                             <p className="mt-1 text-xs text-stone-500">
                               {j.transferTargetStoreId
                                 ? "Inter-HO transfer: destination is auto-fixed."

@@ -159,7 +159,18 @@ export function ScLogisticsHistoryPage() {
                       <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.dcNumber ?? "-"}</td>
                       <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.outwardDcNumber ?? "-"}</td>
                       <td className="px-3 py-2">{j.customerName}</td>
-                      <td className="px-3 py-2 text-xs text-stone-600">{storeById.get(j.storeId)?.storeName ?? j.storeId}</td>
+                       <td className="px-3 py-2 text-xs text-stone-600">
+                        {(() => {
+                          if (j.requiresLocalConversion && j.transferTargetRegionId) {
+                            const reg = regions.find(r => r.id === j.transferTargetRegionId);
+                            return `HO: ${reg?.name ?? j.transferTargetRegionId}`;
+                          }
+                          // Use destinationStoreId as the primary indicator of the "root" destination
+                          const destId = j.destinationStoreId || j.transferSourceStoreId || j.storeId;
+                          const loc = storeById.get(destId);
+                          return loc ? (loc.regionName ? `HO: ${loc.regionName} · ` : "") + `Store: ${loc.storeName}` : destId;
+                        })()}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
