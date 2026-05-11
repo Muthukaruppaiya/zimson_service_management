@@ -275,7 +275,20 @@ export function ScLogisticsPage() {
       const result = await createOutwardBatch(items, {
         storeInvoiceRef: undefined,
       });
-      const rows = jobs.filter((j) => ids.includes(j.id));
+      // For inter-HO return rows, the backend restores the root parent SRF reference
+      // (transfer_source_reference) in the same transaction. The local jobs state is the
+      // pre-update snapshot, so override `reference` on the rows we print so the ODC document
+      // shows the root parent SRF number instead of the child SRF reference.
+      const rows = jobs
+        .filter((j) => ids.includes(j.id))
+        .map((j) => {
+          const isReturnLeg =
+            !j.requiresLocalConversion && (!!j.transferSourceRegionId || !!j.transferTargetRegionId);
+          if (isReturnLeg && j.transferSourceReference) {
+            return { ...j, reference: j.transferSourceReference };
+          }
+          return j;
+        });
       const first = rows[0];
       const regionNameById = new Map<string, string>(regions.map((r) => [r.id, r.name]));
       const destLabels = Array.from(new Set(items.map((it) => it.destinationStoreId)))
@@ -602,7 +615,14 @@ export function ScLogisticsPage() {
                               className="rounded border-zimson-400 text-zimson-600 focus:ring-zimson-500"
                             />
                           </td>
-                          <td className="px-3 py-2 align-top font-mono font-semibold text-zimson-900">{j.reference}</td>
+                          <td className="px-3 py-2 align-top font-mono font-semibold text-zimson-900">
+                            {j.reference}
+                            {j.transferSourceReference && j.transferSourceReference !== j.reference ? (
+                              <span className="mt-0.5 block text-[10px] font-normal text-stone-500">
+                                Root: <span className="font-mono">{j.transferSourceReference}</span>
+                              </span>
+                            ) : null}
+                          </td>
                           <td className="px-3 py-2 align-top text-stone-700">
                             {j.watchBrand} {j.watchModel}
                             <span className="mt-0.5 block text-xs text-stone-500">{j.customerName}</span>
@@ -626,16 +646,29 @@ export function ScLogisticsPage() {
                             <p className="rounded-lg border border-zimson-200 bg-zimson-50 px-2 py-1 text-xs font-semibold text-zimson-900">
                               {(() => {
                                 const destId = destinationFor(j.id, j.storeId);
+                                const finalStore = storeById.get(destId);
+                                const finalLabel = finalStore
+                                  ? `Store: ${finalStore.storeName} (HO: ${finalStore.regionName})`
+                                  : `Store: ${destId}`;
                                 if (j.requiresLocalConversion && j.transferTargetRegionId) {
                                   const reg = regions.find(r => r.id === j.transferTargetRegionId);
-                                  return `HO: ${reg?.name ?? j.transferTargetRegionId}`;
+                                  return (
+                                    <>
+                                      <span>Next: HO: {reg?.name ?? j.transferTargetRegionId}</span>
+                                      <span className="mt-0.5 block text-[10px] font-normal text-stone-500">Final: {finalLabel}</span>
+                                    </>
+                                  );
                                 }
                                 if (!j.requiresLocalConversion && j.transferSourceRegionId) {
                                   const reg = regions.find(r => r.id === j.transferSourceRegionId);
-                                  return `HO: ${reg?.name ?? j.transferSourceRegionId}`;
+                                  return (
+                                    <>
+                                      <span>Next: HO: {reg?.name ?? j.transferSourceRegionId}</span>
+                                      <span className="mt-0.5 block text-[10px] font-normal text-stone-500">Final: {finalLabel}</span>
+                                    </>
+                                  );
                                 }
-                                const loc = storeById.get(destId);
-                                return (loc?.regionName ? `HO: ${loc.regionName} · ` : "") + `Store: ${loc?.storeName ?? destId}`;
+                                return finalLabel;
                               })()}
                             </p>
                             {j.requiresLocalConversion && (

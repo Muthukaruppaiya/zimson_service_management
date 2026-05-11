@@ -800,7 +800,14 @@ export function ScSupervisorPage() {
               <tbody>
                 {[...received, ...decisionQueue, ...brandDeskQueue, ...interHoInvoiceQueue, ...transferredQueue].map((j) => (
                   <tr key={j.id} className="border-b border-zimson-100 last:border-0">
-                    <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                    <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">
+                      {j.reference}
+                      {j.transferSourceReference && j.transferSourceReference !== j.reference ? (
+                        <span className="mt-0.5 block text-[10px] font-normal text-stone-500">
+                          Root: <span className="font-mono">{j.transferSourceReference}</span>
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-2">{j.customerName}</td>
                     <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
                     <td className="px-3 py-2 text-xs text-stone-700">{j.status.replace(/_/g, " ")}</td>

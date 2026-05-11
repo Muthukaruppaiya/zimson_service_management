@@ -2030,9 +2030,15 @@ export function registerSrfRoutes(
         if (!row || row.status !== "in_transit_sc") continue;
         const isReturnToSenderHo = !row.requires_local_conversion && !!row.transfer_source_region_id;
         if (isReturnToSenderHo) {
+          // Defensive: explicitly normalize region_id / store_id to the inwarding HO (sender HO).
+          // This guarantees the SRF appears in the sender HO outward queue regardless of any
+          // upstream state drift (region_id always reflects the DC's destination region;
+          // store_id reflects the inwarding HO store so logistics filters line up).
           const updReturn = await client.query(
             `UPDATE srf_jobs
              SET status = 'ready_for_outward',
+                 region_id = $3::text,
+                 store_id = COALESCE($4::text, store_id),
                  inward_at = now(),
                  ready_for_outward_at = now(),
                  destination_store_id = COALESCE(destination_store_id, transfer_source_store_id),
@@ -2044,7 +2050,7 @@ export function registerSrfRoutes(
                  updated_at = now(),
                  modified_by = $2
              WHERE id = $1::uuid AND status = 'in_transit_sc'`,
-            [line.srf_id, actor.id],
+            [line.srf_id, actor.id, dc.region_id, actor.storeId ?? dc.from_store_id ?? null],
           );
           if ((updReturn.rowCount ?? 0) > 0) {
             await appendStatusHistory(
@@ -2553,6 +2559,14 @@ export function registerSrfRoutes(
       }
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
       const newRef = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(receiverStoreName, receiverStoreId));
+      // Resolve the ORIGINAL sender HO context. After the outward+inward steps the parent SRF's
+      // region_id/store_id no longer point to the sender — they hold the receiver region and the
+      // sender HO store. The original sender region/store and the original booking store live in
+      // transfer_source_region_id / transfer_source_store_id / destination_store_id.
+      const senderRegionId = row.transfer_source_region_id ?? row.region_id;
+      const senderStoreId = row.transfer_source_store_id ?? row.store_id;
+      const originalBookingStoreId = row.destination_store_id ?? senderStoreId;
+      const parentReference = row.transfer_source_reference ?? row.reference;
       const ins = await client.query<{ id: string }>(
         `INSERT INTO srf_jobs (
           reference, region_id, store_id, customer_name, phone, customer_kind, company,
@@ -2589,12 +2603,12 @@ export function registerSrfRoutes(
           null,
           null,
           null,
-          row.store_id, // destination_store_id ($21) - use the original booking store
-          null, // transfer_target_region_id ($22) - reset since we are now at the target
-          null, // transfer_target_store_id ($23) - reset
-          row.region_id, // transfer_source_region_id ($24) - map to parent region
-          row.store_id, // transfer_source_store_id ($25) - map to parent store
-          row.transfer_source_reference ?? row.reference, // transfer_source_reference ($26) - map to parent ref
+          originalBookingStoreId, // destination_store_id ($21) - original booking store (CHN03)
+          senderRegionId, // transfer_target_region_id ($22) - flag: return target = sender HO region
+          senderStoreId, // transfer_target_store_id ($23) - flag: return target store
+          senderRegionId, // transfer_source_region_id ($24) - original sender HO region
+          senderStoreId, // transfer_source_store_id ($25) - original sender HO store (CHN03)
+          parentReference, // transfer_source_reference ($26) - keep root parent SRF reference
           actor.id,
         ],
       );
