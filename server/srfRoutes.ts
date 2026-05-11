@@ -2018,9 +2018,13 @@ export function registerSrfRoutes(
           status: string;
           requires_local_conversion: boolean;
           transfer_target_region_id: string | null;
+          transfer_source_region_id: string | null;
           transfer_source_store_id: string | null;
+          transfer_source_reference: string | null;
+          destination_store_id: string | null;
         }>(
-          `SELECT id, status, requires_local_conversion, transfer_target_region_id, transfer_source_store_id
+          `SELECT id, status, requires_local_conversion, transfer_target_region_id, transfer_source_region_id,
+                  transfer_source_store_id, transfer_source_reference, destination_store_id
            FROM srf_jobs
            WHERE id = $1::uuid
            FOR UPDATE`,
@@ -2030,10 +2034,27 @@ export function registerSrfRoutes(
         if (!row || row.status !== "in_transit_sc") continue;
         const isReturnToSenderHo = !row.requires_local_conversion && !!row.transfer_source_region_id;
         if (isReturnToSenderHo) {
+          // Recover the true booking store from the parent SRF (legacy data safety).
+          let recoveredDestinationStoreId: string | null = null;
+          if (row.transfer_source_reference) {
+            const { rows: parentRows } = await client.query<{ destination_store_id: string | null }>(
+              `SELECT destination_store_id FROM srf_jobs
+               WHERE reference = $1
+                 AND id <> $2::uuid
+                 AND destination_store_id IS NOT NULL
+               ORDER BY created_at ASC
+               LIMIT 1`,
+              [row.transfer_source_reference, line.srf_id],
+            );
+            recoveredDestinationStoreId = parentRows[0]?.destination_store_id ?? null;
+          }
           // Defensive: explicitly normalize region_id / store_id to the inwarding HO (sender HO).
           // This guarantees the SRF appears in the sender HO outward queue regardless of any
           // upstream state drift (region_id always reflects the DC's destination region;
           // store_id reflects the inwarding HO store so logistics filters line up).
+          // destination_store_id prefers the parent-recovered booking store so legacy SRFs
+          // (where the original convert-local set destination to NULL or a receiver-HO store)
+          // are auto-healed at inward time.
           const updReturn = await client.query(
             `UPDATE srf_jobs
              SET status = 'ready_for_outward',
@@ -2041,7 +2062,7 @@ export function registerSrfRoutes(
                  store_id = COALESCE($4::text, store_id),
                  inward_at = now(),
                  ready_for_outward_at = now(),
-                 destination_store_id = COALESCE(destination_store_id, transfer_source_store_id),
+                 destination_store_id = COALESCE($5::text, destination_store_id, transfer_source_store_id),
                  requires_local_conversion = false,
                  transfer_target_region_id = NULL,
                  transfer_target_store_id = NULL,
@@ -2050,7 +2071,7 @@ export function registerSrfRoutes(
                  updated_at = now(),
                  modified_by = $2
              WHERE id = $1::uuid AND status = 'in_transit_sc'`,
-            [line.srf_id, actor.id, dc.region_id, actor.storeId ?? dc.from_store_id ?? null],
+            [line.srf_id, actor.id, dc.region_id, actor.storeId ?? dc.from_store_id ?? null, recoveredDestinationStoreId],
           );
           if ((updReturn.rowCount ?? 0) > 0) {
             await appendStatusHistory(
@@ -3593,12 +3614,47 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Create repair HO invoice first (or provide invoice ref) before return-to-sender dispatch." });
         return;
       }
+      // For RETURN legs, recover the correct sender HO context from the original parent SRF
+      // (looked up via transfer_source_reference). This protects against legacy child SRFs
+      // that were created with the old convert-local bug where transfer_source_* fields ended
+      // up pointing to the receiver HO (or were NULL). The parent SRF always holds the true
+      // sender region/store/booking destination in its own transfer_source_* and destination
+      // fields, set when "Send to other HO" was first performed.
+      const returnParentRecovery: Record<string, { regionId: string | null; storeId: string | null; destinationStoreId: string | null }> = {};
+      if (isReturnToSenderBatch) {
+        for (const cand of transferCandidates) {
+          if (!cand.transfer_source_reference) continue;
+          const { rows: parentRows } = await client.query<{
+            transfer_source_region_id: string | null;
+            transfer_source_store_id: string | null;
+            destination_store_id: string | null;
+          }>(
+            `SELECT transfer_source_region_id, transfer_source_store_id, destination_store_id
+             FROM srf_jobs
+             WHERE reference = $1
+               AND id <> $2::uuid
+               AND transfer_source_region_id IS NOT NULL
+             ORDER BY created_at ASC
+             LIMIT 1`,
+            [cand.transfer_source_reference, cand.id],
+          );
+          const parent = parentRows[0];
+          if (parent && parent.transfer_source_region_id) {
+            returnParentRecovery[cand.id] = {
+              regionId: parent.transfer_source_region_id,
+              storeId: parent.transfer_source_store_id,
+              destinationStoreId: parent.destination_store_id,
+            };
+          }
+        }
+      }
+      const firstRecovery = firstTransfer ? returnParentRecovery[firstTransfer.id] : undefined;
       const interHoTargetRegionId = firstTransfer?.requires_local_conversion
         ? firstTransfer.transfer_target_region_id
-        : firstTransfer?.transfer_source_region_id;
+        : (firstRecovery?.regionId ?? firstTransfer?.transfer_source_region_id);
       const interHoFromStoreId = firstTransfer?.requires_local_conversion
         ? firstTransfer.transfer_target_store_id
-        : firstTransfer?.transfer_source_store_id;
+        : (firstRecovery?.storeId ?? firstTransfer?.transfer_source_store_id);
       let fromStoreId = actor.storeId;
       if (!fromStoreId) {
         const { rows: regionalStores } = await client.query<{ id: string }>(
@@ -3663,8 +3719,15 @@ export function registerSrfRoutes(
           } else {
             // Return leg is dispatched by the current (receiving/repairing) HO region.
             if (row.region_id !== actor.regionId) continue;
-            // Strict guard: return transfer can only go back to original source store.
-            const fixedReturnStoreId = row.transfer_source_store_id ?? row.destination_store_id;
+            // Strict guard: return transfer can only go back to original source store. Prefer
+            // the parent-recovered store so legacy child rows (with NULL/wrong source store)
+            // still validate against the real booking store.
+            const recoveryForRow = returnParentRecovery[row.id];
+            const fixedReturnStoreId =
+              recoveryForRow?.destinationStoreId ??
+              recoveryForRow?.storeId ??
+              row.transfer_source_store_id ??
+              row.destination_store_id;
             if (fixedReturnStoreId && it.destinationStoreId !== fixedReturnStoreId) {
               await client.query("ROLLBACK");
               res.status(400).json({ error: "Return transfer destination is fixed to source HO/store." });
@@ -3684,20 +3747,42 @@ export function registerSrfRoutes(
               );
             }
           }
+          // Use parent-recovered sender region/store for the return UPDATE so legacy SRFs
+          // (with wrong/NULL transfer_source_*) still route back to the original sender HO
+          // and original booking store. For target-bound leg, recovery is unused.
+          const recoveryForRow = movingToTargetHo ? undefined : returnParentRecovery[row.id];
+          const correctedSenderRegionId = recoveryForRow?.regionId ?? row.transfer_source_region_id;
+          const correctedSenderStoreId = recoveryForRow?.storeId ?? row.transfer_source_store_id;
+          const correctedDestinationStoreId =
+            recoveryForRow?.destinationStoreId ?? row.destination_store_id ?? correctedSenderStoreId ?? it.destinationStoreId;
           await client.query(
             `UPDATE srf_jobs
              SET status = 'in_transit_sc',
-                 region_id = CASE WHEN $4 THEN transfer_target_region_id ELSE transfer_source_region_id END,
+                 region_id = CASE WHEN $4 THEN transfer_target_region_id ELSE COALESCE($7::text, transfer_source_region_id) END,
+                 transfer_source_region_id = CASE WHEN $4 THEN transfer_source_region_id ELSE COALESCE($7::text, transfer_source_region_id) END,
+                 transfer_source_store_id = CASE WHEN $4 THEN transfer_source_store_id ELSE COALESCE($8::text, transfer_source_store_id) END,
+                 transfer_target_region_id = CASE WHEN $4 THEN transfer_target_region_id ELSE COALESCE($7::text, transfer_target_region_id) END,
+                 transfer_target_store_id = CASE WHEN $4 THEN transfer_target_store_id ELSE COALESCE($8::text, transfer_target_store_id) END,
                  reference = CASE WHEN $4 THEN reference ELSE COALESCE(transfer_source_reference, reference) END,
                  ho_spares_bill_ref = CASE WHEN $4 THEN ho_spares_bill_ref ELSE COALESCE(NULLIF($5, ''), ho_spares_bill_ref) END,
                  dc_number = $2,
                  dispatched_to_sc_at = now(),
                  outward_dc_number = NULL,
-                 destination_store_id = COALESCE(destination_store_id, transfer_source_store_id, $6::text),
+                 destination_store_id = COALESCE($9::text, destination_store_id, transfer_source_store_id, $6::text),
                  updated_at = now(),
                  modified_by = $3
              WHERE id = $1::uuid`,
-            [it.srfId, dcNumber, actor.id, movingToTargetHo, hoInvoiceRef, it.destinationStoreId],
+            [
+              it.srfId,
+              dcNumber,
+              actor.id,
+              movingToTargetHo,
+              hoInvoiceRef,
+              it.destinationStoreId,
+              correctedSenderRegionId,
+              correctedSenderStoreId,
+              correctedDestinationStoreId,
+            ],
           );
           await appendStatusHistory(
             client,
@@ -3718,6 +3803,27 @@ export function registerSrfRoutes(
             details: { hoInvoiceRef },
           });
         } else {
+          // FINAL store-bound outward. For SRFs that came back from an inter-HO repair
+          // (transfer_source_reference set), the true booking store lives on the original
+          // parent SRF. Override destination with the parent's booking destination so a
+          // legacy/buggy destination_store_id can no longer route the watch to the wrong
+          // HO/store. The store-invoice region check still uses the actor's region.
+          let finalDestinationStoreId = it.destinationStoreId;
+          if (row.transfer_source_reference) {
+            const { rows: parentRows } = await client.query<{ destination_store_id: string | null }>(
+              `SELECT destination_store_id FROM srf_jobs
+               WHERE reference = $1
+                 AND id <> $2::uuid
+                 AND destination_store_id IS NOT NULL
+               ORDER BY created_at ASC
+               LIMIT 1`,
+              [row.transfer_source_reference, it.srfId],
+            );
+            const parentDest = parentRows[0]?.destination_store_id;
+            if (parentDest) {
+              finalDestinationStoreId = parentDest;
+            }
+          }
           await client.query(
             `UPDATE srf_jobs
              SET status = 'dispatched_to_store',
@@ -3728,15 +3834,15 @@ export function registerSrfRoutes(
                  updated_at = now(),
                  modified_by = $4
              WHERE id = $1::uuid`,
-            [it.srfId, it.destinationStoreId, dcNumber, actor.id, storeInvoiceRef],
+            [it.srfId, finalDestinationStoreId, dcNumber, actor.id, storeInvoiceRef],
           );
           await appendStatusHistory(client, it.srfId, "dispatched_to_store", actor.id, `Dispatched in outward DC ${dcNumber}.`);
           await appendActionLog(client, it.srfId, {
             action: "ho_dispatch_to_store",
-            description: `Dispatched to store ${it.destinationStoreId} via ODC ${dcNumber}${storeInvoiceRef ? ` (Store invoice ref ${storeInvoiceRef})` : ""}.`,
+            description: `Dispatched to store ${finalDestinationStoreId} via ODC ${dcNumber}${storeInvoiceRef ? ` (Store invoice ref ${storeInvoiceRef})` : ""}.`,
             actor,
             referenceDoc: dcNumber,
-            details: { destinationStoreId: it.destinationStoreId, storeInvoiceRef },
+            details: { destinationStoreId: finalDestinationStoreId, storeInvoiceRef },
           });
         }
         moved += 1;

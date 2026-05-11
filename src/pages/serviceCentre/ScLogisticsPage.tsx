@@ -219,8 +219,17 @@ export function ScLogisticsPage() {
 
   function destinationFor(jobId: string, originatingStoreId: string) {
     const j = jobs.find((x) => x.id === jobId);
-    // Priority: Root customer collection store. 
-    // Internal HO-to-HO routing is handled by transferTargetRegionId, not the destination store ID.
+    // For inter-HO returned SRFs (transferSourceReference set) the true booking store always
+    // lives on the ORIGINAL parent SRF. Look the parent up so legacy child SRFs (where the
+    // child's own destinationStoreId got corrupted by the old convert-local bug) still show
+    // and dispatch to the correct customer-collection store. The backend applies the same
+    // parent-recovery so the actual ODC always lands at the right destination.
+    if (j?.transferSourceReference) {
+      const parent = jobs.find((p) => p.id !== j.id && p.reference === j.transferSourceReference && !!p.destinationStoreId);
+      if (parent?.destinationStoreId) {
+        return parent.destinationStoreId;
+      }
+    }
     return j?.destinationStoreId || originatingStoreId;
   }
 
@@ -646,12 +655,12 @@ export function ScLogisticsPage() {
                             <p className="rounded-lg border border-zimson-200 bg-zimson-50 px-2 py-1 text-xs font-semibold text-zimson-900">
                               {(() => {
                                 const destId = destinationFor(j.id, j.storeId);
-                                const finalStore = storeById.get(destId);
-                                const finalLabel = finalStore
-                                  ? `Store: ${finalStore.storeName} (HO: ${finalStore.regionName})`
-                                  : `Store: ${destId}`;
                                 if (j.requiresLocalConversion && j.transferTargetRegionId) {
                                   const reg = regions.find(r => r.id === j.transferTargetRegionId);
+                                  const finalStore = storeById.get(destId);
+                                  const finalLabel = finalStore
+                                    ? `Store: ${finalStore.storeName} (HO: ${finalStore.regionName})`
+                                    : `Store: ${destId}`;
                                   return (
                                     <>
                                       <span>Next: HO: {reg?.name ?? j.transferTargetRegionId}</span>
@@ -661,6 +670,10 @@ export function ScLogisticsPage() {
                                 }
                                 if (!j.requiresLocalConversion && j.transferSourceRegionId) {
                                   const reg = regions.find(r => r.id === j.transferSourceRegionId);
+                                  const finalStore = storeById.get(destId);
+                                  const finalLabel = finalStore
+                                    ? `Store: ${finalStore.storeName} (HO: ${finalStore.regionName})`
+                                    : `Store: ${destId}`;
                                   return (
                                     <>
                                       <span>Next: HO: {reg?.name ?? j.transferSourceRegionId}</span>
@@ -668,7 +681,8 @@ export function ScLogisticsPage() {
                                     </>
                                   );
                                 }
-                                return finalLabel;
+                                const loc = storeById.get(destId);
+                                return (loc?.regionName ? `HO: ${loc.regionName} · ` : "") + `Store: ${loc?.storeName ?? destId}`;
                               })()}
                             </p>
                             {j.requiresLocalConversion && (
