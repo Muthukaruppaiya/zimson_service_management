@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiJson, useApiMode } from "../../lib/api";
 import type { CustomerAddressBlock } from "../../types/customer";
 
@@ -24,6 +24,11 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
   const [districts, setDistricts] = useState<string[]>([]);
   const [pinBusy, setPinBusy] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
+  /** Post offices from last India PIN lookup (for city / locality dropdown). */
+  const [pinOfficeCache, setPinOfficeCache] = useState<{
+    pin: string;
+    offices: { name: string; district: string }[];
+  } | null>(null);
 
   const patch = useCallback(
     (p: Partial<CustomerAddressBlock>) => {
@@ -70,6 +75,36 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
     };
   }, [api, value.countryId, value.state]);
 
+  const pinDigits = digitsPin(value.pincode, 8);
+
+  useEffect(() => {
+    if (!pinOfficeCache) return;
+    if (pinDigits !== pinOfficeCache.pin) setPinOfficeCache(null);
+  }, [pinDigits, pinOfficeCache]);
+
+  useEffect(() => {
+    if (value.countryId !== "IN") setPinOfficeCache(null);
+  }, [value.countryId]);
+
+  const localityOptions = useMemo(() => {
+    if (!pinOfficeCache || pinDigits !== pinOfficeCache.pin) return [];
+    const d = value.district.trim();
+    const src = d
+      ? pinOfficeCache.offices.filter((o) => o.district.trim() === d)
+      : pinOfficeCache.offices;
+    const names = src.map((o) => o.name.trim()).filter(Boolean);
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  }, [pinOfficeCache, pinDigits, value.district]);
+
+  const localityKey = localityOptions.join("\u0000");
+
+  useEffect(() => {
+    if (localityOptions.length === 0) return;
+    const c = value.city.trim();
+    if (c && localityOptions.includes(c)) return;
+    patch({ city: localityOptions[0] ?? "" });
+  }, [localityKey, value.city, patch, localityOptions.length]);
+
   async function applyIndiaPin() {
     setPinError(null);
     const pin = digitsPin(value.pincode, 8);
@@ -88,19 +123,33 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         district: string;
         districts: string[];
         citySuggestion?: string;
+        postOffices?: { name: string; district: string; state: string; block: string }[];
       }>(`/api/geo/pin-lookup-in?pincode=${encodeURIComponent(pin)}`);
       const dList =
         Array.isArray(out.districts) && out.districts.length > 0 ? out.districts : out.district ? [out.district] : [];
+      const officesFromApi =
+        Array.isArray(out.postOffices) && out.postOffices.length > 0
+          ? out.postOffices.map((o) => ({
+              name: (o.name ?? "").trim(),
+              district: (o.district ?? "").trim(),
+            }))
+          : [];
+      setPinOfficeCache(officesFromApi.length > 0 ? { pin, offices: officesFromApi } : null);
+      const cityNext =
+        (out.citySuggestion || "").trim() ||
+        (officesFromApi[0]?.name ?? "").trim() ||
+        value.city;
       onChange({
         ...value,
         pincode: pin,
         state: out.state || value.state,
         district: out.district || dList[0] || value.district,
-        city: (out.citySuggestion || value.city).trim() || value.city,
+        city: cityNext || value.city,
       });
       if (dList.length) setDistricts((prev) => [...new Set([...dList, ...prev])].sort((a, b) => a.localeCompare(b)));
     } catch (e) {
       setPinError(e instanceof Error ? e.message : "PIN lookup failed.");
+      setPinOfficeCache(null);
     } finally {
       setPinBusy(false);
     }
@@ -140,6 +189,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
               countryId,
               state: "",
               district: "",
+              city: "",
             });
           }}
           disabled={disabled}
@@ -214,13 +264,31 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
       </div>
       <div>
         <label className="text-xs font-medium text-stone-600">City / locality *</label>
-        <input
-          value={value.city}
-          onChange={(e) => patch({ city: e.target.value })}
-          className={inputClass}
-          disabled={disabled}
-          placeholder="Town or locality"
-        />
+        {isIndia && api && localityOptions.length > 0 ? (
+          <select
+            className={inputClass}
+            value={localityOptions.includes(value.city.trim()) ? value.city : localityOptions[0] ?? ""}
+            onChange={(e) => patch({ city: e.target.value })}
+            disabled={disabled}
+          >
+            <option value="">Select locality</option>
+            {localityOptions.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            value={value.city}
+            onChange={(e) => patch({ city: e.target.value })}
+            className={inputClass}
+            disabled={disabled}
+            placeholder={
+              isIndia && api ? "Use Fill from PIN to load locality list, or type manually" : "Town or locality"
+            }
+          />
+        )}
       </div>
       <div>
         <label className="text-xs font-medium text-stone-600">PIN / postal code *</label>
@@ -246,16 +314,11 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
           ) : null}
         </div>
         {pinError ? <p className="mt-1 text-xs text-red-700">{pinError}</p> : null}
-        {isIndia ? (
-          <p className="mt-1 text-xs text-stone-500">
-            India: enter 6-digit PIN and tap <strong>Fill from PIN</strong> to load state and district from India Post
-            data.
-          </p>
-        ) : (
+        {!isIndia ? (
           <p className="mt-1 text-xs text-stone-500">
             District list is loaded from a public location API (city-level for many countries).
           </p>
-        )}
+        ) : null}
       </div>
     </div>
   );

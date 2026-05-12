@@ -1,4 +1,4 @@
-import type { AppPaymentMode } from "../lib/paymentModes";
+import type { AdvancePaymentDetails, AppPaymentMode } from "../lib/paymentModes";
 
 export type QuickBillWarrantyStatus = "unspecified" | "none" | "under_warranty" | "extended";
 
@@ -53,6 +53,8 @@ export type QuickBillInvoice = {
   technicianId: string | null;
   technicianName: string | null;
   paymentMode: AppPaymentMode;
+  /** Cash denominations, UPI/card/bank reference, etc. */
+  paymentDetails?: AdvancePaymentDetails | null;
   notes: string;
   totalInr: number;
   lines: QuickBillLineInvoice[];

@@ -918,6 +918,21 @@ export async function runMigrations(pool: Pool): Promise<void> {
       CHECK (payment_mode IN ('Cash', 'Card', 'UPI', 'Bank Transfer'));
   `);
 
+  await pool.query(
+    `ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS payment_details JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  );
+
+  await pool.query(`
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_display_name VARCHAR(280) NOT NULL DEFAULT '';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_tagline VARCHAR(160) NOT NULL DEFAULT '';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_address TEXT NOT NULL DEFAULT '';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_phone VARCHAR(120) NOT NULL DEFAULT '';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_email VARCHAR(200) NOT NULL DEFAULT '';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_gstin VARCHAR(24) NOT NULL DEFAULT '';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_legal_entity_name VARCHAR(280) NOT NULL DEFAULT '';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_terms TEXT NOT NULL DEFAULT '';
+  `);
+
   const prFlowDefaults: Array<[string, string, number]> = [
     ["PR_CREATED", "PR creation", 10],
     ["PR_APPROVED_STORE", "PR approved by store manager", 20],

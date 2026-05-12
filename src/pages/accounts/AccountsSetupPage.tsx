@@ -26,6 +26,11 @@ type AccountSetup = {
 
 const STORAGE_KEY = "zimson_accounts_setup_v1";
 
+function normalizePaymentModesList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim()))];
+}
+
 const defaultSetup: AccountSetup = {
   financialYearStart: "04-01",
   baseCurrency: "INR",
@@ -52,8 +57,15 @@ function loadSetup(): AccountSetup {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultSetup;
-    const parsed = JSON.parse(raw) as AccountSetup;
-    return { ...defaultSetup, ...parsed, defaultLedgers: { ...defaultSetup.defaultLedgers, ...(parsed.defaultLedgers ?? {}) } };
+    const parsed = JSON.parse(raw) as Partial<AccountSetup>;
+    const mergedLedgers = { ...defaultSetup.defaultLedgers, ...(parsed.defaultLedgers ?? {}) };
+    const modes = normalizePaymentModesList(parsed.paymentModes);
+    return {
+      ...defaultSetup,
+      ...parsed,
+      defaultLedgers: mergedLedgers,
+      paymentModes: modes.length > 0 ? modes : [...defaultSetup.paymentModes],
+    };
   } catch {
     return defaultSetup;
   }
@@ -63,9 +75,35 @@ export function AccountsSetupPage() {
   const [setup, setSetup] = useState<AccountSetup>(() => loadSetup());
   const [ok, setOk] = useState<string | null>(null);
   const [paymentModeInput, setPaymentModeInput] = useState("");
+  const [paymentModeHint, setPaymentModeHint] = useState<string | null>(null);
+
+  function addPaymentMode() {
+    const val = paymentModeInput.trim();
+    if (!val) {
+      setPaymentModeHint("Enter a name for the payment mode.");
+      return;
+    }
+    const modes = normalizePaymentModesList(setup.paymentModes);
+    const base = modes.length > 0 ? modes : [...defaultSetup.paymentModes];
+    if (base.some((m) => m.toLowerCase() === val.toLowerCase())) {
+      setPaymentModeHint("That payment mode is already in the list (check spelling / duplicates).");
+      return;
+    }
+    setSetup((s) => {
+      const m = normalizePaymentModesList(s.paymentModes);
+      const b = m.length > 0 ? m : [...defaultSetup.paymentModes];
+      if (b.some((x) => x.toLowerCase() === val.toLowerCase())) return s;
+      return { ...s, paymentModes: [...b, val] };
+    });
+    setPaymentModeInput("");
+    setPaymentModeHint(null);
+  }
 
   function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(setup));
+    const normalizedModes = normalizePaymentModesList(setup.paymentModes);
+    const paymentModes =
+      normalizedModes.length > 0 ? normalizedModes : [...defaultSetup.paymentModes];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...setup, paymentModes }));
     setOk("Accounts setup saved.");
     setTimeout(() => setOk(null), 2000);
   }
@@ -134,18 +172,44 @@ export function AccountsSetupPage() {
         </Card>
 
         <Card title="Payment modes">
-          <div className="mb-3 flex gap-2">
-            <input className="w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm" value={paymentModeInput} onChange={(e) => setPaymentModeInput(e.target.value)} placeholder="Add payment mode" />
-            <button type="button" className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white" onClick={() => {
-              const val = paymentModeInput.trim();
-              if (!val) return;
-              setSetup((s) => ({ ...s, paymentModes: Array.from(new Set([...s.paymentModes, val])) }));
-              setPaymentModeInput("");
-            }}>Add</button>
+          <div className="mb-3 flex flex-wrap gap-2">
+            <input
+              className="min-w-0 flex-1 rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm"
+              value={paymentModeInput}
+              onChange={(e) => {
+                setPaymentModeInput(e.target.value);
+                if (paymentModeHint) setPaymentModeHint(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addPaymentMode();
+                }
+              }}
+              placeholder="Add payment mode"
+            />
+            <button
+              type="button"
+              className="shrink-0 rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700"
+              onClick={addPaymentMode}
+            >
+              Add
+            </button>
           </div>
+          {paymentModeHint ? <p className="mb-2 text-xs text-amber-800">{paymentModeHint}</p> : null}
           <div className="flex flex-wrap gap-2">
-            {setup.paymentModes.map((mode) => (
-              <button key={mode} type="button" className="rounded-full border border-zimson-300 bg-white px-3 py-1 text-xs" onClick={() => setSetup((s) => ({ ...s, paymentModes: s.paymentModes.filter((m) => m !== mode) }))}>
+            {normalizePaymentModesList(setup.paymentModes).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className="rounded-full border border-zimson-300 bg-white px-3 py-1 text-xs hover:bg-zimson-50"
+                onClick={() =>
+                  setSetup((s) => ({
+                    ...s,
+                    paymentModes: normalizePaymentModesList(s.paymentModes).filter((m) => m !== mode),
+                  }))
+                }
+              >
                 {mode} ×
               </button>
             ))}

@@ -4,6 +4,7 @@ import path from "node:path";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
+import { sumAdvanceCashDenominations, type AdvancePaymentDetails } from "../src/lib/paymentModes";
 import { appendStockHistory } from "./db/stockHistory";
 
 type Authed = Request & { userId: string };
@@ -459,6 +460,31 @@ export function registerQuickBillRoutes(
       return;
     }
 
+    const rawPd = req.body?.paymentDetails;
+    let paymentDetails: AdvancePaymentDetails = {};
+    if (rawPd && typeof rawPd === "object" && !Array.isArray(rawPd)) {
+      paymentDetails = rawPd as AdvancePaymentDetails;
+    }
+
+    let paymentDetailsToStore: AdvancePaymentDetails = {};
+    if (paymentMode === "Cash") {
+      const cashSum = sumAdvanceCashDenominations(paymentDetails.cash);
+      if (Math.abs(cashSum - totalInr) > 0.02) {
+        res.status(400).json({
+          error: `Cash denominations must total the bill amount (INR ${totalInr.toFixed(2)}). Current: INR ${cashSum.toFixed(2)}.`,
+        });
+        return;
+      }
+      paymentDetailsToStore = paymentDetails.cash ? { cash: paymentDetails.cash } : {};
+    } else {
+      const ref = String(paymentDetails.reference ?? "").trim();
+      if (ref.length > 500) {
+        res.status(400).json({ error: "Payment reference is too long (max 500 characters)." });
+        return;
+      }
+      paymentDetailsToStore = ref ? { reference: ref } : {};
+    }
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -481,9 +507,9 @@ export function registerQuickBillRoutes(
            bill_number, region_id, store_id, customer_type, customer_name, phone, email,
            company, gst, pan, watch_brand, watch_model, watch_ref, technician_id, technician_name,
            payment_mode, notes, watch_remark, warranty_status, watch_document_path, watch_image_path,
-           total_inr, created_by
+           total_inr, payment_details, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24)
          RETURNING id, created_at`,
         [
           billNumber,
@@ -508,6 +534,7 @@ export function registerQuickBillRoutes(
           watchDocumentPath,
           watchImagePath,
           totalInr,
+          JSON.stringify(paymentDetailsToStore),
           actor.id,
         ],
       );
@@ -619,7 +646,8 @@ export function registerQuickBillRoutes(
                 qb.technician_name AS "technicianName",
                 qb.payment_mode AS "paymentMode",
                 qb.notes,
-                qb.total_inr::float8 AS "totalInr"
+                qb.total_inr::float8 AS "totalInr",
+                qb.payment_details AS "paymentDetails"
          FROM quick_bills qb
          LEFT JOIN regions r ON r.id = qb.region_id
          LEFT JOIN stores s ON s.id = qb.store_id
@@ -642,6 +670,11 @@ export function registerQuickBillRoutes(
       await client.query("COMMIT");
 
       const head = detail.rows[0] as Record<string, unknown>;
+      const pdRaw = head.paymentDetails;
+      const paymentDetailsParsed: AdvancePaymentDetails | null =
+        pdRaw && typeof pdRaw === "object" && !Array.isArray(pdRaw)
+          ? (pdRaw as AdvancePaymentDetails)
+          : null;
       res.json({
         invoice: {
           id: head.id,
@@ -668,6 +701,7 @@ export function registerQuickBillRoutes(
           technicianId: head.technicianId ?? null,
           technicianName: head.technicianName ?? null,
           paymentMode: head.paymentMode,
+          paymentDetails: paymentDetailsParsed && Object.keys(paymentDetailsParsed).length > 0 ? paymentDetailsParsed : null,
           notes: head.notes ?? "",
           totalInr: Number(head.totalInr),
           lines: lineRows.map((r) => ({

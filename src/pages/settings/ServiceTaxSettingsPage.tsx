@@ -42,6 +42,14 @@ export function ServiceTaxSettingsPage() {
   const [odcSuffix, setOdcSuffix] = useState("");
   const [appLogoUrl, setAppLogoUrl] = useState("");
   const [appFaviconUrl, setAppFaviconUrl] = useState("");
+  const [invoiceStoreDisplayName, setInvoiceStoreDisplayName] = useState("");
+  const [invoiceStoreTagline, setInvoiceStoreTagline] = useState("");
+  const [invoiceStoreAddress, setInvoiceStoreAddress] = useState("");
+  const [invoiceStorePhone, setInvoiceStorePhone] = useState("");
+  const [invoiceStoreEmail, setInvoiceStoreEmail] = useState("");
+  const [invoiceStoreGstin, setInvoiceStoreGstin] = useState("");
+  const [invoiceLegalEntityName, setInvoiceLegalEntityName] = useState("");
+  const [invoiceTerms, setInvoiceTerms] = useState("");
   const [notes, setNotes] = useState("");
   const [meta, setMeta] = useState<{ updatedAt: string; updatedBy: string | null } | null>(null);
 
@@ -77,6 +85,14 @@ export function ServiceTaxSettingsPage() {
       setOdcSuffix(s.odcSuffix ?? "");
       setAppLogoUrl(s.appLogoUrl ?? "");
       setAppFaviconUrl(s.appFaviconUrl ?? "");
+      setInvoiceStoreDisplayName(s.invoiceStoreDisplayName ?? "");
+      setInvoiceStoreTagline(s.invoiceStoreTagline ?? "");
+      setInvoiceStoreAddress(s.invoiceStoreAddress ?? "");
+      setInvoiceStorePhone(s.invoiceStorePhone ?? "");
+      setInvoiceStoreEmail(s.invoiceStoreEmail ?? "");
+      setInvoiceStoreGstin(s.invoiceStoreGstin ?? "");
+      setInvoiceLegalEntityName(s.invoiceLegalEntityName ?? "");
+      setInvoiceTerms(s.invoiceTerms ?? "");
       setNotes(s.notes);
       setMeta({ updatedAt: s.updatedAt, updatedBy: s.updatedBy });
     } catch (e) {
@@ -122,6 +138,14 @@ export function ServiceTaxSettingsPage() {
         odcSuffix: odcSuffix.trim(),
         appLogoUrl: appLogoUrl.trim(),
         appFaviconUrl: appFaviconUrl.trim(),
+        invoiceStoreDisplayName: invoiceStoreDisplayName.trim(),
+        invoiceStoreTagline: invoiceStoreTagline.trim(),
+        invoiceStoreAddress: invoiceStoreAddress.trim(),
+        invoiceStorePhone: invoiceStorePhone.trim(),
+        invoiceStoreEmail: invoiceStoreEmail.trim(),
+        invoiceStoreGstin: invoiceStoreGstin.trim(),
+        invoiceLegalEntityName: invoiceLegalEntityName.trim(),
+        invoiceTerms: invoiceTerms.trim(),
         notes: notes.trim(),
       };
       const data = await apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax", {
@@ -150,6 +174,14 @@ export function ServiceTaxSettingsPage() {
       setOdcSuffix(s.odcSuffix ?? "");
       setAppLogoUrl(s.appLogoUrl ?? "");
       setAppFaviconUrl(s.appFaviconUrl ?? "");
+      setInvoiceStoreDisplayName(s.invoiceStoreDisplayName ?? "");
+      setInvoiceStoreTagline(s.invoiceStoreTagline ?? "");
+      setInvoiceStoreAddress(s.invoiceStoreAddress ?? "");
+      setInvoiceStorePhone(s.invoiceStorePhone ?? "");
+      setInvoiceStoreEmail(s.invoiceStoreEmail ?? "");
+      setInvoiceStoreGstin(s.invoiceStoreGstin ?? "");
+      setInvoiceLegalEntityName(s.invoiceLegalEntityName ?? "");
+      setInvoiceTerms(s.invoiceTerms ?? "");
       setNotes(s.notes);
       applyAppFavicon(s.appFaviconUrl ?? "");
       window.dispatchEvent(new Event("zimson-branding-updated"));
@@ -350,6 +382,87 @@ export function ServiceTaxSettingsPage() {
                 </label>
                 <label className="text-xs font-medium text-stone-600">Favicon URL / data URL
                   <input className={inputClass} value={appFaviconUrl} onChange={(e) => setAppFaviconUrl(e.target.value)} placeholder="/icons.svg or data:image/png;base64,..." />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-4">
+              <p className="text-xs font-semibold text-stone-700">Printed invoice — store &amp; terms</p>
+              <p className="mt-1 text-xs text-stone-500">
+                Used on Quick Bill and Service bill (SRF) printouts. App logo above is reused on the invoice header when set.
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
+                  Store name (invoice)
+                  <input
+                    className={inputClass}
+                    value={invoiceStoreDisplayName}
+                    onChange={(e) => setInvoiceStoreDisplayName(e.target.value)}
+                    placeholder="ZIMSON - THE WATCH STORE"
+                  />
+                </label>
+                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
+                  Tagline
+                  <input
+                    className={inputClass}
+                    value={invoiceStoreTagline}
+                    onChange={(e) => setInvoiceStoreTagline(e.target.value)}
+                    placeholder="THE WATCH STORE SINCE 1948"
+                  />
+                </label>
+                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
+                  Store address (invoice)
+                  <textarea
+                    className={inputClass}
+                    rows={3}
+                    value={invoiceStoreAddress}
+                    onChange={(e) => setInvoiceStoreAddress(e.target.value)}
+                    placeholder={"347, Oppanakara Street\nCoimbatore, Tamil Nadu - 641001"}
+                  />
+                </label>
+                <label className="text-xs font-medium text-stone-600">
+                  Phone
+                  <input
+                    className={inputClass}
+                    value={invoiceStorePhone}
+                    onChange={(e) => setInvoiceStorePhone(e.target.value)}
+                  />
+                </label>
+                <label className="text-xs font-medium text-stone-600">
+                  Email
+                  <input
+                    className={inputClass}
+                    type="email"
+                    value={invoiceStoreEmail}
+                    onChange={(e) => setInvoiceStoreEmail(e.target.value)}
+                  />
+                </label>
+                <label className="text-xs font-medium text-stone-600">
+                  Store GSTIN
+                  <input
+                    className={inputClass}
+                    value={invoiceStoreGstin}
+                    onChange={(e) => setInvoiceStoreGstin(e.target.value)}
+                  />
+                </label>
+                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
+                  Legal entity (&quot;For …&quot; footer)
+                  <input
+                    className={inputClass}
+                    value={invoiceLegalEntityName}
+                    onChange={(e) => setInvoiceLegalEntityName(e.target.value)}
+                    placeholder="ZIMSON TIMES PVT LTD"
+                  />
+                </label>
+                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
+                  Terms &amp; conditions (one numbered line per paragraph; use Enter for each point)
+                  <textarea
+                    className={inputClass}
+                    rows={8}
+                    value={invoiceTerms}
+                    onChange={(e) => setInvoiceTerms(e.target.value)}
+                    placeholder="Warranty terms, battery policy, etc."
+                  />
                 </label>
               </div>
             </div>

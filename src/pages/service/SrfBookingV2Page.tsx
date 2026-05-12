@@ -11,7 +11,11 @@ import { useBrands } from "../../context/BrandsContext";
 import { useCustomers } from "../../context/CustomersContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
-import { apiJson } from "../../lib/api";
+import { apiJson, useApiMode } from "../../lib/api";
+import {
+  mapSrfPreviewToServiceInvoiceViewModel,
+} from "../../components/service/mapQuickBillToServiceInvoice";
+import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import {
   APP_PAYMENT_MODES,
   ADVANCE_CASH_DENOMS,
@@ -27,6 +31,8 @@ import {
   isValidPanFormat,
   watchModelsForBrand,
 } from "../../data/serviceSeed";
+import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
+import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 
 const steps = ["Customer", "Watch", "Photos", "Estimate + OTP", "Review"] as const;
 const inputClass =
@@ -34,6 +40,7 @@ const inputClass =
 
 export function SrfBookingV2Page() {
   const { user } = useAuth();
+  const apiMode = useApiMode();
   const { regions } = useRegions();
   const { brands: catalogBrands } = useBrands();
   const { getById, customers } = useCustomers();
@@ -83,6 +90,8 @@ export function SrfBookingV2Page() {
   const [error, setError] = useState<string | null>(null);
   const [srfRef, setSrfRef] = useState<string | null>(null);
   const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
+  const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
+  const [successServiceInvoiceVm, setSuccessServiceInvoiceVm] = useState<ServiceInvoiceViewModel | null>(null);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
   const [photoPreview, setPhotoPreview] = useState<Array<{ id: string; photoKind?: string; filePath: string }>>([]);
@@ -131,6 +140,21 @@ export function SrfBookingV2Page() {
   useEffect(() => {
     if (!handoverStoreId && currentStoreId) setHandoverStoreId(currentStoreId);
   }, [handoverStoreId, currentStoreId]);
+
+  useEffect(() => {
+    if (!apiMode || !user) return;
+    let cancelled = false;
+    void apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax")
+      .then((d) => {
+        if (!cancelled) setServiceTaxSettings(d.settings);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceTaxSettings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiMode, user]);
 
   function validateCustomer() {
     if (!customerName.trim() || !phone.trim()) {
@@ -586,6 +610,31 @@ export function SrfBookingV2Page() {
           },
         },
       );
+      setSuccessServiceInvoiceVm(
+        mapSrfPreviewToServiceInvoiceViewModel(
+          {
+            reference: row.reference,
+            customerName,
+            phone,
+            email,
+            gst,
+            pan,
+            address: [address, city].filter((x) => x.trim()).join(", ") || undefined,
+            watchBrand,
+            watchModel,
+            serial,
+            complaint,
+            estimateTotalInr: estimateTotal,
+            advanceInr: advanceTotal,
+            advancePaymentMode: advanceTotal > 0 ? advancePaymentMode : null,
+          },
+          {
+            taxSettings: serviceTaxSettings,
+            defaultHsnSac: serviceTaxSettings?.defaultSacHsn,
+            generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
+          },
+        ),
+      );
       setSrfRef(row.reference);
       setTrackingUrl(out.trackingUrl ?? null);
     } catch (e) {
@@ -623,6 +672,21 @@ export function SrfBookingV2Page() {
               <p className="mt-1 break-all font-mono text-xs text-stone-700">{trackingUrl}</p>
               <p className="mt-1 text-xs text-stone-600">Share this URL with the customer via SMS/WhatsApp or scan the QR code.</p>
               <CustomerLinkQr url={trackingUrl} size={240} mode="qr" caption="Scan QR code to open customer review" className="mt-3" />
+            </div>
+          ) : null}
+          {successServiceInvoiceVm ? (
+            <div className="mt-8 border-t border-zimson-200 pt-6">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 print:hidden">
+                <p className="text-sm font-semibold text-zimson-900">Service bill (print)</p>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="rounded-xl bg-stone-800 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-900"
+                >
+                  Print invoice
+                </button>
+              </div>
+              <ServiceInvoiceTemplate data={successServiceInvoiceVm} idPrefix="srf-booking" />
             </div>
           ) : null}
         </Card>

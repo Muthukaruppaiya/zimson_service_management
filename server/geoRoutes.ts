@@ -120,13 +120,16 @@ export function registerGeoRoutes(app: Express, dbPool: Pool | null) {
       const r = await fetch(`https://api.postalpincode.in/pincode/${encodeURIComponent(pin)}`, {
         headers: { accept: "application/json" },
       });
-      const json = (await r.json()) as {
+      const raw: unknown = await r.json().catch(() => null);
+      /** India Post API returns either one object or a single-element array. */
+      const root = Array.isArray(raw) && raw.length > 0 ? raw[0] : raw;
+      const json = root as {
         Status?: string;
         Message?: string;
         PostOffice?: Array<{ Name?: string; District?: string; State?: string; Block?: string }>;
       };
-      if (json.Status !== "Success" || !Array.isArray(json.PostOffice) || json.PostOffice.length === 0) {
-        res.status(404).json({ error: json.Message ?? "PIN code not found." });
+      if (!json || typeof json !== "object" || json.Status !== "Success" || !Array.isArray(json.PostOffice) || json.PostOffice.length === 0) {
+        res.status(404).json({ error: json?.Message ?? "PIN code not found." });
         return;
       }
       const offices = json.PostOffice;

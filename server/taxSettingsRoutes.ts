@@ -27,6 +27,14 @@ type TaxRow = {
   odc_suffix: string;
   app_logo_url: string;
   app_favicon_url: string;
+  invoice_store_display_name?: string | null;
+  invoice_store_tagline?: string | null;
+  invoice_store_address?: string | null;
+  invoice_store_phone?: string | null;
+  invoice_store_email?: string | null;
+  invoice_store_gstin?: string | null;
+  invoice_legal_entity_name?: string | null;
+  invoice_terms?: string | null;
   notes: string;
   updated_at: Date;
   updated_by: string | null;
@@ -63,6 +71,14 @@ function rowToPayload(row: TaxRow) {
     odcSuffix: row.odc_suffix ?? "",
     appLogoUrl: row.app_logo_url ?? "",
     appFaviconUrl: row.app_favicon_url ?? "",
+    invoiceStoreDisplayName: String(row.invoice_store_display_name ?? "").trim(),
+    invoiceStoreTagline: String(row.invoice_store_tagline ?? "").trim(),
+    invoiceStoreAddress: String(row.invoice_store_address ?? "").trim(),
+    invoiceStorePhone: String(row.invoice_store_phone ?? "").trim(),
+    invoiceStoreEmail: String(row.invoice_store_email ?? "").trim(),
+    invoiceStoreGstin: String(row.invoice_store_gstin ?? "").trim(),
+    invoiceLegalEntityName: String(row.invoice_legal_entity_name ?? "").trim(),
+    invoiceTerms: String(row.invoice_terms ?? "").trim(),
     notes: row.notes ?? "",
     updatedAt: row.updated_at.toISOString(),
     updatedBy: row.updated_by,
@@ -96,6 +112,17 @@ function parseSeriesSuffix(raw: unknown): string {
     .slice(0, 16);
 }
 
+const TAX_SELECT = `SELECT id, gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
+                igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive, supplier_tax_person_types,
+                srf_prefix, srf_suffix, pr_prefix, pr_suffix, po_prefix, po_suffix,
+                grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix,
+                app_logo_url, app_favicon_url,
+                invoice_store_display_name, invoice_store_tagline, invoice_store_address,
+                invoice_store_phone, invoice_store_email, invoice_store_gstin,
+                invoice_legal_entity_name, invoice_terms,
+                notes, updated_at, updated_by
+         FROM service_tax_settings WHERE id = 1`;
+
 export function registerTaxSettingsRoutes(
   app: Express,
   pool: Pool,
@@ -104,15 +131,7 @@ export function registerTaxSettingsRoutes(
 ): void {
   app.get("/api/settings/tax", requireAuth, async (_req, res) => {
     try {
-      const { rows } = await pool.query<TaxRow>(
-        `SELECT id, gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
-                igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive, supplier_tax_person_types,
-                srf_prefix, srf_suffix, pr_prefix, pr_suffix, po_prefix, po_suffix,
-                grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix,
-                notes,
-                updated_at, updated_by
-         FROM service_tax_settings WHERE id = 1`,
-      );
+      const { rows } = await pool.query<TaxRow>(TAX_SELECT);
       if (rows.length === 0) {
         res.status(500).json({ error: "Tax settings not initialized." });
         return;
@@ -142,7 +161,7 @@ export function registerTaxSettingsRoutes(
     const igstRatePercent = clampRate(Number(body.igstRatePercent));
     const sac = parseSacHsn(body.defaultSacHsn);
     if (!sac) {
-      res.status(400).json({ error: "defaultSacHsn must be a non-empty code (max 32 chars, alphanumeric / - .)."});
+      res.status(400).json({ error: "defaultSacHsn must be a non-empty code (max 32 chars, alphanumeric / - .)." });
       return;
     }
     const pricesTaxInclusive = Boolean(body.pricesTaxInclusive);
@@ -164,6 +183,14 @@ export function registerTaxSettingsRoutes(
     const notes = String(body.notes ?? "").slice(0, 2000);
     const appLogoUrl = String(body.appLogoUrl ?? "").trim().slice(0, 4000);
     const appFaviconUrl = String(body.appFaviconUrl ?? "").trim().slice(0, 4000);
+    const invoiceStoreDisplayName = String(body.invoiceStoreDisplayName ?? "").trim().slice(0, 280);
+    const invoiceStoreTagline = String(body.invoiceStoreTagline ?? "").trim().slice(0, 160);
+    const invoiceStoreAddress = String(body.invoiceStoreAddress ?? "").trim().slice(0, 4000);
+    const invoiceStorePhone = String(body.invoiceStorePhone ?? "").trim().slice(0, 120);
+    const invoiceStoreEmail = String(body.invoiceStoreEmail ?? "").trim().slice(0, 200);
+    const invoiceStoreGstin = String(body.invoiceStoreGstin ?? "").trim().slice(0, 24);
+    const invoiceLegalEntityName = String(body.invoiceLegalEntityName ?? "").trim().slice(0, 280);
+    const invoiceTerms = String(body.invoiceTerms ?? "").trim().slice(0, 12000);
     const updatedBy = actor.displayName?.trim() || actor.email;
 
     try {
@@ -190,16 +217,27 @@ export function registerTaxSettingsRoutes(
            odc_suffix = $19,
            app_logo_url = $20,
            app_favicon_url = $21,
-           notes = $22,
+           invoice_store_display_name = $22,
+           invoice_store_tagline = $23,
+           invoice_store_address = $24,
+           invoice_store_phone = $25,
+           invoice_store_email = $26,
+           invoice_store_gstin = $27,
+           invoice_legal_entity_name = $28,
+           invoice_terms = $29,
+           notes = $30,
            updated_at = now(),
-           updated_by = $23
+           updated_by = $31
          WHERE id = 1
          RETURNING id, gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
                   igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive, supplier_tax_person_types,
-                   srf_prefix, srf_suffix, pr_prefix, pr_suffix, po_prefix, po_suffix,
+                  srf_prefix, srf_suffix, pr_prefix, pr_suffix, po_prefix, po_suffix,
                   grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix,
-                  app_logo_url, app_favicon_url, notes,
-                   updated_at, updated_by`,
+                  app_logo_url, app_favicon_url,
+                  invoice_store_display_name, invoice_store_tagline, invoice_store_address,
+                  invoice_store_phone, invoice_store_email, invoice_store_gstin,
+                  invoice_legal_entity_name, invoice_terms,
+                  notes, updated_at, updated_by`,
         [
           gstRatePercent,
           cgstRatePercent,
@@ -222,6 +260,14 @@ export function registerTaxSettingsRoutes(
           odcSuffix,
           appLogoUrl,
           appFaviconUrl,
+          invoiceStoreDisplayName,
+          invoiceStoreTagline,
+          invoiceStoreAddress,
+          invoiceStorePhone,
+          invoiceStoreEmail,
+          invoiceStoreGstin,
+          invoiceLegalEntityName,
+          invoiceTerms,
           notes,
           updatedBy,
         ],

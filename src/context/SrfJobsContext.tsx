@@ -62,7 +62,9 @@ export type SrfTrace = {
     advancePaymentMode?: string | null;
     advancePaymentDetails?: unknown;
     regionId: string;
+    regionName?: string | null;
     storeId: string;
+    storeName?: string | null;
     destinationStoreId: string | null;
     dcNumber: string | null;
     outwardDcNumber: string | null;
@@ -102,6 +104,7 @@ type SrfJobsContextValue = {
     payload: {
       complaint: string;
       estimateTotalInr: number;
+      estimatedFinishDate?: string | null;
       advanceInr?: number;
       advancePaymentMode?: string | null;
       advancePaymentDetails?: unknown;

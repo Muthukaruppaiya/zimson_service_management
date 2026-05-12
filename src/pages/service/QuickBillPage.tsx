@@ -11,11 +11,19 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { buildDemoServiceInvoiceViewModel, mapQuickBillInvoiceToViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
-import { APP_PAYMENT_MODES, type AppPaymentMode } from "../../lib/paymentModes";
+import {
+  ADVANCE_CASH_DENOMS,
+  advanceDetailsFromFormStrings,
+  APP_PAYMENT_MODES,
+  emptyCashDenomStrings,
+  sumAdvanceCashDenominations,
+  type AppPaymentMode,
+} from "../../lib/paymentModes";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import type { QuickBillInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
+import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import {
   generateDemoOtp,
@@ -191,6 +199,13 @@ export function QuickBillPage() {
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [paymentMode, setPaymentMode] = useState<AppPaymentMode>("Cash");
   const [notes, setNotes] = useState("");
+  const [cashDenomStrings, setCashDenomStrings] = useState(() => emptyCashDenomStrings());
+  const [paymentReference, setPaymentReference] = useState("");
+
+  useEffect(() => {
+    if (paymentMode === "Cash") setPaymentReference("");
+    else setCashDenomStrings(emptyCashDenomStrings());
+  }, [paymentMode]);
 
   const [error, setError] = useState<string | null>(null);
   const [completion, setCompletion] = useState<CompletionState>(null);
@@ -203,6 +218,7 @@ export function QuickBillPage() {
   const [spareOptionsLoading, setSpareOptionsLoading] = useState(false);
   const [barcodeSku, setBarcodeSku] = useState("");
   const [invoiceHsnSac, setInvoiceHsnSac] = useState("9987");
+  const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
 
   const [customerChecked, setCustomerChecked] = useState(false);
   const [customerCheckMsg, setCustomerCheckMsg] = useState<string | null>(null);
@@ -371,11 +387,13 @@ export function QuickBillPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const data = await apiJson<{ settings: { defaultSacHsn: string } }>("/api/settings/tax");
+        const data = await apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax");
         if (cancelled) return;
-        setInvoiceHsnSac(data.settings.defaultSacHsn.trim() || "9987");
+        const s = data.settings;
+        setInvoiceHsnSac(s.defaultSacHsn.trim() || "9987");
+        setServiceTaxSettings(s);
       } catch {
-        /* keep default */
+        if (!cancelled) setServiceTaxSettings(null);
       }
     })();
     return () => {
@@ -686,6 +704,25 @@ export function QuickBillPage() {
       setError("Service / repair charge cannot be negative.");
       return false;
     }
+    const billTotal =
+      lines.reduce((sum, l) => {
+        const n = Number.parseFloat(l.amount);
+        return sum + (Number.isNaN(n) ? 0 : n);
+      }, 0) + (Number.isFinite(extra) && extra > 0 ? extra : 0);
+    if (paymentMode === "Cash") {
+      const cashSum = sumAdvanceCashDenominations(
+        advanceDetailsFromFormStrings("Cash", cashDenomStrings, "").cash,
+      );
+      if (Math.abs(cashSum - billTotal) > 0.02) {
+        setError(
+          `Cash denominations must equal the bill total (${billTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}).`,
+        );
+        return false;
+      }
+    } else if (paymentReference.trim().length > 500) {
+      setError("Payment reference is too long (max 500 characters).");
+      return false;
+    }
     return true;
   }
 
@@ -704,6 +741,10 @@ export function QuickBillPage() {
     if (!awaitingOtp) return;
     if (otpInput.trim() !== awaitingOtp) {
       setOtpError("Incorrect OTP. No changes were saved. Enter the code shown above.");
+      return;
+    }
+    if (!validateBeforeOtp()) {
+      setOtpError("Bill form is no longer valid. Cancel verification, fix the errors on the form, and send OTP again.");
       return;
     }
     const parsedLines = lines
@@ -747,6 +788,7 @@ export function QuickBillPage() {
             technicianId: technicianId || null,
             technicianName: tech?.fullName ?? null,
             paymentMode,
+            paymentDetails: advanceDetailsFromFormStrings(paymentMode, cashDenomStrings, paymentReference),
             notes: notes.trim(),
             persistNewWatchModel: catalogModelKey === "__new__",
             serviceChargeInr: (() => {
@@ -802,6 +844,21 @@ export function QuickBillPage() {
       return Number.isFinite(n) && n > 0 ? n : 0;
     })();
 
+  const cashDenomEntered = useMemo(
+    () =>
+      sumAdvanceCashDenominations(advanceDetailsFromFormStrings("Cash", cashDenomStrings, "").cash),
+    [cashDenomStrings],
+  );
+
+  const invoiceVmOptions = useMemo(
+    () => ({
+      defaultHsnSac: invoiceHsnSac,
+      taxSettings: serviceTaxSettings,
+      generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
+    }),
+    [invoiceHsnSac, serviceTaxSettings, user?.displayName, user?.email, user?.id],
+  );
+
   function resetForm() {
     setCustomerType("B2C");
     setCustomerName("");
@@ -828,6 +885,8 @@ export function QuickBillPage() {
     setTechnicianId(technicians[0]?.id ?? "");
     setPaymentMode("Cash");
     setNotes("");
+    setCashDenomStrings(emptyCashDenomStrings());
+    setPaymentReference("");
     setError(null);
     setCompletion(null);
     setIsSavingBill(false);
@@ -850,7 +909,7 @@ export function QuickBillPage() {
           className="print:hidden"
         />
         <QuickBillInvoicePanel
-          viewModel={mapQuickBillInvoiceToViewModel(completion.invoice, { defaultHsnSac: invoiceHsnSac })}
+          viewModel={mapQuickBillInvoiceToViewModel(completion.invoice, invoiceVmOptions)}
           onNew={resetForm}
         />
         <div className="mt-8 print:hidden">
@@ -897,11 +956,12 @@ export function QuickBillPage() {
         watchImagePath,
         technicianName: techName,
         paymentMode,
+        paymentDetails: advanceDetailsFromFormStrings(paymentMode, cashDenomStrings, paymentReference),
         notes,
         lines: demoLines,
         total,
       },
-      { defaultHsnSac: invoiceHsnSac },
+      invoiceVmOptions,
     );
     return (
       <div>
@@ -1242,10 +1302,6 @@ export function QuickBillPage() {
                 <option value="under_warranty">Under warranty (bill impact — to finalise)</option>
                 <option value="extended">Extended warranty (bill impact — to finalise)</option>
               </select>
-              <p className="mt-1 text-xs text-stone-500">
-                If warranty applies, whether the bill is reduced or set to zero is not automated yet — needs your
-                policy.
-              </p>
             </div>
             <div>
               <label htmlFor="qb-doc" className="text-xs font-medium text-stone-600">
@@ -1435,6 +1491,60 @@ export function QuickBillPage() {
                 ))}
               </select>
             </div>
+            {paymentMode === "Cash" ? (
+              <div className="sm:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
+                <p className="text-sm font-semibold text-zimson-900">Cash denomination (must total bill)</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {ADVANCE_CASH_DENOMS.map(({ key, label }) => (
+                    <label key={key} className="text-xs text-stone-600">
+                      {label}
+                      <input
+                        className={inputClass}
+                        inputMode="numeric"
+                        value={cashDenomStrings[key]}
+                        onChange={(e) =>
+                          setCashDenomStrings((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                      />
+                    </label>
+                  ))}
+                  <label className="text-xs text-stone-600 sm:col-span-2">
+                    Coins / loose (INR)
+                    <input
+                      className={inputClass}
+                      inputMode="decimal"
+                      value={cashDenomStrings.coinsInr}
+                      onChange={(e) =>
+                        setCashDenomStrings((prev) => ({ ...prev, coinsInr: e.target.value }))
+                      }
+                      placeholder="0.00"
+                    />
+                  </label>
+                </div>
+                <p className="mt-2 text-xs text-stone-600">
+                  Denomination total:{" "}
+                  <strong className="text-zimson-900">
+                    {cashDenomEntered.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                  </strong>
+                  {Math.abs(cashDenomEntered - total) > 0.02 ? (
+                    <span className="ml-2 text-amber-700">(does not match bill total yet)</span>
+                  ) : (
+                    <span className="ml-2 text-emerald-700">(matches bill total)</span>
+                  )}
+                </p>
+              </div>
+            ) : (
+              <label className="text-xs text-stone-600 sm:col-span-2">
+                Payment reference (optional)
+                <input
+                  className={inputClass}
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  placeholder="UPI ID / UTR, card auth code, bank transfer ref"
+                  maxLength={500}
+                />
+              </label>
+            )}
             <div className="sm:col-span-2">
               <label htmlFor="qb-notes" className="text-xs font-medium text-stone-600">
                 Notes

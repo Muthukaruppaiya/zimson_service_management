@@ -421,7 +421,7 @@ export function SrfCustomerRegisterPage() {
       <ServiceBreadcrumb current={forQuickBill ? "Quick bill — new customer" : "SRF — new customer"} />
       <PageHeader
         title="Register customer"
-        description="Verify mobile first (send code → confirm). After mobile is verified, enter email and verify it the same way. Demo shows codes on screen; production would use SMS and email."
+        description=""
         actions={
           <Link
             to={
@@ -504,13 +504,7 @@ export function SrfCustomerRegisterPage() {
           </div>
         </Card>
 
-        <Card title="Contact (B2B & B2C)">
-          <p className="mb-3 text-xs text-stone-600">
-            <strong>Step 1 — Mobile:</strong> Tap <strong>Verify</strong> next to primary mobile to send the mobile OTP
-            only. Enter the code and tap <strong>Confirm OTP</strong> until you see <strong>✓ Verified</strong>.{" "}
-            <strong>Step 2 — Email:</strong> After mobile is verified, enter your email, tap <strong>Verify</strong> to
-            send the email OTP separately, then confirm. Demo shows codes on screen; production would use SMS and email.
-          </p>
+        <Card title="Contact">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Primary mobile *</label>
@@ -703,7 +697,17 @@ export function SrfCustomerRegisterPage() {
                 </label>
               </div>
               {sameShippingAsBilling ? (
-                <p className="text-sm text-stone-600">Shipping will match billing on save.</p>
+                <div className="space-y-2">
+                  {/* <p className="text-xs text-stone-600">
+                    Shipping matches billing. Uncheck &quot;Same as billing&quot; to edit a different shipping address.
+                  </p> */}
+                  <CustomerAddressForm
+                    value={billing}
+                    onChange={() => {}}
+                    countries={countries}
+                    disabled
+                  />
+                </div>
               ) : (
                 <CustomerAddressForm value={shipping} onChange={setShipping} countries={countries} />
               )}
@@ -712,9 +716,7 @@ export function SrfCustomerRegisterPage() {
         </Card>
 
         <Card title="Additional addresses">
-          <p className="mb-3 text-xs text-stone-600">
-            Optional extra locations (branch, workshop, etc.). Each block is saved on the customer record.
-          </p>
+         
           {additionalAddresses.map((addr, idx) => (
             <div key={idx} className="mb-4 rounded-xl border border-zimson-200/90 bg-white/70 p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
