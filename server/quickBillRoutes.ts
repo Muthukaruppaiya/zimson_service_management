@@ -67,6 +67,87 @@ export function registerQuickBillRoutes(
   requireAuth: (req: Request, res: Response, next: NextFunction) => void,
   getUserById: (id: string) => DemoUser | null,
 ): void {
+  app.get("/api/service/watch-models", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const brand = String(req.query.brand ?? "").trim();
+    if (!brand) {
+      res.status(400).json({ error: "brand query parameter is required." });
+      return;
+    }
+    const brandNorm = brand.trim().toLowerCase();
+    try {
+      const { rows } = await pool.query<{
+        id: string;
+        brand: string;
+        model: string;
+        refHint: string | null;
+      }>(
+        `SELECT id::text AS id,
+                brand,
+                model,
+                ref_hint AS "refHint"
+         FROM watch_models_catalog
+         WHERE brand_norm = $1
+         ORDER BY model ASC`,
+        [brandNorm],
+      );
+      res.json({ models: rows });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load watch models." });
+    }
+  });
+
+  app.post("/api/service/watch-models", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const brand = String(req.body?.brand ?? "").trim();
+    const model = String(req.body?.model ?? "").trim();
+    const refHintRaw = req.body?.refHint;
+    const refHint =
+      refHintRaw == null || String(refHintRaw).trim() === "" ? null : String(refHintRaw).trim();
+    if (!brand || !model) {
+      res.status(400).json({ error: "brand and model are required." });
+      return;
+    }
+    if (model.length > 300 || brand.length > 200) {
+      res.status(400).json({ error: "brand or model is too long." });
+      return;
+    }
+    const b = brand;
+    const m = model;
+    const brandNorm = b.toLowerCase();
+    const modelNorm = m.toLowerCase();
+    try {
+      const ins = await pool.query<{ id: string }>(
+        `INSERT INTO watch_models_catalog (brand, model, brand_norm, model_norm, ref_hint, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (brand_norm, model_norm) DO NOTHING
+         RETURNING id::text AS id`,
+        [b, m, brandNorm, modelNorm, refHint, actor.id],
+      );
+      let id = ins.rows[0]?.id as string | undefined;
+      if (!id) {
+        const sel = await pool.query<{ id: string }>(
+          `SELECT id::text AS id FROM watch_models_catalog WHERE brand_norm = $1 AND model_norm = $2`,
+          [brandNorm, modelNorm],
+        );
+        id = sel.rows[0]?.id;
+      }
+      res.json({ ok: true, id: id ?? null, wasNew: Boolean(ins.rows[0]) });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not save watch model." });
+    }
+  });
+
   app.post("/api/service/quick-bill-attachments", requireAuth, qbUpload.single("file"), (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor) {
@@ -269,6 +350,8 @@ export function registerQuickBillRoutes(
       res.status(400).json({ error: "watchBrand and watchModel are required." });
       return;
     }
+
+    const persistNewWatchModel = Boolean(req.body?.persistNewWatchModel);
 
     const watchRemark = String(req.body?.watchRemark ?? "").trim();
     const warrantyStatusRaw = String(req.body?.warrantyStatus ?? "unspecified").trim();
@@ -492,6 +575,21 @@ export function registerQuickBillRoutes(
             note: `Quick bill spare usage (${billNumber}).`,
             createdBy: actor.id,
           });
+        }
+      }
+
+      if (persistNewWatchModel) {
+        const b = watchBrand.trim();
+        const m = watchModel.trim();
+        const brandNorm = b.toLowerCase();
+        const modelNorm = m.toLowerCase();
+        if (b && m) {
+          await client.query(
+            `INSERT INTO watch_models_catalog (brand, model, brand_norm, model_norm, ref_hint, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (brand_norm, model_norm) DO NOTHING`,
+            [b, m, brandNorm, modelNorm, watchRef, actor.id],
+          );
         }
       }
 

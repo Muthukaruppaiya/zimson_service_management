@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerCatalogRoutes } from "./catalogRoutes";
+import { registerGeoRoutes } from "./geoRoutes";
 import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { registerQuickBillRoutes } from "./quickBillRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
@@ -22,16 +23,24 @@ import type { CustomerKind, CustomerRecord } from "../src/types/customer";
 import type { AppNotification } from "../src/types/notification";
 import type { DemoUser, ModuleKey, SessionUser, UserRole } from "../src/types/user";
 import { readState, stripPassword, writeState, type AppState } from "./persist";
+import { lookupGstCompany } from "./gstLookup";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT) || 4000;
 const COOKIE = "zimson_session";
 const dbPool = createPool();
 
-const customerRegisterOtpSessions = new Map<
-  string,
-  { mobileCode: string; emailCode: string; phoneLast10: string; emailNorm: string; expiresAt: number }
->();
+type CustomerRegOtpSession = {
+  phoneLast10: string;
+  mobileCode: string;
+  mobileVerified: boolean;
+  emailNorm: string | null;
+  emailCode: string | null;
+  emailVerified: boolean;
+  expiresAt: number;
+};
+
+const customerRegisterOtpSessions = new Map<string, CustomerRegOtpSession>();
 const CUSTOMER_OTP_TTL_MS = 20 * 60 * 1000;
 
 const CUSTOMERS_SELECT_FIELDS = `
@@ -61,17 +70,50 @@ const CUSTOMERS_SELECT_FIELDS = `
   remark_attention AS "remarkAttention",
   reference_name AS "referenceName",
   representative_name AS "representativeName",
+  additional_addresses AS "additionalAddresses",
   phone_verified_at AS "phoneVerifiedAt",
   email_verified_at AS "emailVerifiedAt",
   customer_data_source AS "customerDataSource",
   created_at AS "createdAt"
 `;
 
+function normalizeCustomerAddressJson(v: unknown): CustomerRecord["billingAddress"] {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  return {
+    doorNo: String(o.doorNo ?? ""),
+    street: String(o.street ?? ""),
+    city: String(o.city ?? ""),
+    district: String(o.district ?? ""),
+    state: String(o.state ?? ""),
+    countryId: String(o.countryId ?? ""),
+    pincode: String(o.pincode ?? ""),
+  };
+}
+
 function rowToCustomer(r: Record<string, unknown>): CustomerRecord {
   const iso = (v: unknown) =>
     v instanceof Date ? v.toISOString() : v ? new Date(String(v)).toISOString() : null;
-  const billing = r.billingAddress as CustomerRecord["billingAddress"];
-  const shipping = r.shippingAddress as CustomerRecord["shippingAddress"];
+  const billing = normalizeCustomerAddressJson(r.billingAddress);
+  const shipping = normalizeCustomerAddressJson(r.shippingAddress);
+  const addRaw = r.additionalAddresses;
+  let additionalAddresses: CustomerRecord["additionalAddresses"];
+  if (Array.isArray(addRaw)) {
+    additionalAddresses = addRaw
+      .map((x) => normalizeCustomerAddressJson(x))
+      .filter((x): x is NonNullable<typeof x> => !!x);
+  } else if (typeof addRaw === "string") {
+    try {
+      const p = JSON.parse(addRaw) as unknown;
+      additionalAddresses = Array.isArray(p)
+        ? p.map((x) => normalizeCustomerAddressJson(x)).filter((x): x is NonNullable<typeof x> => !!x)
+        : undefined;
+    } catch {
+      additionalAddresses = undefined;
+    }
+  } else {
+    additionalAddresses = undefined;
+  }
   return {
     id: String(r.id),
     customerCode: r.customerCode != null ? String(r.customerCode) : null,
@@ -90,6 +132,7 @@ function rowToCustomer(r: Record<string, unknown>): CustomerRecord {
     city: r.city != null ? String(r.city) : undefined,
     billingAddress: billing && typeof billing === "object" ? billing : undefined,
     shippingAddress: shipping && typeof shipping === "object" ? shipping : undefined,
+    additionalAddresses,
     customerKind: (r.customerKind as CustomerKind) ?? "B2C",
     company: r.company != null ? String(r.company) : undefined,
     gst: r.gst != null ? String(r.gst) : undefined,
@@ -2290,8 +2333,11 @@ app.get("/api/countries", (_req, res) => {
   })();
 });
 
-/** Demo stub: real GSTIN verification needs a government / ASP API and credentials. */
-app.post("/api/gst/lookup", (req, res) => {
+/**
+ * GSTIN → legal / trade name. Uses Sandbox.co.in when key+secret are set, or a custom GET URL + API key;
+ * otherwise returns stub demo names (see server/gstLookup.ts).
+ */
+app.post("/api/gst/lookup", async (req, res) => {
   const gst = String((req.body as { gst?: string })?.gst ?? "")
     .trim()
     .toUpperCase();
@@ -2299,20 +2345,20 @@ app.post("/api/gst/lookup", (req, res) => {
     res.status(400).json({ error: "Enter a valid 15-character GSTIN to fetch company name." });
     return;
   }
-  const panPart = gst.slice(2, 12);
-  res.json({
-    tradeName: `Registered entity (${panPart})`,
-    legalName: `Legal name for GSTIN …${gst.slice(-4)}`,
-  });
+  try {
+    const out = await lookupGstCompany(gst);
+    res.json(out);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "GST lookup failed.";
+    console.error("[gst/lookup]", msg);
+    res.status(502).json({ error: msg });
+  }
 });
 
-/** Start server-side OTP session for customer registration (demo: returns OTPs in JSON). */
-app.post("/api/customers/register-otp-session", (req, res) => {
+/** Step 1: start mobile OTP only (email is collected after mobile is verified). */
+app.post("/api/customers/register-otp/start-mobile", (req, res) => {
   const primaryPhone = String((req.body as { primaryPhone?: string })?.primaryPhone ?? "").trim();
   const otpPhone = String((req.body as { otpPhone?: string })?.otpPhone ?? "").trim();
-  const email = String((req.body as { email?: string })?.email ?? "")
-    .trim()
-    .toLowerCase();
   const primaryP10 = phoneLast10(primaryPhone);
   if (primaryP10.length !== 10) {
     res.status(400).json({ error: "Primary mobile must be 10 digits." });
@@ -2324,21 +2370,91 @@ app.post("/api/customers/register-otp-session", (req, res) => {
     res.status(400).json({ error: "Enter a valid 10-digit mobile for OTP (or fill OTP mobile)." });
     return;
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    res.status(400).json({ error: "Enter a valid email before requesting OTP." });
-    return;
-  }
   const mobileCode = String(Math.floor(100000 + Math.random() * 900000));
-  const emailCode = String(Math.floor(100000 + Math.random() * 900000));
   const sessionId = crypto.randomUUID();
   customerRegisterOtpSessions.set(sessionId, {
-    mobileCode,
-    emailCode,
     phoneLast10: p10,
-    emailNorm: email,
+    mobileCode,
+    mobileVerified: false,
+    emailNorm: null,
+    emailCode: null,
+    emailVerified: false,
     expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS,
   });
-  res.json({ sessionId, demoMobileOtp: mobileCode, demoEmailOtp: emailCode });
+  res.json({ sessionId, demoMobileOtp: mobileCode });
+});
+
+app.post("/api/customers/register-otp/confirm-mobile", (req, res) => {
+  const sessionId = String((req.body as { sessionId?: string })?.sessionId ?? "").trim();
+  const otp = String((req.body as { otp?: string })?.otp ?? "").trim();
+  if (!sessionId || !otp) {
+    res.status(400).json({ error: "Session and mobile OTP are required." });
+    return;
+  }
+  const sess = customerRegisterOtpSessions.get(sessionId);
+  if (!sess || sess.expiresAt < Date.now()) {
+    res.status(400).json({ error: "OTP session expired. Request a new mobile code." });
+    return;
+  }
+  if (otp !== sess.mobileCode) {
+    res.status(400).json({ error: "Incorrect mobile OTP." });
+    return;
+  }
+  sess.mobileVerified = true;
+  res.json({ ok: true });
+});
+
+app.post("/api/customers/register-otp/start-email", (req, res) => {
+  const sessionId = String((req.body as { sessionId?: string })?.sessionId ?? "").trim();
+  const email = String((req.body as { email?: string })?.email ?? "")
+    .trim()
+    .toLowerCase();
+  if (!sessionId) {
+    res.status(400).json({ error: "Session is required." });
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: "Enter a valid email." });
+    return;
+  }
+  const sess = customerRegisterOtpSessions.get(sessionId);
+  if (!sess || sess.expiresAt < Date.now()) {
+    res.status(400).json({ error: "OTP session expired. Start again from mobile verification." });
+    return;
+  }
+  if (!sess.mobileVerified) {
+    res.status(400).json({ error: "Verify mobile OTP before requesting email OTP." });
+    return;
+  }
+  const emailCode = String(Math.floor(100000 + Math.random() * 900000));
+  sess.emailNorm = email;
+  sess.emailCode = emailCode;
+  sess.emailVerified = false;
+  res.json({ demoEmailOtp: emailCode });
+});
+
+app.post("/api/customers/register-otp/confirm-email", (req, res) => {
+  const sessionId = String((req.body as { sessionId?: string })?.sessionId ?? "").trim();
+  const otp = String((req.body as { otp?: string })?.otp ?? "").trim();
+  if (!sessionId || !otp) {
+    res.status(400).json({ error: "Session and email OTP are required." });
+    return;
+  }
+  const sess = customerRegisterOtpSessions.get(sessionId);
+  if (!sess || sess.expiresAt < Date.now()) {
+    res.status(400).json({ error: "OTP session expired. Request a new email code." });
+    return;
+  }
+  if (!sess.mobileVerified || !sess.emailCode || !sess.emailNorm) {
+    res.status(400).json({ error: "Complete mobile verification and request email OTP first." });
+    return;
+  }
+  if (otp !== sess.emailCode) {
+    res.status(400).json({ error: "Incorrect email OTP." });
+    return;
+  }
+  sess.emailVerified = true;
+  res.json({ ok: true });
 });
 
 app.get("/api/customers", (req, res) => {
@@ -2394,6 +2510,7 @@ app.post("/api/customers", async (req, res) => {
     district?: string;
     state?: string;
     countryId?: string;
+    pincode?: string;
   };
   const body = req.body as {
     sessionId?: string;
@@ -2421,10 +2538,13 @@ app.post("/api/customers", async (req, res) => {
     remarkAttention?: string;
     referenceName?: string;
     representativeName?: string;
+    additionalAddresses?: AddrIn[];
   };
 
   function addrOk(a: AddrIn | undefined): boolean {
     if (!a) return false;
+    const pin = String(a.pincode ?? "").trim();
+    if (pin.length < 4 || pin.length > 12) return false;
     return (
       !!(a.doorNo ?? "").trim() &&
       !!(a.street ?? "").trim() &&
@@ -2433,6 +2553,18 @@ app.post("/api/customers", async (req, res) => {
       !!(a.state ?? "").trim() &&
       !!(a.countryId ?? "").trim()
     );
+  }
+
+  function normalizeAddrJson(a: AddrIn): Record<string, string> {
+    return {
+      doorNo: String(a.doorNo ?? "").trim(),
+      street: String(a.street ?? "").trim(),
+      city: String(a.city ?? "").trim(),
+      district: String(a.district ?? "").trim(),
+      state: String(a.state ?? "").trim(),
+      countryId: String(a.countryId ?? "").trim(),
+      pincode: String(a.pincode ?? "").trim(),
+    };
   }
 
   const sessionId = String(body.sessionId ?? "").trim();
@@ -2483,6 +2615,10 @@ app.post("/api/customers", async (req, res) => {
     res.status(400).json({ error: "Valid 10-digit primary mobile is required." });
     return;
   }
+  if (!sess.mobileVerified || !sess.emailVerified || !sess.emailNorm || sess.emailCode == null) {
+    res.status(400).json({ error: "Complete mobile verification first, then email verification, before saving." });
+    return;
+  }
   if (sess.phoneLast10 !== phoneLast10(otpPhoneRaw || phone)) {
     res.status(400).json({ error: "Mobile for OTP does not match verification session." });
     return;
@@ -2522,6 +2658,19 @@ app.post("/api/customers", async (req, res) => {
       return;
     }
   }
+  if (pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(pan)) {
+    res.status(400).json({ error: "Invalid PAN format." });
+    return;
+  }
+  const additionalList: AddrIn[] = Array.isArray(body.additionalAddresses) ? body.additionalAddresses : [];
+  for (let i = 0; i < additionalList.length; i++) {
+    if (!addrOk(additionalList[i])) {
+      res.status(400).json({ error: `Additional address #${i + 1} is incomplete (all fields including PIN).` });
+      return;
+    }
+  }
+  const additionalJson = JSON.stringify(additionalList.map((a) => normalizeAddrJson(a)));
+
   if (!addrOk(billingAddress)) {
     res.status(400).json({ error: "Complete all billing address fields (including country)." });
     return;
@@ -2536,22 +2685,8 @@ app.post("/api/customers", async (req, res) => {
       ? b2bTradeDisplayName
       : [salutation, firstName, lastName].filter(Boolean).join(" ").trim();
 
-  const billJson = JSON.stringify({
-    doorNo: billingAddress.doorNo!.trim(),
-    street: billingAddress.street!.trim(),
-    city: billingAddress.city!.trim(),
-    district: billingAddress.district!.trim(),
-    state: billingAddress.state!.trim(),
-    countryId: billingAddress.countryId!.trim(),
-  });
-  const shipJson = JSON.stringify({
-    doorNo: shippingAddress.doorNo!.trim(),
-    street: shippingAddress.street!.trim(),
-    city: shippingAddress.city!.trim(),
-    district: shippingAddress.district!.trim(),
-    state: shippingAddress.state!.trim(),
-    countryId: shippingAddress.countryId!.trim(),
-  });
+  const billJson = JSON.stringify(normalizeAddrJson(billingAddress));
+  const shipJson = JSON.stringify(normalizeAddrJson(shippingAddress));
 
   const addressLegacy = [
     `Billing: ${billingAddress.doorNo}, ${billingAddress.street}`,
@@ -2574,6 +2709,7 @@ app.post("/api/customers", async (req, res) => {
          billing_address, shipping_address,
          tax_preference, b2b_trade_display_name,
          remark_attention, reference_name, representative_name,
+         additional_addresses,
          phone_verified_at, email_verified_at, customer_data_source,
          created_by, modified_by
        ) VALUES (
@@ -2585,8 +2721,9 @@ app.post("/api/customers", async (req, res) => {
          $21::jsonb, $22::jsonb,
          $23, $24,
          $25, $26, $27,
+         $28::jsonb,
          now(), now(), 'registered',
-         $28, $28
+         $29, $29
        )`,
       [
         id,
@@ -2616,6 +2753,7 @@ app.post("/api/customers", async (req, res) => {
         remarkAttention,
         referenceName,
         representativeName,
+        additionalJson,
         actor?.id ?? null,
       ],
     );
@@ -2753,6 +2891,7 @@ async function main() {
     console.error("PostgreSQL migration failed:", e);
     process.exit(1);
   }
+  registerGeoRoutes(app, dbPool);
   registerCatalogRoutes(app, dbPool, requireAuth, (id) => {
     return findUser(id) ?? null;
   });

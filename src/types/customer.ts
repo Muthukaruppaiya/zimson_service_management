@@ -8,6 +8,8 @@ export type CustomerAddressBlock = {
   district: string;
   state: string;
   countryId: string;
+  /** Postal / PIN code (typed by user; country/state/district use dropdowns where configured). */
+  pincode: string;
 };
 
 export type TaxPreference = "with_tax" | "without_tax_exhibited";
@@ -34,6 +36,8 @@ export type CustomerRecord = {
   city?: string;
   billingAddress?: CustomerAddressBlock;
   shippingAddress?: CustomerAddressBlock;
+  /** Extra saved addresses (e.g. branches). Billing + shipping remain primary. */
+  additionalAddresses?: CustomerAddressBlock[];
   customerKind: CustomerKind;
   company?: string;
   gst?: string;
@@ -68,6 +72,8 @@ export type CustomerRegistrationPayload = {
   anniversaryDate?: string;
   billingAddress: CustomerAddressBlock;
   shippingAddress: CustomerAddressBlock;
+  /** Optional extra addresses stored as JSON array on the customer. */
+  additionalAddresses?: CustomerAddressBlock[];
   sameShippingAsBilling: boolean;
   b2bTradeDisplayName?: string;
   taxPreference?: TaxPreference;

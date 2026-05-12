@@ -843,6 +843,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS remark_attention TEXT;
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS reference_name VARCHAR(200);
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS representative_name VARCHAR(200);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS additional_addresses JSONB NOT NULL DEFAULT '[]'::jsonb;
   `);
 
   await pool.query(`
@@ -850,6 +851,23 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS warranty_status VARCHAR(32) NOT NULL DEFAULT 'unspecified';
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS watch_document_path TEXT;
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS watch_image_path TEXT;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS watch_models_catalog (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      brand VARCHAR(200) NOT NULL,
+      model VARCHAR(300) NOT NULL,
+      brand_norm VARCHAR(200) NOT NULL,
+      model_norm VARCHAR(300) NOT NULL,
+      ref_hint VARCHAR(200),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_by VARCHAR(80)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_watch_models_catalog_norm
+      ON watch_models_catalog (brand_norm, model_norm);
+    CREATE INDEX IF NOT EXISTS idx_watch_models_catalog_brand_norm
+      ON watch_models_catalog (brand_norm);
   `);
 
   const { rows: rc } = await pool.query<{ c: number }>("SELECT COUNT(*)::int AS c FROM regions");

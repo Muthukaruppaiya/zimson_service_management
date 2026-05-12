@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
+import { CustomerAddressForm } from "../../components/service/CustomerAddressForm";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useCustomers } from "../../context/CustomersContext";
 import { isValidGstFormat, isValidPanFormat } from "../../data/serviceSeed";
@@ -10,6 +11,9 @@ import type { CustomerAddressBlock, CustomerKind, TaxPreference } from "../../ty
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
+
+const contactVerifyPill =
+  "inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-900";
 
 const SALUTATIONS = ["Mr.", "Mrs.", "Ms.", "Miss", "Dr."] as const;
 
@@ -29,7 +33,32 @@ function digitsOnly(v: string, maxLen: number): string {
 }
 
 function emptyAddress(): CustomerAddressBlock {
-  return { doorNo: "", street: "", city: "", district: "", state: "", countryId: "" };
+  return { doorNo: "", street: "", city: "", district: "", state: "", countryId: "", pincode: "" };
+}
+
+function isAddressComplete(b: CustomerAddressBlock): boolean {
+  const pin = b.pincode.trim();
+  if (pin.length < 4 || pin.length > 12) return false;
+  return !!(
+    b.doorNo.trim() &&
+    b.street.trim() &&
+    b.city.trim() &&
+    b.district.trim() &&
+    b.state.trim() &&
+    b.countryId.trim()
+  );
+}
+
+function trimAddr(b: CustomerAddressBlock): CustomerAddressBlock {
+  return {
+    doorNo: b.doorNo.trim(),
+    street: b.street.trim(),
+    city: b.city.trim(),
+    district: b.district.trim(),
+    state: b.state.trim(),
+    countryId: b.countryId.trim(),
+    pincode: b.pincode.trim(),
+  };
 }
 
 function isValidEmail(s: string): boolean {
@@ -43,7 +72,13 @@ export function SrfCustomerRegisterPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const api = useApiMode();
-  const { registerCustomer, startCustomerRegistrationOtp } = useCustomers();
+  const {
+    registerCustomer,
+    startRegistrationMobileOtp,
+    confirmRegistrationMobileOtp,
+    startRegistrationEmailOtp,
+    confirmRegistrationEmailOtp,
+  } = useCustomers();
   const forQuickBill = location.pathname.includes("/quick-bill/new-customer");
 
   const initialPhone = searchParams.get("phone") ?? "";
@@ -65,6 +100,7 @@ export function SrfCustomerRegisterPage() {
   const [anniversaryDate, setAnniversaryDate] = useState("");
   const [billing, setBilling] = useState<CustomerAddressBlock>(() => emptyAddress());
   const [shipping, setShipping] = useState<CustomerAddressBlock>(() => emptyAddress());
+  const [additionalAddresses, setAdditionalAddresses] = useState<CustomerAddressBlock[]>([]);
   const [sameShippingAsBilling, setSameShippingAsBilling] = useState(false);
   const [company, setCompany] = useState("");
   const [gst, setGst] = useState("");
@@ -80,8 +116,10 @@ export function SrfCustomerRegisterPage() {
   const [demoEmailOtp, setDemoEmailOtp] = useState<string | null>(null);
   const [mobileOtpInput, setMobileOtpInput] = useState("");
   const [emailOtpInput, setEmailOtpInput] = useState("");
-  const [otpPairVerified, setOtpPairVerified] = useState(false);
+  const [mobileOtpVerified, setMobileOtpVerified] = useState(false);
+  const [emailOtpVerified, setEmailOtpVerified] = useState(false);
   const [otpStartBusy, setOtpStartBusy] = useState(false);
+  const [emailOtpAnchor, setEmailOtpAnchor] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -98,6 +136,30 @@ export function SrfCustomerRegisterPage() {
       setFirstName(parts[0] ?? "");
     }
   }, [initialName]);
+
+  const phoneKey = useMemo(() => digitsOnly(phone, 12), [phone]);
+  const emailKey = useMemo(() => email.trim().toLowerCase(), [email]);
+
+  useEffect(() => {
+    setSessionId(null);
+    setDemoMobileOtp(null);
+    setDemoEmailOtp(null);
+    setMobileOtpInput("");
+    setEmailOtpInput("");
+    setMobileOtpVerified(false);
+    setEmailOtpVerified(false);
+    setEmailOtpAnchor(null);
+  }, [phoneKey]);
+
+  useEffect(() => {
+    if (emailOtpAnchor === null) return;
+    if (emailKey !== emailOtpAnchor) {
+      setDemoEmailOtp(null);
+      setEmailOtpInput("");
+      setEmailOtpVerified(false);
+      setEmailOtpAnchor(null);
+    }
+  }, [emailKey, emailOtpAnchor]);
 
   useEffect(() => {
     if (!api) return;
@@ -127,13 +189,6 @@ export function SrfCustomerRegisterPage() {
     [sameShippingAsBilling, billing, shipping],
   );
 
-  function patchBilling<K extends keyof CustomerAddressBlock>(key: K, value: CustomerAddressBlock[K]) {
-    setBilling((b) => ({ ...b, [key]: value }));
-  }
-  function patchShipping<K extends keyof CustomerAddressBlock>(key: K, value: CustomerAddressBlock[K]) {
-    setShipping((s) => ({ ...s, [key]: value }));
-  }
-
   async function fetchCompanyFromGst() {
     if (!isValidGstFormat(gst)) {
       setError("Enter a valid 15-character GSTIN before lookup.");
@@ -155,57 +210,102 @@ export function SrfCustomerRegisterPage() {
     }
   }
 
-  async function handleStartOtp() {
+  async function handleStartMobileOtp() {
     setError(null);
     if (!phone.trim() || digitsOnly(phone, 12).length < 10) {
       setError("Enter a valid 10-digit primary mobile.");
       return;
     }
-    if (!isValidEmail(email)) {
-      setError("Enter a valid email before requesting OTP.");
+    const otpTarget = digitsOnly(otpPhone, 12);
+    if (otpPhone.trim() && otpTarget.length !== 10) {
+      setError("OTP mobile must be 10 digits or leave it empty to use primary mobile.");
       return;
     }
     setOtpStartBusy(true);
-    setOtpPairVerified(false);
+    setMobileOtpVerified(false);
+    setEmailOtpVerified(false);
     setMobileOtpInput("");
     setEmailOtpInput("");
+    setDemoEmailOtp(null);
+    setEmailOtpAnchor(null);
     try {
-      const out = await startCustomerRegistrationOtp({
+      const out = await startRegistrationMobileOtp({
         primaryPhone: phone,
         otpPhone: otpPhone,
-        email,
       });
       setSessionId(out.sessionId);
       setDemoMobileOtp(out.demoMobileOtp);
-      setDemoEmailOtp(out.demoEmailOtp);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start OTP session.");
+      setError(e instanceof Error ? e.message : "Could not send mobile OTP.");
     } finally {
       setOtpStartBusy(false);
     }
   }
 
-  function confirmOtpsLocally() {
+  async function handleConfirmMobileOtp() {
     setError(null);
-    if (!demoMobileOtp || !demoEmailOtp) {
-      setError("Request OTP codes first.");
+    if (!sessionId) {
+      setError("Tap Verify next to primary mobile to send the mobile OTP first.");
       return;
     }
-    if (mobileOtpInput.trim() !== demoMobileOtp) {
-      setError("Mobile OTP does not match.");
+    if (mobileOtpInput.trim().length !== 6) {
+      setError("Enter the 6-digit mobile OTP.");
       return;
     }
-    if (emailOtpInput.trim() !== demoEmailOtp) {
-      setError("Email OTP does not match.");
+    try {
+      await confirmRegistrationMobileOtp({ sessionId, otp: mobileOtpInput.trim() });
+      setMobileOtpVerified(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Mobile OTP could not be confirmed.");
+    }
+  }
+
+  async function handleStartEmailOtp() {
+    setError(null);
+    if (!mobileOtpVerified || !sessionId) {
+      setError("Verify your mobile number first, then enter your email.");
       return;
     }
-    setOtpPairVerified(true);
+    if (!isValidEmail(email)) {
+      setError("Enter a valid email before requesting email OTP.");
+      return;
+    }
+    setOtpStartBusy(true);
+    setEmailOtpVerified(false);
+    setEmailOtpInput("");
+    try {
+      const out = await startRegistrationEmailOtp({ sessionId, email: email.trim() });
+      setDemoEmailOtp(out.demoEmailOtp);
+      setEmailOtpAnchor(emailKey);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send email OTP.");
+    } finally {
+      setOtpStartBusy(false);
+    }
+  }
+
+  async function handleConfirmEmailOtp() {
+    setError(null);
+    if (!sessionId) {
+      setError("Complete mobile verification first.");
+      return;
+    }
+    if (emailOtpInput.trim().length !== 6) {
+      setError("Enter the 6-digit email OTP.");
+      return;
+    }
+    try {
+      await confirmRegistrationEmailOtp({ sessionId, otp: emailOtpInput.trim() });
+      setEmailOtpVerified(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Email OTP could not be confirmed.");
+    }
   }
 
   function validateAll(): boolean {
     setError(null);
-    if (!sessionId || !otpPairVerified) {
-      setError("Complete mobile and email OTP verification.");
+    if (!sessionId || !mobileOtpVerified || !emailOtpVerified) {
+      setError("Complete mobile and email OTP verification (Verify → enter code → Confirm OTP for each).");
       return false;
     }
     if (!isValidEmail(email)) {
@@ -220,6 +320,10 @@ export function SrfCustomerRegisterPage() {
     if (customerKind === "B2C") {
       if (!firstName.trim() || !lastName.trim()) {
         setError("First name and last name are required.");
+        return false;
+      }
+      if (pan.trim() && !isValidPanFormat(pan)) {
+        setError("Enter a valid 10-character PAN or leave it blank.");
         return false;
       }
     } else {
@@ -240,22 +344,19 @@ export function SrfCustomerRegisterPage() {
         return false;
       }
     }
-    const b = billing;
-    if (!b.doorNo.trim() || !b.street.trim() || !b.city.trim() || !b.district.trim() || !b.state.trim() || !b.countryId) {
-      setError("Complete all mandatory billing address fields.");
+    if (!isAddressComplete(billing)) {
+      setError("Complete billing address (door, street, country, state, district, city, PIN).");
       return false;
     }
-    const s = shipEffective;
-    if (
-      !s.doorNo.trim() ||
-      !s.street.trim() ||
-      !s.city.trim() ||
-      !s.district.trim() ||
-      !s.state.trim() ||
-      !s.countryId
-    ) {
-      setError("Complete shipping address or use same as billing.");
+    if (!isAddressComplete(shipEffective)) {
+      setError("Complete shipping address or tick same as billing.");
       return false;
+    }
+    for (let i = 0; i < additionalAddresses.length; i++) {
+      if (!isAddressComplete(additionalAddresses[i]!)) {
+        setError(`Complete additional address #${i + 1} or remove it.`);
+        return false;
+      }
     }
     return true;
   }
@@ -281,28 +382,16 @@ export function SrfCustomerRegisterPage() {
         email: email.trim().toLowerCase(),
         dob: dob || undefined,
         anniversaryDate: anniversaryDate || undefined,
-        billingAddress: {
-          doorNo: billing.doorNo.trim(),
-          street: billing.street.trim(),
-          city: billing.city.trim(),
-          district: billing.district.trim(),
-          state: billing.state.trim(),
-          countryId: billing.countryId.trim(),
-        },
-        shippingAddress: {
-          doorNo: shipEffective.doorNo.trim(),
-          street: shipEffective.street.trim(),
-          city: shipEffective.city.trim(),
-          district: shipEffective.district.trim(),
-          state: shipEffective.state.trim(),
-          countryId: shipEffective.countryId.trim(),
-        },
+        billingAddress: trimAddr(billing),
+        shippingAddress: trimAddr(shipEffective),
+        additionalAddresses:
+          additionalAddresses.length > 0 ? additionalAddresses.map((a) => trimAddr(a)) : undefined,
         sameShippingAsBilling,
         b2bTradeDisplayName: customerKind === "B2B" ? b2bDisplayName.trim() : undefined,
         taxPreference: customerKind === "B2B" ? taxPreference : undefined,
         company: customerKind === "B2B" ? company.trim() : undefined,
         gst: customerKind === "B2B" ? gst.trim().toUpperCase() : undefined,
-        pan: customerKind === "B2B" ? pan.trim().toUpperCase() : undefined,
+        pan: pan.trim() ? pan.trim().toUpperCase() : undefined,
         remarkAttention: remarkAttention.trim() || undefined,
         referenceName: referenceName.trim() || undefined,
         representativeName: representativeName.trim() || undefined,
@@ -327,84 +416,12 @@ export function SrfCustomerRegisterPage() {
     }
   }
 
-  function addressGrid(
-    addr: CustomerAddressBlock,
-    patch: typeof patchBilling,
-    disabled: boolean,
-  ) {
-    return (
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <label className="text-xs font-medium text-stone-600">Door / plot no. *</label>
-          <input
-            value={addr.doorNo}
-            onChange={(e) => patch("doorNo", e.target.value)}
-            className={inputClass}
-            disabled={disabled}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-stone-600">Street *</label>
-          <input
-            value={addr.street}
-            onChange={(e) => patch("street", e.target.value)}
-            className={inputClass}
-            disabled={disabled}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-stone-600">City *</label>
-          <input
-            value={addr.city}
-            onChange={(e) => patch("city", e.target.value)}
-            className={inputClass}
-            disabled={disabled}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-stone-600">District *</label>
-          <input
-            value={addr.district}
-            onChange={(e) => patch("district", e.target.value)}
-            className={inputClass}
-            disabled={disabled}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-stone-600">State *</label>
-          <input
-            value={addr.state}
-            onChange={(e) => patch("state", e.target.value)}
-            className={inputClass}
-            disabled={disabled}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-stone-600">Country *</label>
-          <select
-            className={inputClass}
-            value={addr.countryId}
-            onChange={(e) => patch("countryId", e.target.value)}
-            disabled={disabled}
-          >
-            <option value="">Select country</option>
-            {countries.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <ServiceBreadcrumb current={forQuickBill ? "Quick bill — new customer" : "SRF — new customer"} />
       <PageHeader
         title="Register customer"
-        description="Customer code is generated automatically. Email and mobile are verified with separate OTPs. Migrated customers can be marked unverified until staff completes verification."
+        description="Verify mobile first (send code → confirm). After mobile is verified, enter email and verify it the same way. Demo shows codes on screen; production would use SMS and email."
         actions={
           <Link
             to={
@@ -488,17 +505,70 @@ export function SrfCustomerRegisterPage() {
         </Card>
 
         <Card title="Contact (B2B & B2C)">
+          <p className="mb-3 text-xs text-stone-600">
+            <strong>Step 1 — Mobile:</strong> Tap <strong>Verify</strong> next to primary mobile to send the mobile OTP
+            only. Enter the code and tap <strong>Confirm OTP</strong> until you see <strong>✓ Verified</strong>.{" "}
+            <strong>Step 2 — Email:</strong> After mobile is verified, enter your email, tap <strong>Verify</strong> to
+            send the email OTP separately, then confirm. Demo shows codes on screen; production would use SMS and email.
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
+            <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Primary mobile *</label>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(digitsOnly(e.target.value, 10))}
-                className={inputClass}
-                placeholder="10-digit mobile"
-                inputMode="numeric"
-                maxLength={10}
-              />
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(digitsOnly(e.target.value, 10))}
+                  className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1`}
+                  placeholder="10-digit mobile"
+                  inputMode="numeric"
+                  maxLength={10}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleStartMobileOtp()}
+                  disabled={otpStartBusy}
+                  className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {otpStartBusy ? "…" : "Verify"}
+                </button>
+                {mobileOtpVerified ? (
+                  <span className={contactVerifyPill} title="Mobile verified">
+                    <span aria-hidden="true">✓</span> Verified
+                  </span>
+                ) : null}
+              </div>
+              {sessionId && demoMobileOtp && !mobileOtpVerified ? (
+                <div className="mt-2 rounded-xl border border-dashed border-zimson-400 bg-zimson-50/80 p-3">
+                  <p className="text-xs text-stone-600">
+                    <span className="font-semibold text-zimson-900">Mobile OTP (demo)</span>{" "}
+                    <span className="font-mono text-lg font-bold tracking-widest text-stone-900">{demoMobileOtp}</span>
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <div className="min-w-0 flex-1">
+                      <label className="text-xs font-medium text-stone-600" htmlFor="srf-reg-mobile-otp">
+                        Enter mobile OTP *
+                      </label>
+                      <input
+                        id="srf-reg-mobile-otp"
+                        value={mobileOtpInput}
+                        onChange={(e) => setMobileOtpInput(digitsOnly(e.target.value, 6))}
+                        className={inputClass}
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="6 digits"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleConfirmMobileOtp()}
+                      disabled={mobileOtpInput.length !== 6}
+                      className="shrink-0 rounded-lg bg-zimson-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Confirm OTP
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div>
               <label className="text-xs font-medium text-stone-600">OTP mobile (optional)</label>
@@ -526,13 +596,64 @@ export function SrfCustomerRegisterPage() {
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Email *</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={inputClass}
-                required
-              />
+              {!mobileOtpVerified ? (
+                <p className="mt-1 text-xs text-amber-800">Verify primary mobile above before entering email.</p>
+              ) : null}
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={!mobileOtpVerified}
+                  className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-500`}
+                  aria-disabled={!mobileOtpVerified}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleStartEmailOtp()}
+                  disabled={otpStartBusy || !mobileOtpVerified || !isValidEmail(email)}
+                  className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {otpStartBusy ? "…" : "Verify"}
+                </button>
+                {emailOtpVerified ? (
+                  <span className={contactVerifyPill} title="Email verified">
+                    <span aria-hidden="true">✓</span> Verified
+                  </span>
+                ) : null}
+              </div>
+              {sessionId && demoEmailOtp && !emailOtpVerified ? (
+                <div className="mt-2 rounded-xl border border-dashed border-zimson-400 bg-zimson-50/80 p-3">
+                  <p className="text-xs text-stone-600">
+                    <span className="font-semibold text-zimson-900">Email OTP (demo)</span>{" "}
+                    <span className="font-mono text-lg font-bold tracking-widest text-stone-900">{demoEmailOtp}</span>
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <div className="min-w-0 flex-1">
+                      <label className="text-xs font-medium text-stone-600" htmlFor="srf-reg-email-otp">
+                        Enter email OTP *
+                      </label>
+                      <input
+                        id="srf-reg-email-otp"
+                        value={emailOtpInput}
+                        onChange={(e) => setEmailOtpInput(digitsOnly(e.target.value, 6))}
+                        className={inputClass}
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="6 digits"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleConfirmEmailOtp()}
+                      disabled={emailOtpInput.length !== 6}
+                      className="shrink-0 rounded-lg bg-zimson-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Confirm OTP
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div>
               <label className="text-xs font-medium text-stone-600">Date of birth</label>
@@ -547,90 +668,87 @@ export function SrfCustomerRegisterPage() {
                 className={inputClass}
               />
             </div>
-          </div>
-        </Card>
-
-        <Card title="OTP verification (mobile & email separately)">
-          <p className="mb-3 text-xs text-stone-600">
-            Request codes sent to the OTP mobile (or primary mobile) and to your email. Enter each OTP below. This
-            demo shows both codes on screen; production would use SMS and email gateways.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => void handleStartOtp()}
-              disabled={otpStartBusy}
-              className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:opacity-60"
-            >
-              {otpStartBusy ? "Sending…" : "Get OTP codes"}
-            </button>
-            {demoMobileOtp && demoEmailOtp ? (
-              <span className="self-center text-xs font-medium text-emerald-800">Codes issued — enter below.</span>
+            {customerKind === "B2C" ? (
+              <div className="sm:col-span-2">
+                <label className="text-xs font-medium text-stone-600">PAN (optional)</label>
+                <input
+                  value={pan}
+                  onChange={(e) => setPan(e.target.value.toUpperCase())}
+                  className={inputClass}
+                  maxLength={10}
+                  placeholder="10-character PAN if available"
+                />
+              </div>
             ) : null}
           </div>
-          {demoMobileOtp && demoEmailOtp ? (
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-zimson-200 bg-white p-4 shadow-sm">
-                <p className="text-xs font-semibold uppercase text-zimson-900">Mobile OTP</p>
-                <p className="mt-2 font-mono text-2xl font-bold tracking-widest text-stone-900">{demoMobileOtp}</p>
-                <label className="mt-3 block text-xs font-medium text-stone-600">Enter mobile OTP *</label>
-                <input
-                  value={mobileOtpInput}
-                  onChange={(e) => setMobileOtpInput(digitsOnly(e.target.value, 6))}
-                  className={inputClass}
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="6 digits"
-                />
-              </div>
-              <div className="rounded-xl border border-zimson-200 bg-white p-4 shadow-sm">
-                <p className="text-xs font-semibold uppercase text-zimson-900">Email OTP</p>
-                <p className="mt-2 font-mono text-2xl font-bold tracking-widest text-stone-900">{demoEmailOtp}</p>
-                <label className="mt-3 block text-xs font-medium text-stone-600">Enter email OTP *</label>
-                <input
-                  value={emailOtpInput}
-                  onChange={(e) => setEmailOtpInput(digitsOnly(e.target.value, 6))}
-                  className={inputClass}
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="6 digits"
-                />
-              </div>
-            </div>
-          ) : null}
-          {demoMobileOtp && demoEmailOtp ? (
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={confirmOtpsLocally}
-                className="rounded-xl border border-zimson-500 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
-              >
-                I have entered both OTPs — confirm
-              </button>
-              {otpPairVerified ? (
-                <p className="mt-2 text-sm font-semibold text-emerald-800">Mobile and email OTPs confirmed.</p>
-              ) : null}
-            </div>
-          ) : null}
         </Card>
 
-        <Card title="Billing address">{addressGrid(billing, patchBilling, false)}</Card>
+        <Card title="Billing & shipping">
+          <div className="mb-4 grid gap-6 lg:grid-cols-2">
+            <div className="rounded-xl border border-zimson-200 bg-white/80 p-4 shadow-sm">
+              <h3 className="mb-3 text-sm font-semibold text-zimson-900">Billing address</h3>
+              <CustomerAddressForm value={billing} onChange={setBilling} countries={countries} />
+            </div>
+            <div className="rounded-xl border border-zimson-200 bg-white/80 p-4 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-zimson-900">Shipping address</h3>
+                <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-stone-700">
+                  <input
+                    type="checkbox"
+                    checked={sameShippingAsBilling}
+                    onChange={(e) => setSameShippingAsBilling(e.target.checked)}
+                    className="rounded border-zimson-300 text-zimson-600 focus:ring-zimson-500"
+                  />
+                  Same as billing
+                </label>
+              </div>
+              {sameShippingAsBilling ? (
+                <p className="text-sm text-stone-600">Shipping will match billing on save.</p>
+              ) : (
+                <CustomerAddressForm value={shipping} onChange={setShipping} countries={countries} />
+              )}
+            </div>
+          </div>
+        </Card>
 
-        <Card title="Shipping address">
-          <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-stone-800">
-            <input
-              type="checkbox"
-              checked={sameShippingAsBilling}
-              onChange={(e) => setSameShippingAsBilling(e.target.checked)}
-              className="rounded border-zimson-300 text-zimson-600 focus:ring-zimson-500"
-            />
-            Same as billing address
-          </label>
-          {!sameShippingAsBilling ? (
-            addressGrid(shipping, patchShipping, false)
-          ) : (
-            <p className="text-sm text-stone-600">Shipping will copy billing address on save.</p>
-          )}
+        <Card title="Additional addresses">
+          <p className="mb-3 text-xs text-stone-600">
+            Optional extra locations (branch, workshop, etc.). Each block is saved on the customer record.
+          </p>
+          {additionalAddresses.map((addr, idx) => (
+            <div key={idx} className="mb-4 rounded-xl border border-zimson-200/90 bg-white/70 p-4">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-stone-600">
+                  Address {idx + 3}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAdditionalAddresses((list) => list.filter((_, j) => j !== idx))}
+                  className="text-xs font-semibold text-red-700 hover:underline"
+                >
+                  Remove
+                </button>
+              </div>
+              <CustomerAddressForm
+                value={addr}
+                onChange={(next) =>
+                  setAdditionalAddresses((list) => {
+                    const copy = [...list];
+                    copy[idx] = next;
+                    return copy;
+                  })
+                }
+                countries={countries}
+              />
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => setAdditionalAddresses((list) => [...list, emptyAddress()])}
+            className="inline-flex items-center gap-2 rounded-xl border border-dashed border-zimson-400 bg-zimson-50/60 px-4 py-2.5 text-sm font-semibold text-zimson-900 transition hover:bg-zimson-100"
+          >
+            <span className="text-lg leading-none">+</span> Add address
+          </button>
         </Card>
 
         <Card title="Additional">
@@ -709,7 +827,7 @@ export function SrfCustomerRegisterPage() {
         <div className="sticky bottom-2 z-10 flex flex-wrap gap-3 rounded-xl border border-zimson-200 bg-white/90 p-3 shadow-lg backdrop-blur">
           <button
             type="submit"
-            disabled={saving || !otpPairVerified}
+            disabled={saving || !mobileOtpVerified || !emailOtpVerified}
             className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Create customer"}

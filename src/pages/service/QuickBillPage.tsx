@@ -26,6 +26,8 @@ import {
 } from "../../data/serviceSeed";
 import type { TechnicianProfile } from "../../types/technician";
 
+type QuickBillWatchModelRow = { id: string; brand: string; model: string; refHint: string };
+
 type LoadedCustomerRow = {
   displayName: string;
   phone: string;
@@ -121,7 +123,52 @@ export function QuickBillPage() {
   const [pan, setPan] = useState("");
 
   const [watchBrand, setWatchBrand] = useState("");
-  const catalogModels = useMemo(() => watchModelsForBrand(watchBrand), [watchBrand]);
+  const [dbWatchModels, setDbWatchModels] = useState<QuickBillWatchModelRow[]>([]);
+
+  useEffect(() => {
+    if (!apiMode || !watchBrand.trim()) {
+      setDbWatchModels([]);
+      return;
+    }
+    let cancelled = false;
+    setDbWatchModels([]);
+    void apiJson<{ models: { id: string; brand: string; model: string; refHint: string | null }[] }>(
+      `/api/service/watch-models?brand=${encodeURIComponent(watchBrand)}`,
+    )
+      .then((out) => {
+        if (cancelled) return;
+        setDbWatchModels(
+          out.models.map((row) => ({
+            id: row.id,
+            brand: row.brand,
+            model: row.model,
+            refHint: row.refHint ?? "",
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setDbWatchModels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiMode, watchBrand]);
+
+  const catalogModels = useMemo(() => {
+    const seed = watchModelsForBrand(watchBrand).map((m) => ({
+      id: m.id,
+      brand: m.brand,
+      model: m.model,
+      refHint: m.refHint,
+    }));
+    const by = new Map<string, QuickBillWatchModelRow>();
+    for (const m of seed) by.set(m.model.trim().toLowerCase(), m);
+    for (const m of dbWatchModels) {
+      const key = m.model.trim().toLowerCase();
+      if (!by.has(key)) by.set(key, m);
+    }
+    return [...by.values()].sort((a, b) => a.model.localeCompare(b.model));
+  }, [watchBrand, dbWatchModels]);
   const [catalogModelKey, setCatalogModelKey] = useState("");
   const [customModelText, setCustomModelText] = useState("");
   const resolvedWatchModel = useMemo(() => {
@@ -134,6 +181,8 @@ export function QuickBillPage() {
   const [watchDocumentPath, setWatchDocumentPath] = useState<string | null>(null);
   const [watchImagePath, setWatchImagePath] = useState<string | null>(null);
   const [uploadBusy, setUploadBusy] = useState<null | "doc" | "img">(null);
+  const [savingWatchModel, setSavingWatchModel] = useState(false);
+  const [watchModelSaveMsg, setWatchModelSaveMsg] = useState<string | null>(null);
 
   const [lines, setLines] = useState<LineItem[]>([emptyLine()]);
   const [serviceChargeInr, setServiceChargeInr] = useState("");
@@ -385,6 +434,22 @@ export function QuickBillPage() {
   }, [brandNames, watchBrand, syncModelForBrand]);
 
   useEffect(() => {
+    if (catalogModelKey === "__new__") return;
+    const match = catalogModels.some((m) => m.model === catalogModelKey);
+    if (match) return;
+    if (catalogModels.length === 0) {
+      setCatalogModelKey("__new__");
+      setCustomModelText("");
+      setWatchRef("");
+      return;
+    }
+    setCatalogModelKey(catalogModels[0]!.model);
+    setCustomModelText("");
+    if (catalogModels[0]?.refHint) setWatchRef(catalogModels[0].refHint);
+    else setWatchRef("");
+  }, [catalogModels, catalogModelKey]);
+
+  useEffect(() => {
     let cancelled = false;
     async function loadBrandSpareOptions() {
       if (spares.length === 0) {
@@ -526,6 +591,53 @@ export function QuickBillPage() {
     }
   }
 
+  async function saveNewWatchModelToCatalog() {
+    const model =
+      catalogModelKey === "__new__"
+        ? customModelText.trim()
+        : catalogModels.length === 0
+          ? customModelText.trim()
+          : "";
+    if (!watchBrand.trim() || !model) return;
+    if (!apiMode) {
+      setWatchModelSaveMsg(null);
+      setError("Turn on API mode (VITE_USE_API) to save models to the server.");
+      return;
+    }
+    setSavingWatchModel(true);
+    setWatchModelSaveMsg(null);
+    setError(null);
+    try {
+      await apiJson<{ ok: boolean }>("/api/service/watch-models", {
+        method: "POST",
+        json: {
+          brand: watchBrand.trim(),
+          model,
+          refHint: watchRef.trim() || null,
+        },
+      });
+      const list = await apiJson<{ models: { id: string; brand: string; model: string; refHint: string | null }[] }>(
+        `/api/service/watch-models?brand=${encodeURIComponent(watchBrand)}`,
+      );
+      setDbWatchModels(
+        list.models.map((row) => ({
+          id: row.id,
+          brand: row.brand,
+          model: row.model,
+          refHint: row.refHint ?? "",
+        })),
+      );
+      setCatalogModelKey(model);
+      setCustomModelText("");
+      setWatchModelSaveMsg("Saved — appears in the model list for this brand.");
+      window.setTimeout(() => setWatchModelSaveMsg(null), 4000);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not save model.");
+    } finally {
+      setSavingWatchModel(false);
+    }
+  }
+
   function validateBeforeOtp(): boolean {
     setError(null);
     if (customerType === "B2B") {
@@ -636,6 +748,7 @@ export function QuickBillPage() {
             technicianName: tech?.fullName ?? null,
             paymentMode,
             notes: notes.trim(),
+            persistNewWatchModel: catalogModelKey === "__new__",
             serviceChargeInr: (() => {
               const n = Number.parseFloat(serviceChargeInr);
               return Number.isFinite(n) && n > 0 ? n : undefined;
@@ -724,6 +837,7 @@ export function QuickBillPage() {
     setCustomerChecked(false);
     setCustomerCheckMsg(null);
     lastAutoLookupPhoneRef.current = "";
+    setWatchModelSaveMsg(null);
   }
 
   if (completion?.mode === "api") {
@@ -831,28 +945,13 @@ export function QuickBillPage() {
         </Card>
       ) : null}
 
-      <Card title="Quick bill history" subtitle="Separate register page" className="mb-8 print:hidden">
-        {!apiMode ? (
-          <p className="text-sm text-stone-600">API mode is off — saved bills are not listed.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            <Link
-              to="/service/quick-bill-history"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Open quick bill history page
-            </Link>
-          </div>
-        )}
-      </Card>
-
       <form onSubmit={handlePrepareComplete} className="space-y-8">
         <Card
           title="Customer"
           subtitle={
             customerType === "B2B"
               ? "Business — customer master with GST & PAN (mandatory)"
-              : "Retail — details optional for walk-in quick sale"
+              : ""
           }
         >
           <div className="mb-4 flex gap-4">
@@ -891,8 +990,8 @@ export function QuickBillPage() {
             </p>
           ) : (
             <p className="mb-4 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
-              For B2C, name and phone are <strong>optional</strong> for walk-in sales. If you enter a
-              10-digit mobile, we load the customer master or send you to registration when new.
+              For B2C, name and phone are <strong>optional</strong> for walk-in sales. If you enter a full 10-digit
+              mobile, we look up the customer master or guide you to registration when new.
             </p>
           )}
 
@@ -989,7 +1088,7 @@ export function QuickBillPage() {
 
         <Card
           title="Watch on counter"
-          subtitle="Brand from master data. Models listed are the saved matches for that brand; use + when the model is not in the list. Document and image upload store files on the server (demo mode shows file name only). Warranty does not change totals yet — business rule pending."
+          subtitle=""
         >
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
@@ -1015,36 +1114,55 @@ export function QuickBillPage() {
               </label>
               {catalogModels.length > 0 ? (
                 <>
-                  <select
-                    id="qb-model"
-                    value={catalogModelKey === "__new__" ? "__new__" : catalogModelKey}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "__new__") {
-                        setCatalogModelKey("__new__");
-                        setCustomModelText("");
-                        return;
-                      }
-                      setCatalogModelKey(v);
-                      setCustomModelText("");
-                      const m = catalogModels.find((x) => x.model === v);
-                      if (m?.refHint) setWatchRef(m.refHint);
-                    }}
-                    className={inputClass}
-                  >
-                    {catalogModels.map((m) => (
-                      <option key={m.id} value={m.model}>
-                        {m.model}
-                      </option>
-                    ))}
-                    <option value="__new__">+ Add new model…</option>
-                  </select>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <select
+                        id="qb-model"
+                        value={catalogModelKey === "__new__" ? "__new__" : catalogModelKey}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setWatchModelSaveMsg(null);
+                          if (v === "__new__") {
+                            setCatalogModelKey("__new__");
+                            setCustomModelText("");
+                            return;
+                          }
+                          setCatalogModelKey(v);
+                          setCustomModelText("");
+                          const m = catalogModels.find((x) => x.model === v);
+                          if (m?.refHint) setWatchRef(m.refHint);
+                        }}
+                        className={inputClass.replace("mt-1 ", "")}
+                      >
+                        {catalogModels.map((m) => (
+                          <option key={m.id} value={m.model}>
+                            {m.model}
+                          </option>
+                        ))}
+                        <option value="__new__">+ Add new model…</option>
+                      </select>
+                    </div>
+                    {catalogModelKey === "__new__" && apiMode ? (
+                      <button
+                        type="button"
+                        disabled={!customModelText.trim() || savingWatchModel}
+                        title="Save new model to database (uses serial below as ref. hint if filled)"
+                        onClick={() => void saveNewWatchModelToCatalog()}
+                        className="shrink-0 rounded-md border border-zimson-500 bg-zimson-600 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {savingWatchModel ? "…" : "Save"}
+                      </button>
+                    ) : null}
+                  </div>
                   {catalogModelKey === "__new__" ? (
                     <input
                       className={`${inputClass} mt-2`}
                       placeholder="Type new model name"
                       value={customModelText}
-                      onChange={(e) => setCustomModelText(e.target.value)}
+                      onChange={(e) => {
+                        setCustomModelText(e.target.value);
+                        setWatchModelSaveMsg(null);
+                      }}
                       aria-label="New model name"
                     />
                   ) : null}
@@ -1054,18 +1172,35 @@ export function QuickBillPage() {
                   <p className="mb-1 text-xs text-amber-900">
                     No saved models for this brand in the list — enter the model name.
                   </p>
-                  <input
-                    id="qb-model-custom"
-                    className={inputClass}
-                    placeholder="Model name *"
-                    value={customModelText}
-                    onChange={(e) => {
-                      setCustomModelText(e.target.value);
-                      setCatalogModelKey("__new__");
-                    }}
-                  />
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <input
+                      id="qb-model-custom"
+                      className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1 basis-[min(100%,14rem)]`}
+                      placeholder="Model name *"
+                      value={customModelText}
+                      onChange={(e) => {
+                        setCustomModelText(e.target.value);
+                        setCatalogModelKey("__new__");
+                        setWatchModelSaveMsg(null);
+                      }}
+                    />
+                    {apiMode ? (
+                      <button
+                        type="button"
+                        disabled={!customModelText.trim() || savingWatchModel}
+                        title="Save new model to database (uses serial below as ref. hint if filled)"
+                        onClick={() => void saveNewWatchModelToCatalog()}
+                        className="shrink-0 rounded-md border border-zimson-500 bg-zimson-600 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {savingWatchModel ? "…" : "Save"}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               )}
+              {watchModelSaveMsg ? (
+                <p className="mt-1.5 text-xs font-medium text-emerald-800">{watchModelSaveMsg}</p>
+              ) : null}
             </div>
             <div>
               <label htmlFor="qb-ref" className="text-xs font-medium text-stone-600">
@@ -1149,7 +1284,7 @@ export function QuickBillPage() {
 
         <Card
           title="Service lines"
-          subtitle="Only spares that have a regional price row for the selected watch brand appear here; stock is summed across HO + stores in the region"
+          subtitle=""
           action={
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2">
