@@ -1,6 +1,23 @@
 import type { DemoUser } from "../types/user";
 
-export type SeedStore = { id: string; name: string };
+export type SeedStore = {
+  id: string;
+  name: string;
+  /** Printed invoice — trading name (e.g. ZIMSON - THE WATCH STORE). */
+  invoiceDisplayName?: string;
+  invoiceTagline?: string;
+  /** Multiline address for invoice header. */
+  invoiceAddress?: string;
+  invoicePhone?: string;
+  invoiceEmail?: string;
+  invoiceGstin?: string;
+  /** “For …” signatory line. */
+  invoiceLegalEntityName?: string;
+  /** Numbered terms: one paragraph per line. */
+  invoiceTerms?: string;
+  /** Short code for invoice numbers (e.g. CHN01). If empty, derived from store name. */
+  invoiceNumberStoreCode?: string;
+};
 
 export type SeedRegion = { id: string; name: string; stores: SeedStore[] };
 

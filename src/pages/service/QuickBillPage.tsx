@@ -24,6 +24,7 @@ import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import type { QuickBillInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
+import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import {
   generateDemoOtp,
@@ -118,6 +119,15 @@ export function QuickBillPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { regions } = useRegions();
+  const currentUserStore = useMemo(() => {
+    const sid = user?.storeId?.trim();
+    if (!sid) return undefined;
+    for (const r of regions) {
+      const s = r.stores.find((x) => x.id === sid);
+      if (s) return s;
+    }
+    return undefined;
+  }, [regions, user?.storeId]);
   const { brands: catalogBrands } = useBrands();
   const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
   const { spares } = useSpares();
@@ -854,9 +864,10 @@ export function QuickBillPage() {
     () => ({
       defaultHsnSac: invoiceHsnSac,
       taxSettings: serviceTaxSettings,
+      storeInvoice: seedStoreToInvoiceProfile(currentUserStore),
       generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
     }),
-    [invoiceHsnSac, serviceTaxSettings, user?.displayName, user?.email, user?.id],
+    [invoiceHsnSac, serviceTaxSettings, currentUserStore, user?.displayName, user?.email, user?.id],
   );
 
   function resetForm() {

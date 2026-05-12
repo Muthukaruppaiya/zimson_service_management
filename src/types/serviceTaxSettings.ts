@@ -32,6 +32,9 @@ export type ServiceTaxSettings = {
   invoiceLegalEntityName: string;
   /** Numbered terms: one paragraph per line */
   invoiceTerms: string;
+  /** Placeholders: {CODE} {FY2} {FY2E} {FY4} {FYKEY} {FYLABEL} {SEQ} — FY2 = from year (26), FY2E = to year (27), FYLABEL = 26-27 */
+  invoiceNumberTemplate: string;
+  invoiceNumberSeqWidth: number;
   notes: string;
   updatedAt: string;
   updatedBy: string | null;

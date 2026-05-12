@@ -110,7 +110,7 @@ type SrfJobsContextValue = {
       advancePaymentDetails?: unknown;
       selectedPartIds: string[];
     },
-  ) => Promise<{ trackingUrl?: string }>;
+  ) => Promise<{ trackingUrl?: string; invoiceNumber?: string }>;
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
   confirmInwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
@@ -206,10 +206,13 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         selectedPartIds: string[];
       },
     ) => {
-      const out = await apiJson<{ trackingUrl?: string }>(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`, {
-        method: "POST",
-        json: payload,
-      });
+      const out = await apiJson<{ trackingUrl?: string; invoiceNumber?: string }>(
+        `/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`,
+        {
+          method: "POST",
+          json: payload,
+        },
+      );
       await refreshJobs();
       return out;
     },

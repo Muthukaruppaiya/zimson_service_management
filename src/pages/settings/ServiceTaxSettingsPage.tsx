@@ -26,6 +26,8 @@ export function ServiceTaxSettingsPage() {
   const [sgstRatePercent, setSgstRatePercent] = useState("9");
   const [igstRatePercent, setIgstRatePercent] = useState("18");
   const [defaultSacHsn, setDefaultSacHsn] = useState("9987");
+  const [invoiceNumberTemplate, setInvoiceNumberTemplate] = useState("{CODE}{FY2}-{SEQ}");
+  const [invoiceNumberSeqWidth, setInvoiceNumberSeqWidth] = useState("5");
   const [pricesTaxInclusive, setPricesTaxInclusive] = useState(false);
   const [supplierTaxPersonTypesText, setSupplierTaxPersonTypesText] = useState("INTRASTATE_TAXABLE_PERSON\nINTERSTATE_TAXABLE_PERSON");
   const [srfPrefix, setSrfPrefix] = useState("SRF");
@@ -42,14 +44,6 @@ export function ServiceTaxSettingsPage() {
   const [odcSuffix, setOdcSuffix] = useState("");
   const [appLogoUrl, setAppLogoUrl] = useState("");
   const [appFaviconUrl, setAppFaviconUrl] = useState("");
-  const [invoiceStoreDisplayName, setInvoiceStoreDisplayName] = useState("");
-  const [invoiceStoreTagline, setInvoiceStoreTagline] = useState("");
-  const [invoiceStoreAddress, setInvoiceStoreAddress] = useState("");
-  const [invoiceStorePhone, setInvoiceStorePhone] = useState("");
-  const [invoiceStoreEmail, setInvoiceStoreEmail] = useState("");
-  const [invoiceStoreGstin, setInvoiceStoreGstin] = useState("");
-  const [invoiceLegalEntityName, setInvoiceLegalEntityName] = useState("");
-  const [invoiceTerms, setInvoiceTerms] = useState("");
   const [notes, setNotes] = useState("");
   const [meta, setMeta] = useState<{ updatedAt: string; updatedBy: string | null } | null>(null);
 
@@ -69,6 +63,8 @@ export function ServiceTaxSettingsPage() {
       setSgstRatePercent(String(s.sgstRatePercent));
       setIgstRatePercent(String(s.igstRatePercent));
       setDefaultSacHsn(s.defaultSacHsn);
+      setInvoiceNumberTemplate(s.invoiceNumberTemplate ?? "{CODE}{FY2}-{SEQ}");
+      setInvoiceNumberSeqWidth(String(s.invoiceNumberSeqWidth ?? 5));
       setPricesTaxInclusive(s.pricesTaxInclusive);
       setSupplierTaxPersonTypesText((s.supplierTaxPersonTypes ?? []).join("\n"));
       setSrfPrefix(s.srfPrefix ?? "SRF");
@@ -85,14 +81,6 @@ export function ServiceTaxSettingsPage() {
       setOdcSuffix(s.odcSuffix ?? "");
       setAppLogoUrl(s.appLogoUrl ?? "");
       setAppFaviconUrl(s.appFaviconUrl ?? "");
-      setInvoiceStoreDisplayName(s.invoiceStoreDisplayName ?? "");
-      setInvoiceStoreTagline(s.invoiceStoreTagline ?? "");
-      setInvoiceStoreAddress(s.invoiceStoreAddress ?? "");
-      setInvoiceStorePhone(s.invoiceStorePhone ?? "");
-      setInvoiceStoreEmail(s.invoiceStoreEmail ?? "");
-      setInvoiceStoreGstin(s.invoiceStoreGstin ?? "");
-      setInvoiceLegalEntityName(s.invoiceLegalEntityName ?? "");
-      setInvoiceTerms(s.invoiceTerms ?? "");
       setNotes(s.notes);
       setMeta({ updatedAt: s.updatedAt, updatedBy: s.updatedBy });
     } catch (e) {
@@ -119,6 +107,8 @@ export function ServiceTaxSettingsPage() {
         sgstRatePercent: Number.parseFloat(sgstRatePercent),
         igstRatePercent: Number.parseFloat(igstRatePercent),
         defaultSacHsn: defaultSacHsn.trim(),
+        invoiceNumberTemplate: invoiceNumberTemplate.trim(),
+        invoiceNumberSeqWidth: Math.min(8, Math.max(4, Math.round(Number.parseInt(invoiceNumberSeqWidth, 10) || 5))),
         pricesTaxInclusive,
         supplierTaxPersonTypes: supplierTaxPersonTypesText
           .split("\n")
@@ -138,14 +128,6 @@ export function ServiceTaxSettingsPage() {
         odcSuffix: odcSuffix.trim(),
         appLogoUrl: appLogoUrl.trim(),
         appFaviconUrl: appFaviconUrl.trim(),
-        invoiceStoreDisplayName: invoiceStoreDisplayName.trim(),
-        invoiceStoreTagline: invoiceStoreTagline.trim(),
-        invoiceStoreAddress: invoiceStoreAddress.trim(),
-        invoiceStorePhone: invoiceStorePhone.trim(),
-        invoiceStoreEmail: invoiceStoreEmail.trim(),
-        invoiceStoreGstin: invoiceStoreGstin.trim(),
-        invoiceLegalEntityName: invoiceLegalEntityName.trim(),
-        invoiceTerms: invoiceTerms.trim(),
         notes: notes.trim(),
       };
       const data = await apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax", {
@@ -158,6 +140,8 @@ export function ServiceTaxSettingsPage() {
       setSgstRatePercent(String(s.sgstRatePercent));
       setIgstRatePercent(String(s.igstRatePercent));
       setDefaultSacHsn(s.defaultSacHsn);
+      setInvoiceNumberTemplate(s.invoiceNumberTemplate ?? "{CODE}{FY2}-{SEQ}");
+      setInvoiceNumberSeqWidth(String(s.invoiceNumberSeqWidth ?? 5));
       setPricesTaxInclusive(s.pricesTaxInclusive);
       setSupplierTaxPersonTypesText((s.supplierTaxPersonTypes ?? []).join("\n"));
       setSrfPrefix(s.srfPrefix ?? "SRF");
@@ -174,14 +158,6 @@ export function ServiceTaxSettingsPage() {
       setOdcSuffix(s.odcSuffix ?? "");
       setAppLogoUrl(s.appLogoUrl ?? "");
       setAppFaviconUrl(s.appFaviconUrl ?? "");
-      setInvoiceStoreDisplayName(s.invoiceStoreDisplayName ?? "");
-      setInvoiceStoreTagline(s.invoiceStoreTagline ?? "");
-      setInvoiceStoreAddress(s.invoiceStoreAddress ?? "");
-      setInvoiceStorePhone(s.invoiceStorePhone ?? "");
-      setInvoiceStoreEmail(s.invoiceStoreEmail ?? "");
-      setInvoiceStoreGstin(s.invoiceStoreGstin ?? "");
-      setInvoiceLegalEntityName(s.invoiceLegalEntityName ?? "");
-      setInvoiceTerms(s.invoiceTerms ?? "");
       setNotes(s.notes);
       applyAppFavicon(s.appFaviconUrl ?? "");
       window.dispatchEvent(new Event("zimson-branding-updated"));
@@ -201,6 +177,12 @@ export function ServiceTaxSettingsPage() {
         description=""
         actions={
           <div className="flex gap-2">
+            <Link
+              to="/regions"
+              className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Regions &amp; stores
+            </Link>
             <Link
               to="/settings/document-templates"
               className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
@@ -226,7 +208,10 @@ export function ServiceTaxSettingsPage() {
         </p>
       ) : null}
 
-      <Card title="GST & invoice defaults" subtitle="Applies to service billing totals and quick bill invoice print (SAC/HSN column).">
+      <Card
+        title="GST & invoice defaults"
+        subtitle="GST, SAC/HSN, document prefixes, and app logo. Store name, address, GSTIN, and printed terms are configured per store under Regions & stores (invoice block when creating or editing a store)."
+      >
         {loading ? (
           <p className="text-sm text-stone-600">Loading…</p>
         ) : (
@@ -337,6 +322,44 @@ export function ServiceTaxSettingsPage() {
                 </label>
               </div>
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label htmlFor="tax-inv-template" className="text-xs font-medium text-stone-600">
+                  Store invoice number template (India FY Apr–Mar)
+                </label>
+                <input
+                  id="tax-inv-template"
+                  value={invoiceNumberTemplate}
+                  onChange={(e) => setInvoiceNumberTemplate(e.target.value)}
+                  className={inputClass}
+                  placeholder="{CODE}{FY2}-{SEQ}"
+                />
+                <p className="mt-1 text-xs text-stone-500">
+                  India FY Apr–Mar: <code className="rounded bg-stone-100 px-1">{"{FY2}"}</code> = from year (e.g.{" "}
+                  <strong>26</strong> for 2026–27), <code className="rounded bg-stone-100 px-1">{"{FY2E}"}</code> = to year (
+                  <strong>27</strong>), <code className="rounded bg-stone-100 px-1">{"{FYLABEL}"}</code> ={" "}
+                  <strong>26-27</strong>. Also <code className="rounded bg-stone-100 px-1">{"{FY4}"}</code>,{" "}
+                  <code className="rounded bg-stone-100 px-1">{"{FYKEY}"}</code>,{" "}
+                  <code className="rounded bg-stone-100 px-1">{"{SEQ}"}</code>. Example{" "}
+                  <code className="rounded bg-stone-100 px-1">{"{CODE}{FY2}-{SEQ}"}</code> → CHN0126-00001 (store code CHN01).
+                </p>
+              </div>
+              <div>
+                <label htmlFor="tax-inv-seq-width" className="text-xs font-medium text-stone-600">
+                  Sequence width (digits)
+                </label>
+                <input
+                  id="tax-inv-seq-width"
+                  type="number"
+                  min={4}
+                  max={8}
+                  step={1}
+                  value={invoiceNumberSeqWidth}
+                  onChange={(e) => setInvoiceNumberSeqWidth(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
             <div>
               <label htmlFor="tax-supplier-types" className="text-xs font-medium text-stone-600">
                 Supplier tax person types (one per line)
@@ -382,87 +405,6 @@ export function ServiceTaxSettingsPage() {
                 </label>
                 <label className="text-xs font-medium text-stone-600">Favicon URL / data URL
                   <input className={inputClass} value={appFaviconUrl} onChange={(e) => setAppFaviconUrl(e.target.value)} placeholder="/icons.svg or data:image/png;base64,..." />
-                </label>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-4">
-              <p className="text-xs font-semibold text-stone-700">Printed invoice — store &amp; terms</p>
-              <p className="mt-1 text-xs text-stone-500">
-                Used on Quick Bill and Service bill (SRF) printouts. App logo above is reused on the invoice header when set.
-              </p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
-                  Store name (invoice)
-                  <input
-                    className={inputClass}
-                    value={invoiceStoreDisplayName}
-                    onChange={(e) => setInvoiceStoreDisplayName(e.target.value)}
-                    placeholder="ZIMSON - THE WATCH STORE"
-                  />
-                </label>
-                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
-                  Tagline
-                  <input
-                    className={inputClass}
-                    value={invoiceStoreTagline}
-                    onChange={(e) => setInvoiceStoreTagline(e.target.value)}
-                    placeholder="THE WATCH STORE SINCE 1948"
-                  />
-                </label>
-                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
-                  Store address (invoice)
-                  <textarea
-                    className={inputClass}
-                    rows={3}
-                    value={invoiceStoreAddress}
-                    onChange={(e) => setInvoiceStoreAddress(e.target.value)}
-                    placeholder={"347, Oppanakara Street\nCoimbatore, Tamil Nadu - 641001"}
-                  />
-                </label>
-                <label className="text-xs font-medium text-stone-600">
-                  Phone
-                  <input
-                    className={inputClass}
-                    value={invoiceStorePhone}
-                    onChange={(e) => setInvoiceStorePhone(e.target.value)}
-                  />
-                </label>
-                <label className="text-xs font-medium text-stone-600">
-                  Email
-                  <input
-                    className={inputClass}
-                    type="email"
-                    value={invoiceStoreEmail}
-                    onChange={(e) => setInvoiceStoreEmail(e.target.value)}
-                  />
-                </label>
-                <label className="text-xs font-medium text-stone-600">
-                  Store GSTIN
-                  <input
-                    className={inputClass}
-                    value={invoiceStoreGstin}
-                    onChange={(e) => setInvoiceStoreGstin(e.target.value)}
-                  />
-                </label>
-                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
-                  Legal entity (&quot;For …&quot; footer)
-                  <input
-                    className={inputClass}
-                    value={invoiceLegalEntityName}
-                    onChange={(e) => setInvoiceLegalEntityName(e.target.value)}
-                    placeholder="ZIMSON TIMES PVT LTD"
-                  />
-                </label>
-                <label className="text-xs font-medium text-stone-600 sm:col-span-2">
-                  Terms &amp; conditions (one numbered line per paragraph; use Enter for each point)
-                  <textarea
-                    className={inputClass}
-                    rows={8}
-                    value={invoiceTerms}
-                    onChange={(e) => setInvoiceTerms(e.target.value)}
-                    placeholder="Warranty terms, battery policy, etc."
-                  />
                 </label>
               </div>
             </div>

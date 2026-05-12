@@ -17,7 +17,7 @@ import { registerTechnicianRoutes } from "./technicianRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { appendStockHistory } from "./db/stockHistory";
-import { SEED_USERS, type SeedRegion } from "../src/data/seed";
+import { SEED_USERS, type SeedRegion, type SeedStore } from "../src/data/seed";
 import { createId } from "../src/lib/id";
 import type { CustomerKind, CustomerRecord } from "../src/types/customer";
 import type { AppNotification } from "../src/types/notification";
@@ -879,6 +879,25 @@ app.delete("/api/settings/workflow-statuses/:id", requireAuth, async (req, res) 
   }
 });
 
+function parseStoreInvoiceFieldsFromBody(body: Record<string, unknown>) {
+  const rawCode = String(body.invoiceNumberStoreCode ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 16);
+  return {
+    invoiceDisplayName: String(body.invoiceDisplayName ?? "").trim().slice(0, 280),
+    invoiceTagline: String(body.invoiceTagline ?? "").trim().slice(0, 160),
+    invoiceAddress: String(body.invoiceAddress ?? "").trim().slice(0, 4000),
+    invoicePhone: String(body.invoicePhone ?? "").trim().slice(0, 120),
+    invoiceEmail: String(body.invoiceEmail ?? "").trim().slice(0, 200),
+    invoiceGstin: String(body.invoiceGstin ?? "").trim().slice(0, 24),
+    invoiceLegalEntityName: String(body.invoiceLegalEntityName ?? "").trim().slice(0, 280),
+    invoiceTerms: String(body.invoiceTerms ?? "").trim().slice(0, 12000),
+    invoiceNumberStoreCode: rawCode,
+  };
+}
+
 app.get("/api/regions", requireAuth, (_req, res) => {
   if (!dbPool) {
     const state = readState();
@@ -892,8 +911,22 @@ app.get("/api/regions", requireAuth, (_req, res) => {
         region_name: string;
         store_id: string | null;
         store_name: string | null;
+        invoice_display_name: string | null;
+        invoice_tagline: string | null;
+        invoice_address: string | null;
+        invoice_phone: string | null;
+        invoice_email: string | null;
+        invoice_gstin: string | null;
+        invoice_legal_entity_name: string | null;
+        invoice_terms: string | null;
+        invoice_number_store_code: string | null;
       }>(
-        `SELECT r.id AS region_id, r.name AS region_name, s.id AS store_id, s.name AS store_name
+        `SELECT r.id AS region_id, r.name AS region_name,
+                s.id AS store_id, s.name AS store_name,
+                s.invoice_display_name, s.invoice_tagline, s.invoice_address,
+                s.invoice_phone, s.invoice_email, s.invoice_gstin,
+                s.invoice_legal_entity_name, s.invoice_terms,
+                s.invoice_number_store_code
          FROM regions r
          LEFT JOIN stores s ON s.region_id = r.id
          ORDER BY r.name, s.name`,
@@ -904,7 +937,19 @@ app.get("/api/regions", requireAuth, (_req, res) => {
           map.set(row.region_id, { id: row.region_id, name: row.region_name, stores: [] });
         }
         if (row.store_id && row.store_name) {
-          map.get(row.region_id)!.stores.push({ id: row.store_id, name: row.store_name });
+          map.get(row.region_id)!.stores.push({
+            id: row.store_id,
+            name: row.store_name,
+            invoiceDisplayName: String(row.invoice_display_name ?? "").trim() || undefined,
+            invoiceTagline: String(row.invoice_tagline ?? "").trim() || undefined,
+            invoiceAddress: String(row.invoice_address ?? "").trim() || undefined,
+            invoicePhone: String(row.invoice_phone ?? "").trim() || undefined,
+            invoiceEmail: String(row.invoice_email ?? "").trim() || undefined,
+            invoiceGstin: String(row.invoice_gstin ?? "").trim() || undefined,
+            invoiceLegalEntityName: String(row.invoice_legal_entity_name ?? "").trim() || undefined,
+            invoiceTerms: String(row.invoice_terms ?? "").trim() || undefined,
+            invoiceNumberStoreCode: String(row.invoice_number_store_code ?? "").trim() || undefined,
+          });
         }
       }
       res.json({ regions: [...map.values()] });
@@ -948,9 +993,24 @@ app.put("/api/regions", requireAuth, async (req, res) => {
     for (const region of body.regions) {
       await client.query("INSERT INTO regions (id, name) VALUES ($1, $2)", [region.id, region.name]);
       for (const store of region.stores) {
+        const inv = parseStoreInvoiceFieldsFromBody(store as unknown as Record<string, unknown>);
         await client.query(
-          "INSERT INTO stores (id, region_id, name) VALUES ($1, $2, $3)",
-          [store.id, region.id, store.name],
+          `INSERT INTO stores (id, region_id, name, invoice_display_name, invoice_tagline, invoice_address, invoice_phone, invoice_email, invoice_gstin, invoice_legal_entity_name, invoice_terms, invoice_number_store_code)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [
+            store.id,
+            region.id,
+            store.name,
+            inv.invoiceDisplayName,
+            inv.invoiceTagline,
+            inv.invoiceAddress,
+            inv.invoicePhone,
+            inv.invoiceEmail,
+            inv.invoiceGstin,
+            inv.invoiceLegalEntityName,
+            inv.invoiceTerms,
+            inv.invoiceNumberStoreCode,
+          ],
         );
       }
     }
@@ -1012,13 +1072,18 @@ app.post("/api/regions/:regionId/stores", requireAuth, async (req, res) => {
     return;
   }
   const regionId = req.params.regionId;
+  if (actor.role === "regional_admin" && actor.regionId !== regionId) {
+    res.status(403).json({ error: "You can only add stores in your own region." });
+    return;
+  }
   const name = String(req.body?.name ?? "").trim();
   if (!name) {
     res.status(400).json({ error: "Store name is required." });
     return;
   }
+  const inv = parseStoreInvoiceFieldsFromBody(req.body as Record<string, unknown>);
   if (!dbPool) {
-    const store = { id: createId("store"), name };
+    const store: SeedStore = { id: createId("store"), name, ...inv };
     await mutate((s) => ({
       next: {
         ...s,
@@ -1033,14 +1098,177 @@ app.post("/api/regions/:regionId/stores", requireAuth, async (req, res) => {
   }
   try {
     const id = createId("store");
-    const ins = await dbPool.query(
-      "INSERT INTO stores (id, region_id, name) VALUES ($1, $2, $3) RETURNING id, name",
-      [id, regionId, name],
+    const ins = await dbPool.query<{
+      id: string;
+      name: string;
+      invoice_display_name: string | null;
+      invoice_tagline: string | null;
+      invoice_address: string | null;
+      invoice_phone: string | null;
+      invoice_email: string | null;
+      invoice_gstin: string | null;
+      invoice_legal_entity_name: string | null;
+      invoice_terms: string | null;
+      invoice_number_store_code: string | null;
+    }>(
+      `INSERT INTO stores (id, region_id, name, invoice_display_name, invoice_tagline, invoice_address, invoice_phone, invoice_email, invoice_gstin, invoice_legal_entity_name, invoice_terms, invoice_number_store_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING id, name, invoice_display_name, invoice_tagline, invoice_address, invoice_phone, invoice_email, invoice_gstin, invoice_legal_entity_name, invoice_terms, invoice_number_store_code`,
+      [
+        id,
+        regionId,
+        name,
+        inv.invoiceDisplayName,
+        inv.invoiceTagline,
+        inv.invoiceAddress,
+        inv.invoicePhone,
+        inv.invoiceEmail,
+        inv.invoiceGstin,
+        inv.invoiceLegalEntityName,
+        inv.invoiceTerms,
+        inv.invoiceNumberStoreCode,
+      ],
     );
-    res.json({ store: ins.rows[0] });
+    const r = ins.rows[0]!;
+    const store: SeedStore = {
+      id: r.id,
+      name: r.name,
+      invoiceDisplayName: String(r.invoice_display_name ?? "").trim() || undefined,
+      invoiceTagline: String(r.invoice_tagline ?? "").trim() || undefined,
+      invoiceAddress: String(r.invoice_address ?? "").trim() || undefined,
+      invoicePhone: String(r.invoice_phone ?? "").trim() || undefined,
+      invoiceEmail: String(r.invoice_email ?? "").trim() || undefined,
+      invoiceGstin: String(r.invoice_gstin ?? "").trim() || undefined,
+      invoiceLegalEntityName: String(r.invoice_legal_entity_name ?? "").trim() || undefined,
+      invoiceTerms: String(r.invoice_terms ?? "").trim() || undefined,
+      invoiceNumberStoreCode: String(r.invoice_number_store_code ?? "").trim() || undefined,
+    };
+    res.json({ store });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Could not create store." });
+  }
+});
+
+app.patch("/api/stores/:storeId", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(uid);
+  if (!actor) {
+    res.status(401).json({ error: "Invalid session." });
+    return;
+  }
+  if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+    res.status(403).json({ error: "Only super/regional admins can update store invoice details." });
+    return;
+  }
+  const storeId = String(req.params.storeId ?? "").trim();
+  if (!storeId) {
+    res.status(400).json({ error: "Store id required." });
+    return;
+  }
+  if (!dbPool) {
+    const inv = parseStoreInvoiceFieldsFromBody(req.body as Record<string, unknown>);
+    await mutate((s) => {
+      const regions = (s.regions ?? []).map((r) => ({
+        ...r,
+        stores: r.stores.map((st) =>
+          st.id === storeId
+            ? {
+                ...st,
+                ...(String(req.body?.name ?? "").trim() ? { name: String(req.body.name).trim().slice(0, 160) } : {}),
+                ...inv,
+              }
+            : st,
+        ),
+      }));
+      return { next: { ...s, regions }, result: undefined };
+    });
+    const state = readState();
+    const flat = (state.regions ?? []).flatMap((r) => r.stores);
+    const st = flat.find((x) => x.id === storeId);
+    res.json({ store: st ?? { id: storeId, name: "" } });
+    return;
+  }
+  try {
+    const r0 = await dbPool.query<{ region_id: string }>(`SELECT region_id FROM stores WHERE id = $1::text`, [storeId]);
+    if (r0.rows.length === 0) {
+      res.status(404).json({ error: "Store not found." });
+      return;
+    }
+    const storeRegionId = r0.rows[0]!.region_id;
+    if (actor.role === "regional_admin" && actor.regionId !== storeRegionId) {
+      res.status(403).json({ error: "You can only update stores in your own region." });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const inv = parseStoreInvoiceFieldsFromBody(body);
+    const nextName = "name" in body ? String(body.name ?? "").trim().slice(0, 160) : null;
+    if (nextName !== null && !nextName) {
+      res.status(400).json({ error: "Store name cannot be empty." });
+      return;
+    }
+    const ins = await dbPool.query<{
+      id: string;
+      name: string;
+      invoice_display_name: string | null;
+      invoice_tagline: string | null;
+      invoice_address: string | null;
+      invoice_phone: string | null;
+      invoice_email: string | null;
+      invoice_gstin: string | null;
+      invoice_legal_entity_name: string | null;
+      invoice_terms: string | null;
+      invoice_number_store_code: string | null;
+    }>(
+      `UPDATE stores SET
+         name = COALESCE($2, name),
+         invoice_display_name = $3,
+         invoice_tagline = $4,
+         invoice_address = $5,
+         invoice_phone = $6,
+         invoice_email = $7,
+         invoice_gstin = $8,
+         invoice_legal_entity_name = $9,
+         invoice_terms = $10,
+         invoice_number_store_code = $11
+       WHERE id = $1::text
+       RETURNING id, name, invoice_display_name, invoice_tagline, invoice_address, invoice_phone, invoice_email, invoice_gstin, invoice_legal_entity_name, invoice_terms, invoice_number_store_code`,
+      [
+        storeId,
+        nextName,
+        inv.invoiceDisplayName,
+        inv.invoiceTagline,
+        inv.invoiceAddress,
+        inv.invoicePhone,
+        inv.invoiceEmail,
+        inv.invoiceGstin,
+        inv.invoiceLegalEntityName,
+        inv.invoiceTerms,
+        inv.invoiceNumberStoreCode,
+      ],
+    );
+    if (ins.rows.length === 0) {
+      res.status(404).json({ error: "Store not found." });
+      return;
+    }
+    const r = ins.rows[0]!;
+    const store: SeedStore = {
+      id: r.id,
+      name: r.name,
+      invoiceDisplayName: String(r.invoice_display_name ?? "").trim() || undefined,
+      invoiceTagline: String(r.invoice_tagline ?? "").trim() || undefined,
+      invoiceAddress: String(r.invoice_address ?? "").trim() || undefined,
+      invoicePhone: String(r.invoice_phone ?? "").trim() || undefined,
+      invoiceEmail: String(r.invoice_email ?? "").trim() || undefined,
+      invoiceGstin: String(r.invoice_gstin ?? "").trim() || undefined,
+      invoiceLegalEntityName: String(r.invoice_legal_entity_name ?? "").trim() || undefined,
+      invoiceTerms: String(r.invoice_terms ?? "").trim() || undefined,
+      invoiceNumberStoreCode: String(r.invoice_number_store_code ?? "").trim() || undefined,
+    };
+    res.json({ store });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not update store." });
   }
 });
 

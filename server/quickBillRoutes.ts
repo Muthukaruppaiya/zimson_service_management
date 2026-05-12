@@ -6,6 +6,7 @@ import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
 import { sumAdvanceCashDenominations, type AdvancePaymentDetails } from "../src/lib/paymentModes";
 import { appendStockHistory } from "./db/stockHistory";
+import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
 
 type Authed = Request & { userId: string };
 
@@ -488,7 +489,12 @@ export function registerQuickBillRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const billNumber = await nextQuickBillNumber(client, regionId);
+      let billNumber: string;
+      if (storeId) {
+        billNumber = await allocateStoreInvoiceNumber(client, storeId);
+      } else {
+        billNumber = await nextQuickBillNumber(client, regionId);
+      }
 
       if (storeId) {
         const storeCheck = await client.query(

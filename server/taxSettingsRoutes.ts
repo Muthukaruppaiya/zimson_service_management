@@ -35,6 +35,8 @@ type TaxRow = {
   invoice_store_gstin?: string | null;
   invoice_legal_entity_name?: string | null;
   invoice_terms?: string | null;
+  invoice_number_template?: string | null;
+  invoice_number_seq_width?: number | string | null;
   notes: string;
   updated_at: Date;
   updated_by: string | null;
@@ -79,6 +81,8 @@ function rowToPayload(row: TaxRow) {
     invoiceStoreGstin: String(row.invoice_store_gstin ?? "").trim(),
     invoiceLegalEntityName: String(row.invoice_legal_entity_name ?? "").trim(),
     invoiceTerms: String(row.invoice_terms ?? "").trim(),
+    invoiceNumberTemplate: String(row.invoice_number_template ?? "{CODE}{FY2}-{SEQ}").trim() || "{CODE}{FY2}-{SEQ}",
+    invoiceNumberSeqWidth: Math.min(8, Math.max(4, Math.round(Number(row.invoice_number_seq_width ?? 5)) || 5)),
     notes: row.notes ?? "",
     updatedAt: row.updated_at.toISOString(),
     updatedBy: row.updated_by,
@@ -120,6 +124,7 @@ const TAX_SELECT = `SELECT id, gst_rate_percent::text, cgst_rate_percent::text, 
                 invoice_store_display_name, invoice_store_tagline, invoice_store_address,
                 invoice_store_phone, invoice_store_email, invoice_store_gstin,
                 invoice_legal_entity_name, invoice_terms,
+                invoice_number_template, invoice_number_seq_width,
                 notes, updated_at, updated_by
          FROM service_tax_settings WHERE id = 1`;
 
@@ -183,17 +188,65 @@ export function registerTaxSettingsRoutes(
     const notes = String(body.notes ?? "").slice(0, 2000);
     const appLogoUrl = String(body.appLogoUrl ?? "").trim().slice(0, 4000);
     const appFaviconUrl = String(body.appFaviconUrl ?? "").trim().slice(0, 4000);
-    const invoiceStoreDisplayName = String(body.invoiceStoreDisplayName ?? "").trim().slice(0, 280);
-    const invoiceStoreTagline = String(body.invoiceStoreTagline ?? "").trim().slice(0, 160);
-    const invoiceStoreAddress = String(body.invoiceStoreAddress ?? "").trim().slice(0, 4000);
-    const invoiceStorePhone = String(body.invoiceStorePhone ?? "").trim().slice(0, 120);
-    const invoiceStoreEmail = String(body.invoiceStoreEmail ?? "").trim().slice(0, 200);
-    const invoiceStoreGstin = String(body.invoiceStoreGstin ?? "").trim().slice(0, 24);
-    const invoiceLegalEntityName = String(body.invoiceLegalEntityName ?? "").trim().slice(0, 280);
-    const invoiceTerms = String(body.invoiceTerms ?? "").trim().slice(0, 12000);
+    function parseInvoiceNumberTemplate(raw: unknown): string {
+      const s = String(raw ?? "").trim().slice(0, 96);
+      if (!s || !s.includes("{SEQ}")) return "{CODE}{FY2}-{SEQ}";
+      if (!/^[A-Za-z0-9\-._{}\s]+$/.test(s)) return "{CODE}{FY2}-{SEQ}";
+      return s;
+    }
+    const invoiceNumberTemplate = parseInvoiceNumberTemplate(body.invoiceNumberTemplate);
+    const invoiceNumberSeqWidth = Math.min(8, Math.max(4, Math.round(Number(body.invoiceNumberSeqWidth) || 5)));
+    const INVOICE_KEYS = [
+      "invoiceStoreDisplayName",
+      "invoiceStoreTagline",
+      "invoiceStoreAddress",
+      "invoiceStorePhone",
+      "invoiceStoreEmail",
+      "invoiceStoreGstin",
+      "invoiceLegalEntityName",
+      "invoiceTerms",
+    ] as const;
+    const patchInvoiceFromBody = INVOICE_KEYS.some((k) => k in body);
     const updatedBy = actor.displayName?.trim() || actor.email;
 
     try {
+      let invoiceStoreDisplayName = "";
+      let invoiceStoreTagline = "";
+      let invoiceStoreAddress = "";
+      let invoiceStorePhone = "";
+      let invoiceStoreEmail = "";
+      let invoiceStoreGstin = "";
+      let invoiceLegalEntityName = "";
+      let invoiceTerms = "";
+      if (!patchInvoiceFromBody) {
+        const cur = await pool.query<TaxRow>(
+          `SELECT invoice_store_display_name, invoice_store_tagline, invoice_store_address,
+                  invoice_store_phone, invoice_store_email, invoice_store_gstin,
+                  invoice_legal_entity_name, invoice_terms
+           FROM service_tax_settings WHERE id = 1`,
+        );
+        const r = cur.rows[0];
+        if (r) {
+          invoiceStoreDisplayName = String(r.invoice_store_display_name ?? "").trim().slice(0, 280);
+          invoiceStoreTagline = String(r.invoice_store_tagline ?? "").trim().slice(0, 160);
+          invoiceStoreAddress = String(r.invoice_store_address ?? "").trim().slice(0, 4000);
+          invoiceStorePhone = String(r.invoice_store_phone ?? "").trim().slice(0, 120);
+          invoiceStoreEmail = String(r.invoice_store_email ?? "").trim().slice(0, 200);
+          invoiceStoreGstin = String(r.invoice_store_gstin ?? "").trim().slice(0, 24);
+          invoiceLegalEntityName = String(r.invoice_legal_entity_name ?? "").trim().slice(0, 280);
+          invoiceTerms = String(r.invoice_terms ?? "").trim().slice(0, 12000);
+        }
+      } else {
+        invoiceStoreDisplayName = String(body.invoiceStoreDisplayName ?? "").trim().slice(0, 280);
+        invoiceStoreTagline = String(body.invoiceStoreTagline ?? "").trim().slice(0, 160);
+        invoiceStoreAddress = String(body.invoiceStoreAddress ?? "").trim().slice(0, 4000);
+        invoiceStorePhone = String(body.invoiceStorePhone ?? "").trim().slice(0, 120);
+        invoiceStoreEmail = String(body.invoiceStoreEmail ?? "").trim().slice(0, 200);
+        invoiceStoreGstin = String(body.invoiceStoreGstin ?? "").trim().slice(0, 24);
+        invoiceLegalEntityName = String(body.invoiceLegalEntityName ?? "").trim().slice(0, 280);
+        invoiceTerms = String(body.invoiceTerms ?? "").trim().slice(0, 12000);
+      }
+
       const { rows } = await pool.query<TaxRow>(
         `UPDATE service_tax_settings SET
            gst_rate_percent = $1,
@@ -225,9 +278,11 @@ export function registerTaxSettingsRoutes(
            invoice_store_gstin = $27,
            invoice_legal_entity_name = $28,
            invoice_terms = $29,
-           notes = $30,
+           invoice_number_template = $30,
+           invoice_number_seq_width = $31,
+           notes = $32,
            updated_at = now(),
-           updated_by = $31
+           updated_by = $33
          WHERE id = 1
          RETURNING id, gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
                   igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive, supplier_tax_person_types,
@@ -237,6 +292,7 @@ export function registerTaxSettingsRoutes(
                   invoice_store_display_name, invoice_store_tagline, invoice_store_address,
                   invoice_store_phone, invoice_store_email, invoice_store_gstin,
                   invoice_legal_entity_name, invoice_terms,
+                  invoice_number_template, invoice_number_seq_width,
                   notes, updated_at, updated_by`,
         [
           gstRatePercent,
@@ -268,6 +324,8 @@ export function registerTaxSettingsRoutes(
           invoiceStoreGstin,
           invoiceLegalEntityName,
           invoiceTerms,
+          invoiceNumberTemplate,
+          invoiceNumberSeqWidth,
           notes,
           updatedBy,
         ],

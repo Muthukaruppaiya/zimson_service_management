@@ -33,6 +33,7 @@ import {
 } from "../../data/serviceSeed";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
+import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
 
 const steps = ["Customer", "Watch", "Photos", "Estimate + OTP", "Review"] as const;
 const inputClass =
@@ -116,6 +117,19 @@ export function SrfBookingV2Page() {
     const region = regions.find((r) => r.id === currentRegionId);
     return region?.stores ?? [];
   }, [regions, currentRegionId]);
+  const currentUserStore = useMemo(() => {
+    const sid = currentStoreId;
+    if (!sid) return undefined;
+    for (const r of regions) {
+      const s = r.stores.find((x) => x.id === sid);
+      if (s) return s;
+    }
+    return undefined;
+  }, [regions, currentStoreId]);
+  const storeInvoiceForPrint = useMemo(
+    () => seedStoreToInvoiceProfile(currentUserStore),
+    [currentUserStore],
+  );
   const estimateTotal = Number.parseFloat(estimateAmount) || 0;
   const advanceTotal = Number.parseFloat(advanceAmount) || 0;
   const cashDenomTotal = useMemo(() => {
@@ -614,6 +628,7 @@ export function SrfBookingV2Page() {
         mapSrfPreviewToServiceInvoiceViewModel(
           {
             reference: row.reference,
+            invoiceNumber: out.invoiceNumber,
             customerName,
             phone,
             email,
@@ -631,6 +646,7 @@ export function SrfBookingV2Page() {
           {
             taxSettings: serviceTaxSettings,
             defaultHsnSac: serviceTaxSettings?.defaultSacHsn,
+            storeInvoice: storeInvoiceForPrint,
             generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
           },
         ),

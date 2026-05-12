@@ -8,10 +8,13 @@ import { inrAmountToWords } from "../../lib/inrAmountToWords";
 import type { QuickBillInvoice, QuickBillLineInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
 import type { ServiceInvoiceLineView, ServiceInvoiceTaxRow, ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
+import type { StoreInvoicePrintProfile } from "../../types/storeInvoice";
 
 export type ServiceInvoiceMappingOptions = {
   defaultHsnSac?: string;
   taxSettings?: ServiceTaxSettings | null;
+  /** Per-store printed invoice header (Regions & stores); overrides org tax invoice fields when set. */
+  storeInvoice?: StoreInvoicePrintProfile | null;
   invoiceKind?: "quick_bill" | "service_bill";
   serviceReference?: string | null;
   generatedBy?: string | null;
@@ -52,7 +55,10 @@ function parseSpareCodeFromDescription(description: string): string | null {
   return m?.[1]?.trim() || null;
 }
 
-function mergeSellerFromSettings(tax: ServiceTaxSettings | null | undefined): {
+function mergeSellerFromSettings(
+  tax: ServiceTaxSettings | null | undefined,
+  store: StoreInvoicePrintProfile | null | undefined,
+): {
   legalName: string;
   addressLines: string[];
   gstin: string;
@@ -65,7 +71,7 @@ function mergeSellerFromSettings(tax: ServiceTaxSettings | null | undefined): {
   footerTerms: string[];
 } {
   const b = SERVICE_INVOICE_BRANDING;
-  if (!tax) {
+  if (!tax && !store) {
     return {
       legalName: b.sellerLegalName,
       addressLines: [...b.sellerAddressLines],
@@ -79,21 +85,33 @@ function mergeSellerFromSettings(tax: ServiceTaxSettings | null | undefined): {
       footerTerms: [...b.footerTerms],
     };
   }
-  const name = tax.invoiceStoreDisplayName?.trim() || b.sellerLegalName;
-  const addrRaw = tax.invoiceStoreAddress?.trim();
+  const name =
+    store?.invoiceStoreDisplayName?.trim() ||
+    tax?.invoiceStoreDisplayName?.trim() ||
+    b.sellerLegalName;
+  const addrRaw =
+    store?.invoiceStoreAddress?.trim() || tax?.invoiceStoreAddress?.trim();
   const addressLines = addrRaw
     ? addrRaw.split(/\r?\n/).map((x) => x.trim()).filter(Boolean)
     : [...b.sellerAddressLines];
-  const gstin = tax.invoiceStoreGstin?.trim() || b.sellerGstin;
-  const phone = tax.invoiceStorePhone?.trim() || b.sellerPhone;
-  const email = tax.invoiceStoreEmail?.trim() || b.sellerEmail;
-  const tagline = tax.invoiceStoreTagline?.trim() || "";
-  const legalFooter = tax.invoiceLegalEntityName?.trim() || name;
-  const termsRaw = tax.invoiceTerms?.trim();
+  const gstin =
+    store?.invoiceStoreGstin?.trim() || tax?.invoiceStoreGstin?.trim() || b.sellerGstin;
+  const phone =
+    store?.invoiceStorePhone?.trim() || tax?.invoiceStorePhone?.trim() || b.sellerPhone;
+  const email =
+    store?.invoiceStoreEmail?.trim() || tax?.invoiceStoreEmail?.trim() || b.sellerEmail;
+  const tagline =
+    store?.invoiceStoreTagline?.trim() || tax?.invoiceStoreTagline?.trim() || "";
+  const legalFooter =
+    store?.invoiceLegalEntityName?.trim() ||
+    tax?.invoiceLegalEntityName?.trim() ||
+    name;
+  const termsRaw =
+    store?.invoiceTerms?.trim() || tax?.invoiceTerms?.trim();
   const footerTerms = termsRaw
     ? termsRaw.split(/\r?\n/).map((t) => t.trim()).filter(Boolean)
     : [...b.footerTerms];
-  const logoUrl = tax.appLogoUrl?.trim() || null;
+  const logoUrl = tax?.appLogoUrl?.trim() || null;
   return {
     legalName: name,
     addressLines,
@@ -218,7 +236,7 @@ export function buildDemoServiceInvoiceViewModel(
 ): ServiceInvoiceViewModel {
   const hsnSac = resolvedHsnSac(options);
   const tax = options?.taxSettings ?? null;
-  const sellerPack = mergeSellerFromSettings(tax);
+  const sellerPack = mergeSellerFromSettings(tax, options?.storeInvoice ?? undefined);
   const billName =
     input.customerType === "B2B" ? (input.company.trim() || "—") : input.customerName.trim() || "Walk-in / B2C";
   const qbLines: QuickBillLineInvoice[] = input.lines
@@ -305,7 +323,7 @@ export function mapQuickBillInvoiceToViewModel(
 ): ServiceInvoiceViewModel {
   const hsnSac = resolvedHsnSac(options);
   const tax = options?.taxSettings ?? null;
-  const sellerPack = mergeSellerFromSettings(tax);
+  const sellerPack = mergeSellerFromSettings(tax, options?.storeInvoice ?? undefined);
   const placeParts = [inv.regionName, inv.storeName].filter(Boolean);
   const placeOfSupply = placeParts.length > 0 ? placeParts.join(" · ") : inv.regionId;
   const billName =
@@ -387,6 +405,8 @@ export function mapQuickBillInvoiceToViewModel(
 
 export type SrfServiceBillPreviewInput = {
   reference: string;
+  /** Printed invoice number (store FY sequence); SR number stays in `reference`. */
+  invoiceNumber?: string | null;
   customerName: string;
   phone: string;
   email?: string;
@@ -407,7 +427,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
   options?: ServiceInvoiceMappingOptions,
 ): ServiceInvoiceViewModel {
   const tax = options?.taxSettings ?? null;
-  const sellerPack = mergeSellerFromSettings(tax);
+  const sellerPack = mergeSellerFromSettings(tax, options?.storeInvoice ?? undefined);
   const hsnSac = resolvedHsnSac(options);
   const adv = Number(input.advanceInr ?? 0);
   const net = Math.max(input.estimateTotalInr - adv, 0);
@@ -435,7 +455,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     documentLabel: "TAX INVOICE / PROFORMA",
     invoiceType: "Service bill",
     serviceReference: input.reference,
-    invoiceNumber: input.reference,
+    invoiceNumber: (input.invoiceNumber ?? "").trim() || input.reference,
     invoiceDate: new Date().toLocaleDateString(undefined, {
       day: "2-digit",
       month: "short",

@@ -9,6 +9,7 @@ import type { DemoUser, UserRole } from "../src/types/user";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
 import { resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { appendStockHistory } from "./db/stockHistory";
+import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
 
 type Authed = Request & { userId: string };
 
@@ -1647,8 +1648,8 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const { rows: locked } = await client.query<{ id: string; status: string }>(
-        `SELECT id, status FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+      const { rows: locked } = await client.query<{ id: string; status: string; store_id: string }>(
+        `SELECT id, status, store_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
       if (!locked[0] || (locked[0].status !== "draft" && locked[0].status !== "photo_pending")) {
@@ -1692,6 +1693,8 @@ export function registerSrfRoutes(
           estimatedFinishDate,
         ],
       );
+      const invNo = await allocateStoreInvoiceNumber(client, locked[0]!.store_id);
+      await client.query(`UPDATE srf_jobs SET invoice_number = $2 WHERE id = $1::uuid`, [srfId, invNo]);
       await client.query(
         `UPDATE srf_photo_sessions SET revoked_at = now() WHERE srf_id = $1::uuid AND revoked_at IS NULL`,
         [srfId],
@@ -1729,7 +1732,7 @@ export function registerSrfRoutes(
         trackingUrl,
         srfReference: refRow?.reference ?? "",
       }).catch(() => {});
-      res.json({ ok: true, trackingUrl });
+      res.json({ ok: true, trackingUrl, invoiceNumber: invNo });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);

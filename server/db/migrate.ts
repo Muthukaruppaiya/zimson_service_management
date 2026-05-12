@@ -923,6 +923,41 @@ export async function runMigrations(pool: Pool): Promise<void> {
   );
 
   await pool.query(`
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS invoice_display_name VARCHAR(280) NOT NULL DEFAULT '';
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS invoice_tagline VARCHAR(160) NOT NULL DEFAULT '';
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS invoice_address TEXT NOT NULL DEFAULT '';
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS invoice_phone VARCHAR(120) NOT NULL DEFAULT '';
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS invoice_email VARCHAR(200) NOT NULL DEFAULT '';
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS invoice_gstin VARCHAR(24) NOT NULL DEFAULT '';
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS invoice_legal_entity_name VARCHAR(280) NOT NULL DEFAULT '';
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS invoice_terms TEXT NOT NULL DEFAULT '';
+  `);
+
+  await pool.query(`
+    ALTER TABLE stores ADD COLUMN IF NOT EXISTS invoice_number_store_code VARCHAR(32) NOT NULL DEFAULT '';
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS store_invoice_sequences (
+      store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+      fy_key VARCHAR(8) NOT NULL,
+      last_value INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (store_id, fy_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_store_invoice_seq_fy ON store_invoice_sequences (fy_key);
+  `);
+
+  await pool.query(`
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(48);
+  `);
+
+  await pool.query(`
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_template VARCHAR(96) NOT NULL DEFAULT '{CODE}{FY2}-{SEQ}';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_seq_width SMALLINT NOT NULL DEFAULT 5;
+  `);
+
+  await pool.query(`
     ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_display_name VARCHAR(280) NOT NULL DEFAULT '';
     ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_tagline VARCHAR(160) NOT NULL DEFAULT '';
     ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_address TEXT NOT NULL DEFAULT '';
