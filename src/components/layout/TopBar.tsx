@@ -101,7 +101,7 @@ export function TopBar() {
   const unread = notifications.filter((n) => !n.isRead).length;
 
   return (
-    <header className="print:hidden sticky top-0 z-10 border-b border-zimson-300/60 bg-zimson-50/95 backdrop-blur">
+    <header className="print:hidden sticky top-0 z-20 shrink-0 border-b border-zimson-300/60 bg-zimson-50/95 backdrop-blur">
       <div className="flex h-14 items-center justify-between gap-4 px-4 md:px-8">
         <div className="flex min-w-0 items-center gap-3 md:hidden">
           <img

@@ -2690,9 +2690,23 @@ app.get("/api/customers", (req, res) => {
     res.status(503).json({ error: "Database is required." });
     return;
   }
+  const id = String(req.query.id ?? "").trim();
   const phone = String(req.query.phone ?? "").trim();
   (async () => {
     try {
+      if (id) {
+        const { rows } = await dbPool.query(
+          `SELECT ${CUSTOMERS_SELECT_FIELDS}
+           FROM customers
+           WHERE is_active = true AND id = $1::text
+           LIMIT 1`,
+          [id],
+        );
+        const row = rows[0];
+        const customer: CustomerRecord | null = row ? rowToCustomer(row as Record<string, unknown>) : null;
+        res.json({ customer });
+        return;
+      }
       if (!phone) {
         const { rows } = await dbPool.query(
           `SELECT ${CUSTOMERS_SELECT_FIELDS}

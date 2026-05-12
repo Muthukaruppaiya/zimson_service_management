@@ -84,7 +84,16 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         const data = await apiJson<{ customers: CustomerRecord[] }>("/api/customers");
         if (!cancelled) {
           const ids = new Set(SEED_CUSTOMERS.map((c) => c.id));
-          setExtra(data.customers.filter((c) => !ids.has(c.id)));
+          const fromServer = data.customers.filter((c) => !ids.has(c.id));
+          setExtra((prev) => {
+            const byId = new Map<string, CustomerRecord>();
+            for (const c of fromServer) byId.set(c.id, c);
+            for (const c of prev) {
+              if (ids.has(c.id)) continue;
+              if (!byId.has(c.id)) byId.set(c.id, c);
+            }
+            return Array.from(byId.values());
+          });
         }
       } catch {
         /* keep extra */

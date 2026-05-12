@@ -134,6 +134,9 @@ export function QuickBillPage() {
   const [billingRegionId, setBillingRegionId] = useState("");
   const [customerType, setCustomerType] = useState<"B2C" | "B2B">("B2C");
   const [customerName, setCustomerName] = useState("");
+  /** Keeps new-customer navigate URL stable without putting `customerName` in `checkCustomerInDb` deps (which retriggered lookup and cleared `customerChecked`). */
+  const customerNameForNavRef = useRef("");
+  customerNameForNavRef.current = customerName.trim();
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
@@ -235,6 +238,10 @@ export function QuickBillPage() {
   const [checkingCustomer, setCheckingCustomer] = useState(false);
   const autoLookupTimerRef = useRef<number | null>(null);
   const lastAutoLookupPhoneRef = useRef("");
+  /** Set synchronously when a customer row is applied; OTP gate trusts this if `customerChecked` lags one frame. */
+  const verifiedBillPhoneLast10Ref = useRef("");
+  const phoneInputRef = useRef("");
+  phoneInputRef.current = phone.trim();
 
   const applyLoadedCustomer = useCallback((data: LoadedCustomerRow) => {
     setCustomerType(data.customerKind);
@@ -244,28 +251,33 @@ export function QuickBillPage() {
     setCompany(data.company ?? "");
     setGst(data.gst ?? "");
     setPan(data.pan ?? "");
+    const p10 = phoneLast10((data.phone ?? "").trim());
+    verifiedBillPhoneLast10Ref.current = p10.length === 10 ? p10 : "";
     setCustomerChecked(true);
-    lastAutoLookupPhoneRef.current = phoneLast10((data.phone ?? "").trim());
+    lastAutoLookupPhoneRef.current = p10.length === 10 ? p10 : "";
   }, []);
 
   const checkCustomerInDb = useCallback(async () => {
     setError(null);
     setCustomerCheckMsg(null);
-    if (!phone.trim()) {
+    const rawPhone = phoneInputRef.current;
+    if (!rawPhone) {
       setCustomerChecked(false);
+      verifiedBillPhoneLast10Ref.current = "";
       setCustomerCheckMsg(null);
       return;
     }
-    const p10 = phoneLast10(phone.trim());
+    const p10 = phoneLast10(rawPhone);
     if (p10.length !== 10) {
       setCustomerChecked(false);
+      if (p10.length > 0) verifiedBillPhoneLast10Ref.current = "";
       setCustomerCheckMsg(p10.length > 0 ? "Enter full 10-digit mobile number." : null);
       return;
     }
     setCheckingCustomer(true);
     try {
       const data = await apiJson<{ customer: LoadedCustomerRow | null }>(
-        `/api/customers?phone=${encodeURIComponent(phone.trim())}`,
+        `/api/customers?phone=${encodeURIComponent(rawPhone)}`,
       );
       if (data.customer) {
         applyLoadedCustomer(data.customer);
@@ -288,9 +300,10 @@ export function QuickBillPage() {
           setCustomerCheckMsg("Existing customer found locally.");
         } else {
           setCustomerChecked(false);
+          verifiedBillPhoneLast10Ref.current = "";
           setCustomerCheckMsg("New customer — opening full registration.");
           navigate(
-            `/service/quick-bill/new-customer?phone=${encodeURIComponent(phone.trim())}&name=${encodeURIComponent(customerName.trim())}`,
+            `/service/quick-bill/new-customer?phone=${encodeURIComponent(rawPhone)}&name=${encodeURIComponent(customerNameForNavRef.current)}`,
           );
         }
       }
@@ -316,7 +329,7 @@ export function QuickBillPage() {
     } finally {
       setCheckingCustomer(false);
     }
-  }, [applyLoadedCustomer, customers, navigate, phone, customerName]);
+  }, [applyLoadedCustomer, customers, navigate]);
 
   useEffect(() => {
     const rp = searchParams.get("restorePhone");
@@ -362,10 +375,26 @@ export function QuickBillPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const data = await apiJson<{ customer: LoadedCustomerRow | null }>(
-          `/api/customers?phone=${encodeURIComponent(phoneHint)}`,
+        const byId = await apiJson<{ customer: LoadedCustomerRow | null }>(
+          `/api/customers?id=${encodeURIComponent(customerId)}`,
         );
-        if (!cancelled && data.customer) fromRecord(data.customer);
+        if (!cancelled && byId.customer) {
+          fromRecord(byId.customer);
+          return;
+        }
+
+        let found: LoadedCustomerRow | null = null;
+        for (let attempt = 0; attempt < 8 && !cancelled; attempt++) {
+          const data = await apiJson<{ customer: LoadedCustomerRow | null }>(
+            `/api/customers?phone=${encodeURIComponent(phoneHint)}`,
+          );
+          if (data.customer) {
+            found = data.customer;
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 140));
+        }
+        if (!cancelled && found) fromRecord(found);
         else if (!cancelled) setError("Could not load the new customer. Try registration again.");
       } catch {
         if (!cancelled) setError("Could not load saved customer. Check API connection.");
@@ -381,6 +410,7 @@ export function QuickBillPage() {
   useEffect(() => {
     const normalized = phoneLast10(phone);
     if (normalized === lastAutoLookupPhoneRef.current) return;
+    verifiedBillPhoneLast10Ref.current = "";
     setCustomerChecked(false);
     if (autoLookupTimerRef.current) window.clearTimeout(autoLookupTimerRef.current);
     autoLookupTimerRef.current = window.setTimeout(() => {
@@ -687,9 +717,33 @@ export function QuickBillPage() {
       }
     }
     const phoneDigits = phoneLast10(phone.trim());
-    if (phoneDigits.length === 10 && !customerChecked) {
-      setError("For this mobile number, wait for lookup to finish or complete customer registration.");
-      return false;
+    if (phoneDigits.length === 10) {
+      const inCustomersList = customers.some((c) => phoneLast10(c.phone) === phoneDigits);
+      const ok =
+        customerChecked ||
+        verifiedBillPhoneLast10Ref.current === phoneDigits ||
+        inCustomersList;
+      if (!ok) {
+        setError("For this mobile number, wait for lookup to finish or complete customer registration.");
+        return false;
+      }
+      if (!customerChecked && inCustomersList) {
+        const hit = customers.find((c) => phoneLast10(c.phone) === phoneDigits);
+        if (hit) {
+          applyLoadedCustomer({
+            displayName: hit.displayName,
+            phone: hit.phone,
+            alternatePhone: hit.alternatePhone,
+            email: hit.email,
+            address: hit.address,
+            city: hit.city,
+            customerKind: hit.customerKind,
+            company: hit.company,
+            gst: hit.gst,
+            pan: hit.pan,
+          });
+        }
+      }
     }
     if (!watchBrand || !resolvedWatchModel) {
       setError("Choose a watch brand and model (pick from list or use + add new model).");
@@ -907,6 +961,7 @@ export function QuickBillPage() {
     setCustomerChecked(false);
     setCustomerCheckMsg(null);
     lastAutoLookupPhoneRef.current = "";
+    verifiedBillPhoneLast10Ref.current = "";
     setWatchModelSaveMsg(null);
   }
 

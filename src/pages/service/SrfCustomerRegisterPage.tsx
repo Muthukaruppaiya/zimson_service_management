@@ -123,9 +123,12 @@ export function SrfCustomerRegisterPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [successInfo, setSuccessInfo] = useState<{ id: string; customerCode: string | null | undefined } | null>(
-    null,
-  );
+  const [successInfo, setSuccessInfo] = useState<{
+    id: string;
+    customerCode: string | null | undefined;
+    /** Canonical mobile saved on the server (for resume URL). */
+    phoneDigits: string;
+  } | null>(null);
 
   useEffect(() => {
     const parts = initialName.trim().split(/\s+/).filter(Boolean);
@@ -396,7 +399,7 @@ export function SrfCustomerRegisterPage() {
         referenceName: referenceName.trim() || undefined,
         representativeName: representativeName.trim() || undefined,
       });
-      setSuccessInfo({ id: row.id, customerCode: row.customerCode });
+      setSuccessInfo({ id: row.id, customerCode: row.customerCode, phoneDigits: row.phone });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save customer.");
     } finally {
@@ -406,7 +409,8 @@ export function SrfCustomerRegisterPage() {
 
   function afterSuccessNavigate() {
     if (!successInfo) return;
-    const q = `customerId=${encodeURIComponent(successInfo.id)}&phone=${encodeURIComponent(phone)}`;
+    const digits = successInfo.phoneDigits || digitsOnly(phone, 12);
+    const q = `customerId=${encodeURIComponent(successInfo.id)}&phone=${encodeURIComponent(digits)}`;
     if (returnTo && returnTo.startsWith("/")) {
       navigate(`${returnTo}${returnTo.includes("?") ? "&" : "?"}${q}`, { replace: true });
     } else if (forQuickBill) {

@@ -370,7 +370,7 @@ export function Sidebar() {
   const initials = initialsOf(user?.displayName ?? "");
 
   return (
-    <aside className="print:hidden hidden md:flex md:flex-col w-64 shrink-0 relative overflow-hidden border-r border-zimson-200/70 bg-gradient-to-b from-white via-zimson-50 to-zimson-100/60">
+    <aside className="print:hidden relative hidden h-dvh max-h-dvh w-64 shrink-0 overflow-hidden border-r border-zimson-200/70 bg-gradient-to-b from-white via-zimson-50 to-zimson-100/60 md:flex md:flex-col">
       <div
         aria-hidden
         className="pointer-events-none absolute -top-24 -left-16 h-56 w-56 rounded-full bg-gradient-to-br from-zimson-300/40 to-amber-200/30 blur-3xl"
@@ -402,7 +402,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="relative flex flex-1 flex-col overflow-y-auto px-3 py-4" aria-label="Main">
+      <nav className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-4" aria-label="Main">
         <NavLink
           to="/"
           end
