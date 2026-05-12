@@ -802,6 +802,56 @@ export async function runMigrations(pool: Pool): Promise<void> {
       ADD COLUMN IF NOT EXISTS inward_note TEXT NOT NULL DEFAULT '';
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS countries (
+      id TEXT PRIMARY KEY,
+      name VARCHAR(160) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_countries_sort ON countries (sort_order);
+  `);
+  await pool.query(`
+    INSERT INTO countries (id, name, sort_order) VALUES
+      ('IN', 'India', 10),
+      ('AE', 'United Arab Emirates', 20),
+      ('SG', 'Singapore', 30),
+      ('US', 'United States', 40),
+      ('GB', 'United Kingdom', 50),
+      ('AU', 'Australia', 60),
+      ('MY', 'Malaysia', 70),
+      ('LK', 'Sri Lanka', 80)
+    ON CONFLICT (id) DO NOTHING;
+  `);
+  await pool.query(`
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS customer_code VARCHAR(32);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_customer_code
+      ON customers (customer_code) WHERE customer_code IS NOT NULL;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS salutation VARCHAR(16);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS first_name VARCHAR(120);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_name VARCHAR(120);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS dob DATE;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS anniversary_date DATE;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS telephone VARCHAR(40);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS otp_phone VARCHAR(80);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS phone_verified_at TIMESTAMPTZ;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS customer_data_source VARCHAR(24) NOT NULL DEFAULT 'registered';
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS billing_address JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS shipping_address JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS tax_preference VARCHAR(32);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS b2b_trade_display_name VARCHAR(240);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS remark_attention TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS reference_name VARCHAR(200);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS representative_name VARCHAR(200);
+  `);
+
+  await pool.query(`
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS watch_remark TEXT NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS warranty_status VARCHAR(32) NOT NULL DEFAULT 'unspecified';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS watch_document_path TEXT;
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS watch_image_path TEXT;
+  `);
+
   const { rows: rc } = await pool.query<{ c: number }>("SELECT COUNT(*)::int AS c FROM regions");
   if ((rc[0]?.c ?? 0) === 0) {
     const client = await pool.connect();

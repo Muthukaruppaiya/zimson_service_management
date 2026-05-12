@@ -633,7 +633,7 @@ export function SrfBookingV2Page() {
   return (
     <div>
       <ServiceBreadcrumb current="SRF booking" />
-      <PageHeader title="SRF booking" description="Customer -> Watch -> Photo QR upload -> Estimate OTP -> Review" />
+      <PageHeader title="SRF booking" description="" />
       <div className="mb-6 rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
         <Stepper steps={[...steps]} activeIndex={step} />
       </div>

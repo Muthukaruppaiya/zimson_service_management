@@ -70,7 +70,7 @@ export function CustomerMasterPage() {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((c) =>
-      [c.displayName, c.phone, c.alternatePhone ?? "", c.email, c.city ?? "", c.company ?? ""]
+      [c.displayName, c.phone, c.alternatePhone ?? "", c.email, c.city ?? "", c.company ?? "", c.customerCode ?? ""]
         .join(" ")
         .toLowerCase()
         .includes(q),
@@ -172,24 +172,42 @@ export function CustomerMasterPage() {
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-zimson-50/70 text-stone-700">
                   <tr>
+                    <th className="px-3 py-2 font-semibold">Code</th>
                     <th className="px-3 py-2 font-semibold">Name</th>
                     <th className="px-3 py-2 font-semibold">Primary mobile</th>
                     <th className="px-3 py-2 font-semibold">Alternate mobile</th>
                     <th className="px-3 py-2 font-semibold">Email</th>
                     <th className="px-3 py-2 font-semibold">City</th>
                     <th className="px-3 py-2 font-semibold">Type</th>
+                    <th className="px-3 py-2 font-semibold">Verified</th>
                     <th className="px-3 py-2 font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedRows.map((c) => (
+                  {pagedRows.map((c) => {
+                    const fullyVerified = !!(c.phoneVerifiedAt && c.emailVerifiedAt);
+                    return (
                     <tr key={c.id} className="border-t border-zimson-100">
+                      <td className="px-3 py-2 font-mono text-xs text-stone-700">{c.customerCode || "—"}</td>
                       <td className="px-3 py-2">{c.displayName}</td>
                       <td className="px-3 py-2">{c.phone}</td>
                       <td className="px-3 py-2">{c.alternatePhone || "-"}</td>
                       <td className="px-3 py-2">{c.email || "-"}</td>
                       <td className="px-3 py-2">{c.city || "-"}</td>
                       <td className="px-3 py-2">{c.customerKind}</td>
+                      <td className="px-3 py-2">
+                        {fullyVerified ? (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                            Verified
+                          </span>
+                        ) : c.customerDataSource === "migrated" ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                            Pending verify
+                          </span>
+                        ) : (
+                          <span className="text-xs text-stone-500">—</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         <button
                           type="button"
@@ -200,10 +218,11 @@ export function CustomerMasterPage() {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-sm text-stone-500" colSpan={7}>
+                      <td className="px-3 py-6 text-sm text-stone-500" colSpan={9}>
                         No customers found.
                       </td>
                     </tr>

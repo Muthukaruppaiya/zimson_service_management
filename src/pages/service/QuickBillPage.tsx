@@ -14,7 +14,7 @@ import { buildDemoServiceInvoiceViewModel, mapQuickBillInvoiceToViewModel } from
 import { APP_PAYMENT_MODES, type AppPaymentMode } from "../../lib/paymentModes";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
-import type { QuickBillInvoice } from "../../types/quickBill";
+import type { QuickBillInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import {
@@ -121,9 +121,19 @@ export function QuickBillPage() {
   const [pan, setPan] = useState("");
 
   const [watchBrand, setWatchBrand] = useState("");
-  const models = watchModelsForBrand(watchBrand);
-  const [watchModel, setWatchModel] = useState<string>(models[0]?.model ?? "");
+  const catalogModels = useMemo(() => watchModelsForBrand(watchBrand), [watchBrand]);
+  const [catalogModelKey, setCatalogModelKey] = useState("");
+  const [customModelText, setCustomModelText] = useState("");
+  const resolvedWatchModel = useMemo(() => {
+    if (catalogModelKey === "__new__") return customModelText.trim();
+    return catalogModelKey.trim();
+  }, [catalogModelKey, customModelText]);
   const [watchRef, setWatchRef] = useState("");
+  const [watchRemark, setWatchRemark] = useState("");
+  const [warrantyStatus, setWarrantyStatus] = useState<QuickBillWarrantyStatus>("unspecified");
+  const [watchDocumentPath, setWatchDocumentPath] = useState<string | null>(null);
+  const [watchImagePath, setWatchImagePath] = useState<string | null>(null);
+  const [uploadBusy, setUploadBusy] = useState<null | "doc" | "img">(null);
 
   const [lines, setLines] = useState<LineItem[]>([emptyLine()]);
   const [serviceChargeInr, setServiceChargeInr] = useState("");
@@ -355,10 +365,16 @@ export function QuickBillPage() {
   const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
     const ms = watchModelsForBrand(nextBrand);
-    const first = ms[0];
-    setWatchModel(first?.model ?? "");
-    if (first?.refHint) setWatchRef(first.refHint);
-    else setWatchRef("");
+    if (ms.length === 0) {
+      setCatalogModelKey("__new__");
+      setCustomModelText("");
+      setWatchRef("");
+    } else {
+      setCatalogModelKey(ms[0]!.model);
+      setCustomModelText("");
+      if (ms[0]?.refHint) setWatchRef(ms[0].refHint);
+      else setWatchRef("");
+    }
   }, []);
 
   useEffect(() => {
@@ -484,6 +500,32 @@ export function QuickBillPage() {
     setBarcodeSku("");
   }
 
+  async function uploadWatchFile(kind: "doc" | "img", file: File | null) {
+    if (!file) return;
+    setUploadBusy(kind);
+    setError(null);
+    try {
+      if (!apiMode) {
+        const label = `(demo, not saved) ${file.name}`;
+        if (kind === "doc") setWatchDocumentPath(label);
+        else setWatchImagePath(label);
+        return;
+      }
+      const fd = new FormData();
+      fd.append("file", file);
+      const out = await apiJson<{ url: string }>("/api/service/quick-bill-attachments", {
+        method: "POST",
+        body: fd,
+      });
+      if (kind === "doc") setWatchDocumentPath(out.url);
+      else setWatchImagePath(out.url);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Upload failed.");
+    } finally {
+      setUploadBusy(null);
+    }
+  }
+
   function validateBeforeOtp(): boolean {
     setError(null);
     if (customerType === "B2B") {
@@ -509,8 +551,8 @@ export function QuickBillPage() {
       setError("For this mobile number, wait for lookup to finish or complete customer registration.");
       return false;
     }
-    if (!watchBrand || !watchModel.trim()) {
-      setError("Choose a watch brand and model from the catalog.");
+    if (!watchBrand || !resolvedWatchModel) {
+      setError("Choose a watch brand and model (pick from list or use + add new model).");
       return false;
     }
     if (apiMode && user?.role === "super_admin" && !billingRegionId.trim()) {
@@ -584,8 +626,12 @@ export function QuickBillPage() {
             gst: gst.trim().toUpperCase() || null,
             pan: pan.trim().toUpperCase() || null,
             watchBrand,
-            watchModel,
+            watchModel: resolvedWatchModel,
             watchRef: watchRef.trim() || null,
+            watchRemark: watchRemark.trim(),
+            warrantyStatus,
+            watchDocumentPath,
+            watchImagePath,
             technicianId: technicianId || null,
             technicianName: tech?.fullName ?? null,
             paymentMode,
@@ -655,9 +701,14 @@ export function QuickBillPage() {
     if (b0) syncModelForBrand(b0);
     else {
       setWatchBrand("");
-      setWatchModel("");
+      setCatalogModelKey("");
+      setCustomModelText("");
       setWatchRef("");
     }
+    setWatchRemark("");
+    setWarrantyStatus("unspecified");
+    setWatchDocumentPath(null);
+    setWatchImagePath(null);
     setLines([emptyLine()]);
     setServiceChargeInr("");
     setPartPick("");
@@ -724,8 +775,12 @@ export function QuickBillPage() {
         gst,
         pan,
         watchBrand,
-        watchModel,
+        watchModel: resolvedWatchModel,
         watchRef,
+        watchRemark,
+        warrantyStatus,
+        watchDocumentPath,
+        watchImagePath,
         technicianName: techName,
         paymentMode,
         notes,
@@ -932,8 +987,11 @@ export function QuickBillPage() {
           </div>
         </Card>
 
-        <Card title="Watch (catalog)" subtitle="Brand list from master data; models from catalog for that brand">
-          <div className="grid gap-4 sm:grid-cols-3">
+        <Card
+          title="Watch on counter"
+          subtitle="Brand from master data. Models listed are the saved matches for that brand; use + when the model is not in the list. Document and image upload store files on the server (demo mode shows file name only). Warranty does not change totals yet — business rule pending."
+        >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label htmlFor="qb-brand" className="text-xs font-medium text-stone-600">
                 Brand *
@@ -951,38 +1009,140 @@ export function QuickBillPage() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="sm:col-span-2">
               <label htmlFor="qb-model" className="text-xs font-medium text-stone-600">
                 Model *
               </label>
-              <select
-                id="qb-model"
-                value={watchModel}
-                onChange={(e) => {
-                  setWatchModel(e.target.value);
-                  const m = models.find((x) => x.model === e.target.value);
-                  if (m?.refHint) setWatchRef(m.refHint);
-                }}
-                className={inputClass}
-              >
-                {models.map((m) => (
-                  <option key={m.id} value={m.model}>
-                    {m.model}
-                  </option>
-                ))}
-              </select>
+              {catalogModels.length > 0 ? (
+                <>
+                  <select
+                    id="qb-model"
+                    value={catalogModelKey === "__new__" ? "__new__" : catalogModelKey}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__new__") {
+                        setCatalogModelKey("__new__");
+                        setCustomModelText("");
+                        return;
+                      }
+                      setCatalogModelKey(v);
+                      setCustomModelText("");
+                      const m = catalogModels.find((x) => x.model === v);
+                      if (m?.refHint) setWatchRef(m.refHint);
+                    }}
+                    className={inputClass}
+                  >
+                    {catalogModels.map((m) => (
+                      <option key={m.id} value={m.model}>
+                        {m.model}
+                      </option>
+                    ))}
+                    <option value="__new__">+ Add new model…</option>
+                  </select>
+                  {catalogModelKey === "__new__" ? (
+                    <input
+                      className={`${inputClass} mt-2`}
+                      placeholder="Type new model name"
+                      value={customModelText}
+                      onChange={(e) => setCustomModelText(e.target.value)}
+                      aria-label="New model name"
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <div>
+                  <p className="mb-1 text-xs text-amber-900">
+                    No saved models for this brand in the list — enter the model name.
+                  </p>
+                  <input
+                    id="qb-model-custom"
+                    className={inputClass}
+                    placeholder="Model name *"
+                    value={customModelText}
+                    onChange={(e) => {
+                      setCustomModelText(e.target.value);
+                      setCatalogModelKey("__new__");
+                    }}
+                  />
+                </div>
+              )}
             </div>
             <div>
               <label htmlFor="qb-ref" className="text-xs font-medium text-stone-600">
-                Serial / ref (optional)
+                Serial number (optional)
               </label>
               <input
                 id="qb-ref"
                 value={watchRef}
                 onChange={(e) => setWatchRef(e.target.value)}
                 className={inputClass}
-                placeholder="Unit serial or reference"
+                placeholder="Case / movement serial"
               />
+            </div>
+            <div className="sm:col-span-2">
+              <label htmlFor="qb-watch-remark" className="text-xs font-medium text-stone-600">
+                Remark (watch)
+              </label>
+              <textarea
+                id="qb-watch-remark"
+                rows={2}
+                value={watchRemark}
+                onChange={(e) => setWatchRemark(e.target.value)}
+                className={inputClass}
+                placeholder="Condition notes, accessories, etc."
+              />
+            </div>
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label htmlFor="qb-warranty" className="text-xs font-medium text-stone-600">
+                Warranty
+              </label>
+              <select
+                id="qb-warranty"
+                value={warrantyStatus}
+                onChange={(e) => setWarrantyStatus(e.target.value as QuickBillWarrantyStatus)}
+                className={inputClass}
+              >
+                <option value="unspecified">Not specified</option>
+                <option value="none">No manufacturer warranty</option>
+                <option value="under_warranty">Under warranty (bill impact — to finalise)</option>
+                <option value="extended">Extended warranty (bill impact — to finalise)</option>
+              </select>
+              <p className="mt-1 text-xs text-stone-500">
+                If warranty applies, whether the bill is reduced or set to zero is not automated yet — needs your
+                policy.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="qb-doc" className="text-xs font-medium text-stone-600">
+                Document upload
+              </label>
+              <input
+                id="qb-doc"
+                type="file"
+                className="mt-1 block w-full text-sm text-stone-700 file:mr-3 file:rounded-lg file:border file:border-zimson-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-zimson-900"
+                accept=".pdf,.doc,.docx,image/*"
+                disabled={uploadBusy === "doc"}
+                onChange={(e) => void uploadWatchFile("doc", e.target.files?.[0] ?? null)}
+              />
+              {watchDocumentPath ? (
+                <p className="mt-1 text-xs text-emerald-800">Saved: {watchDocumentPath}</p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="qb-img" className="text-xs font-medium text-stone-600">
+                Image upload
+              </label>
+              <input
+                id="qb-img"
+                type="file"
+                className="mt-1 block w-full text-sm text-stone-700 file:mr-3 file:rounded-lg file:border file:border-zimson-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-zimson-900"
+                accept="image/*"
+                disabled={uploadBusy === "img"}
+                onChange={(e) => void uploadWatchFile("img", e.target.files?.[0] ?? null)}
+              />
+              {watchImagePath ? (
+                <p className="mt-1 text-xs text-emerald-800">Saved: {watchImagePath}</p>
+              ) : null}
             </div>
           </div>
         </Card>

@@ -26,7 +26,9 @@ export function watchBrands(): string[] {
 }
 
 export function watchModelsForBrand(brand: string): WatchCatalogEntry[] {
-  return SEED_WATCH_CATALOG.filter((w) => w.brand === brand);
+  const b = brand.trim().toLowerCase();
+  if (!b) return [];
+  return SEED_WATCH_CATALOG.filter((w) => w.brand.trim().toLowerCase() === b);
 }
 
 /** Spare parts test data for line items / estimates. */

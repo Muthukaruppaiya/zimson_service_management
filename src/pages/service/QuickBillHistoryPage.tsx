@@ -86,7 +86,7 @@ export function QuickBillHistoryPage() {
       <ServiceBreadcrumb current="Quick bill history" />
       <PageHeader
         title="Quick bill history"
-        description="Separate register page with filters and detailed popup."
+        description=""
         actions={
           <div className="flex flex-wrap gap-2">
             <Link

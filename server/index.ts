@@ -28,6 +28,84 @@ const PORT = Number(process.env.PORT) || 4000;
 const COOKIE = "zimson_session";
 const dbPool = createPool();
 
+const customerRegisterOtpSessions = new Map<
+  string,
+  { mobileCode: string; emailCode: string; phoneLast10: string; emailNorm: string; expiresAt: number }
+>();
+const CUSTOMER_OTP_TTL_MS = 20 * 60 * 1000;
+
+const CUSTOMERS_SELECT_FIELDS = `
+  id,
+  customer_code AS "customerCode",
+  display_name AS "displayName",
+  salutation,
+  first_name AS "firstName",
+  last_name AS "lastName",
+  phone,
+  otp_phone AS "otpPhone",
+  alternate_phone AS "alternatePhone",
+  telephone,
+  email,
+  dob::text AS "dob",
+  anniversary_date::text AS "anniversaryDate",
+  address,
+  city,
+  billing_address AS "billingAddress",
+  shipping_address AS "shippingAddress",
+  customer_kind AS "customerKind",
+  company,
+  gst,
+  pan,
+  tax_preference AS "taxPreference",
+  b2b_trade_display_name AS "b2bTradeDisplayName",
+  remark_attention AS "remarkAttention",
+  reference_name AS "referenceName",
+  representative_name AS "representativeName",
+  phone_verified_at AS "phoneVerifiedAt",
+  email_verified_at AS "emailVerifiedAt",
+  customer_data_source AS "customerDataSource",
+  created_at AS "createdAt"
+`;
+
+function rowToCustomer(r: Record<string, unknown>): CustomerRecord {
+  const iso = (v: unknown) =>
+    v instanceof Date ? v.toISOString() : v ? new Date(String(v)).toISOString() : null;
+  const billing = r.billingAddress as CustomerRecord["billingAddress"];
+  const shipping = r.shippingAddress as CustomerRecord["shippingAddress"];
+  return {
+    id: String(r.id),
+    customerCode: r.customerCode != null ? String(r.customerCode) : null,
+    displayName: String(r.displayName ?? ""),
+    salutation: r.salutation != null ? String(r.salutation) : undefined,
+    firstName: r.firstName != null ? String(r.firstName) : undefined,
+    lastName: r.lastName != null ? String(r.lastName) : undefined,
+    phone: String(r.phone ?? ""),
+    otpPhone: r.otpPhone != null ? String(r.otpPhone) : null,
+    alternatePhone: r.alternatePhone != null ? String(r.alternatePhone) : undefined,
+    telephone: r.telephone != null ? String(r.telephone) : null,
+    email: String(r.email ?? ""),
+    dob: r.dob != null ? String(r.dob) : null,
+    anniversaryDate: r.anniversaryDate != null ? String(r.anniversaryDate) : null,
+    address: r.address != null ? String(r.address) : undefined,
+    city: r.city != null ? String(r.city) : undefined,
+    billingAddress: billing && typeof billing === "object" ? billing : undefined,
+    shippingAddress: shipping && typeof shipping === "object" ? shipping : undefined,
+    customerKind: (r.customerKind as CustomerKind) ?? "B2C",
+    company: r.company != null ? String(r.company) : undefined,
+    gst: r.gst != null ? String(r.gst) : undefined,
+    pan: r.pan != null ? String(r.pan) : undefined,
+    taxPreference: (r.taxPreference as CustomerRecord["taxPreference"]) ?? null,
+    b2bTradeDisplayName: r.b2bTradeDisplayName != null ? String(r.b2bTradeDisplayName) : null,
+    remarkAttention: r.remarkAttention != null ? String(r.remarkAttention) : null,
+    referenceName: r.referenceName != null ? String(r.referenceName) : null,
+    representativeName: r.representativeName != null ? String(r.representativeName) : null,
+    phoneVerifiedAt: iso(r.phoneVerifiedAt),
+    emailVerifiedAt: iso(r.emailVerifiedAt),
+    customerDataSource: (r.customerDataSource as CustomerRecord["customerDataSource"]) ?? "registered",
+    createdAt: iso(r.createdAt) ?? new Date().toISOString(),
+  };
+}
+
 type DbUserRow = {
   id: string;
   employee_code: string | null;
@@ -211,6 +289,22 @@ async function nextDocNumber(
   );
   const num = String(seq.rows[0]!.last_value).padStart(4, "0");
   return `${prefix}${yy}${scopeCode}${num}${suffix}`;
+}
+
+async function nextCustomerCode(
+  client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<{ last_value: number }> }> },
+): Promise<string> {
+  const yy = String(new Date().getFullYear()).slice(-2);
+  const seq = await client.query<{ last_value: number }>(
+    `INSERT INTO number_sequences (prefix, scope_code, year_2, last_value)
+     VALUES ('CUST', 'GLOBAL', $1, 1001)
+     ON CONFLICT (prefix, scope_code, year_2)
+     DO UPDATE SET last_value = number_sequences.last_value + 1
+     RETURNING last_value`,
+    [yy],
+  );
+  const num = String(seq.rows[0]!.last_value).padStart(5, "0");
+  return `CUST${yy}${num}`;
 }
 
 async function getSeriesPrefixSuffix(
@@ -2176,6 +2270,77 @@ function phoneLast10(raw: string): string {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+app.get("/api/countries", (_req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  void (async () => {
+    try {
+      const { rows } = await dbPool.query<{ id: string; name: string; sortOrder: number }>(
+        `SELECT id, name, sort_order AS "sortOrder" FROM countries ORDER BY sort_order ASC, name ASC`,
+      );
+      res.json({ countries: rows });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load countries." });
+    }
+  })();
+});
+
+/** Demo stub: real GSTIN verification needs a government / ASP API and credentials. */
+app.post("/api/gst/lookup", (req, res) => {
+  const gst = String((req.body as { gst?: string })?.gst ?? "")
+    .trim()
+    .toUpperCase();
+  if (!GSTIN_RE.test(gst)) {
+    res.status(400).json({ error: "Enter a valid 15-character GSTIN to fetch company name." });
+    return;
+  }
+  const panPart = gst.slice(2, 12);
+  res.json({
+    tradeName: `Registered entity (${panPart})`,
+    legalName: `Legal name for GSTIN …${gst.slice(-4)}`,
+  });
+});
+
+/** Start server-side OTP session for customer registration (demo: returns OTPs in JSON). */
+app.post("/api/customers/register-otp-session", (req, res) => {
+  const primaryPhone = String((req.body as { primaryPhone?: string })?.primaryPhone ?? "").trim();
+  const otpPhone = String((req.body as { otpPhone?: string })?.otpPhone ?? "").trim();
+  const email = String((req.body as { email?: string })?.email ?? "")
+    .trim()
+    .toLowerCase();
+  const primaryP10 = phoneLast10(primaryPhone);
+  if (primaryP10.length !== 10) {
+    res.status(400).json({ error: "Primary mobile must be 10 digits." });
+    return;
+  }
+  const target = otpPhone || primaryPhone;
+  const p10 = phoneLast10(target);
+  if (p10.length !== 10) {
+    res.status(400).json({ error: "Enter a valid 10-digit mobile for OTP (or fill OTP mobile)." });
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: "Enter a valid email before requesting OTP." });
+    return;
+  }
+  const mobileCode = String(Math.floor(100000 + Math.random() * 900000));
+  const emailCode = String(Math.floor(100000 + Math.random() * 900000));
+  const sessionId = crypto.randomUUID();
+  customerRegisterOtpSessions.set(sessionId, {
+    mobileCode,
+    emailCode,
+    phoneLast10: p10,
+    emailNorm: email,
+    expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS,
+  });
+  res.json({ sessionId, demoMobileOtp: mobileCode, demoEmailOtp: emailCode });
+});
+
 app.get("/api/customers", (req, res) => {
   if (!dbPool) {
     res.status(503).json({ error: "Database is required." });
@@ -2185,80 +2350,19 @@ app.get("/api/customers", (req, res) => {
   (async () => {
     try {
       if (!phone) {
-        const { rows } = await dbPool.query<{
-          id: string;
-          displayName: string;
-          phone: string;
-          alternatePhone: string | null;
-          email: string;
-          address: string | null;
-          city: string | null;
-          customerKind: CustomerKind;
-          company: string | null;
-          gst: string | null;
-          pan: string | null;
-          createdAt: Date;
-        }>(
-          `SELECT id,
-                  display_name AS "displayName",
-                  phone,
-                  alternate_phone AS "alternatePhone",
-                  email,
-                  address,
-                  city,
-                  customer_kind AS "customerKind",
-                  company,
-                  gst,
-                  pan,
-                  created_at AS "createdAt"
+        const { rows } = await dbPool.query(
+          `SELECT ${CUSTOMERS_SELECT_FIELDS}
            FROM customers
            WHERE is_active = true
            ORDER BY created_at DESC`,
         );
-        const customers: CustomerRecord[] = rows.map((r) => ({
-          id: r.id,
-          displayName: r.displayName,
-          phone: r.phone,
-          alternatePhone: r.alternatePhone ?? undefined,
-          email: r.email,
-            address: r.address ?? undefined,
-            city: r.city ?? undefined,
-          customerKind: r.customerKind,
-          company: r.company ?? undefined,
-          gst: r.gst ?? undefined,
-          pan: r.pan ?? undefined,
-          createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : new Date(r.createdAt).toISOString(),
-        }));
+        const customers: CustomerRecord[] = rows.map((r) => rowToCustomer(r as Record<string, unknown>));
         res.json({ customers });
         return;
       }
       const p10 = phoneLast10(phone);
-      const { rows } = await dbPool.query<{
-        id: string;
-        displayName: string;
-        phone: string;
-        alternatePhone: string | null;
-        email: string;
-        address: string | null;
-        city: string | null;
-        customerKind: CustomerKind;
-        company: string | null;
-        gst: string | null;
-        pan: string | null;
-        createdAt: Date;
-      }>(
-        `SELECT id,
-                display_name AS "displayName",
-                phone,
-                alternate_phone AS "alternatePhone",
-                email,
-                address,
-                city,
-                customer_kind AS "customerKind",
-                company,
-                gst,
-                pan,
-                created_at AS "createdAt"
+      const { rows } = await dbPool.query(
+        `SELECT ${CUSTOMERS_SELECT_FIELDS}
          FROM customers
          WHERE is_active = true AND phone_last10 = $1
          ORDER BY created_at DESC
@@ -2266,22 +2370,7 @@ app.get("/api/customers", (req, res) => {
         [p10],
       );
       const row = rows[0];
-      const customer: CustomerRecord | null = row
-        ? {
-            id: row.id,
-            displayName: row.displayName,
-            phone: row.phone,
-            alternatePhone: row.alternatePhone ?? undefined,
-            email: row.email,
-            address: row.address ?? undefined,
-            city: row.city ?? undefined,
-            customerKind: row.customerKind,
-            company: row.company ?? undefined,
-            gst: row.gst ?? undefined,
-            pan: row.pan ?? undefined,
-            createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
-          }
-        : null;
+      const customer: CustomerRecord | null = row ? rowToCustomer(row as Record<string, unknown>) : null;
       res.json({ customer });
     } catch (e) {
       console.error(e);
@@ -2297,85 +2386,249 @@ app.post("/api/customers", async (req, res) => {
   }
   const uid = await getSessionUserId(req);
   const actor = uid ? findUser(uid) : null;
-  const body = req.body as {
-    displayName: string;
-    phone: string;
-    alternatePhone?: string;
-    email: string;
-    address?: string;
+
+  type AddrIn = {
+    doorNo?: string;
+    street?: string;
     city?: string;
-    customerKind: CustomerKind;
+    district?: string;
+    state?: string;
+    countryId?: string;
+  };
+  const body = req.body as {
+    sessionId?: string;
+    mobileOtp?: string;
+    emailOtp?: string;
+    customerKind?: CustomerKind;
+    salutation?: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    otpPhone?: string;
+    alternatePhone?: string;
+    telephone?: string;
+    email?: string;
+    dob?: string | null;
+    anniversaryDate?: string | null;
+    billingAddress?: AddrIn;
+    shippingAddress?: AddrIn;
+    sameShippingAsBilling?: boolean;
+    b2bTradeDisplayName?: string;
+    taxPreference?: "with_tax" | "without_tax_exhibited";
     company?: string;
     gst?: string;
     pan?: string;
+    remarkAttention?: string;
+    referenceName?: string;
+    representativeName?: string;
   };
-  const displayName = body.displayName.trim();
-  const phone = body.phone.trim();
+
+  function addrOk(a: AddrIn | undefined): boolean {
+    if (!a) return false;
+    return (
+      !!(a.doorNo ?? "").trim() &&
+      !!(a.street ?? "").trim() &&
+      !!(a.city ?? "").trim() &&
+      !!(a.district ?? "").trim() &&
+      !!(a.state ?? "").trim() &&
+      !!(a.countryId ?? "").trim()
+    );
+  }
+
+  const sessionId = String(body.sessionId ?? "").trim();
+  const mobileOtp = String(body.mobileOtp ?? "").trim();
+  const emailOtp = String(body.emailOtp ?? "").trim();
+  const customerKind = body.customerKind === "B2B" ? "B2B" : "B2C";
+  const salutation = String(body.salutation ?? "").trim();
+  const firstName = String(body.firstName ?? "").trim();
+  const lastName = String(body.lastName ?? "").trim();
+  const phone = String(body.phone ?? "").trim();
+  const p10Primary = phoneLast10(phone);
+  const otpPhoneRaw = String(body.otpPhone ?? "").trim();
+  const otpDigits = otpPhoneRaw.replace(/\D/g, "");
+  const otpPhoneStored =
+    otpDigits.length >= 10 && phoneLast10(otpDigits) !== p10Primary ? otpDigits.slice(-10) : null;
   const alternatePhone = body.alternatePhone?.trim() || null;
-  const email = body.email.trim();
-  const address = body.address?.trim() || null;
-  const city = body.city?.trim() || null;
-  const customerKind = body.customerKind;
+  const telephone = body.telephone?.trim() || null;
+  const email = String(body.email ?? "").trim().toLowerCase();
+  const dob = String(body.dob ?? "").trim() || null;
+  const anniversaryDate = String(body.anniversaryDate ?? "").trim() || null;
+  const billingAddress = body.billingAddress ?? {};
+  const sameShip = !!body.sameShippingAsBilling;
+  const shippingAddress = sameShip ? { ...billingAddress } : body.shippingAddress ?? {};
+  const b2bTradeDisplayName = String(body.b2bTradeDisplayName ?? "").trim();
+  const taxPreference =
+    customerKind === "B2B"
+      ? body.taxPreference === "without_tax_exhibited"
+        ? "without_tax_exhibited"
+        : "with_tax"
+      : null;
   const company = body.company?.trim() || null;
   const gst = body.gst?.trim().toUpperCase() || null;
   const pan = body.pan?.trim().toUpperCase() || null;
-  if (!displayName || !phone) {
-    res.status(400).json({ error: "displayName and phone are required." });
+  const remarkAttention = body.remarkAttention?.trim() || null;
+  const referenceName = body.referenceName?.trim() || null;
+  const representativeName = body.representativeName?.trim() || null;
+
+  if (!sessionId || !mobileOtp || !emailOtp) {
+    res.status(400).json({ error: "Complete mobile and email OTP verification first." });
     return;
   }
-  const p10 = phoneLast10(phone);
-  if (p10.length !== 10) {
-    res.status(400).json({ error: "Valid 10-digit mobile number is required." });
+  const sess = customerRegisterOtpSessions.get(sessionId);
+  if (!sess || sess.expiresAt < Date.now()) {
+    res.status(400).json({ error: "OTP session expired. Request new codes." });
     return;
   }
+  if (p10Primary.length !== 10) {
+    res.status(400).json({ error: "Valid 10-digit primary mobile is required." });
+    return;
+  }
+  if (sess.phoneLast10 !== phoneLast10(otpPhoneRaw || phone)) {
+    res.status(400).json({ error: "Mobile for OTP does not match verification session." });
+    return;
+  }
+  if (sess.emailNorm !== email) {
+    res.status(400).json({ error: "Email does not match verification session." });
+    return;
+  }
+  if (mobileOtp !== sess.mobileCode || emailOtp !== sess.emailCode) {
+    res.status(400).json({ error: "Incorrect mobile or email OTP." });
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: "Valid email is required." });
+    return;
+  }
+  if (customerKind === "B2C") {
+    if (!firstName || !lastName) {
+      res.status(400).json({ error: "First name and last name are required for B2C." });
+      return;
+    }
+  } else {
+    if (!b2bTradeDisplayName) {
+      res.status(400).json({ error: "Display name is required for B2B." });
+      return;
+    }
+    if (!company?.trim()) {
+      res.status(400).json({ error: "Company name is required for B2B." });
+      return;
+    }
+    if (!gst || !GSTIN_RE.test(gst)) {
+      res.status(400).json({ error: "Valid 15-character GSTIN is required for B2B." });
+      return;
+    }
+    if (!pan || !/^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(pan)) {
+      res.status(400).json({ error: "Valid PAN is required for B2B." });
+      return;
+    }
+  }
+  if (!addrOk(billingAddress)) {
+    res.status(400).json({ error: "Complete all billing address fields (including country)." });
+    return;
+  }
+  if (!sameShip && !addrOk(shippingAddress)) {
+    res.status(400).json({ error: "Complete shipping address or tick same as billing." });
+    return;
+  }
+
+  const displayName =
+    customerKind === "B2B"
+      ? b2bTradeDisplayName
+      : [salutation, firstName, lastName].filter(Boolean).join(" ").trim();
+
+  const billJson = JSON.stringify({
+    doorNo: billingAddress.doorNo!.trim(),
+    street: billingAddress.street!.trim(),
+    city: billingAddress.city!.trim(),
+    district: billingAddress.district!.trim(),
+    state: billingAddress.state!.trim(),
+    countryId: billingAddress.countryId!.trim(),
+  });
+  const shipJson = JSON.stringify({
+    doorNo: shippingAddress.doorNo!.trim(),
+    street: shippingAddress.street!.trim(),
+    city: shippingAddress.city!.trim(),
+    district: shippingAddress.district!.trim(),
+    state: shippingAddress.state!.trim(),
+    countryId: shippingAddress.countryId!.trim(),
+  });
+
+  const addressLegacy = [
+    `Billing: ${billingAddress.doorNo}, ${billingAddress.street}`,
+    `${billingAddress.city}, ${billingAddress.district}, ${billingAddress.state}`,
+  ].join("\n");
+  const cityLegacy = `${billingAddress.city}, ${billingAddress.district}`.slice(0, 120);
+
   const id = createId("cust");
+  const client = await dbPool.connect();
   try {
-    const { rows } = await dbPool.query<{
-      id: string;
-      displayName: string;
-      phone: string;
-      alternatePhone: string | null;
-      email: string;
-      customerKind: CustomerKind;
-      company: string | null;
-      gst: string | null;
-      pan: string | null;
-      createdAt: Date;
-    }>(
+    await client.query("BEGIN");
+    const customerCode = await nextCustomerCode(client);
+    await client.query(
       `INSERT INTO customers (
-         id, display_name, phone, phone_last10, alternate_phone, email, address, city, customer_kind, company, gst, pan, created_by, modified_by
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
-       RETURNING id,
-                 display_name AS "displayName",
-                 phone,
-                alternate_phone AS "alternatePhone",
-                 email,
-                 address,
-                 city,
-                 customer_kind AS "customerKind",
-                 company,
-                 gst,
-                 pan,
-                 created_at AS "createdAt"`,
-      [id, displayName, phone, p10, alternatePhone, email, address, city, customerKind, company, gst, pan, actor?.id ?? null],
+         id, customer_code, display_name, salutation, first_name, last_name,
+         phone, phone_last10, alternate_phone, otp_phone, telephone, email,
+         dob, anniversary_date,
+         address, city,
+         customer_kind, company, gst, pan,
+         billing_address, shipping_address,
+         tax_preference, b2b_trade_display_name,
+         remark_attention, reference_name, representative_name,
+         phone_verified_at, email_verified_at, customer_data_source,
+         created_by, modified_by
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6,
+         $7, $8, $9, $10, $11, $12,
+         $13::date, $14::date,
+         $15, $16,
+         $17, $18, $19, $20,
+         $21::jsonb, $22::jsonb,
+         $23, $24,
+         $25, $26, $27,
+         now(), now(), 'registered',
+         $28, $28
+       )`,
+      [
+        id,
+        customerCode,
+        displayName,
+        salutation || null,
+        firstName || null,
+        lastName || null,
+        phone,
+        p10Primary,
+        alternatePhone,
+        otpPhoneStored,
+        telephone,
+        email,
+        dob,
+        anniversaryDate,
+        addressLegacy,
+        cityLegacy,
+        customerKind,
+        company,
+        gst,
+        pan,
+        billJson,
+        shipJson,
+        taxPreference,
+        customerKind === "B2B" ? b2bTradeDisplayName : null,
+        remarkAttention,
+        referenceName,
+        representativeName,
+        actor?.id ?? null,
+      ],
     );
-    const row = rows[0]!;
-    const customer: CustomerRecord = {
-      id: row.id,
-      displayName: row.displayName,
-      phone: row.phone,
-      alternatePhone: row.alternatePhone ?? undefined,
-      email: row.email,
-      address: row.address ?? undefined,
-      city: row.city ?? undefined,
-      customerKind: row.customerKind,
-      company: row.company ?? undefined,
-      gst: row.gst ?? undefined,
-      pan: row.pan ?? undefined,
-      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
-    };
+    const { rows } = await client.query(
+      `SELECT ${CUSTOMERS_SELECT_FIELDS} FROM customers WHERE id = $1`,
+      [id],
+    );
+    await client.query("COMMIT");
+    customerRegisterOtpSessions.delete(sessionId);
+    const customer = rowToCustomer(rows[0] as Record<string, unknown>);
     res.json({ customer });
   } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
     const err = e as { code?: string };
     if (err.code === "23505") {
       res.status(400).json({ error: "Customer with this phone already exists." });
@@ -2383,6 +2636,8 @@ app.post("/api/customers", async (req, res) => {
     }
     console.error(e);
     res.status(500).json({ error: "Could not create customer." });
+  } finally {
+    client.release();
   }
 });
 
@@ -2430,20 +2685,7 @@ app.put("/api/customers/:id", async (req, res) => {
     return;
   }
   try {
-    const { rows } = await dbPool.query<{
-      id: string;
-      displayName: string;
-      phone: string;
-      alternatePhone: string | null;
-      email: string;
-      address: string | null;
-      city: string | null;
-      customerKind: CustomerKind;
-      company: string | null;
-      gst: string | null;
-      pan: string | null;
-      createdAt: Date;
-    }>(
+    const upd = await dbPool.query(
       `UPDATE customers
        SET display_name = $2,
            phone = $3,
@@ -2458,40 +2700,23 @@ app.put("/api/customers/:id", async (req, res) => {
            pan = $12,
            modified_by = $13,
            updated_at = now()
-       WHERE id = $1
-       RETURNING id,
-                 display_name AS "displayName",
-                 phone,
-                 alternate_phone AS "alternatePhone",
-                 email,
-                 address,
-                 city,
-                 customer_kind AS "customerKind",
-                 company,
-                 gst,
-                 pan,
-                 created_at AS "createdAt"`,
+       WHERE id = $1`,
       [id, displayName, phone, p10, alternatePhone, email, address, city, customerKind, company, gst, pan, actor?.id ?? null],
+    );
+    if ((upd.rowCount ?? 0) === 0) {
+      res.status(404).json({ error: "Customer not found." });
+      return;
+    }
+    const { rows } = await dbPool.query(
+      `SELECT ${CUSTOMERS_SELECT_FIELDS} FROM customers WHERE id = $1`,
+      [id],
     );
     const row = rows[0];
     if (!row) {
       res.status(404).json({ error: "Customer not found." });
       return;
     }
-    const customer: CustomerRecord = {
-      id: row.id,
-      displayName: row.displayName,
-      phone: row.phone,
-      alternatePhone: row.alternatePhone ?? undefined,
-      email: row.email,
-      address: row.address ?? undefined,
-      city: row.city ?? undefined,
-      customerKind: row.customerKind,
-      company: row.company ?? undefined,
-      gst: row.gst ?? undefined,
-      pan: row.pan ?? undefined,
-      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
-    };
+    const customer = rowToCustomer(row as Record<string, unknown>);
     res.json({ customer });
   } catch (e) {
     const err = e as { code?: string };

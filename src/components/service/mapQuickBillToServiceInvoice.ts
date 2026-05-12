@@ -1,5 +1,5 @@
 import { SERVICE_INVOICE_BRANDING } from "../../config/serviceInvoiceBranding";
-import type { QuickBillInvoice } from "../../types/quickBill";
+import type { QuickBillInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 
 export type ServiceInvoiceMappingOptions = {
@@ -10,6 +10,19 @@ export type ServiceInvoiceMappingOptions = {
 function resolvedHsnSac(options?: ServiceInvoiceMappingOptions): string {
   const v = options?.defaultHsnSac?.trim();
   return v || "9987";
+}
+
+function warrantyLabel(status: QuickBillWarrantyStatus | undefined): string {
+  switch (status) {
+    case "none":
+      return "No manufacturer warranty";
+    case "under_warranty":
+      return "Under warranty (effect on bill amount — policy to be finalised)";
+    case "extended":
+      return "Extended warranty (effect on bill amount — policy to be finalised)";
+    default:
+      return "Not specified";
+  }
 }
 
 export type DemoInvoiceInput = {
@@ -25,6 +38,10 @@ export type DemoInvoiceInput = {
   watchBrand: string;
   watchModel: string;
   watchRef: string;
+  watchRemark?: string;
+  warrantyStatus?: QuickBillWarrantyStatus;
+  watchDocumentPath?: string | null;
+  watchImagePath?: string | null;
   technicianName: string | null;
   paymentMode: string;
   notes: string;
@@ -44,7 +61,12 @@ export function buildDemoServiceInvoiceViewModel(
     { label: "Watch brand", value: input.watchBrand },
     { label: "Model", value: input.watchModel },
   ];
-  if (input.watchRef.trim()) serviceMeta.push({ label: "Serial / ref.", value: input.watchRef.trim() });
+  if (input.watchRef.trim()) serviceMeta.push({ label: "Serial number", value: input.watchRef.trim() });
+  if (input.watchRemark?.trim()) serviceMeta.push({ label: "Watch remark", value: input.watchRemark.trim() });
+  serviceMeta.push({ label: "Warranty", value: warrantyLabel(input.warrantyStatus) });
+  if (input.watchDocumentPath?.trim())
+    serviceMeta.push({ label: "Document", value: input.watchDocumentPath.trim() });
+  if (input.watchImagePath?.trim()) serviceMeta.push({ label: "Image", value: input.watchImagePath.trim() });
   if (input.technicianName) serviceMeta.push({ label: "Technician", value: input.technicianName });
   serviceMeta.push({ label: "Payment mode", value: input.paymentMode });
   serviceMeta.push({ label: "Mode", value: "Counter billing" });
@@ -108,7 +130,12 @@ export function mapQuickBillInvoiceToViewModel(
     { label: "Watch brand", value: inv.watchBrand },
     { label: "Model", value: inv.watchModel },
   ];
-  if (inv.watchRef) serviceMeta.push({ label: "Serial / ref.", value: inv.watchRef });
+  if (inv.watchRef) serviceMeta.push({ label: "Serial number", value: inv.watchRef });
+  if (inv.watchRemark?.trim()) serviceMeta.push({ label: "Watch remark", value: inv.watchRemark.trim() });
+  serviceMeta.push({ label: "Warranty", value: warrantyLabel(inv.warrantyStatus) });
+  if (inv.watchDocumentPath?.trim())
+    serviceMeta.push({ label: "Document", value: inv.watchDocumentPath.trim() });
+  if (inv.watchImagePath?.trim()) serviceMeta.push({ label: "Image", value: inv.watchImagePath.trim() });
   if (inv.technicianName) serviceMeta.push({ label: "Technician", value: inv.technicianName });
   serviceMeta.push({ label: "Payment mode", value: inv.paymentMode });
 

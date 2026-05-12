@@ -1,5 +1,7 @@
 import type { AppPaymentMode } from "../lib/paymentModes";
 
+export type QuickBillWarrantyStatus = "unspecified" | "none" | "under_warranty" | "extended";
+
 export type QuickBillLineInvoice = {
   lineNo: number;
   description: string;
@@ -44,6 +46,10 @@ export type QuickBillInvoice = {
   watchBrand: string;
   watchModel: string;
   watchRef: string | null;
+  watchRemark?: string;
+  warrantyStatus?: QuickBillWarrantyStatus;
+  watchDocumentPath?: string | null;
+  watchImagePath?: string | null;
   technicianId: string | null;
   technicianName: string | null;
   paymentMode: AppPaymentMode;

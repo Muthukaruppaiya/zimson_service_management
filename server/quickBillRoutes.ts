@@ -1,9 +1,33 @@
 import type { Express, NextFunction, Request, Response } from "express";
+import fs from "node:fs";
+import path from "node:path";
+import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
 
 type Authed = Request & { userId: string };
+
+const QB_UPLOAD_DIR = path.join(process.cwd(), "uploads", "quick-bill");
+const qbUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      try {
+        fs.mkdirSync(QB_UPLOAD_DIR, { recursive: true });
+      } catch {
+        /* ignore */
+      }
+      cb(null, QB_UPLOAD_DIR);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || "") || ".bin";
+      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+});
+
+const WARRANTY_VALUES = new Set(["unspecified", "none", "under_warranty", "extended"]);
 
 function makeAlphaNumCode(input: string, fallback: string): string {
   const cleaned = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -43,6 +67,20 @@ export function registerQuickBillRoutes(
   requireAuth: (req: Request, res: Response, next: NextFunction) => void,
   getUserById: (id: string) => DemoUser | null,
 ): void {
+  app.post("/api/service/quick-bill-attachments", requireAuth, qbUpload.single("file"), (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const f = (req as Request & { file?: Express.Multer.File }).file;
+    if (!f?.filename) {
+      res.status(400).json({ error: "file field is required." });
+      return;
+    }
+    res.json({ url: `/uploads/quick-bill/${f.filename}` });
+  });
+
   app.get("/api/service/quick-bills", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor) {
@@ -232,6 +270,16 @@ export function registerQuickBillRoutes(
       return;
     }
 
+    const watchRemark = String(req.body?.watchRemark ?? "").trim();
+    const warrantyStatusRaw = String(req.body?.warrantyStatus ?? "unspecified").trim();
+    const warrantyStatus = WARRANTY_VALUES.has(warrantyStatusRaw) ? warrantyStatusRaw : "unspecified";
+    const docPathRaw = req.body?.watchDocumentPath;
+    const imgPathRaw = req.body?.watchImagePath;
+    const watchDocumentPath =
+      docPathRaw == null || String(docPathRaw).trim() === "" ? null : String(docPathRaw).trim();
+    const watchImagePath =
+      imgPathRaw == null || String(imgPathRaw).trim() === "" ? null : String(imgPathRaw).trim();
+
     const technicianIdRaw = req.body?.technicianId;
     const technicianId =
       technicianIdRaw == null || String(technicianIdRaw).trim() === ""
@@ -349,9 +397,10 @@ export function registerQuickBillRoutes(
         `INSERT INTO quick_bills (
            bill_number, region_id, store_id, customer_type, customer_name, phone, email,
            company, gst, pan, watch_brand, watch_model, watch_ref, technician_id, technician_name,
-           payment_mode, notes, total_inr, created_by
+           payment_mode, notes, watch_remark, warranty_status, watch_document_path, watch_image_path,
+           total_inr, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
          RETURNING id, created_at`,
         [
           billNumber,
@@ -371,6 +420,10 @@ export function registerQuickBillRoutes(
           technicianName,
           paymentMode,
           notes,
+          watchRemark,
+          warrantyStatus,
+          watchDocumentPath,
+          watchImagePath,
           totalInr,
           actor.id,
         ],
@@ -460,6 +513,10 @@ export function registerQuickBillRoutes(
                 qb.watch_brand AS "watchBrand",
                 qb.watch_model AS "watchModel",
                 qb.watch_ref AS "watchRef",
+                qb.watch_remark AS "watchRemark",
+                qb.warranty_status AS "warrantyStatus",
+                qb.watch_document_path AS "watchDocumentPath",
+                qb.watch_image_path AS "watchImagePath",
                 qb.technician_id AS "technicianId",
                 qb.technician_name AS "technicianName",
                 qb.payment_mode AS "paymentMode",
@@ -506,6 +563,10 @@ export function registerQuickBillRoutes(
           watchBrand: head.watchBrand,
           watchModel: head.watchModel,
           watchRef: head.watchRef ?? null,
+          watchRemark: head.watchRemark ?? "",
+          warrantyStatus: head.warrantyStatus ?? "unspecified",
+          watchDocumentPath: head.watchDocumentPath ?? null,
+          watchImagePath: head.watchImagePath ?? null,
           technicianId: head.technicianId ?? null,
           technicianName: head.technicianName ?? null,
           paymentMode: head.paymentMode,
