@@ -2,6 +2,30 @@
 
 @theme {
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  /** Luxury / editorial headlines (quick bill history & similar surfaces) */
+  --font-display: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman", serif;
+
+  /* Rolex-inspired premium palette */
+  --color-rlx-green:       #006039;   /* Rolex signature forest green */
+  --color-rlx-green-deep:  #004428;   /* darker hover / table header */
+  --color-rlx-green-light: #e8f2ed;   /* very pale tint for hover rows */
+  --color-rlx-gold:        #C9A227;   /* Zimson logo gold — warm yellow-gold */
+  --color-rlx-gold-dark:   #A8850F;   /* deeper burnished gold for hover */
+  --color-rlx-gold-light:  #F0DC90;   /* pale gold tint for backgrounds */
+  --color-rlx-ink:         #111110;   /* near-black body text */
+  --color-rlx-ink-muted:   #5a5a55;   /* secondary text */
+  --color-rlx-surface:     #ffffff;   /* card surface */
+  --color-rlx-bg:          #f8f8f7;   /* page background */
+  --color-rlx-rule:        #e0e0dc;   /* hairline dividers */
+
+  /* keep old aliases pointing to new values so other pages don't break */
+  --color-premium-ink:        #111110;
+  --color-premium-ink-muted:  #5a5a55;
+  --color-premium-gold:       #C9A227;
+  --color-premium-gold-soft:  #F0DC90;
+  --color-premium-cream:      #f8f8f7;
+  --color-premium-parchment:  #f0f0ec;
+  --color-premium-line:       rgba(0,0,0,0.08);
 
   --color-zimson-50: #fffef7;
   --color-zimson-100: #fffbeb;
@@ -21,12 +45,37 @@
   }
 
   body {
-    @apply bg-zimson-100 font-sans text-stone-800 antialiased;
+    background-color: var(--color-rlx-bg);
+    color: var(--color-rlx-ink);
+    @apply font-sans antialiased;
   }
 
   #root {
     @apply min-h-dvh;
   }
+
+  /* ── Sharp shapes everywhere — luxury rectangular design ── */
+  *,
+  *::before,
+  *::after {
+    border-radius: 0 !important;
+  }
+
+  /* Re-allow circles for status dots, avatars, and toggles */
+  .circle, [class*="rounded-full"] {
+    border-radius: 9999px !important;
+  }
+
+  /* ── Global form primitives ───────────────────────── */
+  input, select, textarea {
+    color: var(--color-rlx-ink);
+  }
+
+  /* Scrollbar — subtle on sidebar/modals */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.14); }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); }
 }
 
 @layer utilities {

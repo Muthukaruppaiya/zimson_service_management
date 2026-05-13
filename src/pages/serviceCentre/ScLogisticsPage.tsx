@@ -40,10 +40,10 @@ export function ScLogisticsPage() {
     if (!user) return false;
     return (
       user.role === "service_centre_clerk" ||
-      user.role === "service_centre_inward" ||
+      user.role === "service_centre_clerk" ||
       user.role === "super_admin" ||
-      user.role === "regional_admin" ||
-      user.role === "ho_admin" ||
+      user.role === "admin" ||
+      user.role === "admin" ||
       user.role === "ho_manager"
     );
   }, [user]);
@@ -52,10 +52,10 @@ export function ScLogisticsPage() {
     if (!user) return false;
     return (
       user.role === "service_centre_clerk" ||
-      user.role === "service_centre_outward" ||
+      user.role === "service_centre_clerk" ||
       user.role === "super_admin" ||
-      user.role === "regional_admin" ||
-      user.role === "ho_admin" ||
+      user.role === "admin" ||
+      user.role === "admin" ||
       user.role === "ho_manager"
     );
   }, [user]);

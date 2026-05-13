@@ -27,8 +27,8 @@ export function TechnicianMasterPage() {
     () =>
       [
         "super_admin",
-        "regional_admin",
-        "ho_admin",
+        "admin",
+        "admin",
         "ho_manager",
         "service_centre_supervisor",
         "service_centre_clerk",

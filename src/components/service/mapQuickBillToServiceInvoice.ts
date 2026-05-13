@@ -1,9 +1,5 @@
 import { SERVICE_INVOICE_BRANDING } from "../../config/serviceInvoiceBranding";
-import {
-  ADVANCE_CASH_DENOMS,
-  type AdvanceCashDenominations,
-  type AdvancePaymentDetails,
-} from "../../lib/paymentModes";
+import type { AdvancePaymentDetails } from "../../lib/paymentModes";
 import { inrAmountToWords } from "../../lib/inrAmountToWords";
 import type { QuickBillInvoice, QuickBillLineInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
 import type { ServiceInvoiceLineView, ServiceInvoiceTaxRow, ServiceInvoiceViewModel } from "../../types/serviceInvoice";
@@ -16,7 +12,16 @@ export type ServiceInvoiceMappingOptions = {
   /** Per-store printed invoice header (Regions & stores); overrides org tax invoice fields when set. */
   storeInvoice?: StoreInvoicePrintProfile | null;
   invoiceKind?: "quick_bill" | "service_bill";
+  /**
+   * The specific QB or SRF reference to display as "Quick Bill No" / "SR No" on the invoice.
+   * Distinct from invoiceNumber (which is the shared sequential store invoice number).
+   */
   serviceReference?: string | null;
+  /**
+   * Pre-generated store invoice number (CHN0126-00001 style), common across QB and SRF
+   * from the same store. Falls back to the bill's own number when not provided.
+   */
+  invoiceNumber?: string | null;
   generatedBy?: string | null;
 };
 
@@ -38,17 +43,6 @@ function warrantyLabel(status: QuickBillWarrantyStatus | undefined): string {
   }
 }
 
-function cashBreakdownForMeta(c: AdvanceCashDenominations | undefined): string | null {
-  if (!c) return null;
-  const bits: string[] = [];
-  for (const { key, face } of ADVANCE_CASH_DENOMS) {
-    const qty = Number(c[key]);
-    if (Number.isFinite(qty) && qty > 0) bits.push(`₹${face}×${qty}`);
-  }
-  const coins = Number(c.coinsInr);
-  if (Number.isFinite(coins) && coins > 0) bits.push(`coins ₹${coins.toFixed(2)}`);
-  return bits.length ? bits.join(", ") : null;
-}
 
 function parseSpareCodeFromDescription(description: string): string | null {
   const m = description.trim().match(/\(([^)]+)\)\s*$/);
@@ -194,6 +188,7 @@ export type DemoInvoiceInput = {
   email: string;
   gst: string;
   pan: string;
+  address?: string;
   watchBrand: string;
   watchModel: string;
   watchRef: string;
@@ -209,26 +204,6 @@ export type DemoInvoiceInput = {
   total: number;
 };
 
-function serviceMetaExtras(input: {
-  watchDocumentPath?: string | null;
-  watchImagePath?: string | null;
-  technicianName: string | null;
-  paymentMode: string;
-  paymentDetails?: AdvancePaymentDetails | null;
-}): { label: string; value: string }[] {
-  const meta: { label: string; value: string }[] = [];
-  if (input.watchDocumentPath?.trim()) meta.push({ label: "Document", value: input.watchDocumentPath.trim() });
-  if (input.watchImagePath?.trim()) meta.push({ label: "Image", value: input.watchImagePath.trim() });
-  if (input.technicianName) meta.push({ label: "Technician", value: input.technicianName });
-  meta.push({ label: "Payment mode", value: input.paymentMode });
-  if (input.paymentMode === "Cash") {
-    const br = cashBreakdownForMeta(input.paymentDetails?.cash);
-    if (br) meta.push({ label: "Cash breakdown", value: br });
-  } else if (input.paymentDetails?.reference?.trim()) {
-    meta.push({ label: "Payment reference", value: input.paymentDetails.reference.trim() });
-  }
-  return meta;
-}
 
 export function buildDemoServiceInvoiceViewModel(
   input: DemoInvoiceInput,
@@ -249,26 +224,23 @@ export function buildDemoServiceInvoiceViewModel(
       qty: 1,
     }));
   const gst = buildGstLines(qbLines, hsnSac, tax?.gstRatePercent ?? 18, Boolean(tax?.pricesTaxInclusive), input.total);
-  const serviceMeta = serviceMetaExtras({
-    watchDocumentPath: input.watchDocumentPath,
-    watchImagePath: input.watchImagePath,
-    technicianName: input.technicianName,
-    paymentMode: input.paymentMode,
-    paymentDetails: input.paymentDetails,
-  });
+  // Payment mode / technician / reference shown in payment section, not product block
+  const serviceMeta: { label: string; value: string }[] = [];
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
-  const serviceRef = options?.serviceReference?.trim() || input.billNumber;
+  // invoiceNumber = shared sequential store invoice number (common for QB + SRF)
+  // serviceReference = QB-specific reference number
+  const demoInvoiceNumber = options?.invoiceNumber?.trim() || input.billNumber;
+  const demoServiceRef = options?.serviceReference?.trim() || input.billNumber;
+
+  const now = new Date();
+  const demoDate = `${now.getDate().toString().padStart(2, "0")}/${(now.getMonth() + 1).toString().padStart(2, "0")}/${now.getFullYear()}`;
 
   return {
     documentLabel: input.customerType === "B2B" ? "TAX INVOICE" : "BILL OF SUPPLY / TAX INVOICE",
     invoiceType: kind,
-    serviceReference: serviceRef,
-    invoiceNumber: input.billNumber,
-    invoiceDate: new Date().toLocaleDateString(undefined, {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }),
+    invoiceNumber: demoInvoiceNumber,
+    serviceReference: demoServiceRef,
+    invoiceDate: demoDate,
     placeOfSupply: input.placeOfSupply || "—",
     reverseCharge: "No",
     seller: {
@@ -287,6 +259,7 @@ export function buildDemoServiceInvoiceViewModel(
       pan: input.customerType === "B2B" ? input.pan.trim().toUpperCase() || null : null,
       phone: input.phone.trim() || null,
       email: input.email.trim() || null,
+      address: input.address?.trim() || null,
     },
     serviceMeta,
     productBlock: {
@@ -299,7 +272,7 @@ export function buildDemoServiceInvoiceViewModel(
     totalAmount: input.total,
     amountInWords: inrAmountToWords(input.total),
     paymentMode: input.paymentMode,
-    bankDetailsLines: [...SERVICE_INVOICE_BRANDING.bankDetailsLines],
+    bankDetailsLines: [],
     notes: input.notes.trim() || undefined,
     footerTerms: sellerPack.footerTerms,
     grossTaxableTotal: gst.gross,
@@ -329,32 +302,29 @@ export function mapQuickBillInvoiceToViewModel(
   const billName =
     inv.customerType === "B2B" ? (inv.company ?? "—") : inv.customerName?.trim() || "Walk-in / B2C";
 
+  // Quick Bill invoice: technician, payment mode, payment reference are
+  // shown in the dedicated payment section — not repeated in the product block.
   const serviceMeta: { label: string; value: string }[] = [];
-  if (inv.watchDocumentPath?.trim()) serviceMeta.push({ label: "Document", value: inv.watchDocumentPath.trim() });
-  if (inv.watchImagePath?.trim()) serviceMeta.push({ label: "Image", value: inv.watchImagePath.trim() });
-  if (inv.technicianName) serviceMeta.push({ label: "Technician", value: inv.technicianName });
-  serviceMeta.push({ label: "Payment mode", value: inv.paymentMode });
-  if (inv.paymentMode === "Cash") {
-    const br = cashBreakdownForMeta(inv.paymentDetails?.cash ?? undefined);
-    if (br) serviceMeta.push({ label: "Cash breakdown", value: br });
-  } else if (inv.paymentDetails?.reference?.trim()) {
-    serviceMeta.push({ label: "Payment reference", value: inv.paymentDetails.reference.trim() });
-  }
 
   const gst = buildGstLines(inv.lines, hsnSac, tax?.gstRatePercent ?? 18, Boolean(tax?.pricesTaxInclusive), inv.totalInr);
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
-  const serviceRef = options?.serviceReference?.trim() || inv.billNumber;
+
+  function fmtDate(dateStr: string): string {
+    const d = new Date(dateStr);
+    const dd = d.getDate().toString().padStart(2, "0");
+    const mm = (d.getMonth() + 1).toString().padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+  }
 
   return {
     documentLabel: inv.customerType === "B2B" ? "TAX INVOICE" : "BILL OF SUPPLY / TAX INVOICE",
     invoiceType: kind,
-    serviceReference: serviceRef,
-    invoiceNumber: inv.billNumber,
-    invoiceDate: new Date(inv.createdAt).toLocaleDateString(undefined, {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }),
+    // invoiceNumber = formatted store invoice number (CHN0126-00001 style)
+    // serviceReference = QB internal reference (QB26REG1012)
+    invoiceNumber: inv.invoiceNumber,
+    serviceReference: inv.billNumber,
+    invoiceDate: fmtDate(inv.createdAt),
     placeOfSupply,
     reverseCharge: "No",
     seller: {
@@ -373,6 +343,7 @@ export function mapQuickBillInvoiceToViewModel(
       pan: inv.customerType === "B2B" ? inv.pan : null,
       phone: inv.phone,
       email: inv.email,
+      address: inv.address?.trim() || null,
     },
     serviceMeta,
     productBlock: {
@@ -385,7 +356,7 @@ export function mapQuickBillInvoiceToViewModel(
     totalAmount: inv.totalInr,
     amountInWords: inrAmountToWords(inv.totalInr),
     paymentMode: inv.paymentMode,
-    bankDetailsLines: [...SERVICE_INVOICE_BRANDING.bankDetailsLines],
+    bankDetailsLines: [],
     notes: inv.notes?.trim() || undefined,
     footerTerms: sellerPack.footerTerms,
     grossTaxableTotal: gst.gross,
@@ -451,16 +422,17 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     });
   }
 
+  const srfNow = new Date();
+  const srfDate = `${srfNow.getDate().toString().padStart(2, "0")}/${(srfNow.getMonth() + 1).toString().padStart(2, "0")}/${srfNow.getFullYear()}`;
+
   return {
     documentLabel: "TAX INVOICE / PROFORMA",
     invoiceType: "Service bill",
+    // serviceReference = SRF-specific reference number
     serviceReference: input.reference,
-    invoiceNumber: (input.invoiceNumber ?? "").trim() || input.reference,
-    invoiceDate: new Date().toLocaleDateString(undefined, {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }),
+    // invoiceNumber = shared sequential store invoice number (same sequence as QB invoices)
+    invoiceNumber: options?.invoiceNumber?.trim() || (input.invoiceNumber ?? "").trim() || input.reference,
+    invoiceDate: srfDate,
     placeOfSupply: "—",
     reverseCharge: "No",
     seller: {

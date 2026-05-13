@@ -10,21 +10,23 @@ type CardProps = {
 
 export function Card({ title, subtitle, children, className = "", action }: CardProps) {
   return (
-    <section
-      className={`rounded-2xl border border-zimson-300/70 bg-white/90 p-5 shadow-sm backdrop-blur-sm ${className}`}
-    >
+    <section className={`border border-rlx-rule bg-white shadow-sm ${className}`}>
       {(title || action) && (
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-rlx-rule bg-rlx-green px-5 py-4">
           <div>
             {title ? (
-              <h2 className="text-base font-semibold tracking-tight text-stone-900">{title}</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-white">{title}</h2>
             ) : null}
-            {subtitle ? <p className="mt-1 text-sm text-stone-600">{subtitle}</p> : null}
+            {subtitle ? (
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em] text-rlx-gold/80">
+                {subtitle}
+              </p>
+            ) : null}
           </div>
-          {action}
+          {action ? <div className="shrink-0">{action}</div> : null}
         </div>
       )}
-      {children}
+      <div className="p-5">{children}</div>
     </section>
   );
 }

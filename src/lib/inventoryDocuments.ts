@@ -326,12 +326,26 @@ export function buildGrnDocument(input: {
   invoiceNumber?: string | null;
   invoiceDate?: string | null;
   notes?: string;
-  lines: Array<{ description: string; qtyReceived: number }>;
+  lines: Array<{ description: string; qtyReceived: number; costPrice?: number; gstRate?: number; taxAmount?: number }>;
 }): string {
   const { branding, tpl } = activeConfig("grn");
   const lines = input.lines.length > 0 ? input.lines : [{ description: "-", qtyReceived: 0 }];
   const totalItems = lines.length;
-  const totalAmount = 0;
+
+  // Compute totals
+  let subtotal = 0;
+  let totalTax = 0;
+  for (const l of lines) {
+    const cp = l.costPrice ?? 0;
+    const qty = l.qtyReceived;
+    const taxable = cp * qty;
+    const tax = l.taxAmount != null ? l.taxAmount : +(taxable * (l.gstRate ?? 18) / 100).toFixed(2);
+    subtotal += taxable;
+    totalTax += tax;
+  }
+  const grandTotal = subtotal + totalTax;
+  const hasPricing = lines.some((l) => (l.costPrice ?? 0) > 0);
+
   return `
   <div class="doc">
     <h1 class="title" style="text-align:${tpl.titleAlign};font-size:38px;">${esc(tpl.title)}</h1>
@@ -341,6 +355,8 @@ export function buildGrnDocument(input: {
         <p>${barcode(input.grnNumber)}</p>
         <p><strong>GRN NUMBER:</strong> ${esc(input.grnNumber)}</p>
         <p><strong>DATE:</strong> ${esc(formatDate(input.createdAt))}</p>
+        <p><strong>INVOICE #:</strong> ${esc(input.invoiceNumber ?? "-")}</p>
+        <p><strong>MODE:</strong> ${input.mode === "WITH_BILL" ? "With Bill" : "Without Bill"}</p>
       </div>
       <div class="meta" style="text-align:left;">
         <p><strong>${esc(branding.companyName)}</strong></p>
@@ -362,22 +378,52 @@ export function buildGrnDocument(input: {
     </div>
     <div class="sec">
       <table>
-        <thead><tr><th>Item</th><th>Description</th><th>Unit Of Measure</th><th>Quantity Ordered</th><th>Quantity Received</th><th>Unit Price</th><th>Total Price</th></tr></thead>
+        <thead><tr>
+          <th>#</th>
+          <th>Description</th>
+          <th>UOM</th>
+          <th>Qty Received</th>
+          <th>Unit Price (₹)</th>
+          <th>Taxable (₹)</th>
+          <th>GST %</th>
+          <th>Tax Amt (₹)</th>
+          <th>Total (₹)</th>
+        </tr></thead>
         <tbody>
           ${lines
-            .map(
-              (l, i) =>
-                `<tr><td>${i + 1}</td><td>${esc(l.description)}</td><td>Nos</td><td>${l.qtyReceived}</td><td>${l.qtyReceived}</td><td>-</td><td>-</td></tr>`,
-            )
+            .map((l, i) => {
+              const cp = l.costPrice ?? 0;
+              const qty = l.qtyReceived;
+              const gstRate = l.gstRate ?? 18;
+              const taxable = +(cp * qty).toFixed(2);
+              const tax = l.taxAmount != null ? l.taxAmount : +(taxable * gstRate / 100).toFixed(2);
+              const total = +(taxable + tax).toFixed(2);
+              const fmt = (v: number) => hasPricing ? `&#8377;${v.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-";
+              return `<tr>
+                <td>${i + 1}</td>
+                <td>${esc(l.description)}</td>
+                <td>Nos</td>
+                <td style="text-align:center;">${qty}</td>
+                <td style="text-align:right;">${cp > 0 ? fmt(cp) : "-"}</td>
+                <td style="text-align:right;">${cp > 0 ? fmt(taxable) : "-"}</td>
+                <td style="text-align:center;">${cp > 0 ? `${gstRate}%` : "-"}</td>
+                <td style="text-align:right;">${cp > 0 ? fmt(tax) : "-"}</td>
+                <td style="text-align:right;">${cp > 0 ? fmt(total) : "-"}</td>
+              </tr>`;
+            })
             .join("")}
         </tbody>
       </table>
     </div>
-    <div class="sec" style="width:45%;margin-left:auto;">
+    <div class="sec" style="width:50%;margin-left:auto;">
       <table>
         <tbody>
-          <tr><td><strong>Total Items</strong></td><td>${totalItems}</td></tr>
-          <tr><td><strong>Total Amount</strong></td><td>${formatMoney(totalAmount)}</td></tr>
+          <tr><td><strong>Total Items</strong></td><td style="text-align:right;">${totalItems}</td></tr>
+          ${hasPricing ? `
+          <tr><td><strong>Subtotal (Taxable)</strong></td><td style="text-align:right;">&#8377;${subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</td></tr>
+          <tr><td><strong>Total GST</strong></td><td style="text-align:right;">&#8377;${totalTax.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</td></tr>
+          <tr style="font-size:1.05em;"><td><strong>Grand Total</strong></td><td style="text-align:right;font-weight:bold;">&#8377;${grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</td></tr>
+          ` : `<tr><td><strong>Total Amount</strong></td><td style="text-align:right;">-</td></tr>`}
         </tbody>
       </table>
     </div>

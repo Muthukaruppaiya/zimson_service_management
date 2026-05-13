@@ -19,28 +19,42 @@ export type SeedStore = {
   invoiceNumberStoreCode?: string;
 };
 
-export type SeedRegion = { id: string; name: string; stores: SeedStore[] };
+export type SeedWarehouse = {
+  id: string;
+  name: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+};
 
-export const SEED_REGIONS: SeedRegion[] = [
-  {
-    id: "region-1776327614571-a2w4uhl",
-    name: "Chennai",
-    stores: [
-      { id: "store-1776327635107-9kaydjo", name: "CHN01" },
-      { id: "store-1776327641491-2s3ixfr", name: "CHN02" },
-      { id: "store-1776327650879-vukwqca", name: "CHN03" },
-    ],
-  },
-  {
-    id: "region-1776324268229-44nicbl",
-    name: "Coimbatore",
-    stores: [
-      { id: "store-1776324276676-ogf5biw", name: "CBE01" },
-      { id: "store-1776324282179-wklfa7o", name: "CBE02" },
-      { id: "store-1776324287552-n7f1xw7", name: "CBE03" },
-    ],
-  },
-];
+/** Structured office address — mirrors CustomerAddressBlock fields. */
+export type RegionAddressBlock = {
+  doorNo: string;
+  street: string;
+  city: string;
+  district: string;
+  state: string;
+  country: string;
+  pincode: string;
+};
+
+export type SeedRegion = {
+  id: string;
+  name: string;
+  /** Short code used in invoice numbers, e.g. CHN, CBE */
+  regionCode?: string;
+  address?: string;
+  gst?: string;
+  pan?: string;
+  email?: string;
+  phone?: string;
+  /** Structured office address (preferred). */
+  addressJson?: RegionAddressBlock;
+  stores: SeedStore[];
+  warehouses: SeedWarehouse[];
+};
+
+export const SEED_REGIONS: SeedRegion[] = [];
 
 export const SEED_USERS: DemoUser[] = [
   {
@@ -51,247 +65,6 @@ export const SEED_USERS: DemoUser[] = [
     role: "super_admin",
     regionId: null,
     storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-regional-chn",
-    email: "chennai.admin@zimson.demo",
-    password: "admin123",
-    displayName: "Regional Admin - Chennai",
-    role: "regional_admin",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-regional-cbe",
-    email: "coimbatore.admin@zimson.demo",
-    password: "admin123",
-    displayName: "Regional Admin - Coimbatore",
-    role: "regional_admin",
-    regionId: "region-1776324268229-44nicbl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-store-chn-1",
-    email: "chn01@zimson.demo",
-    password: "store123",
-    displayName: "Store staff - Chennai / CHN01",
-    role: "store_user",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: "store-1776327635107-9kaydjo",
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-store-chn-2",
-    email: "chn02@zimson.demo",
-    password: "store123",
-    displayName: "Store staff - Chennai / CHN02",
-    role: "store_user",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: "store-1776327641491-2s3ixfr",
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-store-chn-3",
-    email: "chn03@zimson.demo",
-    password: "store123",
-    displayName: "Store staff - Chennai / CHN03",
-    role: "store_user",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: "store-1776327650879-vukwqca",
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-store-cbe-1",
-    email: "cbe01@zimson.demo",
-    password: "store123",
-    displayName: "Store staff - Coimbatore / CBE01",
-    role: "store_user",
-    regionId: "region-1776324268229-44nicbl",
-    storeId: "store-1776324276676-ogf5biw",
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-store-cbe-2",
-    email: "cbe02@zimson.demo",
-    password: "store123",
-    displayName: "Store staff - Coimbatore / CBE02",
-    role: "store_user",
-    regionId: "region-1776324268229-44nicbl",
-    storeId: "store-1776324282179-wklfa7o",
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-store-cbe-3",
-    email: "cbe03@zimson.demo",
-    password: "store123",
-    displayName: "Store staff - Coimbatore / CBE03",
-    role: "store_user",
-    regionId: "region-1776324268229-44nicbl",
-    storeId: "store-1776324287552-n7f1xw7",
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-sc-inward-chn",
-    email: "sc.inward.chn@zimson.demo",
-    password: "sc123",
-    displayName: "SC inward - Chennai (HO)",
-    role: "service_centre_clerk",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-sc-supervisor-chn",
-    email: "sc.supervisor.chn@zimson.demo",
-    password: "sc123",
-    displayName: "SC supervisor - Chennai",
-    role: "service_centre_supervisor",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-sc-supervisor-cbe",
-    email: "sc.supervisor.cbe@zimson.demo",
-    password: "sc123",
-    displayName: "SC supervisor - Coimbatore",
-    role: "service_centre_supervisor",
-    regionId: "region-1776324268229-44nicbl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-ho-tech-chn",
-    email: "ho.tech.chn@zimson.demo",
-    password: "tech123",
-    displayName: "HO technician - Chennai",
-    role: "technician",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: null,
-    technicianProfileId: "tech-1",
-    canLogin: false,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-ho-accounts-chn",
-    email: "ho.accounts.chn@zimson.demo",
-    password: "acc123",
-    displayName: "HO Accounts - Chennai",
-    role: "ho_accounts",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-ho-admin-chn",
-    email: "ho.admin.chn@zimson.demo",
-    password: "admin123",
-    displayName: "HO Admin - Chennai",
-    role: "ho_admin",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-ho-manager-chn",
-    email: "ho.manager.chn@zimson.demo",
-    password: "mgr123",
-    displayName: "HO Manager - Chennai",
-    role: "ho_manager",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-ho-supervisor-chn",
-    email: "ho.supervisor.chn@zimson.demo",
-    password: "sup123",
-    displayName: "HO Supervisor - Chennai",
-    role: "ho_supervisor",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-ho-user-chn",
-    email: "ho.user.chn@zimson.demo",
-    password: "hou123",
-    displayName: "HO User - Chennai",
-    role: "ho_user",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: null,
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-store-manager-chn01",
-    email: "store.manager.chn01@zimson.demo",
-    password: "mgr123",
-    displayName: "Store Manager - CHN01",
-    role: "store_manager",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: "store-1776327635107-9kaydjo",
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-store-purchase-chn01",
-    email: "store.purchase.chn01@zimson.demo",
-    password: "pur123",
-    displayName: "Store Purchase - CHN01",
-    role: "store_purchase_user",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: "store-1776327635107-9kaydjo",
-    canLogin: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    isSeed: true,
-  },
-  {
-    id: "seed-store-accounts-chn01",
-    email: "store.accounts.chn01@zimson.demo",
-    password: "acc123",
-    displayName: "Store Accounts - CHN01",
-    role: "store_accounts",
-    regionId: "region-1776327614571-a2w4uhl",
-    storeId: "store-1776327635107-9kaydjo",
     canLogin: true,
     createdAt: "2026-01-01T00:00:00.000Z",
     isSeed: true,

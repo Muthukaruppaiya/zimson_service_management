@@ -6,7 +6,7 @@ import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
 
 function isHoAdminRole(role: string): boolean {
-  return role === "super_admin" || role === "regional_admin" || role === "ho_admin";
+  return role === "super_admin" || role === "admin" || role === "admin";
 }
 
 function brandCodeFromName(name: string): string {
@@ -93,7 +93,7 @@ export function registerCatalogRoutes(
 
   app.post("/api/spares", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin")) {
       res.status(403).json({ error: "Only admin users can create spare master rows." });
       return;
     }
@@ -154,7 +154,7 @@ export function registerCatalogRoutes(
     }
     const requestedRegion = String(req.query.regionId ?? "").trim();
     let regionId: string | null = null;
-    if (actor.role === "super_admin" || actor.role === "ho_admin") {
+    if (actor.role === "super_admin" || actor.role === "admin") {
       regionId = requestedRegion || null;
     } else {
       regionId = actor.regionId;
@@ -183,7 +183,7 @@ export function registerCatalogRoutes(
   app.post("/api/catalog/spares/:spareId/prices", requireAuth, async (req, res) => {
     const spareId = req.params.spareId;
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin")) {
       res.status(403).json({ error: "Only admin users can save prices." });
       return;
     }
@@ -191,12 +191,12 @@ export function registerCatalogRoutes(
     const brand = String(req.body?.brand ?? "").trim();
     const price = Number(req.body?.price);
     const requestedRegion = String(req.body?.regionId ?? "").trim();
-    const regionId = actor.role === "super_admin" || actor.role === "ho_admin" ? requestedRegion || null : actor.regionId;
+    const regionId = actor.role === "super_admin" || actor.role === "admin" ? requestedRegion || null : actor.regionId;
     if (!brand || Number.isNaN(price) || price < 0) {
       res.status(400).json({ error: "brand and non-negative price are required." });
       return;
     }
-    if ((actor.role === "super_admin" || actor.role === "ho_admin") && !regionId) {
+    if ((actor.role === "super_admin" || actor.role === "admin") && !regionId) {
       res.status(400).json({ error: "regionId is required for region price." });
       return;
     }
@@ -409,14 +409,14 @@ export function registerCatalogRoutes(
 
       if (aggregateRegion) {
         const scope =
-          actor.role === "super_admin" || actor.role === "ho_admin" ? regionScopeQ || null : actor.regionId ?? null;
+          actor.role === "super_admin" || actor.role === "admin" ? regionScopeQ || null : actor.regionId ?? null;
         if (scope) {
           params.push(scope);
           whereExtra = " AND region_id = $2::text";
         }
       }
       if (!whereExtra) {
-        if (actor.role === "regional_admin") {
+        if (actor.role === "admin") {
           params.push(actor.regionId);
           whereExtra = " AND region_id = $2::text";
         } else if (actor.role === "store_user") {
@@ -496,12 +496,12 @@ export function registerCatalogRoutes(
         res.status(403).json({ error: "HO users can update only own region HO stock." });
         return;
       }
-    } else if (actor.role === "regional_admin") {
+    } else if (actor.role === "admin") {
       if (actor.regionId !== regionId) {
         res.status(403).json({ error: "Regional admin can update only own region stock." });
         return;
       }
-    } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+    } else if (actor.role !== "super_admin" && actor.role !== "admin") {
       res.status(403).json({ error: "Forbidden." });
       return;
     }
@@ -581,7 +581,7 @@ export function registerCatalogRoutes(
       where += ` AND h.store_id = $${params.length}::text`;
     }
 
-    if (actor.role === "regional_admin") {
+    if (actor.role === "admin") {
       params.push(actor.regionId);
       where += ` AND (h.event_type = 'SPARE_CREATED' OR h.region_id = $${params.length}::text)`;
     } else if (actor.role === "store_user") {
@@ -597,7 +597,7 @@ export function registerCatalogRoutes(
     ) {
       params.push(actor.regionId);
       where += ` AND (h.event_type = 'SPARE_CREATED' OR (h.location_type = 'HO' AND h.region_id = $${params.length}::text))`;
-    } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+    } else if (actor.role !== "super_admin" && actor.role !== "admin") {
       res.status(403).json({ error: "Forbidden." });
       return;
     }

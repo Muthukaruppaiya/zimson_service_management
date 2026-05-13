@@ -35,7 +35,7 @@ export function InventorySpareCatalogPage() {
   const { spares, addSpare } = useSpares();
   const { user } = useAuth();
   const hideStockLogsButton =
-    user?.role === "ho_user" || user?.role === "ho_manager" || user?.role === "ho_admin" || user?.role === "ho_supervisor";
+    user?.role === "ho_purchase" || user?.role === "ho_manager" || user?.role === "admin" || user?.role === "ho_manager";
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -70,7 +70,7 @@ export function InventorySpareCatalogPage() {
   const [historyRows, setHistoryRows] = useState<SpareHistoryRow[]>([]);
   const [historyErr, setHistoryErr] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const canCreateSpare = user?.role === "super_admin" || user?.role === "regional_admin";
+  const canCreateSpare = user?.role === "super_admin" || user?.role === "admin";
   const hoOnlyRole =
     user?.role === "service_centre_clerk" || user?.role === "service_centre_supervisor" || user?.role === "technician";
 

@@ -1,822 +1,390 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
-import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
-import { buildPrDocument, buildTransferDocument, openPrintDocument } from "../../lib/inventoryDocuments";
-import { useEffect, useMemo, useState } from "react";
+import { buildPrDocument, openPrintDocument } from "../../lib/inventoryDocuments";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-type PrItem = { id: string; spareId: string; qty: number; issuedQty: number; receivedQty: number; reason: string };
-type PrRow = {
-  id: string;
-  prNumber: string;
-  regionId: string;
-  regionName?: string;
-  storeId: string;
-  storeName?: string;
-  status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "PARTIAL" | "FULFILLED";
-  internalStatusCode?: string;
-  internalStatusLabel?: string;
-  neededBy: string | null;
-  notes: string;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-  items: PrItem[];
-};
+// ── Styles ──────────────────────────────────────────────────────────────────
 
-const inputClass =
-  "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2";
+const inputCls =
+  "mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30 transition-colors";
+const labelCls = "block text-[11px] font-semibold uppercase tracking-widest text-stone-500";
 
-function statusPillClass(status: PrRow["status"]): string {
-  if (status === "APPROVED" || status === "FULFILLED") return "bg-emerald-100 text-emerald-800";
-  if (status === "PARTIAL" || status === "SUBMITTED") return "bg-amber-100 text-amber-800";
-  if (status === "REJECTED") return "bg-red-100 text-red-800";
-  return "bg-stone-100 text-stone-700";
+// ── Searchable Spare Picker ─────────────────────────────────────────────────
+
+function SparePicker({
+  value,
+  onChange,
+  spares,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  spares: Array<{ id: string; name: string; sku: string; category?: string }>;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selected = spares.find((s) => s.id === value);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    if (!q) return spares.slice(0, 60);
+    return spares
+      .filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.sku.toLowerCase().includes(q) ||
+          (s.category ?? "").toLowerCase().includes(q),
+      )
+      .slice(0, 60);
+  }, [query, spares]);
+
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  function pick(id: string) { onChange(id); setQuery(""); setOpen(false); }
+
+  return (
+    <div ref={ref} className="relative mt-1">
+      <div
+        className="flex cursor-pointer items-center justify-between border border-rlx-rule bg-white px-3 py-2 text-sm transition hover:border-rlx-green"
+        onClick={() => { setOpen((v) => !v); setTimeout(() => inputRef.current?.focus(), 40); }}
+      >
+        {selected ? (
+          <span className="truncate">
+            <span className="font-medium text-stone-800">{selected.name}</span>
+            <span className="ml-2 font-mono text-[11px] text-stone-400">{selected.sku}</span>
+          </span>
+        ) : (
+          <span className="text-stone-400">Search spare by name, SKU or category…</span>
+        )}
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="ml-2 h-3.5 w-3.5 shrink-0 text-stone-400">
+          <polyline points="4 6 8 10 12 6" />
+        </svg>
+      </div>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-50 border border-rlx-rule bg-white shadow-xl">
+          <div className="flex items-center gap-2 border-b border-rlx-rule px-3 py-2">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5 shrink-0 text-stone-400">
+              <circle cx="6.5" cy="6.5" r="4.5" /><line x1="10" y1="10" x2="14" y2="14" />
+            </svg>
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Type name, SKU or category…"
+              className="w-full bg-transparent text-sm text-stone-800 outline-none placeholder-stone-400"
+            />
+            {query && <button type="button" onClick={() => setQuery("")} className="text-stone-400 hover:text-stone-600 text-sm">✕</button>}
+          </div>
+          <ul className="max-h-56 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <li className="px-4 py-3 text-xs text-stone-400">No spares match "{query}"</li>
+            ) : filtered.map((s) => (
+              <li
+                key={s.id}
+                onMouseDown={() => pick(s.id)}
+                className={`flex cursor-pointer items-center justify-between border-b border-rlx-rule px-4 py-2.5 text-sm hover:bg-rlx-green/5 last:border-0 ${s.id === value ? "bg-rlx-green/10" : ""}`}
+              >
+                <div>
+                  <span className="font-medium text-stone-800">{s.name}</span>
+                  {s.category && <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-stone-400">{s.category}</span>}
+                </div>
+                <span className="ml-4 shrink-0 font-mono text-[11px] text-stone-400">{s.sku}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
+
+// ── Success Popup ───────────────────────────────────────────────────────────
+
+function PrSuccessModal({
+  prNumber,
+  onClose,
+  onPrintAndClose,
+}: {
+  prNumber: string;
+  onClose: () => void;
+  onPrintAndClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }}>
+      <div className="w-full max-w-sm bg-white shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="bg-rlx-green px-6 py-6 text-center">
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full border-2 border-white/30 bg-white/10">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" className="h-7 w-7">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <h2 className="text-base font-semibold uppercase tracking-[0.15em] text-white">PR Submitted to HO</h2>
+        </div>
+        {/* Body */}
+        <div className="px-6 py-5 text-center">
+          <p className="text-xs font-semibold uppercase tracking-widest text-stone-400">Purchase Request Number</p>
+          <p className="mt-2 font-mono text-2xl font-bold text-rlx-green">{prNumber}</p>
+          <p className="mt-3 text-sm text-stone-500">Your request has been sent to HO for review and fulfilment.</p>
+        </div>
+        {/* Footer */}
+        <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-6 py-4">
+          <button
+            type="button"
+            onClick={onPrintAndClose}
+            className="flex-1 border border-rlx-rule bg-white py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition"
+          >
+            Print & Close
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 bg-rlx-green py-2 text-sm font-semibold text-white hover:bg-rlx-green/90 transition"
+          >
+            Create Another PR
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ───────────────────────────────────────────────────────────────
 
 export function InventoryPurchaseRequestsPage() {
   const { user } = useAuth();
   const { spares } = useSpares();
-  const isStoreCreator = user?.role === "store_user" || user?.role === "store_purchase_user";
-  const isStoreManager = user?.role === "store_manager";
-  const isStoreAny = isStoreCreator || isStoreManager || user?.role === "store_accounts";
-  const isHo = user?.role === "regional_admin" || user?.role === "super_admin" || user?.role === "ho_admin" || user?.role === "ho_manager" || user?.role === "ho_user";
+  const navigate = useNavigate();
+
+  const canCreate =
+    user?.role === "store_user" ||
+    user?.role === "store_manager" ||
+    user?.role === "store_accounts";
+
   const [neededBy, setNeededBy] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<Array<{ spareId: string; qty: string; reason: string }>>([
     { spareId: "", qty: "1", reason: "" },
   ]);
-  const [prs, setPrs] = useState<PrRow[]>([]);
-  const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [detailPrId, setDetailPrId] = useState<string | null>(null);
-  const [fulfillPrId, setFulfillPrId] = useState<string | null>(null);
-  const [fulfillQty, setFulfillQty] = useState<Record<string, string>>({});
-  const [hoStockByItem, setHoStockByItem] = useState<Record<string, number>>({});
-  const [hoStockLoading, setHoStockLoading] = useState(false);
-  const [inwardPrId, setInwardPrId] = useState<string | null>(null);
-  const [inwardQty, setInwardQty] = useState<Record<string, string>>({});
-  const [smReviewPr, setSmReviewPr] = useState<PrRow | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [createdPr, setCreatedPr] = useState<{
+    prNumber: string;
+    neededBy: string | null;
+    notes: string;
+    lines: Array<{ spareId: string; qty: number; reason: string }>;
+  } | null>(null);
 
   const minNeededByDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
-
-  const draftPrsForManager = useMemo(() => prs.filter((p) => p.status === "DRAFT"), [prs]);
-
   const spareNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of spares) map.set(s.id, `${s.name} (${s.sku})`);
     return map;
   }, [spares]);
 
-  async function loadPrs() {
-    try {
-      const data = await apiJson<{ prs: PrRow[] }>("/api/inventory/prs");
-      setPrs(data.prs);
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not load PR queue.");
-    }
-  }
-
-  useEffect(() => {
-    void loadPrs();
-  }, []);
-
   async function createPr() {
     const parsed = lines
       .map((l) => ({ spareId: l.spareId, qty: Number(l.qty), reason: l.reason.trim() }))
       .filter((l) => l.spareId && !Number.isNaN(l.qty) && l.qty > 0);
-    if (parsed.length === 0) {
-      setErr("Add at least one valid PR line.");
-      return;
-    }
-    setBusy(true);
-    setErr(null);
-    setOk(null);
+    if (parsed.length === 0) { setErr("Add at least one spare item with a valid quantity."); return; }
+    setBusy(true); setErr(null);
     try {
       const data = await apiJson<{ prNumber: string }>("/api/inventory/prs", {
         method: "POST",
-        json: {
-          neededBy: neededBy || null,
-          notes,
-          items: parsed,
-        },
+        json: { neededBy: neededBy || null, notes, items: parsed },
       });
-      setOk(`PR ${data.prNumber} created in draft. Store Manager approval is required before sending to HO.`);
-      const nowIso = new Date().toISOString();
-      openPrintDocument(
-        `PR ${data.prNumber}`,
-        buildPrDocument({
-          prNumber: data.prNumber,
-          createdAt: nowIso,
-          regionId: user?.regionId ?? "-",
-          storeId: user?.storeId ?? "-",
-          regionName: user?.regionId ?? "-",
-          storeName: user?.storeId ?? "-",
-          neededBy: neededBy || null,
-          notes,
-          lines: parsed.map((p) => ({
-            description: spareNameById.get(p.spareId) ?? p.spareId,
-            qty: p.qty,
-            reason: p.reason,
-          })),
-        }),
-      );
-      setNeededBy("");
-      setNotes("");
-      setLines([{ spareId: "", qty: "1", reason: "" }]);
-      await loadPrs();
+      setCreatedPr({ prNumber: data.prNumber, neededBy: neededBy || null, notes, lines: parsed });
+      // Reset form
+      setNeededBy(""); setNotes(""); setLines([{ spareId: "", qty: "1", reason: "" }]);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not create PR.");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
-  async function updateStatus(prId: string, status: PrRow["status"]) {
-    setErr(null);
-    setOk(null);
-    try {
-      const data = await apiJson<{ internalStatusLabel?: string }>(`/api/inventory/prs/${encodeURIComponent(prId)}/status`, {
-        method: "PATCH",
-        json: { status },
-      });
-      setOk(`PR updated to ${status}${data.internalStatusLabel ? ` · ${data.internalStatusLabel}` : ""}.`);
-      await loadPrs();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not update PR.");
-    }
+  function handlePrintAndClose() {
+    if (!createdPr) return;
+    openPrintDocument(`PR ${createdPr.prNumber}`, buildPrDocument({
+      prNumber: createdPr.prNumber,
+      createdAt: new Date().toISOString(),
+      regionId: user?.regionId ?? "-",
+      storeId: user?.storeId ?? "-",
+      regionName: user?.regionId ?? "-",
+      storeName: user?.storeId ?? "-",
+      neededBy: createdPr.neededBy,
+      notes: createdPr.notes,
+      lines: createdPr.lines.map((p) => ({
+        description: spareNameById.get(p.spareId) ?? p.spareId,
+        qty: p.qty,
+        reason: p.reason,
+      })),
+    }));
+    setCreatedPr(null);
   }
 
-  async function storeApproveAndSend(prId: string) {
-    setErr(null);
-    setOk(null);
-    try {
-      const data = await apiJson<{ internalStatusLabel?: string }>(
-        `/api/inventory/prs/${encodeURIComponent(prId)}/store-approve`,
-        { method: "POST" },
-      );
-      setOk(`PR approved by store manager and sent to HO${data.internalStatusLabel ? ` · ${data.internalStatusLabel}` : ""}.`);
-      await loadPrs();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not approve/send PR.");
-    }
-  }
-
-  async function openFulfill(pr: PrRow) {
-    const initial: Record<string, string> = {};
-    for (const i of pr.items) {
-      const pending = Math.max(0, i.qty - i.issuedQty);
-      if (pending > 0) initial[i.id] = String(pending);
-    }
-    setFulfillQty(initial);
-    setHoStockLoading(true);
-    try {
-      const data = await apiJson<{ rows: Array<{ itemId: string; hoAvailable: number }> }>(
-        `/api/inventory/prs/${encodeURIComponent(pr.id)}/ho-stock`,
-      );
-      setHoStockByItem(
-        Object.fromEntries(data.rows.map((r) => [r.itemId, r.hoAvailable])),
-      );
-    } catch {
-      setHoStockByItem({});
-    } finally {
-      setHoStockLoading(false);
-    }
-    setFulfillPrId(pr.id);
-  }
-
-  async function fulfillPr(pr: PrRow) {
-    setErr(null);
-    setOk(null);
-    const items = pr.items
-      .map((i) => ({
-        itemId: i.id,
-        qty: Number(fulfillQty[i.id] ?? "0"),
-      }))
-      .filter((i) => i.qty > 0);
-    if (items.length === 0) {
-      setErr("Enter transfer qty for at least one line.");
-      return;
-    }
-    try {
-      const data = await apiJson<{ movedQty: number; status: string }>(`/api/inventory/prs/${encodeURIComponent(pr.id)}/fulfill`, {
-        method: "POST",
-        json: { items },
-      });
-      setOk(`Stock issued: ${data.movedQty}. PR status: ${data.status}.`);
-      openPrintDocument(
-        `Transfer ${pr.prNumber}`,
-        buildTransferDocument({
-          refNumber: pr.prNumber,
-          date: new Date().toISOString(),
-          fromLocation: `HO: ${pr.regionName ?? pr.regionId}`,
-          toLocation: `STORE: ${pr.storeName ?? pr.storeId}`,
-          lines: items.map((it) => {
-            const line = pr.items.find((x) => x.id === it.itemId);
-            return {
-              description: spareNameById.get(line?.spareId ?? "") ?? line?.spareId ?? it.itemId,
-              qty: it.qty,
-            };
-          }),
-        }),
-      );
-      setFulfillPrId(null);
-      await loadPrs();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not fulfill PR.");
-    }
-  }
-
-  function openInward(pr: PrRow) {
-    const initial: Record<string, string> = {};
-    for (const i of pr.items) {
-      const pending = Math.max(0, i.issuedQty - i.receivedQty);
-      if (pending > 0) initial[i.id] = String(pending);
-    }
-    setInwardQty(initial);
-    setInwardPrId(pr.id);
-  }
-
-  async function inwardPr(pr: PrRow) {
-    setErr(null);
-    setOk(null);
-    const items = pr.items
-      .map((i) => ({ itemId: i.id, qty: Number(inwardQty[i.id] ?? "0") }))
-      .filter((i) => i.qty > 0);
-    if (items.length === 0) {
-      setErr("Enter inward qty for at least one line.");
-      return;
-    }
-    try {
-      const data = await apiJson<{ movedQty: number; status: string }>(`/api/inventory/prs/${encodeURIComponent(pr.id)}/inward`, {
-        method: "POST",
-        json: { items },
-      });
-      setOk(`Store inward done: ${data.movedQty}. PR status: ${data.status}.`);
-      setInwardPrId(null);
-      await loadPrs();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not inward PR.");
-    }
+  if (!canCreate) {
+    return (
+      <div>
+        <InventoryBreadcrumb current="Purchase requests" />
+        <PageHeader title="Purchase Requests" description="" />
+        <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
+          Only store users can create purchase requests.
+          <div className="mt-4">
+            <Link to="/inventory" className="font-semibold text-rlx-green hover:underline">← Back to Inventory</Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div>
       <InventoryBreadcrumb current="Purchase requests" />
       <PageHeader
-        title="Purchase requests (PR)"
-        description="Store raises material needs; HO receives them in the same regional bucket. No PO is created until HO converts an approved PR."
+        title="New Purchase Request"
+        description=""
         actions={
-          <Link
-            to="/inventory"
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Inventory home
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/inventory/pr-history"
+              className="border border-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green hover:bg-rlx-green/5 transition"
+            >
+              PR History
+            </Link>
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition"
+            >
+              ← Back
+            </button>
+          </div>
         }
       />
 
-      {isStoreCreator ? (
-        <Card title="New PR from this store" subtitle="Create draft PR for Store Manager approval" className="mb-8">
-          <div className="space-y-3">
-            {lines.map((line, idx) => (
-              <div key={idx} className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-12">
-                <div className="sm:col-span-5">
-                  <label className="text-xs font-medium text-stone-600">Spare</label>
-                  <select
-                    className={inputClass}
-                    value={line.spareId}
-                    onChange={(e) =>
-                      setLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: e.target.value } : x)))
-                    }
-                  >
-                    <option value="">Select spare</option>
-                    {spares.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.sku})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-medium text-stone-600">Qty</label>
-                  <input
-                    type="number"
-                    min={0.001}
-                    step={0.001}
-                    className={inputClass}
-                    value={line.qty}
-                    onChange={(e) =>
-                      setLines((prev) => prev.map((x, i) => (i === idx ? { ...x, qty: e.target.value } : x)))
-                    }
-                  />
-                </div>
-                <div className="sm:col-span-4">
-                  <label className="text-xs font-medium text-stone-600">Reason</label>
-                  <input
-                    className={inputClass}
-                    value={line.reason}
-                    onChange={(e) =>
-                      setLines((prev) => prev.map((x, i) => (i === idx ? { ...x, reason: e.target.value } : x)))
-                    }
-                  />
-                </div>
-                <div className="sm:col-span-1 flex items-end">
+      {/* Error */}
+      {err && (
+        <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          ✕ {err}
+        </div>
+      )}
+
+      {/* PR Form */}
+      <div className="border border-rlx-rule bg-white shadow-sm">
+        {/* Form header */}
+        <div className="border-b border-rlx-rule bg-rlx-green px-5 py-4">
+          <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-white">Spare Items Required</h3>
+          <p className="mt-0.5 text-[11px] text-white/55"></p>
+        </div>
+
+        <div className="p-5 space-y-3">
+          {/* Lines */}
+          {lines.map((line, idx) => (
+            <div key={idx} className="border border-rlx-rule bg-stone-50/40 p-4">
+              <div className="mb-2.5 flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-stone-400">Item {idx + 1}</span>
+                {lines.length > 1 && (
                   <button
                     type="button"
-                    className="w-full rounded-xl border border-stone-300 px-2 py-2 text-xs"
-                    onClick={() => setLines((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)))}
+                    onClick={() => setLines((p) => p.filter((_, i) => i !== idx))}
+                    className="text-[11px] font-semibold text-red-400 hover:text-red-600 transition"
                   >
                     Remove
                   </button>
+                )}
+              </div>
+              <div className="grid gap-4 sm:grid-cols-12">
+                <div className="sm:col-span-6">
+                  <label className={labelCls}>Spare Part</label>
+                  <SparePicker
+                    value={line.spareId}
+                    onChange={(id) => setLines((p) => p.map((x, i) => (i === idx ? { ...x, spareId: id } : x)))}
+                    spares={spares}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className={labelCls}>Qty</label>
+                  <input
+                    type="number" min={1} step={1}
+                    className={inputCls}
+                    value={line.qty}
+                    onChange={(e) => setLines((p) => p.map((x, i) => (i === idx ? { ...x, qty: e.target.value } : x)))}
+                  />
+                </div>
+                <div className="sm:col-span-4">
+                  <label className={labelCls}>Reason (optional)</label>
+                  <input
+                    className={inputCls}
+                    placeholder="e.g. Customer repair SRF-0123"
+                    value={line.reason}
+                    onChange={(e) => setLines((p) => p.map((x, i) => (i === idx ? { ...x, reason: e.target.value } : x)))}
+                  />
                 </div>
               </div>
-            ))}
+            </div>
+          ))}
+
+          {/* Add line */}
+          <button
+            type="button"
+            onClick={() => setLines((p) => [...p, { spareId: "", qty: "1", reason: "" }])}
+            className="flex w-full items-center justify-center gap-2 border border-dashed border-rlx-rule py-3 text-xs font-semibold text-stone-400 hover:border-rlx-green hover:text-rlx-green transition"
+          >
+            + Add Another Item
+          </button>
+
+          {/* Needed By + Notes */}
+          <div className="grid gap-4 border-t border-rlx-rule pt-4 sm:grid-cols-2">
+            <div>
+              <label className={labelCls}>Needed By Date (optional)</label>
+              <input type="date" min={minNeededByDate} className={inputCls} value={neededBy} onChange={(e) => setNeededBy(e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Notes for HO (optional)</label>
+              <input className={inputCls} placeholder="Any special instructions…" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+          </div>
+
+          {/* Submit */}
+          <div className="flex items-center gap-4 border-t border-rlx-rule pt-4">
             <button
               type="button"
-              className="rounded-xl border border-zimson-400 bg-white px-3 py-2 text-xs font-semibold text-zimson-900"
-              onClick={() => setLines((prev) => [...prev, { spareId: "", qty: "1", reason: "" }])}
+              disabled={busy}
+              onClick={() => void createPr()}
+              className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white hover:bg-rlx-green/90 transition disabled:opacity-50"
             >
-              + Add line
+              {busy ? "Submitting…" : "Submit PR to HO"}
             </button>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="text-xs font-medium text-stone-600">Needed by</label>
-                <input
-                  type="date"
-                  min={minNeededByDate}
-                  className={inputClass}
-                  value={neededBy}
-                  onChange={(e) => setNeededBy(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-stone-600">Notes</label>
-                <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void createPr()}
-                className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white"
-              >
-                Create draft PR
-              </button>
-            </div>
-          </div>
-        </Card>
-      ) : null}
-
-      {isStoreManager ? (
-        <Card title="Store Manager approval" subtitle="Draft PRs only — review details, then approve and send to HO" className="mb-8">
-          <div className="max-h-[340px] overflow-auto rounded-xl border border-zimson-200/80">
-            <table className="min-w-full text-left text-sm">
-              <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-                <tr>
-                  <th className="px-3 py-2">PR#</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Internal</th>
-                  <th className="px-3 py-2">Lines</th>
-                  <th className="px-3 py-2">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {draftPrsForManager.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-3 text-sm text-stone-600" colSpan={5}>
-                      No draft PRs waiting for store manager approval.
-                    </td>
-                  </tr>
-                ) : (
-                  draftPrsForManager.map((pr) => (
-                    <tr key={pr.id} className="border-b border-zimson-100">
-                      <td className="px-3 py-2 font-mono text-xs">{pr.prNumber}</td>
-                      <td className="px-3 py-2">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusPillClass(pr.status)}`}>{pr.status}</span>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-stone-600">{pr.internalStatusLabel ?? pr.internalStatusCode ?? "-"}</td>
-                      <td className="px-3 py-2">{pr.items.length}</td>
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => setSmReviewPr(pr)}
-                          className="rounded-lg border border-zimson-400 bg-white px-2 py-1 text-xs font-semibold text-zimson-900"
-                        >
-                          Review details
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {isStoreManager && smReviewPr ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
-            <h3 className="text-lg font-semibold text-stone-900">Approve PR {smReviewPr.prNumber}</h3>
-            <p className="mt-1 text-sm text-stone-600">Needed by: {smReviewPr.neededBy ?? "—"} · Notes: {smReviewPr.notes || "—"}</p>
-            <div className="mt-4 max-h-64 overflow-auto rounded-xl border border-zimson-200/80">
-              <table className="min-w-full text-left text-sm">
-                <thead className="sticky top-0 bg-zimson-50/90 text-xs font-semibold uppercase text-stone-600">
-                  <tr>
-                    <th className="px-3 py-2">Spare</th>
-                    <th className="px-3 py-2">Qty</th>
-                    <th className="px-3 py-2">Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {smReviewPr.items.map((it) => (
-                    <tr key={it.id} className="border-b border-zimson-100">
-                      <td className="px-3 py-2">{spareNameById.get(it.spareId) ?? it.spareId}</td>
-                      <td className="px-3 py-2">{it.qty}</td>
-                      <td className="px-3 py-2 text-xs text-stone-700">{it.reason || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setSmReviewPr(null)}
-                className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-800"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void storeApproveAndSend(smReviewPr.id);
-                  setSmReviewPr(null);
-                }}
-                className="rounded-xl bg-zimson-700 px-4 py-2 text-sm font-semibold text-white"
-              >
-                Approve + send to HO
-              </button>
-            </div>
+            <Link
+              to="/inventory/pr-history"
+              className="text-sm font-semibold text-rlx-green hover:underline"
+            >
+              View PR History →
+            </Link>
           </div>
         </div>
-      ) : null}
+      </div>
 
-      {isHo ? (
-        <Card title="HO — PR inbox" subtitle="Approve, reject, or ask revision before PO">
-          <div className="max-h-[480px] overflow-auto rounded-xl border border-zimson-200/80">
-            <table className="min-w-full text-left text-sm">
-              <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-                <tr>
-                  <th className="px-3 py-2">PR#</th>
-                  <th className="px-3 py-2">Store</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Lines</th>
-                  <th className="px-3 py-2">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {prs.map((pr) => (
-                  <tr key={pr.id} className="border-b border-zimson-100 align-top">
-                    <td className="px-3 py-2 font-mono text-xs">{pr.prNumber}</td>
-                    <td className="px-3 py-2">{pr.storeName ?? pr.storeId}</td>
-                    <td className="px-3 py-2">
-                      <div>{pr.status}</div>
-                      <div className="text-xs text-stone-500">{pr.internalStatusLabel ?? pr.internalStatusCode ?? "-"}</div>
-                    </td>
-                    <td className="px-3 py-2">
-                      {pr.items
-                        .map((i) => `${spareNameById.get(i.spareId) ?? i.spareId} req:${i.qty} issued:${i.issuedQty} received:${i.receivedQty}`)
-                        .join(", ")}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex gap-2">
-                        {(() => {
-                          const canApproveReject = pr.status === "SUBMITTED";
-                          const canFulfill = pr.status === "APPROVED" || pr.status === "PARTIAL";
-                          return (
-                            <>
-                        <button
-                          type="button"
-                          onClick={() => setDetailPrId((x) => (x === pr.id ? null : pr.id))}
-                          className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-xs font-semibold text-stone-700"
-                        >
-                          Details
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!canApproveReject}
-                          title={canApproveReject ? "Approve PR" : "Approve available only for SUBMITTED PR"}
-                          onClick={() => void updateStatus(pr.id, "APPROVED")}
-                          className={`rounded-lg px-2 py-1 text-xs font-semibold text-white ${
-                            canApproveReject ? "bg-emerald-600 hover:bg-emerald-700" : "cursor-not-allowed bg-stone-300 text-stone-100"
-                          }`}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!canApproveReject}
-                          title={canApproveReject ? "Reject PR" : "Reject available only for SUBMITTED PR"}
-                          onClick={() => void updateStatus(pr.id, "REJECTED")}
-                          className={`rounded-lg px-2 py-1 text-xs font-semibold text-white ${
-                            canApproveReject ? "bg-red-600 hover:bg-red-700" : "cursor-not-allowed bg-stone-300 text-stone-100"
-                          }`}
-                        >
-                          Reject
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!canFulfill}
-                          title={canFulfill ? "Fulfill PR" : "Fulfill available only for APPROVED/PARTIAL PR"}
-                          onClick={() => void openFulfill(pr)}
-                          className={`rounded-lg px-2 py-1 text-xs font-semibold text-white ${
-                            canFulfill ? "bg-zimson-700 hover:bg-zimson-800" : "cursor-not-allowed bg-stone-300 text-stone-100"
-                          }`}
-                        >
-                          Fulfill
-                        </button>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {isHo && fulfillPrId ? (
-        <Card title="Fulfill PR — choose transfer quantities" subtitle="Enter quantity per line to transfer from HO to store">
-          {(() => {
-            const pr = prs.find((p) => p.id === fulfillPrId);
-            if (!pr) return <p className="text-sm text-stone-600">PR not found.</p>;
-            return (
-              <div className="space-y-3">
-                {pr.items.map((i) => {
-                  const pending = Math.max(0, i.qty - i.issuedQty);
-                  return (
-                    <div key={i.id} className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-12">
-                      <div className="sm:col-span-8">
-                        <p className="text-sm font-medium text-stone-900">{spareNameById.get(i.spareId) ?? i.spareId}</p>
-                        <p className="text-xs text-stone-600">
-                          Requested: {i.qty} · Issued: {i.issuedQty} · Pending: {pending} · HO Stock:{" "}
-                          <span className="font-semibold text-zimson-900">
-                            {hoStockLoading ? "Loading..." : (hoStockByItem[i.id] ?? 0)}
-                          </span>
-                        </p>
-                      </div>
-                      <div className="sm:col-span-4">
-                        <label className="text-xs font-medium text-stone-600">Transfer qty</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={pending}
-                          step={0.001}
-                          className={inputClass}
-                          value={fulfillQty[i.id] ?? "0"}
-                          onChange={(e) => setFulfillQty((prev) => ({ ...prev, [i.id]: e.target.value }))}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => void fulfillPr(pr)} className="rounded-xl bg-zimson-700 px-4 py-2 text-sm font-semibold text-white">
-                    Confirm transfer
-                  </button>
-                  <button type="button" onClick={() => setFulfillPrId(null)} className="rounded-xl border border-stone-300 px-4 py-2 text-sm">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            );
-          })()}
-        </Card>
-      ) : null}
-
-      {isStoreAny && inwardPrId ? (
-        <Card title="Store inward against PR transfer" subtitle="Confirm physically received quantity per line">
-          {(() => {
-            const pr = prs.find((p) => p.id === inwardPrId);
-            if (!pr) return <p className="text-sm text-stone-600">PR not found.</p>;
-            return (
-              <div className="space-y-3">
-                {pr.items.map((i) => {
-                  const pending = Math.max(0, i.issuedQty - i.receivedQty);
-                  return (
-                    <div key={i.id} className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-12">
-                      <div className="sm:col-span-8">
-                        <p className="text-sm font-medium text-stone-900">{spareNameById.get(i.spareId) ?? i.spareId}</p>
-                        <p className="text-xs text-stone-600">Issued: {i.issuedQty} · Received: {i.receivedQty} · Pending inward: {pending}</p>
-                      </div>
-                      <div className="sm:col-span-4">
-                        <label className="text-xs font-medium text-stone-600">Inward qty</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={pending}
-                          step={0.001}
-                          className={inputClass}
-                          value={inwardQty[i.id] ?? "0"}
-                          onChange={(e) => setInwardQty((prev) => ({ ...prev, [i.id]: e.target.value }))}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => void inwardPr(pr)} className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">
-                    Confirm inward
-                  </button>
-                  <button type="button" onClick={() => setInwardPrId(null)} className="rounded-xl border border-stone-300 px-4 py-2 text-sm">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            );
-          })()}
-        </Card>
-      ) : null}
-
-      {isStoreAny ? (
-        <Card title="My PRs" subtitle="Drafts and submitted requests">
-          <div className="max-h-[380px] overflow-auto rounded-xl border border-zimson-200/80">
-            <table className="min-w-full text-left text-sm">
-              <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-                <tr>
-                  <th className="px-3 py-2">PR#</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Lines</th>
-                  <th className="px-3 py-2">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {prs.map((pr) => (
-                  <tr key={pr.id} className="border-b border-zimson-100">
-                    <td className="px-3 py-2 font-mono text-xs">{pr.prNumber}</td>
-                    <td className="px-3 py-2">
-                      <div>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusPillClass(pr.status)}`}>{pr.status}</span>
-                      </div>
-                      <div className="text-xs text-stone-500">{pr.internalStatusLabel ?? pr.internalStatusCode ?? "-"}</div>
-                    </td>
-                    <td className="px-3 py-2">{pr.items.length}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setDetailPrId((x) => (x === pr.id ? null : pr.id))}
-                          className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-xs font-semibold text-stone-700"
-                        >
-                          Details
-                        </button>
-                        {pr.items.some((i) => i.issuedQty > i.receivedQty) ? (
-                          <button
-                            type="button"
-                            onClick={() => openInward(pr)}
-                            className="rounded-lg bg-emerald-700 px-2 py-1 text-xs font-semibold text-white"
-                          >
-                            Inward
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-
-      {!isStoreAny && !isHo ? (
-        <Card title="Access">
-          <p className="text-sm text-stone-600">
-            Sign in as a store user to raise PRs, or as regional / super admin to review HO inbox.
-          </p>
-        </Card>
-      ) : null}
-
-      {err ? <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{err}</p> : null}
-      {ok ? <p className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{ok}</p> : null}
-
-      {detailPrId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[85vh] w-full max-w-4xl overflow-auto rounded-2xl bg-white p-6 shadow-xl">
-            {(() => {
-              const pr = prs.find((p) => p.id === detailPrId);
-              if (!pr) {
-                return (
-                  <div>
-                    <p className="text-sm text-stone-600">PR details not found.</p>
-                    <button
-                      type="button"
-                      onClick={() => setDetailPrId(null)}
-                      className="mt-4 rounded-xl border border-stone-300 px-4 py-2 text-sm"
-                    >
-                      Close
-                    </button>
-                  </div>
-                );
-              }
-              return (
-                <div className="space-y-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-semibold text-stone-900">PR details — {pr.prNumber}</h3>
-                      <p className="text-sm text-stone-600">
-                        Store: {pr.storeName ?? pr.storeId} · Region: {pr.regionName ?? pr.regionId} · Status: {pr.status}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openPrintDocument(
-                            `PR ${pr.prNumber}`,
-                            buildPrDocument({
-                              prNumber: pr.prNumber,
-                              createdAt: pr.createdAt,
-                              regionId: pr.regionId,
-                              regionName: pr.regionName,
-                              storeId: pr.storeId,
-                              storeName: pr.storeName,
-                              neededBy: pr.neededBy,
-                              notes: pr.notes,
-                              lines: pr.items.map((i) => ({
-                                description: spareNameById.get(i.spareId) ?? i.spareId,
-                                qty: i.qty,
-                                reason: i.reason,
-                              })),
-                            }),
-                          )
-                        }
-                        className="rounded-xl border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-sm font-semibold text-zimson-900"
-                      >
-                        Print document
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDetailPrId(null)}
-                        className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-4 sm:grid-cols-2">
-                    <p className="text-sm text-stone-700">
-                      <span className="font-semibold">Needed by:</span> {pr.neededBy ?? "-"}
-                    </p>
-                    <p className="text-sm text-stone-700">
-                      <span className="font-semibold">Created:</span> {new Date(pr.createdAt).toLocaleString()}
-                    </p>
-                    <p className="text-sm text-stone-700 sm:col-span-2">
-                      <span className="font-semibold">Notes:</span> {pr.notes || "-"}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-zimson-200/80">
-                    <table className="min-w-full text-left text-sm">
-                      <thead className="border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-                        <tr>
-                          <th className="px-3 py-2">Spare</th>
-                          <th className="px-3 py-2">Requested</th>
-                          <th className="px-3 py-2">Issued</th>
-                          <th className="px-3 py-2">Received</th>
-                          <th className="px-3 py-2">Pending</th>
-                          <th className="px-3 py-2">Reason</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pr.items.map((i) => (
-                          <tr key={i.id} className="border-b border-zimson-100">
-                            <td className="px-3 py-2">{spareNameById.get(i.spareId) ?? i.spareId}</td>
-                            <td className="px-3 py-2">{i.qty}</td>
-                            <td className="px-3 py-2">{i.issuedQty}</td>
-                            <td className="px-3 py-2">{i.receivedQty}</td>
-                            <td className="px-3 py-2">{Math.max(0, i.qty - i.receivedQty)}</td>
-                            <td className="px-3 py-2">{i.reason || "-"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-      ) : null}
+      {/* Success Modal */}
+      {createdPr && (
+        <PrSuccessModal
+          prNumber={createdPr.prNumber}
+          onClose={() => setCreatedPr(null)}
+          onPrintAndClose={handlePrintAndClose}
+        />
+      )}
     </div>
   );
 }

@@ -31,6 +31,137 @@ const qbUpload = multer({
 
 const WARRANTY_VALUES = new Set(["unspecified", "none", "under_warranty", "extended"]);
 
+function actorCanAccessQuickBillRow(actor: DemoUser, billRegionId: string, billStoreId: string | null): boolean {
+  if (actor.role === "super_admin" || actor.role === "admin") return true;
+  if (
+    actor.role === "admin" ||
+    actor.role === "ho_manager" ||
+    actor.role === "ho_purchase" ||
+    actor.role === "ho_accounts" ||
+    actor.role === "ho_manager" ||
+    actor.role === "service_centre_clerk" ||
+    actor.role === "service_centre_supervisor" ||
+    actor.role === "service_centre_clerk" ||
+    actor.role === "service_centre_clerk" ||
+    actor.role === "technician"
+  ) {
+    return Boolean(actor.regionId && actor.regionId === billRegionId);
+  }
+  if (
+    actor.role === "store_user" ||
+    actor.role === "store_user" ||
+    actor.role === "store_manager" ||
+    actor.role === "store_accounts"
+  ) {
+    return Boolean(
+      actor.regionId && actor.storeId && actor.regionId === billRegionId && actor.storeId === billStoreId,
+    );
+  }
+  return false;
+}
+
+async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
+  const detail = await db.query(
+    `SELECT qb.id,
+            qb.bill_number AS "billNumber",
+            COALESCE(qb.invoice_number, qb.bill_number) AS "invoiceNumber",
+            qb.created_at AS "createdAt",
+            qb.region_id AS "regionId",
+            r.name AS "regionName",
+            qb.store_id AS "storeId",
+            s.name AS "storeName",
+            qb.customer_type AS "customerType",
+            qb.customer_name AS "customerName",
+            qb.phone,
+            qb.email,
+            qb.company,
+            qb.gst,
+            qb.pan,
+            qb.address,
+            qb.city,
+            qb.watch_brand AS "watchBrand",
+            qb.watch_model AS "watchModel",
+            qb.watch_ref AS "watchRef",
+            qb.watch_remark AS "watchRemark",
+            qb.warranty_status AS "warrantyStatus",
+            qb.watch_document_path AS "watchDocumentPath",
+            qb.watch_image_path AS "watchImagePath",
+            qb.technician_id AS "technicianId",
+            qb.technician_name AS "technicianName",
+            qb.payment_mode AS "paymentMode",
+            qb.notes,
+            qb.total_inr::float8 AS "totalInr",
+            qb.payment_details AS "paymentDetails"
+     FROM quick_bills qb
+     LEFT JOIN regions r ON r.id = qb.region_id
+     LEFT JOIN stores s ON s.id = qb.store_id
+     WHERE qb.id = $1::uuid`,
+    [billId],
+  );
+  if (detail.rowCount === 0) return null;
+
+  const { rows: lineRows } = await db.query(
+    `SELECT line_no AS "lineNo",
+            description,
+            amount_inr::float8 AS "amountInr",
+            spare_id AS "spareId",
+            qty::float8 AS qty
+     FROM quick_bill_lines
+     WHERE quick_bill_id = $1::uuid
+     ORDER BY line_no`,
+    [billId],
+  );
+
+  const head = detail.rows[0] as Record<string, unknown>;
+  const createdAt =
+    head.createdAt instanceof Date
+      ? (head.createdAt as Date).toISOString()
+      : new Date(String(head.createdAt)).toISOString();
+  const pdRaw = head.paymentDetails;
+  const paymentDetailsParsed: AdvancePaymentDetails | null =
+    pdRaw && typeof pdRaw === "object" && !Array.isArray(pdRaw) ? (pdRaw as AdvancePaymentDetails) : null;
+
+  return {
+    id: head.id,
+    billNumber: head.billNumber,
+    invoiceNumber: head.invoiceNumber as string,
+    createdAt,
+    regionId: head.regionId,
+    regionName: head.regionName ?? null,
+    storeId: head.storeId ?? null,
+    storeName: head.storeName ?? null,
+    customerType: head.customerType,
+    customerName: head.customerName ?? null,
+    phone: head.phone ?? null,
+    email: head.email ?? null,
+    company: head.company ?? null,
+    gst: head.gst ?? null,
+    pan: head.pan ?? null,
+    address: (head.address as string | null) ?? null,
+    city: (head.city as string | null) ?? null,
+    watchBrand: head.watchBrand,
+    watchModel: head.watchModel,
+    watchRef: head.watchRef ?? null,
+    watchRemark: head.watchRemark ?? "",
+    warrantyStatus: head.warrantyStatus ?? "unspecified",
+    watchDocumentPath: head.watchDocumentPath ?? null,
+    watchImagePath: head.watchImagePath ?? null,
+    technicianId: head.technicianId ?? null,
+    technicianName: head.technicianName ?? null,
+    paymentMode: head.paymentMode,
+    paymentDetails: paymentDetailsParsed && Object.keys(paymentDetailsParsed).length > 0 ? paymentDetailsParsed : null,
+    notes: head.notes ?? "",
+    totalInr: Number(head.totalInr),
+    lines: lineRows.map((r) => ({
+      lineNo: r.lineNo as number,
+      description: r.description as string,
+      amountInr: Number(r.amountInr),
+      spareId: (r.spareId as string | null) ?? null,
+      qty: Number(r.qty),
+    })),
+  };
+}
+
 function makeAlphaNumCode(input: string, fallback: string): string {
   const cleaned = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
   return (cleaned.slice(0, 3) || fallback).padEnd(3, "X");
@@ -39,18 +170,36 @@ function makeAlphaNumCode(input: string, fallback: string): string {
 async function nextQuickBillNumber(
   client: PoolClient,
   regionId: string,
+  storeId?: string | null,
 ): Promise<string> {
   const yy = String(new Date().getFullYear()).slice(-2);
-  const scopeCode = makeAlphaNumCode(regionId, "RGN");
+
+  let scopeCode: string;
+  if (storeId) {
+    // Use the store's configured invoice code (same as used in invoice_number)
+    const { rows: st } = await client.query<{ invoice_number_store_code: string | null; name: string }>(
+      `SELECT invoice_number_store_code, name FROM stores WHERE id = $1::text`,
+      [storeId],
+    );
+    const rawCode = st[0]?.invoice_number_store_code?.trim() || "";
+    scopeCode = (
+      rawCode ||
+      String(st[0]?.name ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) ||
+      "STR"
+    ).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  } else {
+    scopeCode = makeAlphaNumCode(regionId, "RGN");
+  }
+
   const seq = await client.query<{ last_value: number }>(
     `INSERT INTO number_sequences (prefix, scope_code, year_2, last_value)
-     VALUES ($1, $2, $3, 1001)
+     VALUES ($1, $2, $3, 1)
      ON CONFLICT (prefix, scope_code, year_2)
      DO UPDATE SET last_value = number_sequences.last_value + 1
      RETURNING last_value`,
     ["QB", scopeCode, yy],
   );
-  const num = String(seq.rows[0]!.last_value).padStart(4, "0");
+  const num = String(seq.rows[0]!.last_value).padStart(3, "0");
   return `QB${yy}${scopeCode}${num}`;
 }
 
@@ -178,20 +327,21 @@ export function registerQuickBillRoutes(
     const conditions: string[] = [];
     const params: unknown[] = [];
 
-    if (actor.role === "super_admin" || actor.role === "ho_admin") {
+    if (actor.role === "super_admin" || actor.role === "admin") {
       if (regionIdQ) {
         params.push(regionIdQ);
         conditions.push(`qb.region_id = $${params.length}::text`);
       }
     } else if (
-      actor.role === "regional_admin" ||
+      actor.role === "admin" ||
       actor.role === "ho_manager" ||
-      actor.role === "ho_user" ||
+      actor.role === "ho_purchase" ||
       actor.role === "ho_accounts" ||
+      actor.role === "ho_manager" ||
       actor.role === "service_centre_clerk" ||
       actor.role === "service_centre_supervisor" ||
-      actor.role === "service_centre_inward" ||
-      actor.role === "service_centre_outward" ||
+      actor.role === "service_centre_clerk" ||
+      actor.role === "service_centre_clerk" ||
       actor.role === "technician"
     ) {
       if (!actor.regionId) {
@@ -202,7 +352,7 @@ export function registerQuickBillRoutes(
       conditions.push(`qb.region_id = $${params.length}::text`);
     } else if (
       actor.role === "store_user" ||
-      actor.role === "store_purchase_user" ||
+      actor.role === "store_user" ||
       actor.role === "store_manager" ||
       actor.role === "store_accounts"
     ) {
@@ -224,6 +374,7 @@ export function registerQuickBillRoutes(
       const { rows } = await pool.query(
         `SELECT qb.id,
                 qb.bill_number AS "billNumber",
+                COALESCE(qb.invoice_number, qb.bill_number) AS "invoiceNumber",
                 qb.created_at AS "createdAt",
                 qb.region_id AS "regionId",
                 r.name AS "regionName",
@@ -231,9 +382,21 @@ export function registerQuickBillRoutes(
                 s.name AS "storeName",
                 qb.customer_type AS "customerType",
                 qb.customer_name AS "customerName",
+                qb.phone,
+                qb.email,
                 qb.company,
+                qb.gst,
+                qb.pan,
+                qb.address,
+                qb.city,
                 qb.watch_brand AS "watchBrand",
+                qb.watch_model AS "watchModel",
+                qb.watch_ref AS "watchRef",
+                qb.watch_remark AS "watchRemark",
+                qb.warranty_status AS "warrantyStatus",
+                qb.technician_name AS "technicianName",
                 qb.payment_mode AS "paymentMode",
+                qb.notes,
                 qb.total_inr::float8 AS "totalInr",
                 qb.created_by AS "createdBy"
          FROM quick_bills qb
@@ -253,6 +416,7 @@ export function registerQuickBillRoutes(
         return {
           id: r.id,
           billNumber: r.billNumber,
+          invoiceNumber: r.invoiceNumber as string,
           createdAt,
           regionId: r.regionId,
           regionName: r.regionName ?? null,
@@ -260,9 +424,21 @@ export function registerQuickBillRoutes(
           storeName: r.storeName ?? null,
           customerType: r.customerType,
           customerName: r.customerName ?? null,
+          phone: r.phone ?? null,
+          email: r.email ?? null,
           company: r.company ?? null,
+          gst: r.gst ?? null,
+          pan: r.pan ?? null,
+          address: (r.address as string | null) ?? null,
+          city: (r.city as string | null) ?? null,
           watchBrand: r.watchBrand,
+          watchModel: r.watchModel,
+          watchRef: r.watchRef ?? null,
+          watchRemark: r.watchRemark ?? "",
+          warrantyStatus: r.warrantyStatus ?? "unspecified",
+          technicianName: r.technicianName ?? null,
           paymentMode: r.paymentMode,
+          notes: r.notes ?? "",
           totalInr: Number(r.totalInr),
           createdBy: r.createdBy,
         };
@@ -271,6 +447,44 @@ export function registerQuickBillRoutes(
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Could not load quick bill history." });
+    }
+  });
+
+  app.get("/api/service/quick-bills/:billId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const billId = String(req.params.billId ?? "").trim();
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRe.test(billId)) {
+      res.status(400).json({ error: "Invalid bill id." });
+      return;
+    }
+    try {
+      const head = await pool.query<{ regionId: string; storeId: string | null }>(
+        `SELECT region_id AS "regionId", store_id AS "storeId" FROM quick_bills WHERE id = $1::uuid`,
+        [billId],
+      );
+      if (head.rowCount === 0) {
+        res.status(404).json({ error: "Quick bill not found." });
+        return;
+      }
+      const r = head.rows[0]!;
+      if (!actorCanAccessQuickBillRow(actor, r.regionId, r.storeId)) {
+        res.status(403).json({ error: "Forbidden." });
+        return;
+      }
+      const invoice = await loadQuickBillInvoiceById(pool, billId);
+      if (!invoice) {
+        res.status(404).json({ error: "Quick bill not found." });
+        return;
+      }
+      res.json({ invoice });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load quick bill." });
     }
   });
 
@@ -283,7 +497,7 @@ export function registerQuickBillRoutes(
 
     let regionId = actor.regionId ?? "";
     let storeId: string | null = actor.storeId ?? null;
-    if (actor.role === "super_admin" || actor.role === "ho_admin") {
+    if (actor.role === "super_admin" || actor.role === "admin") {
       regionId = String(req.body?.regionId ?? "").trim() || regionId;
       const sid = req.body?.storeId;
       storeId = sid == null || sid === "" ? null : String(sid);
@@ -294,7 +508,7 @@ export function registerQuickBillRoutes(
       return;
     }
 
-    if (actor.role === "regional_admin" && actor.regionId !== regionId) {
+    if (actor.role === "admin" && actor.regionId !== regionId) {
       res.status(403).json({ error: "Cannot post quick bill outside your region." });
       return;
     }
@@ -307,8 +521,8 @@ export function registerQuickBillRoutes(
     if (
       (actor.role === "service_centre_clerk" ||
         actor.role === "service_centre_supervisor" ||
-        actor.role === "service_centre_inward" ||
-        actor.role === "service_centre_outward" ||
+        actor.role === "service_centre_clerk" ||
+        actor.role === "service_centre_clerk" ||
         actor.role === "technician") &&
       actor.regionId !== regionId
     ) {
@@ -323,6 +537,8 @@ export function registerQuickBillRoutes(
     const company = String(req.body?.company ?? "").trim() || null;
     const gst = String(req.body?.gst ?? "").trim().toUpperCase() || null;
     const pan = String(req.body?.pan ?? "").trim().toUpperCase() || null;
+    const address = String(req.body?.address ?? "").trim() || null;
+    const city = String(req.body?.city ?? "").trim() || null;
 
     if (customerType === "B2B") {
       if (!company) {
@@ -489,12 +705,12 @@ export function registerQuickBillRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      let billNumber: string;
-      if (storeId) {
-        billNumber = await allocateStoreInvoiceNumber(client, storeId);
-      } else {
-        billNumber = await nextQuickBillNumber(client, regionId);
-      }
+      // bill_number = QB reference: QB26CHN01001 (store-scoped) or QB26REG001 (region-scoped)
+      // invoice_number = formatted store invoice number: CHN0126-27001 (shared sequence with SRF)
+      const billNumber = await nextQuickBillNumber(client, regionId, storeId);
+      const invoiceNumber = storeId
+        ? await allocateStoreInvoiceNumber(client, storeId)
+        : billNumber;
 
       if (storeId) {
         const storeCheck = await client.query(
@@ -510,15 +726,16 @@ export function registerQuickBillRoutes(
 
       const ins = await client.query(
         `INSERT INTO quick_bills (
-           bill_number, region_id, store_id, customer_type, customer_name, phone, email,
-           company, gst, pan, watch_brand, watch_model, watch_ref, technician_id, technician_name,
+           bill_number, invoice_number, region_id, store_id, customer_type, customer_name, phone, email,
+           company, gst, pan, address, city, watch_brand, watch_model, watch_ref, technician_id, technician_name,
            payment_mode, notes, watch_remark, warranty_status, watch_document_path, watch_image_path,
            total_inr, payment_details, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26::jsonb, $27)
          RETURNING id, created_at`,
         [
           billNumber,
+          invoiceNumber,
           regionId,
           storeId,
           customerType,
@@ -528,6 +745,8 @@ export function registerQuickBillRoutes(
           company,
           gst,
           pan,
+          address,
+          city,
           watchBrand,
           watchModel,
           watchRef,
@@ -545,10 +764,6 @@ export function registerQuickBillRoutes(
         ],
       );
       const billId = ins.rows[0].id as string;
-      const createdAt =
-        ins.rows[0].created_at instanceof Date
-          ? (ins.rows[0].created_at as Date).toISOString()
-          : new Date(ins.rows[0].created_at as string).toISOString();
 
       for (const ln of lines) {
         await client.query(
@@ -626,99 +841,14 @@ export function registerQuickBillRoutes(
         }
       }
 
-      const detail = await client.query(
-        `SELECT qb.id,
-                qb.bill_number AS "billNumber",
-                qb.created_at AS "createdAt",
-                qb.region_id AS "regionId",
-                r.name AS "regionName",
-                qb.store_id AS "storeId",
-                s.name AS "storeName",
-                qb.customer_type AS "customerType",
-                qb.customer_name AS "customerName",
-                qb.phone,
-                qb.email,
-                qb.company,
-                qb.gst,
-                qb.pan,
-                qb.watch_brand AS "watchBrand",
-                qb.watch_model AS "watchModel",
-                qb.watch_ref AS "watchRef",
-                qb.watch_remark AS "watchRemark",
-                qb.warranty_status AS "warrantyStatus",
-                qb.watch_document_path AS "watchDocumentPath",
-                qb.watch_image_path AS "watchImagePath",
-                qb.technician_id AS "technicianId",
-                qb.technician_name AS "technicianName",
-                qb.payment_mode AS "paymentMode",
-                qb.notes,
-                qb.total_inr::float8 AS "totalInr",
-                qb.payment_details AS "paymentDetails"
-         FROM quick_bills qb
-         LEFT JOIN regions r ON r.id = qb.region_id
-         LEFT JOIN stores s ON s.id = qb.store_id
-         WHERE qb.id = $1::uuid`,
-        [billId],
-      );
-
-      const { rows: lineRows } = await client.query(
-        `SELECT line_no AS "lineNo",
-                description,
-                amount_inr::float8 AS "amountInr",
-                spare_id AS "spareId",
-                qty::float8 AS qty
-         FROM quick_bill_lines
-         WHERE quick_bill_id = $1::uuid
-         ORDER BY line_no`,
-        [billId],
-      );
-
       await client.query("COMMIT");
 
-      const head = detail.rows[0] as Record<string, unknown>;
-      const pdRaw = head.paymentDetails;
-      const paymentDetailsParsed: AdvancePaymentDetails | null =
-        pdRaw && typeof pdRaw === "object" && !Array.isArray(pdRaw)
-          ? (pdRaw as AdvancePaymentDetails)
-          : null;
-      res.json({
-        invoice: {
-          id: head.id,
-          billNumber: head.billNumber,
-          createdAt,
-          regionId: head.regionId,
-          regionName: head.regionName ?? null,
-          storeId: head.storeId ?? null,
-          storeName: head.storeName ?? null,
-          customerType: head.customerType,
-          customerName: head.customerName ?? null,
-          phone: head.phone ?? null,
-          email: head.email ?? null,
-          company: head.company ?? null,
-          gst: head.gst ?? null,
-          pan: head.pan ?? null,
-          watchBrand: head.watchBrand,
-          watchModel: head.watchModel,
-          watchRef: head.watchRef ?? null,
-          watchRemark: head.watchRemark ?? "",
-          warrantyStatus: head.warrantyStatus ?? "unspecified",
-          watchDocumentPath: head.watchDocumentPath ?? null,
-          watchImagePath: head.watchImagePath ?? null,
-          technicianId: head.technicianId ?? null,
-          technicianName: head.technicianName ?? null,
-          paymentMode: head.paymentMode,
-          paymentDetails: paymentDetailsParsed && Object.keys(paymentDetailsParsed).length > 0 ? paymentDetailsParsed : null,
-          notes: head.notes ?? "",
-          totalInr: Number(head.totalInr),
-          lines: lineRows.map((r) => ({
-            lineNo: r.lineNo as number,
-            description: r.description as string,
-            amountInr: Number(r.amountInr),
-            spareId: (r.spareId as string | null) ?? null,
-            qty: Number(r.qty),
-          })),
-        },
-      });
+      const invoice = await loadQuickBillInvoiceById(pool, billId);
+      if (!invoice) {
+        res.status(500).json({ error: "Could not load saved quick bill." });
+        return;
+      }
+      res.json({ invoice });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);

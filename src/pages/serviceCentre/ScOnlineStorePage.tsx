@@ -72,17 +72,17 @@ export function ScOnlineStorePage() {
 
   function canFulfill(o: InterHoSpareOrder): boolean {
     if (o.status !== "REQUESTED") return false;
-    return user?.role === "super_admin" || user?.role === "ho_admin" || o.toRegionId === (user?.regionId ?? "");
+    return user?.role === "super_admin" || user?.role === "admin" || o.toRegionId === (user?.regionId ?? "");
   }
 
   function canDispatch(o: InterHoSpareOrder): boolean {
     if (o.status !== "FULFILLED" || !!o.dispatchedAt) return false;
-    return user?.role === "super_admin" || user?.role === "ho_admin" || o.toRegionId === (user?.regionId ?? "");
+    return user?.role === "super_admin" || user?.role === "admin" || o.toRegionId === (user?.regionId ?? "");
   }
 
   function canInward(o: InterHoSpareOrder): boolean {
     if (o.status !== "FULFILLED" || !o.dispatchedAt || !!o.inwardReceivedAt) return false;
-    return user?.role === "super_admin" || user?.role === "ho_admin" || o.fromRegionId === (user?.regionId ?? "");
+    return user?.role === "super_admin" || user?.role === "admin" || o.fromRegionId === (user?.regionId ?? "");
   }
 
   function stageLabel(o: InterHoSpareOrder): string {

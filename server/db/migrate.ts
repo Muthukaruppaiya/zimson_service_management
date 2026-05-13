@@ -40,6 +40,10 @@ CREATE INDEX IF NOT EXISTS idx_app_users_region ON app_users (region_id);
 CREATE INDEX IF NOT EXISTS idx_app_users_store ON app_users (store_id);
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS employee_code VARCHAR(64);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_app_users_employee_code ON app_users(employee_code) WHERE employee_code IS NOT NULL;
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS plain_password TEXT;
+UPDATE app_users
+SET plain_password = '123456'
+WHERE plain_password IS NULL AND role <> 'super_admin';
 
 CREATE TABLE IF NOT EXISTS user_store_access (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -514,8 +518,17 @@ ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS created_by VARCHAR(80)
 ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
 
 ALTER TABLE grns ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
+-- Allow GOODS_AT_HO status on purchase_requests (goods received at HO, awaiting store transfer)
+ALTER TABLE purchase_requests DROP CONSTRAINT IF EXISTS purchase_requests_status_check;
+ALTER TABLE purchase_requests ADD CONSTRAINT purchase_requests_status_check
+  CHECK (status IN ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'PARTIAL', 'FULFILLED', 'GOODS_AT_HO'));
+ALTER TABLE grns ADD COLUMN IF NOT EXISTS invoice_file_path TEXT;
+ALTER TABLE grns ADD COLUMN IF NOT EXISTS invoice_total_amount NUMERIC(14,4);
 ALTER TABLE grn_items ADD COLUMN IF NOT EXISTS created_by VARCHAR(80);
 ALTER TABLE grn_items ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
+ALTER TABLE grn_items ADD COLUMN IF NOT EXISTS cost_price NUMERIC(14,4) DEFAULT 0;
+ALTER TABLE grn_items ADD COLUMN IF NOT EXISTS gst_rate NUMERIC(6,2) DEFAULT 18;
+ALTER TABLE grn_items ADD COLUMN IF NOT EXISTS tax_amount NUMERIC(14,4) DEFAULT 0;
 
 ALTER TABLE supplier_spares ADD COLUMN IF NOT EXISTS created_by VARCHAR(80);
 ALTER TABLE supplier_spares ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
@@ -952,9 +965,29 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(48);
   `);
 
+  // Separate formatted invoice number for quick bills (store sequence) vs QB reference (bill_number)
   await pool.query(`
-    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_template VARCHAR(96) NOT NULL DEFAULT '{CODE}{FY2}-{SEQ}';
-    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_seq_width SMALLINT NOT NULL DEFAULT 5;
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(48);
+  `);
+
+  // Customer address and city on quick bills for invoice display
+  await pool.query(`
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS address TEXT;
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS city VARCHAR(120);
+  `);
+
+  // Update invoice number template to the new format: CHN0126-27001 ({CODE}{FY2}-{FY2E}{SEQ})
+  await pool.query(`
+    UPDATE service_tax_settings
+    SET invoice_number_template = '{CODE}{FY2}-{FY2E}{SEQ}',
+        invoice_number_seq_width = 3
+    WHERE invoice_number_template IN ('{CODE}{FY2}-{SEQ}', '')
+       OR invoice_number_seq_width = 5;
+  `);
+
+  await pool.query(`
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_template VARCHAR(96) NOT NULL DEFAULT '{CODE}{FY2}-{FY2E}{SEQ}';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_seq_width SMALLINT NOT NULL DEFAULT 3;
   `);
 
   await pool.query(`
@@ -966,6 +999,35 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_store_gstin VARCHAR(24) NOT NULL DEFAULT '';
     ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_legal_entity_name VARCHAR(280) NOT NULL DEFAULT '';
     ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_terms TEXT NOT NULL DEFAULT '';
+  `);
+
+  // Region master fields: code, address, GST, PAN, email, phone
+  await pool.query(`
+    ALTER TABLE regions ADD COLUMN IF NOT EXISTS region_code VARCHAR(20) NOT NULL DEFAULT '';
+    ALTER TABLE regions ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT '';
+    ALTER TABLE regions ADD COLUMN IF NOT EXISTS gst VARCHAR(20) NOT NULL DEFAULT '';
+    ALTER TABLE regions ADD COLUMN IF NOT EXISTS pan VARCHAR(20) NOT NULL DEFAULT '';
+    ALTER TABLE regions ADD COLUMN IF NOT EXISTS email VARCHAR(200) NOT NULL DEFAULT '';
+    ALTER TABLE regions ADD COLUMN IF NOT EXISTS phone VARCHAR(80) NOT NULL DEFAULT '';
+  `);
+
+  // Structured address JSON for regions
+  await pool.query(`
+    ALTER TABLE regions ADD COLUMN IF NOT EXISTS address_json JSONB;
+  `);
+
+  // Warehouses — storage locations under a region
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS warehouses (
+      id TEXT PRIMARY KEY,
+      region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+      name VARCHAR(160) NOT NULL,
+      address TEXT NOT NULL DEFAULT '',
+      phone VARCHAR(80) NOT NULL DEFAULT '',
+      email VARCHAR(200) NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_warehouses_region ON warehouses (region_id);
   `);
 
   const prFlowDefaults: Array<[string, string, number]> = [
@@ -988,4 +1050,22 @@ export async function runMigrations(pool: Pool): Promise<void> {
       [code, label, order],
     );
   }
+
+  // ── Backfill PR statuses from GRN receipt data ────────────────────────────
+  // PRs that have GRN items received should be GOODS_AT_HO (not FULFILLED).
+  // FULFILLED is reserved for when HO physically transfers stock to the store.
+  // Also correct any PRs wrongly set to FULFILLED by a prior migration run.
+  await pool.query(`
+    UPDATE purchase_requests pr
+    SET status = 'GOODS_AT_HO', updated_at = now()
+    FROM (
+      SELECT DISTINCT pri.pr_id
+      FROM purchase_request_items pri
+      JOIN purchase_order_items poi ON poi.pr_item_id = pri.id
+      JOIN grn_items gi ON gi.po_item_id = poi.id
+      WHERE gi.qty_received > 0
+    ) has_grn
+    WHERE pr.id = has_grn.pr_id
+      AND pr.status IN ('APPROVED', 'PARTIAL', 'FULFILLED')
+  `);
 }

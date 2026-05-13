@@ -20,39 +20,39 @@ export type InAppNotifier = (
 
 const STORE_ROLES = new Set<UserRole>([
   "store_user",
-  "store_purchase_user",
+  "store_user",
   "store_manager",
   "store_accounts",
 ]);
 const HO_SC_ROLES = new Set<UserRole>([
   "super_admin",
-  "regional_admin",
-  "ho_admin",
+  "admin",
+  "admin",
   "ho_manager",
-  "ho_user",
+  "ho_purchase",
   "service_centre_clerk",
   "service_centre_supervisor",
-  "service_centre_inward",
-  "service_centre_outward",
+  "service_centre_clerk",
+  "service_centre_clerk",
   "technician",
 ]);
 
 const SC_DC_INWARD_ROLES = new Set<UserRole>([
   "super_admin",
-  "regional_admin",
-  "ho_admin",
+  "admin",
+  "admin",
   "ho_manager",
   "service_centre_clerk",
-  "service_centre_inward",
+  "service_centre_clerk",
 ]);
 
 const SC_ODC_OUTWARD_ROLES = new Set<UserRole>([
   "super_admin",
-  "regional_admin",
-  "ho_admin",
+  "admin",
+  "admin",
   "ho_manager",
   "service_centre_clerk",
-  "service_centre_outward",
+  "service_centre_clerk",
 ]);
 
 function canSupervisorDecide(actor: DemoUser | null): boolean {
@@ -64,16 +64,16 @@ function canSupervisorDecide(actor: DemoUser | null): boolean {
     role === "service centre supervisor" ||
     role === "service_centre_clerk" ||
     role === "sc_clerk" ||
-    role === "ho_supervisor" ||
     role === "ho_manager" ||
-    role === "regional_admin" ||
+    role === "ho_manager" ||
+    role === "admin" ||
     role === "super_admin" ||
-    role === "ho_admin"
+    role === "admin"
   );
 }
 
 function canManageBrandDesk(actor: DemoUser | null): boolean {
-  return !!actor && (actor.role === "service_centre_supervisor" || actor.role === "super_admin" || actor.role === "ho_admin");
+  return !!actor && (actor.role === "service_centre_supervisor" || actor.role === "super_admin" || actor.role === "admin");
 }
 
 function toJsonMeta(input: unknown): Record<string, unknown> {
@@ -96,7 +96,7 @@ const upload = multer({
 });
 
 function roleCanCreateDraft(actor: DemoUser): boolean {
-  return STORE_ROLES.has(actor.role) || actor.role === "super_admin" || actor.role === "ho_admin";
+  return STORE_ROLES.has(actor.role) || actor.role === "super_admin" || actor.role === "admin";
 }
 
 function roleCanView(actor: DemoUser): boolean {
@@ -105,7 +105,7 @@ function roleCanView(actor: DemoUser): boolean {
 
 function visibleWhere(actor: DemoUser, idxStart = 1): { sql: string; params: unknown[]; nextIdx: number } {
   let i = idxStart;
-  if (actor.role === "super_admin" || actor.role === "ho_admin") {
+  if (actor.role === "super_admin" || actor.role === "admin") {
     return { sql: "1=1", params: [], nextIdx: i };
   }
   if (STORE_ROLES.has(actor.role)) {
@@ -410,7 +410,7 @@ function parseReestimateEntry(
 
 function canManageInterHoSpareOrders(actor: DemoUser | null): boolean {
   if (!actor) return false;
-  return actor.role === "service_centre_supervisor" || actor.role === "ho_admin" || actor.role === "super_admin" || actor.role === "ho_manager";
+  return actor.role === "service_centre_supervisor" || actor.role === "admin" || actor.role === "super_admin" || actor.role === "ho_manager";
 }
 
 async function nextSpareOrderNumber(client: PoolClient): Promise<string> {
@@ -470,7 +470,7 @@ export function registerSrfRoutes(
         params.push(odcQ);
         where += ` AND j.outward_dc_number = $${i++}`;
       }
-      if (regionQ && (actor.role === "super_admin" || actor.role === "ho_admin")) {
+      if (regionQ && (actor.role === "super_admin" || actor.role === "admin")) {
         params.push(regionQ);
         where += ` AND j.region_id = $${i++}::text`;
       }
@@ -820,7 +820,7 @@ export function registerSrfRoutes(
       const params: unknown[] = [];
       const where: string[] = [];
       let i = 1;
-      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId) {
           res.status(400).json({ error: "User region is not configured." });
           return;
@@ -954,7 +954,7 @@ export function registerSrfRoutes(
         res.status(404).json({ error: "SRF not found." });
         return;
       }
-      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== srf.region_id) {
           await client.query("ROLLBACK");
           res.status(403).json({ error: "You can request spares only for your own HO SRFs." });
@@ -1072,7 +1072,7 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Only requested orders can be fulfilled." });
         return;
       }
-      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== order.to_region_id) {
           await client.query("ROLLBACK");
           res.status(403).json({ error: "Only destination HO can fulfill this order." });
@@ -1286,7 +1286,7 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Outward dispatch already completed." });
         return;
       }
-      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== order.to_region_id) {
           await client.query("ROLLBACK");
           res.status(403).json({ error: "Only supplier HO can mark outward dispatch." });
@@ -1375,7 +1375,7 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Inward already completed." });
         return;
       }
-      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== order.from_region_id) {
           await client.query("ROLLBACK");
           res.status(403).json({ error: "Only requested HO can mark inward receive." });
@@ -1772,7 +1772,7 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Only draft or photo-pending SRFs can be cancelled." });
         return;
       }
-      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== row.region_id) {
           await client.query("ROLLBACK");
           res.status(403).json({ error: "Region mismatch." });
@@ -1841,7 +1841,7 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Only draft or photo-pending SRFs can be edited." });
         return;
       }
-      if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== row.region_id) {
           await client.query("ROLLBACK");
           res.status(403).json({ error: "Region mismatch." });
@@ -2005,7 +2005,7 @@ export function registerSrfRoutes(
         res.status(404).json({ error: "DC not found." });
         return;
       }
-      if (actor.role !== "super_admin" && actor.role !== "ho_admin" && actor.regionId !== dc.region_id) {
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== dc.region_id) {
         await client.query("ROLLBACK");
         res.status(403).json({ error: "Region mismatch." });
         return;
@@ -2134,7 +2134,7 @@ export function registerSrfRoutes(
 
   app.post("/api/service/srf-jobs/:srfId/assign", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "service_centre_supervisor" && actor.role !== "super_admin" && actor.role !== "ho_admin")) {
+    if (!actor || (actor.role !== "service_centre_supervisor" && actor.role !== "super_admin" && actor.role !== "admin")) {
       res.status(403).json({ error: "Only supervisor/admin can assign technician." });
       return;
     }
@@ -3514,7 +3514,7 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Invoice can be created only when SRF is ready for outward dispatch." });
         return;
       }
-      if (actor.role !== "super_admin" && actor.role !== "ho_admin" && actor.regionId !== row.region_id) {
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== row.region_id) {
         await client.query("ROLLBACK");
         res.status(403).json({ error: "Only current repair HO can create this invoice." });
         return;
@@ -3701,7 +3701,7 @@ export function registerSrfRoutes(
         );
         const row = rows[0];
         if (!row || row.status !== "ready_for_outward") continue;
-        if (actor.role !== "super_admin" && actor.role !== "ho_admin" && actor.regionId !== row.region_id) continue;
+        if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== row.region_id) continue;
         await client.query(
           `INSERT INTO delivery_challan_lines (dc_id, srf_id, qty, created_by, modified_by)
            VALUES ($1::uuid, $2::uuid, 1, $3, $3)
@@ -4272,8 +4272,8 @@ export function registerSrfRoutes(
              AND role IN (
                'service_centre_supervisor',
                'ho_manager',
-               'ho_admin',
-               'regional_admin',
+               'admin',
+               'admin',
                'super_admin'
              )`,
           [srf.region_id],

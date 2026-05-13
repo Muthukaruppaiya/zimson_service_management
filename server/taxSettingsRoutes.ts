@@ -154,7 +154,7 @@ export function registerTaxSettingsRoutes(
       res.status(401).json({ error: "Invalid session." });
       return;
     }
-    if (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin") {
+    if (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin") {
       res.status(403).json({ error: "Only super or regional admins can update tax settings." });
       return;
     }

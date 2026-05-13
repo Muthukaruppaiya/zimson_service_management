@@ -31,6 +31,19 @@ type LoginResult =
   | { ok: false; message: string }
   | { ok: false; message: string; code: "STORE_SELECTION_REQUIRED"; stores: { id: string; name: string }[] };
 
+export type UserPatchInput = Partial<{
+  displayName: string;
+  email: string;
+  employeeCode: string;
+  role: import("../types/user").UserRole;
+  regionId: string;
+  storeId: string | null;
+  storeIds: string[];
+  canLogin: boolean;
+  moduleAccessOverride: import("../types/user").ModuleKey[] | null;
+  password: string;
+}>;
+
 type AuthContextValue = {
   user: SessionUser | null;
   /** Hydration / API session restore */
@@ -39,6 +52,7 @@ type AuthContextValue = {
   login: (employeeCode: string, password: string, storeId?: string | null) => Promise<LoginResult>;
   logout: () => Promise<void>;
   createUser: (input: CreateUserInput) => Promise<{ ok: true } | { ok: false; message: string }>;
+  updateUser: (userId: string, patch: UserPatchInput) => Promise<{ ok: boolean; message: string }>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -98,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setListUsers([]);
       return;
     }
-    if (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin") {
+    if (actor.role !== "super_admin" && actor.role !== "admin") {
       setListUsers([]);
       return;
     }
@@ -253,17 +267,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, message: "An account with this email already exists." };
       }
 
-      if (actor.role === "regional_admin") {
+      if (actor.role === "admin") {
         if (input.regionId !== actor.regionId) {
           return { ok: false, message: "You can only add users in your region." };
         }
-      } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+      } else if (actor.role !== "super_admin" && actor.role !== "admin") {
         return { ok: false, message: "You do not have permission to create users." };
       }
 
-      if (actor.role === "ho_admin") {
-        if (input.role === "super_admin" || input.role === "regional_admin") {
-          return { ok: false, message: "HO Admin cannot assign super admin or regional admin roles." };
+      if (actor.role === "admin") {
+        if (input.role === "super_admin" || input.role === "admin") {
+          return { ok: false, message: "Admin cannot assign Super Admin or Admin roles." };
         }
         if (actor.regionId && input.regionId !== actor.regionId) {
           return { ok: false, message: "HO Admin may only create users in the same HO region as their account." };
@@ -278,7 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : input.storeId
           ? [input.storeId]
           : [];
-      if ((input.role === "store_user" || input.role === "store_purchase_user" || input.role === "store_manager" || input.role === "store_accounts") && storeIds.length === 0) {
+      if ((input.role === "store_user" || input.role === "store_user" || input.role === "store_manager" || input.role === "store_accounts") && storeIds.length === 0) {
         return { ok: false, message: "At least one store is required for store roles." };
       }
 
@@ -292,14 +306,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         regionId: input.regionId,
         storeId:
           input.role === "store_user" ||
-          input.role === "store_purchase_user" ||
+          input.role === "store_user" ||
           input.role === "store_manager" ||
           input.role === "store_accounts"
             ? storeIds[0] ?? null
             : null,
         storeIds:
           input.role === "store_user" ||
-          input.role === "store_purchase_user" ||
+          input.role === "store_user" ||
           input.role === "store_manager" ||
           input.role === "store_accounts"
             ? storeIds
@@ -318,6 +332,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [api, allWithPassword, extraUsers, sessionUserId, effectiveUser, refreshDirectory],
   );
 
+  const updateUser = useCallback(
+    async (userId: string, patch: UserPatchInput): Promise<{ ok: boolean; message: string }> => {
+      if (api) {
+        try {
+          await apiJson(`/api/users/${encodeURIComponent(userId)}`, { method: "PATCH", json: patch });
+          await refreshDirectory(effectiveUser);
+          return { ok: true, message: "User updated." };
+        } catch (e) {
+          return { ok: false, message: e instanceof Error ? e.message : "Could not update user." };
+        }
+      }
+      // Local (non-API) mode — patch in extraUsers
+      setExtraUsers((prev) => {
+        const next = prev.map((u) => {
+          if (u.id !== userId) return u;
+          return {
+            ...u,
+            displayName: patch.displayName ?? u.displayName,
+            email: patch.email ?? u.email,
+            employeeCode: patch.employeeCode ?? u.employeeCode,
+            role: patch.role ?? u.role,
+            regionId: "regionId" in patch ? (patch.regionId ?? null) : u.regionId,
+            storeId: "storeId" in patch ? patch.storeId ?? null : u.storeId,
+            storeIds: patch.storeIds ?? u.storeIds,
+            canLogin: patch.canLogin ?? u.canLogin,
+            moduleAccessOverride: "moduleAccessOverride" in patch ? patch.moduleAccessOverride : u.moduleAccessOverride,
+          };
+        });
+        saveExtraUsers(next);
+        return next;
+      });
+      return { ok: true, message: "User updated." };
+    },
+    [api, effectiveUser, refreshDirectory],
+  );
+
   const value = useMemo(
     () => ({
       user: effectiveUser,
@@ -326,8 +376,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       createUser,
+      updateUser,
     }),
-    [effectiveUser, authReady, api, listUsers, allWithPassword, login, logout, createUser],
+    [effectiveUser, authReady, api, listUsers, allWithPassword, login, logout, createUser, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -343,10 +394,10 @@ export function useVisibleUsers(): SessionUser[] {
   const { user, listUsers } = useAuth();
   if (!user) return [];
   if (user.role === "super_admin") return listUsers;
-  if (user.role === "regional_admin") {
+  if (user.role === "admin") {
     return listUsers.filter((u) => u.regionId === user.regionId);
   }
-  if (user.role === "ho_admin") {
+  if (user.role === "admin") {
     if (user.regionId) return listUsers.filter((u) => u.regionId === user.regionId);
     return listUsers;
   }

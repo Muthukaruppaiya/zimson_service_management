@@ -3,6 +3,7 @@ import { ModuleRoute } from "./components/auth/ModuleRoute";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { AppShell } from "./components/layout/AppShell";
 import { AuthProvider } from "./context/AuthContext";
+import { ToastProvider } from "./components/ui/Toast";
 import { BrandsProvider } from "./context/BrandsContext";
 import { CustomersProvider } from "./context/CustomersContext";
 import { RegionsProvider } from "./context/RegionsContext";
@@ -41,9 +42,13 @@ import { ServiceTaxSettingsPage } from "./pages/settings/ServiceTaxSettingsPage"
 import { DocumentTemplatesPage } from "./pages/settings/DocumentTemplatesPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
 import { InventoryPoInwardPage } from "./pages/inventory/InventoryPoInwardPage";
+import { InventoryGrnHistoryPage } from "./pages/inventory/InventoryGrnHistoryPage";
 import { InventoryPurchaseOrdersPage } from "./pages/inventory/InventoryPurchaseOrdersPage";
+import { InventoryPoHistoryPage } from "./pages/inventory/InventoryPoHistoryPage";
 import { InventorySuppliersPage } from "./pages/inventory/InventorySuppliersPage";
+import { InventorySupplierFormPage } from "./pages/inventory/InventorySupplierFormPage";
 import { InventoryPurchaseRequestsPage } from "./pages/inventory/InventoryPurchaseRequestsPage";
+import { InventoryPrHistoryPage } from "./pages/inventory/InventoryPrHistoryPage";
 import { InventorySpareCatalogPage } from "./pages/inventory/InventorySpareCatalogPage";
 import { InventoryBulkImportPage } from "./pages/inventory/InventoryBulkImportPage";
 import { InventorySparePriceFixingPage } from "./pages/inventory/InventorySparePriceFixingPage";
@@ -63,6 +68,7 @@ function RedirectPreserveSearch({ to }: { to: string }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <ToastProvider>
       <AuthProvider>
         <RegionsProvider>
           <BrandsProvider>
@@ -388,10 +394,26 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/inventory/pr-history"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventoryPrHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/inventory/purchase-orders"
                   element={
                     <ModuleRoute module="inventory">
                       <InventoryPurchaseOrdersPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/po-history"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventoryPoHistoryPage />
                     </ModuleRoute>
                   }
                 />
@@ -404,10 +426,34 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/inventory/suppliers/new"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupplierFormPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/suppliers/:id/edit"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupplierFormPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/inventory/po-inward"
                   element={
                     <ModuleRoute module="inventory">
                       <InventoryPoInwardPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/grn-history"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventoryGrnHistoryPage />
                     </ModuleRoute>
                   }
                 />
@@ -493,6 +539,7 @@ export default function App() {
           </BrandsProvider>
         </RegionsProvider>
       </AuthProvider>
+      </ToastProvider>
     </BrowserRouter>
   );
 }

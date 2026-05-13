@@ -21,7 +21,7 @@ type SuggestRow = {
 
 export function InventoryAllocationReviewPage() {
   const { user } = useAuth();
-  const isHo = user?.role === "super_admin" || user?.role === "regional_admin";
+  const isHo = user?.role === "super_admin" || user?.role === "admin";
   const [regionId, setRegionId] = useState(user?.regionId ?? "");
   const [rows, setRows] = useState<SuggestRow[]>([]);
   const [finalQty, setFinalQty] = useState<Record<string, string>>({});

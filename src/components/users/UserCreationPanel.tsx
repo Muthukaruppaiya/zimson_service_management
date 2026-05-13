@@ -2,22 +2,42 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
+import { useToast } from "../ui/Toast";
 import { ROLE_MODULE_ACCESS } from "../../config/moduleAccess";
 import type { ModuleKey, UserRole } from "../../types/user";
-import { ALL_MODULE_KEYS, MODULE_LABELS, ROLE_CREATION_META, creatableRolesForActor, effectiveModuleAccess, isStoreRole } from "../../lib/userCreationPolicy";
+import {
+  ALL_MODULE_KEYS,
+  MODULE_LABELS,
+  ROLE_CREATION_META,
+  creatableRolesForActor,
+  effectiveModuleAccess,
+  isStoreRole,
+} from "../../lib/userCreationPolicy";
+
+// ── Shared style tokens ──────────────────────────────────────────────────────
 
 const inputCls =
-  "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm outline-none ring-zimson-400/40 focus:ring-2";
+  "mt-1 w-full border border-rlx-rule bg-white px-3 py-2.5 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30 transition-colors";
 
-const sectionCls = "rounded-xl border border-zimson-200/80 bg-white/60 p-4 shadow-sm";
+const labelCls = "block text-[11px] font-semibold uppercase tracking-widest text-stone-500";
 
-function roleLabel(role: UserRole) {
-  return ROLE_CREATION_META.find((x) => x.value === role)?.label ?? role;
+function SectionHeader({ step, title }: { step: number; title: string }) {
+  return (
+    <div className="flex items-center gap-3 border-b border-rlx-rule pb-3 mb-4">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center bg-rlx-green text-[11px] font-bold text-white">
+        {step}
+      </span>
+      <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-stone-700">{title}</h3>
+    </div>
+  );
 }
+
+// ── Component ────────────────────────────────────────────────────────────────
 
 export function UserCreationPanel() {
   const { user, createUser } = useAuth();
   const { regions } = useRegions();
+  const { success: toastSuccess } = useToast();
 
   const [email, setEmail] = useState("");
   const [employeeCode, setEmployeeCode] = useState("");
@@ -32,6 +52,7 @@ export function UserCreationPanel() {
   const [useCustomModules, setUseCustomModules] = useState(false);
   const [selectedModules, setSelectedModules] = useState<ModuleKey[]>(() => [...ROLE_MODULE_ACCESS["store_user"]]);
   const [formMessage, setFormMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [createdUser, setCreatedUser] = useState<{ name: string; employeeCode: string; role: string } | null>(null);
 
   const creatable = useMemo(() => creatableRolesForActor(user?.role), [user?.role]);
   const creatableSet = useMemo(() => new Set(creatable.map((r) => r.value)), [creatable]);
@@ -39,41 +60,31 @@ export function UserCreationPanel() {
   useEffect(() => {
     if (!user) return;
     const allowed = creatableRolesForActor(user.role).map((r) => r.value);
-    if (!allowed.includes(role)) {
-      setRole(allowed[0] ?? "store_user");
-    }
+    if (!allowed.includes(role)) setRole(allowed[0] ?? "store_user");
   }, [user, role]);
 
   useEffect(() => {
-    if (user?.role === "ho_admin" && user.regionId) {
-      setRegionId(user.regionId);
-    }
+    if (user?.role === "admin" && user.regionId) setRegionId(user.regionId);
   }, [user?.role, user?.regionId]);
 
   useEffect(() => {
-    if (user?.role === "regional_admin" && user.regionId) setRegionId(user.regionId);
-  }, [user?.role, user?.regionId]);
-
-  useEffect(() => {
-    if (role === "technician") {
-      setCanLogin(false);
-    }
+    if (role === "technician") setCanLogin(false);
   }, [role]);
 
   useEffect(() => {
-    if (!useCustomModules) {
-      setSelectedModules([...ROLE_MODULE_ACCESS[role]]);
-    }
+    if (!useCustomModules) setSelectedModules([...ROLE_MODULE_ACCESS[role]]);
   }, [role, useCustomModules]);
 
   const regionOptions = useMemo(() => {
     if (!user) return [];
-    if (user.role === "regional_admin" && user.regionId) return regions.filter((r) => r.id === user.regionId);
-    if (user.role === "ho_admin" && user.regionId) return regions.filter((r) => r.id === user.regionId);
+    if (user.role === "admin" && user.regionId) return regions.filter((r) => r.id === user.regionId);
     return regions;
   }, [user, regions]);
 
-  const storesForRegion = useMemo(() => regions.find((x) => x.id === regionId)?.stores ?? [], [regions, regionId]);
+  const storesForRegion = useMemo(
+    () => regions.find((x) => x.id === regionId)?.stores ?? [],
+    [regions, regionId],
+  );
 
   const storeRole = isStoreRole(role);
   const activeMeta = ROLE_CREATION_META.find((m) => m.value === role);
@@ -88,9 +99,6 @@ export function UserCreationPanel() {
       !defaultMods.every((m) => selectedModules.includes(m)) ||
       !selectedModules.every((m) => defaultMods.includes(m)));
 
-  const regionName = regionId ? regions.find((r) => r.id === regionId)?.name ?? regionId : "—";
-  const storeName = storeId ? storesForRegion.find((s) => s.id === storeId)?.name ?? storeId : "—";
-
   const validateStoreBelongsToRegion = useCallback(() => {
     if (!storeRole || !regionId) return true;
     if (storeIds.length === 0) return false;
@@ -104,19 +112,18 @@ export function UserCreationPanel() {
     const actor = user;
     if (!actor) return;
 
-    const resolvedRegionId =
-      actor.role === "regional_admin" ? actor.regionId ?? "" : actor.role === "ho_admin" ? actor.regionId ?? regionId : regionId;
+    const resolvedRegionId = actor.role === "admin" ? (actor.regionId ?? "") : regionId;
 
     if (!resolvedRegionId) {
       setFormMessage({ type: "err", text: "Select a region (HO scope)." });
       return;
     }
     if (storeRole && storeIds.length === 0) {
-      setFormMessage({ type: "err", text: "Store roles require at least one store under that region." });
+      setFormMessage({ type: "err", text: "Store roles require at least one store." });
       return;
     }
     if (storeRole && !validateStoreBelongsToRegion()) {
-      setFormMessage({ type: "err", text: "The selected store must belong to the selected region." });
+      setFormMessage({ type: "err", text: "Selected store must belong to the selected region." });
       return;
     }
     if (!creatableSet.has(role)) {
@@ -124,38 +131,35 @@ export function UserCreationPanel() {
       return;
     }
     if (canLogin && (!employeeCode.trim() || password.length < 4)) {
-      setFormMessage({ type: "err", text: "Login-enabled users need employee number and password (minimum 4 characters)." });
+      setFormMessage({ type: "err", text: "Login-enabled users need an employee number and password (min 4 chars)." });
       return;
     }
     if (useCustomModules && selectedModules.length === 0) {
-      setFormMessage({
-        type: "err",
-        text: "Custom module list is empty. Either pick at least one module or switch back to “Role default”.",
-      });
+      setFormMessage({ type: "err", text: "Custom module list is empty — select at least one module." });
       return;
     }
 
-    const moduleAccessOverride = useCustomModules ? selectedModules : null;
-
     const result = await createUser({
-        employeeCode,
+      employeeCode,
       email,
       displayName,
       password,
       role,
       regionId: resolvedRegionId,
-        storeId: storeRole ? storeIds[0] ?? null : null,
-        storeIds: storeRole ? storeIds : [],
+      storeId: storeRole ? (storeIds[0] ?? null) : null,
+      storeIds: storeRole ? storeIds : [],
       canLogin,
-      moduleAccessOverride,
+      moduleAccessOverride: useCustomModules ? selectedModules : null,
     });
+
     if (result.ok) {
-      setFormMessage({
-        type: "ok",
-        text: useCustomModules
-          ? "User created with a custom module list (replaces role defaults)."
-          : "User created using role default modules.",
+      const roleMeta = ROLE_CREATION_META.find((r) => r.value === role);
+      setCreatedUser({
+        name: displayName.trim(),
+        employeeCode: employeeCode.trim() || "—",
+        role: roleMeta?.label ?? role,
       });
+      toastSuccess("User created", `${displayName.trim()} has been added.`);
       setEmail("");
       setEmployeeCode("");
       setDisplayName("");
@@ -164,6 +168,7 @@ export function UserCreationPanel() {
       setStoreIds([]);
       setStorePickerOpen(false);
       setUseCustomModules(false);
+      setFormMessage(null);
     } else {
       setFormMessage({ type: "err", text: result.message });
     }
@@ -171,100 +176,120 @@ export function UserCreationPanel() {
 
   if (!user) return null;
 
-  const hoAdminBlocked = user.role === "ho_admin" && !user.regionId;
+  const adminBlocked = user.role === "admin" && !user.regionId;
 
   return (
-    <div className="space-y-5">
-      {hoAdminBlocked ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">Region is not mapped for this HO admin account.</div> : null}
+    <div>
+      {adminBlocked && (
+        <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          This Admin account has no region assigned — user creation is disabled.
+        </div>
+      )}
 
-      <form onSubmit={handleCreate} className="grid gap-6 lg:grid-cols-5">
-        <div className="space-y-4 lg:col-span-3">
-          <div className={sectionCls}>
-            <h3 className="text-sm font-semibold text-stone-900">1. Role &amp; description</h3>
-            <label htmlFor="uc-role" className="mt-3 block text-xs font-medium text-stone-600">
-              Role
-            </label>
-            <select
-              id="uc-role"
-              value={role}
-              onChange={(e) => {
-                const next = e.target.value as UserRole;
-                setRole(next);
-                setStoreId("");
-                setStoreIds([]);
-                setStorePickerOpen(false);
-              }}
-              className={inputCls}
-            >
-              {creatable.some((r) => r.group === "system") ? (
-                <optgroup label="System (Super Admin only)">
-                  {creatable
-                    .filter((r) => r.group === "system")
-                    .map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
+      <form onSubmit={handleCreate} className="space-y-0">
+
+        {/* ── Section 1: Role ── */}
+        <div className="border border-rlx-rule bg-white p-5 mb-px">
+          <SectionHeader step={1} title="Role" />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label htmlFor="uc-role" className={labelCls}>Select Role</label>
+              <select
+                id="uc-role"
+                value={role}
+                onChange={(e) => {
+                  const next = e.target.value as UserRole;
+                  setRole(next);
+                  setStoreId("");
+                  setStoreIds([]);
+                  setStorePickerOpen(false);
+                }}
+                className={inputCls}
+              >
+                {creatable.some((r) => r.group === "system") && (
+                  <optgroup label="System">
+                    {creatable.filter((r) => r.group === "system").map((r) => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
                     ))}
+                  </optgroup>
+                )}
+                <optgroup label="HO &amp; Service Centre">
+                  {creatable.filter((r) => r.group === "ho").map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
                 </optgroup>
-              ) : null}
-              <optgroup label="HO &amp; service centre">
-                {creatable
-                  .filter((r) => r.group === "ho")
-                  .map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
+                <optgroup label="Store">
+                  {creatable.filter((r) => r.group === "store").map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
-              </optgroup>
-              <optgroup label="Store">
-                {creatable
-                  .filter((r) => r.group === "store")
-                  .map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-              </optgroup>
-            </select>
-            {activeMeta ? <p className="mt-2 text-xs leading-relaxed text-stone-700">{activeMeta.summary}</p> : null}
+                </optgroup>
+              </select>
+            </div>
+            {activeMeta && (
+              <div className="flex items-start gap-3 border border-rlx-green/20 bg-rlx-green/5 px-4 py-3">
+                <span className="mt-0.5 h-2 w-2 shrink-0 bg-rlx-green" />
+                <p className="text-xs leading-relaxed text-stone-600">{activeMeta.summary}</p>
+              </div>
+            )}
           </div>
 
-          <div className={sectionCls}>
-            <h3 className="text-sm font-semibold text-stone-900">2. Organisation scope</h3>
-            {user.role !== "regional_admin" ? (
-              <div className="mt-3">
-                <label htmlFor="uc-region" className="text-xs font-medium text-stone-600">
-                  Region (HO)
-                </label>
+          {/* Module chips preview */}
+          <div className="mt-3 flex flex-wrap gap-1.5 pt-2 border-t border-rlx-rule">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-400 mr-1 self-center">Default access:</span>
+            {defaultMods.map((m) => (
+              <span key={m} className="border border-rlx-rule bg-stone-50 px-2 py-0.5 text-[10px] font-mono text-stone-500">
+                {MODULE_LABELS[m] ?? m}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Section 2: Org Scope ── */}
+        <div className="border border-rlx-rule bg-white p-5 mb-px">
+          <SectionHeader step={2} title="Organisation Scope" />
+          <div className="grid gap-5 sm:grid-cols-2">
+            {/* Region */}
+            {user.role !== "admin" ? (
+              <div>
+                <label htmlFor="uc-region" className={labelCls}>Region / HO</label>
                 <select
                   id="uc-region"
                   value={regionId}
-                  disabled={user.role === "ho_admin" && !!user.regionId}
                   onChange={(e) => {
                     setRegionId(e.target.value);
                     setStoreId("");
                     setStoreIds([]);
                     setStorePickerOpen(false);
                   }}
-                  className={inputCls + (user.role === "ho_admin" && user.regionId ? " opacity-80" : "")}
+                  className={inputCls}
                 >
                   <option value="">Select region</option>
                   {regionOptions.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
+                    <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-stone-500">Manage regions and stores in <Link to="/regions" className="font-medium text-zimson-800 underline">Regions &amp; stores</Link>.</p>
+                <p className="mt-1 text-[11px] text-stone-400">
+                  Manage in{" "}
+                  <Link to="/regions" className="font-semibold text-rlx-green underline">
+                    Regions &amp; Stores
+                  </Link>
+                </p>
               </div>
-            ) : null}
+            ) : (
+              <div>
+                <label className={labelCls}>Region / HO</label>
+                <div className={inputCls + " bg-stone-50 text-stone-500 cursor-not-allowed"}>
+                  {regionOptions[0]?.name ?? "—"}
+                </div>
+                <p className="mt-1 text-[11px] text-stone-400">Fixed to your assigned region.</p>
+              </div>
+            )}
 
+            {/* Store */}
             {storeRole ? (
-              <div className="mt-3">
-                <label htmlFor="uc-store" className="text-xs font-medium text-stone-600">
-                  Stores (multiple allowed)
-                </label>
-                <div className="relative mt-1">
+              <div>
+                <label htmlFor="uc-store" className={labelCls}>Store(s)</label>
+                <div className="relative">
                   <button
                     id="uc-store"
                     type="button"
@@ -276,19 +301,19 @@ export function UserCreationPanel() {
                         ? storeIds.map((id) => storesForRegion.find((s) => s.id === id)?.name ?? id).join(", ")
                         : "Select one or more stores"}
                     </span>
-                    <span className="ml-3 text-xs text-stone-500">{storePickerOpen ? "Close" : "Open"}</span>
+                    <span className="ml-3 text-xs text-stone-400">{storePickerOpen ? "▲" : "▼"}</span>
                   </button>
-                  {storePickerOpen ? (
-                    <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-zimson-200 bg-white p-2 shadow-lg">
+                  {storePickerOpen && (
+                    <div className="absolute z-20 mt-0.5 max-h-52 w-full overflow-auto border border-rlx-rule bg-white shadow-lg">
                       {storesForRegion.length === 0 ? (
-                        <p className="px-2 py-1 text-xs text-stone-500">No stores available in selected region.</p>
+                        <p className="px-3 py-2 text-xs text-stone-400">No stores in selected region.</p>
                       ) : (
                         storesForRegion.map((s) => {
                           const checked = storeIds.includes(s.id);
                           return (
                             <label
                               key={s.id}
-                              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-stone-700 hover:bg-zimson-50"
+                              className="flex cursor-pointer items-center gap-2.5 border-b border-rlx-rule px-3 py-2 text-sm text-stone-700 hover:bg-rlx-green/5 last:border-0"
                             >
                               <input
                                 type="checkbox"
@@ -307,21 +332,25 @@ export function UserCreationPanel() {
                         })
                       )}
                     </div>
-                  ) : null}
+                  )}
                 </div>
-                <p className="mt-1 text-xs text-stone-500">Dropdown multi-select enabled. Tick required stores.</p>
+                <p className="mt-1 text-[11px] text-stone-400">Multiple stores allowed for this role.</p>
               </div>
             ) : (
-              <p className="mt-3 text-xs text-stone-500">This role is not store-bound; store stays empty.</p>
+              <div className="flex items-center border border-dashed border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-400 self-start mt-5">
+                This role is not store-bound — no store required.
+              </div>
             )}
           </div>
+        </div>
 
-          <div className={sectionCls}>
-            <h3 className="text-sm font-semibold text-stone-900">3. Identity &amp; sign-in</h3>
-            <div className="mt-3">
-              <label htmlFor="uc-name" className="text-xs font-medium text-stone-600">
-                Display name
-              </label>
+        {/* ── Section 3: Identity ── */}
+        <div className="border border-rlx-rule bg-white p-5 mb-px">
+          <SectionHeader step={3} title="Identity &amp; Sign-in" />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label htmlFor="uc-name" className={labelCls}>Display Name *</label>
               <input
                 id="uc-name"
                 required
@@ -331,39 +360,40 @@ export function UserCreationPanel() {
                 placeholder="As it should appear in the directory"
               />
             </div>
-            <label className="mt-3 flex items-start gap-2 text-sm text-stone-700">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={canLogin}
-                onChange={(e) => setCanLogin(e.target.checked)}
-                disabled={role === "technician"}
-              />
-              <span>
-                <span className="font-medium">Login enabled</span>
-                <span className="block text-xs text-stone-500">
-                  Off = directory-only (no sign-in). Technician always has login off in this app.
+
+            <div className="sm:col-span-2">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-rlx-green"
+                  checked={canLogin}
+                  onChange={(e) => setCanLogin(e.target.checked)}
+                  disabled={role === "technician"}
+                />
+                <span className="text-sm font-semibold text-stone-700">
+                  Login enabled
+                  <span className="ml-2 text-[11px] font-normal text-stone-400">
+                    (off = directory-only profile, cannot sign in)
+                  </span>
                 </span>
-              </span>
-            </label>
+              </label>
+            </div>
+
             {canLogin ? (
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <>
                 <div>
-                  <label htmlFor="uc-emp-code" className="text-xs font-medium text-stone-600">
-                    Employee number
-                  </label>
+                  <label htmlFor="uc-emp-code" className={labelCls}>Employee Number *</label>
                   <input
                     id="uc-emp-code"
                     value={employeeCode}
                     onChange={(e) => setEmployeeCode(e.target.value)}
                     className={inputCls}
                     autoComplete="off"
+                    placeholder="EMP001"
                   />
                 </div>
                 <div>
-                  <label htmlFor="uc-email" className="text-xs font-medium text-stone-600">
-                    Email (optional)
-                  </label>
+                  <label htmlFor="uc-email" className={labelCls}>Email</label>
                   <input
                     id="uc-email"
                     type="email"
@@ -371,12 +401,11 @@ export function UserCreationPanel() {
                     onChange={(e) => setEmail(e.target.value)}
                     className={inputCls}
                     autoComplete="off"
+                    placeholder="user@zimson.com"
                   />
                 </div>
                 <div>
-                  <label htmlFor="uc-password" className="text-xs font-medium text-stone-600">
-                    Initial password
-                  </label>
+                  <label htmlFor="uc-password" className={labelCls}>Initial Password *</label>
                   <input
                     id="uc-password"
                     type="password"
@@ -385,138 +414,143 @@ export function UserCreationPanel() {
                     onChange={(e) => setPassword(e.target.value)}
                     className={inputCls}
                     autoComplete="new-password"
+                    placeholder="Minimum 4 characters"
                   />
                 </div>
-              </div>
+              </>
             ) : (
-              <p className="mt-2 text-xs text-stone-500">No email or password required; the server assigns a placeholder email.</p>
+              <div className="sm:col-span-2 border border-dashed border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-400">
+                No credentials required — the system assigns a placeholder email. Login can be enabled later.
+              </div>
             )}
           </div>
+        </div>
 
-          <div className={sectionCls}>
-            <h3 className="text-sm font-semibold text-stone-900">4. Navigation (modules)</h3>
-            <label className="mt-3 flex items-start gap-2 text-sm text-stone-800">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={useCustomModules}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setUseCustomModules(on);
-                  if (on) setSelectedModules([...ROLE_MODULE_ACCESS[role]]);
-                }}
-              />
-              <span>
-                <span className="font-medium">Use custom module list</span>
-                <span className="block text-xs font-normal text-stone-500">Leave unchecked to keep role defaults (recommended).</span>
-              </span>
-            </label>
-            {useCustomModules ? (
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {ALL_MODULE_KEYS.map((m) => (
+        {/* ── Section 4: Modules ── */}
+        <div className="border border-rlx-rule bg-white p-5 mb-px">
+          <SectionHeader step={4} title="Navigation Modules" />
+
+          <label className="flex items-center gap-2.5 cursor-pointer mb-4">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-rlx-green"
+              checked={useCustomModules}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setUseCustomModules(on);
+                if (on) setSelectedModules([...ROLE_MODULE_ACCESS[role]]);
+              }}
+            />
+            <span className="text-sm font-semibold text-stone-700">
+              Override with custom module list
+              <span className="ml-2 text-[11px] font-normal text-stone-400">(leave unchecked to use role defaults)</span>
+            </span>
+          </label>
+
+          {useCustomModules ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {ALL_MODULE_KEYS.map((m) => {
+                const active = selectedModules.includes(m);
+                return (
                   <label
                     key={m}
-                    className="flex items-center gap-2 rounded-lg border border-zimson-200 bg-zimson-50/60 px-2 py-2 text-xs text-stone-700"
+                    className={`flex cursor-pointer items-center gap-2 border px-3 py-2 text-xs transition ${
+                      active
+                        ? "border-rlx-green bg-rlx-green/8 text-rlx-green font-semibold"
+                        : "border-rlx-rule bg-stone-50 text-stone-400"
+                    }`}
                   >
                     <input
                       type="checkbox"
-                      checked={selectedModules.includes(m)}
+                      className="h-3.5 w-3.5 accent-rlx-green"
+                      checked={active}
                       onChange={(ev) =>
                         setSelectedModules((prev) =>
-                          ev.target.checked ? Array.from(new Set([...prev, m])) : prev.filter((x) => x !== m),
+                          ev.target.checked
+                            ? Array.from(new Set([...prev, m]))
+                            : prev.filter((x) => x !== m),
                         )
                       }
                     />
                     <span>{MODULE_LABELS[m]}</span>
-                    <span className="ml-auto font-mono text-[10px] text-stone-400">{m}</span>
                   </label>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-2 text-xs text-stone-600">
-                Effective modules:{" "}
-                {defaultMods.map((m) => (
-                  <span key={m} className="mr-1 inline-block rounded-md bg-stone-100 px-1.5 py-0.5 font-mono text-[10px] text-stone-700">
-                    {m}
-                  </span>
-                ))}
-              </p>
-            )}
-            {customDiffersFromDefault ? (
-              <p className="mt-2 text-xs text-amber-800">
-                Custom list differs from the role default — confirm this is intentional before creating the user.
-              </p>
-            ) : null}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {defaultMods.map((m) => (
+                <span
+                  key={m}
+                  className="border border-rlx-green/30 bg-rlx-green/5 px-2.5 py-1 text-[11px] font-medium text-rlx-green"
+                >
+                  {MODULE_LABELS[m] ?? m}
+                </span>
+              ))}
+            </div>
+          )}
 
-          {formMessage ? (
-            <p
-              className={
-                formMessage.type === "ok"
-                  ? "rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200"
-                  : "rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
-              }
-            >
-              {formMessage.text}
+          {customDiffersFromDefault && (
+            <p className="mt-3 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Custom module list differs from role default — confirm this is intentional before creating.
             </p>
-          ) : null}
+          )}
+        </div>
 
+        {/* ── Message + Submit ── */}
+        <div className="border border-rlx-rule bg-white p-5">
+          {formMessage && formMessage.type === "err" && (
+            <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              ✕ {formMessage.text}
+            </div>
+          )}
           <button
             type="submit"
-            disabled={hoAdminBlocked}
-            className="w-full rounded-xl bg-zimson-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={adminBlocked}
+            className="w-full bg-rlx-green py-3 text-sm font-semibold uppercase tracking-widest text-white transition hover:bg-rlx-green/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Create user
+            Create User
           </button>
         </div>
 
-        <aside className="lg:col-span-2">
-          <div className="sticky top-4 space-y-3 rounded-xl border border-zimson-200 bg-zimson-50/40 p-4 text-sm text-stone-800">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-500">Summary</h3>
-            <dl className="space-y-2 text-xs">
-              <div>
-                <dt className="text-stone-500">Role</dt>
-                <dd className="font-medium text-stone-900">{roleLabel(role)}</dd>
-              </div>
-              <div>
-                <dt className="text-stone-500">Region</dt>
-                <dd className="font-medium text-stone-900">{regionName}</dd>
-              </div>
-              <div>
-                <dt className="text-stone-500">Store</dt>
-                <dd className="font-medium text-stone-900">
-                  {storeRole
-                    ? storeIds.length > 0
-                      ? storeIds.map((id) => storesForRegion.find((s) => s.id === id)?.name ?? id).join(", ")
-                      : storeName
-                    : "— (not applicable)"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-stone-500">Login</dt>
-                <dd className="font-medium text-stone-900">{canLogin ? "Yes" : "No (directory only)"}</dd>
-              </div>
-              <div>
-                <dt className="text-stone-500">Modules</dt>
-                <dd className="mt-1 flex flex-wrap gap-1">
-                  {effectiveMods.map((m) => (
-                    <span
-                      key={m}
-                      className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-medium text-stone-700 ring-1 ring-stone-200"
-                      title={MODULE_LABELS[m]}
-                    >
-                      {m}
-                    </span>
-                  ))}
-                </dd>
-              </div>
-            </dl>
-            <p className="border-t border-zimson-200/80 pt-2 text-[11px] leading-relaxed text-stone-600">
-              After creation, the user appears in the directory. HO Admins only see users in their region. Super Admin sees everyone.
-            </p>
-          </div>
-        </aside>
       </form>
+
+      {/* ── Success Popup Modal ── */}
+      {createdUser && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+        >
+          <div className="w-full max-w-sm bg-white shadow-2xl overflow-hidden">
+            {/* Top bar */}
+            <div className="bg-rlx-green px-6 py-5 text-center">
+              <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full border-2 border-white/40 bg-white/10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-7 w-7 text-white">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <h2 className="text-base font-semibold uppercase tracking-[0.15em] text-white">User Created</h2>
+            </div>
+            {/* Body */}
+            <div className="px-6 py-5 text-center">
+              <p className="text-lg font-semibold text-stone-800">{createdUser.name}</p>
+              <p className="mt-1 text-sm text-stone-500">Employee No: <span className="font-mono font-medium text-stone-700">{createdUser.employeeCode}</span></p>
+              <p className="text-sm text-stone-500 mt-0.5">Role: <span className="font-medium text-stone-700">{createdUser.role}</span></p>
+              <p className="mt-4 text-xs text-stone-400">The new account is ready. You can create another user or close this dialog.</p>
+            </div>
+            {/* Footer */}
+            <div className="flex gap-3 border-t border-rlx-rule bg-rlx-bg px-6 py-4 justify-center">
+              <button
+                type="button"
+                onClick={() => setCreatedUser(null)}
+                className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white hover:bg-rlx-green/90 transition"
+              >
+                Create Another
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

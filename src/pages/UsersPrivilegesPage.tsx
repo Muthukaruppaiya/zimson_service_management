@@ -5,7 +5,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 
 export function UsersPrivilegesPage() {
   const { user } = useAuth();
-  const canCreateUsers = user?.role === "super_admin" || user?.role === "ho_admin";
+  const canCreateUsers = user?.role === "super_admin" || user?.role === "admin";
 
   if (!user) {
     return (
@@ -17,15 +17,16 @@ export function UsersPrivilegesPage() {
 
   return (
     <div>
-      <PageHeader title="User creation" description="" />
+      <PageHeader
+        title="User Creation"
+        description="Create new staff accounts, assign roles and organisational scope."
+      />
       {canCreateUsers ? (
-        <Card title="Create user">
-          <UserCreationPanel />
-        </Card>
+        <UserCreationPanel />
       ) : (
-        <Card title="Create user">
-          <p className="text-sm text-stone-600">Only Super Admin and HO Admin can create users.</p>
-        </Card>
+        <div className="border border-rlx-rule bg-white px-6 py-8 text-center text-sm text-stone-500">
+          Only Super Admin and Admin can create users.
+        </div>
       )}
     </div>
   );

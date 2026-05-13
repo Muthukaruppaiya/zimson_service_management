@@ -1,21 +1,47 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { Express, NextFunction, Request, Response } from "express";
+import multer from "multer";
 import type { Pool } from "pg";
 import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
 
+const INVOICE_UPLOAD_DIR = path.join(process.cwd(), "uploads", "grn-invoices");
+if (!fs.existsSync(INVOICE_UPLOAD_DIR)) fs.mkdirSync(INVOICE_UPLOAD_DIR, { recursive: true });
+
+const invoiceUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, INVOICE_UPLOAD_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = [".pdf", ".jpg", ".jpeg", ".png"];
+    cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
+  },
+});
+
 type Authed = Request & { userId: string };
 
 function requireHo(actor: DemoUser | undefined | null): boolean {
-  return actor?.role === "super_admin" || actor?.role === "regional_admin" || actor?.role === "ho_admin";
+  return (
+    actor?.role === "super_admin" ||
+    actor?.role === "admin" ||
+    actor?.role === "ho_manager" ||
+    actor?.role === "ho_purchase"
+  );
 }
 
 function canManagePo(actor: DemoUser | undefined | null): boolean {
   return (
     actor?.role === "super_admin" ||
-    actor?.role === "regional_admin" ||
-    actor?.role === "ho_admin" ||
+    actor?.role === "admin" ||
+    actor?.role === "admin" ||
     actor?.role === "ho_manager" ||
-    actor?.role === "ho_user"
+    actor?.role === "ho_purchase"
   );
 }
 
@@ -23,7 +49,7 @@ function canViewPo(actor: DemoUser | undefined | null): boolean {
   return (
     canManagePo(actor) ||
     actor?.role === "store_user" ||
-    actor?.role === "store_purchase_user" ||
+    actor?.role === "store_user" ||
     actor?.role === "store_manager" ||
     actor?.role === "store_accounts"
   );
@@ -69,12 +95,26 @@ async function getSeriesPrefixSuffix(
   };
 }
 
+type PushNotificationsFn = (
+  userIds: string[],
+  payload: { title: string; message: string; category: string },
+) => Promise<void>;
+
 export function registerInventoryPoSupplierRoutes(
   app: Express,
   pool: Pool,
   requireAuth: (req: Request, res: Response, next: NextFunction) => void,
   getActor: (userId: string) => DemoUser | undefined,
+  allUsers: () => DemoUser[],
+  pushNotifications: PushNotificationsFn,
 ): void {
+  const STORE_ROLES = new Set(["store_user", "store_manager", "store_accounts"]);
+
+  /** Find store users for a given storeId and notify them */
+  async function notifyStore(storeId: string, payload: { title: string; message: string; category: string }) {
+    const ids = allUsers().filter((u) => STORE_ROLES.has(u.role) && u.storeId === storeId).map((u) => u.id);
+    if (ids.length > 0) await pushNotifications(ids, payload);
+  }
   function normalizeLocations(raw: unknown): Array<{
     doorNo: string;
     street: string;
@@ -323,12 +363,7 @@ export function registerInventoryPoSupplierRoutes(
       res.status(401).json({ error: "Invalid session." });
       return;
     }
-    if (
-      actor.role !== "super_admin" &&
-      actor.role !== "ho_admin" &&
-      actor.role !== "regional_admin" &&
-      actor.role !== "store_user"
-    ) {
+    if (!requireHo(actor) && actor.role !== "store_user" && actor.role !== "store_manager" && actor.role !== "store_accounts") {
       res.status(403).json({ error: "Forbidden." });
       return;
     }
@@ -361,7 +396,7 @@ export function registerInventoryPoSupplierRoutes(
   app.put("/api/inventory/suppliers/:supplierId/spares", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO admins can update supplier mappings." });
+      res.status(403).json({ error: "Only HO Manager or HO Purchase can update supplier mappings." });
       return;
     }
     const supplierId = req.params.supplierId;
@@ -439,7 +474,7 @@ export function registerInventoryPoSupplierRoutes(
     try {
       const params: unknown[] = [statuses];
       let where = `pr.status = ANY($1::text[])`;
-      if (actor.role === "regional_admin" && actor.regionId) {
+      if (actor.role === "admin" && actor.regionId) {
         params.push(actor.regionId);
         where += ` AND pr.region_id = $${params.length}::text`;
       } else if (regionIdQ) {
@@ -718,7 +753,7 @@ export function registerInventoryPoSupplierRoutes(
           res.status(400).json({ error: "Each draft requires supplierId, regionId, and lines." });
           return;
         }
-        if (actor.role === "regional_admin" && actor.regionId !== draft.regionId) {
+        if (actor.role === "admin" && actor.regionId !== draft.regionId) {
           await client.query("ROLLBACK");
           res.status(403).json({ error: "Draft outside your region." });
           return;
@@ -783,6 +818,29 @@ export function registerInventoryPoSupplierRoutes(
         created.push({ id: poId, poNumber, supplierId: draft.supplierId, regionId: draft.regionId, lines: draft.lines.length });
       }
       await client.query("COMMIT");
+
+      // Notify store users for each PO created — tell them their PR is now being ordered
+      for (const po of created) {
+        // Find unique store IDs from the PR items in this draft
+        const prItemIds = (drafts.find((d) => d.supplierId === po.supplierId && d.regionId === po.regionId)?.lines ?? [])
+          .map((l) => l.prItemId).filter(Boolean);
+        if (prItemIds.length === 0) continue;
+        const storeRes = await pool.query<{ store_id: string; pr_number: string }>(
+          `SELECT DISTINCT pr.store_id, pr.pr_number
+           FROM purchase_request_items pri
+           JOIN purchase_requests pr ON pr.id = pri.pr_id
+           WHERE pri.id = ANY($1::uuid[])`,
+          [prItemIds],
+        );
+        for (const { store_id, pr_number } of storeRes.rows) {
+          await notifyStore(store_id, {
+            title: `PO Raised for PR ${pr_number}`,
+            message: `HO has raised Purchase Order ${po.poNumber} for your PR ${pr_number}. Goods are being ordered from the supplier.`,
+            category: "inventory_pr",
+          });
+        }
+      }
+
       res.json({ ok: true, created });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
@@ -806,12 +864,12 @@ export function registerInventoryPoSupplierRoutes(
     try {
       const params: unknown[] = [];
       let where = "";
-      if ((actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") && actor.regionId) {
+      if ((actor.role === "admin" || actor.role === "ho_manager" || actor.role === "ho_purchase") && actor.regionId) {
         params.push(actor.regionId);
         where = "WHERE po.region_id = $1::text";
       } else if (
         (actor.role === "store_user" ||
-          actor.role === "store_purchase_user" ||
+          actor.role === "store_user" ||
           actor.role === "store_manager" ||
           actor.role === "store_accounts") &&
         actor.storeId
@@ -929,7 +987,7 @@ export function registerInventoryPoSupplierRoutes(
         res.status(404).json({ error: "PR not found." });
         return;
       }
-      if ((actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") && actor.regionId !== pr.region_id) {
+      if ((actor.role === "admin" || actor.role === "ho_manager" || actor.role === "ho_purchase") && actor.regionId !== pr.region_id) {
         await client.query("ROLLBACK");
         res.status(403).json({ error: "PR is outside your region." });
         return;
@@ -1010,14 +1068,14 @@ export function registerInventoryPoSupplierRoutes(
       res.status(401).json({ error: "Invalid session." });
       return;
     }
-    if (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin") {
-      res.status(403).json({ error: "Only HO admins can view GRN register." });
+    if (!requireHo(actor)) {
+      res.status(403).json({ error: "Only HO Manager or HO Purchase can view GRN register." });
       return;
     }
     try {
       const params: unknown[] = [];
       let where = "";
-      if (actor.role === "regional_admin" && actor.regionId) {
+      if ((actor.role === "admin" || actor.role === "ho_manager" || actor.role === "ho_purchase") && actor.regionId) {
         params.push(actor.regionId);
         where = "WHERE g.region_id = $1::text";
       }
@@ -1041,7 +1099,10 @@ export function registerInventoryPoSupplierRoutes(
                       'id', gi.id,
                       'poItemId', gi.po_item_id,
                       'spareId', gi.spare_id,
-                      'qtyReceived', gi.qty_received::float8
+                      'qtyReceived', gi.qty_received::float8,
+                      'costPrice', gi.cost_price::float8,
+                      'gstRate', gi.gst_rate::float8,
+                      'taxAmount', gi.tax_amount::float8
                     )
                   ) FILTER (WHERE gi.id IS NOT NULL),
                   '[]'::json
@@ -1062,10 +1123,21 @@ export function registerInventoryPoSupplierRoutes(
     }
   });
 
-  app.post("/api/inventory/grns", requireAuth, async (req, res) => {
+  app.post(
+    "/api/inventory/grns",
+    requireAuth,
+    (req: Request, res: Response, next: NextFunction) => {
+      const ct = req.headers["content-type"] ?? "";
+      if (ct.includes("multipart/form-data")) {
+        invoiceUpload.single("invoiceFile")(req, res, next);
+      } else {
+        next();
+      }
+    },
+    async (req: Request, res: Response) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO admins can create GRN." });
+      res.status(403).json({ error: "Only HO Manager or HO Purchase can create GRN." });
       return;
     }
     const poId = String(req.body?.poId ?? "").trim();
@@ -1073,8 +1145,14 @@ export function registerInventoryPoSupplierRoutes(
     const invoiceNumber = String(req.body?.invoiceNumber ?? "").trim() || null;
     const invoiceDate = String(req.body?.invoiceDate ?? "").trim() || null;
     const notes = String(req.body?.notes ?? "").trim();
-    const items = req.body?.items as
-      | Array<{ poItemId: string; spareId: string; qtyReceived: number }>
+    const invoiceFilePath: string | null = (req as Request & { file?: Express.Multer.File }).file?.path ?? null;
+    // Items may come as JSON string (multipart) or parsed object (application/json)
+    let rawItems = req.body?.items;
+    if (typeof rawItems === "string") {
+      try { rawItems = JSON.parse(rawItems); } catch { rawItems = []; }
+    }
+    const items = rawItems as
+      | Array<{ poItemId: string; spareId: string; qtyReceived: number; costPrice?: number; gstRate?: number; taxAmount?: number }>
       | undefined;
 
     if (!poId || (mode !== "WITH_BILL" && mode !== "WITHOUT_BILL")) {
@@ -1117,7 +1195,7 @@ export function registerInventoryPoSupplierRoutes(
         res.status(404).json({ error: "PO not found." });
         return;
       }
-      if (actor?.role === "regional_admin" && actor.regionId !== po.region_id) {
+      if (actor?.role === "admin" && actor.regionId !== po.region_id) {
         await client.query("ROLLBACK");
         res.status(403).json({ error: "PO is outside your region." });
         return;
@@ -1133,10 +1211,10 @@ export function registerInventoryPoSupplierRoutes(
       const grnSeries = await getSeriesPrefixSuffix(client, "grn");
       const grnNumber = await nextDocNumber(client, grnSeries.prefix, grnSeries.suffix, regionCode);
       const ins = await client.query<{ id: string }>(
-        `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, created_by, modified_by)
-         VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $9)
+        `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, invoice_file_path, created_by, modified_by)
+         VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $10)
          RETURNING id`,
-        [grnNumber, poId, po.supplier_id, po.region_id, invoiceNumber, invoiceDate, mode, notes, actor?.id ?? "system"],
+        [grnNumber, poId, po.supplier_id, po.region_id, invoiceNumber, invoiceDate, mode, notes, invoiceFilePath, actor?.id ?? "system"],
       );
       const grnId = ins.rows[0]!.id;
       let moved = 0;
@@ -1172,11 +1250,21 @@ export function registerInventoryPoSupplierRoutes(
           res.status(400).json({ error: `Received qty exceeds pending qty for a line (pending ${remaining}).` });
           return;
         }
+        const costPrice = Number(it.costPrice ?? 0) || 0;
+        const gstRate = Number(it.gstRate ?? 18) || 18;
+        const taxAmount = Number(it.taxAmount ?? 0) || 0;
         await client.query(
-          `INSERT INTO grn_items (grn_id, po_item_id, spare_id, qty_received, created_by, modified_by)
-           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $5)`,
-          [grnId, it.poItemId, it.spareId, qty, actor?.id ?? "system"],
+          `INSERT INTO grn_items (grn_id, po_item_id, spare_id, qty_received, cost_price, gst_rate, tax_amount, created_by, modified_by)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $8)`,
+          [grnId, it.poItemId, it.spareId, qty, costPrice, gstRate, taxAmount, actor?.id ?? "system"],
         );
+        // Update spare cost price if provided
+        if (costPrice > 0) {
+          await client.query(
+            `UPDATE spares SET cost_price_inr = $1, updated_at = now() WHERE id = $2::uuid`,
+            [costPrice, it.spareId],
+          );
+        }
         await client.query(
           `UPDATE purchase_order_items
            SET received_qty = received_qty + $1, modified_by = $3
@@ -1229,7 +1317,70 @@ export function registerInventoryPoSupplierRoutes(
         [poStatus, poId, actor?.id ?? "system"],
       );
 
+      // ── Auto-update PR statuses based on GRN receipts ────────────────────
+      // Find all PRs linked to this PO's items (via pr_item_id)
+      const affectedPrRes = await client.query<{ prId: string }>(
+        `SELECT DISTINCT pri.pr_id AS "prId"
+         FROM purchase_order_items poi
+         JOIN purchase_request_items pri ON pri.id = poi.pr_item_id
+         WHERE poi.po_id = $1::uuid AND poi.pr_item_id IS NOT NULL`,
+        [poId],
+      );
+
+      for (const { prId } of affectedPrRes.rows) {
+        // For each PR item, total GRN received across all POs/GRNs
+        const receiptRes = await client.query<{
+          totalItems: number; fullyReceived: number; anyReceived: number;
+        }>(
+          `SELECT
+             COUNT(*)::int AS "totalItems",
+             COUNT(CASE WHEN COALESCE(received.total_received, 0) >= pri.qty THEN 1 END)::int AS "fullyReceived",
+             COUNT(CASE WHEN COALESCE(received.total_received, 0) > 0    THEN 1 END)::int AS "anyReceived"
+           FROM purchase_request_items pri
+           LEFT JOIN (
+             SELECT poi2.pr_item_id, SUM(gi2.qty_received)::float8 AS total_received
+             FROM purchase_order_items poi2
+             JOIN grn_items gi2 ON gi2.po_item_id = poi2.id
+             GROUP BY poi2.pr_item_id
+           ) received ON received.pr_item_id = pri.id
+           WHERE pri.pr_id = $1::uuid`,
+          [prId],
+        );
+        const rs = receiptRes.rows[0];
+        if (!rs) continue;
+        // After GRN, PR moves to GOODS_AT_HO (stored as PARTIAL) — NOT yet FULFILLED.
+        // FULFILLED is only set when HO physically transfers stock to the store (Fulfil action).
+        if (rs.anyReceived > 0) {
+          await client.query(
+            `UPDATE purchase_requests SET status = 'GOODS_AT_HO', updated_at = now()
+             WHERE id = $1::uuid AND status IN ('APPROVED', 'PARTIAL', 'GOODS_AT_HO')`,
+            [prId],
+          );
+        }
+      }
+
       await client.query("COMMIT");
+
+      // ── GRN Notifications ─────────────────────────────────────────────────
+      // Notify store users linked to PRs in this PO that goods arrived at HO
+      try {
+        const storeRes = await pool.query<{ store_id: string; pr_number: string }>(
+          `SELECT DISTINCT pr.store_id, pr.pr_number
+           FROM purchase_order_items poi
+           JOIN purchase_request_items pri ON pri.id = poi.pr_item_id
+           JOIN purchase_requests pr ON pr.id = pri.pr_id
+           WHERE poi.po_id = $1::uuid AND poi.pr_item_id IS NOT NULL`,
+          [poId],
+        );
+        for (const { store_id, pr_number } of storeRes.rows) {
+          await notifyStore(store_id, {
+            title: `Goods Received — PR ${pr_number}`,
+            message: `GRN ${grnNumber} has been posted. Goods for PR ${pr_number} have arrived at HO and stock has been updated.`,
+            category: "inventory_pr",
+          });
+        }
+      } catch { /* non-critical — don't fail the GRN on notification error */ }
+
       res.json({ ok: true, id: grnId, grnNumber, movedQty: moved, poStatus });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
@@ -1239,4 +1390,5 @@ export function registerInventoryPoSupplierRoutes(
       client.release();
     }
   });
+  // End of multer-wrapped handler (closing the extra array arg from app.post)
 }

@@ -6,7 +6,7 @@ import type { UserRole } from "../../types/user";
 
 function can(role: UserRole | undefined, allowed: UserRole[]) {
   if (!role) return false;
-  if (role === "super_admin" || role === "regional_admin") return true;
+  if (role === "super_admin" || role === "admin") return true;
   return allowed.includes(role);
 }
 
@@ -19,16 +19,16 @@ export function ServiceCentreHomePage() {
 
   const inwardOk = can(user?.role, [
     "service_centre_clerk",
-    "service_centre_inward",
-    "service_centre_outward",
+    "service_centre_clerk",
+    "service_centre_clerk",
     "ho_manager",
-    "ho_admin",
-    "regional_admin",
+    "admin",
+    "admin",
     "super_admin",
   ]);
   const supervisorOk = can(user?.role, ["service_centre_supervisor"]);
-  const onlineStoreOk = can(user?.role, ["service_centre_supervisor", "ho_supervisor"]);
-  const technicianMasterOk = can(user?.role, ["service_centre_supervisor", "ho_supervisor", "ho_manager"]);
+  const onlineStoreOk = can(user?.role, ["service_centre_supervisor", "ho_manager"]);
+  const technicianMasterOk = can(user?.role, ["service_centre_supervisor", "ho_manager", "ho_manager"]);
   const techOk = can(user?.role, ["technician"]);
 
   return (

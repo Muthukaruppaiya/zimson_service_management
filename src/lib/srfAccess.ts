@@ -2,11 +2,11 @@ import type { SessionUser } from "../types/user";
 import type { SrfJob } from "../types/srfJob";
 
 export function jobVisibleToStoreUser(job: SrfJob, user: SessionUser): boolean {
-  if (user.role === "super_admin" || user.role === "ho_admin") return true;
-  if (user.role === "regional_admin") return user.regionId === job.regionId;
+  if (user.role === "super_admin" || user.role === "admin") return true;
+  if (user.role === "admin") return user.regionId === job.regionId;
   if (
     user.role === "store_user" ||
-    user.role === "store_purchase_user" ||
+    user.role === "store_user" ||
     user.role === "store_manager" ||
     user.role === "store_accounts"
   ) {
@@ -19,19 +19,19 @@ export function jobVisibleToStoreUser(job: SrfJob, user: SessionUser): boolean {
 }
 
 export function jobVisibleToServiceCentre(job: SrfJob, user: SessionUser): boolean {
-  if (user.role === "super_admin" || user.role === "ho_admin") return true;
+  if (user.role === "super_admin" || user.role === "admin") return true;
   if (
     user.role === "service_centre_clerk" ||
     user.role === "service_centre_supervisor" ||
-    user.role === "service_centre_inward" ||
-    user.role === "service_centre_outward" ||
+    user.role === "service_centre_clerk" ||
+    user.role === "service_centre_clerk" ||
     user.role === "technician" ||
     user.role === "ho_manager" ||
-    user.role === "ho_user"
+    user.role === "ho_purchase"
   ) {
     return user.regionId != null && (user.regionId === job.regionId || user.regionId === job.transferSourceRegionId);
   }
-  if (user.role === "regional_admin") return user.regionId === job.regionId;
+  if (user.role === "admin") return user.regionId === job.regionId;
   return false;
 }
 

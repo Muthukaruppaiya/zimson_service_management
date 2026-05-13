@@ -102,8 +102,8 @@ function CloseIcon({ className = "h-4 w-4" }: { className?: string }) {
 function KindBadge({ kind }: { kind: HitKind }) {
   const s = KIND_STYLES[kind];
   return (
-    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${s.chip}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+    <span className={`inline-flex shrink-0 items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide border ${s.chip}`}>
+      <span className={`h-1.5 w-1.5 ${s.dot}`} />
       {s.label}
     </span>
   );
@@ -265,17 +265,18 @@ export function GlobalSearch({ autoFocus = true }: { autoFocus?: boolean }) {
   }
 
   return (
-    <div ref={containerRef} className="relative mx-auto w-full max-w-2xl">
+    <div ref={containerRef} className="relative w-full">
+      {/* Search input row */}
       <div
         className={[
-          "relative flex items-center gap-2 rounded-full border bg-white px-3 transition-all",
+          "relative flex items-center border bg-white transition-all",
           open
-            ? "border-zimson-300 shadow-xl shadow-zimson-300/30 ring-2 ring-zimson-200/60"
-            : "border-zimson-200 shadow-md shadow-zimson-200/40 hover:shadow-lg",
+            ? "border-rlx-green shadow-[0_4px_16px_rgba(0,96,57,0.15)]"
+            : "border-rlx-rule hover:border-rlx-green/50",
         ].join(" ")}
       >
-        <span className="pl-2 text-stone-400">
-          <SearchIcon />
+        <span className="pl-3 text-rlx-ink-muted">
+          <SearchIcon className="h-4 w-4" />
         </span>
         <input
           ref={inputRef}
@@ -283,56 +284,56 @@ export function GlobalSearch({ autoFocus = true }: { autoFocus?: boolean }) {
           autoComplete="off"
           spellCheck={false}
           value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
-          }}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Search SRF, Internal Transfer, DC/ODC, Quick bill — or scan a barcode"
-          className="h-12 min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-stone-400"
+          placeholder="Search SRF, DC/ODC, Quick bill — or scan a barcode"
+          className="h-9 min-w-0 flex-1 bg-transparent px-2 text-[13px] text-rlx-ink outline-none placeholder:text-rlx-ink-muted/50"
         />
         {query ? (
           <button
             type="button"
-            onClick={() => {
-              setQuery("");
-              inputRef.current?.focus();
-            }}
-            className="rounded-full p-1.5 text-stone-500 transition hover:bg-stone-100 hover:text-stone-800"
+            onClick={() => { setQuery(""); inputRef.current?.focus(); }}
+            className="px-2 text-rlx-ink-muted transition hover:text-rlx-ink"
             aria-label="Clear"
           >
-            <CloseIcon />
+            <CloseIcon className="h-3.5 w-3.5" />
           </button>
         ) : null}
+        {/* Scanner badge — compact, no rounded */}
         <span
-          className="flex items-center gap-1.5 rounded-full bg-gradient-to-br from-zimson-50 to-zimson-100 px-2.5 py-1.5 text-zimson-800 ring-1 ring-zimson-200"
-          title="Use a USB / Bluetooth barcode scanner — it types into the box automatically"
+          className="flex shrink-0 items-center gap-1 border-l border-rlx-rule px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.15em]"
+          style={{ color: "#C9A227", background: "rgba(201,162,39,0.06)" }}
+          title="Barcode scanner ready"
         >
-          <ScanIcon className="h-4 w-4" />
-          <span className="hidden text-[11px] font-semibold sm:inline">Scanner ready</span>
+          <ScanIcon className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Scanner</span>
         </span>
       </div>
 
-      <div className="mt-2 flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-        <span>Detected:</span>
-        <span className="rounded-full bg-white px-2.5 py-0.5 text-zimson-800 ring-1 ring-zimson-200">
-          {detectedKind === "AUTO" ? (query.trim() ? "Looking up…" : "Type or scan to begin") : KIND_STYLES[detectedKind].label}
-        </span>
-      </div>
+      {/* Detected kind hint — ONLY shown when user is typing */}
+      {query.trim() ? (
+        <div className="flex items-center gap-1.5 px-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-rlx-ink-muted">
+          <span>Detected:</span>
+          <span className="border border-rlx-rule bg-white px-2 py-0.5 text-rlx-green">
+            {detectedKind === "AUTO" ? "Looking up…" : KIND_STYLES[detectedKind].label}
+          </span>
+        </div>
+      ) : null}
 
+      {/* Results dropdown */}
       {open && query.trim() ? (
-        <div className="absolute left-0 right-0 z-50 mt-3 overflow-hidden rounded-2xl border border-zimson-200 bg-white text-left shadow-2xl ring-1 ring-stone-100">
+        <div className="absolute left-0 right-0 z-50 mt-1 overflow-hidden border border-rlx-rule bg-white shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
           {hits.length === 0 ? (
-            <div className="px-5 py-6 text-center text-sm text-stone-500">
+            <div className="px-5 py-5 text-center text-sm text-rlx-ink-muted">
               No matches for{" "}
-              <span className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-stone-800">{query}</span>
-              <p className="mt-1 text-xs text-stone-400">
-                Try SRF ref, internal transfer ref, DC/ODC (inter-HO), or Quick bill number.
+              <span className="border border-rlx-rule bg-rlx-bg px-1.5 py-0.5 font-mono text-xs text-rlx-ink">{query}</span>
+              <p className="mt-1 text-xs text-rlx-ink-muted/70">
+                Try SRF ref, DC/ODC number, or Quick bill number.
               </p>
             </div>
           ) : (
-            <ul className="max-h-80 overflow-auto py-1">
+            <ul className="max-h-72 overflow-auto">
               {hits.map((h, i) => (
                 <li key={`${h.kind}-${h.primary}-${i}`}>
                   <button
@@ -340,30 +341,27 @@ export function GlobalSearch({ autoFocus = true }: { autoFocus?: boolean }) {
                     onClick={() => go(h)}
                     onMouseEnter={() => setActiveIdx(i)}
                     className={[
-                      "flex w-full items-center gap-3 px-4 py-2.5 text-left transition",
-                      i === activeIdx ? "bg-zimson-50" : "hover:bg-zimson-50/60",
+                      "flex w-full items-center gap-3 border-b border-rlx-rule px-4 py-2.5 text-left transition",
+                      i === activeIdx ? "bg-rlx-green-light" : "hover:bg-rlx-bg",
                     ].join(" ")}
                   >
                     <KindBadge kind={h.kind} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-mono text-[13px] font-semibold text-stone-900">
-                        {h.primary}
-                      </div>
-                      <div className="truncate text-xs text-stone-600">{h.secondary}</div>
+                      <div className="truncate font-mono text-[13px] font-semibold text-rlx-ink">{h.primary}</div>
+                      <div className="truncate text-xs text-rlx-ink-muted">{h.secondary}</div>
                     </div>
-                    <span className="text-stone-400">↵</span>
+                    <span className="text-rlx-ink-muted">↵</span>
                   </button>
                 </li>
               ))}
             </ul>
           )}
-          <div className="flex items-center justify-between gap-2 border-t border-stone-100 bg-stone-50/80 px-4 py-2 text-[11px] text-stone-500">
-            <span className="flex items-center gap-1.5">
-              <kbd className="rounded border border-stone-300 bg-white px-1.5 py-0.5 font-mono text-[10px]">↑</kbd>
-              <kbd className="rounded border border-stone-300 bg-white px-1.5 py-0.5 font-mono text-[10px]">↓</kbd>
+          <div className="flex items-center justify-between gap-2 border-t border-rlx-rule bg-rlx-bg px-4 py-2 text-[10px] text-rlx-ink-muted">
+            <span className="flex items-center gap-1">
+              <kbd className="border border-rlx-rule bg-white px-1 py-0.5 font-mono text-[9px]">↑↓</kbd>
               <span>navigate</span>
-              <span className="mx-1">·</span>
-              <kbd className="rounded border border-stone-300 bg-white px-1.5 py-0.5 font-mono text-[10px]">↵</kbd>
+              <span className="mx-1.5 opacity-40">·</span>
+              <kbd className="border border-rlx-rule bg-white px-1 py-0.5 font-mono text-[9px]">↵</kbd>
               <span>open</span>
             </span>
             <span>{hits.length} result{hits.length === 1 ? "" : "s"}</span>

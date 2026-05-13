@@ -4,6 +4,7 @@ import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useAuth } from "../../context/AuthContext";
 import { useCustomers } from "../../context/CustomersContext";
 import { useBrands } from "../../context/BrandsContext";
@@ -44,6 +45,14 @@ type LoadedCustomerRow = {
   email: string;
   address?: string;
   city?: string;
+  billingAddress?: {
+    doorNo?: string;
+    street?: string;
+    city?: string;
+    district?: string;
+    state?: string;
+    pincode?: string;
+  };
   customerKind: "B2C" | "B2B";
   company?: string;
   gst?: string;
@@ -53,6 +62,16 @@ type LoadedCustomerRow = {
 function phoneLast10(v: string): string {
   const digits = v.replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function composeAddress(row: LoadedCustomerRow): string {
+  if (row.address?.trim()) return row.address.trim();
+  const b = row.billingAddress;
+  if (!b) return "";
+  return [b.doorNo, b.street, b.city, b.district, b.state, b.pincode]
+    .map((s) => s?.trim())
+    .filter(Boolean)
+    .join(", ");
 }
 
 type LineItem = { id: string; description: string; amount: string; spareId?: string; qty?: number };
@@ -72,6 +91,12 @@ function emptyLine(): LineItem {
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
+
+const qbSuccessBtnBase =
+  "inline-flex w-full min-w-0 items-center justify-center rounded-xl px-4 py-2.5 text-center text-sm font-semibold shadow-sm transition sm:w-auto";
+const qbSuccessBtnPrimary = `${qbSuccessBtnBase} bg-zimson-600 text-white hover:bg-zimson-700`;
+const qbSuccessBtnSecondary = `${qbSuccessBtnBase} border border-zimson-400 bg-white text-zimson-900 hover:bg-zimson-50`;
+const qbSuccessBtnOutline = `${qbSuccessBtnBase} border border-stone-300 bg-white text-stone-800 hover:bg-stone-50`;
 
 function QuickBillInvoicePanel({
   viewModel,
@@ -142,6 +167,8 @@ export function QuickBillPage() {
   const [company, setCompany] = useState("");
   const [gst, setGst] = useState("");
   const [pan, setPan] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
 
   const [watchBrand, setWatchBrand] = useState("");
   const [dbWatchModels, setDbWatchModels] = useState<QuickBillWatchModelRow[]>([]);
@@ -222,6 +249,8 @@ export function QuickBillPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [completion, setCompletion] = useState<CompletionState>(null);
+  const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
+  const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
   const [isSavingBill, setIsSavingBill] = useState(false);
 
   const [awaitingOtp, setAwaitingOtp] = useState<string | null>(null);
@@ -251,6 +280,8 @@ export function QuickBillPage() {
     setCompany(data.company ?? "");
     setGst(data.gst ?? "");
     setPan(data.pan ?? "");
+    setAddress(composeAddress(data));
+    setCity(data.city?.trim() || data.billingAddress?.city?.trim() || "");
     const p10 = phoneLast10((data.phone ?? "").trim());
     verifiedBillPhoneLast10Ref.current = p10.length === 10 ? p10 : "";
     setCustomerChecked(true);
@@ -292,6 +323,7 @@ export function QuickBillPage() {
             email: local.email,
             address: local.address,
             city: local.city,
+            billingAddress: local.billingAddress,
             customerKind: local.customerKind,
             company: local.company,
             gst: local.gst,
@@ -317,6 +349,7 @@ export function QuickBillPage() {
           email: local.email,
           address: local.address,
           city: local.city,
+          billingAddress: local.billingAddress,
           customerKind: local.customerKind,
           company: local.company,
           gst: local.gst,
@@ -358,6 +391,7 @@ export function QuickBillPage() {
         email: local.email,
         address: local.address,
         city: local.city,
+        billingAddress: local.billingAddress,
         customerKind: local.customerKind,
         company: local.company,
         gst: local.gst,
@@ -737,6 +771,7 @@ export function QuickBillPage() {
             email: hit.email,
             address: hit.address,
             city: hit.city,
+            billingAddress: hit.billingAddress,
             customerKind: hit.customerKind,
             company: hit.company,
             gst: hit.gst,
@@ -842,6 +877,8 @@ export function QuickBillPage() {
             company: company.trim() || null,
             gst: gst.trim().toUpperCase() || null,
             pan: pan.trim().toUpperCase() || null,
+            address: address.trim() || null,
+            city: city.trim() || null,
             watchBrand,
             watchModel: resolvedWatchModel,
             watchRef: watchRef.trim() || null,
@@ -868,6 +905,8 @@ export function QuickBillPage() {
           },
         });
         setCompletion({ mode: "api", invoice });
+        setBillPostActionNote(null);
+        setBillSuccessModalOpen(true);
         setAwaitingOtp(null);
         setOtpInput("");
       } catch (e) {
@@ -879,6 +918,8 @@ export function QuickBillPage() {
     }
 
     setCompletion({ mode: "demo", ref: nextQuickBillRef() });
+    setBillPostActionNote(null);
+    setBillSuccessModalOpen(true);
     setAwaitingOtp(null);
     setOtpInput("");
   }
@@ -925,6 +966,8 @@ export function QuickBillPage() {
   );
 
   function resetForm() {
+    setBillSuccessModalOpen(false);
+    setBillPostActionNote(null);
     setCustomerType("B2C");
     setCustomerName("");
     setPhone("");
@@ -932,6 +975,8 @@ export function QuickBillPage() {
     setCompany("");
     setGst("");
     setPan("");
+    setAddress("");
+    setCity("");
     const b0 = brandNames[0] ?? "";
     if (b0) syncModelForBrand(b0);
     else {
@@ -966,18 +1011,62 @@ export function QuickBillPage() {
   }
 
   if (completion?.mode === "api") {
+    const inv = completion.invoice;
+    const qbVm = mapQuickBillInvoiceToViewModel(inv, invoiceVmOptions);
+    const totalFmt = inv.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR" });
+
     return (
       <div>
+        <ProcessSuccessModal
+          open={billSuccessModalOpen}
+          title="Quick bill saved successfully"
+          description={`Invoice ${inv.billNumber} · ${totalFmt}`}
+          onBackdropClick={() => setBillSuccessModalOpen(false)}
+          actions={
+            <>
+              <button type="button" className={qbSuccessBtnPrimary} onClick={() => printServiceInvoice()}>
+                Print invoice
+              </button>
+              <button
+                type="button"
+                className={qbSuccessBtnSecondary}
+                onClick={() =>
+                  setBillPostActionNote(
+                    "Sending the invoice to the customer by email, SMS, or WhatsApp is not wired yet — this will be added in a future update.",
+                  )
+                }
+              >
+                Send invoice to customer
+              </button>
+              <Link to="/service" className={`${qbSuccessBtnOutline} no-underline`}>
+                Home
+              </Link>
+              <button type="button" className={qbSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
+                View invoice below
+              </button>
+              <button type="button" className={qbSuccessBtnSecondary} onClick={() => resetForm()}>
+                New quick bill
+              </button>
+            </>
+          }
+        >
+          {billPostActionNote ? (
+            <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
+              {billPostActionNote}
+            </p>
+          ) : null}
+          <p className="mt-3 text-xs text-stone-500">
+            Customer delivery covers email, SMS, and WhatsApp once integrations are enabled.
+          </p>
+        </ProcessSuccessModal>
+
         <ServiceBreadcrumb current="Quick bill" className="print:hidden" />
         <PageHeader
           title="Quick bill"
           description="Bill saved. Print or start another sale from this screen — no separate invoicing page."
           className="print:hidden"
         />
-        <QuickBillInvoicePanel
-          viewModel={mapQuickBillInvoiceToViewModel(completion.invoice, invoiceVmOptions)}
-          onNew={resetForm}
-        />
+        <QuickBillInvoicePanel viewModel={qbVm} onNew={resetForm} />
         <div className="mt-8 print:hidden">
           <Link
             to="/service/quick-bill-history"
@@ -1013,6 +1102,7 @@ export function QuickBillPage() {
         email,
         gst,
         pan,
+        address: address.trim() || undefined,
         watchBrand,
         watchModel: resolvedWatchModel,
         watchRef,
@@ -1029,8 +1119,52 @@ export function QuickBillPage() {
       },
       invoiceVmOptions,
     );
+    const demoTotalFmt = total.toLocaleString(undefined, { style: "currency", currency: "INR" });
     return (
       <div>
+        <ProcessSuccessModal
+          open={billSuccessModalOpen}
+          title="Quick bill completed (demo)"
+          description={`Reference ${completion.ref} · ${demoTotalFmt}`}
+          onBackdropClick={() => setBillSuccessModalOpen(false)}
+          actions={
+            <>
+              <button type="button" className={qbSuccessBtnPrimary} onClick={() => printServiceInvoice()}>
+                Print invoice
+              </button>
+              <button
+                type="button"
+                className={qbSuccessBtnSecondary}
+                onClick={() =>
+                  setBillPostActionNote(
+                    "Sending the invoice to the customer by email, SMS, or WhatsApp is not wired yet — this will be added in a future update.",
+                  )
+                }
+              >
+                Send invoice to customer
+              </button>
+              <Link to="/service" className={`${qbSuccessBtnOutline} no-underline`}>
+                Home
+              </Link>
+              <button type="button" className={qbSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
+                View invoice below
+              </button>
+              <button type="button" className={qbSuccessBtnSecondary} onClick={() => resetForm()}>
+                New quick bill
+              </button>
+            </>
+          }
+        >
+          {billPostActionNote ? (
+            <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
+              {billPostActionNote}
+            </p>
+          ) : null}
+          <p className="mt-3 text-xs text-stone-500">
+            Customer delivery covers email, SMS, and WhatsApp once integrations are enabled.
+          </p>
+        </ProcessSuccessModal>
+
         <ServiceBreadcrumb current="Quick bill" className="print:hidden" />
         <PageHeader title="Quick bill" description="Quick bill preview." className="print:hidden" />
         <QuickBillInvoicePanel viewModel={demoVm} onNew={resetForm} />

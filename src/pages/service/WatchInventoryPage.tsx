@@ -124,11 +124,11 @@ export function WatchInventoryPage() {
   }, [searchParams]);
 
   const isAdminAllData =
-    user?.role === "super_admin" || user?.role === "ho_admin" || user?.role === "regional_admin";
+    user?.role === "super_admin" || user?.role === "admin" || user?.role === "admin";
   const roleLane: "HO" | "STORE" = (() => {
     if (
       user?.role === "store_user" ||
-      user?.role === "store_purchase_user" ||
+      user?.role === "store_user" ||
       user?.role === "store_manager" ||
       user?.role === "store_accounts"
     ) {

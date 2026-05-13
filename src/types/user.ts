@@ -1,19 +1,14 @@
 export type UserRole =
-  | "ho_admin"
-  | "ho_manager"
-  | "ho_supervisor"
-  | "ho_user"
-  | "ho_accounts"
   | "super_admin"
-  | "regional_admin"
-  | "store_user"
-  | "store_purchase_user"
-  | "store_manager"
-  | "store_accounts"
+  | "admin"
+  | "ho_manager"
+  | "ho_accounts"
+  | "ho_purchase"
   | "service_centre_clerk"
   | "service_centre_supervisor"
-  | "service_centre_inward"
-  | "service_centre_outward"
+  | "store_user"
+  | "store_manager"
+  | "store_accounts"
   | "technician";
 
 /** App sections tied to routes; adjust visibility per role in `config/moduleAccess.ts`. */
@@ -34,7 +29,7 @@ export type DemoUser = {
   password: string;
   displayName: string;
   role: UserRole;
-  /** Set for regional_admin, store_user, and service centre roles scoped to a region / HO */
+  /** Set for admin, store_user, and service centre roles scoped to a region / HO */
   regionId: string | null;
   /** Set for store_user */
   storeId: string | null;

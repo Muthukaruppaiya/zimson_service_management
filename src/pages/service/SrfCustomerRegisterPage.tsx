@@ -4,6 +4,7 @@ import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { CustomerAddressForm } from "../../components/service/CustomerAddressForm";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useCustomers } from "../../context/CustomersContext";
 import { isValidGstFormat, isValidPanFormat } from "../../data/serviceSeed";
 import { apiJson, useApiMode } from "../../lib/api";
@@ -852,32 +853,43 @@ export function SrfCustomerRegisterPage() {
       </form>
 
       {successInfo ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-emerald-200 bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-semibold text-emerald-900">Customer created successfully</h3>
-            <p className="mt-2 text-sm text-stone-700">
-              Customer code:{" "}
-              <span className="font-mono font-bold text-zimson-900">{successInfo.customerCode ?? "—"}</span>
-            </p>
-            <p className="mt-1 text-sm text-stone-700">
-              Internal ID: <span className="font-mono text-xs text-stone-600">{successInfo.id}</span>
-            </p>
-            <p className="mt-3 text-xs text-stone-500">
-              This profile is verified for both mobile and email. Migrated records from the old system would show as
-              unverified until staff complete OTP verification in a future update.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                afterSuccessNavigate();
-                setSuccessInfo(null);
-              }}
-              className="mt-5 w-full rounded-xl bg-zimson-600 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zimson-700"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
+        <ProcessSuccessModal
+          open
+          title="Customer created successfully"
+          description="The customer master record is saved and verified for mobile and email."
+          actions={
+            <>
+              <button
+                type="button"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 sm:w-auto"
+                onClick={() => {
+                  afterSuccessNavigate();
+                  setSuccessInfo(null);
+                }}
+              >
+                Continue
+              </button>
+              <Link
+                to="/service"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 no-underline shadow-sm transition hover:bg-zimson-50 sm:w-auto"
+              >
+                Home
+              </Link>
+            </>
+          }
+        >
+          <p className="mt-2 text-sm text-stone-700">
+            Customer code:{" "}
+            <span className="font-mono font-bold text-zimson-900">{successInfo.customerCode ?? "—"}</span>
+          </p>
+          <p className="mt-1 text-sm text-stone-700">
+            Internal ID: <span className="font-mono text-xs text-stone-600">{successInfo.id}</span>
+          </p>
+          <p className="mt-3 text-xs text-stone-500">
+            This profile is verified for both mobile and email. Migrated records from the old system would show as
+            unverified until staff complete OTP verification in a future update.
+          </p>
+        </ProcessSuccessModal>
       ) : null}
     </div>
   );

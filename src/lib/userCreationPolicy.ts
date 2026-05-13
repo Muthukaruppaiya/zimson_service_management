@@ -16,7 +16,6 @@ export const ALL_MODULE_KEYS: ModuleKey[] = [
 /** Store-bound roles — server requires `storeId`. */
 export const STORE_ROLES: UserRole[] = [
   "store_user",
-  "store_purchase_user",
   "store_manager",
   "store_accounts",
 ];
@@ -42,8 +41,8 @@ export type RoleCreationMeta = {
   group: "system" | "ho" | "store";
   /** One line — shown in UI */
   summary: string;
-  /** If true, HO Admin cannot pick this role (matches server). */
-  blockedForHoAdmin: boolean;
+  /** If true, only Super Admin can assign this role (Admin cannot). */
+  superAdminOnly: boolean;
 };
 
 /**
@@ -51,66 +50,84 @@ export type RoleCreationMeta = {
  * Order = display order within each group.
  */
 export const ROLE_CREATION_META: RoleCreationMeta[] = [
+  // ── System ───────────────────────────────────────────────────────────────
   {
     value: "super_admin",
     label: "Super Admin",
     group: "system",
-    summary: "Full system access; only use for top IT / owner accounts.",
-    blockedForHoAdmin: true,
+    summary: "Full system access across all regions. For top IT / owner accounts only.",
+    superAdminOnly: true,
   },
   {
-    value: "regional_admin",
-    label: "Regional Admin",
+    value: "admin",
+    label: "Admin (HO)",
     group: "system",
-    summary: "Multi-HO oversight (legacy); manages regions and broad user lists.",
-    blockedForHoAdmin: true,
+    summary: "Manages one HO region and all stores under it. Full access within their region.",
+    superAdminOnly: true,
   },
-  { value: "ho_admin", label: "HO Admin", group: "ho", summary: "HO settings, users (within HO), regions visibility as configured.", blockedForHoAdmin: false },
-  { value: "ho_manager", label: "HO Manager", group: "ho", summary: "PR/PO, stock, approvals, reports for this HO.", blockedForHoAdmin: false },
-  { value: "ho_supervisor", label: "HO Supervisor", group: "ho", summary: "Service centre desk / distribution context; not logistics inward-outward.", blockedForHoAdmin: false },
-  { value: "ho_user", label: "HO User", group: "ho", summary: "Operational HO user (e.g. PR to PO conversion).", blockedForHoAdmin: false },
-  { value: "ho_accounts", label: "HO Accounts", group: "ho", summary: "HO-side accounts and related modules.", blockedForHoAdmin: false },
+  // ── HO & Service Centre ───────────────────────────────────────────────────
+  {
+    value: "ho_manager",
+    label: "HO Manager",
+    group: "ho",
+    summary: "Approvals, PO management, stock and reports for this HO.",
+    superAdminOnly: false,
+  },
+  {
+    value: "ho_accounts",
+    label: "HO Accounts",
+    group: "ho",
+    summary: "HO-side accounts, billing and financial views.",
+    superAdminOnly: false,
+  },
+  {
+    value: "ho_purchase",
+    label: "HO Purchase",
+    group: "ho",
+    summary: "Purchase requests, vendor management and inventory inward at HO.",
+    superAdminOnly: false,
+  },
   {
     value: "service_centre_clerk",
-    label: "Service centre clerk",
+    label: "Service Centre Clerk (Front Desk)",
     group: "ho",
-    summary: "Single-login SC logistics role (both inward + outward in one account).",
-    blockedForHoAdmin: false,
+    summary: "Front desk — handles SRF intake, customer communication, inward & outward.",
+    superAdminOnly: false,
   },
   {
     value: "service_centre_supervisor",
-    label: "Service centre supervisor",
+    label: "Service Centre Supervisor",
     group: "ho",
-    summary: "Assignments, supervisor queue, decisions.",
-    blockedForHoAdmin: false,
+    summary: "Technician assignments, supervisor queue, quality decisions.",
+    superAdminOnly: false,
+  },
+  // ── Store ─────────────────────────────────────────────────────────────────
+  {
+    value: "store_user",
+    label: "Store User",
+    group: "store",
+    summary: "Quick bill, SRF creation and dispatch to service centre.",
+    superAdminOnly: false,
   },
   {
-    value: "service_centre_inward",
-    label: "Service centre inward",
-    group: "ho",
-    summary: "DC inward only (receive from store / transfers).",
-    blockedForHoAdmin: false,
+    value: "store_manager",
+    label: "Store Manager",
+    group: "store",
+    summary: "PR approval at store level, store reports and overrides.",
+    superAdminOnly: false,
   },
   {
-    value: "service_centre_outward",
-    label: "Service centre outward",
-    group: "ho",
-    summary: "ODC outward only (dispatch to store / HO).",
-    blockedForHoAdmin: false,
+    value: "store_accounts",
+    label: "Store Accounts",
+    group: "store",
+    summary: "Store-side accounts, billing views and end-of-day reports.",
+    superAdminOnly: false,
   },
-  { value: "technician", label: "Technician", group: "ho", summary: "Employee profile; login is disabled by default.", blockedForHoAdmin: false },
-  { value: "store_user", label: "Store user", group: "store", summary: "Quick bill, SRF, dispatch to HO.", blockedForHoAdmin: false },
-  { value: "store_purchase_user", label: "Store purchase user", group: "store", summary: "Purchase requests and store inward.", blockedForHoAdmin: false },
-  { value: "store_manager", label: "Store manager", group: "store", summary: "PR approval at store, reports.", blockedForHoAdmin: false },
-  { value: "store_accounts", label: "Store accounts", group: "store", summary: "Store-side accounts and billing views.", blockedForHoAdmin: false },
 ];
 
 export function creatableRolesForActor(actorRole: UserRole | undefined): RoleCreationMeta[] {
-  const withoutSplitLogisticsRoles = ROLE_CREATION_META.filter(
-    (r) => r.value !== "service_centre_inward" && r.value !== "service_centre_outward",
-  );
-  if (actorRole === "super_admin") return withoutSplitLogisticsRoles;
-  if (actorRole === "ho_admin") return withoutSplitLogisticsRoles.filter((r) => !r.blockedForHoAdmin);
+  if (actorRole === "super_admin") return ROLE_CREATION_META;
+  if (actorRole === "admin") return ROLE_CREATION_META.filter((r) => !r.superAdminOnly);
   return [];
 }
 
@@ -124,11 +141,9 @@ export function effectiveModuleAccess(role: UserRole, override: ModuleKey[] | nu
 }
 
 export const CREATION_POLICY_BULLETS = [
-  "Only Super Admin or HO Admin can use Create user. Regional Admin can open this page and see their region’s directory but cannot create accounts.",
-  "HO Admin cannot assign Super Admin or Regional Admin.",
-  "HO Admin can only create users in the same HO region as their own account. For store roles, the store must belong to that region.",
-  "Store roles require a store; HO and system roles use region only (no store).",
-  "For service-centre logistics, create `service_centre_clerk` for one login handling both inward and outward. Do not create separate inward/outward users.",
-  "Login disabled: a directory-only profile is created with a generated email; the person cannot sign in until login is enabled and credentials are set.",
-  "Module access: “Role default” uses the built-in module list for that role. “Custom list” replaces that list entirely — if you omit a module, the user loses it even if the role normally includes it.",
+  "Only Super Admin can create Admin (HO) accounts.",
+  "Admin can create all HO and Store roles within their own region.",
+  "Store roles (Store User, Store Manager, Store Accounts) require a store assignment.",
+  "Technicians are created via the dedicated Technician Master page — not here.",
+  "Login can be disabled per user; they appear in the directory but cannot sign in.",
 ];

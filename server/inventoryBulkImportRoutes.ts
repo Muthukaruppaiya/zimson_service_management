@@ -306,7 +306,7 @@ async function validateAgainstDb(
     }
   }
 
-  const scopeRegion = actor.role === "regional_admin" ? actor.regionId : null;
+  const scopeRegion = actor.role === "admin" ? actor.regionId : null;
 
   for (const p of priceRows) {
     const region = regionByName.get(p.regionName.trim().toLowerCase());
@@ -489,69 +489,119 @@ function assertHeaders(sheet: XLSX.WorkSheet | undefined, expected: readonly str
   return [];
 }
 
+// ── Seeded spare parts catalogue ─────────────────────────────────────────────
+// [sku, name, description, category, hsn, mrp_inr, is_active]
+const SEED_SPARES: string[][] = [
+  ["BAT-SR626SW",  "SR626SW Watch Battery",        "Silver oxide 1.55V button cell — fits most ladies quartz watches",         "Battery",     "8506900090", "85",    "Y"],
+  ["BAT-SR621SW",  "SR621SW Watch Battery",        "Silver oxide 1.55V thin cell — slim quartz movement",                     "Battery",     "8506900090", "85",    "Y"],
+  ["BAT-CR2016",   "CR2016 Lithium Battery",       "Lithium 3V coin cell — chronograph & multi-function modules",             "Battery",     "8506900090", "95",    "Y"],
+  ["BAT-CR2032",   "CR2032 Lithium Battery",       "Lithium 3V coin cell — standard digital / solar-backup modules",         "Battery",     "8506900090", "90",    "Y"],
+  ["GLS-MIN-28",   "Mineral Glass 28mm Round",     "1.5mm mineral crystal — fits standard 28mm round case",                  "Glass",       "7015900090", "320",   "Y"],
+  ["GLS-MIN-34",   "Mineral Glass 34mm Round",     "1.5mm mineral crystal — standard 34mm round case",                      "Glass",       "7015900090", "380",   "Y"],
+  ["GLS-SAP-36",   "Sapphire Crystal 36mm Round",  "Scratch-resistant sapphire 1.2mm — dress watch 36mm case",              "Glass",       "7015900090", "950",   "Y"],
+  ["GLS-SAP-40",   "Sapphire Crystal 40mm Round",  "Scratch-resistant sapphire 1.2mm — sports / gents 40mm case",           "Glass",       "7015900090", "1150",  "Y"],
+  ["CRN-STD-4MM",  "Steel Crown 4mm Screw-down",   "316L SS screw-down crown — diameter 4mm, thread M0.9",                   "Crown",       "9114900090", "180",   "Y"],
+  ["CRN-PUSH-3MM", "Push-pull Crown 3mm",          "316L SS push-pull crown — diameter 3mm for slim ladies movement",        "Crown",       "9114900090", "120",   "Y"],
+  ["GSK-CASE-28",  "Case Gasket Set 28mm",         "Rubber O-ring + back gasket pair — 28mm round waterproof case",          "Gasket",      "8484900090", "95",    "Y"],
+  ["GSK-CROWN-4",  "Crown Tube Gasket 4mm",        "Crown tube O-ring for 4mm screw-down crown — 3-pack",                   "Gasket",      "8484900090", "55",    "Y"],
+  ["STP-LTH-18",   "Genuine Leather Strap 18mm",   "Calf-leather padded strap, brown/black — 18mm lug, stainless buckle",   "Strap",       "4205009090", "650",   "Y"],
+  ["STP-RBR-20",   "Silicone Sport Strap 20mm",    "Moulded silicone strap — 20mm lug, deployant clasp ready",              "Strap",       "4016991090", "420",   "Y"],
+  ["STM-MNH-5",    "Watch Stem M0.9 x 5mm",        "Winding stem thread M0.9, length 5mm — fits ETA-style NH35 movement",   "Stem",        "9114900090", "145",   "Y"],
+  ["LUB-M9000",    "Moebius 9000 Silicone Grease",  "Waterproofing lubricant for crown tube, gaskets — 1ml syringe",          "Lubricant",   "3403910090", "890",   "Y"],
+  ["LUB-9010",     "Moebius 9010 Movement Oil",    "Ultra-thin movement oil for balance pivots and pallet stones — 1ml",     "Lubricant",   "3403910090", "1250",  "Y"],
+  ["TOOL-OPENER",  "Case Back Opener (Press)",     "Friction press-fit stainless case back removal tool",                   "Tool",        "9015809090", "380",   "Y"],
+  ["TOOL-PRYTIP",  "Nylon Pry Tip Set (6pc)",      "Anti-scratch crystal and gasket pry tips — set of 6 sizes",             "Tool",        "9015809090", "220",   "Y"],
+  ["CONS-CLTH-10", "Micro-fibre Cleaning Cloth",   "Anti-static lint-free cloth for crystal and case cleaning — 10-pack",   "Consumable",  "6307909090", "110",   "Y"],
+];
+
 async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
   const wb = XLSX.utils.book_new();
 
-  const readme: string[][] = [
-    ["Inventory bulk import — read me"],
-    [""],
-    ["Sheets (required names): Spares, Prices, Stock"],
-    ["Fill data starting row 2 on each sheet. Row 1 must be the header row exactly as in the template."],
-    [""],
-    ["Spares: one row per SKU. sku, name, description, category are required. hsn optional. mrp_inr optional number."],
-    ["is_active: Y/N or true/false (default Y). SKU is matched case-insensitively; stored uppercase."],
-    [""],
-    ["Prices: sku must exist in Spares sheet or already in DB. region_name and watch_brand (active brand name) and price_inr required."],
-    [""],
-    ["Stock: sku, location_type (HO or STORE), region_name, quantity required. store_name required for STORE, empty for HO."],
-    ["location_key is built from DB IDs internally after name lookup."],
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(readme), "README");
-
+  // Fetch real regions, stores and brands from DB for seeded price/stock rows
   const { rows: regRows } = await pool.query<{ id: string; name: string }>(
     `SELECT id, name FROM regions ORDER BY name`,
   );
   const { rows: storeRows } = await pool.query<{ id: string; region_id: string; name: string }>(
     `SELECT id, region_id, name FROM stores ORDER BY region_id, name`,
   );
-
   const { rows: brandRows } = await pool.query<{ name: string }>(
     `SELECT name FROM brands WHERE is_active = true ORDER BY sort_order, name`,
   );
-  const sampleRegion = regRows[0]?.name ?? "REPLACE_WITH_REGION_NAME";
-  const sampleRegionId = regRows[0]?.id ?? "";
-  const sampleStore = storeRows.find((s) => s.region_id === sampleRegionId)?.name ?? "";
-  const sampleBrand = brandRows[0]?.name ?? "Citizen";
 
+  const regions = regRows.length > 0 ? regRows : [{ id: "", name: "COIMBATORE HO" }];
+  const brands  = brandRows.length  > 0 ? brandRows.map((b) => b.name) : ["Citizen", "Titan", "Casio"];
+
+  // ── README ──────────────────────────────────────────────────────────────
+  const readme: string[][] = [
+    ["ZIMSON SERVICE MANAGEMENT — Spares Bulk Import"],
+    [""],
+    ["HOW TO USE"],
+    ["1. Do NOT change column header names (row 1) on any sheet."],
+    ["2. Add your data from row 2 onwards."],
+    ["3. Delete the seeded sample rows before importing, or they will be upserted into your catalogue."],
+    ["4. Save as .xlsx and upload on the Bulk Import page."],
+    [""],
+    ["SHEET: Spares"],
+    ["  sku          – Unique code (stored uppercase). Required."],
+    ["  name         – Short display name. Required."],
+    ["  description  – Longer description. Required."],
+    ["  category     – Battery / Glass / Crown / Gasket / Strap / Movement / Stem / Lubricant / Tool / Consumable / Other"],
+    ["  hsn          – HSN tariff code (optional)."],
+    ["  mrp_inr      – Max retail price in INR (optional number)."],
+    ["  is_active    – Y or N (default Y)."],
+    [""],
+    ["SHEET: Prices"],
+    ["  sku          – Must match a SKU in the Spares sheet or already in DB."],
+    ["  region_name  – Exact region name from your system (e.g. COIMBATORE HO)."],
+    ["  watch_brand  – Active brand name (e.g. Citizen)."],
+    ["  price_inr    – Selling price in INR (number)."],
+    [""],
+    ["SHEET: Stock"],
+    ["  sku           – Must match a SKU."],
+    ["  location_type – HO or STORE (uppercase)."],
+    ["  region_name   – Exact region name."],
+    ["  store_name    – Required when location_type = STORE; leave empty for HO."],
+    ["  quantity      – Non-negative integer."],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(readme), "README");
+
+  // ── Spares sheet ─────────────────────────────────────────────────────────
   XLSX.utils.book_append_sheet(
     wb,
-    XLSX.utils.aoa_to_sheet([
-      [...SPARES_HEADERS],
-      ["DEMO-SKU-001", "Demo spare", "Sample row — replace or delete", "Battery", "8544", "199", "Y"],
-    ]),
+    XLSX.utils.aoa_to_sheet([[...SPARES_HEADERS], ...SEED_SPARES]),
     "Spares",
   );
 
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.aoa_to_sheet([
-      [...PRICES_HEADERS],
-      ["DEMO-SKU-001", sampleRegion, sampleBrand, "150"],
-    ]),
-    "Prices",
-  );
+  // ── Prices sheet — one row per spare × region × brand ───────────────────
+  const priceRows: string[][] = [[...PRICES_HEADERS]];
+  for (const spare of SEED_SPARES) {
+    const sku = spare[0];
+    const mrpStr = spare[5] ?? "";
+    const mrp = parseFloat(mrpStr) || 0;
+    for (const region of regions) {
+      for (const brand of brands.slice(0, 3)) { // up to 3 brands per spare
+        const sellingPrice = Math.round(mrp * 0.85); // 15% off MRP as default selling price
+        priceRows.push([sku, region.name, brand, String(sellingPrice > 0 ? sellingPrice : 100)]);
+      }
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(priceRows), "Prices");
 
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.aoa_to_sheet([
-      [...STOCK_HEADERS],
-      ["DEMO-SKU-001", "HO", sampleRegion, "", "10"],
-      ...(sampleStore
-        ? ([["DEMO-SKU-001", "STORE", sampleRegion, sampleStore, "2"]] as string[][])
-        : ([] as string[][])),
-    ]),
-    "Stock",
-  );
+  // ── Stock sheet — HO stock + first store per region ──────────────────────
+  const stockRows: string[][] = [[...STOCK_HEADERS]];
+  for (const spare of SEED_SPARES) {
+    const sku = spare[0];
+    for (const region of regions) {
+      // HO stock
+      stockRows.push([sku, "HO", region.name, "", "20"]);
+      // First store in this region
+      const store = storeRows.find((s) => s.region_id === region.id);
+      if (store) {
+        stockRows.push([sku, "STORE", region.name, store.name, "5"]);
+      }
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stockRows), "Stock");
 
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
@@ -564,7 +614,7 @@ export function registerInventoryBulkImportRoutes(
 ): void {
   app.get("/api/inventory/bulk-import/template", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin")) {
       res.status(403).json({ error: "Only super or regional admins can download the import template." });
       return;
     }
@@ -584,7 +634,7 @@ export function registerInventoryBulkImportRoutes(
 
   app.post("/api/inventory/bulk-import/validate", requireAuth, upload.single("file"), async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin")) {
       res.status(403).json({ error: "Only super or regional admins can validate imports." });
       return;
     }
@@ -627,7 +677,7 @@ export function registerInventoryBulkImportRoutes(
 
   app.post("/api/inventory/bulk-import/commit", requireAuth, upload.single("file"), async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin")) {
       res.status(403).json({ error: "Only super or regional admins can commit imports." });
       return;
     }

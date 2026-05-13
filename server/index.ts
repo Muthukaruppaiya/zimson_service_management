@@ -367,13 +367,16 @@ async function getSeriesPrefixSuffix(
 
 const STORE_ROLES = new Set<UserRole>([
   "store_user",
-  "store_purchase_user",
+  "store_user",
   "store_manager",
   "store_accounts",
 ]);
 
-const PR_CREATOR_ROLES = new Set<UserRole>(["store_user", "store_purchase_user"]);
-const HO_APPROVER_ROLES = new Set<UserRole>(["super_admin", "regional_admin", "ho_admin", "ho_manager"]);
+const PR_CREATOR_ROLES = new Set<UserRole>(["store_user", "store_manager"]);
+// Can view the HO inbox (all PRs)
+const HO_VIEWER_ROLES = new Set<UserRole>(["super_admin", "admin", "ho_manager", "ho_purchase"]);
+// Can approve/reject/fulfil PRs — ho_purchase can VIEW only, not approve
+const HO_APPROVER_ROLES = new Set<UserRole>(["super_admin", "admin", "ho_manager"]);
 
 function moduleKeys(input: unknown): ModuleKey[] | null {
   return normalizeModuleAccessOverride(input);
@@ -441,13 +444,14 @@ async function ensureSeedUsers(): Promise<void> {
     const employeeCode = normalizeEmployeeCode(String(user.employeeCode ?? "")) || normalizeEmployeeCode(user.id);
     await dbPool.query(
       `INSERT INTO app_users (
-         id, employee_code, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
+         id, employee_code, email, password_hash, plain_password, display_name, role, region_id, store_id, technician_profile_id,
          can_login, module_access_override, is_seed
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, true)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, true)
        ON CONFLICT (id) DO UPDATE
        SET employee_code = EXCLUDED.employee_code,
            email = EXCLUDED.email,
            password_hash = EXCLUDED.password_hash,
+           plain_password = EXCLUDED.plain_password,
            display_name = EXCLUDED.display_name,
            role = EXCLUDED.role,
            region_id = EXCLUDED.region_id,
@@ -462,6 +466,7 @@ async function ensureSeedUsers(): Promise<void> {
         employeeCode,
         user.email.toLowerCase(),
         hashPassword(user.password),
+        user.password,
         user.displayName,
         user.role,
         user.regionId,
@@ -573,6 +578,38 @@ app.get("/api/auth/demo-logins", (_req, res) => {
   res.json({ users });
 });
 
+// Public demo endpoint — exposes all user credentials for the login page demo table (wireframe only)
+app.get("/api/demo-users", async (_req, res) => {
+  if (!dbPool) {
+    res.json({ users: [] });
+    return;
+  }
+  try {
+    const { rows } = await dbPool.query<{
+      employee_code: string | null;
+      plain_password: string | null;
+      display_name: string;
+      role: string;
+      can_login: boolean;
+    }>(
+      `SELECT employee_code, plain_password, display_name, role, can_login
+       FROM app_users
+       ORDER BY created_at ASC`,
+    );
+    res.json({
+      users: rows.map((r) => ({
+        employeeCode: String(r.employee_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24),
+        password: r.plain_password ?? (r.role === "super_admin" ? "super123" : "123456"),
+        displayName: r.display_name,
+        role: r.role,
+        canLogin: r.can_login,
+      })),
+    });
+  } catch {
+    res.json({ users: [] });
+  }
+});
+
 app.get("/api/users", requireAuth, async (req, res) => {
   const uid = (req as express.Request & { userId: string }).userId;
   const actor = await findUser(uid);
@@ -581,11 +618,11 @@ app.get("/api/users", requireAuth, async (req, res) => {
     return;
   }
   let list = (await allUsers()).map(stripPassword);
-  if (actor.role === "regional_admin") {
+  if (actor.role === "admin") {
     list = list.filter((u) => u.regionId === actor.regionId);
-  } else if (actor.role === "ho_admin" && actor.regionId) {
+  } else if (actor.role === "admin" && actor.regionId) {
     list = list.filter((u) => u.regionId === actor.regionId);
-  } else if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
+  } else if (actor.role !== "super_admin" && actor.role !== "admin") {
     res.status(403).json({ error: "Forbidden." });
     return;
   }
@@ -638,18 +675,18 @@ app.post("/api/users", requireAuth, async (req, res) => {
     return;
   }
 
-  if (actor.role !== "super_admin" && actor.role !== "ho_admin") {
-    res.status(403).json({ ok: false, message: "Only Super Admin or HO Admin can create users." });
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
+    res.status(403).json({ ok: false, message: "Only Super Admin or Admin can create users." });
     return;
   }
-  if (actor.role === "ho_admin" && (input.role === "super_admin" || input.role === "regional_admin")) {
-    res.status(403).json({ ok: false, message: "HO Admin cannot assign super admin or regional admin roles." });
+  if (actor.role === "admin" && (input.role === "super_admin" || input.role === "admin")) {
+    res.status(403).json({ ok: false, message: "Admin cannot assign Super Admin or Admin roles." });
     return;
   }
 
-  if (actor.role === "ho_admin") {
+  if (actor.role === "admin") {
     if (!actor.regionId) {
-      res.status(403).json({ ok: false, message: "Your HO Admin account has no region; user creation is disabled." });
+      res.status(403).json({ ok: false, message: "Your Admin account has no region assigned; user creation is disabled." });
       return;
     }
     if (input.regionId !== actor.regionId) {
@@ -682,11 +719,12 @@ app.post("/api/users", requireAuth, async (req, res) => {
   }
   const overrideModules = moduleKeys(input.moduleAccessOverride);
 
+  const plainPwd = String(input.password ?? "").trim() || "123456";
   const newUser: DemoUser = {
     id: createId("user"),
     employeeCode: employeeCode || normalizeEmployeeCode(createId("emp")),
     email: email || `${createId("user")}@directory.local`,
-    password: hashPassword(String(input.password ?? "") || createId("pwd")),
+    password: hashPassword(plainPwd),
     displayName: input.displayName.trim(),
     role: input.role as UserRole,
     regionId: input.regionId,
@@ -700,15 +738,16 @@ app.post("/api/users", requireAuth, async (req, res) => {
 
   await dbPool.query(
     `INSERT INTO app_users (
-       id, employee_code, email, password_hash, display_name, role, region_id, store_id, technician_profile_id,
+       id, employee_code, email, password_hash, plain_password, display_name, role, region_id, store_id, technician_profile_id,
        can_login, module_access_override, is_seed
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, false)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, false)`,
     [
       newUser.id,
       newUser.employeeCode ?? null,
       newUser.email,
       newUser.password,
+      plainPwd,
       newUser.displayName,
       newUser.role,
       newUser.regionId,
@@ -732,6 +771,79 @@ app.post("/api/users", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+app.patch("/api/users/:userId", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = await findUser(uid);
+  if (!actor) { res.status(401).json({ error: "Invalid session." }); return; }
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
+    res.status(403).json({ error: "Only Super Admin or Admin can update users." }); return;
+  }
+  if (!dbPool) { res.status(503).json({ error: "Database required." }); return; }
+
+  const targetId = String(req.params.userId ?? "").trim();
+  const body = req.body as Record<string, unknown>;
+
+  try {
+    const { rows: existing } = await dbPool.query<{ region_id: string | null; is_seed: boolean }>(
+      `SELECT region_id, is_seed FROM app_users WHERE id = $1::text`,
+      [targetId],
+    );
+    if (!existing.length) { res.status(404).json({ error: "User not found." }); return; }
+    const target = existing[0]!;
+
+    if (actor.role === "admin" && target.region_id !== actor.regionId) {
+      res.status(403).json({ error: "You can only edit users in your own region." }); return;
+    }
+
+    const sets: string[] = [];
+    const params: unknown[] = [targetId];
+
+    const push = (col: string, val: unknown) => { params.push(val); sets.push(`${col} = $${params.length}`); };
+
+    if ("displayName" in body) push("display_name", String(body.displayName ?? "").trim());
+    if ("email" in body) push("email", String(body.email ?? "").trim().toLowerCase());
+    if ("employeeCode" in body) push("employee_code", String(body.employeeCode ?? "").trim().toUpperCase() || null);
+    if ("canLogin" in body) push("can_login", Boolean(body.canLogin));
+    if ("regionId" in body) push("region_id", String(body.regionId ?? "").trim() || null);
+    if ("storeId" in body) push("store_id", String(body.storeId ?? "").trim() || null);
+    if ("role" in body) {
+      const newRole = String(body.role ?? "") as UserRole;
+      if (actor.role === "admin" && (newRole === "super_admin" || newRole === "admin")) {
+        res.status(403).json({ error: "Admin cannot assign Super Admin or Admin roles." }); return;
+      }
+      push("role", newRole);
+    }
+    if ("moduleAccessOverride" in body) {
+      push("module_access_override", body.moduleAccessOverride != null ? JSON.stringify(body.moduleAccessOverride) : null);
+    }
+    if ("password" in body && String(body.password ?? "").trim().length >= 4) {
+      const newPlain = String(body.password).trim();
+      push("password_hash", hashPassword(newPlain));
+      push("plain_password", newPlain);
+    }
+
+    if (sets.length > 0) {
+      await dbPool.query(`UPDATE app_users SET ${sets.join(", ")}, updated_at = now() WHERE id = $1::text`, params);
+    }
+
+    if ("storeIds" in body && Array.isArray(body.storeIds)) {
+      await dbPool.query(`DELETE FROM user_store_access WHERE user_id = $1::text`, [targetId]);
+      for (const sid of body.storeIds as string[]) {
+        await dbPool.query(
+          `INSERT INTO user_store_access (user_id, store_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [targetId, sid],
+        );
+      }
+    }
+
+    await refreshUsersFromDb();
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not update user." });
+  }
+});
+
 app.get("/api/settings/workflow-statuses", requireAuth, async (req, res) => {
   if (!dbPool) {
     res.status(503).json({ error: "Database is required." });
@@ -743,7 +855,7 @@ app.get("/api/settings/workflow-statuses", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin") {
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
     res.status(403).json({ error: "Forbidden." });
     return;
   }
@@ -770,7 +882,7 @@ app.post("/api/settings/workflow-statuses", requireAuth, async (req, res) => {
   }
   const uid = (req as express.Request & { userId: string }).userId;
   const actor = findUser(uid);
-  if (!actor || (actor.role !== "super_admin" && actor.role !== "ho_admin")) {
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "admin")) {
     res.status(403).json({ error: "Only admin can create statuses." });
     return;
   }
@@ -803,7 +915,7 @@ app.patch("/api/settings/workflow-statuses/:id", requireAuth, async (req, res) =
   }
   const uid = (req as express.Request & { userId: string }).userId;
   const actor = findUser(uid);
-  if (!actor || (actor.role !== "super_admin" && actor.role !== "ho_admin")) {
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "admin")) {
     res.status(403).json({ error: "Only admin can update statuses." });
     return;
   }
@@ -862,7 +974,7 @@ app.delete("/api/settings/workflow-statuses/:id", requireAuth, async (req, res) 
   }
   const uid = (req as express.Request & { userId: string }).userId;
   const actor = findUser(uid);
-  if (!actor || (actor.role !== "super_admin" && actor.role !== "ho_admin")) {
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "admin")) {
     res.status(403).json({ error: "Only admin can delete statuses." });
     return;
   }
@@ -907,21 +1019,26 @@ app.get("/api/regions", requireAuth, (_req, res) => {
   void (async () => {
     try {
       const { rows } = await dbPool.query<{
-        region_id: string;
-        region_name: string;
-        store_id: string | null;
-        store_name: string | null;
-        invoice_display_name: string | null;
-        invoice_tagline: string | null;
-        invoice_address: string | null;
-        invoice_phone: string | null;
-        invoice_email: string | null;
-        invoice_gstin: string | null;
-        invoice_legal_entity_name: string | null;
-        invoice_terms: string | null;
+        region_id: string; region_name: string;
+        region_code: string; region_address: string;
+        region_address_json: unknown;
+        region_gst: string; region_pan: string;
+        region_email: string; region_phone: string;
+        store_id: string | null; store_name: string | null;
+        invoice_display_name: string | null; invoice_tagline: string | null;
+        invoice_address: string | null; invoice_phone: string | null;
+        invoice_email: string | null; invoice_gstin: string | null;
+        invoice_legal_entity_name: string | null; invoice_terms: string | null;
         invoice_number_store_code: string | null;
       }>(
         `SELECT r.id AS region_id, r.name AS region_name,
+                COALESCE(r.region_code,'') AS region_code,
+                COALESCE(r.address,'') AS region_address,
+                r.address_json AS region_address_json,
+                COALESCE(r.gst,'') AS region_gst,
+                COALESCE(r.pan,'') AS region_pan,
+                COALESCE(r.email,'') AS region_email,
+                COALESCE(r.phone,'') AS region_phone,
                 s.id AS store_id, s.name AS store_name,
                 s.invoice_display_name, s.invoice_tagline, s.invoice_address,
                 s.invoice_phone, s.invoice_email, s.invoice_gstin,
@@ -931,15 +1048,34 @@ app.get("/api/regions", requireAuth, (_req, res) => {
          LEFT JOIN stores s ON s.region_id = r.id
          ORDER BY r.name, s.name`,
       );
+      const { rows: whRows } = await dbPool.query<{
+        id: string; region_id: string; name: string;
+        address: string; phone: string; email: string;
+      }>(
+        `SELECT id, region_id, name,
+                COALESCE(address,'') AS address,
+                COALESCE(phone,'') AS phone,
+                COALESCE(email,'') AS email
+         FROM warehouses ORDER BY name`,
+      );
       const map = new Map<string, SeedRegion>();
       for (const row of rows) {
         if (!map.has(row.region_id)) {
-          map.set(row.region_id, { id: row.region_id, name: row.region_name, stores: [] });
+          map.set(row.region_id, {
+            id: row.region_id, name: row.region_name,
+            regionCode: row.region_code || undefined,
+            address: row.region_address || undefined,
+            addressJson: row.region_address_json ?? undefined,
+            gst: row.region_gst || undefined,
+            pan: row.region_pan || undefined,
+            email: row.region_email || undefined,
+            phone: row.region_phone || undefined,
+            stores: [], warehouses: [],
+          });
         }
         if (row.store_id && row.store_name) {
           map.get(row.region_id)!.stores.push({
-            id: row.store_id,
-            name: row.store_name,
+            id: row.store_id, name: row.store_name,
             invoiceDisplayName: String(row.invoice_display_name ?? "").trim() || undefined,
             invoiceTagline: String(row.invoice_tagline ?? "").trim() || undefined,
             invoiceAddress: String(row.invoice_address ?? "").trim() || undefined,
@@ -949,6 +1085,17 @@ app.get("/api/regions", requireAuth, (_req, res) => {
             invoiceLegalEntityName: String(row.invoice_legal_entity_name ?? "").trim() || undefined,
             invoiceTerms: String(row.invoice_terms ?? "").trim() || undefined,
             invoiceNumberStoreCode: String(row.invoice_number_store_code ?? "").trim() || undefined,
+          });
+        }
+      }
+      for (const wh of whRows) {
+        const reg = map.get(wh.region_id);
+        if (reg) {
+          reg.warehouses.push({
+            id: wh.id, name: wh.name,
+            address: wh.address || undefined,
+            phone: wh.phone || undefined,
+            email: wh.email || undefined,
           });
         }
       }
@@ -967,7 +1114,7 @@ app.put("/api/regions", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
     res.status(403).json({ error: "Only super/regional admins can manage regions." });
     return;
   }
@@ -1032,7 +1179,7 @@ app.post("/api/regions", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
     res.status(403).json({ error: "Only super/regional admins can manage regions." });
     return;
   }
@@ -1052,11 +1199,83 @@ app.post("/api/regions", requireAuth, async (req, res) => {
   }
   try {
     const id = createId("region");
-    await dbPool.query("INSERT INTO regions (id, name) VALUES ($1, $2)", [id, name]);
-    res.json({ region: { id, name, stores: [] } satisfies SeedRegion });
+    const regionCode = String(req.body?.regionCode ?? "").trim().toUpperCase();
+    const address = String(req.body?.address ?? "").trim();
+    const addressJson = req.body?.addressJson ?? null;
+    const gst = String(req.body?.gst ?? "").trim().toUpperCase();
+    const pan = String(req.body?.pan ?? "").trim().toUpperCase();
+    const email = String(req.body?.email ?? "").trim();
+    const phone = String(req.body?.phone ?? "").trim();
+    await dbPool.query(
+      `INSERT INTO regions (id, name, region_code, address, address_json, gst, pan, email, phone)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [id, name, regionCode, address, addressJson ? JSON.stringify(addressJson) : null, gst, pan, email, phone],
+    );
+    res.json({
+      region: {
+        id, name,
+        regionCode: regionCode || undefined,
+        address: address || undefined,
+        addressJson: addressJson ?? undefined,
+        gst: gst || undefined,
+        pan: pan || undefined,
+        email: email || undefined,
+        phone: phone || undefined,
+        stores: [], warehouses: [],
+      } satisfies SeedRegion,
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Could not create region." });
+  }
+});
+
+app.patch("/api/regions/:regionId", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(uid);
+  if (!actor) { res.status(401).json({ error: "Invalid session." }); return; }
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
+    res.status(403).json({ error: "Only super/regional admins can update regions." }); return;
+  }
+  const regionId = String(req.params.regionId ?? "").trim();
+  if (actor.role === "admin" && actor.regionId !== regionId) {
+    res.status(403).json({ error: "You can only update your own region." }); return;
+  }
+  if (!dbPool) { res.status(503).json({ error: "Database required." }); return; }
+  try {
+    const body = req.body as Record<string, unknown>;
+    const name = "name" in body ? String(body.name ?? "").trim() : null;
+    if (name !== null && !name) { res.status(400).json({ error: "Region name cannot be empty." }); return; }
+    const addressJsonVal = "addressJson" in body
+      ? (body.addressJson != null ? JSON.stringify(body.addressJson) : null)
+      : undefined;
+    await dbPool.query(
+      `UPDATE regions SET
+         name = COALESCE($2, name),
+         region_code = COALESCE($3, region_code),
+         address = COALESCE($4, address),
+         address_json = CASE WHEN $5::text IS NOT NULL THEN $5::jsonb ELSE address_json END,
+         gst = COALESCE($6, gst),
+         pan = COALESCE($7, pan),
+         email = COALESCE($8, email),
+         phone = COALESCE($9, phone)
+       WHERE id = $1::text`,
+      [
+        regionId,
+        name,
+        "regionCode" in body ? String(body.regionCode ?? "").trim().toUpperCase() : null,
+        "address" in body ? String(body.address ?? "").trim() : null,
+        addressJsonVal ?? null,
+        "gst" in body ? String(body.gst ?? "").trim().toUpperCase() : null,
+        "pan" in body ? String(body.pan ?? "").trim().toUpperCase() : null,
+        "email" in body ? String(body.email ?? "").trim() : null,
+        "phone" in body ? String(body.phone ?? "").trim() : null,
+      ],
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not update region." });
   }
 });
 
@@ -1067,12 +1286,12 @@ app.post("/api/regions/:regionId/stores", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
     res.status(403).json({ error: "Only super/regional admins can manage regions." });
     return;
   }
   const regionId = req.params.regionId;
-  if (actor.role === "regional_admin" && actor.regionId !== regionId) {
+  if (actor.role === "admin" && actor.regionId !== regionId) {
     res.status(403).json({ error: "You can only add stores in your own region." });
     return;
   }
@@ -1157,7 +1376,7 @@ app.patch("/api/stores/:storeId", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (actor.role !== "super_admin" && actor.role !== "regional_admin") {
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
     res.status(403).json({ error: "Only super/regional admins can update store invoice details." });
     return;
   }
@@ -1196,7 +1415,7 @@ app.patch("/api/stores/:storeId", requireAuth, async (req, res) => {
       return;
     }
     const storeRegionId = r0.rows[0]!.region_id;
-    if (actor.role === "regional_admin" && actor.regionId !== storeRegionId) {
+    if (actor.role === "admin" && actor.regionId !== storeRegionId) {
       res.status(403).json({ error: "You can only update stores in your own region." });
       return;
     }
@@ -1272,6 +1491,82 @@ app.patch("/api/stores/:storeId", requireAuth, async (req, res) => {
   }
 });
 
+app.post("/api/regions/:regionId/warehouses", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(uid);
+  if (!actor) { res.status(401).json({ error: "Invalid session." }); return; }
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
+    res.status(403).json({ error: "Only super/regional admins can add warehouses." }); return;
+  }
+  const regionId = String(req.params.regionId ?? "").trim();
+  if (actor.role === "admin" && actor.regionId !== regionId) {
+    res.status(403).json({ error: "You can only add warehouses in your own region." }); return;
+  }
+  const name = String(req.body?.name ?? "").trim();
+  if (!name) { res.status(400).json({ error: "Warehouse name is required." }); return; }
+  if (!dbPool) { res.status(503).json({ error: "Database required." }); return; }
+  try {
+    const id = createId("wh");
+    const address = String(req.body?.address ?? "").trim();
+    const phone = String(req.body?.phone ?? "").trim();
+    const email = String(req.body?.email ?? "").trim();
+    await dbPool.query(
+      `INSERT INTO warehouses (id, region_id, name, address, phone, email)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, regionId, name, address, phone, email],
+    );
+    res.json({
+      warehouse: {
+        id, name,
+        address: address || undefined,
+        phone: phone || undefined,
+        email: email || undefined,
+      },
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not create warehouse." });
+  }
+});
+
+app.patch("/api/warehouses/:warehouseId", requireAuth, async (req, res) => {
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(uid);
+  if (!actor) { res.status(401).json({ error: "Invalid session." }); return; }
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
+    res.status(403).json({ error: "Only super/regional admins can update warehouses." }); return;
+  }
+  const warehouseId = String(req.params.warehouseId ?? "").trim();
+  if (!dbPool) { res.status(503).json({ error: "Database required." }); return; }
+  try {
+    const body = req.body as Record<string, unknown>;
+    const name = "name" in body ? String(body.name ?? "").trim() : null;
+    if (name !== null && !name) { res.status(400).json({ error: "Warehouse name cannot be empty." }); return; }
+    const result = await dbPool.query(
+      `UPDATE warehouses SET
+         name = COALESCE($2, name),
+         address = COALESCE($3, address),
+         phone = COALESCE($4, phone),
+         email = COALESCE($5, email)
+       WHERE id = $1::text
+       RETURNING id, name, address, phone, email`,
+      [
+        warehouseId,
+        name,
+        "address" in body ? String(body.address ?? "").trim() : null,
+        "phone" in body ? String(body.phone ?? "").trim() : null,
+        "email" in body ? String(body.email ?? "").trim() : null,
+      ],
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: "Warehouse not found." }); return; }
+    const r = result.rows[0] as Record<string, unknown>;
+    res.json({ warehouse: { id: r.id, name: r.name, address: r.address || undefined, phone: r.phone || undefined, email: r.email || undefined } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not update warehouse." });
+  }
+});
+
 app.get("/api/inventory/prs", requireAuth, async (req, res) => {
   if (!dbPool) {
     res.status(503).json({ error: "Database is required for PR module." });
@@ -1283,11 +1578,11 @@ app.get("/api/inventory/prs", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (!actor.regionId && actor.role !== "super_admin" && actor.role !== "ho_admin") {
+  if (!actor.regionId && actor.role !== "super_admin" && actor.role !== "admin") {
     res.status(400).json({ error: "User region not configured." });
     return;
   }
-  if (!STORE_ROLES.has(actor.role) && !HO_APPROVER_ROLES.has(actor.role) && actor.role !== "ho_user") {
+  if (!STORE_ROLES.has(actor.role) && !HO_VIEWER_ROLES.has(actor.role)) {
     res.status(403).json({ error: "Forbidden." });
     return;
   }
@@ -1297,7 +1592,7 @@ app.get("/api/inventory/prs", requireAuth, async (req, res) => {
     if (STORE_ROLES.has(actor.role)) {
       params.push(actor.storeId);
       where = "WHERE pr.store_id = $1::text";
-    } else if (actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") {
+    } else if (actor.role === "admin" || actor.role === "ho_manager" || actor.role === "ho_purchase") {
       params.push(actor.regionId);
       where = "WHERE pr.region_id = $1::text AND pr.status <> 'DRAFT'";
     }
@@ -1356,7 +1651,7 @@ app.get("/api/inventory/prs/:prId/ho-stock", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (!HO_APPROVER_ROLES.has(actor.role) && actor.role !== "ho_user") {
+  if (!HO_VIEWER_ROLES.has(actor.role)) {
     res.status(403).json({ error: "Only HO roles can view HO stock for fulfill." });
     return;
   }
@@ -1371,7 +1666,7 @@ app.get("/api/inventory/prs/:prId/ho-stock", requireAuth, async (req, res) => {
       res.status(404).json({ error: "PR not found." });
       return;
     }
-    if ((actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") && actor.regionId !== pr.region_id) {
+    if ((actor.role === "admin" || actor.role === "ho_manager" || actor.role === "ho_purchase") && actor.regionId !== pr.region_id) {
       res.status(403).json({ error: "Region mismatch." });
       return;
     }
@@ -1409,7 +1704,7 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
     return;
   }
   if (!PR_CREATOR_ROLES.has(actor.role) || !actor.regionId || !actor.storeId) {
-    res.status(403).json({ error: "Only store purchase users can create PRs." });
+    res.status(403).json({ error: "Only store users and store managers can create PRs." });
     return;
   }
 
@@ -1418,7 +1713,8 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
     notes?: string;
     items?: Array<{ spareId: string; qty: number; reason?: string }>;
   };
-  const status = "DRAFT";
+  // All PRs go directly to HO — no store-level approval step
+  const status = "SUBMITTED";
   const neededBy = body.neededBy?.trim() || null;
   const notes = String(body.notes ?? "").trim();
   if (neededBy) {
@@ -1480,6 +1776,21 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
       note: "PR created at store.",
     });
     await client.query("COMMIT");
+
+    // Notify HO managers & admins in the same region
+    const hoManagerIds = allUsers()
+      .filter(
+        (u) =>
+          (u.role === "ho_manager" || u.role === "admin" || u.role === "super_admin") &&
+          (u.regionId === actor.regionId || u.role === "super_admin"),
+      )
+      .map((u) => u.id);
+    await pushNotifications(hoManagerIds, {
+      title: "New Purchase Request — Awaiting Approval",
+      message: `PR ${prNumber} raised by ${actor.displayName ?? "Store"} (${storeName}) is waiting for your approval.`,
+      category: "inventory_pr",
+    });
+
     res.json({ ok: true, id: prId, prNumber: ins.rows[0]!.prNumber, status });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
@@ -1488,6 +1799,44 @@ app.post("/api/inventory/prs", requireAuth, async (req, res) => {
   } finally {
     client.release();
   }
+});
+
+// Store users can send a reminder notification to HO manager for a pending PR
+app.post("/api/inventory/prs/:prId/remind", requireAuth, async (req, res) => {
+  if (!dbPool) { res.status(503).json({ error: "DB required." }); return; }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = await findUser(uid);
+  if (!actor) { res.status(401).json({ error: "Invalid session." }); return; }
+  if (!STORE_ROLES.has(actor.role)) {
+    res.status(403).json({ error: "Only store users can send reminders." });
+    return;
+  }
+  const prId = String(req.params.prId ?? "").trim();
+  const pr = await dbPool.query<{ pr_number: string; status: string; region_id: string; store_id: string }>(
+    "SELECT pr_number, status, region_id, store_id FROM purchase_requests WHERE id = $1::uuid",
+    [prId],
+  );
+  const row = pr.rows[0];
+  if (!row) { res.status(404).json({ error: "PR not found." }); return; }
+  if (row.status !== "SUBMITTED") {
+    res.status(400).json({ error: "Reminder can only be sent for PRs awaiting approval." });
+    return;
+  }
+  const storeRes = await dbPool.query<{ name: string }>("SELECT name FROM stores WHERE id = $1::text", [row.store_id]);
+  const storeName = storeRes.rows[0]?.name ?? row.store_id;
+  const hoManagerIds = allUsers()
+    .filter(
+      (u) =>
+        (u.role === "ho_manager" || u.role === "admin" || u.role === "super_admin") &&
+        (u.regionId === row.region_id || u.role === "super_admin"),
+    )
+    .map((u) => u.id);
+  await pushNotifications(hoManagerIds, {
+    title: `Reminder — PR ${row.pr_number} Awaiting Approval`,
+    message: `Reminder from ${actor.displayName ?? "Store"} (${storeName}): PR ${row.pr_number} is still waiting for your approval.`,
+    category: "inventory_pr",
+  });
+  res.json({ ok: true });
 });
 
 app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
@@ -1522,7 +1871,7 @@ app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
       res.status(404).json({ error: "PR not found." });
       return;
     }
-    if ((actor.role === "regional_admin" || actor.role === "ho_manager") && actor.regionId !== cur.region_id) {
+    if ((actor.role === "admin" || actor.role === "ho_manager") && actor.regionId !== cur.region_id) {
       res.status(403).json({ error: "Forbidden." });
       return;
     }
@@ -1553,6 +1902,32 @@ app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
       changedBy: actor.id,
       note: status === "APPROVED" ? "PR approved by HO." : "PR rejected by HO.",
     });
+
+    // Notify store users/managers of the outcome
+    const prDetails = await dbPool.query<{ store_id: string; pr_number: string }>(
+      "SELECT store_id, pr_number FROM purchase_requests WHERE id = $1::uuid",
+      [prId],
+    );
+    if (prDetails.rows[0]) {
+      const { store_id, pr_number } = prDetails.rows[0];
+      const storeUserIds = allUsers()
+        .filter((u) => STORE_ROLES.has(u.role) && u.storeId === store_id)
+        .map((u) => u.id);
+      if (status === "APPROVED") {
+        await pushNotifications(storeUserIds, {
+          title: `PR ${pr_number} Approved`,
+          message: `Your purchase request ${pr_number} has been approved by HO and is now waiting for PO conversion.`,
+          category: "inventory_pr",
+        });
+      } else {
+        await pushNotifications(storeUserIds, {
+          title: `PR ${pr_number} Rejected`,
+          message: `Your purchase request ${pr_number} has been rejected by HO. Please review and raise a new PR if needed.`,
+          category: "inventory_pr",
+        });
+      }
+    }
+
     res.json({ ok: true, status, internalStatusCode: nextCode, internalStatusLabel: nextLabel });
   } catch (e) {
     console.error(e);
@@ -1643,8 +2018,10 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (!HO_APPROVER_ROLES.has(actor.role) && actor.role !== "ho_user") {
-    res.status(403).json({ error: "Only HO admins can fulfill PR." });
+  const canFulfillPr =
+    HO_APPROVER_ROLES.has(actor.role) || actor.role === "ho_purchase";
+  if (!canFulfillPr) {
+    res.status(403).json({ error: "Only HO Manager or HO Purchase can fulfill PR." });
     return;
   }
   const prId = String(req.params.prId ?? "").trim();
@@ -1679,12 +2056,13 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
       res.status(404).json({ error: "PR not found." });
       return;
     }
-    if ((actor.role === "regional_admin" || actor.role === "ho_manager" || actor.role === "ho_user") && actor.regionId !== pr.region_id) {
+    if ((actor.role === "admin" || actor.role === "ho_manager" || actor.role === "ho_purchase") && actor.regionId !== pr.region_id) {
       await client.query("ROLLBACK");
       res.status(403).json({ error: "You can fulfill only your region PR." });
       return;
     }
-    if (pr.status === "REJECTED" || pr.status === "FULFILLED") {
+    const fulfillableStatuses = ["APPROVED", "GOODS_AT_HO", "PARTIAL"];
+    if (!fulfillableStatuses.includes(pr.status)) {
       await client.query("ROLLBACK");
       res.status(400).json({ error: `Cannot fulfill PR in ${pr.status} status.` });
       return;
@@ -1780,9 +2158,10 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
     const req = sum.rows[0]?.req ?? 0;
     const iss = sum.rows[0]?.iss ?? 0;
     const rec = sum.rows[0]?.rec ?? 0;
-    let nextStatus: "APPROVED" | "PARTIAL" | "FULFILLED" = "APPROVED";
-    if (rec >= req && req > 0) nextStatus = "FULFILLED";
-    else if (iss > 0 || rec > 0) nextStatus = "PARTIAL";
+    // FULFILLED = all items transferred to store; PARTIAL = some; GOODS_AT_HO = goods at HO not yet transferred
+    let nextStatus: "GOODS_AT_HO" | "PARTIAL" | "FULFILLED" = "GOODS_AT_HO";
+    if (iss >= req && req > 0) nextStatus = "FULFILLED";
+    else if (iss > 0) nextStatus = "PARTIAL";
     const internal = derivePrInternalStatus(req, iss, rec);
     const internalLabel = await getPrFlowLabel(dbPool, internal.code);
     await client.query(
@@ -1862,7 +2241,7 @@ app.post("/api/notifications/service-dispatch", requireAuth, async (req, res) =>
     .filter(
       (u) =>
         u.regionId === actor.regionId &&
-        (u.role === "regional_admin" || u.role === "service_centre_clerk" || u.role === "service_centre_supervisor"),
+        (u.role === "admin" || u.role === "service_centre_clerk" || u.role === "service_centre_supervisor"),
     )
     .map((u) => u.id);
   await pushNotifications(recipients, {
@@ -1948,8 +2327,8 @@ app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
             (u) =>
               u.regionId === pr.region_id &&
               (u.role === "ho_manager" ||
-                u.role === "ho_admin" ||
-                u.role === "regional_admin" ||
+                u.role === "admin" ||
+                u.role === "admin" ||
                 u.role === "super_admin"),
           )
           .map((u) => u.id);
@@ -2054,8 +2433,8 @@ app.post("/api/inventory/allocations/suggest", requireAuth, async (req, res) => 
   }
   const uid = (req as express.Request & { userId: string }).userId;
   const actor = await findUser(uid);
-  if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
-    res.status(403).json({ error: "Only HO admins can generate allocations." });
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "admin")) {
+    res.status(403).json({ error: "Only admins can generate allocations." });
     return;
   }
   const regionId = String(req.body?.regionId ?? actor.regionId ?? "").trim();
@@ -2063,7 +2442,7 @@ app.post("/api/inventory/allocations/suggest", requireAuth, async (req, res) => 
     res.status(400).json({ error: "regionId is required." });
     return;
   }
-  if (actor.role === "regional_admin" && actor.regionId !== regionId) {
+  if (actor.role === "admin" && actor.regionId !== regionId) {
     res.status(403).json({ error: "Region mismatch." });
     return;
   }
@@ -2159,8 +2538,8 @@ app.post("/api/inventory/allocations/confirm", requireAuth, async (req, res) => 
   }
   const uid = (req as express.Request & { userId: string }).userId;
   const actor = await findUser(uid);
-  if (!actor || (actor.role !== "super_admin" && actor.role !== "regional_admin" && actor.role !== "ho_admin")) {
-    res.status(403).json({ error: "Only HO admins can confirm allocations." });
+  if (!actor || (actor.role !== "super_admin" && actor.role !== "admin")) {
+    res.status(403).json({ error: "Only admins can confirm allocations." });
     return;
   }
   const regionId = String(req.body?.regionId ?? actor.regionId ?? "").trim();
@@ -2172,7 +2551,7 @@ app.post("/api/inventory/allocations/confirm", requireAuth, async (req, res) => 
     res.status(400).json({ error: "regionId and rows are required." });
     return;
   }
-  if (actor.role === "regional_admin" && actor.regionId !== regionId) {
+  if (actor.role === "admin" && actor.regionId !== regionId) {
     res.status(403).json({ error: "Region mismatch." });
     return;
   }
@@ -2354,8 +2733,8 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
   }
   if (
     actor.role !== "super_admin" &&
-    actor.role !== "ho_admin" &&
-    actor.role !== "regional_admin" &&
+    actor.role !== "admin" &&
+    actor.role !== "admin" &&
     actor.role !== "store_user"
   ) {
     res.status(403).json({ error: "Forbidden." });
@@ -2404,7 +2783,7 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
 
     let stockWhere = "spare_id = ANY($1::uuid[])";
     const stockParams: unknown[] = [spareIds];
-    if (actor.role === "regional_admin" && actor.regionId) {
+    if (actor.role === "admin" && actor.regionId) {
       stockParams.push(actor.regionId);
       stockWhere += ` AND region_id = $${stockParams.length}::text`;
     } else if (actor.role === "store_user" && actor.regionId && actor.storeId) {
@@ -2413,7 +2792,7 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
         (location_type = 'STORE' AND region_id = $${stockParams.length - 1}::text AND store_id = $${stockParams.length}::text)
         OR (location_type = 'HO' AND region_id = $${stockParams.length - 1}::text)
       )`;
-    } else if ((actor.role === "super_admin" || actor.role === "ho_admin") && qRegion) {
+    } else if ((actor.role === "super_admin" || actor.role === "admin") && qRegion) {
       stockParams.push(qRegion);
       stockWhere += ` AND region_id = $${stockParams.length}::text`;
     }
@@ -2442,13 +2821,13 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
 
     let priceWhere = "spare_id = ANY($1::uuid[])";
     const priceParams: unknown[] = [spareIds];
-    if (actor.role === "regional_admin" && actor.regionId) {
+    if (actor.role === "admin" && actor.regionId) {
       priceParams.push(actor.regionId);
       priceWhere += ` AND (region_id = $${priceParams.length}::text OR region_id IS NULL)`;
     } else if (actor.role === "store_user" && actor.regionId) {
       priceParams.push(actor.regionId);
       priceWhere += ` AND (region_id = $${priceParams.length}::text OR region_id IS NULL)`;
-    } else if ((actor.role === "super_admin" || actor.role === "ho_admin") && qRegion) {
+    } else if ((actor.role === "super_admin" || actor.role === "admin") && qRegion) {
       priceParams.push(qRegion);
       priceWhere += ` AND (region_id = $${priceParams.length}::text OR region_id IS NULL)`;
     }
@@ -3128,6 +3507,14 @@ async function main() {
   try {
     await runMigrations(dbPool);
     await ensureSeedUsers();
+    // Sync password_hash for any user whose plain_password was defaulted to '123456'
+    await dbPool.query(
+      `UPDATE app_users
+       SET password_hash = $1
+       WHERE plain_password = '123456'
+         AND password_hash <> $1`,
+      [hashPassword("123456")],
+    );
     await refreshUsersFromDb();
   } catch (e) {
     console.error("PostgreSQL migration failed:", e);
@@ -3137,7 +3524,7 @@ async function main() {
   registerCatalogRoutes(app, dbPool, requireAuth, (id) => {
     return findUser(id) ?? null;
   });
-  registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(id));
+  registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(id), allUsers, pushNotifications);
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

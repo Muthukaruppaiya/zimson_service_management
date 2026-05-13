@@ -9,18 +9,24 @@ type PageHeaderProps = {
 
 export function PageHeader({ title, description, actions, className = "" }: PageHeaderProps) {
   return (
-    <div
-      className={`mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between ${className}`.trim()}
-    >
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight text-stone-900 md:text-xl">{title}</h1>
-        {description ? (
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-stone-600 md:text-sm">
-            {description}
-          </p>
+    <div className={`mb-6 border-b border-rlx-rule pb-6 ${className}`.trim()}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          {/* gold eyebrow line */}
+          <div className="mb-3 h-[2px] w-8 bg-rlx-gold" />
+          <h1 className="font-display text-3xl font-light leading-tight tracking-tight text-rlx-ink md:text-4xl">
+            {title}
+          </h1>
+          {description ? (
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-rlx-ink-muted">
+              {description}
+            </p>
+          ) : null}
+        </div>
+        {actions ? (
+          <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
     </div>
   );
 }

@@ -14,23 +14,7 @@ export type QuickBillLineInvoice = {
 export type QuickBillHistoryRow = {
   id: string;
   billNumber: string;
-  createdAt: string;
-  regionId: string;
-  regionName: string | null;
-  storeId: string | null;
-  storeName: string | null;
-  customerType: "B2C" | "B2B";
-  customerName: string | null;
-  company: string | null;
-  watchBrand: string;
-  paymentMode: AppPaymentMode;
-  totalInr: number;
-  createdBy: string;
-};
-
-export type QuickBillInvoice = {
-  id: string;
-  billNumber: string;
+  invoiceNumber: string;
   createdAt: string;
   regionId: string;
   regionName: string | null;
@@ -43,6 +27,40 @@ export type QuickBillInvoice = {
   company: string | null;
   gst: string | null;
   pan: string | null;
+  address: string | null;
+  city: string | null;
+  watchBrand: string;
+  watchModel: string;
+  watchRef: string | null;
+  watchRemark: string;
+  warrantyStatus: QuickBillWarrantyStatus;
+  technicianName: string | null;
+  paymentMode: AppPaymentMode;
+  notes: string;
+  totalInr: number;
+  createdBy: string;
+};
+
+export type QuickBillInvoice = {
+  id: string;
+  /** Internal QB reference number (QB26REG1012 style) */
+  billNumber: string;
+  /** Formatted store invoice number (CHN0126-00001 style); falls back to billNumber for region-only bills */
+  invoiceNumber: string;
+  createdAt: string;
+  regionId: string;
+  regionName: string | null;
+  storeId: string | null;
+  storeName: string | null;
+  customerType: "B2C" | "B2B";
+  customerName: string | null;
+  phone: string | null;
+  email: string | null;
+  company: string | null;
+  gst: string | null;
+  pan: string | null;
+  address?: string | null;
+  city?: string | null;
   watchBrand: string;
   watchModel: string;
   watchRef: string | null;

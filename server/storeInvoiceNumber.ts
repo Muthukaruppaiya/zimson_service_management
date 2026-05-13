@@ -41,11 +41,15 @@ export function defaultInvoiceCodeFromStoreName(name: string): string {
   return (u.slice(0, 16) || "STOR").slice(0, 16);
 }
 
+// Default format: CHN0126-27001
+// {CODE} = store code (e.g. CHN01), {FY2} = FY start year (26), {FY2E} = FY end year (27), {SEQ} = 3-digit sequence
+const DEFAULT_INVOICE_TEMPLATE = "{CODE}{FY2}-{FY2E}{SEQ}";
+
 function sanitizeTemplate(raw: string): string {
   const t = String(raw ?? "").trim();
-  if (!t) return "{CODE}{FY2}-{SEQ}";
+  if (!t) return DEFAULT_INVOICE_TEMPLATE;
   const safe = t.replace(/[^A-Za-z0-9\-._{}\s]/g, "").slice(0, 96);
-  return safe.includes("{CODE}") && safe.includes("{SEQ}") ? safe : "{CODE}{FY2}-{SEQ}";
+  return safe.includes("{CODE}") && safe.includes("{SEQ}") ? safe : DEFAULT_INVOICE_TEMPLATE;
 }
 
 /**
@@ -73,7 +77,7 @@ export async function allocateStoreInvoiceNumber(client: PoolClient, storeId: st
      FROM service_tax_settings WHERE id = 1`,
   );
   const template = sanitizeTemplate(tax[0]?.template ?? "{CODE}{FY2}-{SEQ}");
-  const seqW = Math.min(8, Math.max(4, Math.round(Number.parseFloat(String(tax[0]?.w ?? "5"))) || 5));
+  const seqW = Math.min(8, Math.max(3, Math.round(Number.parseFloat(String(tax[0]?.w ?? "3"))) || 3));
 
   const seqRow = await client.query<{ last_value: number }>(
     `INSERT INTO store_invoice_sequences (store_id, fy_key, last_value)

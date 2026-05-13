@@ -15,7 +15,7 @@ export function InventoryBrandsPage() {
   const { user } = useAuth();
   const api = useApiMode();
   const { refreshBrands } = useBrands();
-  const canManage = user?.role === "super_admin" || user?.role === "regional_admin";
+  const canManage = user?.role === "super_admin" || user?.role === "admin";
   const [rows, setRows] = useState<BrandRow[]>([]);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
