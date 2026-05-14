@@ -8,11 +8,13 @@ type CoreSeedPayload = {
   userStoreAccess: { user_id: string; store_id: string }[];
 };
 
-/** Open in NODE_ENV=development or ALLOW_UNSAFE_SEED_SYNC=1/true (testing only). */
+/** Open unless NODE_ENV is production (tsx dev often has NODE_ENV unset). Production: set ALLOW_UNSAFE_SEED_SYNC or SEED_SYNC_SECRET. */
 function isOpenCoreSeedSync(): boolean {
-  if (process.env.NODE_ENV === "development") return true;
-  const v = String(process.env.ALLOW_UNSAFE_SEED_SYNC ?? "").toLowerCase();
-  return v === "1" || v === "true";
+  const allow = String(process.env.ALLOW_UNSAFE_SEED_SYNC ?? "").toLowerCase();
+  if (allow === "true" || allow === "1") return true;
+  const nodeEnv = (process.env.NODE_ENV ?? "").toLowerCase();
+  if (nodeEnv === "production") return false;
+  return true;
 }
 
 function requireSeedSecret(req: Request): string | null {
@@ -29,6 +31,13 @@ function requireSeedSecret(req: Request): string | null {
 function authorizeCoreSeed(req: Request): boolean {
   if (isOpenCoreSeedSync()) return true;
   return requireSeedSecret(req) !== null;
+}
+
+function respondCoreSeedDisabled(res: Response): void {
+  res.status(403).json({
+    error:
+      "Core seed sync is off for this API (NODE_ENV=production). Add ALLOW_UNSAFE_SEED_SYNC=1 to server .env and restart (testing only), or set SEED_SYNC_SECRET and pass the same secret.",
+  });
 }
 
 /** Columns we round-trip (matches typical migrated schema). */
@@ -95,7 +104,7 @@ export function registerCoreSeedSyncRoutes(
   /** Read core tables from this server's DB (call from local dev only). */
   app.get("/api/dev/core-seed-export", async (req: Request, res: Response) => {
     if (!authorizeCoreSeed(req)) {
-      res.status(404).json({ error: "Not found." });
+      respondCoreSeedDisabled(res);
       return;
     }
     try {
@@ -121,7 +130,7 @@ export function registerCoreSeedSyncRoutes(
   /** Replace core tables on this server (called from local push or manually). */
   app.post("/api/dev/core-seed-import", async (req: Request, res: Response) => {
     if (!authorizeCoreSeed(req)) {
-      res.status(404).json({ error: "Not found." });
+      respondCoreSeedDisabled(res);
       return;
     }
     const body = req.body as Partial<CoreSeedPayload>;
@@ -195,7 +204,7 @@ export function registerCoreSeedSyncRoutes(
    */
   app.post("/api/dev/push-core-seed", async (req: Request, res: Response) => {
     if (!authorizeCoreSeed(req)) {
-      res.status(404).json({ error: "Not found." });
+      respondCoreSeedDisabled(res);
       return;
     }
     const targetBaseUrl = String(

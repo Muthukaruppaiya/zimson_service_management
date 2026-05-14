@@ -252,9 +252,8 @@ export function LoginPage() {
           <div className="mt-8 w-full max-w-sm border border-amber-200/60 bg-white/95 px-5 py-4 text-left shadow-lg">
             <p className="text-[10px] font-bold uppercase tracking-widest text-amber-800">Testing — push seed to server</p>
             <p className="mt-1 text-[11px] text-stone-600">
-              Copies <strong>regions</strong>, <strong>stores</strong>, <strong>app_users</strong>, and <strong>user_store_access</strong> from this PC&apos;s DB to the API in{" "}
-              <code className="text-[10px]">SEED_PUSH_TARGET_URL</code> (server <code className="text-[10px]">.env</code>). In <code className="text-[10px]">npm run dev</code> no secret is required; remote must also run in dev or set{" "}
-              <code className="text-[10px]">ALLOW_UNSAFE_SEED_SYNC=1</code>.
+              Reads the <strong>Postgres</strong> used by <em>this</em> machine&apos;s API, then posts to{" "}
+              <code className="text-[10px]">SEED_PUSH_TARGET_URL</code> (the <strong>Express</strong> URL, usually port <code className="text-[10px]">4000</code>, not Vite <code className="text-[10px]">5173</code>). Best: run the app on the PC that has the data, set <code className="text-[10px]">SEED_PUSH_TARGET_URL=http://20.244.46.64:4000</code> in that API&apos;s <code className="text-[10px]">.env</code>, click here. If the <strong>target</strong> API runs as production, add <code className="text-[10px]">ALLOW_UNSAFE_SEED_SYNC=1</code> there and restart.
             </p>
             <button
               type="button"
