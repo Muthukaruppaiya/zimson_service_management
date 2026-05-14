@@ -14,6 +14,7 @@ import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
 import { registerTechnicianRoutes } from "./technicianRoutes";
+import { registerCoreSeedSyncRoutes } from "./coreSeedSyncRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { appendStockHistory } from "./db/stockHistory";
@@ -3530,6 +3531,8 @@ async function main() {
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
   registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+
+  registerCoreSeedSyncRoutes(app, dbPool, { refreshUsersFromDb });
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);

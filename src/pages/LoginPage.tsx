@@ -36,6 +36,12 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [demoRows, setDemoRows] = useState<DemoRow[]>(seedRows);
 
+  const showSeedSync = import.meta.env.DEV || import.meta.env.VITE_ENABLE_SEED_SYNC === "true";
+  const [seedTarget, setSeedTarget] = useState("");
+  const [seedSecret, setSeedSecret] = useState("");
+  const [seedBusy, setSeedBusy] = useState(false);
+  const [seedMsg, setSeedMsg] = useState<string | null>(null);
+
   useEffect(() => {
     fetch("/api/demo-users")
       .then((r) => (r.ok ? r.json() : null))
@@ -87,6 +93,36 @@ export function LoginPage() {
     setStoreOptions([]);
     setStoreId("");
     setError(null);
+  }
+
+  async function pushCoreSeedToServer() {
+    setSeedMsg(null);
+    if (!seedTarget.trim() || !seedSecret.trim()) {
+      setSeedMsg("Enter remote API base URL and sync secret.");
+      return;
+    }
+    setSeedBusy(true);
+    try {
+      const r = await fetch("/api/dev/push-core-seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          secret: seedSecret.trim(),
+          targetBaseUrl: seedTarget.trim().replace(/\/$/, ""),
+        }),
+      });
+      const data = (await r.json().catch(() => ({}))) as { error?: string; remote?: { counts?: unknown }; exported?: unknown };
+      if (!r.ok) {
+        setSeedMsg(data.error ?? `HTTP ${r.status}`);
+        return;
+      }
+      setSeedMsg(`Synced. Remote: ${JSON.stringify(data.remote ?? {})}`);
+    } catch (e) {
+      setSeedMsg(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setSeedBusy(false);
+    }
   }
 
   const fieldCls =
@@ -220,6 +256,41 @@ export function LoginPage() {
             </p>
           </div>
         </div>
+
+        {showSeedSync ? (
+          <div className="mt-8 w-full max-w-sm border border-amber-200/60 bg-white/95 px-5 py-4 text-left shadow-lg">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-800">Dev — push core seed to server</p>
+            <p className="mt-1 text-[11px] text-stone-600">
+              Reads <strong>regions</strong>, <strong>stores</strong>, <strong>app_users</strong>, and <strong>user_store_access</strong> from this machine&apos;s DB (via local API), then replaces the same tables on the remote API. Set the same <code className="text-[10px]">SEED_SYNC_SECRET</code> in local and server <code className="text-[10px]">.env</code>.
+            </p>
+            <label className="mt-3 block text-[10px] font-semibold uppercase tracking-wide text-stone-500">Remote API base URL</label>
+            <input
+              className={fieldCls}
+              value={seedTarget}
+              onChange={(e) => setSeedTarget(e.target.value)}
+              placeholder="http://20.244.46.64:4000"
+              autoComplete="off"
+            />
+            <label className="mt-2 block text-[10px] font-semibold uppercase tracking-wide text-stone-500">SEED_SYNC_SECRET</label>
+            <input
+              type="password"
+              className={fieldCls}
+              value={seedSecret}
+              onChange={(e) => setSeedSecret(e.target.value)}
+              placeholder="Matches server .env"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              disabled={seedBusy}
+              onClick={() => void pushCoreSeedToServer()}
+              className="mt-3 w-full border border-amber-600 bg-amber-50 py-2 text-[11px] font-bold uppercase tracking-wide text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+            >
+              {seedBusy ? "Pushing…" : "Push local data → remote DB"}
+            </button>
+            {seedMsg ? <p className="mt-2 text-xs text-stone-700 whitespace-pre-wrap">{seedMsg}</p> : null}
+          </div>
+        ) : null}
 
         {/* ── Demo credentials table ──────────────── */}
         <div className="mt-12 w-full max-w-4xl">
