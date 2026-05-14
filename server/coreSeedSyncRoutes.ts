@@ -8,6 +8,13 @@ type CoreSeedPayload = {
   userStoreAccess: { user_id: string; store_id: string }[];
 };
 
+/** Open in NODE_ENV=development or ALLOW_UNSAFE_SEED_SYNC=1/true (testing only). */
+function isOpenCoreSeedSync(): boolean {
+  if (process.env.NODE_ENV === "development") return true;
+  const v = String(process.env.ALLOW_UNSAFE_SEED_SYNC ?? "").toLowerCase();
+  return v === "1" || v === "true";
+}
+
 function requireSeedSecret(req: Request): string | null {
   const fromHeader = String(req.headers["x-seed-sync-secret"] ?? "").trim();
   const fromBody = typeof req.body?.secret === "string" ? req.body.secret.trim() : "";
@@ -17,6 +24,11 @@ function requireSeedSecret(req: Request): string | null {
   const expected = String(process.env.SEED_SYNC_SECRET ?? "").trim();
   if (!expected || secret !== expected) return null;
   return secret;
+}
+
+function authorizeCoreSeed(req: Request): boolean {
+  if (isOpenCoreSeedSync()) return true;
+  return requireSeedSecret(req) !== null;
 }
 
 /** Columns we round-trip (matches typical migrated schema). */
@@ -82,7 +94,7 @@ export function registerCoreSeedSyncRoutes(
 ): void {
   /** Read core tables from this server's DB (call from local dev only). */
   app.get("/api/dev/core-seed-export", async (req: Request, res: Response) => {
-    if (!requireSeedSecret(req)) {
+    if (!authorizeCoreSeed(req)) {
       res.status(404).json({ error: "Not found." });
       return;
     }
@@ -108,7 +120,7 @@ export function registerCoreSeedSyncRoutes(
 
   /** Replace core tables on this server (called from local push or manually). */
   app.post("/api/dev/core-seed-import", async (req: Request, res: Response) => {
-    if (!requireSeedSecret(req)) {
+    if (!authorizeCoreSeed(req)) {
       res.status(404).json({ error: "Not found." });
       return;
     }
@@ -177,17 +189,24 @@ export function registerCoreSeedSyncRoutes(
   });
 
   /**
-   * Local dev: read this DB and POST the payload to a remote API (no browser CORS).
-   * Body: { secret, targetBaseUrl } e.g. targetBaseUrl = "http://20.244.46.64:4000"
+   * Read this DB and POST the payload to a remote API (no browser CORS).
+   * Target: body.targetBaseUrl or env SEED_PUSH_TARGET_URL.
+   * Auth: open in development / ALLOW_UNSAFE_SEED_SYNC; else SEED_SYNC_SECRET (header, query, or body.secret).
    */
   app.post("/api/dev/push-core-seed", async (req: Request, res: Response) => {
-    if (!requireSeedSecret(req)) {
+    if (!authorizeCoreSeed(req)) {
       res.status(404).json({ error: "Not found." });
       return;
     }
-    const targetBaseUrl = String(req.body?.targetBaseUrl ?? "").trim().replace(/\/$/, "");
+    const targetBaseUrl = String(
+      req.body?.targetBaseUrl ?? process.env.SEED_PUSH_TARGET_URL ?? "",
+    )
+      .trim()
+      .replace(/\/$/, "");
     if (!targetBaseUrl.startsWith("http://") && !targetBaseUrl.startsWith("https://")) {
-      res.status(400).json({ error: "targetBaseUrl must be http(s)://host:port (no trailing slash)." });
+      res.status(400).json({
+        error: "Set SEED_PUSH_TARGET_URL in server .env (e.g. http://host:4000) or pass targetBaseUrl in JSON body.",
+      });
       return;
     }
     const secret = String(process.env.SEED_SYNC_SECRET ?? "").trim();
@@ -207,12 +226,11 @@ export function registerCoreSeedSyncRoutes(
       };
 
       const importUrl = `${targetBaseUrl}/api/dev/core-seed-import`;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (secret) headers["X-Seed-Sync-Secret"] = secret;
       const remote = await fetch(importUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Seed-Sync-Secret": secret,
-        },
+        headers,
         body: JSON.stringify(payload),
       });
       const text = await remote.text();
