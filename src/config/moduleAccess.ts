@@ -18,11 +18,20 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, ModuleKey[]> = {
   technician:               ["dashboard"],
 };
 
+/** Roles from DB / older builds may not exist in the map — avoid crashing the sidebar. */
+const FALLBACK_MODULES: ModuleKey[] = ["dashboard"];
+
+function modulesForRole(role: string): ModuleKey[] {
+  const list = ROLE_MODULE_ACCESS[role as UserRole];
+  return Array.isArray(list) ? list : FALLBACK_MODULES;
+}
+
 export function canAccessModule(subject: UserRole | SessionUser, module: ModuleKey): boolean {
   if (typeof subject === "string") {
-    return ROLE_MODULE_ACCESS[subject].includes(module);
+    return modulesForRole(subject).includes(module);
   }
+  const role = subject.role ?? "";
   const override = subject.moduleAccessOverride?.length ? subject.moduleAccessOverride : null;
-  const base = override ?? ROLE_MODULE_ACCESS[subject.role];
-  return base.includes(module);
+  const base = override ?? modulesForRole(role);
+  return Array.isArray(base) && base.includes(module);
 }
