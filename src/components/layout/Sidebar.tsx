@@ -220,7 +220,7 @@ export function Sidebar() {
 
   return (
     <aside className="print:hidden relative hidden h-dvh max-h-dvh w-64 shrink-0 flex-col overflow-hidden md:flex"
-      style={{ background: "linear-gradient(180deg, #006039 0%, #004428 100%)" }}>
+      style={{ background: "linear-gradient(180deg, #1B3A8F 0%, #102570 100%)" }}>
 
       {/* subtle texture overlay */}
       <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.03]"
@@ -347,7 +347,7 @@ export function Sidebar() {
             <p className="truncate text-[12.5px] font-semibold text-white">{user?.displayName ?? "Guest"}</p>
             <p className="truncate text-[10px] font-medium uppercase tracking-wide text-white/50">{roleLabelStr}</p>
           </div>
-          <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.25)]" />
+          <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-blue-400 shadow-[0_0_0_3px_rgba(59,130,246,0.25)]" />
         </div>
       </div>
     </aside>

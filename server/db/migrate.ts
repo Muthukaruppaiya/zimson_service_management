@@ -976,6 +976,12 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS city VARCHAR(120);
   `);
 
+  // Columns must exist before UPDATE (fresh DBs had no invoice_number_template yet).
+  await pool.query(`
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_template VARCHAR(96) NOT NULL DEFAULT '{CODE}{FY2}-{FY2E}{SEQ}';
+    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_seq_width SMALLINT NOT NULL DEFAULT 3;
+  `);
+
   // Update invoice number template to the new format: CHN0126-27001 ({CODE}{FY2}-{FY2E}{SEQ})
   await pool.query(`
     UPDATE service_tax_settings
@@ -983,11 +989,6 @@ export async function runMigrations(pool: Pool): Promise<void> {
         invoice_number_seq_width = 3
     WHERE invoice_number_template IN ('{CODE}{FY2}-{SEQ}', '')
        OR invoice_number_seq_width = 5;
-  `);
-
-  await pool.query(`
-    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_template VARCHAR(96) NOT NULL DEFAULT '{CODE}{FY2}-{FY2E}{SEQ}';
-    ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS invoice_number_seq_width SMALLINT NOT NULL DEFAULT 3;
   `);
 
   await pool.query(`

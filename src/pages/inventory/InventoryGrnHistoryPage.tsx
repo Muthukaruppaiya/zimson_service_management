@@ -79,7 +79,7 @@ function GrnDetailModal({ grn, spareNameById, onClose }: {
             <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">PO Number</span><br /><span className="font-mono font-semibold text-stone-700">{grn.poNumber}</span></p>
             <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Supplier</span><br /><span className="text-stone-700">{grn.supplierName}</span></p>
             <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Mode</span><br />
-              <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${grn.mode === "WITH_BILL" ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+              <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${grn.mode === "WITH_BILL" ? "border-blue-200 bg-blue-50 text-blue-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
                 {grn.mode === "WITH_BILL" ? "With Bill" : "Without Bill"}
               </span>
             </p>
@@ -334,7 +334,7 @@ export function InventoryGrnHistoryPage() {
                       <td className="px-5 py-3 font-mono text-xs text-stone-500">{g.poNumber}</td>
                       <td className="px-5 py-3 font-medium text-stone-800">{g.supplierName}</td>
                       <td className="px-5 py-3">
-                        <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${g.mode === "WITH_BILL" ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+                        <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${g.mode === "WITH_BILL" ? "border-blue-200 bg-blue-50 text-blue-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
                           {g.mode === "WITH_BILL" ? "With Bill" : "Without Bill"}
                         </span>
                       </td>

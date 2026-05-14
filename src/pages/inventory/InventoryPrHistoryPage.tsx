@@ -231,7 +231,7 @@ export function InventoryPrHistoryPage() {
       />
 
       {/* Messages */}
-      {ok && <div className="mb-4 border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">✓ {ok}</div>}
+      {ok && <div className="mb-4 border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">✓ {ok}</div>}
       {err && <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">✕ {err}</div>}
 
       {/* Filters */}
@@ -359,7 +359,7 @@ export function InventoryPrHistoryPage() {
                                 type="button"
                                 disabled={!canApproveReject}
                                 onClick={() => void updateStatus(pr.id, "APPROVED")}
-                                className={`px-2.5 py-1 text-[11px] font-semibold text-white transition ${canApproveReject ? "bg-green-600 hover:bg-green-700" : "bg-stone-200 text-stone-400 cursor-not-allowed"}`}
+                                className={`px-2.5 py-1 text-[11px] font-semibold text-white transition ${canApproveReject ? "bg-rlx-green hover:bg-rlx-green-deep" : "bg-stone-200 text-stone-400 cursor-not-allowed"}`}
                               >Approve</button>
                               <button
                                 type="button"
@@ -497,7 +497,7 @@ export function InventoryPrHistoryPage() {
                         <span>Requested: <strong>{i.qty}</strong></span>
                         <span>Issued: <strong>{i.issuedQty}</strong></span>
                         <span>Pending: <strong>{pending}</strong></span>
-                        <span>HO Stock: <strong className={hoStock === 0 ? "text-red-600" : "text-green-700"}>{hoStock ?? "…"}</strong></span>
+                        <span>HO Stock: <strong className={hoStock === 0 ? "text-red-600" : "text-blue-700"}>{hoStock ?? "…"}</strong></span>
                       </div>
                       <div className="mt-3">
                         <label className={labelCls}>Transfer Qty</label>
@@ -555,7 +555,7 @@ export function InventoryPrHistoryPage() {
                 })}
               </div>
               <div className="shrink-0 flex gap-3 border-t border-rlx-rule bg-rlx-bg px-6 py-4">
-                <button type="button" onClick={() => void inwardPr(pr)} className="bg-green-600 px-6 py-2 text-sm font-semibold text-white hover:bg-green-700 transition">Confirm Inward</button>
+                <button type="button" onClick={() => void inwardPr(pr)} className="bg-rlx-green px-6 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep transition">Confirm Inward</button>
                 <button type="button" onClick={() => setInwardPrId(null)} className="border border-rlx-rule px-5 py-2 text-sm text-stone-600 hover:bg-stone-50 transition">Cancel</button>
               </div>
             </div>

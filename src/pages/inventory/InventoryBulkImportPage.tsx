@@ -270,7 +270,7 @@ export function InventoryBulkImportPage() {
 
       {/* ── Import success ── */}
       {importResult && (
-        <div className="mb-6 border border-green-200 bg-green-50 px-5 py-5">
+        <div className="mb-6 border border-blue-200 bg-blue-50 px-5 py-5">
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-rlx-green">
               <svg viewBox="0 0 20 20" fill="none" stroke="white" strokeWidth="2.5" className="h-5 w-5">
@@ -278,15 +278,15 @@ export function InventoryBulkImportPage() {
               </svg>
             </div>
             <div className="flex-1">
-              <p className="text-sm font-semibold text-green-800">Import completed successfully</p>
-              <div className="mt-2 flex flex-wrap gap-4 text-xs text-green-700">
-                <span className="border border-green-200 bg-white px-3 py-1">
+              <p className="text-sm font-semibold text-blue-800">Import completed successfully</p>
+              <div className="mt-2 flex flex-wrap gap-4 text-xs text-blue-700">
+                <span className="border border-blue-200 bg-white px-3 py-1">
                   <strong>{importResult.sparesUpserted}</strong> spare(s) upserted
                 </span>
-                <span className="border border-green-200 bg-white px-3 py-1">
+                <span className="border border-blue-200 bg-white px-3 py-1">
                   <strong>{importResult.pricesUpserted}</strong> price line(s) upserted
                 </span>
-                <span className="border border-green-200 bg-white px-3 py-1">
+                <span className="border border-blue-200 bg-white px-3 py-1">
                   <strong>{importResult.stockUpserted}</strong> stock row(s) upserted
                 </span>
               </div>
@@ -307,7 +307,7 @@ export function InventoryBulkImportPage() {
         <div
           className={`mb-5 border px-4 py-3 text-sm ${
             msg.type === "ok"
-              ? "border-green-200 bg-green-50 text-green-800"
+              ? "border-blue-200 bg-blue-50 text-blue-800"
               : "border-red-200 bg-red-50 text-red-800"
           }`}
         >
@@ -420,13 +420,13 @@ export function InventoryBulkImportPage() {
 
               {/* Validated summary */}
               {validated && summary && (
-                <div className="mt-4 border border-green-200 bg-green-50 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-green-700 mb-2">Ready to import</p>
-                  <div className="flex flex-wrap gap-3 text-xs text-green-800">
+                <div className="mt-4 border border-blue-200 bg-blue-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 mb-2">Ready to import</p>
+                  <div className="flex flex-wrap gap-3 text-xs text-blue-800">
                     <span>{summary.spareRows} spare row(s)</span>
-                    <span className="text-green-300">|</span>
+                    <span className="text-blue-300">|</span>
                     <span>{summary.priceRows} price row(s)</span>
-                    <span className="text-green-300">|</span>
+                    <span className="text-blue-300">|</span>
                     <span>{summary.stockRows} stock row(s)</span>
                   </div>
                 </div>

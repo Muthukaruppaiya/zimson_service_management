@@ -45,19 +45,19 @@ function lbl(labels: Record<string, string>, key: string, fallback: string): str
 
 function baseStyle(): string {
   return `
-  body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 20px; color: #111; background: #fff; }
-  .doc { max-width: 980px; margin: 0 auto; border: 1px solid #111; padding: 18px; background: #fff; }
+  body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 20px; color: #0D1B2A; background: #fff; }
+  .doc { max-width: 980px; margin: 0 auto; border: 1px solid #1B3A8F; padding: 18px; background: #fff; }
   .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-  .title { font-size: 34px; font-weight: 800; letter-spacing: 0.5px; margin: 0; text-transform: uppercase; }
+  .title { font-size: 34px; font-weight: 800; letter-spacing: 0.5px; margin: 0; text-transform: uppercase; color: #1B3A8F; }
   .meta { text-align: right; font-size: 12px; line-height: 1.5; }
   .sec { margin-top: 14px; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid #111; padding: 6px 8px; font-size: 12px; vertical-align: top; }
-  th { background: #111; color: #fff; text-align: left; text-transform: uppercase; font-size: 11px; }
+  th, td { border: 1px solid #D8DFF0; padding: 6px 8px; font-size: 12px; vertical-align: top; }
+  th { background: #1B3A8F; color: #C9A227; text-align: left; text-transform: uppercase; font-size: 11px; font-weight: 700; }
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; }
   .box { border: 1px solid #111; border-right: 0; padding: 0; }
   .box:last-child { border-right: 1px solid #111; }
-  .box-h { background: #111; color: #fff; font-size: 11px; font-weight: 700; padding: 6px 8px; text-transform: uppercase; }
+  .box-h { background: #1B3A8F; color: #C9A227; font-size: 11px; font-weight: 700; padding: 6px 8px; text-transform: uppercase; }
   .box-b { padding: 8px; font-size: 12px; line-height: 1.45; min-height: 105px; }
   .right { text-align: right; }
   .small { font-size: 11px; color: #333; }
@@ -116,9 +116,9 @@ export function openPrintDocument(title: string, html: string): void {
           cursor: pointer;
         }
         .print-preview-btn--primary {
-          background: #111827;
-          border-color: #111827;
-          color: #fff;
+          background: #1B3A8F;
+          border-color: #1B3A8F;
+          color: #C9A227;
         }
         @media print {
           .print-preview-toolbar { display: none !important; }

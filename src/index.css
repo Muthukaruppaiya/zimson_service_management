@@ -5,27 +5,27 @@
   /** Luxury / editorial headlines (quick bill history & similar surfaces) */
   --font-display: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman", serif;
 
-  /* Rolex-inspired premium palette */
-  --color-rlx-green:       #006039;   /* Rolex signature forest green */
-  --color-rlx-green-deep:  #004428;   /* darker hover / table header */
-  --color-rlx-green-light: #e8f2ed;   /* very pale tint for hover rows */
+  /* Zimson Royal Blue + Gold premium palette */
+  --color-rlx-green:       #1B3A8F;   /* Royal Blue — primary brand colour */
+  --color-rlx-green-deep:  #102570;   /* Darker royal blue — hover / table headers */
+  --color-rlx-green-light: #E8EDF8;   /* Very pale blue tint — hover rows */
   --color-rlx-gold:        #C9A227;   /* Zimson logo gold — warm yellow-gold */
-  --color-rlx-gold-dark:   #A8850F;   /* deeper burnished gold for hover */
-  --color-rlx-gold-light:  #F0DC90;   /* pale gold tint for backgrounds */
-  --color-rlx-ink:         #111110;   /* near-black body text */
-  --color-rlx-ink-muted:   #5a5a55;   /* secondary text */
-  --color-rlx-surface:     #ffffff;   /* card surface */
-  --color-rlx-bg:          #f8f8f7;   /* page background */
-  --color-rlx-rule:        #e0e0dc;   /* hairline dividers */
+  --color-rlx-gold-dark:   #A8850F;   /* Deeper burnished gold for hover */
+  --color-rlx-gold-light:  #F5E9B8;   /* Pale gold tint for backgrounds */
+  --color-rlx-ink:         #0D1B2A;   /* Near-black with blue undertone — body text */
+  --color-rlx-ink-muted:   #4A5568;   /* Secondary text */
+  --color-rlx-surface:     #ffffff;   /* Card surface */
+  --color-rlx-bg:          #F4F6FB;   /* Page background — very pale blue-white */
+  --color-rlx-rule:        #D8DFF0;   /* Hairline dividers — blue-tinted */
 
   /* keep old aliases pointing to new values so other pages don't break */
-  --color-premium-ink:        #111110;
-  --color-premium-ink-muted:  #5a5a55;
+  --color-premium-ink:        #0D1B2A;
+  --color-premium-ink-muted:  #4A5568;
   --color-premium-gold:       #C9A227;
-  --color-premium-gold-soft:  #F0DC90;
-  --color-premium-cream:      #f8f8f7;
-  --color-premium-parchment:  #f0f0ec;
-  --color-premium-line:       rgba(0,0,0,0.08);
+  --color-premium-gold-soft:  #F5E9B8;
+  --color-premium-cream:      #F4F6FB;
+  --color-premium-parchment:  #EBF0FA;
+  --color-premium-line:       rgba(27,58,143,0.10);
 
   --color-zimson-50: #fffef7;
   --color-zimson-100: #fffbeb;

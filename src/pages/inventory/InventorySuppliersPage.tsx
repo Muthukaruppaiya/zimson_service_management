@@ -177,7 +177,7 @@ function SupplierModal({
             <p className="text-[11px] text-white/60 mt-0.5">
               Code: <span className="font-mono">{supplier.supplierCode}</span>
               {" · "}
-              <span className={supplier.isActive ? "text-green-300" : "text-red-300"}>
+              <span className={supplier.isActive ? "text-blue-300" : "text-red-300"}>
                 {supplier.isActive ? "Active" : "Inactive"}
               </span>
             </p>
@@ -242,7 +242,7 @@ function SupplierModal({
             <div className="p-5 space-y-4">
               {mapLoading && <p className="text-sm text-stone-400">Loading mappings…</p>}
               {mapErr && <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">✕ {mapErr}</div>}
-              {mapOk && <div className="border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">✓ {mapOk}</div>}
+              {mapOk && <div className="border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">✓ {mapOk}</div>}
 
               {/* Add spare */}
               {canEdit && (
@@ -366,7 +366,7 @@ function SupplierModal({
 
 function ActiveBadge({ active }: { active: boolean }) {
   return (
-    <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold tracking-wide ${active ? "border-green-300 bg-green-50 text-green-700" : "border-stone-300 bg-stone-50 text-stone-400"}`}>
+    <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold tracking-wide ${active ? "border-blue-300 bg-blue-50 text-blue-700" : "border-stone-300 bg-stone-50 text-stone-400"}`}>
       {active ? "Active" : "Inactive"}
     </span>
   );
@@ -463,7 +463,7 @@ export function InventorySuppliersPage() {
       />
 
       {err && <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">✕ {err}</div>}
-      {ok && <div className="mb-4 border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">✓ {ok}</div>}
+      {ok && <div className="mb-4 border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">✓ {ok}</div>}
 
       {/* Search + stats */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -480,7 +480,7 @@ export function InventorySuppliersPage() {
           <span className="border border-rlx-rule bg-white px-3 py-2 text-stone-500">
             Total: <strong>{suppliers.length}</strong>
           </span>
-          <span className="border border-green-200 bg-green-50 px-3 py-2 text-green-700">
+          <span className="border border-blue-200 bg-blue-50 px-3 py-2 text-blue-700">
             Active: <strong>{suppliers.filter((s) => s.isActive).length}</strong>
           </span>
         </div>

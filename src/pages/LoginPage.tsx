@@ -93,7 +93,7 @@ export function LoginPage() {
     "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-sm text-rlx-ink placeholder-rlx-ink-muted/50 outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
 
   return (
-    <div className="flex min-h-dvh flex-col" style={{ background: "linear-gradient(160deg, #003a22 0%, #005030 50%, #004428 100%)" }}>
+    <div className="flex min-h-dvh flex-col" style={{ background: "linear-gradient(160deg, #0D1B5E 0%, #1B3A8F 50%, #102570 100%)" }}>
 
       {/* top gold bar — thick and prominent */}
       <div className="h-[4px] w-full shrink-0" style={{ background: "linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F)" }} />
@@ -130,7 +130,7 @@ export function LoginPage() {
         >
 
           {/* card header — green band with gold text */}
-          <div className="px-7 py-5" style={{ background: "#006039" }}>
+          <div className="px-7 py-5" style={{ background: "#1B3A8F" }}>
             <h2 className="text-sm font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
               Sign in
             </h2>
@@ -236,7 +236,7 @@ export function LoginPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[620px] border-collapse text-left">
                 <thead>
-                  <tr style={{ background: "#004428" }}>
+                  <tr style={{ background: "#102570" }}>
                     {["Employee No", "Password", "Role", "User", "Login"].map((h) => (
                       <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#C9A227" }}>
                         {h}
@@ -257,7 +257,7 @@ export function LoginPage() {
                           onClick={() => fillDemo(row)}
                           disabled={!row.canLogin}
                           className="font-mono text-xs font-bold transition disabled:no-underline disabled:opacity-40"
-                          style={{ color: "#006039" }}
+                          style={{ color: "#C9A227" }}
                         >
                           {row.employeeCode}
                         </button>

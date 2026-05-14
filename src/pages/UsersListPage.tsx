@@ -318,7 +318,7 @@ export function UsersListPage() {
                         className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                           isInactive
                             ? "border border-stone-300 text-stone-400"
-                            : "border border-green-300 bg-green-50 text-green-700"
+                            : "border border-blue-300 bg-blue-50 text-blue-700"
                         }`}
                       >
                         {isInactive ? "Off" : "Yes"}
@@ -339,7 +339,7 @@ export function UsersListPage() {
                             onClick={() => setDeactivateTarget(u)}
                             className={`border px-3 py-1 text-[11px] font-semibold transition ${
                               isInactive
-                                ? "border-green-400 text-green-700 hover:bg-green-50"
+                                ? "border-blue-400 text-blue-700 hover:bg-blue-50"
                                 : "border-red-300 text-red-600 hover:bg-red-50"
                             }`}
                           >
