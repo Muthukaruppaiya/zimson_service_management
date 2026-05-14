@@ -62,6 +62,11 @@ function userEmployeeCode(u: DemoUser): string {
   return raw.replace(/[^A-Z0-9]/g, "").slice(0, 24);
 }
 
+/** Same rules as server `normalizeEmployeeCode` so local (non-API) login matches API behaviour. */
+function normalizeLoginEmployeeCode(value: string): string {
+  return String(value).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
+}
+
 function stripPassword(u: DemoUser): SessionUser {
   const { password: _p, ...rest } = u;
   return rest;
@@ -160,7 +165,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             "/api/auth/login",
             {
               method: "POST",
-              json: { employeeCode, password, storeId: storeId ?? null },
+              json: {
+                employeeCode: normalizeLoginEmployeeCode(employeeCode),
+                password: password.trim(),
+                storeId: storeId ?? null,
+              },
             },
           );
           if (!data.ok && data.code === "STORE_SELECTION_REQUIRED" && Array.isArray(data.stores)) {
@@ -201,9 +210,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const normalized = employeeCode.trim().toUpperCase();
+      const normalized = normalizeLoginEmployeeCode(employeeCode);
+      const pwd = password.trim();
       const found = allWithPassword.find(
-        (u) => userEmployeeCode(u) === normalized && u.password === password,
+        (u) => userEmployeeCode(u) === normalized && u.password === pwd,
       );
       if (!found) return { ok: false, message: "Invalid employee number or password." };
       if (found.canLogin === false) {

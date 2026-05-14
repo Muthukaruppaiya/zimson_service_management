@@ -36,10 +36,6 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [demoRows, setDemoRows] = useState<DemoRow[]>(seedRows);
 
-  const showSeedSync = import.meta.env.DEV || import.meta.env.VITE_ENABLE_SEED_SYNC === "true";
-  const [seedBusy, setSeedBusy] = useState(false);
-  const [seedMsg, setSeedMsg] = useState<string | null>(null);
-
   useEffect(() => {
     fetch("/api/demo-users")
       .then((r) => (r.ok ? r.json() : null))
@@ -91,29 +87,6 @@ export function LoginPage() {
     setStoreOptions([]);
     setStoreId("");
     setError(null);
-  }
-
-  async function pushCoreSeedToServer() {
-    setSeedMsg(null);
-    setSeedBusy(true);
-    try {
-      const r = await fetch("/api/dev/push-core-seed", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({}),
-      });
-      const data = (await r.json().catch(() => ({}))) as { error?: string; remote?: { counts?: unknown } };
-      if (!r.ok) {
-        setSeedMsg(data.error ?? `HTTP ${r.status}`);
-        return;
-      }
-      setSeedMsg(`Synced. Remote: ${JSON.stringify(data.remote ?? {})}`);
-    } catch (e) {
-      setSeedMsg(e instanceof Error ? e.message : "Request failed");
-    } finally {
-      setSeedBusy(false);
-    }
   }
 
   const fieldCls =
@@ -247,25 +220,6 @@ export function LoginPage() {
             </p>
           </div>
         </div>
-
-        {showSeedSync ? (
-          <div className="mt-8 w-full max-w-sm border border-amber-200/60 bg-white/95 px-5 py-4 text-left shadow-lg">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-800">Testing — push seed to server</p>
-            <p className="mt-1 text-[11px] text-stone-600">
-              Reads the <strong>Postgres</strong> used by <em>this</em> machine&apos;s API, then posts to{" "}
-              <code className="text-[10px]">SEED_PUSH_TARGET_URL</code> (the <strong>Express</strong> URL, usually port <code className="text-[10px]">4000</code>, not Vite <code className="text-[10px]">5173</code>). Best: run the app on the PC that has the data, set <code className="text-[10px]">SEED_PUSH_TARGET_URL=http://20.244.46.64:4000</code> in that API&apos;s <code className="text-[10px]">.env</code>, click here. If the <strong>target</strong> API runs as production, add <code className="text-[10px]">ALLOW_UNSAFE_SEED_SYNC=1</code> there and restart.
-            </p>
-            <button
-              type="button"
-              disabled={seedBusy}
-              onClick={() => void pushCoreSeedToServer()}
-              className="mt-3 w-full border border-amber-600 bg-amber-50 py-2.5 text-[11px] font-bold uppercase tracking-wide text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-            >
-              {seedBusy ? "Pushing…" : "Push seed data → remote DB"}
-            </button>
-            {seedMsg ? <p className="mt-2 text-xs text-stone-700 whitespace-pre-wrap">{seedMsg}</p> : null}
-          </div>
-        ) : null}
 
         {/* ── Demo credentials table ──────────────── */}
         <div className="mt-12 w-full max-w-4xl">

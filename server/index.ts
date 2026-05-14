@@ -14,7 +14,6 @@ import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
 import { registerTechnicianRoutes } from "./technicianRoutes";
-import { registerCoreSeedSyncRoutes } from "./coreSeedSyncRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { appendStockHistory } from "./db/stockHistory";
@@ -366,12 +365,7 @@ async function getSeriesPrefixSuffix(
   };
 }
 
-const STORE_ROLES = new Set<UserRole>([
-  "store_user",
-  "store_user",
-  "store_manager",
-  "store_accounts",
-]);
+const STORE_ROLES = new Set<UserRole>(["store_user", "store_manager", "store_accounts"]);
 
 const PR_CREATOR_ROLES = new Set<UserRole>(["store_user", "store_manager"]);
 // Can view the HO inbox (all PRs)
@@ -490,7 +484,7 @@ async function ensureSeedUsers(): Promise<void> {
 
 app.post("/api/auth/login", async (req, res) => {
   const employeeCode = normalizeEmployeeCode(String(req.body?.employeeCode ?? ""));
-  const password = String(req.body?.password ?? "");
+  const password = String(req.body?.password ?? "").trim();
   const selectedStoreId = String(req.body?.storeId ?? "").trim() || null;
   const users = await allUsers();
   const found = users.find(
@@ -3531,8 +3525,6 @@ async function main() {
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
   registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
-
-  registerCoreSeedSyncRoutes(app, dbPool, { refreshUsersFromDb });
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);

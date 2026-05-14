@@ -59,6 +59,7 @@ export const SEED_REGIONS: SeedRegion[] = [];
 export const SEED_USERS: DemoUser[] = [
   {
     id: "seed-super-1",
+    employeeCode: "SA001",
     email: "superadmin@zimson.demo",
     password: "super123",
     displayName: "Super Admin",
