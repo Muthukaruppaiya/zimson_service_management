@@ -391,6 +391,12 @@ export type SrfServiceBillPreviewInput = {
   estimateTotalInr: number;
   advanceInr?: number;
   advancePaymentMode?: string | null;
+  /** Line items for the tax invoice (same layout as quick bill). */
+  billLines?: { description: string; amountInr: number }[];
+  /** Amount collected at store billing (balance due). */
+  collectionAmountInr?: number;
+  collectionPaymentMode?: string | null;
+  natureOfRepair?: string;
 };
 
 export function mapSrfPreviewToServiceInvoiceViewModel(
@@ -401,18 +407,33 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
   const sellerPack = mergeSellerFromSettings(tax, options?.storeInvoice ?? undefined);
   const hsnSac = resolvedHsnSac(options);
   const adv = Number(input.advanceInr ?? 0);
-  const net = Math.max(input.estimateTotalInr - adv, 0);
-  const line: QuickBillLineInvoice = {
-    lineNo: 1,
-    description:
-      adv > 0
-        ? `Estimated service / repair (balance after INR ${adv.toFixed(2)} advance)`
-        : "Estimated service / repair (provisional)",
-    amountInr: net,
-    spareId: null,
-    qty: 1,
-  };
-  const gst = buildGstLines([line], hsnSac, tax?.gstRatePercent ?? 18, Boolean(tax?.pricesTaxInclusive), net);
+  const netBeforeCollection = Math.max(input.estimateTotalInr - adv, 0);
+  const collected = Number(input.collectionAmountInr ?? netBeforeCollection);
+  const net = Number.isFinite(collected) && collected >= 0 ? collected : netBeforeCollection;
+  const rawLines =
+    input.billLines?.filter((l) => l.description.trim() && Number.isFinite(l.amountInr) && l.amountInr > 0) ?? [];
+  const qbLines: QuickBillLineInvoice[] =
+    rawLines.length > 0
+      ? rawLines.map((l, idx) => ({
+          lineNo: idx + 1,
+          description: l.description.trim(),
+          amountInr: l.amountInr,
+          spareId: null,
+          qty: 1,
+        }))
+      : [
+          {
+            lineNo: 1,
+            description:
+              adv > 0
+                ? `Service / repair charges (balance after INR ${adv.toFixed(2)} advance)`
+                : "Service / repair charges",
+            amountInr: net,
+            spareId: null,
+            qty: 1,
+          },
+        ];
+  const gst = buildGstLines(qbLines, hsnSac, tax?.gstRatePercent ?? 18, Boolean(tax?.pricesTaxInclusive), net);
   const serviceMeta: { label: string; value: string }[] = [];
   if (input.complaint.trim()) serviceMeta.push({ label: "Complaint", value: input.complaint.trim() });
   if (adv > 0) {
@@ -421,12 +442,13 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
       value: `INR ${adv.toFixed(2)} (${input.advancePaymentMode ?? "-"})`,
     });
   }
+  const payMode = input.collectionPaymentMode?.trim() || input.advancePaymentMode?.trim() || undefined;
 
   const srfNow = new Date();
   const srfDate = `${srfNow.getDate().toString().padStart(2, "0")}/${(srfNow.getMonth() + 1).toString().padStart(2, "0")}/${srfNow.getFullYear()}`;
 
   return {
-    documentLabel: "TAX INVOICE / PROFORMA",
+    documentLabel: "TAX INVOICE",
     invoiceType: "Service bill",
     // serviceReference = SRF-specific reference number
     serviceReference: input.reference,
@@ -458,12 +480,12 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
       brandName: input.watchBrand,
       brandModel: input.watchModel,
       modelOrSerial: input.serial.trim() || "—",
-      natureOfRepair: "Estimate (subject to assessment)",
+      natureOfRepair: input.natureOfRepair?.trim() || "Service completed",
     },
     lines: gst.lines,
     totalAmount: net,
     amountInWords: inrAmountToWords(net),
-    paymentMode: input.advancePaymentMode ?? undefined,
+    paymentMode: payMode,
     bankDetailsLines: [...SERVICE_INVOICE_BRANDING.bankDetailsLines],
     footerTerms: sellerPack.footerTerms,
     grossTaxableTotal: gst.gross,
@@ -473,7 +495,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     netPayable: gst.net,
     totalQty: gst.totalQty,
     advanceAmount: adv,
-    amountPaid: adv,
+    amountPaid: net,
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
     invoiceLegalFooter: sellerPack.legalFooter,

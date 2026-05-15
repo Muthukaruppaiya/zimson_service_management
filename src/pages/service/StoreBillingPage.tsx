@@ -1,17 +1,36 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { mapSrfPreviewToServiceInvoiceViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
+import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useAuth } from "../../context/AuthContext";
+import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
+import { apiJson, ApiError } from "../../lib/api";
+import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { generateDemoOtp } from "../../data/serviceSeed";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
-import { ADVANCE_CASH_DENOMS, type AdvancePaymentDetails } from "../../lib/paymentModes";
-import { printStoreServiceInvoice } from "../../lib/serviceDocuments";
+import {
+  buildStoreBillingInvoiceLines,
+  resolveStoreBillingAmounts,
+  sumUsedSparesInr,
+} from "../../lib/storeBillingAmounts";
+import {
+  ADVANCE_CASH_DENOMS,
+  advanceDetailsFromFormStrings,
+  emptyCashDenomStrings,
+  sumAdvanceCashDenominations,
+  type AdvancePaymentDetails,
+  type AppPaymentMode,
+} from "../../lib/paymentModes";
+import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
+import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
+import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
 
 type AdditionalChargeLine = {
   id: string;
@@ -22,17 +41,30 @@ type AdditionalChargeLine = {
   amount: string;
 };
 
+const billSuccessBtnBase =
+  "inline-flex w-full min-w-0 items-center justify-center rounded-xl px-4 py-2.5 text-center text-sm font-semibold shadow-sm transition sm:w-auto";
+const billSuccessBtnPrimary = `${billSuccessBtnBase} bg-zimson-600 text-white hover:bg-zimson-700`;
+const billSuccessBtnSecondary = `${billSuccessBtnBase} border border-zimson-400 bg-white text-zimson-900 hover:bg-zimson-50`;
+const billSuccessBtnOutline = `${billSuccessBtnBase} border border-stone-300 bg-white text-stone-800 hover:bg-stone-50`;
+
 export function StoreBillingPage() {
   const { user } = useAuth();
+  const { regions } = useRegions();
   const { activeSpares } = useSpares();
   const { jobs, closeWithInvoice } = useSrfJobs();
+  const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
+  const [billingInvoiceVm, setBillingInvoiceVm] = useState<ServiceInvoiceViewModel | null>(null);
+  const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
+  const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
   const [screenMode, setScreenMode] = useState<"select" | "invoice">("select");
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [billingRefInput, setBillingRefInput] = useState("");
   const [scanSrfInput, setScanSrfInput] = useState("");
   const [billingSelectedId, setBillingSelectedId] = useState("");
-  const [paymentMode, setPaymentMode] = useState("UPI");
+  const [paymentMode, setPaymentMode] = useState<AppPaymentMode>("UPI");
   const [paidAmountInput, setPaidAmountInput] = useState("");
+  const [cashDenomStrings, setCashDenomStrings] = useState(emptyCashDenomStrings);
+  const [paymentReference, setPaymentReference] = useState("");
   const [hoSparesBillRef, setHoSparesBillRef] = useState("");
   const [storeBillRef, setStoreBillRef] = useState("");
   const [additionalChargeLines, setAdditionalChargeLines] = useState<AdditionalChargeLine[]>([
@@ -43,6 +75,35 @@ export function StoreBillingPage() {
   const [otpErrorByJob, setOtpErrorByJob] = useState<Record<string, string>>({});
   const [otpModalJobId, setOtpModalJobId] = useState<string | null>(null);
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
+
+  const currentUserStore = useMemo(() => {
+    const sid = user?.storeId ?? "";
+    if (!sid) return undefined;
+    for (const r of regions) {
+      const s = r.stores.find((x) => x.id === sid);
+      if (s) return s;
+    }
+    return undefined;
+  }, [regions, user?.storeId]);
+  const storeInvoiceForPrint = useMemo(
+    () => seedStoreToInvoiceProfile(currentUserStore),
+    [currentUserStore],
+  );
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax")
+      .then((d) => {
+        if (!cancelled) setServiceTaxSettings(d.settings);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceTaxSettings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const receivedAtStore = useMemo(() => {
     if (!user) return [];
@@ -61,7 +122,12 @@ export function StoreBillingPage() {
   }, [receivedAtStore, billingSelectedId]);
 
   const isRejectedNoRepairFlow = billingJob?.customerReestimateResponse === "rejected";
-  const isBrandRepairFlow = Boolean(billingJob?.brandInvoiceAmountInr && billingJob.brandInvoiceAmountInr > 0);
+  const billingAmounts = useMemo(
+    () => (billingJob ? resolveStoreBillingAmounts(billingJob) : null),
+    [billingJob],
+  );
+  const isBrandRepairFlow = billingAmounts?.isBrandRepair ?? false;
+  const isInterHoReturnFlow = billingAmounts?.isInterHoReturn ?? false;
   function getSpareUnitPrice(spareId: string): number {
     const spare = activeSpares.find((s) => s.id === spareId);
     return Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
@@ -80,19 +146,28 @@ export function StoreBillingPage() {
   }
 
   const additionalChargesTotal = additionalChargeLines.reduce((sum, line) => sum + getLineAmount(line), 0);
-  const usedSparesAmount = Number(
-    (billingJob?.usedSpares ?? []).reduce((sum, line) => {
-      const lineTotal = Number(line.lineTotalInr ?? NaN);
-      if (Number.isFinite(lineTotal)) return sum + lineTotal;
-      const qty = Number(line.qty ?? 0);
-      const unit = Number(line.unitPriceInr ?? 0);
-      return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
-    }, 0),
-  );
+  const usedSparesAmount = billingJob ? sumUsedSparesInr(billingJob) : 0;
   const brandInvoiceAmount = isBrandRepairFlow ? Number(billingJob?.brandInvoiceAmountInr ?? 0) : 0;
-  const repairBaseAmount = isBrandRepairFlow ? brandInvoiceAmount : usedSparesAmount;
+  const repairBaseAmount = billingAmounts?.billableBaseAmount ?? 0;
   const advanceAmount = Number(billingJob?.advanceInr ?? 0);
   const standardBillingTotal = Math.max(repairBaseAmount + additionalChargesTotal - advanceAmount, 0);
+
+  useEffect(() => {
+    if (!billingJob) return;
+    setHoSparesBillRef((billingJob.hoSparesBillRef ?? "").trim());
+  }, [billingJob?.id, billingJob?.hoSparesBillRef]);
+  const finalBillingAmount = useMemo(() => {
+    const raw = paidAmountInput.trim();
+    if (raw) {
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? n : standardBillingTotal;
+    }
+    return standardBillingTotal;
+  }, [paidAmountInput, standardBillingTotal]);
+  const cashDenomEntered = useMemo(
+    () => sumAdvanceCashDenominations(advanceDetailsFromFormStrings("Cash", cashDenomStrings, "").cash),
+    [cashDenomStrings],
+  );
 
   function addChargeLine() {
     setAdditionalChargeLines((prev) => [
@@ -140,7 +215,7 @@ export function StoreBillingPage() {
   }
 
   async function closeJob(jobId: string) {
-    await closeWithInvoice(jobId, { hoSparesBillRef, storeBillRef });
+    const out = await closeWithInvoice(jobId, { hoSparesBillRef, storeBillRef });
     setIssuedOtpByJob((prev) => {
       const next = { ...prev };
       delete next[jobId];
@@ -156,6 +231,7 @@ export function StoreBillingPage() {
       delete next[jobId];
       return next;
     });
+    return out;
   }
 
   async function closeRejectedNoBilling(jobId: string) {
@@ -193,17 +269,8 @@ export function StoreBillingPage() {
       setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "SRF not found in store inventory." }));
       return;
     }
-    const jobUsedSparesAmount = Number(
-      (job.usedSpares ?? []).reduce((sum, line) => {
-        const lineTotal = Number(line.lineTotalInr ?? NaN);
-        if (Number.isFinite(lineTotal)) return sum + lineTotal;
-        const qty = Number(line.qty ?? 0);
-        const unit = Number(line.unitPriceInr ?? 0);
-        return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
-      }, 0),
-    );
-    const jobBrandAmount = (job.brandInvoiceAmountInr && job.brandInvoiceAmountInr > 0) ? Number(job.brandInvoiceAmountInr) : 0;
-    const jobRepairBase = jobBrandAmount > 0 ? jobBrandAmount : jobUsedSparesAmount;
+    const jobAmounts = resolveStoreBillingAmounts(job);
+    const jobRepairBase = jobAmounts.billableBaseAmount;
     const advanceAmount = Number(job.advanceInr ?? 0);
     const computedTotal = Math.max(jobRepairBase + additionalChargesTotal - advanceAmount, 0);
     const finalAmount = paidAmountInput.trim() ? Number(paidAmountInput) : computedTotal;
@@ -211,9 +278,24 @@ export function StoreBillingPage() {
       setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "Enter valid paid amount." }));
       return;
     }
+    if (paymentMode === "Cash") {
+      const cashSum = sumAdvanceCashDenominations(
+        advanceDetailsFromFormStrings("Cash", cashDenomStrings, "").cash,
+      );
+      if (Math.abs(cashSum - finalAmount) > 0.02) {
+        setOtpErrorByJob((prev) => ({
+          ...prev,
+          [jobId]: `Cash denominations must equal the collection amount (INR ${finalAmount.toFixed(2)}). Current total: INR ${cashSum.toFixed(2)}.`,
+        }));
+        return;
+      }
+    } else if (paymentReference.trim().length > 500) {
+      setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "Payment reference is too long (max 500 characters)." }));
+      return;
+    }
     setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
     try {
-      await closeJob(jobId);
+      const closeOut = await closeJob(jobId);
       const additionalCharges = additionalChargeLines
         .map((line) => {
           if (line.lineType === "spare") {
@@ -229,23 +311,57 @@ export function StoreBillingPage() {
           return { description: line.description.trim(), amountInr: getLineAmount(line) };
         })
         .filter((line) => line.description && Number.isFinite(line.amountInr) && line.amountInr > 0);
-      printStoreServiceInvoice(job, {
-        paymentMode,
-        paidAmountInr: finalAmount,
-        otpCode: entered,
-        hoSparesBillRef,
-        storeBillRef,
-        additionalCharges,
+      const billTotal = jobRepairBase + additionalChargesTotal;
+      const billLines = buildStoreBillingInvoiceLines(job, jobAmounts, additionalCharges);
+      setBillingInvoiceVm(
+        mapSrfPreviewToServiceInvoiceViewModel(
+          {
+            reference: job.reference,
+            invoiceNumber: closeOut.invoiceNumber ?? undefined,
+            customerName: job.customerName,
+            phone: job.phone,
+            watchBrand: job.watchBrand,
+            watchModel: job.watchModel,
+            serial: job.serial,
+            complaint: job.complaint || "",
+            estimateTotalInr: billTotal,
+            advanceInr: advanceAmount,
+            advancePaymentMode: job.advancePaymentMode,
+            billLines,
+            collectionAmountInr: finalAmount,
+            collectionPaymentMode: paymentMode,
+            natureOfRepair: "Service completed",
+          },
+          {
+            taxSettings: serviceTaxSettings,
+            defaultHsnSac: serviceTaxSettings?.defaultSacHsn,
+            storeInvoice: storeInvoiceForPrint,
+            invoiceKind: "service_bill",
+            generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
+          },
+        ),
+      );
+      setBillPostActionNote(null);
+      setBillSuccessModalOpen(true);
+      setOtpModalJobId(null);
+      setMessage({
+        type: "ok",
+        text: closeOut.invoiceNumber
+          ? `SRF closed. Tax invoice ${closeOut.invoiceNumber} is ready to print.`
+          : "SRF closed. Tax invoice is ready to print.",
       });
-      setMessage({ type: "ok", text: "SRF closed and invoice generated." });
       setBillingSelectedId("");
       setBillingRefInput("");
       setPaidAmountInput("");
+      setCashDenomStrings(emptyCashDenomStrings());
+      setPaymentReference("");
       setAdditionalChargeLines([
         { id: `${Date.now()}-charge`, lineType: "charge", description: "", spareId: "", qty: "1", amount: "" },
       ]);
     } catch (e) {
-      setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not close SRF." });
+      const errText = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not close SRF.";
+      setOtpErrorByJob((prev) => ({ ...prev, [jobId]: errText }));
+      setMessage({ type: "err", text: errText });
     }
   }
 
@@ -253,29 +369,11 @@ export function StoreBillingPage() {
 
   return (
     <div>
+      <div className={billingInvoiceVm ? "print:hidden" : undefined}>
       <ServiceBreadcrumb current="Store billing" />
-      <PageHeader
-        title="Store billing / customer collection"
-        description="Select inwarded SRF by reference, verify OTP when customer collects, take payment, and generate invoice."
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              to="/service/store-billing-master"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Open billing master
-            </Link>
-            <Link
-              to="/service/store-dispatch"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Back to store dispatch
-            </Link>
-          </div>
-        }
-      />
+      <PageHeader title="Store billing / customer collection" description="" />
 
-      <Card title="Billing module" subtitle="Pending watches available in store inventory (received from internal outward transfer)">
+      <Card title="Billing module" subtitle="">
         <div className="mb-4 flex flex-wrap gap-2">
           <button
             type="button"
@@ -443,8 +541,26 @@ export function StoreBillingPage() {
                 Customer rejected re-estimate. This watch can be handed over without billing after store inward.
               </div>
             ) : null}
+            {isInterHoReturnFlow ? (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-950">
+                Inter-HO return: bill the customer from the service estimate (spare lines match repair HO invoice).
+                Booking advance is deducted from that total — not from spares only.
+                {(billingJob.hoSparesBillRef ?? "").trim() ? (
+                  <span className="mt-1 block text-xs">
+                    Repair HO invoice ref:{" "}
+                    <span className="font-mono font-semibold">{billingJob.hoSparesBillRef}</span>
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <div className="rounded-xl bg-zimson-50 p-3 text-sm text-stone-700">
-              <p className="font-semibold text-zimson-900">{isBrandRepairFlow ? "Brand repair invoice" : "Supervisor used spares"}</p>
+              <p className="font-semibold text-zimson-900">
+                {isBrandRepairFlow
+                  ? "Brand repair invoice"
+                  : isInterHoReturnFlow
+                    ? "Repair HO spares (on tax invoice)"
+                    : "Supervisor used spares"}
+              </p>
               {isBrandRepairFlow ? (
                 <div className="mt-2 overflow-x-auto rounded-xl border border-violet-200/80 bg-white">
                   <table className="min-w-full text-left text-xs">
@@ -589,11 +705,23 @@ export function StoreBillingPage() {
               <table className="min-w-full text-left text-sm">
                 <tbody>
                   <tr className="border-b border-zimson-100">
-                    <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">{isBrandRepairFlow ? "Brand invoice amount" : "Spares amount (actual)"}</th>
+                    <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">
+                      {isBrandRepairFlow
+                        ? "Brand invoice amount"
+                        : isInterHoReturnFlow
+                          ? "Service estimate (billable)"
+                          : "Spares amount (actual)"}
+                    </th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
                       INR {repairBaseAmount.toFixed(2)}
                     </td>
                   </tr>
+                  {isInterHoReturnFlow && usedSparesAmount > 0 ? (
+                    <tr className="border-b border-zimson-100">
+                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Repair HO spares (line items)</th>
+                      <td className="px-3 py-2 text-stone-800">INR {usedSparesAmount.toFixed(2)}</td>
+                    </tr>
+                  ) : null}
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance received</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
@@ -686,7 +814,7 @@ export function StoreBillingPage() {
                 <select
                   className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                   value={paymentMode}
-                  onChange={(e) => setPaymentMode(e.target.value)}
+                  onChange={(e) => setPaymentMode(e.target.value as AppPaymentMode)}
                 >
                   <option value="UPI">UPI</option>
                   <option value="Cash">Cash</option>
@@ -704,6 +832,62 @@ export function StoreBillingPage() {
                 />
               </label>
             </div>
+            {paymentMode === "Cash" ? (
+              <div className="rounded-xl border border-zimson-200 bg-white p-3">
+                <p className="text-sm font-semibold text-zimson-900">
+                  Cash denomination (must total collection amount)
+                </p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {ADVANCE_CASH_DENOMS.map(({ key, label }) => (
+                    <label key={key} className="text-xs text-stone-600">
+                      {label}
+                      <input
+                        className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                        inputMode="numeric"
+                        value={cashDenomStrings[key]}
+                        onChange={(e) =>
+                          setCashDenomStrings((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                      />
+                    </label>
+                  ))}
+                  <label className="text-xs text-stone-600 sm:col-span-2">
+                    Coins / loose (INR)
+                    <input
+                      className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                      inputMode="decimal"
+                      value={cashDenomStrings.coinsInr}
+                      onChange={(e) =>
+                        setCashDenomStrings((prev) => ({ ...prev, coinsInr: e.target.value }))
+                      }
+                      placeholder="0.00"
+                    />
+                  </label>
+                </div>
+                <p className="mt-2 text-xs text-stone-600">
+                  Denomination total:{" "}
+                  <strong className="text-zimson-900">
+                    {cashDenomEntered.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                  </strong>
+                  {Math.abs(cashDenomEntered - finalBillingAmount) > 0.02 ? (
+                    <span className="ml-2 text-amber-700">(does not match collection amount yet)</span>
+                  ) : (
+                    <span className="ml-2 text-emerald-700">(matches collection amount)</span>
+                  )}
+                </p>
+              </div>
+            ) : (
+              <label className="block text-sm">
+                Payment reference (optional)
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  placeholder="UPI UTR, card auth code, bank transfer ref"
+                  maxLength={500}
+                />
+              </label>
+            )}
               </>
             ) : null}
             {isRejectedNoRepairFlow ? (
@@ -783,6 +967,67 @@ export function StoreBillingPage() {
           </div>
         </div>
       ) : null}
+      </div>
+
+      {billingInvoiceVm ? (
+        <div className="hidden print:block" aria-hidden>
+          <ServiceInvoiceTemplate data={billingInvoiceVm} idPrefix="srf-store-bill" />
+        </div>
+      ) : null}
+
+      {billingInvoiceVm && billSuccessModalOpen ? (
+        <ProcessSuccessModal
+          open
+          title="Billing complete"
+          description={`Invoice ${billingInvoiceVm.invoiceNumber} · SRF ${billingInvoiceVm.serviceReference ?? ""}`}
+          onBackdropClick={() => setBillSuccessModalOpen(false)}
+          actions={
+            <>
+              <button type="button" className={billSuccessBtnPrimary} onClick={() => printServiceInvoice()}>
+                Print invoice
+              </button>
+              <button
+                type="button"
+                className={billSuccessBtnSecondary}
+                onClick={() =>
+                  setBillPostActionNote(
+                    "Resending the invoice to the customer by email, SMS, or WhatsApp is not wired yet — this will be added in a future update.",
+                  )
+                }
+              >
+                Resend to customer
+              </button>
+              <button type="button" className={billSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
+                Close
+              </button>
+              <button
+                type="button"
+                className={billSuccessBtnSecondary}
+                onClick={() => {
+                  setBillingInvoiceVm(null);
+                  setBillSuccessModalOpen(false);
+                  setBillPostActionNote(null);
+                  setScreenMode("select");
+                }}
+              >
+                Done — next SRF
+              </button>
+            </>
+          }
+        >
+          {billPostActionNote ? (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
+              {billPostActionNote}
+            </p>
+          ) : (
+            <p className="text-sm text-stone-700">
+              Use <strong>Print invoice</strong> to open the print dialog for the tax invoice only (not this billing
+              screen).
+            </p>
+          )}
+        </ProcessSuccessModal>
+      ) : null}
+
       {traceJobId ? <SrfTraceModal srfId={traceJobId} onClose={() => setTraceJobId(null)} /> : null}
     </div>
   );

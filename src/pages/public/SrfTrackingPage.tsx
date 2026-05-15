@@ -27,51 +27,11 @@ type TrackJob = {
   timeline: TrackHistory[];
 };
 
-const statusClass: Record<string, string> = {
-  draft: "bg-amber-100 text-amber-800",
-  photo_pending: "bg-amber-100 text-amber-800",
-  at_store: "bg-blue-100 text-blue-800",
-  in_transit_sc: "bg-violet-100 text-violet-800",
-  received_at_sc: "bg-violet-100 text-violet-800",
-  sent_to_other_ho: "bg-indigo-100 text-indigo-800",
-  assigned: "bg-indigo-100 text-indigo-800",
-  estimate_ok: "bg-cyan-100 text-cyan-800",
-  reestimate_required: "bg-rose-100 text-rose-800",
-  customer_rejected: "bg-red-100 text-red-800",
-  sent_to_brand: "bg-violet-100 text-violet-800",
-  brand_estimate_pending: "bg-violet-100 text-violet-800",
-  brand_approved: "bg-indigo-100 text-indigo-800",
-  brand_repair_in_progress: "bg-indigo-100 text-indigo-800",
-  received_from_brand: "bg-cyan-100 text-cyan-800",
-  brand_credit_note_pending: "bg-amber-100 text-amber-800",
-  brand_credit_note_active: "bg-emerald-100 text-emerald-800",
-  ready_for_outward: "bg-lime-100 text-lime-800",
-  dispatched_to_store: "bg-orange-100 text-orange-800",
-  received_at_store: "bg-emerald-100 text-emerald-800",
-  closed: "bg-stone-200 text-stone-800",
-};
-
-function customerStatusLabel(status: string, hasPendingReestimate: boolean): string {
-  if (hasPendingReestimate) return "Approval required";
-  if (status === "draft" || status === "photo_pending" || status === "at_store") return "Booking confirmed";
-  if (status === "in_transit_sc" || status === "received_at_sc") return "In service movement";
-  if (status === "sent_to_other_ho") return "Sent to other HO for repair";
-  if (status === "assigned" || status === "estimate_ok" || status === "reestimate_required") return "Under repair";
-  if (status === "sent_to_brand" || status === "brand_estimate_pending" || status === "brand_approved" || status === "brand_repair_in_progress") return "With brand service";
-  if (status === "received_from_brand") return "Returned from brand";
-  if (status === "brand_credit_note_pending" || status === "brand_credit_note_active") return "Brand credit note issued";
-  if (status === "customer_rejected") return "Awaiting confirmation";
-  if (status === "ready_for_outward" || status === "dispatched_to_store") return "Ready for return";
-  if (status === "received_at_store") return "Ready for delivery";
-  if (status === "closed") return "Delivered";
-  return "In progress";
-}
-
 const flow = [
-  { id: "booked", label: "Service booked" },
-  { id: "sent", label: "Watch moved for repair" },
-  { id: "repair", label: "Repair in progress" },
-  { id: "ready", label: "Ready for delivery" },
+  { id: "booked", label: "Service booked", short: "Booked" },
+  { id: "sent", label: "Watch moved for repair", short: "In transit" },
+  { id: "repair", label: "Repair in progress", short: "Repair" },
+  { id: "ready", label: "Ready for delivery", short: "Delivery" },
 ] as const;
 
 function flowIndex(status: string): number {
@@ -95,11 +55,124 @@ function flowIndex(status: string): number {
   return 3;
 }
 
+function customerStatusLabel(status: string, hasPendingReestimate: boolean): string {
+  if (hasPendingReestimate) return "Approval required";
+  if (status === "draft" || status === "photo_pending" || status === "at_store") return "Booking confirmed";
+  if (status === "in_transit_sc" || status === "received_at_sc") return "In service movement";
+  if (status === "sent_to_other_ho") return "Sent for specialist repair";
+  if (status === "assigned" || status === "estimate_ok" || status === "reestimate_required") return "Under repair";
+  if (status === "sent_to_brand" || status === "brand_estimate_pending" || status === "brand_approved" || status === "brand_repair_in_progress") return "With brand service";
+  if (status === "received_from_brand") return "Returned from brand";
+  if (status === "brand_credit_note_pending" || status === "brand_credit_note_active") return "Brand credit issued";
+  if (status === "customer_rejected") return "Awaiting confirmation";
+  if (status === "ready_for_outward" || status === "dispatched_to_store") return "Ready for return";
+  if (status === "received_at_store") return "Ready for pickup";
+  if (status === "closed") return "Delivered";
+  return "In progress";
+}
+
 function buildCouponMessage(job: TrackJob): string {
   const coupon = job.brandCouponCode ?? "-";
   const value = Number(job.brandCouponValueInr ?? 0).toFixed(2);
   const validity = job.brandCouponValidUntil ? ` Valid till ${new Date(job.brandCouponValidUntil).toLocaleDateString()}.` : "";
   return `Dear customer, SRF ${job.reference}: Brand could not repair your watch. Coupon code ${coupon} of INR ${value} has been issued. You can redeem it at any Zimson store.${validity}`;
+}
+
+function formatInr(n: number): string {
+  return Number(n ?? 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
+}
+
+function TrackProgress({ activeIndex }: { activeIndex: number }) {
+  return (
+    <>
+      {/* Mobile: vertical timeline */}
+      <ol className="mt-6 space-y-0 sm:hidden">
+        {flow.map((step, idx) => {
+          const done = idx <= activeIndex;
+          const current = idx === activeIndex && activeIndex < flow.length - 1;
+          const upcoming = idx > activeIndex;
+          return (
+            <li key={step.id} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <div
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                    done
+                      ? "bg-rlx-gold text-rlx-green-deep shadow-md"
+                      : current
+                        ? "border-2 border-rlx-gold bg-rlx-green text-white ring-4 ring-rlx-gold/25"
+                        : "border border-rlx-rule bg-white text-rlx-ink-muted"
+                  }`}
+                >
+                  {done ? "✓" : idx + 1}
+                </div>
+                {idx < flow.length - 1 ? (
+                  <div className={`my-1 w-0.5 flex-1 min-h-6 ${done ? "bg-rlx-gold" : "bg-rlx-rule"}`} />
+                ) : null}
+              </div>
+              <div className={`pb-6 pt-1.5 ${upcoming ? "opacity-55" : ""}`}>
+                <p className={`text-sm font-semibold ${current ? "text-rlx-green" : "text-rlx-ink"}`}>{step.label}</p>
+                {current ? <p className="mt-0.5 text-xs text-rlx-gold-dark">Current stage</p> : null}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+
+      {/* Desktop: horizontal stepper */}
+      <div className="mt-8 hidden sm:block">
+        <div className="relative flex items-start justify-between gap-2">
+          <div className="absolute left-0 right-0 top-[18px] h-0.5 bg-rlx-rule" aria-hidden />
+          <div
+            className="absolute left-0 top-[18px] h-0.5 bg-gradient-to-r from-rlx-gold to-rlx-gold-dark transition-all duration-500"
+            style={{ width: `${(activeIndex / (flow.length - 1)) * 100}%` }}
+            aria-hidden
+          />
+          {flow.map((step, idx) => {
+            const done = idx <= activeIndex;
+            const current = idx === activeIndex && activeIndex < flow.length - 1;
+            return (
+              <div key={step.id} className="relative z-10 flex flex-1 flex-col items-center px-1 text-center">
+                <div
+                  className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold transition-colors ${
+                    done
+                      ? "bg-rlx-gold text-rlx-green-deep shadow-md"
+                      : current
+                        ? "border-2 border-rlx-gold bg-rlx-green text-white ring-4 ring-rlx-gold/20"
+                        : "border border-rlx-rule bg-white text-rlx-ink-muted"
+                  }`}
+                >
+                  {done ? "✓" : idx + 1}
+                </div>
+                <p className={`mt-3 max-w-[8.5rem] text-xs font-semibold leading-snug ${current ? "text-rlx-green" : "text-rlx-ink-muted"}`}>
+                  {step.label}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ZimsonHeader() {
+  return (
+    <header className="border-b border-rlx-gold/30 bg-gradient-to-br from-rlx-green-deep via-rlx-green to-[#2549a8] text-white shadow-lg">
+      <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-4 sm:px-6 sm:py-5">
+        <div className="min-w-0">
+          <p className="font-display text-2xl font-semibold tracking-wide text-white sm:text-3xl">
+            ZIMSON <span className="text-rlx-gold">WATCH</span>
+          </p>
+          <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.22em] text-white/75">Service care</p>
+        </div>
+        <div className="hidden h-12 w-px shrink-0 bg-rlx-gold/40 sm:block" aria-hidden />
+        <p className="hidden max-w-[10rem] text-right text-xs leading-relaxed text-white/80 sm:block">
+          Premium after-sales service for your timepiece
+        </p>
+      </div>
+      <div className="h-1 bg-gradient-to-r from-transparent via-rlx-gold to-transparent opacity-80" />
+    </header>
+  );
 }
 
 export function SrfTrackingPage() {
@@ -109,9 +182,12 @@ export function SrfTrackingPage() {
   const [error, setError] = useState<string | null>(null);
   const [disabled, setDisabled] = useState(false);
   const [customer, setCustomer] = useState<{ name: string; phone: string } | null>(null);
-  const [job, setJob] = useState<TrackJob | null>(null);
+  const [jobs, setJobs] = useState<TrackJob[]>([]);
+  const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  /* Keep backward compat – latest job */
+  const job = jobs[0] ?? null;
 
   async function load() {
     if (!token) {
@@ -122,13 +198,15 @@ export function SrfTrackingPage() {
     setLoading(true);
     setError(null);
     try {
-      const out = await apiJson<{ disabled: boolean; customer: { name: string; phone: string } | null; job: TrackJob | null }>(
+      const out = await apiJson<{ disabled: boolean; customer: { name: string; phone: string } | null; job: TrackJob | null; jobs?: TrackJob[] }>(
         `/api/public/srf-track?t=${encodeURIComponent(token)}`,
       );
       setDisabled(Boolean(out.disabled));
       setCustomer(out.customer ?? null);
-      setJob(out.job ?? null);
-      setDetailsOpen(false);
+      const allJobs = out.jobs ?? (out.job ? [out.job] : []);
+      setJobs(allJobs);
+      /* Auto-open the latest (first) job */
+      setOpenJobId(allJobs[0]?.id ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load tracking details.");
     } finally {
@@ -158,157 +236,195 @@ export function SrfTrackingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zimson-50/40 px-4 py-8">
-      <div className="mx-auto max-w-5xl">
-        <div className="rounded-2xl border border-zimson-200 bg-white p-5 shadow-sm">
-          <h1 className="text-2xl font-bold text-zimson-900">Watch Service Tracking</h1>
-          <p className="mt-1 text-sm text-stone-600">Track SRF progress and respond to re-estimate requests.</p>
-          {customer ? <p className="mt-2 text-sm font-semibold text-stone-800">{customer.name}</p> : null}
-        </div>
+    <div className="min-h-dvh bg-rlx-bg">
+      <ZimsonHeader />
 
-        {loading ? <div className="mt-6 text-sm text-stone-600">Loading tracking details...</div> : null}
-        {error ? <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
+        <section className="border border-rlx-rule bg-rlx-surface p-5 shadow-sm sm:p-7">
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-rlx-gold-dark">Your service</p>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-rlx-green sm:text-[1.75rem]">Watch service tracking</h1>
+          <p className="mt-2 text-sm leading-relaxed text-rlx-ink-muted">
+            Follow your repair journey and respond to estimate updates when needed.
+          </p>
+          {customer ? (
+            <div className="mt-4 inline-flex flex-wrap items-center gap-2 border border-rlx-rule bg-rlx-green-light/60 px-3 py-2">
+              <span className="text-sm font-semibold text-rlx-ink">{customer.name}</span>
+              <span className="hidden text-rlx-rule sm:inline" aria-hidden>
+                |
+              </span>
+              <span className="font-mono text-xs text-rlx-ink-muted sm:text-sm">{customer.phone}</span>
+            </div>
+          ) : null}
+        </section>
+
+        {loading ? (
+          <div className="mt-6 flex items-center gap-3 border border-rlx-rule bg-white px-4 py-4 text-sm text-rlx-ink-muted">
+            <span className="inline-block h-4 w-4 animate-pulse rounded-full bg-rlx-gold" aria-hidden />
+            Loading your service details…
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="mt-6 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+            {error}
+          </div>
+        ) : null}
+
         {!loading && disabled ? (
-          <div className="mt-6 rounded-xl border border-zimson-300 bg-zimson-100 px-4 py-4 text-sm font-semibold text-zimson-900">
-            Service complete - this tracking link has been deactivated.
+          <div className="mt-6 border border-rlx-gold/40 bg-gradient-to-br from-rlx-green-light to-rlx-gold-light/40 px-5 py-5 sm:px-6">
+            <p className="font-display text-lg font-semibold text-rlx-green">Service complete</p>
+            <p className="mt-2 text-sm text-rlx-ink-muted">
+              This tracking link has been deactivated. Thank you for choosing Zimson Watch.
+            </p>
           </div>
         ) : null}
 
-        {!loading && !disabled ? (
+        {!loading && !disabled && jobs.length > 0 ? (
           <div className="mt-6 space-y-4">
-            {job ? (
-              <div className="rounded-2xl border border-zimson-200 bg-white p-4 shadow-sm sm:p-6">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDetailsOpen((v) => !v)}
-                    className="font-mono text-sm font-semibold text-zimson-900 underline decoration-zimson-300 underline-offset-2"
-                  >
-                    {job.reference}
-                  </button>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass[job.status] ?? "bg-stone-100 text-stone-700"}`}>
-                    {customerStatusLabel(job.status, job.status === "reestimate_required" && !job.customerReestimateResponse)}
-                  </span>
-                </div>
-                <p className="mt-2 text-xs text-stone-500">
-                  Click SRF number to {detailsOpen ? "hide" : "view"} details
-                </p>
-
-                {detailsOpen ? (
-                <>
-                <div className="mt-4 rounded-2xl border border-zimson-100 bg-zimson-50/40 p-4">
-                  <div className="flex items-center gap-2">
-                    {flow.map((s, idx) => {
-                      const done = idx <= flowIndex(job.status);
-                      return (
-                        <div key={s.id} className="flex flex-1 items-center gap-2">
-                          <div className={`h-7 w-7 shrink-0 rounded-full border text-center text-xs leading-7 font-bold ${done ? "border-zimson-600 bg-zimson-600 text-white" : "border-zimson-300 bg-white text-zimson-500"}`}>
-                            {done ? "✓" : idx + 1}
-                          </div>
-                          <div className="min-w-0 text-[11px] font-medium text-stone-700">{s.label}</div>
-                          {idx < flow.length - 1 ? (
-                            <div className={`hidden h-1 flex-1 rounded sm:block ${idx < flowIndex(job.status) ? "bg-zimson-600" : "bg-zimson-200"}`} />
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <p className="mt-4 text-sm text-stone-700">{job.watchBrand} {job.watchModel} · {job.serial}</p>
-                <p className="mt-1 text-sm text-stone-700">Original estimate: INR {Number(job.estimateTotalInr ?? 0).toFixed(2)}</p>
-                <p className="mt-1 text-sm text-stone-600">Complaint: {job.complaint || "-"}</p>
-
-                {(job.reestimateHistory ?? []).length > 0 ? (
-                  <div className="mt-4 rounded-xl border border-zimson-200 bg-zimson-50/40 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Re-estimate updates</p>
-                    <ul className="mt-2 space-y-2">
-                      {(job.reestimateHistory ?? []).map((x, idx) => (
-                        <li key={`${x.requestedAt}-${idx}`} className="rounded-lg border border-zimson-100 bg-white px-3 py-2 text-xs text-stone-700">
-                          <p className="font-semibold">Estimate {idx + 1}: INR {Number(x.amountInr ?? 0).toFixed(2)}</p>
-                          <p className="mt-0.5">{x.note || "-"}</p>
-                          <p className="mt-0.5 text-[11px] text-stone-500">{new Date(x.requestedAt).toLocaleString()}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {job.photos && job.photos.length > 0 ? (
-                  <div className="mt-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Watch photos</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      {job.photos.map((p) => (
-                        <div key={p.id} className="rounded-lg border border-zimson-200 p-1.5">
-                          <img src={`/${p.filePath}`} alt={p.photoKind ?? "watch photo"} className="h-20 w-full rounded object-cover" />
-                          <p className="mt-1 text-[10px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {job.status === "reestimate_required" && !job.customerReestimateResponse ? (
-                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                    <p className="text-xs font-semibold text-amber-800">Approval required</p>
-                    <p className="mt-1 text-sm text-stone-700">Please review latest re-estimate and submit your decision.</p>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        type="button"
-                        disabled={busyId === job.id}
-                        onClick={() => void respond(job.id, true)}
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+            {jobs.length > 1 ? (
+              <p className="text-sm font-semibold text-rlx-ink">
+                {jobs.length} active service requests found for your account.
+              </p>
+            ) : null}
+            {jobs.map((j, jobIdx) => {
+              const pendingReestimate = j.status === "reestimate_required" && !j.customerReestimateResponse;
+              const isOpen = openJobId === j.id;
+              const activeFlow = flowIndex(j.status);
+              return (
+                <article key={j.id} className="overflow-hidden border border-rlx-rule bg-rlx-surface shadow-md">
+                  {/* Card header — always visible */}
+                  <div className="border-b border-rlx-rule bg-gradient-to-r from-rlx-green-deep/5 via-white to-rlx-gold-light/30 px-4 py-4 sm:px-6 sm:py-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        {jobs.length > 1 ? (
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-rlx-ink-muted">
+                            Request {jobIdx + 1} of {jobs.length}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-rlx-ink-muted">Service reference</p>
+                        )}
+                        <p className="mt-0.5 font-mono text-lg font-bold text-rlx-green sm:text-xl">{j.reference}</p>
+                      </div>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${
+                          pendingReestimate
+                            ? "bg-amber-100 text-amber-900 ring-1 ring-amber-300"
+                            : "bg-rlx-green text-white shadow-sm"
+                        }`}
                       >
-                        Accept
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === job.id}
-                        onClick={() => void respond(job.id, false)}
-                        className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
-                      >
-                        Reject
-                      </button>
+                        {customerStatusLabel(j.status, pendingReestimate)}
+                      </span>
                     </div>
-                  </div>
-                ) : null}
-                {(job.status === "brand_credit_note_pending" || job.status === "brand_credit_note_active") && job.brandCouponCode ? (
-                  <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                    <p className="text-xs font-semibold text-emerald-800">Brand coupon / credit note</p>
-                    <p className="mt-1 text-sm text-stone-700">
-                      Coupon code <strong>{job.brandCouponCode}</strong>
-                      {job.brandCouponValueInr ? ` · INR ${Number(job.brandCouponValueInr).toFixed(2)}` : ""}
-                      {job.brandCouponValidUntil ? ` · valid till ${new Date(job.brandCouponValidUntil).toLocaleDateString()}` : ""}
+                    <p className="mt-2 text-sm text-rlx-ink-muted">
+                      {j.watchBrand} {j.watchModel}
+                      <span className="px-1 text-rlx-rule">·</span>
+                      <span className="font-mono text-xs">{j.serial}</span>
                     </p>
-                    <p className="mt-1 text-xs text-stone-600">This coupon can be redeemed at any Zimson store.</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void navigator.clipboard.writeText(buildCouponMessage(job))}
-                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900"
-                      >
-                        Copy SMS text
-                      </button>
-                      <a
-                        href={`https://wa.me/?text=${encodeURIComponent(buildCouponMessage(job))}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900"
-                      >
-                        Open WhatsApp message
-                      </a>
-                    </div>
                   </div>
-                ) : null}
-                </>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-sm text-stone-600">No active SRF found for this link.</p>
-            )}
+
+                  {/* Progress + details */}
+                  <div className="px-4 py-5 sm:px-6 sm:py-6">
+                    <TrackProgress activeIndex={activeFlow} />
+
+                    <button
+                      type="button"
+                      onClick={() => setOpenJobId((prev) => (prev === j.id ? null : j.id))}
+                      className="mt-6 flex w-full items-center justify-between gap-2 border border-rlx-rule bg-rlx-green-light/40 px-3 py-2.5 text-left text-sm font-semibold text-rlx-green transition hover:bg-rlx-green-light/70 sm:w-auto sm:min-w-[12rem]"
+                    >
+                      <span>{isOpen ? "Hide" : "Show"} service details</span>
+                      <span className="text-rlx-gold" aria-hidden>{isOpen ? "▲" : "▼"}</span>
+                    </button>
+
+                    {isOpen ? (
+                      <div className="mt-5 space-y-5 border-t border-rlx-rule pt-5">
+                        <dl className="grid gap-3 sm:grid-cols-2">
+                          <div className="border border-rlx-rule bg-rlx-bg/80 px-3 py-3">
+                            <dt className="text-[10px] font-bold uppercase tracking-wider text-rlx-ink-muted">Original estimate</dt>
+                            <dd className="mt-1 font-display text-lg font-semibold text-rlx-green">{formatInr(j.estimateTotalInr)}</dd>
+                          </div>
+                          <div className="border border-rlx-rule bg-rlx-bg/80 px-3 py-3">
+                            <dt className="text-[10px] font-bold uppercase tracking-wider text-rlx-ink-muted">Complaint</dt>
+                            <dd className="mt-1 text-sm text-rlx-ink">{j.complaint?.trim() || "—"}</dd>
+                          </div>
+                        </dl>
+
+                        {(j.reestimateHistory ?? []).length > 0 ? (
+                          <section>
+                            <h2 className="text-xs font-bold uppercase tracking-wider text-rlx-green">Re-estimate updates</h2>
+                            <ul className="mt-2 space-y-2">
+                              {(j.reestimateHistory ?? []).map((x, idx) => (
+                                <li key={`${x.requestedAt}-${idx}`} className="border border-rlx-rule border-l-4 border-l-rlx-gold bg-white px-3 py-3 text-sm">
+                                  <p className="font-semibold text-rlx-ink">Estimate {idx + 1}: {formatInr(Number(x.amountInr ?? 0))}</p>
+                                  <p className="mt-1 text-rlx-ink-muted">{x.note || "—"}</p>
+                                  <p className="mt-1 text-[11px] text-rlx-ink-muted/80">{new Date(x.requestedAt).toLocaleString()}</p>
+                                </li>
+                              ))}
+                            </ul>
+                          </section>
+                        ) : null}
+
+                        {j.photos && j.photos.length > 0 ? (
+                          <section>
+                            <h2 className="text-xs font-bold uppercase tracking-wider text-rlx-green">Watch photos on file</h2>
+                            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                              {j.photos.map((p) => (
+                                <figure key={p.id} className="overflow-hidden border border-rlx-rule bg-white shadow-sm">
+                                  <img src={`/${p.filePath}`} alt={p.photoKind ?? "Watch photo"} className="aspect-[4/3] w-full object-cover" />
+                                  <figcaption className="border-t border-rlx-rule bg-rlx-green-light/50 px-2 py-1.5 text-center text-[10px] font-bold uppercase tracking-wide text-rlx-green">
+                                    {p.photoKind ?? "other"}
+                                  </figcaption>
+                                </figure>
+                              ))}
+                            </div>
+                          </section>
+                        ) : null}
+
+                        {pendingReestimate ? (
+                          <section className="border border-amber-300/80 bg-gradient-to-br from-amber-50 to-rlx-gold-light/30 p-4 sm:p-5">
+                            <h2 className="text-sm font-bold text-amber-950">Your approval is needed</h2>
+                            <p className="mt-1 text-sm text-rlx-ink-muted">A revised estimate is ready. Please accept or reject to continue your repair.</p>
+                            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                              <button type="button" disabled={busyId === j.id} onClick={() => void respond(j.id, true)} className="flex-1 bg-rlx-green px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-rlx-green-deep disabled:opacity-60">Accept estimate</button>
+                              <button type="button" disabled={busyId === j.id} onClick={() => void respond(j.id, false)} className="flex-1 border-2 border-rlx-green bg-white px-4 py-3 text-sm font-bold text-rlx-green transition hover:bg-rlx-green-light disabled:opacity-60">Decline</button>
+                            </div>
+                          </section>
+                        ) : null}
+
+                        {(j.status === "brand_credit_note_pending" || j.status === "brand_credit_note_active") && j.brandCouponCode ? (
+                          <section className="border border-emerald-300/70 bg-gradient-to-br from-emerald-50/90 to-rlx-green-light/40 p-4 sm:p-5">
+                            <h2 className="text-sm font-bold text-emerald-900">Brand credit / coupon</h2>
+                            <p className="mt-2 text-sm text-rlx-ink">
+                              Code <strong className="font-mono text-rlx-green">{j.brandCouponCode}</strong>
+                              {j.brandCouponValueInr ? <span> · <strong>{formatInr(Number(j.brandCouponValueInr))}</strong></span> : null}
+                              {j.brandCouponValidUntil ? <span className="mt-1 block text-xs text-rlx-ink-muted">Valid until {new Date(j.brandCouponValidUntil).toLocaleDateString()}</span> : null}
+                            </p>
+                            <p className="mt-2 text-xs text-rlx-ink-muted">Redeem at any Zimson Watch store.</p>
+                            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                              <button type="button" onClick={() => void navigator.clipboard.writeText(buildCouponMessage(j))} className="flex-1 border border-rlx-green bg-white px-3 py-2.5 text-xs font-bold text-rlx-green hover:bg-rlx-green-light">Copy message</button>
+                              <a href={`https://wa.me/?text=${encodeURIComponent(buildCouponMessage(j))}`} target="_blank" rel="noreferrer" className="flex-1 bg-[#25D366] px-3 py-2.5 text-center text-xs font-bold text-white hover:opacity-90">Share on WhatsApp</a>
+                            </div>
+                          </section>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         ) : null}
-      </div>
+
+        {!loading && !disabled && jobs.length === 0 ? (
+          <p className="mt-6 border border-rlx-rule bg-white px-4 py-4 text-sm text-rlx-ink-muted">
+            No active service request found for this link. Please contact your Zimson store.
+          </p>
+        ) : null}
+
+        <footer className="mt-10 border-t border-rlx-rule pt-6 text-center text-[11px] text-rlx-ink-muted">
+          <p className="font-display text-sm text-rlx-green">Zimson Watch</p>
+          <p className="mt-1">Need help? Visit your authorised service centre with your SRF reference.</p>
+        </footer>
+      </main>
     </div>
   );
 }

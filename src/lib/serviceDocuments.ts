@@ -188,6 +188,59 @@ export function printFullSrfDocument(
   openPrintDocument(`SRF ${job.reference}`, html);
 }
 
+/** Service centre acknowledgment after inwarding watches from store DC. */
+export function printScInwardAckDocument(payload: {
+  inwardNumber: string;
+  hoName: string;
+  fromStoreName: string;
+  receivedBy: string;
+  receivedAt: Date;
+  jobs: SrfJob[];
+}): void {
+  const { inwardNumber, hoName, fromStoreName, receivedBy, receivedAt, jobs } = payload;
+  const rows = jobs
+    .map(
+      (j, idx) =>
+        `<tr>
+           <td>${idx + 1}</td>
+           <td>${j.reference}</td>
+           <td>${j.customerName}</td>
+           <td>${j.watchBrand} ${j.watchModel}</td>
+           <td>${j.serial}</td>
+         </tr>`,
+    )
+    .join("");
+  const html = base(
+    `SC Inward ${inwardNumber}`,
+    `${barcodeBlock(inwardNumber)}
+     <h2 style="margin:0 0 8px;color:#1B3A8F">Service Centre — Inward Acknowledgment</h2>
+     <p style="margin:0 0 16px;font-size:13px;color:#4A5568">Watches listed below have been received and inwarded at the service centre.</p>
+     <table style="width:100%;border-collapse:collapse;margin-bottom:16px" border="1" cellspacing="0" cellpadding="8">
+       <tbody>
+         <tr><td style="width:38%;background:#E8EDF8"><strong>Inward number</strong></td><td style="font-family:monospace;font-size:15px;font-weight:bold">${inwardNumber}</td></tr>
+         <tr><td style="background:#E8EDF8"><strong>Service centre (HO)</strong></td><td>${hoName}</td></tr>
+         <tr><td style="background:#E8EDF8"><strong>Received from store</strong></td><td>${fromStoreName}</td></tr>
+         <tr><td style="background:#E8EDF8"><strong>Inward date &amp; time</strong></td><td>${receivedAt.toLocaleString()}</td></tr>
+         <tr><td style="background:#E8EDF8"><strong>Received by</strong></td><td>${receivedBy}</td></tr>
+         <tr><td style="background:#E8EDF8"><strong>Total watches</strong></td><td>${jobs.length}</td></tr>
+       </tbody>
+     </table>
+     <h3 style="margin:16px 0 8px;color:#1B3A8F">Watches inwarded</h3>
+     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
+       <thead style="background:#E8EDF8">
+         <tr><th>#</th><th>SRF</th><th>Customer</th><th>Watch</th><th>Serial</th></tr>
+       </thead>
+       <tbody>${rows || '<tr><td colspan="5">No rows</td></tr>'}</tbody>
+     </table>
+     <p style="margin-top:20px;font-size:12px;color:#4A5568">Store dispatch copy attached to internal transfer ${inwardNumber}. Supervisor may assign technicians after inward.</p>
+     <div style="margin-top:28px;display:flex;gap:48px">
+       <div>SC received by: _____________________<br/><span style="font-size:11px">Signature &amp; stamp</span></div>
+       <div>Date: _____________________</div>
+     </div>`,
+  );
+  openPrintDocument(`SC Inward ${inwardNumber}`, html);
+}
+
 export function printDcDocument(
   kind: "DC" | "ODC",
   number: string,
@@ -437,6 +490,30 @@ export function printEstimateDocument(
   openPrintDocument(`Estimate ${job.reference}`, html);
 }
 
+function formatCollectionPaymentForPrint(
+  mode: string,
+  paidAmountInr: number,
+  details: AdvancePaymentDetails | null | undefined,
+): string {
+  const parts: string[] = [];
+  if (mode === "Cash" && details?.cash) {
+    const c = details.cash;
+    const lines: string[] = [];
+    for (const { key, face, label } of ADVANCE_CASH_DENOMS) {
+      const q = Number(c[key]);
+      if (Number.isFinite(q) && q > 0) lines.push(`${label.replace(" ×", "")}: ${q} note(s) = INR ${(q * face).toFixed(2)}`);
+    }
+    const coins = Number(c.coinsInr);
+    if (Number.isFinite(coins) && coins > 0) lines.push(`Coins / loose: INR ${coins.toFixed(2)}`);
+    if (lines.length) {
+      parts.push(`<div style="margin-top:8px;font-size:12px"><strong>Collection cash breakdown (INR ${paidAmountInr.toFixed(2)}):</strong><br/>${lines.join("<br/>")}</div>`);
+    }
+  } else if (details?.reference) {
+    parts.push(`<div style="margin-top:8px;font-size:12px"><strong>Collection payment ref:</strong> ${details.reference}</div>`);
+  }
+  return parts.join("");
+}
+
 export function printStoreServiceInvoice(
   job: SrfJob,
   payload: {
@@ -447,6 +524,7 @@ export function printStoreServiceInvoice(
     hoSparesBillRef?: string;
     storeBillRef?: string;
     additionalCharges?: Array<{ description: string; amountInr: number }>;
+    paymentDetails?: AdvancePaymentDetails;
   },
 ): void {
   const billedAt = payload.billedAt ?? new Date();
@@ -491,6 +569,8 @@ export function printStoreServiceInvoice(
        <thead><tr><th>#</th><th>Description</th><th>Amount</th></tr></thead>
        <tbody>${additionalChargeRows || '<tr><td colspan="3">No additional charges</td></tr>'}</tbody>
      </table>
+     ${formatCollectionPaymentForPrint(payload.paymentMode, payload.paidAmountInr, payload.paymentDetails)}
+     ${formatAdvanceForPrint(job.advanceInr, job.advancePaymentMode, job.advancePaymentDetails as AdvancePaymentDetails | null | undefined)}
      <div style="margin-top:24px">Customer Sign: _____________________</div>
      <div style="margin-top:16px">Store Sign: _____________________</div>`,
   );

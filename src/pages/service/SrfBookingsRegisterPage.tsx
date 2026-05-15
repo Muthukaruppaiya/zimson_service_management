@@ -7,8 +7,16 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
-import { jobVisibleToServiceCentre, jobVisibleToStoreUser } from "../../lib/srfAccess";
+import {
+  jobVisibleToServiceCentre,
+  jobVisibleToStoreUser,
+  shouldShowInSrfBookingRegister,
+} from "../../lib/srfAccess";
 import type { SrfJobStatus } from "../../types/srfJob";
+
+function canContinueSrfBooking(status: string): boolean {
+  return status === "draft" || status === "photo_pending";
+}
 
 const statusCls: Record<string, string> = {
   draft: "bg-slate-100 text-slate-800",
@@ -55,7 +63,8 @@ export function SrfBookingsRegisterPage() {
 
   const visible = useMemo(() => {
     if (!user) return [];
-    return jobs.filter((j) => jobVisibleToStoreUser(j, user) || jobVisibleToServiceCentre(j, user));
+    const scope = jobs.filter((j) => jobVisibleToStoreUser(j, user) || jobVisibleToServiceCentre(j, user));
+    return scope.filter((j) => shouldShowInSrfBookingRegister(j, scope));
   }, [jobs, user]);
 
   const rows = useMemo(() => {
@@ -168,16 +177,27 @@ export function SrfBookingsRegisterPage() {
                     {Number(j.estimateTotalInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTraceId(j.id);
-                      }}
-                      className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-                    >
-                      View trace
-                    </button>
+                    <div className="flex flex-col items-end gap-1.5">
+                      {canContinueSrfBooking(j.status) ? (
+                        <Link
+                          to={`/service/srf?continue=${encodeURIComponent(j.id)}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="rounded-lg border border-zimson-500 bg-zimson-50 px-2 py-1 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-100"
+                        >
+                          Continue booking
+                        </Link>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTraceId(j.id);
+                        }}
+                        className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                      >
+                        View trace
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -211,13 +231,15 @@ export function SrfBookingsRegisterPage() {
 
       {detail ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-3xl rounded-2xl bg-white p-5 shadow-2xl">
-            <div className="mb-3 flex items-start justify-between">
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            {/* Header */}
+            <div className="flex flex-shrink-0 flex-wrap items-start justify-between gap-3 border-b border-zimson-200 bg-zimson-50/60 px-5 py-4">
               <div>
-                <h3 className="text-lg font-semibold text-stone-900">Booking details — {detail.reference}</h3>
-                <p className="text-sm text-stone-600">{detail.customerName} · {detail.watchBrand} {detail.watchModel}</p>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-stone-500">Booking details</p>
+                <h3 className="mt-0.5 font-mono text-lg font-bold text-zimson-900">{detail.reference}</h3>
+                <p className="mt-0.5 text-sm text-stone-600">{detail.customerName} · {detail.watchBrand} {detail.watchModel}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() =>
@@ -233,40 +255,117 @@ export function SrfBookingsRegisterPage() {
                       photos: detail.photos ?? [],
                     })
                   }
-                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-100"
+                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"
                 >
                   Print SRF
                 </button>
                 <button
                   type="button"
                   onClick={() => printEstimateDocument(detail)}
-                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-100"
+                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"
                 >
                   Print estimate
                 </button>
+                {canContinueSrfBooking(detail.status) ? (
+                  <Link
+                    to={`/service/srf?continue=${encodeURIComponent(detail.id)}`}
+                    className="rounded-lg border border-zimson-500 bg-zimson-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-zimson-700"
+                  >
+                    Continue booking
+                  </Link>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setTraceId(detail.id)}
-                  className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                  className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
                 >
-                  View full trace
+                  Full trace
                 </button>
-                <button type="button" onClick={() => setDetailId(null)} className="rounded-lg border px-3 py-1.5 text-sm">
-                  Close
+                <button type="button" onClick={() => setDetailId(null)} className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50">
+                  Close ✕
                 </button>
               </div>
             </div>
-            <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
-              <table className="min-w-full text-left text-sm">
-                <tbody>
-                  <tr className="border-b border-zimson-100"><th className="w-56 bg-zimson-50/70 px-3 py-2">Status</th><td className="px-3 py-2">{detail.status}</td></tr>
-                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Phone</th><td className="px-3 py-2">{detail.phone}</td></tr>
-                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Complaint</th><td className="px-3 py-2">{detail.complaint}</td></tr>
-                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Internal inward transfer</th><td className="px-3 py-2 font-mono">{detail.dcNumber ?? "-"}</td></tr>
-                  <tr className="border-b border-zimson-100"><th className="bg-zimson-50/70 px-3 py-2">Internal outward transfer</th><td className="px-3 py-2 font-mono">{detail.outwardDcNumber ?? "-"}</td></tr>
-                  <tr><th className="bg-zimson-50/70 px-3 py-2">Estimate</th><td className="px-3 py-2 font-semibold text-zimson-900">{Number(detail.estimateTotalInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })}</td></tr>
-                </tbody>
-              </table>
+
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {/* Status badge */}
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${statusCls[detail.status] ?? "bg-stone-100 text-stone-700"}`}>
+                  {detail.status.replace(/_/g, " ")}
+                </span>
+                <span className="text-xs text-stone-500">Created {new Date(detail.createdAt).toLocaleString()}</span>
+              </div>
+
+              {/* Two-column info grid */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Customer */}
+                <section className="rounded-xl border border-zimson-200 bg-zimson-50/40 p-3">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500">Customer</p>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Name</td><td className="py-0.5 text-stone-900">{detail.customerName}</td></tr>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Phone</td><td className="py-0.5 font-mono text-stone-900">{detail.phone}</td></tr>
+                      {detail.company ? <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Company</td><td className="py-0.5 text-stone-900">{detail.company}</td></tr> : null}
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Type</td><td className="py-0.5 text-stone-900">{detail.customerKind ?? "B2C"}</td></tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                {/* Watch */}
+                <section className="rounded-xl border border-zimson-200 bg-zimson-50/40 p-3">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500">Watch</p>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Brand</td><td className="py-0.5 text-stone-900">{detail.watchBrand}</td></tr>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Model</td><td className="py-0.5 text-stone-900">{detail.watchModel}</td></tr>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Serial</td><td className="py-0.5 font-mono text-stone-900">{detail.serial || "—"}</td></tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                {/* Service */}
+                <section className="rounded-xl border border-zimson-200 bg-zimson-50/40 p-3">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500">Service</p>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Complaint</td><td className="py-0.5 text-stone-900">{detail.complaint || "—"}</td></tr>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Estimate</td><td className="py-0.5 font-semibold text-zimson-900">{Number(detail.estimateTotalInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })}</td></tr>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Advance</td><td className="py-0.5 font-semibold text-stone-900">{Number(detail.advanceInr ?? 0) > 0 ? Number(detail.advanceInr).toLocaleString(undefined, { style: "currency", currency: "INR" }) : "—"}</td></tr>
+                      {detail.advancePaymentMode && Number(detail.advanceInr ?? 0) > 0 ? <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Payment mode</td><td className="py-0.5 text-stone-900">{detail.advancePaymentMode}</td></tr> : null}
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Est. finish</td><td className="py-0.5 text-stone-900">{detail.estimatedFinishDate ?? "—"}</td></tr>
+                    </tbody>
+                  </table>
+                </section>
+
+                {/* Logistics */}
+                <section className="rounded-xl border border-zimson-200 bg-zimson-50/40 p-3">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500">Logistics</p>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Store</td><td className="py-0.5 text-stone-900">{detail.storeName ?? detail.storeId}</td></tr>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Inward DC</td><td className="py-0.5 font-mono text-stone-900">{detail.dcNumber ?? "—"}</td></tr>
+                      <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Outward DC</td><td className="py-0.5 font-mono text-stone-900">{detail.outwardDcNumber ?? "—"}</td></tr>
+                      {detail.regionName ? <tr><td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Region</td><td className="py-0.5 text-stone-900">{detail.regionName}</td></tr> : null}
+                    </tbody>
+                  </table>
+                </section>
+              </div>
+
+              {/* Photos */}
+              {detail.photos && detail.photos.length > 0 ? (
+                <section className="mt-4">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500">Watch photos ({detail.photos.length})</p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                    {detail.photos.map((p) => (
+                      <div key={p.id} className="overflow-hidden rounded-lg border border-zimson-200">
+                        <img src={`/${p.filePath}`} alt={p.photoKind ?? "watch"} className="aspect-[4/3] w-full object-cover" />
+                        <p className="border-t border-zimson-100 bg-zimson-50/70 px-1.5 py-0.5 text-center text-[10px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
             </div>
           </div>
         </div>

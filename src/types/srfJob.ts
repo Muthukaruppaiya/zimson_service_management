@@ -118,6 +118,8 @@ export type SrfJob = {
   sparesSlipSubmittedBy?: string | null;
   hoSparesBillRef?: string | null;
   storeBillRef?: string | null;
+  /** Store tax invoice number allocated at customer billing close. */
+  invoiceNumber?: string | null;
   /** Repair finished at SC; waiting SC outward (ODC). */
   completedAtSc: string | null;
   readyForOutwardAt: string | null;

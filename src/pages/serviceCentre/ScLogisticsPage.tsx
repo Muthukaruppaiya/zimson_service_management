@@ -8,7 +8,7 @@ import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import type { SrfJob } from "../../types/srfJob";
-import { printDcDocument } from "../../lib/serviceDocuments";
+import { printDcDocument, printScInwardAckDocument } from "../../lib/serviceDocuments";
 
 const selectClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm outline-none ring-zimson-400/40 focus:ring-2";
@@ -73,6 +73,32 @@ export function ScLogisticsPage() {
   const [selectedDc, setSelectedDc] = useState("");
   const [scanInwardDcInput, setScanInwardDcInput] = useState("");
   const [inwardMsg, setInwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [inwardAck, setInwardAck] = useState<{
+    inwardNumber: string;
+    updated: number;
+    hoLabel: string;
+    storeLabel: string;
+    jobs: SrfJob[];
+    receivedAt: Date;
+  } | null>(null);
+  const [outwardAck, setOutwardAck] = useState<{
+    odcNumber: string;
+    watchCount: number;
+    fromLocation: string;
+    toLocation: string;
+    fromHo: string;
+    toHo: string;
+    dispatchedAt: Date;
+    rows: SrfJob[];
+    printOpts: {
+      fromLocation: string;
+      toLocation: string;
+      fromHo: string;
+      toHo: string;
+      hoInvoiceRef?: string;
+      storeInvoiceRef?: string;
+    };
+  } | null>(null);
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
@@ -189,19 +215,31 @@ export function ScLogisticsPage() {
     e.preventDefault();
     if (!canPostDcInward) return;
     setInwardMsg(null);
-    if (!selectedDc.trim()) {
+    const dcNumber = selectedDc.trim();
+    if (!dcNumber) {
       setInwardMsg({ type: "err", text: "Choose a pending DC from the list for this HO." });
       return;
     }
+    const dcMeta = pendingDcOptions.find((o) => o.dcNumber === dcNumber);
+    const jobsOnDc = inTransit.filter((j) => j.dcNumber === dcNumber);
     try {
-      const result = await confirmInwardByDc(selectedDc);
+      const result = await confirmInwardByDc(dcNumber);
+      const receivedAt = new Date();
+      setInwardAck({
+        inwardNumber: dcNumber,
+        updated: result.updated,
+        hoLabel: dcMeta?.hoLabel ?? user?.regionId ?? "—",
+        storeLabel: dcMeta?.storeLabel ?? "—",
+        jobs: jobsOnDc,
+        receivedAt,
+      });
       setInwardMsg({
         type: "ok",
-        text: `Inward recorded for ${result.updated} watch(es) on DC ${selectedDc}. Supervisor can now assign technicians.`,
+        text: `Inward recorded for ${result.updated} watch(es). Inward number: ${dcNumber}.`,
       });
       setSelectedDc("");
-    } catch (e) {
-      setInwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not inward DC." });
+    } catch (err) {
+      setInwardMsg({ type: "err", text: err instanceof Error ? err.message : "Could not inward DC." });
     }
   }
 
@@ -320,17 +358,28 @@ export function ScLogisticsPage() {
         hasReturnToSender && first?.transferSourceRegionId
           ? regionNameById.get(first.transferSourceRegionId) ?? first.transferSourceRegionId
           : fromHo;
-      printDcDocument("ODC", result.odcNumber, rows, {
+      const printOpts = {
         fromLocation: `HO / Service Centre: ${fromHo}`,
         toLocation,
         fromHo,
         toHo,
         hoInvoiceRef: hasReturnToSender ? (selectedRows[0]?.hoSparesBillRef ?? undefined) : undefined,
         storeInvoiceRef: undefined,
+      };
+      setOutwardAck({
+        odcNumber: result.odcNumber,
+        watchCount: rows.length,
+        fromLocation: printOpts.fromLocation,
+        toLocation,
+        fromHo,
+        toHo,
+        dispatchedAt: new Date(),
+        rows,
+        printOpts,
       });
       setOutwardMsg({
         type: "ok",
-        text: `Internal outward transfer ${result.odcNumber} created. Selected watches are dispatched to destination stores.`,
+        text: `Internal outward transfer ${result.odcNumber} created. Acknowledgment shown — print when ready.`,
       });
       setSelectedOut({});
     } catch (e) {
@@ -762,6 +811,183 @@ export function ScLogisticsPage() {
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {outwardAck ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
+          <div
+            className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-indigo-200"
+            role="dialog"
+            aria-labelledby="outward-ack-title"
+          >
+            <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 px-5 py-5 text-white">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-100">Outward confirmed</p>
+              <h2 id="outward-ack-title" className="mt-1 text-xl font-bold">
+                Watches dispatched to store
+              </h2>
+            </div>
+            <div className="px-5 py-5">
+              <p className="text-sm text-stone-600">
+                <strong>{outwardAck.watchCount}</strong> watch{outwardAck.watchCount === 1 ? "" : "es"} sent on internal
+                outward transfer. Store can inward when the batch arrives.
+              </p>
+              <div className="mt-4 rounded-xl border-2 border-indigo-200 bg-indigo-50/80 px-4 py-3 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-800">Outward / ODC number</p>
+                <p className="mt-1 font-mono text-2xl font-bold text-indigo-900">{outwardAck.odcNumber}</p>
+              </div>
+              <dl className="mt-4 space-y-1.5 text-sm text-stone-700">
+                <div className="flex justify-between gap-2">
+                  <dt className="text-stone-500">From</dt>
+                  <dd className="max-w-[60%] text-right font-medium text-stone-900">{outwardAck.fromLocation}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-stone-500">To</dt>
+                  <dd className="max-w-[60%] text-right font-medium text-stone-900">{outwardAck.toLocation}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-stone-500">Dispatched at</dt>
+                  <dd className="font-medium text-stone-900">{outwardAck.dispatchedAt.toLocaleString()}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-stone-500">Dispatched by</dt>
+                  <dd className="font-medium text-stone-900">{user?.displayName ?? "—"}</dd>
+                </div>
+              </dl>
+              {outwardAck.rows.length > 0 ? (
+                <div className="mt-4 max-h-32 overflow-y-auto rounded-lg border border-zimson-200 text-xs">
+                  <table className="min-w-full">
+                    <thead className="sticky top-0 bg-zimson-50 text-left font-semibold text-stone-600">
+                      <tr>
+                        <th className="px-2 py-1">SRF</th>
+                        <th className="px-2 py-1">Watch</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outwardAck.rows.map((j) => (
+                        <tr key={j.id} className="border-t border-zimson-100">
+                          <td className="px-2 py-1 font-mono font-semibold">{j.reference}</td>
+                          <td className="px-2 py-1">
+                            {j.watchBrand} {j.watchModel}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() =>
+                    printDcDocument("ODC", outwardAck.odcNumber, outwardAck.rows, outwardAck.printOpts)
+                  }
+                  className="flex-1 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
+                >
+                  Print acknowledgment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutwardAck(null)}
+                  className="flex-1 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {inwardAck ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
+          <div
+            className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-emerald-200"
+            role="dialog"
+            aria-labelledby="inward-ack-title"
+          >
+            <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 px-5 py-5 text-white">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-100">Inward confirmed</p>
+              <h2 id="inward-ack-title" className="mt-1 text-xl font-bold">
+                Watches received at service centre
+              </h2>
+            </div>
+            <div className="px-5 py-5">
+              <p className="text-sm text-stone-600">
+                <strong>{inwardAck.updated}</strong> watch{inwardAck.updated === 1 ? "" : "es"} inwarded successfully.
+                Supervisor can now assign technicians.
+              </p>
+              <div className="mt-4 rounded-xl border-2 border-emerald-200 bg-emerald-50/80 px-4 py-3 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Inward number</p>
+                <p className="mt-1 font-mono text-2xl font-bold text-emerald-900">{inwardAck.inwardNumber}</p>
+              </div>
+              <dl className="mt-4 space-y-1.5 text-sm text-stone-700">
+                <div className="flex justify-between gap-2">
+                  <dt className="text-stone-500">Service centre</dt>
+                  <dd className="font-medium text-stone-900">{inwardAck.hoLabel}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-stone-500">From store</dt>
+                  <dd className="font-medium text-stone-900">{inwardAck.storeLabel}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-stone-500">Received at</dt>
+                  <dd className="font-medium text-stone-900">{inwardAck.receivedAt.toLocaleString()}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-stone-500">Received by</dt>
+                  <dd className="font-medium text-stone-900">{user?.displayName ?? "—"}</dd>
+                </div>
+              </dl>
+              {inwardAck.jobs.length > 0 ? (
+                <div className="mt-4 max-h-32 overflow-y-auto rounded-lg border border-zimson-200 text-xs">
+                  <table className="min-w-full">
+                    <thead className="sticky top-0 bg-zimson-50 text-left font-semibold text-stone-600">
+                      <tr>
+                        <th className="px-2 py-1">SRF</th>
+                        <th className="px-2 py-1">Watch</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inwardAck.jobs.map((j) => (
+                        <tr key={j.id} className="border-t border-zimson-100">
+                          <td className="px-2 py-1 font-mono font-semibold">{j.reference}</td>
+                          <td className="px-2 py-1">
+                            {j.watchBrand} {j.watchModel}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() =>
+                    printScInwardAckDocument({
+                      inwardNumber: inwardAck.inwardNumber,
+                      hoName: inwardAck.hoLabel,
+                      fromStoreName: inwardAck.storeLabel,
+                      receivedBy: user?.displayName?.trim() || user?.email?.trim() || "Service centre",
+                      receivedAt: inwardAck.receivedAt,
+                      jobs: inwardAck.jobs,
+                    })
+                  }
+                  className="flex-1 rounded-xl border border-zimson-300 bg-zimson-50 px-4 py-2.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-100"
+                >
+                  Print acknowledgment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInwardAck(null)}
+                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                >
+                  Done
+                </button>
+              </div>
             </div>
           </div>
         </div>

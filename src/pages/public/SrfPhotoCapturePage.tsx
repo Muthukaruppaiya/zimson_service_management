@@ -1,27 +1,71 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiJson } from "../../lib/api";
+import { SRF_CUSTOMER_PHOTO_MAX_BYTES, srfCustomerPhotoMaxSizeLabel } from "../../lib/srfPhotoLimits";
+
+type PhotoKind = "front" | "back" | "strap" | "serial" | "damage" | "other";
+
+type SessionPhoto = { id: string; photoKind?: string; filePath: string };
+
+const PHOTO_SLOTS: { kind: PhotoKind; title: string; hint: string; required: boolean }[] = [
+  { kind: "front", title: "Watch front", hint: "Dial and crystal facing you", required: true },
+  { kind: "back", title: "Watch back", hint: "Case back / movement side", required: true },
+  { kind: "strap", title: "Strap or bracelet", hint: "Clasp and links visible", required: true },
+  { kind: "serial", title: "Serial number", hint: "Legible engraving or sticker", required: true },
+  { kind: "damage", title: "Damage (if any)", hint: "Skip if the watch has no visible damage", required: false },
+  { kind: "other", title: "Other", hint: "Only if counter staff asked for an extra shot", required: false },
+];
+
+function parseApiError(text: string): string {
+  const t = text.trim();
+  try {
+    const j = JSON.parse(t) as { error?: string };
+    if (j && typeof j.error === "string" && j.error.trim()) return j.error.trim();
+  } catch {
+    /* plain text */
+  }
+  return t || "Something went wrong.";
+}
 
 export function SrfPhotoCapturePage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("t")?.trim() ?? "";
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadKindRef = useRef<PhotoKind>("front");
+
   const [session, setSession] = useState<{
     srfId: string;
     reference: string;
     customerName: string;
     watch: string;
     photoCount: number;
-    photos: Array<{ id: string; photoKind?: string; filePath: string }>;
+    photos: SessionPhoto[];
   } | null>(null);
-  const [status, setStatus] = useState<string>("Checking link...");
+  const [status, setStatus] = useState<string>("Checking link…");
   const [busy, setBusy] = useState(false);
-  const [photoKind, setPhotoKind] = useState<"front" | "back" | "strap" | "serial" | "damage" | "other">("front");
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [activeKind, setActiveKind] = useState<PhotoKind>("front");
 
   const canUpload = useMemo(() => !!token && !!session, [token, session]);
 
+  const photoByKind = useMemo(() => {
+    const m = new Map<string, SessionPhoto>();
+    for (const p of session?.photos ?? []) {
+      const k = (p.photoKind ?? "other").toLowerCase();
+      m.set(k, p);
+    }
+    return m;
+  }, [session?.photos]);
+
+  const requiredDone = useMemo(() => {
+    return PHOTO_SLOTS.filter((s) => s.required).every((s) => photoByKind.has(s.kind));
+  }, [photoByKind]);
+
+  const requiredTotal = useMemo(() => PHOTO_SLOTS.filter((s) => s.required).length, []);
+
   async function refresh() {
     if (!token) {
-      setStatus("Missing token.");
+      setStatus("Missing link. Open the QR or link from the store again.");
       return;
     }
     try {
@@ -31,109 +75,205 @@ export function SrfPhotoCapturePage() {
         customerName: string;
         watch: string;
         photoCount: number;
-        photos: Array<{ id: string; photoKind?: string; filePath: string }>;
-      }>(
-        `/api/public/srf-photo/session?token=${encodeURIComponent(token)}`,
-      );
+        photos: SessionPhoto[];
+      }>(`/api/public/srf-photo/session?token=${encodeURIComponent(token)}`);
       setSession(data);
-      setStatus("Capture link active.");
+      setStatus("You can upload or replace photos below.");
+      setUploadError(null);
     } catch (e) {
       setSession(null);
-      setStatus(e instanceof Error ? e.message : "Capture link not valid.");
+      setStatus(e instanceof Error ? e.message : "This upload link is not valid.");
     }
   }
 
   useEffect(() => {
     void refresh();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  function openPickerForKind(kind: PhotoKind) {
+    uploadKindRef.current = kind;
+    setActiveKind(kind);
+    setUploadError(null);
+    requestAnimationFrame(() => fileInputRef.current?.click());
+  }
 
   async function upload(files: FileList | null) {
     if (!files || files.length === 0 || !token) return;
+    const file = files[0];
+    const kind = uploadKindRef.current;
+
+    setUploadError(null);
+    if (file.size > SRF_CUSTOMER_PHOTO_MAX_BYTES) {
+      setUploadError(
+        `This image is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Please choose a photo under ${srfCustomerPhotoMaxSizeLabel()}.`,
+      );
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setBusy(true);
     try {
-      for (const file of Array.from(files)) {
-        const form = new FormData();
-        form.append("token", token);
-        form.append("photoKind", photoKind);
-        form.append("file", file);
-        const res = await fetch("/api/public/srf-photo/upload", { method: "POST", body: form });
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || "Upload failed.");
-      }
+      const form = new FormData();
+      form.append("token", token);
+      form.append("photoKind", kind);
+      form.append("file", file);
+      const res = await fetch("/api/public/srf-photo/upload", { method: "POST", body: form });
+      const text = await res.text();
+      if (!res.ok) throw new Error(parseApiError(text));
       await refresh();
-      setStatus("Upload complete.");
+      setStatus("Saved. You can continue with the next photo or go back to the counter.");
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : "Upload failed.");
+      setUploadError(e instanceof Error ? e.message : "Upload failed.");
     } finally {
       setBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
   return (
-    <div className="mx-auto max-w-lg p-4">
-      <h1 className="text-xl font-semibold text-zimson-900">SRF Camera Upload</h1>
-      <p className="mt-1 text-sm text-stone-600">{status}</p>
-      {session ? (
-        <div className="mt-4 rounded-xl border border-zimson-200 bg-white p-4">
-          <p className="text-sm"><strong>SRF:</strong> {session.reference}</p>
-          <p className="text-sm"><strong>Customer:</strong> {session.customerName}</p>
-          <p className="text-sm"><strong>Watch:</strong> {session.watch}</p>
-          <p className="text-sm"><strong>Uploaded:</strong> {session.photoCount}</p>
-          <p className="mt-2 text-xs text-stone-600">Required photos: Front, Back, Strap, Serial Number, and Damage (if any).</p>
-        </div>
-      ) : null}
-      <div className="mt-4">
-        <label className="block text-sm font-medium text-stone-700">
-          Photo type
-          <select
-            value={photoKind}
-            onChange={(e) => setPhotoKind(e.target.value as "front" | "back" | "strap" | "serial" | "damage" | "other")}
-            className="mt-2 block w-full rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
+    <div className="min-h-screen bg-gradient-to-b from-stone-100 to-stone-200/90 pb-10 pt-6 text-stone-900">
+      <div className="mx-auto w-full max-w-md px-4 sm:max-w-lg">
+        <header className="text-center">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zimson-700">Zimson service</p>
+          <h1 className="mt-1 font-serif text-2xl font-semibold text-zimson-950 sm:text-[1.65rem]">Watch photo upload</h1>
+          <p className="mt-2 text-sm leading-relaxed text-stone-600">{status}</p>
+        </header>
+
+        {uploadError ? (
+          <div
+            className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 shadow-sm"
+            role="alert"
           >
-            <option value="front">Watch front</option>
-            <option value="back">Watch back</option>
-            <option value="strap">Strap</option>
-            <option value="serial">Serial number</option>
-            <option value="damage">Damage image</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-        <label className="block text-sm font-medium text-stone-700">Capture or choose photos</label>
+            {uploadError}
+          </div>
+        ) : null}
+
+        {session ? (
+          <section className="mt-5 overflow-hidden rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50 to-amber-100/50 p-4 shadow-sm">
+            <h2 className="text-xs font-bold uppercase tracking-wide text-amber-900/90">Booking summary</h2>
+            <dl className="mt-3 space-y-2 text-sm">
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 font-semibold text-amber-950">SRF</dt>
+                <dd className="text-amber-950/90">{session.reference}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 font-semibold text-amber-950">Customer</dt>
+                <dd className="text-amber-950/90">{session.customerName}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 font-semibold text-amber-950">Watch</dt>
+                <dd className="leading-snug text-amber-950/90">{session.watch}</dd>
+              </div>
+              <div className="flex gap-2 border-t border-amber-200/80 pt-2">
+                <dt className="w-24 shrink-0 font-semibold text-amber-950">Progress</dt>
+                <dd className="font-medium text-amber-950">
+                  {PHOTO_SLOTS.filter((s) => s.required && photoByKind.has(s.kind)).length} of {requiredTotal} required
+                  {requiredDone ? " · complete" : ""}
+                </dd>
+              </div>
+            </dl>
+            <div className="mt-4 rounded-xl border border-amber-300/60 bg-white/70 p-3 text-xs leading-relaxed text-amber-950/85">
+              <p className="font-semibold text-amber-950">What we need</p>
+              <p className="mt-1">
+                One clear photo for each of: <strong>front</strong>, <strong>back</strong>, <strong>strap</strong>, and{" "}
+                <strong>serial number</strong>. Add <strong>damage</strong> only if there is visible wear or impact. Each
+                category keeps only your latest photo (uploading again replaces the previous one).
+              </p>
+              <p className="mt-2 text-amber-900/80">
+                Max file size <strong>{srfCustomerPhotoMaxSizeLabel()}</strong> per photo. Use JPG or PNG from your
+                gallery, or take a new picture.
+              </p>
+            </div>
+          </section>
+        ) : null}
+
         <input
+          ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/*"
           capture="environment"
-          multiple
+          className="sr-only"
+          tabIndex={-1}
           disabled={!canUpload || busy}
           onChange={(e) => void upload(e.target.files)}
-          className="mt-2 block w-full text-sm"
         />
-      </div>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => void refresh()}
-        className="mt-4 rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50 disabled:opacity-50"
-      >
-        Refresh status
-      </button>
-      {session && session.photos?.length ? (
-        <div className="mt-4 rounded-xl border border-zimson-200 bg-white p-3">
-          <p className="text-sm font-semibold text-zimson-900">Uploaded photo preview</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {session.photos.map((p) => (
-              <div key={p.id} className="rounded-lg border border-zimson-200 p-2">
-                <img src={`/${p.filePath}`} alt={p.photoKind ?? "watch photo"} className="h-24 w-full rounded object-cover" />
-                <p className="mt-1 text-[11px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
-              </div>
-            ))}
-          </div>
+
+        <section className="mt-6 space-y-3">
+          <h2 className="text-sm font-semibold text-zimson-900">Photo checklist</h2>
+          <p className="text-xs text-stone-600">Tap a row to add or replace that photo (one image per category).</p>
+          <ul className="space-y-2">
+            {PHOTO_SLOTS.map((slot) => {
+              const shot = photoByKind.get(slot.kind);
+              const isActive = activeKind === slot.kind;
+              return (
+                <li key={slot.kind}>
+                  <button
+                    type="button"
+                    disabled={!canUpload || busy}
+                    onClick={() => openPickerForKind(slot.kind)}
+                    className={`flex w-full items-stretch gap-3 rounded-2xl border p-3 text-left transition ${
+                      shot
+                        ? "border-emerald-200 bg-white shadow-sm"
+                        : isActive
+                          ? "border-zimson-400 bg-zimson-50/80 shadow-sm"
+                          : "border-stone-200 bg-white/90 shadow-sm hover:border-zimson-300"
+                    } disabled:cursor-not-allowed disabled:opacity-60`}
+                  >
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-stone-100">
+                      {shot ? (
+                        <img
+                          src={`/${shot.filePath}`}
+                          alt={slot.title}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full flex-col items-center justify-center px-1 text-center text-[10px] font-medium text-stone-400">
+                          {slot.required ? "Required" : "Optional"}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1 py-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-stone-900">{slot.title}</span>
+                        {shot ? (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                            Saved
+                          </span>
+                        ) : slot.required ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                            Needed
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-xs text-stone-600">{slot.hint}</p>
+                      <p className="mt-2 text-xs font-semibold text-zimson-800">
+                        {busy && isActive ? "Uploading…" : shot ? "Tap to replace" : "Tap to upload"}
+                      </p>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void refresh()}
+            className="rounded-2xl border-2 border-zimson-400 bg-white px-5 py-3 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:opacity-50"
+          >
+            Refresh status
+          </button>
         </div>
-      ) : null}
-      <p className="mt-4 text-xs text-stone-500">
-        This upload link is one-time/temporary and will be disabled once SRF booking is finalized at counter.
-      </p>
+
+        <p className="mt-8 text-center text-[11px] leading-relaxed text-stone-500">
+          This link is temporary and stops working after the service desk finalises your booking. Photos are stored only
+          for this repair request.
+        </p>
+      </div>
     </div>
   );
 }

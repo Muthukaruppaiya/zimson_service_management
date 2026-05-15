@@ -4,14 +4,16 @@ import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
-import { printAssignmentSlip, printBrandDispatchDocument, printEstimateDocument } from "../../lib/serviceDocuments";
-import type { SparePriceLine } from "../../types/spare";
+import { printAssignmentSlip, printBrandDispatchDocument, printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
+import type { SrfJob } from "../../types/srfJob";
+import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { TechnicianProfile } from "../../types/technician";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 
@@ -95,6 +97,14 @@ export function ScSupervisorPage() {
   const [repairPopupJobId, setRepairPopupJobId] = useState<string | null>(null);
   const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string }>>([{ spareId: "", qty: "1" }]);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
+  const [hoStockBySpareId, setHoStockBySpareId] = useState<Record<string, number>>({});
+  const [repairPopupError, setRepairPopupError] = useState("");
+  const [repairSaving, setRepairSaving] = useState(false);
+  const [repairSuccessMonitor, setRepairSuccessMonitor] = useState<{
+    reference: string;
+    customerName: string;
+    watchLabel: string;
+  } | null>(null);
   const [moveToOdcPopupJobId, setMoveToOdcPopupJobId] = useState<string | null>(null);
   const [moveToOdcNote, setMoveToOdcNote] = useState("");
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
@@ -131,6 +141,7 @@ export function ScSupervisorPage() {
   const [brandNotifyNoteInput, setBrandNotifyNoteInput] = useState("Customer informed through web, SMS and WhatsApp copy.");
   void spareOrderMsg;
   const [scanSrfInput, setScanSrfInput] = useState("");
+  const [listDetailJobId, setListDetailJobId] = useState<string | null>(null);
 
   const received = useMemo(() => {
     if (!user) return [];
@@ -173,13 +184,15 @@ export function ScSupervisorPage() {
     () => (srfId ? brandDeskQueue.filter((j) => j.id === srfId) : brandDeskQueue),
     [brandDeskQueue, srfId],
   );
-  const interHoInvoiceQueue = useMemo(() => {
+  /** Repair HO creates inter-HO invoice before return dispatch to sender HO (not sender HO). */
+  const repairHoInvoiceQueue = useMemo(() => {
     if (!user) return [];
     return jobs.filter(
       (j) =>
         j.status === "ready_for_outward" &&
-        !!j.transferSourceRegionId &&
-        !j.hoSparesBillRef &&
+        !!j.transferTargetRegionId &&
+        !j.requiresLocalConversion &&
+        !(j.hoSparesBillRef ?? "").trim() &&
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
@@ -193,9 +206,25 @@ export function ScSupervisorPage() {
     () => (srfId ? transferredQueue.filter((j) => j.id === srfId) : transferredQueue),
     [transferredQueue, srfId],
   );
-  const interHoInvoiceView = useMemo(
-    () => (srfId ? interHoInvoiceQueue.filter((j) => j.id === srfId) : interHoInvoiceQueue),
-    [interHoInvoiceQueue, srfId],
+  const supervisorListRows = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: SrfJob[] = [];
+    for (const j of [...received, ...decisionQueue, ...brandDeskQueue, ...repairHoInvoiceQueue, ...transferredQueue]) {
+      if (seen.has(j.id)) continue;
+      seen.add(j.id);
+      rows.push(j);
+    }
+    return rows;
+  }, [received, decisionQueue, brandDeskQueue, repairHoInvoiceQueue, transferredQueue]);
+
+  const listDetailJob = useMemo(
+    () => (listDetailJobId ? jobs.find((j) => j.id === listDetailJobId) ?? null : null),
+    [jobs, listDetailJobId],
+  );
+
+  const repairHoInvoiceView = useMemo(
+    () => (srfId ? repairHoInvoiceQueue.filter((j) => j.id === srfId) : repairHoInvoiceQueue),
+    [repairHoInvoiceQueue, srfId],
   );
 
   async function handleAssign(jobId: string) {
@@ -306,19 +335,6 @@ export function ScSupervisorPage() {
         ...f,
         [moveToOdcPopupJobId]: e instanceof Error ? e.message : "Could not move to internal outward queue.",
       }));
-    }
-  }
-
-  async function markRepaired(jobId: string) {
-    try {
-      await supervisorMarkRepairComplete(jobId);
-      setFeedback((f) => ({
-        ...f,
-        [jobId]:
-          "Repair recorded successfully. The job is now in internal outward queue for logistics dispatch to store.",
-      }));
-    } catch (e) {
-      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not mark repaired." }));
     }
   }
 
@@ -636,7 +652,43 @@ export function ScSupervisorPage() {
     }
   }
 
+  async function fetchHoStockQty(spareId: string): Promise<number> {
+    if (!spareId) return 0;
+    if (hoStockBySpareId[spareId] != null) return hoStockBySpareId[spareId]!;
+    try {
+      const out = await apiJson<{ stock: SpareStockRow[] }>(
+        `/api/catalog/spares/${encodeURIComponent(spareId)}/stock`,
+      );
+      const qty = out.stock.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
+      setHoStockBySpareId((prev) => ({ ...prev, [spareId]: qty }));
+      return qty;
+    } catch {
+      setHoStockBySpareId((prev) => ({ ...prev, [spareId]: 0 }));
+      return 0;
+    }
+  }
+
+  async function validateRepairStock(): Promise<string | null> {
+    const usage = new Map<string, { qty: number; name: string }>();
+    for (const line of repairLines) {
+      const spareId = line.spareId.trim();
+      const qty = Number(line.qty);
+      if (!spareId || !Number.isFinite(qty) || qty <= 0) continue;
+      const spare = activeSpares.find((s) => s.id === spareId);
+      const prev = usage.get(spareId) ?? { qty: 0, name: spare?.name ?? spareId };
+      usage.set(spareId, { qty: prev.qty + qty, name: prev.name });
+    }
+    for (const [spareId, entry] of usage.entries()) {
+      const available = await fetchHoStockQty(spareId);
+      if (available < entry.qty) {
+        return `Insufficient HO stock for ${entry.name}. Available ${available}, required ${entry.qty}.`;
+      }
+    }
+    return null;
+  }
+
   function openRepairPopup(jobId: string) {
+    setRepairPopupError("");
     const flow = spareFlowBySrfId.get(jobId);
     if (flow?.status === "FULFILLED" && flow.inwardReceivedAt && flow.lines.length > 0) {
       setUnitPriceBySpareId((prev) => {
@@ -669,11 +721,20 @@ export function ScSupervisorPage() {
       }
     }
     setRepairPopupJobId(jobId);
+    const spareIds =
+      flow?.status === "FULFILLED" && flow.inwardReceivedAt
+        ? flow.lines.map((l) => l.spareId).filter(Boolean)
+        : [];
+    for (const spareId of spareIds) {
+      void fetchHoStockQty(spareId);
+    }
   }
 
   function closeRepairPopup() {
     setRepairPopupJobId(null);
     setRepairLines([{ spareId: "", qty: "1" }]);
+    setRepairPopupError("");
+    setRepairSaving(false);
   }
 
   async function ensureSparePrice(spareId: string) {
@@ -697,7 +758,9 @@ export function ScSupervisorPage() {
   }
 
   async function confirmRepairWithSpares() {
-    if (!repairPopupJobId) return;
+    if (!repairPopupJobId || repairSaving) return;
+    const jobId = repairPopupJobId;
+    const job = jobs.find((j) => j.id === jobId);
     const lines = repairLines
       .map((x) => ({ spareId: x.spareId, qty: Number(x.qty) }))
       .filter((x) => x.spareId && Number.isFinite(x.qty) && x.qty > 0)
@@ -713,19 +776,40 @@ export function ScSupervisorPage() {
         };
       });
     if (lines.length === 0) {
-      setFeedback((f) => ({ ...f, [repairPopupJobId]: "Add at least one used spare from inventory." }));
+      setRepairPopupError("Add at least one used spare from inventory.");
       return;
     }
     if (lines.some((x) => Number(x.unitPriceInr ?? 0) <= 0)) {
-      setFeedback((f) => ({ ...f, [repairPopupJobId]: "Price not configured for selected spare(s). Set spare price first." }));
+      setRepairPopupError("Price not configured for selected spare(s). Set spare price first.");
       return;
     }
+    const stockErr = await validateRepairStock();
+    if (stockErr) {
+      setRepairPopupError(stockErr);
+      window.alert(`Insufficient spare stock\n\n${stockErr}`);
+      return;
+    }
+    setRepairSaving(true);
+    setRepairPopupError("");
     try {
-      await submitSparesSlip(repairPopupJobId, lines);
-      await markRepaired(repairPopupJobId);
+      await submitSparesSlip(jobId, lines);
+      await supervisorMarkRepairComplete(jobId);
       closeRepairPopup();
+      if (job) {
+        setRepairSuccessMonitor({
+          reference: job.reference,
+          customerName: job.customerName,
+          watchLabel: `${job.watchBrand} ${job.watchModel}`.trim(),
+        });
+      }
     } catch (e) {
-      setFeedback((f) => ({ ...f, [repairPopupJobId]: e instanceof Error ? e.message : "Could not complete repair." }));
+      const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not complete repair.";
+      setRepairPopupError(msg);
+      if (msg.toLowerCase().includes("insufficient")) {
+        window.alert(`Insufficient spare stock\n\n${msg}`);
+      }
+    } finally {
+      setRepairSaving(false);
     }
   }
 
@@ -776,7 +860,7 @@ export function ScSupervisorPage() {
                 e.preventDefault();
                 const ref = scanSrfInput.trim().toLowerCase();
                 if (!ref) return;
-                const row = [...received, ...decisionQueue, ...brandDeskQueue, ...interHoInvoiceQueue, ...transferredQueue].find((j) => j.reference.toLowerCase() === ref);
+                const row = supervisorListRows.find((j) => j.reference.toLowerCase() === ref);
                 if (row) {
                   navigate(`/service-centre/supervisor/srf/${encodeURIComponent(row.id)}`);
                   setScanSrfInput("");
@@ -798,7 +882,7 @@ export function ScSupervisorPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...received, ...decisionQueue, ...brandDeskQueue, ...interHoInvoiceQueue, ...transferredQueue].map((j) => (
+                {supervisorListRows.map((j) => (
                   <tr key={j.id} className="border-b border-zimson-100 last:border-0">
                     <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">
                       {j.reference}
@@ -812,13 +896,22 @@ export function ScSupervisorPage() {
                     <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
                     <td className="px-3 py-2 text-xs text-stone-700">{j.status.replace(/_/g, " ")}</td>
                     <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)}
-                        className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-                      >
-                        Open SRF
-                      </button>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setListDetailJobId(j.id)}
+                          className="rounded-lg border border-zimson-400 bg-zimson-50 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"
+                        >
+                          Details
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)}
+                          className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                        >
+                          Open SRF
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -876,22 +969,26 @@ export function ScSupervisorPage() {
           ))}
         </Card>
       ) : null}
-      {interHoInvoiceView.length > 0 ? (
-        <Card title="Inter-HO sender invoice" subtitle="Supervisor must create sender-HO invoice before outward dispatch" className="mb-6">
-          {interHoInvoiceView.map((j) => (
+      {repairHoInvoiceView.length > 0 ? (
+        <Card
+          title="Inter-HO repair invoice"
+          subtitle="Repair HO must create invoice to sender HO before return dispatch"
+          className="mb-6"
+        >
+          {repairHoInvoiceView.map((j) => (
             <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
               <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
               <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
               <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
               <p className="mt-2 text-xs text-amber-800">
-                Create invoice against sender HO, then logistics can generate ODC.
+                Bill sender HO for repair/spares, then logistics can dispatch the return ODC.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Link
                   to={`/service-centre/inter-ho-invoice?srfId=${encodeURIComponent(j.id)}&invoiceFor=sender-ho`}
                   className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
                 >
-                  Create Inter-HO invoice
+                  Create repair HO invoice
                 </Link>
               </div>
             </div>
@@ -1091,7 +1188,7 @@ export function ScSupervisorPage() {
       <Card title="Supervisor decision queue" subtitle="From supervisor login: mark repaired or need re-estimate" className="mt-8">
         {decisionView.length === 0 ? (
           <p className="text-sm text-stone-600">
-            {receivedView.length > 0 || interHoInvoiceView.length > 0
+            {receivedView.length > 0 || repairHoInvoiceView.length > 0
               ? "No decision-pending SRFs for this item yet."
               : "No assigned SRFs pending decision."}
           </p>
@@ -1158,16 +1255,16 @@ export function ScSupervisorPage() {
                   ) : null}
                   {j.status === "customer_rejected" ? (
                     <div className="w-full rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
-                      <p className="font-semibold">
+                      {/* <p className="font-semibold">
                         Customer rejected the re-estimate. Watch is on hold for supervisor follow-up.
-                      </p>
-                      <p className="mt-1 text-[11px]">
+                      </p> */}
+                      {/* <p className="mt-1 text-[11px]">
                         Call the customer and try to negotiate. If they agree on a revised amount, click
                         <span className="font-semibold"> &quot;Negotiate &amp; send re-estimate&quot;</span> to share the new
                         estimate via tracking link. If the customer still does not want the repair, click
                         <span className="font-semibold"> &quot;Move to internal outward&quot;</span> to send the watch back to the store
                         without billing.
-                      </p>
+                      </p> */}
                     </div>
                   ) : null}
                   {canOpenRepair ? (
@@ -1285,18 +1382,35 @@ export function ScSupervisorPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Add used spares from inventory</h3>
-            <p className="mt-1 text-sm text-stone-600">Select spares and quantity. On confirm, repair is marked complete.</p>
+            <p className="mt-1 text-sm text-stone-600">
+              Select spares and quantity, then save. Repair is marked complete and the watch moves to front desk for outward.
+            </p>
+            {repairPopupError ? (
+              <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900" role="alert">
+                {repairPopupError}
+              </p>
+            ) : null}
             <div className="mt-4 space-y-3">
-              {repairLines.map((line, idx) => (
+              {repairLines.map((line, idx) => {
+                const spare = activeSpares.find((s) => s.id === line.spareId);
+                const unit = Number(unitPriceBySpareId[line.spareId] ?? spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
+                const qty = Number(line.qty || 0);
+                const hoStock = line.spareId ? hoStockBySpareId[line.spareId] : undefined;
+                const lineShort =
+                  line.spareId && hoStock != null && Number.isFinite(qty) && qty > 0 && qty > hoStock;
+                return (
                 <div key={idx} className="grid grid-cols-12 gap-2">
                   <select
                     value={line.spareId}
                     onChange={(e) => {
                       const nextId = e.target.value;
+                      setRepairPopupError("");
                       setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
                       void ensureSparePrice(nextId);
+                      void fetchHoStockQty(nextId);
                     }}
-                    className="col-span-8 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                    disabled={repairSaving}
+                    className="col-span-8 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"
                   >
                     <option value="">Select spare...</option>
                     {activeSpares.map((s) => (
@@ -1307,47 +1421,61 @@ export function ScSupervisorPage() {
                   </select>
                   <input
                     value={line.qty}
-                    onChange={(e) =>
-                      setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, qty: e.target.value } : x)))
-                    }
-                    className="col-span-3 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                    onChange={(e) => {
+                      setRepairPopupError("");
+                      setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, qty: e.target.value } : x)));
+                    }}
+                    disabled={repairSaving}
+                    className={`col-span-3 rounded-xl border bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60 ${
+                      lineShort ? "border-rose-400" : "border-zimson-300"
+                    }`}
                     placeholder="Qty"
                   />
                   <button
                     type="button"
                     onClick={() => setRepairLines((prev) => prev.filter((_, i) => i !== idx))}
-                    className="col-span-1 rounded-xl border border-zimson-300 bg-white text-sm"
+                    disabled={repairSaving || repairLines.length <= 1}
+                    className="col-span-1 rounded-xl border border-zimson-300 bg-white text-sm disabled:opacity-40"
                   >
                     x
                   </button>
                   <div className="col-span-12 text-xs text-stone-600">
-                    Amount: INR {(() => {
-                      const spare = activeSpares.find((s) => s.id === line.spareId);
-                      const unit = Number(unitPriceBySpareId[line.spareId] ?? spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
-                      const qty = Number(line.qty || 0);
-                      return (unit * (Number.isFinite(qty) ? qty : 0)).toFixed(2);
-                    })()}
+                    Amount: INR {(unit * (Number.isFinite(qty) ? qty : 0)).toFixed(2)}
+                    {line.spareId ? (
+                      <span className={lineShort ? " ml-2 font-semibold text-rose-700" : " ml-2 text-stone-500"}>
+                        · HO stock: {hoStock != null ? hoStock : "…"}
+                        {lineShort ? ` (need ${qty}, only ${hoStock} available)` : ""}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <button
               type="button"
               onClick={() => setRepairLines((prev) => [...prev, { spareId: "", qty: "1" }])}
-              className="mt-3 rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900"
+              disabled={repairSaving}
+              className="mt-3 rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 disabled:opacity-60"
             >
               Add spare row
             </button>
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={closeRepairPopup} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">
+              <button
+                type="button"
+                onClick={closeRepairPopup}
+                disabled={repairSaving}
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-60"
+              >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => void confirmRepairWithSpares()}
-                className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
+                disabled={repairSaving}
+                className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-70"
               >
-                Confirm repaired
+                {repairSaving ? "Saving…" : "Save"}
               </button>
             </div>
           </div>
@@ -1821,6 +1949,216 @@ export function ScSupervisorPage() {
           </div>
         </div>
       ) : null}
+
+      {listDetailJob ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex flex-shrink-0 flex-wrap items-start justify-between gap-3 border-b border-zimson-200 bg-zimson-50/60 px-5 py-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-stone-500">SRF details</p>
+                <h3 className="mt-0.5 font-mono text-lg font-bold text-zimson-900">{listDetailJob.reference}</h3>
+                <p className="mt-0.5 text-sm text-stone-600">
+                  {listDetailJob.customerName} · {listDetailJob.watchBrand} {listDetailJob.watchModel}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setListDetailJobId(null);
+                    navigate(`/service-centre/supervisor/srf/${encodeURIComponent(listDetailJob.id)}`);
+                  }}
+                  className="rounded-lg border border-zimson-500 bg-zimson-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zimson-700"
+                >
+                  Open SRF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTraceJobId(listDetailJob.id)}
+                  className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                >
+                  Full trace
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setListDetailJobId(null)}
+                  className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+                >
+                  Close ✕
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-zimson-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-zimson-900">
+                  {listDetailJob.status.replace(/_/g, " ")}
+                </span>
+                <span className="text-xs text-stone-500">Created {new Date(listDetailJob.createdAt).toLocaleString()}</span>
+                {listDetailJob.inwardAt ? (
+                  <span className="text-xs text-stone-500">SC inward {new Date(listDetailJob.inwardAt).toLocaleString()}</span>
+                ) : null}
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <section className="rounded-xl border border-zimson-200 bg-zimson-50/40 p-3">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500">Customer</p>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Name</td>
+                        <td className="py-0.5">{listDetailJob.customerName}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Phone</td>
+                        <td className="py-0.5 font-mono">{listDetailJob.phone}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+                <section className="rounded-xl border border-zimson-200 bg-zimson-50/40 p-3">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500">Watch</p>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Brand / model</td>
+                        <td className="py-0.5">
+                          {listDetailJob.watchBrand} {listDetailJob.watchModel}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Serial</td>
+                        <td className="py-0.5 font-mono">{listDetailJob.serial || "—"}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+                <section className="rounded-xl border border-zimson-200 bg-zimson-50/40 p-3 sm:col-span-2">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500">Service &amp; logistics</p>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Complaint</td>
+                        <td className="py-0.5">{listDetailJob.complaint || "—"}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Estimate</td>
+                        <td className="py-0.5 font-semibold text-zimson-900">
+                          {Number(listDetailJob.estimateTotalInr ?? 0).toLocaleString(undefined, {
+                            style: "currency",
+                            currency: "INR",
+                          })}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Advance</td>
+                        <td className="py-0.5">
+                          {Number(listDetailJob.advanceInr ?? 0) > 0
+                            ? Number(listDetailJob.advanceInr).toLocaleString(undefined, {
+                                style: "currency",
+                                currency: "INR",
+                              })
+                            : "—"}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Inward DC</td>
+                        <td className="py-0.5 font-mono">{listDetailJob.dcNumber ?? "—"}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Outward DC</td>
+                        <td className="py-0.5 font-mono">{listDetailJob.outwardDcNumber ?? "—"}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Store / region</td>
+                        <td className="py-0.5">
+                          {listDetailJob.storeName ?? listDetailJob.storeId}
+                          {listDetailJob.regionName ? ` · ${listDetailJob.regionName}` : ""}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+              </div>
+              {listDetailJob.photos && listDetailJob.photos.length > 0 ? (
+                <section className="mt-4">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500">
+                    Watch photos ({listDetailJob.photos.length})
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                    {listDetailJob.photos.map((p) => (
+                      <div key={p.id} className="overflow-hidden rounded-lg border border-zimson-200">
+                        <img src={`/${p.filePath}`} alt={p.photoKind ?? "watch"} className="aspect-[4/3] w-full object-cover" />
+                        <p className="border-t border-zimson-100 bg-zimson-50/70 px-1.5 py-0.5 text-center text-[10px] capitalize text-stone-600">
+                          {p.photoKind ?? "other"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    printSrfDocument({
+                      reference: listDetailJob.reference,
+                      customerName: listDetailJob.customerName,
+                      phone: listDetailJob.phone,
+                      watchBrand: listDetailJob.watchBrand,
+                      watchModel: listDetailJob.watchModel,
+                      serial: listDetailJob.serial,
+                      complaint: listDetailJob.complaint || "-",
+                      estimateTotalInr: Number(listDetailJob.estimateTotalInr ?? 0),
+                      photos: listDetailJob.photos ?? [],
+                    })
+                  }
+                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"
+                >
+                  Print SRF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => printEstimateDocument(listDetailJob)}
+                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"
+                >
+                  Print estimate
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {repairSuccessMonitor ? (
+        <ProcessSuccessModal
+          open
+          title="Watch repaired successfully"
+          description="Sent to front desk for outward processing."
+          onBackdropClick={() => setRepairSuccessMonitor(null)}
+          actions={
+            <button
+              type="button"
+              className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 sm:w-auto"
+              onClick={() => setRepairSuccessMonitor(null)}
+            >
+              Done
+            </button>
+          }
+        >
+          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/80 px-4 py-3 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">SRF reference</p>
+            <p className="mt-1 font-mono text-2xl font-bold text-emerald-900">{repairSuccessMonitor.reference}</p>
+          </div>
+          <p className="mt-3 text-sm text-stone-700">
+            <span className="font-semibold text-stone-900">{repairSuccessMonitor.customerName}</span>
+            {" · "}
+            {repairSuccessMonitor.watchLabel}
+          </p>
+          <p className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-sm font-medium text-emerald-900">
+            The watch is in the outward queue. Front desk / logistics will dispatch when ready.
+          </p>
+        </ProcessSuccessModal>
+      ) : null}
+
       {traceJobId ? <SrfTraceModal srfId={traceJobId} onClose={() => setTraceJobId(null)} /> : null}
     </div>
   );

@@ -110,7 +110,7 @@ type SrfJobsContextValue = {
       advancePaymentDetails?: unknown;
       selectedPartIds: string[];
     },
-  ) => Promise<{ trackingUrl?: string; invoiceNumber?: string }>;
+  ) => Promise<{ trackingUrl?: string }>;
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
   confirmInwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
@@ -151,7 +151,7 @@ type SrfJobsContextValue = {
   closeWithInvoice: (
     srfId: string,
     payload?: { hoSparesBillRef?: string; storeBillRef?: string; noBillingHandover?: boolean },
-  ) => Promise<void>;
+  ) => Promise<{ ok: boolean; invoiceNumber?: string | null }>;
   getStatusHistory: (srfId: string) => Promise<Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }>>;
   getSrfTrace: (srfId: string) => Promise<SrfTrace>;
   cancelDraftSrf: (srfId: string, reason: string) => Promise<void>;
@@ -206,7 +206,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         selectedPartIds: string[];
       },
     ) => {
-      const out = await apiJson<{ trackingUrl?: string; invoiceNumber?: string }>(
+      const out = await apiJson<{ trackingUrl?: string }>(
         `/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`,
         {
           method: "POST",
@@ -425,8 +425,12 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     srfId: string,
     payload?: { hoSparesBillRef?: string; storeBillRef?: string; noBillingHandover?: boolean },
   ) => {
-    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/close`, { method: "POST", json: payload ?? {} });
+    const out = await apiJson<{ ok: boolean; invoiceNumber?: string | null }>(
+      `/api/service/srf-jobs/${encodeURIComponent(srfId)}/close`,
+      { method: "POST", json: payload ?? {} },
+    );
     await refreshJobs();
+    return out;
   }, [refreshJobs]);
 
   const getStatusHistory = useCallback(async (srfId: string) => {

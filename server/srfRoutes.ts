@@ -5,6 +5,7 @@ import path from "node:path";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import { APP_PAYMENT_MODES, sumAdvanceCashDenominations, type AdvancePaymentDetails } from "../src/lib/paymentModes";
+import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
 import { resolvePublicAppBaseUrl } from "./publicAppUrl";
@@ -92,8 +93,25 @@ const upload = multer({
       cb(null, `${Date.now()}-${crypto.randomUUID()}${ext}`);
     },
   }),
-  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+  limits: { fileSize: SRF_CUSTOMER_PHOTO_MAX_BYTES, files: 1 },
 });
+
+function srfPublicPhotoUpload(req: Request, res: Response, next: NextFunction) {
+  upload.single("file")(req, res, (err: unknown) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        res.status(400).json({
+          error: `This image is too large. Please use a photo under ${Math.round(SRF_CUSTOMER_PHOTO_MAX_BYTES / (1024 * 1024))} MB.`,
+        });
+        return;
+      }
+      const msg = err instanceof Error ? err.message : "Upload failed.";
+      res.status(400).json({ error: msg });
+      return;
+    }
+    next();
+  });
+}
 
 function roleCanCreateDraft(actor: DemoUser): boolean {
   return STORE_ROLES.has(actor.role) || actor.role === "super_admin" || actor.role === "admin";
@@ -103,10 +121,31 @@ function roleCanView(actor: DemoUser): boolean {
   return roleCanCreateDraft(actor) || HO_SC_ROLES.has(actor.role);
 }
 
+/** Customer-visible open jobs (excludes internal inter-HO archive rows). */
+const CUSTOMER_TRACKING_OPEN_WHERE =
+  "status NOT IN ('closed', 'cancelled', 'sent_to_other_ho') AND reference NOT LIKE '%-ARCH-%'";
+const CUSTOMER_TRACKING_OPEN_WHERE_J =
+  "j.status NOT IN ('closed', 'cancelled', 'sent_to_other_ho') AND j.reference NOT LIKE '%-ARCH-%'";
+
+async function srfRegionScopeCode(client: PoolClient, regionId: string): Promise<string> {
+  const { rows } = await client.query<{ code: string }>(
+    `SELECT COALESCE(NULLIF(TRIM(region_code), ''), NULLIF(TRIM(name), ''), 'RGN') AS code
+     FROM regions WHERE id = $1::text`,
+    [regionId],
+  );
+  return scopeCode(String(rows[0]?.code ?? "RGN"), "RGN", 6);
+}
+
 function visibleWhere(actor: DemoUser, idxStart = 1): { sql: string; params: unknown[]; nextIdx: number } {
   let i = idxStart;
-  if (actor.role === "super_admin" || actor.role === "admin") {
+  if (actor.role === "super_admin") {
     return { sql: "1=1", params: [], nextIdx: i };
+  }
+  if (actor.role === "admin") {
+    if (!actor.regionId) {
+      return { sql: "1=0", params: [], nextIdx: i };
+    }
+    return { sql: "j.region_id = $" + i + "::text", params: [actor.regionId], nextIdx: i + 1 };
   }
   if (STORE_ROLES.has(actor.role)) {
     return {
@@ -189,7 +228,7 @@ async function getOrCreateTrackingToken(client: PoolClient, phone: string): Prom
     `SELECT COUNT(*)::int AS c
      FROM srf_jobs
      WHERE RIGHT(regexp_replace(phone, '\D', '', 'g'), 10) = $1
-       AND status NOT IN ('closed', 'cancelled')`,
+       AND ${CUSTOMER_TRACKING_OPEN_WHERE}`,
     [p10],
   );
   const hasOpenSrf = (openRows.rows[0]?.c ?? 0) > 0;
@@ -225,7 +264,7 @@ async function maybeDisableTrackingToken(client: PoolClient, phone: string): Pro
     `SELECT COUNT(*)::int AS c
      FROM srf_jobs
      WHERE RIGHT(regexp_replace(phone, '\D', '', 'g'), 10) = $1
-       AND status NOT IN ('closed', 'cancelled')`,
+       AND ${CUSTOMER_TRACKING_OPEN_WHERE}`,
     [p10],
   );
   if ((openRows.rows[0]?.c ?? 0) > 0) return;
@@ -246,7 +285,7 @@ async function appendStatusHistory(
 ): Promise<void> {
   await client.query(
     `INSERT INTO srf_status_history (srf_id, status, note, changed_by)
-     VALUES ($1::uuid, $2, $3, $4)`,
+     VALUES ($1::uuid, $2::text, $3::text, $4::text)`,
     [srfId, status, note, changedBy],
   );
 }
@@ -470,7 +509,7 @@ export function registerSrfRoutes(
         params.push(odcQ);
         where += ` AND j.outward_dc_number = $${i++}`;
       }
-      if (regionQ && (actor.role === "super_admin" || actor.role === "admin")) {
+      if (regionQ && actor.role === "super_admin") {
         params.push(regionQ);
         where += ` AND j.region_id = $${i++}::text`;
       }
@@ -520,6 +559,7 @@ export function registerSrfRoutes(
                 j.spares_slip_submitted_by AS "sparesSlipSubmittedBy",
                 j.ho_spares_bill_ref AS "hoSparesBillRef",
                 j.store_bill_ref AS "storeBillRef",
+                j.invoice_number AS "invoiceNumber",
                 j.completed_at_sc AS "completedAtSc",
                 j.ready_for_outward_at AS "readyForOutwardAt",
                 j.destination_store_id AS "destinationStoreId",
@@ -1693,8 +1733,6 @@ export function registerSrfRoutes(
           estimatedFinishDate,
         ],
       );
-      const invNo = await allocateStoreInvoiceNumber(client, locked[0]!.store_id);
-      await client.query(`UPDATE srf_jobs SET invoice_number = $2 WHERE id = $1::uuid`, [srfId, invNo]);
       await client.query(
         `UPDATE srf_photo_sessions SET revoked_at = now() WHERE srf_id = $1::uuid AND revoked_at IS NULL`,
         [srfId],
@@ -1732,7 +1770,7 @@ export function registerSrfRoutes(
         trackingUrl,
         srfReference: refRow?.reference ?? "",
       }).catch(() => {});
-      res.json({ ok: true, trackingUrl, invoiceNumber: invNo });
+      res.json({ ok: true, trackingUrl });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -2582,7 +2620,8 @@ export function registerSrfRoutes(
         return;
       }
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
-      const newRef = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(receiverStoreName, receiverStoreId));
+      const regionScope = await srfRegionScopeCode(client, receiverRegionId);
+      const newRef = await nextDocNumber(client, prefix, suffix, regionScope);
       // Resolve the ORIGINAL sender HO context. After the outward+inward steps the parent SRF's
       // region_id/store_id no longer point to the sender — they hold the receiver region and the
       // sender HO store. The original sender region/store and the original booking store live in
@@ -2645,6 +2684,10 @@ export function registerSrfRoutes(
       await client.query(
         `UPDATE srf_jobs
          SET status = 'sent_to_other_ho',
+             reference = CASE
+               WHEN reference LIKE '%-ARCH-%' THEN reference
+               ELSE CONCAT(reference, '-ARCH-', LEFT(id::text, 8))
+             END,
              updated_at = now(),
              modified_by = $2
          WHERE id = $1::uuid`,
@@ -2655,7 +2698,7 @@ export function registerSrfRoutes(
         srfId,
         "sent_to_other_ho",
         actor.id,
-        `Converted by receiver HO. Local SRF created: ${newRef}. Sender SRF remains for tracking.`,
+        `Converted by receiver HO. Local SRF created: ${newRef}. Source row archived for internal use.`,
       );
 
       // Deep Clone: Copy photos from sender SRF to local SRF
@@ -3933,7 +3976,10 @@ export function registerSrfRoutes(
 
   app.post("/api/service/srf-jobs/:srfId/close", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || !STORE_ROLES.has(actor.role)) {
+    const canClose =
+      actor &&
+      (STORE_ROLES.has(actor.role) || actor.role === "super_admin" || actor.role === "admin");
+    if (!canClose) {
       res.status(403).json({ error: "Only store roles can close SRF with invoice." });
       return;
     }
@@ -3941,62 +3987,103 @@ export function registerSrfRoutes(
     const hoSparesBillRef = String(req.body?.hoSparesBillRef ?? "").trim();
     const storeBillRef = String(req.body?.storeBillRef ?? "").trim();
     const noBillingHandover = Boolean(req.body?.noBillingHandover);
+    const actorStoreId = String(actor.storeId ?? "").trim();
+    const isAdmin = actor.role === "super_admin" || actor.role === "admin";
+    const client = await pool.connect();
+    let invoiceNumber: string | null = null;
+    const repairEligibleSql = noBillingHandover
+      ? `customer_reestimate_response = 'rejected'`
+      : `(
+           spares_slip_submitted_at IS NOT NULL
+           OR (
+             used_spares IS NOT NULL
+             AND jsonb_typeof(used_spares) = 'array'
+             AND jsonb_array_length(used_spares) > 0
+           )
+           OR (brand_invoice_amount_inr IS NOT NULL AND brand_invoice_amount_inr > 0)
+         )`;
+    const storeEligibleSql = isAdmin
+      ? "TRUE"
+      : `($2::text <> '' AND (destination_store_id = $2::text OR store_id = $2::text))`;
+    const lockParams: string[] = isAdmin ? [srfId] : [srfId, actorStoreId];
     try {
-      const upd = await pool.query(
-        `UPDATE srf_jobs
-         SET status = 'closed',
-             ho_spares_bill_ref = NULLIF($4, ''),
-             store_bill_ref = NULLIF($5, ''),
-             closed_at = now(),
-             updated_at = now(),
-             modified_by = $2
+      await client.query("BEGIN");
+      const locked = await client.query<{
+        store_id: string;
+        destination_store_id: string | null;
+        phone: string;
+        invoice_number: string | null;
+      }>(
+        `SELECT store_id, destination_store_id, phone, invoice_number
+         FROM srf_jobs
          WHERE id = $1::uuid
            AND status = 'received_at_store'
-           AND destination_store_id = $3::text
-           AND (
-             spares_slip_submitted_at IS NOT NULL
-             OR ($6 AND customer_reestimate_response = 'rejected')
-             OR brand_invoice_amount_inr IS NOT NULL
-           )`,
-        [srfId, actor.id, actor.storeId, hoSparesBillRef, storeBillRef, noBillingHandover],
+           AND (${storeEligibleSql})
+           AND (${repairEligibleSql})
+         FOR UPDATE`,
+        lockParams,
       );
-      if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "Only received SRF with billed repair (spares slip) or rejected re-estimate handover can be closed." });
+      if (locked.rowCount === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error:
+            "Cannot close this SRF. It must be received at your store, have a spares slip (or brand invoice), and match your store access.",
+        });
         return;
       }
-      const srfPhone = await pool.query<{ phone: string }>(`SELECT phone FROM srf_jobs WHERE id = $1::uuid`, [srfId]);
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await appendStatusHistory(
-          client,
-          srfId,
-          "closed",
-          actor.id,
-          noBillingHandover
-            ? "Closed after customer handover without billing (re-estimate rejected)."
-            : "Closed after customer invoice.",
-        );
-        await appendActionLog(client, srfId, {
-          action: noBillingHandover ? "store_no_billing_handover" : "store_close_with_invoice",
-          description: noBillingHandover
-            ? "Watch handed over to customer without billing (re-estimate rejected)."
-            : `Customer invoice raised and SRF closed. HO ref: ${hoSparesBillRef || "-"}; Store ref: ${storeBillRef || "-"}.`,
-          actor,
-          referenceDoc: storeBillRef || hoSparesBillRef || null,
-          details: { hoSparesBillRef, storeBillRef, noBillingHandover },
-        });
-        await maybeDisableTrackingToken(client, srfPhone.rows[0]?.phone ?? "");
-        await client.query("COMMIT");
-      } catch {
-        await client.query("ROLLBACK").catch(() => {});
-      } finally {
-        client.release();
+      const row = locked.rows[0]!;
+      const billingStoreId = String(row.destination_store_id ?? row.store_id ?? "").trim();
+      if (!noBillingHandover) {
+        invoiceNumber = (row.invoice_number ?? "").trim() || null;
+        if (!invoiceNumber) {
+          if (!billingStoreId) {
+            await client.query("ROLLBACK");
+            res.status(400).json({ error: "Store not found on SRF for invoice numbering." });
+            return;
+          }
+          invoiceNumber = await allocateStoreInvoiceNumber(client, billingStoreId);
+          await client.query(`UPDATE srf_jobs SET invoice_number = $2 WHERE id = $1::uuid`, [srfId, invoiceNumber]);
+        }
       }
-      res.json({ ok: true });
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'closed',
+             ho_spares_bill_ref = NULLIF($3::text, ''),
+             store_bill_ref = NULLIF($4::text, ''),
+             closed_at = now(),
+             updated_at = now(),
+             modified_by = $2::text
+         WHERE id = $1::uuid`,
+        [srfId, actor.id, hoSparesBillRef, storeBillRef],
+      );
+      await appendStatusHistory(
+        client,
+        srfId,
+        "closed",
+        actor.id,
+        noBillingHandover
+          ? "Closed after customer handover without billing (re-estimate rejected)."
+          : "Closed after customer invoice.",
+      );
+      await appendActionLog(client, srfId, {
+        action: noBillingHandover ? "store_no_billing_handover" : "store_close_with_invoice",
+        description: noBillingHandover
+          ? "Watch handed over to customer without billing (re-estimate rejected)."
+          : `Customer invoice raised and SRF closed. Invoice ${invoiceNumber ?? "-"}; HO ref: ${hoSparesBillRef || "-"}; Store ref: ${storeBillRef || "-"}.`,
+        actor,
+        referenceDoc: storeBillRef || hoSparesBillRef || invoiceNumber || null,
+        details: { hoSparesBillRef, storeBillRef, noBillingHandover, invoiceNumber },
+      });
+      await maybeDisableTrackingToken(client, row.phone ?? "");
+      await client.query("COMMIT");
+      res.json({ ok: true, invoiceNumber });
     } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not close SRF." });
+      const msg = e instanceof Error ? e.message : "Could not close SRF.";
+      res.status(400).json({ error: msg });
+    } finally {
+      client.release();
     }
   });
 
@@ -4057,7 +4144,7 @@ export function registerSrfRoutes(
         }
       >(
         `SELECT j.id,
-                j.reference,
+                COALESCE(NULLIF(TRIM(j.transfer_source_reference), ''), j.reference) AS reference,
                 j.customer_name AS "customerName",
                 j.phone,
                 j.watch_brand AS "watchBrand",
@@ -4092,21 +4179,20 @@ export function registerSrfRoutes(
                 ), '[]'::json) AS photos
          FROM srf_jobs j
          WHERE RIGHT(regexp_replace(j.phone, '\D', '', 'g'), 10) = $1
-           AND j.status NOT IN ('closed', 'cancelled')
+           AND ${CUSTOMER_TRACKING_OPEN_WHERE_J}
          ORDER BY j.created_at DESC`,
         [row.phone_last10],
       );
 
-      const currentJob = jobsRes.rows[0] ?? null;
-      const ids = currentJob ? [currentJob.id] : [];
+      const allJobIds = jobsRes.rows.map((j) => j.id);
       const historyRows =
-        ids.length > 0
+        allJobIds.length > 0
           ? await pool.query<{ id: string; srf_id: string; status: string; note: string; changed_at: string }>(
               `SELECT id, srf_id, status, note, changed_at
                FROM srf_status_history
                WHERE srf_id = ANY($1::uuid[])
                ORDER BY changed_at DESC`,
-              [ids],
+              [allJobIds],
             )
           : { rows: [] as Array<{ id: string; srf_id: string; status: string; note: string; changed_at: string }> };
 
@@ -4117,16 +4203,17 @@ export function registerSrfRoutes(
         historyBySrf.set(h.srf_id, list);
       }
 
-      const job = currentJob
-        ? {
-            ...currentJob,
-            timeline: historyBySrf.get(currentJob.id) ?? [],
-            reestimateHistory: (historyBySrf.get(currentJob.id) ?? [])
-              .filter((h) => h.status === "reestimate_required")
-              .map((h) => parseReestimateEntry(h.note, h.changedAt))
-              .reverse(),
-          }
-        : null;
+      const jobs = jobsRes.rows.map((j) => ({
+        ...j,
+        timeline: historyBySrf.get(j.id) ?? [],
+        reestimateHistory: (historyBySrf.get(j.id) ?? [])
+          .filter((h) => h.status === "reestimate_required")
+          .map((h) => parseReestimateEntry(h.note, h.changedAt))
+          .reverse(),
+      }));
+
+      /* Keep backward-compat: also send `job` = latest job */
+      const job = jobs[0] ?? null;
       const customer = job
         ? {
             name: job.customerName,
@@ -4134,17 +4221,17 @@ export function registerSrfRoutes(
           }
         : null;
 
-      if (!job) {
+      if (jobs.length === 0) {
         await pool.query(
           `UPDATE customer_tracking_tokens
            SET is_active = false, disabled_at = now()
            WHERE phone_last10 = $1`,
           [row.phone_last10],
         );
-        res.json({ disabled: true, customer: null, job: null });
+        res.json({ disabled: true, customer: null, job: null, jobs: [] });
         return;
       }
-      res.json({ disabled: false, customer, job });
+      res.json({ disabled: false, customer, job, jobs });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Could not load tracking details." });
@@ -4347,7 +4434,8 @@ export function registerSrfRoutes(
         bytes: number;
         createdAt: string;
       }>(
-        `SELECT id,
+        `SELECT DISTINCT ON (photo_kind)
+                id,
                 photo_kind AS "photoKind",
                 file_path AS "filePath",
                 mime,
@@ -4355,7 +4443,7 @@ export function registerSrfRoutes(
                 created_at AS "createdAt"
          FROM srf_job_photos
          WHERE srf_id = $1::uuid
-         ORDER BY created_at DESC`,
+         ORDER BY photo_kind, created_at DESC`,
         [row!.srf_id],
       );
       res.json({
@@ -4372,7 +4460,7 @@ export function registerSrfRoutes(
     }
   });
 
-  app.post("/api/public/srf-photo/upload", upload.single("file"), async (req, res) => {
+  app.post("/api/public/srf-photo/upload", srfPublicPhotoUpload, async (req, res) => {
     const token = String(req.body?.token ?? "").trim();
     if (!token) {
       if (req.file?.path) fs.unlink(req.file.path, () => {});
@@ -4410,11 +4498,27 @@ export function registerSrfRoutes(
       }
       const relPath = path.relative(process.cwd(), req.file.path).replace(/\\/g, "/");
       const photoKind = normalizePhotoKind(String(req.body?.photoKind ?? ""));
-      await pool.query(
+      const { rows: inserted } = await pool.query<{ id: string }>(
         `INSERT INTO srf_job_photos (srf_id, photo_kind, file_path, mime, bytes, created_by)
-         VALUES ($1::uuid, $2, $3, $4, $5, NULL)`,
+         VALUES ($1::uuid, $2, $3, $4, $5, NULL)
+         RETURNING id::text AS id`,
         [row!.srf_id, photoKind, relPath, req.file.mimetype || "application/octet-stream", req.file.size],
       );
+      const newId = inserted[0]?.id;
+      if (newId) {
+        const { rows: removed } = await pool.query<{ filePath: string }>(
+          `DELETE FROM srf_job_photos
+           WHERE srf_id = $1::uuid AND photo_kind = $2 AND id <> $3::uuid
+           RETURNING file_path AS "filePath"`,
+          [row!.srf_id, photoKind, newId],
+        );
+        for (const r of removed) {
+          const fp = String(r.filePath ?? "").replace(/\\/g, "/");
+          if (!fp) continue;
+          const abs = path.isAbsolute(fp) ? fp : path.join(process.cwd(), fp);
+          fs.unlink(abs, () => {});
+        }
+      }
       await pool.query(
         `UPDATE srf_photo_sessions SET used_at = COALESCE(used_at, now()) WHERE id = $1::uuid`,
         [row!.id],
