@@ -191,13 +191,14 @@ export function printFullSrfDocument(
 /** Service centre acknowledgment after inwarding watches from store DC. */
 export function printScInwardAckDocument(payload: {
   inwardNumber: string;
+  numberLabel?: string;
   hoName: string;
   fromStoreName: string;
   receivedBy: string;
   receivedAt: Date;
   jobs: SrfJob[];
 }): void {
-  const { inwardNumber, hoName, fromStoreName, receivedBy, receivedAt, jobs } = payload;
+  const { inwardNumber, numberLabel = "Inward number", hoName, fromStoreName, receivedBy, receivedAt, jobs } = payload;
   const rows = jobs
     .map(
       (j, idx) =>
@@ -217,7 +218,7 @@ export function printScInwardAckDocument(payload: {
      <p style="margin:0 0 16px;font-size:13px;color:#4A5568">Watches listed below have been received and inwarded at the service centre.</p>
      <table style="width:100%;border-collapse:collapse;margin-bottom:16px" border="1" cellspacing="0" cellpadding="8">
        <tbody>
-         <tr><td style="width:38%;background:#E8EDF8"><strong>Inward number</strong></td><td style="font-family:monospace;font-size:15px;font-weight:bold">${inwardNumber}</td></tr>
+         <tr><td style="width:38%;background:#E8EDF8"><strong>${numberLabel}</strong></td><td style="font-family:monospace;font-size:15px;font-weight:bold">${inwardNumber}</td></tr>
          <tr><td style="background:#E8EDF8"><strong>Service centre (HO)</strong></td><td>${hoName}</td></tr>
          <tr><td style="background:#E8EDF8"><strong>Received from store</strong></td><td>${fromStoreName}</td></tr>
          <tr><td style="background:#E8EDF8"><strong>Inward date &amp; time</strong></td><td>${receivedAt.toLocaleString()}</td></tr>
@@ -252,6 +253,8 @@ export function printDcDocument(
     toHo?: string;
     hoInvoiceRef?: string;
     storeInvoiceRef?: string;
+    /** e.g. "Internal Transfer" for store→HO; defaults to `${kind} Document`. */
+    documentHeading?: string;
   },
 ): void {
   const rows = jobs
@@ -276,9 +279,10 @@ export function printDcDocument(
   const hoInvoiceRef = opts?.hoInvoiceRef ?? first?.hoSparesBillRef ?? "-";
   const storeInvoiceRef = opts?.storeInvoiceRef ?? first?.storeBillRef ?? "-";
 
+  const docHeading = opts?.documentHeading ?? `${kind} Document`;
   const html = base(
     `${kind} ${number}`,
-    `${barcodeBlock(number)}<h2 style="margin:0 0 12px">${kind} Document</h2>
+    `${barcodeBlock(number)}<h2 style="margin:0 0 12px">${docHeading}</h2>
      <div><strong>No:</strong> ${number}</div>
      <div><strong>From Location:</strong> ${fromLocation}</div>
      <div><strong>To Location:</strong> ${toLocation}</div>

@@ -143,7 +143,7 @@ export function CustomerMasterPage() {
       <ServiceBreadcrumb current="Customer master" />
       <PageHeader
         title="Customer master"
-        description="View and edit customer records only."
+        description=""
       />
       {error ? <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
       <Card title="Customers">

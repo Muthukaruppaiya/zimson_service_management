@@ -2726,12 +2726,16 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
     res.status(401).json({ error: "Invalid session." });
     return;
   }
-  if (
-    actor.role !== "super_admin" &&
-    actor.role !== "admin" &&
-    actor.role !== "admin" &&
-    actor.role !== "store_user"
-  ) {
+  const canViewStockPrices =
+    actor.role === "super_admin" ||
+    actor.role === "admin" ||
+    actor.role === "ho_manager" ||
+    actor.role === "ho_accounts" ||
+    actor.role === "ho_purchase" ||
+    actor.role === "store_user" ||
+    actor.role === "store_manager" ||
+    actor.role === "service_centre_supervisor";
+  if (!canViewStockPrices) {
     res.status(403).json({ error: "Forbidden." });
     return;
   }
@@ -2778,7 +2782,10 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
 
     let stockWhere = "spare_id = ANY($1::uuid[])";
     const stockParams: unknown[] = [spareIds];
-    if (actor.role === "admin" && actor.regionId) {
+    if (
+      (actor.role === "admin" || actor.role === "service_centre_supervisor") &&
+      actor.regionId
+    ) {
       stockParams.push(actor.regionId);
       stockWhere += ` AND region_id = $${stockParams.length}::text`;
     } else if (actor.role === "store_user" && actor.regionId && actor.storeId) {
@@ -2816,7 +2823,10 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
 
     let priceWhere = "spare_id = ANY($1::uuid[])";
     const priceParams: unknown[] = [spareIds];
-    if (actor.role === "admin" && actor.regionId) {
+    if (
+      (actor.role === "admin" || actor.role === "service_centre_supervisor") &&
+      actor.regionId
+    ) {
       priceParams.push(actor.regionId);
       priceWhere += ` AND (region_id = $${priceParams.length}::text OR region_id IS NULL)`;
     } else if (actor.role === "store_user" && actor.regionId) {

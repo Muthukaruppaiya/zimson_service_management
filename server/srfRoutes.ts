@@ -10,7 +10,7 @@ import type { DemoUser, UserRole } from "../src/types/user";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
 import { resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { appendStockHistory } from "./db/stockHistory";
-import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
+import { allocateStoreInvoiceNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
 
 type Authed = Request & { userId: string };
 
@@ -134,6 +134,31 @@ async function srfRegionScopeCode(client: PoolClient, regionId: string): Promise
     [regionId],
   );
   return scopeCode(String(rows[0]?.code ?? "RGN"), "RGN", 6);
+}
+
+/** Store → HO internal transfer: scope = store code (e.g. REG01), not region id slug. */
+type InwardDocumentKind = "store_transfer" | "inter_ho_dc" | "inter_ho_return";
+
+function inwardDocumentKindForJob(row: {
+  requires_local_conversion: boolean;
+  transfer_target_region_id: string | null;
+  transfer_source_region_id: string | null;
+}): InwardDocumentKind {
+  if (!row.requires_local_conversion && row.transfer_source_region_id) return "inter_ho_return";
+  if (row.requires_local_conversion && row.transfer_target_region_id) return "inter_ho_dc";
+  if (row.transfer_target_region_id || row.transfer_source_region_id) return "inter_ho_dc";
+  return "store_transfer";
+}
+
+async function storeDcScopeCode(client: PoolClient, storeId: string): Promise<string> {
+  const { rows } = await client.query<{ invoice_number_store_code: string | null; name: string }>(
+    `SELECT invoice_number_store_code, name FROM stores WHERE id = $1::text`,
+    [storeId],
+  );
+  if (!rows[0]) return scopeCode("STR", "STR", 6);
+  const codeRaw = String(rows[0].invoice_number_store_code ?? "").trim();
+  const code = codeRaw || defaultInvoiceCodeFromStoreName(rows[0].name);
+  return scopeCode(code, "STR", 6);
 }
 
 function visibleWhere(actor: DemoUser, idxStart = 1): { sql: string; params: unknown[]; nextIdx: number } {
@@ -1957,13 +1982,20 @@ export function registerSrfRoutes(
     try {
       await client.query("BEGIN");
       const regionId = actor.regionId ?? "";
+      const storeId = actor.storeId ?? "";
+      if (!storeId) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Store login must be tied to a store for internal transfer numbering." });
+        return;
+      }
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "dc", "DC");
-      const dcNumber = await nextDocNumber(client, prefix, suffix, scopeCode(regionId, "RGN"));
+      const storeScope = await storeDcScopeCode(client, storeId);
+      const dcNumber = await nextDocNumber(client, prefix, suffix, storeScope);
       const dcIns = await client.query<{ id: string }>(
         `INSERT INTO delivery_challans (dc_number, region_id, from_store_id, to_location, status, created_by, modified_by)
          VALUES ($1, $2, $3, 'SERVICE_CENTRE', 'CREATED', $4, $4)
          RETURNING id`,
-        [dcNumber, regionId, actor.storeId, actor.id],
+        [dcNumber, regionId, storeId, actor.id],
       );
       const dcId = dcIns.rows[0]?.id;
       if (!dcId) throw new Error("Failed to create DC.");
@@ -2053,6 +2085,7 @@ export function registerSrfRoutes(
         [dc.id],
       );
       let updated = 0;
+      let documentKind: InwardDocumentKind = "store_transfer";
       for (const line of rows) {
         const current = await client.query<{
           id: string;
@@ -2073,6 +2106,7 @@ export function registerSrfRoutes(
         );
         const row = current.rows[0];
         if (!row || row.status !== "in_transit_sc") continue;
+        if (updated === 0) documentKind = inwardDocumentKindForJob(row);
         const isReturnToSenderHo = !row.requires_local_conversion && !!row.transfer_source_region_id;
         if (isReturnToSenderHo) {
           // Recover the true booking store from the parent SRF (legacy data safety).
@@ -2160,7 +2194,7 @@ export function registerSrfRoutes(
         [dc.id, actor.id],
       );
       await client.query("COMMIT");
-      res.json({ updated });
+      res.json({ updated, dcNumber, documentKind });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -3612,8 +3646,6 @@ export function registerSrfRoutes(
     try {
       await client.query("BEGIN");
       const regionId = actor.regionId ?? "";
-      const { prefix, suffix } = await getSeriesPrefixSuffix(client, "odc", "ODC");
-      const dcNumber = await nextDocNumber(client, prefix, suffix, scopeCode(regionId, "RGN"));
       const transferRows = await client.query<{
         id: string;
         status: string;
@@ -3653,7 +3685,6 @@ export function registerSrfRoutes(
         return;
       }
       const firstTransfer = transferCandidates[0] ?? null;
-      const isInterHoBatch = !!firstTransfer;
       const isReturnToSenderBatch = !!firstTransfer && !firstTransfer.requires_local_conversion;
       if (isReturnToSenderBatch && !hoInvoiceRef && transferCandidates.some((r) => !(r.ho_spares_bill_ref ?? "").trim())) {
         await client.query("ROLLBACK");
@@ -3695,6 +3726,12 @@ export function registerSrfRoutes(
         }
       }
       const firstRecovery = firstTransfer ? returnParentRecovery[firstTransfer.id] : undefined;
+      const isInterHoBatch = !!firstTransfer;
+      const hoScope = await srfRegionScopeCode(client, regionId);
+      const seriesKey = isInterHoBatch ? ("dc" as const) : ("odc" as const);
+      const seriesFallback = isInterHoBatch ? "DC" : "ODC";
+      const { prefix, suffix } = await getSeriesPrefixSuffix(client, seriesKey, seriesFallback);
+      const dcNumber = await nextDocNumber(client, prefix, suffix, hoScope);
       const interHoTargetRegionId = firstTransfer?.requires_local_conversion
         ? firstTransfer.transfer_target_region_id
         : (firstRecovery?.regionId ?? firstTransfer?.transfer_source_region_id);
@@ -3899,7 +3936,11 @@ export function registerSrfRoutes(
         return;
       }
       await client.query("COMMIT");
-      res.json({ odcNumber: dcNumber, moved });
+      res.json({
+        odcNumber: dcNumber,
+        moved,
+        documentKind: isInterHoBatch ? ("DC" as const) : ("ODC" as const),
+      });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);

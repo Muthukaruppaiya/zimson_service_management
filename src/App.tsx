@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { InventorySupervisorGuard } from "./components/auth/InventorySupervisorGuard";
 import { ModuleRoute } from "./components/auth/ModuleRoute";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { AppShell } from "./components/layout/AppShell";
@@ -349,7 +350,9 @@ export default function App() {
                   path="/inventory"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryModulePage />
+                      <InventorySupervisorGuard>
+                        <InventoryModulePage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -357,7 +360,9 @@ export default function App() {
                   path="/inventory/store-stock"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryStoreStockPage />
+                      <InventorySupervisorGuard>
+                        <InventoryStoreStockPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -365,7 +370,9 @@ export default function App() {
                   path="/inventory/stock-adjustment"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryStockAdjustmentPage />
+                      <InventorySupervisorGuard>
+                        <InventoryStockAdjustmentPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -381,7 +388,9 @@ export default function App() {
                   path="/inventory/allocation-review"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryAllocationReviewPage />
+                      <InventorySupervisorGuard>
+                        <InventoryAllocationReviewPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -389,7 +398,9 @@ export default function App() {
                   path="/inventory/purchase-requests"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryPurchaseRequestsPage />
+                      <InventorySupervisorGuard>
+                        <InventoryPurchaseRequestsPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -397,7 +408,9 @@ export default function App() {
                   path="/inventory/pr-history"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryPrHistoryPage />
+                      <InventorySupervisorGuard>
+                        <InventoryPrHistoryPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -405,7 +418,9 @@ export default function App() {
                   path="/inventory/purchase-orders"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryPurchaseOrdersPage />
+                      <InventorySupervisorGuard>
+                        <InventoryPurchaseOrdersPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -413,7 +428,9 @@ export default function App() {
                   path="/inventory/po-history"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryPoHistoryPage />
+                      <InventorySupervisorGuard>
+                        <InventoryPoHistoryPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -421,7 +438,9 @@ export default function App() {
                   path="/inventory/suppliers"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventorySuppliersPage />
+                      <InventorySupervisorGuard>
+                        <InventorySuppliersPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -429,7 +448,9 @@ export default function App() {
                   path="/inventory/suppliers/new"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventorySupplierFormPage />
+                      <InventorySupervisorGuard>
+                        <InventorySupplierFormPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -437,7 +458,9 @@ export default function App() {
                   path="/inventory/suppliers/:id/edit"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventorySupplierFormPage />
+                      <InventorySupervisorGuard>
+                        <InventorySupplierFormPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -445,7 +468,9 @@ export default function App() {
                   path="/inventory/po-inward"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryPoInwardPage />
+                      <InventorySupervisorGuard>
+                        <InventoryPoInwardPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -453,7 +478,9 @@ export default function App() {
                   path="/inventory/grn-history"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryGrnHistoryPage />
+                      <InventorySupervisorGuard>
+                        <InventoryGrnHistoryPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -461,7 +488,9 @@ export default function App() {
                   path="/inventory/spares"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventorySpareCatalogPage />
+                      <InventorySupervisorGuard>
+                        <InventorySpareCatalogPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -469,7 +498,9 @@ export default function App() {
                   path="/inventory/bulk-import"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryBulkImportPage />
+                      <InventorySupervisorGuard>
+                        <InventoryBulkImportPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -477,7 +508,9 @@ export default function App() {
                   path="/inventory/brands"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventoryBrandsPage />
+                      <InventorySupervisorGuard>
+                        <InventoryBrandsPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />
@@ -485,7 +518,9 @@ export default function App() {
                   path="/inventory/spare-price-fixing"
                   element={
                     <ModuleRoute module="inventory">
-                      <InventorySparePriceFixingPage />
+                      <InventorySupervisorGuard>
+                        <InventorySparePriceFixingPage />
+                      </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
                 />

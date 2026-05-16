@@ -4,6 +4,7 @@ import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcr
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
+import { isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
 import { useRegions } from "../../context/RegionsContext";
 import { ApiError, apiJson } from "../../lib/api";
 import type { SparePart, SparePriceLine, SpareStockRow } from "../../types/spare";
@@ -48,6 +49,7 @@ function eventLabel(eventType: string) {
 export function InventoryStockPriceOverviewPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
+  const viewOnly = isInventoryStockPricesViewOnly(user);
   const showRegionFilter = user?.role === "super_admin";
   const [rows, setRows] = useState<OverviewRow[]>([]);
   const [filterRegion, setFilterRegion] = useState("");
@@ -170,16 +172,28 @@ export function InventoryStockPriceOverviewPage() {
       <InventoryBreadcrumb current="Stock & prices" />
       <PageHeader
         title="Stock control desk"
-        description="Scalable list for high-volume spares with drill-down stock, prices, and timeline history."
+        description={
+          viewOnly
+            ? "View-only access to HO stock levels and spare prices for your region."
+            : "Scalable list for high-volume spares with drill-down stock, prices, and timeline history."
+        }
         actions={
-          <Link
-            to="/inventory"
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Inventory home
-          </Link>
+          viewOnly ? null : (
+            <Link
+              to="/inventory"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Inventory home
+            </Link>
+          )
         }
       />
+
+      {viewOnly ? (
+        <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+          View-only: you can browse stock and prices but cannot change inventory records.
+        </p>
+      ) : null}
 
       <Card
         title="Filters"

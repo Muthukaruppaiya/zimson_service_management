@@ -9,6 +9,13 @@ import { apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import type { SrfJob } from "../../types/srfJob";
 import { printDcDocument, printScInwardAckDocument } from "../../lib/serviceDocuments";
+import {
+  scInwardAckSubtitle,
+  scInwardAckTitle,
+  scInwardDocumentKindFromJob,
+  scInwardNumberLabel,
+  type ScInwardDocumentKind,
+} from "../../lib/srfLogisticsDocs";
 
 const selectClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm outline-none ring-zimson-400/40 focus:ring-2";
@@ -75,6 +82,7 @@ export function ScLogisticsPage() {
   const [inwardMsg, setInwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [inwardAck, setInwardAck] = useState<{
     inwardNumber: string;
+    documentKind: ScInwardDocumentKind;
     updated: number;
     hoLabel: string;
     storeLabel: string;
@@ -83,6 +91,7 @@ export function ScLogisticsPage() {
   } | null>(null);
   const [outwardAck, setOutwardAck] = useState<{
     odcNumber: string;
+    documentKind: "DC" | "ODC";
     watchCount: number;
     fromLocation: string;
     toLocation: string;
@@ -151,11 +160,14 @@ export function ScLogisticsPage() {
     const rows = [...map.entries()].map(([dcNumber, list]) => {
       const first = list[0];
       const loc = storeById.get(first.storeId);
+      const documentKind = scInwardDocumentKindFromJob(first);
       return {
         dcNumber,
         count: list.length,
         hoLabel: loc?.regionName ?? first.regionId,
         storeLabel: loc?.storeName ?? first.storeId,
+        documentKind,
+        typeLabel: scInwardNumberLabel(documentKind),
       };
     });
     return rows.sort((a, b) => a.dcNumber.localeCompare(b.dcNumber));
@@ -225,8 +237,13 @@ export function ScLogisticsPage() {
     try {
       const result = await confirmInwardByDc(dcNumber);
       const receivedAt = new Date();
+      const documentKind =
+        result.documentKind ??
+        (jobsOnDc[0] ? scInwardDocumentKindFromJob(jobsOnDc[0]) : "store_transfer");
+      const numberLabel = scInwardNumberLabel(documentKind);
       setInwardAck({
-        inwardNumber: dcNumber,
+        inwardNumber: result.dcNumber ?? dcNumber,
+        documentKind,
         updated: result.updated,
         hoLabel: dcMeta?.hoLabel ?? user?.regionId ?? "—",
         storeLabel: dcMeta?.storeLabel ?? "—",
@@ -235,7 +252,7 @@ export function ScLogisticsPage() {
       });
       setInwardMsg({
         type: "ok",
-        text: `Inward recorded for ${result.updated} watch(es). Inward number: ${dcNumber}.`,
+        text: `Inward recorded for ${result.updated} watch(es). ${numberLabel}: ${result.dcNumber ?? dcNumber}.`,
       });
       setSelectedDc("");
     } catch (err) {
@@ -366,8 +383,10 @@ export function ScLogisticsPage() {
         hoInvoiceRef: hasReturnToSender ? (selectedRows[0]?.hoSparesBillRef ?? undefined) : undefined,
         storeInvoiceRef: undefined,
       };
+      const docKind = result.documentKind ?? (hasReturnToSender || selectedRows.some((j) => j.requiresLocalConversion && j.transferTargetRegionId) ? "DC" : "ODC");
       setOutwardAck({
         odcNumber: result.odcNumber,
+        documentKind: docKind,
         watchCount: rows.length,
         fromLocation: printOpts.fromLocation,
         toLocation,
@@ -379,7 +398,10 @@ export function ScLogisticsPage() {
       });
       setOutwardMsg({
         type: "ok",
-        text: `Internal outward transfer ${result.odcNumber} created. Acknowledgment shown — print when ready.`,
+        text:
+          docKind === "DC"
+            ? `Inter-HO DC ${result.odcNumber} created. Acknowledgment shown — print when ready.`
+            : `Outward ODC ${result.odcNumber} created. Acknowledgment shown — print when ready.`,
       });
       setSelectedOut({});
     } catch (e) {
@@ -465,7 +487,8 @@ export function ScLogisticsPage() {
                   <option value="">— Choose a pending internal transfer —</option>
                   {pendingDcOptions.map((o) => (
                     <option key={o.dcNumber} value={o.dcNumber}>
-                      {o.dcNumber} · HO: {o.hoLabel} · From store: {o.storeLabel} · {o.count} watch
+                      {o.dcNumber} · {o.typeLabel} · HO: {o.hoLabel}
+                      {o.documentKind === "store_transfer" ? ` · From store: ${o.storeLabel}` : ""} · {o.count} watch
                       {o.count === 1 ? "" : "es"}
                     </option>
                   ))}
@@ -819,24 +842,63 @@ export function ScLogisticsPage() {
       {outwardAck ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
           <div
-            className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-indigo-200"
+            className={`w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ${
+              outwardAck.documentKind === "DC" ? "ring-emerald-200" : "ring-indigo-200"
+            }`}
             role="dialog"
             aria-labelledby="outward-ack-title"
           >
-            <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 px-5 py-5 text-white">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-100">Outward confirmed</p>
+            <div
+              className={`bg-gradient-to-br px-5 py-5 text-white ${
+                outwardAck.documentKind === "DC" ? "from-emerald-600 to-emerald-700" : "from-indigo-600 to-indigo-700"
+              }`}
+            >
+              <p
+                className={`text-[11px] font-bold uppercase tracking-widest ${
+                  outwardAck.documentKind === "DC" ? "text-emerald-100" : "text-indigo-100"
+                }`}
+              >
+                {outwardAck.documentKind === "DC" ? "Inter-HO dispatch confirmed" : "Outward confirmed"}
+              </p>
               <h2 id="outward-ack-title" className="mt-1 text-xl font-bold">
-                Watches dispatched to store
+                {outwardAck.documentKind === "DC" ? "HO → HO delivery challan (DC)" : "Watches dispatched to store"}
               </h2>
             </div>
             <div className="px-5 py-5">
               <p className="text-sm text-stone-600">
-                <strong>{outwardAck.watchCount}</strong> watch{outwardAck.watchCount === 1 ? "" : "es"} sent on internal
-                outward transfer. Store can inward when the batch arrives.
+                {outwardAck.documentKind === "DC" ? (
+                  <>
+                    <strong>{outwardAck.watchCount}</strong> watch{outwardAck.watchCount === 1 ? "" : "es"} on inter-HO DC.
+                    Receiving HO will inward this batch from their pending list.
+                  </>
+                ) : (
+                  <>
+                    <strong>{outwardAck.watchCount}</strong> watch{outwardAck.watchCount === 1 ? "" : "es"} on outward ODC.
+                    Store can inward when the batch arrives.
+                  </>
+                )}
               </p>
-              <div className="mt-4 rounded-xl border-2 border-indigo-200 bg-indigo-50/80 px-4 py-3 text-center">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-800">Outward / ODC number</p>
-                <p className="mt-1 font-mono text-2xl font-bold text-indigo-900">{outwardAck.odcNumber}</p>
+              <div
+                className={`mt-4 rounded-xl border-2 px-4 py-3 text-center ${
+                  outwardAck.documentKind === "DC"
+                    ? "border-emerald-200 bg-emerald-50/80"
+                    : "border-indigo-200 bg-indigo-50/80"
+                }`}
+              >
+                <p
+                  className={`text-[10px] font-bold uppercase tracking-wider ${
+                    outwardAck.documentKind === "DC" ? "text-emerald-800" : "text-indigo-800"
+                  }`}
+                >
+                  {outwardAck.documentKind === "DC" ? "DC number" : "ODC number"}
+                </p>
+                <p
+                  className={`mt-1 font-mono text-2xl font-bold ${
+                    outwardAck.documentKind === "DC" ? "text-emerald-900" : "text-indigo-900"
+                  }`}
+                >
+                  {outwardAck.odcNumber}
+                </p>
               </div>
               <dl className="mt-4 space-y-1.5 text-sm text-stone-700">
                 <div className="flex justify-between gap-2">
@@ -882,16 +944,30 @@ export function ScLogisticsPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    printDcDocument("ODC", outwardAck.odcNumber, outwardAck.rows, outwardAck.printOpts)
+                    printDcDocument(outwardAck.documentKind, outwardAck.odcNumber, outwardAck.rows, {
+                      ...outwardAck.printOpts,
+                      documentHeading:
+                        outwardAck.documentKind === "DC"
+                          ? "Delivery Challan (Inter-HO DC)"
+                          : "Outward Delivery Challan (ODC)",
+                    })
                   }
-                  className="flex-1 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
+                  className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-semibold ${
+                    outwardAck.documentKind === "DC"
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                      : "border-indigo-300 bg-indigo-50 text-indigo-900 hover:bg-indigo-100"
+                  }`}
                 >
-                  Print acknowledgment
+                  Print {outwardAck.documentKind === "DC" ? "DC" : "ODC"} copy
                 </button>
                 <button
                   type="button"
                   onClick={() => setOutwardAck(null)}
-                  className="flex-1 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${
+                    outwardAck.documentKind === "DC"
+                      ? "bg-emerald-600 hover:bg-emerald-700"
+                      : "bg-indigo-600 hover:bg-indigo-700"
+                  }`}
                 >
                   Done
                 </button>
@@ -911,16 +987,15 @@ export function ScLogisticsPage() {
             <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 px-5 py-5 text-white">
               <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-100">Inward confirmed</p>
               <h2 id="inward-ack-title" className="mt-1 text-xl font-bold">
-                Watches received at service centre
+                {scInwardAckTitle(inwardAck.documentKind)}
               </h2>
             </div>
             <div className="px-5 py-5">
-              <p className="text-sm text-stone-600">
-                <strong>{inwardAck.updated}</strong> watch{inwardAck.updated === 1 ? "" : "es"} inwarded successfully.
-                Supervisor can now assign technicians.
-              </p>
+              <p className="text-sm text-stone-600">{scInwardAckSubtitle(inwardAck.documentKind, inwardAck.updated)}</p>
               <div className="mt-4 rounded-xl border-2 border-emerald-200 bg-emerald-50/80 px-4 py-3 text-center">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Inward number</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                  {scInwardNumberLabel(inwardAck.documentKind)}
+                </p>
                 <p className="mt-1 font-mono text-2xl font-bold text-emerald-900">{inwardAck.inwardNumber}</p>
               </div>
               <dl className="mt-4 space-y-1.5 text-sm text-stone-700">
@@ -928,10 +1003,21 @@ export function ScLogisticsPage() {
                   <dt className="text-stone-500">Service centre</dt>
                   <dd className="font-medium text-stone-900">{inwardAck.hoLabel}</dd>
                 </div>
-                <div className="flex justify-between gap-2">
-                  <dt className="text-stone-500">From store</dt>
-                  <dd className="font-medium text-stone-900">{inwardAck.storeLabel}</dd>
-                </div>
+                {inwardAck.documentKind === "store_transfer" ? (
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-stone-500">From store</dt>
+                    <dd className="font-medium text-stone-900">{inwardAck.storeLabel}</dd>
+                  </div>
+                ) : (
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-stone-500">Route</dt>
+                    <dd className="max-w-[60%] text-right font-medium text-stone-900">
+                      {inwardAck.documentKind === "inter_ho_return"
+                        ? "Repair HO → sender HO (return DC)"
+                        : "Other HO → this service centre"}
+                    </dd>
+                  </div>
+                )}
                 <div className="flex justify-between gap-2">
                   <dt className="text-stone-500">Received at</dt>
                   <dd className="font-medium text-stone-900">{inwardAck.receivedAt.toLocaleString()}</dd>
@@ -969,8 +1055,14 @@ export function ScLogisticsPage() {
                   onClick={() =>
                     printScInwardAckDocument({
                       inwardNumber: inwardAck.inwardNumber,
+                      numberLabel: scInwardNumberLabel(inwardAck.documentKind),
                       hoName: inwardAck.hoLabel,
-                      fromStoreName: inwardAck.storeLabel,
+                      fromStoreName:
+                        inwardAck.documentKind === "store_transfer"
+                          ? inwardAck.storeLabel
+                          : inwardAck.documentKind === "inter_ho_return"
+                            ? "Sender HO (return leg)"
+                            : "Other HO",
                       receivedBy: user?.displayName?.trim() || user?.email?.trim() || "Service centre",
                       receivedAt: inwardAck.receivedAt,
                       jobs: inwardAck.jobs,

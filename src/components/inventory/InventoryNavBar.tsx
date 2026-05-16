@@ -1,4 +1,6 @@
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+import { isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
 
 const navItems: Array<{ to: string; label: string }> = [
   { to: "/inventory", label: "Home" },
@@ -21,10 +23,14 @@ const navItems: Array<{ to: string; label: string }> = [
 ];
 
 export function InventoryNavBar() {
+  const { user } = useAuth();
+  const viewOnly = isInventoryStockPricesViewOnly(user);
+  const items = viewOnly ? navItems.filter((i) => i.to === "/inventory/stock-prices") : navItems;
+
   return (
     <div className="mb-6 overflow-x-auto rounded-2xl border border-zimson-200/80 bg-zimson-50/60 p-2">
       <nav className="flex min-w-max items-center gap-2" aria-label="Inventory module sections">
-        {navItems.map((item) => (
+        {items.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

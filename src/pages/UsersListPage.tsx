@@ -3,9 +3,11 @@ import { useAuth, useVisibleUsers } from "../context/AuthContext";
 import type { UserPatchInput } from "../context/AuthContext";
 import { useRegions } from "../context/RegionsContext";
 import { useToast } from "../components/ui/Toast";
+import { ROLE_MODULE_ACCESS } from "../config/moduleAccess";
 import { ROLE_CREATION_META, creatableRolesForActor, isStoreRole } from "../lib/userCreationPolicy";
+import { UserModuleAccessEditor } from "../components/users/UserModuleAccessEditor";
 import { PageHeader } from "../components/ui/PageHeader";
-import type { SessionUser } from "../types/user";
+import type { ModuleKey, SessionUser } from "../types/user";
 import type { UserRole } from "../types/user";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -41,6 +43,11 @@ function UserEditModal({
   const [role, setRole] = useState<UserRole>(target.role);
   const [regionId, setRegionId] = useState(target.regionId ?? "");
   const [storeIds, setStoreIds] = useState<string[]>(target.storeIds ?? (target.storeId ? [target.storeId] : []));
+  const hasModuleOverride = (target.moduleAccessOverride?.length ?? 0) > 0;
+  const [useCustomModules, setUseCustomModules] = useState(hasModuleOverride);
+  const [selectedModules, setSelectedModules] = useState<ModuleKey[]>(() =>
+    hasModuleOverride ? [...(target.moduleAccessOverride as ModuleKey[])] : [...ROLE_MODULE_ACCESS[target.role]],
+  );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -58,6 +65,10 @@ function UserEditModal({
 
   async function handleSave() {
     if (!displayName.trim()) { setErr("Display name is required."); return; }
+    if (useCustomModules && selectedModules.length === 0) {
+      setErr("Custom module list is empty — select at least one module.");
+      return;
+    }
     setSaving(true);
     setErr(null);
     await onSave({
@@ -68,6 +79,7 @@ function UserEditModal({
       regionId: regionId || undefined,
       storeId: storeRole ? (storeIds[0] ?? null) : null,
       storeIds: storeRole ? storeIds : [],
+      moduleAccessOverride: useCustomModules ? selectedModules : null,
     });
     setSaving(false);
   }
@@ -166,6 +178,17 @@ function UserEditModal({
               </div>
             </div>
           )}
+
+          <div className="mt-4 border-t border-rlx-rule pt-4">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-stone-500 mb-3">Navigation modules</p>
+            <UserModuleAccessEditor
+              role={role}
+              useCustomModules={useCustomModules}
+              onUseCustomModulesChange={setUseCustomModules}
+              selectedModules={selectedModules}
+              onSelectedModulesChange={setSelectedModules}
+            />
+          </div>
 
           {err && (
             <div className="mt-3 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{err}</div>

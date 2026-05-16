@@ -10,7 +10,13 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { ApiError, apiJson } from "../../lib/api";
-import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
+import {
+  findLocalRepairSrfForRoot,
+  isArchivedSrfJob,
+  jobVisibleToServiceCentre,
+  rootSrfBookingReference,
+  shouldShowInSupervisorSrfList,
+} from "../../lib/srfAccess";
 import { printAssignmentSlip, printBrandDispatchDocument, printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
 import type { SrfJob } from "../../types/srfJob";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
@@ -104,6 +110,18 @@ export function ScSupervisorPage() {
     reference: string;
     customerName: string;
     watchLabel: string;
+  } | null>(null);
+  const [assignSuccessAck, setAssignSuccessAck] = useState<{
+    reference: string;
+    customerName: string;
+    watchLabel: string;
+    technicianLabel: string;
+    job: SrfJob;
+  } | null>(null);
+  const [convertLocalAck, setConvertLocalAck] = useState<{
+    reference: string;
+    newSrfId: string;
+    sourceReference: string;
   } | null>(null);
   const [moveToOdcPopupJobId, setMoveToOdcPopupJobId] = useState<string | null>(null);
   const [moveToOdcNote, setMoveToOdcNote] = useState("");
@@ -199,7 +217,10 @@ export function ScSupervisorPage() {
   const transferredQueue = useMemo(() => {
     if (!user) return [];
     return jobs.filter(
-      (j) => j.status === "sent_to_other_ho" && jobVisibleToServiceCentre(j, user),
+      (j) =>
+        j.status === "sent_to_other_ho" &&
+        jobVisibleToServiceCentre(j, user) &&
+        shouldShowInSupervisorSrfList(j, jobs),
     );
   }, [jobs, user]);
   const transferredView = useMemo(
@@ -211,16 +232,41 @@ export function ScSupervisorPage() {
     const rows: SrfJob[] = [];
     for (const j of [...received, ...decisionQueue, ...brandDeskQueue, ...repairHoInvoiceQueue, ...transferredQueue]) {
       if (seen.has(j.id)) continue;
+      if (!shouldShowInSupervisorSrfList(j, jobs)) continue;
       seen.add(j.id);
       rows.push(j);
     }
     return rows;
-  }, [received, decisionQueue, brandDeskQueue, repairHoInvoiceQueue, transferredQueue]);
+  }, [received, decisionQueue, brandDeskQueue, repairHoInvoiceQueue, transferredQueue, jobs]);
 
   const listDetailJob = useMemo(
     () => (listDetailJobId ? jobs.find((j) => j.id === listDetailJobId) ?? null : null),
     [jobs, listDetailJobId],
   );
+  const listDetailMeta = useMemo(() => {
+    if (!listDetailJob || !user) return null;
+    const rootRef = rootSrfBookingReference(listDetailJob);
+    const needsConvert =
+      listDetailJob.status === "received_at_sc" && !!listDetailJob.requiresLocalConversion;
+    const localRepair =
+      listDetailJob.status === "sent_to_other_ho"
+        ? findLocalRepairSrfForRoot(rootRef, jobs, user)
+        : undefined;
+    return { rootRef, needsConvert, localRepair };
+  }, [listDetailJob, jobs, user]);
+
+  /** Archived / superseded sender rows → open the live local repair SRF when possible. */
+  useEffect(() => {
+    if (!srfId || !user) return;
+    const job = jobs.find((j) => j.id === srfId);
+    if (!job || !jobVisibleToServiceCentre(job, user)) return;
+    const rootRef = rootSrfBookingReference(job);
+    const local = findLocalRepairSrfForRoot(rootRef, jobs, user);
+    if (!local || local.id === job.id) return;
+    if (isArchivedSrfJob(job) || !shouldShowInSupervisorSrfList(job, jobs)) {
+      navigate(`/service-centre/supervisor/srf/${encodeURIComponent(local.id)}`, { replace: true });
+    }
+  }, [srfId, jobs, user, navigate]);
 
   const repairHoInvoiceView = useMemo(
     () => (srfId ? repairHoInvoiceQueue.filter((j) => j.id === srfId) : repairHoInvoiceQueue),
@@ -234,23 +280,50 @@ export function ScSupervisorPage() {
       return;
     }
     try {
-      await assignTechnician(jobId, techId);
       const job = jobs.find((x) => x.id === jobId);
       const tech = technicians.find((t) => t.id === techId);
-      if (job && tech) {
-        const techLabel = `${tech.fullName} (${tech.grade})`;
-        printAssignmentSlip(job, techLabel);
+      if (!job || !tech) {
+        setFeedback((f) => ({ ...f, [jobId]: "SRF or technician not found." }));
+        return;
       }
-      setFeedback((f) => ({ ...f, [jobId]: "Assigned. Assignment note printed." }));
+      await assignTechnician(jobId, techId);
+      const technicianLabel = `${tech.fullName} (${tech.grade})`;
+      setAssignSuccessAck({
+        reference: job.reference,
+        customerName: job.customerName,
+        watchLabel: `${job.watchBrand} ${job.watchModel} · ${job.serial}`,
+        technicianLabel,
+        job,
+      });
+      setFeedback((f) => {
+        const next = { ...f };
+        delete next[jobId];
+        return next;
+      });
+      setPickTech((p) => {
+        const next = { ...p };
+        delete next[jobId];
+        return next;
+      });
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not assign." }));
     }
   }
 
   async function convertLocal(jobId: string) {
+    const sourceJob = jobs.find((j) => j.id === jobId);
     try {
-      await convertTransferredSrfToLocal(jobId);
-      setFeedback((f) => ({ ...f, [jobId]: "Converted to local SRF. You can assign technician now." }));
+      const out = await convertTransferredSrfToLocal(jobId);
+      setConvertLocalAck({
+        reference: out.reference,
+        newSrfId: out.newSrfId,
+        sourceReference: sourceJob?.reference ?? jobId,
+      });
+      setFeedback((f) => {
+        const next = { ...f };
+        delete next[jobId];
+        return next;
+      });
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not convert SRF." }));
     }
@@ -860,7 +933,9 @@ export function ScSupervisorPage() {
                 e.preventDefault();
                 const ref = scanSrfInput.trim().toLowerCase();
                 if (!ref) return;
-                const row = supervisorListRows.find((j) => j.reference.toLowerCase() === ref);
+                const row =
+                  supervisorListRows.find((j) => j.reference.toLowerCase() === ref) ??
+                  supervisorListRows.find((j) => rootSrfBookingReference(j).toLowerCase() === ref);
                 if (row) {
                   navigate(`/service-centre/supervisor/srf/${encodeURIComponent(row.id)}`);
                   setScanSrfInput("");
@@ -882,13 +957,29 @@ export function ScSupervisorPage() {
                 </tr>
               </thead>
               <tbody>
-                {supervisorListRows.map((j) => (
+                {supervisorListRows.map((j) => {
+                  const rootRef = rootSrfBookingReference(j);
+                  const isInterHoLocal =
+                    !!j.transferSourceReference &&
+                    j.transferSourceReference !== j.reference &&
+                    !j.requiresLocalConversion;
+                  const needsConvert = j.status === "received_at_sc" && !!j.requiresLocalConversion;
+                  const localRepair =
+                    user && j.status === "sent_to_other_ho"
+                      ? findLocalRepairSrfForRoot(rootRef, jobs, user)
+                      : undefined;
+                  return (
                   <tr key={j.id} className="border-b border-zimson-100 last:border-0">
                     <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">
                       {j.reference}
-                      {j.transferSourceReference && j.transferSourceReference !== j.reference ? (
+                      {isInterHoLocal ? (
+                        <span className="mt-0.5 block text-[10px] font-semibold text-emerald-700">
+                          Local repair SRF
+                        </span>
+                      ) : null}
+                      {rootRef && rootRef !== j.reference ? (
                         <span className="mt-0.5 block text-[10px] font-normal text-stone-500">
-                          Root: <span className="font-mono">{j.transferSourceReference}</span>
+                          Sender / root: <span className="font-mono">{rootRef}</span>
                         </span>
                       ) : null}
                     </td>
@@ -904,17 +995,41 @@ export function ScSupervisorPage() {
                         >
                           Details
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)}
-                          className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-                        >
-                          Open SRF
-                        </button>
+                        {needsConvert ? (
+                          <button
+                            type="button"
+                            onClick={() => void convertLocal(j.id)}
+                            className="rounded-lg border border-indigo-400 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-100"
+                          >
+                            Convert to local SRF
+                          </button>
+                        ) : null}
+                        {localRepair ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              navigate(
+                                `/service-centre/supervisor/srf/${encodeURIComponent(localRepair.id)}`,
+                              )
+                            }
+                            className="rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                          >
+                            Open local SRF ({localRepair.reference})
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)}
+                            className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                          >
+                            Open SRF
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -925,9 +1040,23 @@ export function ScSupervisorPage() {
       <>
       {receivedView.length > 0 ? (
         <Card title="Assignment" subtitle="Assign technician for this SRF" className="mb-6">
-          {receivedView.map((j) => (
+          {receivedView.map((j) => {
+            const rootRef = rootSrfBookingReference(j);
+            const isInterHoLocal =
+              !!j.transferSourceReference &&
+              j.transferSourceReference !== j.reference &&
+              !j.requiresLocalConversion;
+            return (
             <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
               <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+              {isInterHoLocal ? (
+                <p className="text-[11px] font-semibold text-emerald-700">Local repair SRF (inter-HO)</p>
+              ) : null}
+              {rootRef && rootRef !== j.reference ? (
+                <p className="text-[11px] text-stone-500">
+                  Sender / root: <span className="font-mono font-semibold">{rootRef}</span>
+                </p>
+              ) : null}
               <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
               <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
               <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -966,7 +1095,8 @@ export function ScSupervisorPage() {
               </div>
               {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
             </div>
-          ))}
+            );
+          })}
         </Card>
       ) : null}
       {repairHoInvoiceView.length > 0 ? (
@@ -1141,16 +1271,44 @@ export function ScSupervisorPage() {
       {transferredView.length > 0 ? (
         <Card title="Transferred to Other HO" subtitle="These SRFs are currently at another HO for repair. Original reference is preserved for tracking." className="mt-8">
           <div className="space-y-4">
-            {transferredView.map((j) => (
+            {transferredView.map((j) => {
+              const rootRef = rootSrfBookingReference(j);
+              const localRepair = user ? findLocalRepairSrfForRoot(rootRef, jobs, user) : undefined;
+              return (
               <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+                    {rootRef && rootRef !== j.reference ? (
+                      <p className="text-[11px] text-stone-500">
+                        Sender / root: <span className="font-mono font-semibold">{rootRef}</span>
+                      </p>
+                    ) : null}
                     <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
                     <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
-                    <p className="mt-1 text-xs text-amber-700 font-semibold italic">Sent to Other HO for repair. Awaiting return dispatch from repair HO.</p>
+                    <p className="mt-1 text-xs font-semibold italic text-amber-700">
+                      Sent to other HO for repair. Awaiting return dispatch from repair HO.
+                    </p>
+                    {localRepair ? (
+                      <p className="mt-1 text-xs font-semibold text-emerald-700">
+                        Active repair at this HO: {localRepair.reference} — use Open local SRF for assignment and repair.
+                      </p>
+                    ) : null}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {localRepair ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/service-centre/supervisor/srf/${encodeURIComponent(localRepair.id)}`,
+                          )
+                        }
+                        className="rounded-xl border border-emerald-400 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
+                      >
+                        Open local SRF ({localRepair.reference})
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => toggleHistory(j.id)}
@@ -1181,7 +1339,8 @@ export function ScSupervisorPage() {
                   </div>
                 ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       ) : null}
@@ -1957,11 +2116,39 @@ export function ScSupervisorPage() {
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-widest text-stone-500">SRF details</p>
                 <h3 className="mt-0.5 font-mono text-lg font-bold text-zimson-900">{listDetailJob.reference}</h3>
+                {listDetailMeta?.rootRef && listDetailMeta.rootRef !== listDetailJob.reference ? (
+                  <p className="text-[11px] text-stone-500">
+                    Sender / root: <span className="font-mono font-semibold">{listDetailMeta.rootRef}</span>
+                  </p>
+                ) : null}
                 <p className="mt-0.5 text-sm text-stone-600">
                   {listDetailJob.customerName} · {listDetailJob.watchBrand} {listDetailJob.watchModel}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                {listDetailMeta?.needsConvert ? (
+                  <button
+                    type="button"
+                    onClick={() => void convertLocal(listDetailJob.id)}
+                    className="rounded-lg border border-indigo-400 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-100"
+                  >
+                    Convert to local SRF
+                  </button>
+                ) : null}
+                {listDetailMeta?.localRepair ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setListDetailJobId(null);
+                      navigate(
+                        `/service-centre/supervisor/srf/${encodeURIComponent(listDetailMeta.localRepair!.id)}`,
+                      );
+                    }}
+                    className="rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                  >
+                    Open local SRF ({listDetailMeta.localRepair.reference})
+                  </button>
+                ) : (
                 <button
                   type="button"
                   onClick={() => {
@@ -1972,6 +2159,7 @@ export function ScSupervisorPage() {
                 >
                   Open SRF
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setTraceJobId(listDetailJob.id)}
@@ -2126,6 +2314,87 @@ export function ScSupervisorPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {convertLocalAck ? (
+        <ProcessSuccessModal
+          open
+          title="Local SRF created"
+          description={`${convertLocalAck.reference} — ready for technician assignment`}
+          onBackdropClick={() => setConvertLocalAck(null)}
+          actions={
+            <>
+              <button
+                type="button"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90 sm:w-auto"
+                onClick={() => {
+                  const id = convertLocalAck.newSrfId;
+                  setConvertLocalAck(null);
+                  navigate(`/service-centre/supervisor/srf/${encodeURIComponent(id)}`);
+                }}
+              >
+                Open local SRF
+              </button>
+              <button
+                type="button"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 sm:w-auto"
+                onClick={() => setConvertLocalAck(null)}
+              >
+                Close
+              </button>
+            </>
+          }
+        >
+          <div className="rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">New local SRF</p>
+            <p className="mt-1 font-mono text-2xl font-bold text-stone-900">{convertLocalAck.reference}</p>
+          </div>
+          <p className="mt-3 text-sm text-stone-600">
+            Converted from inter-HO transfer <span className="font-mono font-semibold">{convertLocalAck.sourceReference}</span>.
+            Open the new SRF to assign a technician and continue repair at this HO.
+          </p>
+        </ProcessSuccessModal>
+      ) : null}
+
+      {assignSuccessAck ? (
+        <ProcessSuccessModal
+          open
+          title="Watch assigned to technician"
+          description={`${assignSuccessAck.reference} · ${assignSuccessAck.technicianLabel}`}
+          onBackdropClick={() => setAssignSuccessAck(null)}
+          actions={
+            <>
+              <button
+                type="button"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90 sm:w-auto"
+                onClick={() => printAssignmentSlip(assignSuccessAck.job, assignSuccessAck.technicianLabel)}
+              >
+                Print assignment slip
+              </button>
+              <button
+                type="button"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 sm:w-auto"
+                onClick={() => setAssignSuccessAck(null)}
+              >
+                Done
+              </button>
+            </>
+          }
+        >
+          <div className="rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">SRF reference</p>
+            <p className="mt-1 font-mono text-2xl font-bold text-stone-900">{assignSuccessAck.reference}</p>
+          </div>
+          <p className="mt-3 text-sm text-stone-700">
+            <span className="font-semibold text-stone-900">{assignSuccessAck.customerName}</span>
+            {" · "}
+            {assignSuccessAck.watchLabel}
+          </p>
+          <p className="mt-3 rounded-lg border border-rlx-rule bg-stone-50 px-3 py-2 text-sm text-stone-800">
+            Assigned to <strong>{assignSuccessAck.technicianLabel}</strong>. The technician can open the workbench
+            and start the repair.
+          </p>
+        </ProcessSuccessModal>
       ) : null}
 
       {repairSuccessMonitor ? (

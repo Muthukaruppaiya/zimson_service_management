@@ -104,7 +104,7 @@ export function SrfBookingsRegisterPage() {
       <ServiceBreadcrumb current="SRF booking register" />
       <PageHeader
         title="SRF booking register"
-        description="Booking list is separate from New Booking page."
+        description=""
         actions={
           <div className="flex flex-wrap gap-2">
             <Link

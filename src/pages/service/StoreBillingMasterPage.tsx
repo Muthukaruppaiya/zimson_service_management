@@ -107,7 +107,7 @@ export function StoreBillingMasterPage() {
         <ServiceBreadcrumb current="Store billing master" />
         <PageHeader
           title="Store billing master"
-          description="All store billing completed SRFs (newest first)."
+          description=""
           actions={
             <Link
               to="/service/store-billing"
@@ -118,7 +118,7 @@ export function StoreBillingMasterPage() {
           }
         />
 
-        <Card title="Store billing history" subtitle="SRFs already closed after customer collection (newest first)">
+        <Card title="Store billing history" subtitle="">
           {recentClosedBilling.length === 0 ? (
             <p className="text-sm text-stone-600">No closed SRFs in your visible scope yet.</p>
           ) : (

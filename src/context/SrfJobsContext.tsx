@@ -112,9 +112,11 @@ type SrfJobsContextValue = {
     },
   ) => Promise<{ trackingUrl?: string }>;
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
-  confirmInwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
+  confirmInwardByDc: (
+    dcNumber: string,
+  ) => Promise<{ updated: number; dcNumber?: string; documentKind?: "store_transfer" | "inter_ho_dc" | "inter_ho_return" }>;
   assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
-  convertTransferredSrfToLocal: (jobId: string) => Promise<void>;
+  convertTransferredSrfToLocal: (jobId: string) => Promise<{ reference: string; newSrfId: string }>;
   supervisorRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
@@ -146,7 +148,7 @@ type SrfJobsContextValue = {
   createOutwardBatch: (
     items: { jobId: string; destinationStoreId: string }[],
     opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
-  ) => Promise<{ odcNumber: string; moved: number }>;
+  ) => Promise<{ odcNumber: string; moved: number; documentKind?: "DC" | "ODC" }>;
   receiveOutwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   closeWithInvoice: (
     srfId: string,
@@ -229,7 +231,11 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   }, [refreshJobs]);
 
   const confirmInwardByDc = useCallback(async (dcNumber: string) => {
-    const out = await apiJson<{ updated: number }>(`/api/service/dcs/${encodeURIComponent(dcNumber)}/inward`, {
+    const out = await apiJson<{
+      updated: number;
+      dcNumber?: string;
+      documentKind?: "store_transfer" | "inter_ho_dc" | "inter_ho_return";
+    }>(`/api/service/dcs/${encodeURIComponent(dcNumber)}/inward`, {
       method: "POST",
     });
     await refreshJobs();
@@ -245,10 +251,12 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   }, [refreshJobs]);
 
   const convertTransferredSrfToLocal = useCallback(async (jobId: string) => {
-    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/convert-local`, {
-      method: "POST",
-    });
+    const out = await apiJson<{ reference: string; newSrfId: string }>(
+      `/api/service/srf-jobs/${encodeURIComponent(jobId)}/convert-local`,
+      { method: "POST" },
+    );
     await refreshJobs();
+    return out;
   }, [refreshJobs]);
 
   const supervisorRequestReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr: number; note: string }) => {
@@ -401,7 +409,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     items: { jobId: string; destinationStoreId: string }[],
     opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
   ) => {
-    const out = await apiJson<{ odcNumber: string; moved: number }>("/api/service/odcs", {
+    const out = await apiJson<{ odcNumber: string; moved: number; documentKind?: "DC" | "ODC" }>("/api/service/odcs", {
       method: "POST",
       json: {
         items: items.map((x) => ({ srfId: x.jobId, destinationStoreId: x.destinationStoreId })),

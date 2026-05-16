@@ -3,15 +3,34 @@ import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { printDcDocument } from "../../lib/serviceDocuments";
+import type { SrfJob } from "../../types/srfJob";
 
 const rowClass = "border-b border-zimson-100 last:border-0";
 
+const ackBtnPrimary =
+  "rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90";
+const ackBtnOutline =
+  "rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50";
+
 type DispatchMode = "outward" | "inward";
+
+type StoreOutwardAck = {
+  dcNumber: string;
+  rows: SrfJob[];
+  moved: number;
+  printOpts: {
+    fromLocation: string;
+    toLocation: string;
+    fromHo: string;
+    toHo: string;
+  };
+};
 
 export function StoreDispatchPage() {
   const { user } = useAuth();
@@ -22,6 +41,7 @@ export function StoreDispatchPage() {
   const [outwardDcInput, setOutwardDcInput] = useState("");
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
   const [scanInwardDcInput, setScanInwardDcInput] = useState("");
+  const [outwardAck, setOutwardAck] = useState<StoreOutwardAck | null>(null);
 
   const atStore = useMemo(() => {
     if (!user) return [];
@@ -93,18 +113,24 @@ export function StoreDispatchPage() {
     const ids = Object.entries(selected)
       .filter(([, v]) => v)
       .map(([k]) => k);
+    if (ids.length === 0) {
+      setMessage({ type: "err", text: "Select at least one SRF to dispatch to the service centre." });
+      return;
+    }
     try {
       const result = await dispatchToServiceCentre(ids);
       const rows = atStore.filter((j) => ids.includes(j.id));
-      printDcDocument("DC", result.dcNumber, rows, {
+      const printOpts = {
         fromLocation: `Store: ${rows[0]?.storeName ?? rows[0]?.storeId ?? user?.storeId ?? "-"}`,
         toLocation: `HO / Service Centre: ${rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-"}`,
         fromHo: rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-",
         toHo: rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-",
-      });
-      setMessage({
-        type: "ok",
-        text: `Internal transfer ${result.dcNumber} created for this store only. Hand over watches with transfer copy; your regional HO inward desk will select this transfer from pending list (no manual typing).`,
+      };
+      setOutwardAck({
+        dcNumber: result.dcNumber,
+        rows,
+        moved: result.moved,
+        printOpts,
       });
       void apiJson("/api/notifications/service-dispatch", {
         method: "POST",
@@ -123,7 +149,7 @@ export function StoreDispatchPage() {
       <ServiceBreadcrumb current="Send to service centre" />
       <PageHeader
         title="Send watches to service centre (HO)"
-        description="Choose SRF outward or inward flow for store operations."
+        description=""
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -142,7 +168,7 @@ export function StoreDispatchPage() {
         }
       />
 
-      <Card title="SRF store flow options" subtitle="Choose one flow: inward SRF or outward SRF">
+      <Card title="SRF store flow options" subtitle="">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -172,7 +198,7 @@ export function StoreDispatchPage() {
       {mode === "outward" ? (
         <Card
           title="Outward SRF (Store to HO)"
-          subtitle="Select SRFs at this store and create internal transfer to service centre."
+          subtitle=""
           className="mt-8"
         >
           {atStore.length === 0 ? (
@@ -362,6 +388,77 @@ export function StoreDispatchPage() {
         >
           {message.text}
         </p>
+      ) : null}
+
+      {outwardAck ? (
+        <ProcessSuccessModal
+          open
+          title="Internal transfer created (store → HO)"
+          description={`${outwardAck.dcNumber} · ${outwardAck.moved} watch${outwardAck.moved === 1 ? "" : "es"}`}
+          onBackdropClick={() => setOutwardAck(null)}
+          actions={
+            <>
+              <button
+                type="button"
+                className={ackBtnPrimary}
+                onClick={() =>
+                  printDcDocument("DC", outwardAck.dcNumber, outwardAck.rows, {
+                    ...outwardAck.printOpts,
+                    documentHeading: "Internal Transfer (Store → HO)",
+                  })
+                }
+              >
+                Print transfer copy
+              </button>
+              <button type="button" className={ackBtnOutline} onClick={() => setOutwardAck(null)}>
+                Done
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-stone-700">
+            Hand over the physical watch(es) with the printed transfer copy. Your regional HO inward desk will select
+            this transfer from their pending list — no manual DC entry required.
+          </p>
+          <div className="mt-4 rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">Internal transfer number</p>
+            <p className="mt-1 font-mono text-2xl font-bold text-stone-900">{outwardAck.dcNumber}</p>
+          </div>
+          <dl className="mt-4 space-y-1.5 text-sm text-stone-700">
+            <div className="flex justify-between gap-2">
+              <dt className="text-stone-500">From</dt>
+              <dd className="font-medium text-stone-900">{outwardAck.printOpts.fromLocation}</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-stone-500">To</dt>
+              <dd className="font-medium text-stone-900">{outwardAck.printOpts.toLocation}</dd>
+            </div>
+          </dl>
+          {outwardAck.rows.length > 0 ? (
+            <div className="mt-4 max-h-36 overflow-y-auto rounded-lg border border-rlx-rule text-xs">
+              <table className="min-w-full">
+                <thead className="sticky top-0 bg-stone-50 text-left font-semibold text-stone-600">
+                  <tr>
+                    <th className="px-2 py-1.5">SRF</th>
+                    <th className="px-2 py-1.5">Customer</th>
+                    <th className="px-2 py-1.5">Watch</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {outwardAck.rows.map((j) => (
+                    <tr key={j.id} className="border-t border-rlx-rule">
+                      <td className="px-2 py-1.5 font-mono font-semibold">{j.reference}</td>
+                      <td className="px-2 py-1.5">{j.customerName}</td>
+                      <td className="px-2 py-1.5">
+                        {j.watchBrand} {j.watchModel}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </ProcessSuccessModal>
       ) : null}
     </div>
   );

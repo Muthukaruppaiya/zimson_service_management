@@ -384,7 +384,7 @@ export function InventorySpareCatalogPage() {
       <InventoryBreadcrumb current="Spare catalogue" />
       <PageHeader
         title="Spare master"
-        description="Two-table model: spare master + spare brand price lines."
+        description=""
         actions={
           <Link
             to="/inventory"

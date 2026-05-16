@@ -176,10 +176,10 @@ export function WatchInventoryPage() {
       <ServiceBreadcrumb current="Watch inventory" />
       <PageHeader
         title="Watch inventory (HO + Store)"
-        description="Listed register with status, filters, and click-to-open full SRF movement details."
+        description=""
       />
 
-      <Card title={`Open watch count: ${totalOpen}`} subtitle="Closed / cancelled are excluded" className="mb-6">
+      <Card title={`Open watch count: ${totalOpen}`} subtitle="" className="mb-6">
         <div className="grid gap-3 md:grid-cols-6">
           <label className="text-xs font-semibold uppercase tracking-wide text-stone-600">
             Search

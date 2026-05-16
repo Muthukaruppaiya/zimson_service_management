@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
+import { isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
 import { useAuth } from "../../context/AuthContext";
 import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } from "../../lib/appBranding";
 import type { UserRole } from "../../types/user";
@@ -190,6 +191,13 @@ export function Sidebar() {
         ...section,
         items: section.items.filter((item) => {
           if (!canAccessModule(user, item.module)) return false;
+          if (
+            isInventoryStockPricesViewOnly(user) &&
+            item.module === "inventory" &&
+            item.to !== "/inventory/stock-prices"
+          ) {
+            return false;
+          }
           if (item.roles && item.roles.length > 0) {
             if (!isAdmin && !item.roles.includes(user.role)) return false;
           }

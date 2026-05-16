@@ -264,9 +264,9 @@ export function QuickBillHistoryPage() {
               <h1 className="font-display text-4xl font-light leading-tight tracking-wide text-white md:text-5xl">
                 Quick Bill History
               </h1>
-              <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/70">
+              {/* <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/70">
                 Search, preview and download issued invoices. Every record is preserved with full customer, watch and payment detail.
-              </p>
+              </p> */}
             </div>
             <div className="flex shrink-0 flex-wrap gap-3">
               <Link

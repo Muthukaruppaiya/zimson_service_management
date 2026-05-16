@@ -100,7 +100,7 @@ export function SrfMasterTablePage() {
       <ServiceBreadcrumb current="SRF master table" />
       <PageHeader
         title="SRF master table (all data)"
-        description="Track complete SRF lifecycle with internal transfer refs and status."
+        description=""
       />
 
       <Card title="All SRF records" subtitle="Filter by status/date and open details for full timeline">
