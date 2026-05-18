@@ -14,6 +14,8 @@ type WatchFamilyPickerProps = {
   required?: boolean;
   /** Fires when user picks an existing family vs typing a new one. */
   onSelectionModeChange?: (isNewFamily: boolean) => void;
+  /** When true, do not auto-pick the first family or pre-fill serial/refs. */
+  disableAutoSelect?: boolean;
 };
 
 export function WatchFamilyPicker({
@@ -25,6 +27,7 @@ export function WatchFamilyPicker({
   idPrefix = "wf",
   required = true,
   onSelectionModeChange,
+  disableAutoSelect = false,
 }: WatchFamilyPickerProps) {
   const [dbFamilies, setDbFamilies] = useState<WatchFamilyRow[]>([]);
   const [catalogFamilyKey, setCatalogFamilyKey] = useState("");
@@ -96,12 +99,18 @@ export function WatchFamilyPicker({
   }, [apiMode, watchBrand]);
 
   useEffect(() => {
-    setCatalogFamilyKey("__new__");
-    setCustomFamilyText(family.trim() ? family : "");
+    if (disableAutoSelect) {
+      setCatalogFamilyKey("");
+      setCustomFamilyText("");
+    } else {
+      setCatalogFamilyKey("__new__");
+      setCustomFamilyText(family.trim() ? family : "");
+    }
     setSaveMsg(null);
-  }, [watchBrand]);
+  }, [watchBrand, disableAutoSelect]);
 
   useEffect(() => {
+    if (disableAutoSelect) return;
     if (catalogFamilyKey === "__new__") return;
     if (catalogFamilies.some((f) => f.family === catalogFamilyKey)) return;
     if (catalogFamilies.length === 0) {
@@ -110,16 +119,17 @@ export function WatchFamilyPicker({
     }
     setCatalogFamilyKey(catalogFamilies[0]!.family);
     setCustomFamilyText("");
-  }, [catalogFamilies, catalogFamilyKey]);
+  }, [catalogFamilies, catalogFamilyKey, disableAutoSelect]);
 
   useEffect(() => {
+    if (disableAutoSelect) return;
     if (!family.trim() || catalogFamilyKey !== "__new__") return;
     const match = catalogFamilies.find((f) => f.family.trim().toLowerCase() === family.trim().toLowerCase());
     if (match) {
       setCatalogFamilyKey(match.family);
       setCustomFamilyText("");
     }
-  }, [family, catalogFamilies, catalogFamilyKey]);
+  }, [family, catalogFamilies, catalogFamilyKey, disableAutoSelect]);
 
   async function saveNewFamily() {
     const name =
@@ -167,10 +177,15 @@ export function WatchFamilyPicker({
             <div className="min-w-0 flex-1">
               <select
                 id={`${idPrefix}-family`}
-                value={catalogFamilyKey === "__new__" ? "__new__" : catalogFamilyKey}
+                value={catalogFamilyKey === "__new__" ? "__new__" : catalogFamilyKey || ""}
                 onChange={(e) => {
                   const v = e.target.value;
                   setSaveMsg(null);
+                  if (!v) {
+                    setCatalogFamilyKey("");
+                    setCustomFamilyText("");
+                    return;
+                  }
                   if (v === "__new__") {
                     setCatalogFamilyKey("__new__");
                     setCustomFamilyText("");
@@ -181,6 +196,7 @@ export function WatchFamilyPicker({
                 }}
                 className={inputClass.replace("mt-1 ", "")}
               >
+                {disableAutoSelect ? <option value="">Select family</option> : null}
                 {catalogFamilies.map((f) => (
                   <option key={f.id} value={f.family}>
                     {f.family}

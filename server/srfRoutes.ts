@@ -450,9 +450,12 @@ function ensurePhotoTokenSession(row: {
   return null;
 }
 
-function normalizePhotoKind(input: string): "front" | "back" | "strap" | "serial" | "damage" | "other" {
+const SRF_WATCH_PHOTO_KINDS = new Set(["front", "back", "strap", "serial", "damage", "other"]);
+
+function normalizePhotoKind(input: string): "front" | "back" | "strap" | "serial" | "damage" | "other" | "document" {
   const v = input.trim().toLowerCase();
-  if (v === "front" || v === "back" || v === "strap" || v === "serial" || v === "damage") return v;
+  if (v === "document") return "document";
+  if (SRF_WATCH_PHOTO_KINDS.has(v)) return v as "front" | "back" | "strap" | "serial" | "damage" | "other";
   return "other";
 }
 
@@ -4543,6 +4546,42 @@ export function registerSrfRoutes(
       }
       const relPath = path.relative(process.cwd(), req.file.path).replace(/\\/g, "/");
       const photoKind = normalizePhotoKind(String(req.body?.photoKind ?? ""));
+      if (photoKind === "document") {
+        const { rows: docRows } = await pool.query<{ c: number }>(
+          `SELECT COUNT(*)::int AS c FROM srf_job_photos WHERE srf_id = $1::uuid AND photo_kind = 'document'`,
+          [row!.srf_id],
+        );
+        if ((docRows[0]?.c ?? 0) >= 1) {
+          const { rows: existingDoc } = await pool.query<{ id: string; filePath: string }>(
+            `SELECT id::text AS id, file_path AS "filePath"
+             FROM srf_job_photos
+             WHERE srf_id = $1::uuid AND photo_kind = 'document'
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [row!.srf_id],
+          );
+          const old = existingDoc[0];
+          if (old?.id) {
+            await pool.query(`DELETE FROM srf_job_photos WHERE id = $1::uuid`, [old.id]);
+            const fp = String(old.filePath ?? "").replace(/\\/g, "/");
+            if (fp) {
+              const abs = path.isAbsolute(fp) ? fp : path.join(process.cwd(), fp);
+              fs.unlink(abs, () => {});
+            }
+          }
+        }
+      } else {
+        const { rows: kindRows } = await pool.query<{ photo_kind: string }>(
+          `SELECT DISTINCT photo_kind FROM srf_job_photos WHERE srf_id = $1::uuid AND photo_kind <> 'document'`,
+          [row!.srf_id],
+        );
+        const kinds = new Set(kindRows.map((r) => r.photo_kind));
+        if (!kinds.has(photoKind) && kinds.size >= 6) {
+          fs.unlink(req.file.path, () => {});
+          res.status(400).json({ error: "Maximum 6 watch photos allowed. Each type can be used once." });
+          return;
+        }
+      }
       const { rows: inserted } = await pool.query<{ id: string }>(
         `INSERT INTO srf_job_photos (srf_id, photo_kind, file_path, mime, bytes, created_by)
          VALUES ($1::uuid, $2, $3, $4, $5, NULL)

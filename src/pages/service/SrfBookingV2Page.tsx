@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import {
-  CustomerHandoverOtpModal,
-  type HandoverOtpMode,
-} from "../../components/service/CustomerHandoverOtpModal";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { WatchFamilyPicker } from "../../components/service/WatchFamilyPicker";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
@@ -33,6 +29,8 @@ import {
 } from "../../data/serviceSeed";
 import type { CustomerAddressBlock } from "../../types/customer";
 import type { SrfJob } from "../../types/srfJob";
+import { UNVERIFIED_CUSTOMER_ALERT_MESSAGE } from "../../lib/customerVerification";
+import { formatInr } from "../../lib/formatInr";
 
 const steps = ["Customer", "Watch", "Photos", "Estimate + OTP", "Review"] as const;
 
@@ -89,6 +87,41 @@ const inputClass =
 
 type SrfWatchModelRow = { id: string; brand: string; model: string; refHint: string };
 
+type SrfPhotoThumb = { id: string; photoKind?: string; filePath: string };
+
+function photoKindLabel(kind?: string): string {
+  const k = (kind ?? "other").trim();
+  return k ? k.charAt(0).toUpperCase() + k.slice(1) : "Other";
+}
+
+function SrfPhotoThumbTile({
+  photo,
+  imgClassName,
+  wrapperClassName,
+  onPreview,
+}: {
+  photo: SrfPhotoThumb;
+  imgClassName: string;
+  wrapperClassName?: string;
+  onPreview: (photo: SrfPhotoThumb) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onPreview(photo)}
+      title="Click to preview"
+      className={`group w-full cursor-zoom-in text-left transition hover:border-zimson-400 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-zimson-500 ${wrapperClassName ?? ""}`}
+    >
+      <img
+        src={`/${photo.filePath}`}
+        alt={photo.photoKind ?? "watch photo"}
+        className={`${imgClassName} w-full rounded object-cover`}
+      />
+      <p className="mt-1 text-[11px] capitalize text-stone-600 group-hover:text-zimson-800">{photo.photoKind ?? "other"}</p>
+    </button>
+  );
+}
+
 export function SrfBookingV2Page() {
   const { user } = useAuth();
   const apiMode = useApiMode();
@@ -103,6 +136,8 @@ export function SrfBookingV2Page() {
   const [step, setStep] = useState(0);
   const [customerType, setCustomerType] = useState<"B2C" | "B2B">("B2C");
   const [customerName, setCustomerName] = useState("");
+  const customerNameForNavRef = useRef("");
+  customerNameForNavRef.current = customerName.trim();
   const [phone, setPhone] = useState("");
   const [alternatePhone, setAlternatePhone] = useState("");
   const [email, setEmail] = useState("");
@@ -150,8 +185,22 @@ export function SrfBookingV2Page() {
   const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
-  const [photoPreview, setPhotoPreview] = useState<Array<{ id: string; photoKind?: string; filePath: string }>>([]);
+  const [photoPreview, setPhotoPreview] = useState<SrfPhotoThumb[]>([]);
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
+  const [photoLightbox, setPhotoLightbox] = useState<{ src: string; label: string } | null>(null);
+
+  const openPhotoPreview = useCallback((photo: SrfPhotoThumb) => {
+    setPhotoLightbox({ src: `/${photo.filePath}`, label: photoKindLabel(photo.photoKind) });
+  }, []);
+
+  useEffect(() => {
+    if (!photoLightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPhotoLightbox(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [photoLightbox]);
   const [awaitingOtp, setAwaitingOtp] = useState<string | null>(null);
   const [otpInput, setOtpInput] = useState("");
   const [otpError, setOtpError] = useState<string | null>(null);
@@ -165,13 +214,11 @@ export function SrfBookingV2Page() {
   const [loadedCustomerId, setLoadedCustomerId] = useState<string | null>(null);
   const [loadedCustomerCode, setLoadedCustomerCode] = useState<string | null>(null);
   const [walkInPending, setWalkInPending] = useState(false);
-  const [handoverVerified, setHandoverVerified] = useState(false);
-  const [handoverModalOpen, setHandoverModalOpen] = useState(false);
-  const [handoverModalMode, setHandoverModalMode] = useState<HandoverOtpMode>("primary");
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
   const autoLookupTimerRef = useRef<number | null>(null);
   const lastAutoLookupPhoneRef = useRef("");
+  const unverifiedAlertShownForRef = useRef<string | null>(null);
 
   const catalogModels = useMemo(() => {
     const seed = watchModelsForBrand(watchBrand).map((m) => ({
@@ -239,16 +286,17 @@ export function SrfBookingV2Page() {
     }
     return undefined;
   }, [regions, currentStoreId]);
-  /** Customer registration (OTP); returnTo brings user back to SRF after success. */
-  const customerOtpRegistrationHref = useMemo(() => {
-    const q = new URLSearchParams();
-    const p = phone.trim();
-    const n = customerName.trim();
-    if (p) q.set("phone", p);
-    if (n) q.set("name", n);
-    q.set("returnTo", "/service/srf");
-    return `/service/srf/new-customer?${q.toString()}`;
-  }, [phone, customerName]);
+  const redirectToCustomerRegister = useCallback(
+    (phoneRaw: string) => {
+      const q = new URLSearchParams();
+      if (phoneRaw.trim()) q.set("phone", phoneRaw.trim());
+      const name = customerNameForNavRef.current;
+      if (name) q.set("name", name);
+      q.set("returnTo", "/service/srf");
+      navigate(`/service/srf/new-customer?${q.toString()}`, { replace: true });
+    },
+    [navigate],
+  );
   const estimateTotal = Number.parseFloat(estimateAmount) || 0;
   const advanceTotal = Number.parseFloat(advanceAmount) || 0;
   const advancePaymentSummary = useMemo(() => {
@@ -317,15 +365,6 @@ export function SrfBookingV2Page() {
     return true;
   }
 
-  function openHandoverOtp(mode: HandoverOtpMode) {
-    setHandoverModalMode(mode);
-    setHandoverModalOpen(true);
-  }
-
-  function onHandoverVerified() {
-    setHandoverVerified(true);
-    setError(null);
-  }
   function validateWatch() {
     if (!watchBrand || !watchFamily.trim() || !resolvedWatchModel || !serial.trim()) {
       setError("Watch brand, family, model, and serial are required.");
@@ -432,7 +471,16 @@ export function SrfBookingV2Page() {
   async function goNext() {
     setError(null);
     try {
-      if (step === 0 && !validateCustomer()) return;
+      if (step === 0) {
+        if (!validateCustomer()) return;
+        if (
+          customerExists &&
+          customerChecked &&
+          !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt)
+        ) {
+          window.alert(UNVERIFIED_CUSTOMER_ALERT_MESSAGE);
+        }
+      }
       if (step === 1) {
         if (!validateWatch()) return;
         await ensureDraft();
@@ -523,7 +571,6 @@ export function SrfBookingV2Page() {
     setCustomerExists(true);
     setCustomerChecked(true);
     setWalkInPending(false);
-    setHandoverVerified(false);
     setLoadedCustomerId(data.id?.trim() || null);
     setLoadedCustomerCode(data.customerCode?.trim() || null);
     setCustomerType(data.customerKind);
@@ -543,6 +590,13 @@ export function SrfBookingV2Page() {
     setPhoneVerifiedAt(data.phoneVerifiedAt != null && String(data.phoneVerifiedAt).trim() ? String(data.phoneVerifiedAt) : null);
     setEmailVerifiedAt(data.emailVerifiedAt != null && String(data.emailVerifiedAt).trim() ? String(data.emailVerifiedAt) : null);
     lastAutoLookupPhoneRef.current = phone10((data.phone ?? "").trim());
+    const custKey = data.id?.trim() || phone10((data.phone ?? "").trim());
+    if (custKey && !isFullyOtpVerified(data.phoneVerifiedAt ?? null, data.emailVerifiedAt ?? null)) {
+      if (unverifiedAlertShownForRef.current !== custKey) {
+        unverifiedAlertShownForRef.current = custKey;
+        window.alert(UNVERIFIED_CUSTOMER_ALERT_MESSAGE);
+      }
+    }
   }
 
   useEffect(() => {
@@ -776,11 +830,12 @@ export function SrfBookingV2Page() {
           setCustomerChecked(false);
           setPhoneVerifiedAt(null);
           setEmailVerifiedAt(null);
-          setWalkInPending(true);
-          setHandoverVerified(false);
+          setWalkInPending(false);
           setLoadedCustomerId(null);
           setLoadedCustomerCode(null);
-          setCustomerCheckMsg("Customer not in master. Register the customer, or continue and confirm watch handover at final review.");
+          setCustomerCheckMsg("New mobile — opening customer registration…");
+          redirectToCustomerRegister(phone.trim());
+          return;
         }
       }
     } catch (e) {
@@ -819,7 +874,6 @@ export function SrfBookingV2Page() {
     setCustomerChecked(false);
     setCustomerExists(false);
     setWalkInPending(false);
-    setHandoverVerified(false);
     setLoadedCustomerId(null);
     setLoadedCustomerCode(null);
     setPhoneVerifiedAt(null);
@@ -910,12 +964,6 @@ export function SrfBookingV2Page() {
 
   async function finalizeAndPrint() {
     setError(null);
-    if (phone10(phone).length === 10 && !handoverVerified) {
-      setError(
-        "Verify handover with Send OTP to primary number or Send OTP to number before creating the SRF.",
-      );
-      return;
-    }
     try {
       const row = await ensureDraft();
       const advancePay =
@@ -1066,17 +1114,6 @@ export function SrfBookingV2Page() {
           {customerCheckMsg ? (
             <p className="mt-3 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">{customerCheckMsg}</p>
           ) : null}
-          {walkInPending && phone10(phone).length === 10 && !checkingCustomer ? (
-            <p className="mt-2">
-              <button
-                type="button"
-                onClick={() => navigate(customerOtpRegistrationHref)}
-                className="text-xs font-semibold text-zimson-800 underline"
-              >
-                Register customer
-              </button>
-            </p>
-          ) : null}
           {phone10(phone).length === 10 && !checkingCustomer ? (
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <div className="md:col-span-2 space-y-2">
@@ -1098,13 +1135,21 @@ export function SrfBookingV2Page() {
                   <input className={inputClass} value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
                 </label>
                 {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
+                  <div
+                    className="rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
+                    role="alert"
+                  >
+                    Alert: Customer not verified — complete mobile and email OTP before handover.
+                  </div>
+                ) : null}
+                {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
                   <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50/95 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-xs text-amber-950">
                       Complete mobile and email OTP on customer registration to mark this customer verified.
                     </p>
                     <button
                       type="button"
-                      onClick={() => navigate(customerOtpRegistrationHref)}
+                      onClick={() => redirectToCustomerRegister(phone.trim())}
                       className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
                     >
                       Verify with OTP
@@ -1314,14 +1359,13 @@ export function SrfBookingV2Page() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Preview</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {photoPreview.map((p) => (
-                      <div key={p.id} className="rounded-lg border border-zimson-200 p-1.5">
-                        <img
-                          src={`/${p.filePath}`}
-                          alt={p.photoKind ?? "watch photo"}
-                          className="h-28 w-full rounded object-cover"
-                        />
-                        <p className="mt-1 text-[11px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
-                      </div>
+                      <SrfPhotoThumbTile
+                        key={p.id}
+                        photo={p}
+                        imgClassName="h-28"
+                        wrapperClassName="rounded-lg border border-zimson-200 p-1.5"
+                        onPreview={openPhotoPreview}
+                      />
                     ))}
                   </div>
                 </div>
@@ -1342,14 +1386,13 @@ export function SrfBookingV2Page() {
                       <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">Uploaded image preview</p>
                       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {photoPreview.map((p) => (
-                          <div key={`amber-${p.id}`} className="rounded-md border border-amber-100 p-1">
-                            <img
-                              src={`/${p.filePath}`}
-                              alt={p.photoKind ?? "watch photo"}
-                              className="h-24 w-full rounded object-cover"
-                            />
-                            <p className="mt-0.5 text-[10px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
-                          </div>
+                          <SrfPhotoThumbTile
+                            key={`amber-${p.id}`}
+                            photo={p}
+                            imgClassName="h-24"
+                            wrapperClassName="rounded-md border border-amber-100 p-1"
+                            onPreview={openPhotoPreview}
+                          />
                         ))}
                       </div>
                     </div>
@@ -1392,8 +1435,14 @@ export function SrfBookingV2Page() {
         <Card title="Step 4 — Estimate + OTP">
           <div className="grid gap-3 md:grid-cols-2">
             <label className="text-sm md:col-span-2">Watch complaint<textarea className={inputClass} rows={3} value={complaint} onChange={(e) => setComplaint(e.target.value)} /></label>
-            <label className="text-sm">Estimate amount (INR)<input className={inputClass} value={estimateAmount} onChange={(e) => setEstimateAmount(e.target.value)} /></label>
-            <label className="text-sm">Advance amount (INR)<input className={inputClass} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0.00" /></label>
+            <label className="text-sm">
+              Estimate amount (₹)
+              <input className={inputClass} value={estimateAmount} onChange={(e) => setEstimateAmount(e.target.value)} />
+            </label>
+            <label className="text-sm">
+              Advance amount (₹)
+              <input className={inputClass} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0.00" />
+            </label>
             <label className="text-sm">Estimated service finish date<input type="date" className={inputClass} value={estimatedFinishDate} onChange={(e) => setEstimatedFinishDate(e.target.value)} /></label>
             {advanceTotal > 0 ? (
               <MultiPaymentFields
@@ -1431,7 +1480,7 @@ export function SrfBookingV2Page() {
               </div>
             </div>
             <div className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm">
-              Estimate: <strong>INR {estimateTotal.toFixed(2)}</strong> · Advance: <strong>INR {advanceTotal.toFixed(2)}</strong>
+              Estimate: <strong>{formatInr(estimateTotal)}</strong> · Advance: <strong>{formatInr(advanceTotal)}</strong>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -1511,14 +1560,13 @@ export function SrfBookingV2Page() {
                     {photoPreview.length > 0 ? (
                       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {photoPreview.map((p) => (
-                          <div key={p.id} className="rounded-lg border border-zimson-200 bg-white p-1.5">
-                            <img
-                              src={`/${p.filePath}`}
-                              alt={p.photoKind ?? "watch photo"}
-                              className="h-24 w-full rounded object-cover"
-                            />
-                            <p className="mt-1 text-[11px] capitalize text-stone-600">{p.photoKind ?? "other"}</p>
-                          </div>
+                          <SrfPhotoThumbTile
+                            key={p.id}
+                            photo={p}
+                            imgClassName="h-24"
+                            wrapperClassName="rounded-lg border border-zimson-200 bg-white p-1.5"
+                            onPreview={openPhotoPreview}
+                          />
                         ))}
                       </div>
                     ) : null}
@@ -1530,11 +1578,11 @@ export function SrfBookingV2Page() {
                 </tr>
                 <tr>
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimate</th>
-                  <td className="px-3 py-2 font-semibold text-zimson-900">INR {estimateTotal.toFixed(2)}</td>
+                  <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(estimateTotal)}</td>
                 </tr>
                 <tr>
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance</th>
-                  <td className="px-3 py-2 font-semibold text-zimson-900">INR {advanceTotal.toFixed(2)}</td>
+                  <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(advanceTotal)}</td>
                 </tr>
                 {advanceTotal > 0 ? (
                   <>
@@ -1547,35 +1595,6 @@ export function SrfBookingV2Page() {
               </tbody>
             </table>
           </div>
-          <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-3">
-            <p className="text-sm font-semibold text-indigo-950">Watch handover (final billing)</p>
-            {/* <p className="mt-1 text-xs text-stone-600">
-              Use one option only: OTP to the primary mobile on file, or OTP to another number you enter.
-            </p> */}
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => openHandoverOtp("primary")}
-                disabled={phone10(phone).length !== 10 || handoverVerified}
-                className="rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Send OTP to primary number
-              </button>
-              <button
-                type="button"
-                onClick={() => openHandoverOtp("custom")}
-                disabled={phone10(phone).length !== 10 || handoverVerified}
-                className="rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Send OTP to number
-              </button>
-              {handoverVerified ? (
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
-                  Handover verified — you can create the SRF
-                </span>
-              ) : null}
-            </div>
-          </div>
           <div className="mt-4 flex flex-wrap justify-between gap-3">
             <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
             <button type="button" onClick={() => void finalizeAndPrint()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Create SRF + print</button>
@@ -1584,13 +1603,36 @@ export function SrfBookingV2Page() {
       ) : null}
       </div>
 
-      <CustomerHandoverOtpModal
-        open={handoverModalOpen}
-        mode={handoverModalMode}
-        onClose={() => setHandoverModalOpen(false)}
-        contactPhone={phone}
-        onHandoverVerified={onHandoverVerified}
-      />
+      {photoLightbox ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Photo preview: ${photoLightbox.label}`}
+          onClick={() => setPhotoLightbox(null)}
+        >
+          <div
+            className="relative flex max-h-[92vh] w-full max-w-3xl flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between gap-3 text-white">
+              <p className="text-sm font-semibold capitalize">{photoLightbox.label}</p>
+              <button
+                type="button"
+                onClick={() => setPhotoLightbox(null)}
+                className="rounded-lg bg-white/15 px-3 py-1.5 text-sm font-semibold hover:bg-white/25"
+              >
+                Close
+              </button>
+            </div>
+            <img
+              src={photoLightbox.src}
+              alt={photoLightbox.label}
+              className="max-h-[calc(92vh-3rem)] w-full rounded-lg object-contain"
+            />
+          </div>
+        </div>
+      ) : null}
 
       {awaitingOtp ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">

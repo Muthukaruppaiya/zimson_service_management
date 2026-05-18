@@ -46,6 +46,10 @@ import {
   watchModelsForBrand,
 } from "../../data/serviceSeed";
 import type { TechnicianProfile } from "../../types/technician";
+import {
+  isFullyOtpVerified,
+  UNVERIFIED_CUSTOMER_ALERT_MESSAGE,
+} from "../../lib/customerVerification";
 
 type QuickBillWatchModelRow = { id: string; brand: string; model: string; refHint: string };
 
@@ -70,6 +74,8 @@ type LoadedCustomerRow = {
   company?: string;
   gst?: string;
   pan?: string;
+  phoneVerifiedAt?: string | null;
+  emailVerifiedAt?: string | null;
 };
 
 function phoneLast10(v: string): string {
@@ -175,6 +181,17 @@ export function QuickBillPage() {
   /** Keeps new-customer navigate URL stable without putting `customerName` in `checkCustomerInDb` deps (which retriggered lookup and cleared `customerChecked`). */
   const customerNameForNavRef = useRef("");
   customerNameForNavRef.current = customerName.trim();
+
+  const redirectToCustomerRegister = useCallback(
+    (phoneRaw: string) => {
+      const q = new URLSearchParams();
+      if (phoneRaw.trim()) q.set("phone", phoneRaw.trim());
+      const name = customerNameForNavRef.current;
+      if (name) q.set("name", name);
+      navigate(`/service/quick-bill/new-customer?${q.toString()}`, { replace: true });
+    },
+    [navigate],
+  );
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
@@ -274,6 +291,9 @@ export function QuickBillPage() {
   const [walkInPending, setWalkInPending] = useState(false);
   const [loadedCustomerId, setLoadedCustomerId] = useState<string | null>(null);
   const [loadedCustomerCode, setLoadedCustomerCode] = useState<string | null>(null);
+  const [phoneVerifiedAt, setPhoneVerifiedAt] = useState<string | null>(null);
+  const [emailVerifiedAt, setEmailVerifiedAt] = useState<string | null>(null);
+  const unverifiedAlertShownForRef = useRef<string | null>(null);
   const [handoverVerified, setHandoverVerified] = useState(false);
   const [handoverModalOpen, setHandoverModalOpen] = useState(false);
   const [handoverModalMode, setHandoverModalMode] = useState<HandoverOtpMode>("primary");
@@ -296,12 +316,21 @@ export function QuickBillPage() {
     setCity(data.city?.trim() || data.billingAddress?.city?.trim() || "");
     setLoadedCustomerId(data.id?.trim() || null);
     setLoadedCustomerCode(data.customerCode?.trim() || null);
+    setPhoneVerifiedAt(data.phoneVerifiedAt ?? null);
+    setEmailVerifiedAt(data.emailVerifiedAt ?? null);
     const p10 = phoneLast10((data.phone ?? "").trim());
     verifiedBillPhoneLast10Ref.current = p10.length === 10 ? p10 : "";
     setCustomerChecked(true);
     setWalkInPending(false);
     setHandoverVerified(false);
     lastAutoLookupPhoneRef.current = p10.length === 10 ? p10 : "";
+    const custKey = data.id?.trim() || p10;
+    if (custKey && !isFullyOtpVerified(data.phoneVerifiedAt, data.emailVerifiedAt)) {
+      if (unverifiedAlertShownForRef.current !== custKey) {
+        unverifiedAlertShownForRef.current = custKey;
+        window.alert(UNVERIFIED_CUSTOMER_ALERT_MESSAGE);
+      }
+    }
   }, []);
 
   const checkCustomerInDb = useCallback(async () => {
@@ -346,18 +375,20 @@ export function QuickBillPage() {
             company: local.company,
             gst: local.gst,
             pan: local.pan,
+            phoneVerifiedAt: local.phoneVerifiedAt ?? null,
+            emailVerifiedAt: local.emailVerifiedAt ?? null,
           });
           setCustomerCheckMsg("Existing customer found locally.");
         } else {
           setCustomerChecked(false);
           verifiedBillPhoneLast10Ref.current = "";
-          setWalkInPending(true);
+          setWalkInPending(false);
           setLoadedCustomerId(null);
           setLoadedCustomerCode(null);
           setHandoverVerified(false);
-          setCustomerCheckMsg(
-            "Customer not in master. Use Send OTP to number to verify handover, or register the customer.",
-          );
+          setCustomerCheckMsg("New mobile — opening customer registration…");
+          redirectToCustomerRegister(rawPhone);
+          return;
         }
       }
     } catch (e) {
@@ -377,6 +408,8 @@ export function QuickBillPage() {
           company: local.company,
           gst: local.gst,
           pan: local.pan,
+          phoneVerifiedAt: local.phoneVerifiedAt ?? null,
+          emailVerifiedAt: local.emailVerifiedAt ?? null,
         });
         setCustomerCheckMsg("Customer found locally (server lookup unavailable).");
       } else {
@@ -385,7 +418,7 @@ export function QuickBillPage() {
     } finally {
       setCheckingCustomer(false);
     }
-  }, [applyLoadedCustomer, customers, navigate]);
+  }, [applyLoadedCustomer, customers, redirectToCustomerRegister]);
 
   useEffect(() => {
     const rp = searchParams.get("restorePhone");
@@ -421,6 +454,8 @@ export function QuickBillPage() {
         company: local.company,
         gst: local.gst,
         pan: local.pan,
+        phoneVerifiedAt: local.phoneVerifiedAt ?? null,
+        emailVerifiedAt: local.emailVerifiedAt ?? null,
       });
       setSearchParams({}, { replace: true });
       return;
@@ -539,45 +574,13 @@ export function QuickBillPage() {
       .catch(() => setTechnicians([]));
   }, []);
 
-  const syncModelForBrand = useCallback((nextBrand: string) => {
+  function onWatchBrandChange(nextBrand: string) {
     setWatchBrand(nextBrand);
     setWatchFamily("");
     setWatchFamilyIsNew(false);
-    const ms = watchModelsForBrand(nextBrand);
-    if (ms.length === 0) {
-      setCatalogModelKey("__new__");
-      setCustomModelText("");
-      setWatchRef("");
-    } else {
-      setCatalogModelKey(ms[0]!.model);
-      setCustomModelText("");
-      if (ms[0]?.refHint) setWatchRef(ms[0].refHint);
-      else setWatchRef("");
-    }
-  }, []);
-
-  useEffect(() => {
-    if (brandNames.length === 0) return;
-    if (!watchBrand || !brandNames.includes(watchBrand)) {
-      syncModelForBrand(brandNames[0]!);
-    }
-  }, [brandNames, watchBrand, syncModelForBrand]);
-
-  useEffect(() => {
-    if (catalogModelKey === "__new__") return;
-    const match = catalogModels.some((m) => m.model === catalogModelKey);
-    if (match) return;
-    if (catalogModels.length === 0) {
-      setCatalogModelKey("__new__");
-      setCustomModelText("");
-      setWatchRef("");
-      return;
-    }
-    setCatalogModelKey(catalogModels[0]!.model);
+    setCatalogModelKey("");
     setCustomModelText("");
-    if (catalogModels[0]?.refHint) setWatchRef(catalogModels[0].refHint);
-    else setWatchRef("");
-  }, [catalogModels, catalogModelKey]);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -766,6 +769,13 @@ export function QuickBillPage() {
 
   function validateBeforeOtp(opts?: { skipHandoverCheck?: boolean }): boolean {
     setError(null);
+    if (
+      customerChecked &&
+      loadedCustomerId &&
+      !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt)
+    ) {
+      window.alert(UNVERIFIED_CUSTOMER_ALERT_MESSAGE);
+    }
     if (customerType === "B2B") {
       if (!company.trim()) {
         setError("B2B: company / legal name is required to create the customer.");
@@ -815,6 +825,8 @@ export function QuickBillPage() {
             company: hit.company,
             gst: hit.gst,
             pan: hit.pan,
+            phoneVerifiedAt: hit.phoneVerifiedAt ?? null,
+            emailVerifiedAt: hit.emailVerifiedAt ?? null,
           });
         }
       }
@@ -998,14 +1010,12 @@ export function QuickBillPage() {
     setPan("");
     setAddress("");
     setCity("");
-    const b0 = brandNames[0] ?? "";
-    if (b0) syncModelForBrand(b0);
-    else {
-      setWatchBrand("");
-      setCatalogModelKey("");
-      setCustomModelText("");
-      setWatchRef("");
-    }
+    setWatchBrand("");
+    setWatchFamily("");
+    setWatchFamilyIsNew(false);
+    setCatalogModelKey("");
+    setCustomModelText("");
+    setWatchRef("");
     setWatchRemark("");
     setWarrantyStatus("unspecified");
     setWatchDocumentPath(null);
@@ -1272,7 +1282,7 @@ export function QuickBillPage() {
           ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
+            <div>
               <label htmlFor="qb-customer-id" className="text-xs font-medium text-stone-600">
                 Customer ID
               </label>
@@ -1282,6 +1292,18 @@ export function QuickBillPage() {
                 value={loadedCustomerCode ?? ""}
                 className={`${inputClass} bg-zimson-50/80 font-mono`}
                 placeholder="—"
+              />
+            </div>
+            <div>
+              <label htmlFor="qb-phone" className="text-xs font-medium text-stone-600">
+                {customerType === "B2B" ? "Contact phone *" : "Phone (optional)"}
+              </label>
+              <input
+                id="qb-phone"
+                value={phone}
+                onChange={(e) => setPhone(sanitizePhoneDigits(e.target.value, 15))}
+                className={inputClass}
+                placeholder="+91 …"
               />
             </div>
             {customerType === "B2B" ? (
@@ -1341,18 +1363,6 @@ export function QuickBillPage() {
               />
             </div>
             <div>
-              <label htmlFor="qb-phone" className="text-xs font-medium text-stone-600">
-                {customerType === "B2B" ? "Contact phone *" : "Phone (optional)"}
-              </label>
-              <input
-                id="qb-phone"
-                value={phone}
-                onChange={(e) => setPhone(sanitizePhoneDigits(e.target.value, 15))}
-                className={inputClass}
-                placeholder="+91 …"
-              />
-            </div>
-            <div>
               <label htmlFor="qb-email" className="text-xs font-medium text-stone-600">
                 Email (optional)
               </label>
@@ -1371,15 +1381,20 @@ export function QuickBillPage() {
             {customerCheckMsg ? (
               <p className="sm:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">{customerCheckMsg}</p>
             ) : null}
-            {walkInPending ? (
-              <p className="sm:col-span-2">
-                <Link
-                  to={`/service/quick-bill/new-customer?phone=${encodeURIComponent(phone.trim())}&name=${encodeURIComponent(customerName.trim())}`}
-                  className="text-xs font-semibold text-zimson-800 underline"
+            {customerChecked && loadedCustomerId && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
+              <div
+                className="sm:col-span-2 rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
+                role="alert"
+              >
+                Alert: Customer not verified — complete mobile and email OTP in customer registration.
+                <button
+                  type="button"
+                  onClick={() => redirectToCustomerRegister(phone.trim())}
+                  className="ml-2 font-semibold text-zimson-900 underline"
                 >
-                  Register customer in master
-                </Link>
-              </p>
+                  Verify now
+                </button>
+              </div>
             ) : null}
           </div>
         </Card>
@@ -1393,9 +1408,10 @@ export function QuickBillPage() {
               <select
                 id="qb-brand"
                 value={watchBrand}
-                onChange={(e) => syncModelForBrand(e.target.value)}
+                onChange={(e) => onWatchBrandChange(e.target.value)}
                 className={inputClass}
               >
+                <option value="">Select brand</option>
                 {brandNames.map((b) => (
                   <option key={b} value={b}>
                     {b}
@@ -1409,6 +1425,7 @@ export function QuickBillPage() {
               family={watchFamily}
               onFamilyChange={setWatchFamily}
               onSelectionModeChange={setWatchFamilyIsNew}
+              disableAutoSelect
               inputClass={inputClass}
               idPrefix="qb"
             />
@@ -1422,10 +1439,15 @@ export function QuickBillPage() {
                     <div className="min-w-0 flex-1">
                       <select
                         id="qb-model"
-                        value={catalogModelKey === "__new__" ? "__new__" : catalogModelKey}
+                        value={catalogModelKey === "__new__" ? "__new__" : catalogModelKey || ""}
                         onChange={(e) => {
                           const v = e.target.value;
                           setWatchModelSaveMsg(null);
+                          if (!v) {
+                            setCatalogModelKey("");
+                            setCustomModelText("");
+                            return;
+                          }
                           if (v === "__new__") {
                             setCatalogModelKey("__new__");
                             setCustomModelText("");
@@ -1433,11 +1455,10 @@ export function QuickBillPage() {
                           }
                           setCatalogModelKey(v);
                           setCustomModelText("");
-                          const m = catalogModels.find((x) => x.model === v);
-                          if (m?.refHint) setWatchRef(m.refHint);
                         }}
                         className={inputClass.replace("mt-1 ", "")}
                       >
+                        <option value="">Select model</option>
                         {catalogModels.map((m) => (
                           <option key={m.id} value={m.model}>
                             {m.model}

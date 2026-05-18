@@ -27,7 +27,7 @@ export type SrfJobStatus =
 
 export type SrfJobPhoto = {
   id: string;
-  photoKind?: "front" | "back" | "strap" | "serial" | "damage" | "other";
+  photoKind?: "front" | "back" | "strap" | "serial" | "damage" | "other" | "document";
   filePath: string;
   mime: string;
   bytes: number;

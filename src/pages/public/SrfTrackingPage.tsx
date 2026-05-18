@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiJson } from "../../lib/api";
+import { formatInr } from "../../lib/formatInr";
 
 type TrackHistory = { id: string; status: string; note: string; changedAt: string };
 type TrackJob = {
@@ -73,13 +74,8 @@ function customerStatusLabel(status: string, hasPendingReestimate: boolean): str
 
 function buildCouponMessage(job: TrackJob): string {
   const coupon = job.brandCouponCode ?? "-";
-  const value = Number(job.brandCouponValueInr ?? 0).toFixed(2);
   const validity = job.brandCouponValidUntil ? ` Valid till ${new Date(job.brandCouponValidUntil).toLocaleDateString()}.` : "";
-  return `Dear customer, SRF ${job.reference}: Brand could not repair your watch. Coupon code ${coupon} of INR ${value} has been issued. You can redeem it at any Zimson store.${validity}`;
-}
-
-function formatInr(n: number): string {
-  return Number(n ?? 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
+  return `Dear customer, SRF ${job.reference}: Brand could not repair your watch. Coupon code ${coupon} of ${formatInr(Number(job.brandCouponValueInr ?? 0))} has been issued. You can redeem it at any Zimson store.${validity}`;
 }
 
 function TrackProgress({ activeIndex }: { activeIndex: number }) {
@@ -383,6 +379,11 @@ export function SrfTrackingPage() {
                           <section className="border border-amber-300/80 bg-gradient-to-br from-amber-50 to-rlx-gold-light/30 p-4 sm:p-5">
                             <h2 className="text-sm font-bold text-amber-950">Your approval is needed</h2>
                             <p className="mt-1 text-sm text-rlx-ink-muted">A revised estimate is ready. Please accept or reject to continue your repair.</p>
+                            {j.reestimateRequestedInr != null && Number(j.reestimateRequestedInr) > 0 ? (
+                              <p className="mt-2 font-display text-lg font-semibold text-rlx-green">
+                                Revised amount: {formatInr(Number(j.reestimateRequestedInr))}
+                              </p>
+                            ) : null}
                             <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                               <button type="button" disabled={busyId === j.id} onClick={() => void respond(j.id, true)} className="flex-1 bg-rlx-green px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-rlx-green-deep disabled:opacity-60">Accept estimate</button>
                               <button type="button" disabled={busyId === j.id} onClick={() => void respond(j.id, false)} className="flex-1 border-2 border-rlx-green bg-white px-4 py-3 text-sm font-bold text-rlx-green transition hover:bg-rlx-green-light disabled:opacity-60">Decline</button>
