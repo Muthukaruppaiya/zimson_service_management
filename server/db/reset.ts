@@ -62,6 +62,7 @@ TRUNCATE TABLE
   spares,
   brands,
   watch_models_catalog,
+  watch_families_catalog,
   service_tax_settings,
   workflow_status_definitions,
   technician_profiles,

@@ -1,14 +1,4 @@
-function barcodeImageSrc(value: string, width: number): string {
-  const text = encodeURIComponent(value);
-  const scale = Math.max(2, Math.floor(width / 220));
-  return `https://bwipjs-api.metafloor.com/?bcid=code128&text=${text}&scale=${scale}&includetext=true&textxalign=center`;
-}
-
-function qrImageSrc(value: string, size: number): string {
-  const text = encodeURIComponent(value);
-  const pixels = Math.max(160, Math.min(512, Math.floor(size)));
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${pixels}x${pixels}&data=${text}`;
-}
+import { invoiceBarcodeImageSrc, invoiceQrImageSrc } from "../../lib/invoiceScanCodes";
 
 type Props = {
   url: string;
@@ -33,7 +23,7 @@ export function CustomerLinkQr({ url, size = 160, caption, mode = "barcode", cla
     <div className={className}>
       {caption ? <p className="text-xs text-stone-600">{caption}</p> : null}
       <img
-        src={isQr ? qrImageSrc(url, width) : barcodeImageSrc(url, width)}
+        src={isQr ? invoiceQrImageSrc(url, width) : invoiceBarcodeImageSrc(url, width)}
         alt={isQr ? "QR code for link" : "Barcode for link"}
         width={width}
         height={isQr ? width : 72}

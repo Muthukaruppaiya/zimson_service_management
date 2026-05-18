@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
-import { APP_PAYMENT_MODES, sumAdvanceCashDenominations, type AdvancePaymentDetails } from "../src/lib/paymentModes";
+import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib/paymentModes";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
@@ -548,6 +548,7 @@ export function registerSrfRoutes(
                 j.customer_kind AS "customerKind",
                 j.company,
                 j.watch_brand AS "watchBrand",
+                j.watch_family AS "watchFamily",
                 j.watch_model AS "watchModel",
                 j.serial,
                 j.complaint,
@@ -757,6 +758,7 @@ export function registerSrfRoutes(
                 customer_name AS "customerName",
                 phone,
                 watch_brand AS "watchBrand",
+                watch_family AS "watchFamily",
                 watch_model AS "watchModel",
                 serial,
                 complaint,
@@ -945,6 +947,7 @@ export function registerSrfRoutes(
                 j.customer_name AS "customerName",
                 j.phone AS "customerPhone",
                 j.watch_brand AS "watchBrand",
+                j.watch_family AS "watchFamily",
                 j.watch_model AS "watchModel",
                 j.serial,
                 j.complaint,
@@ -1540,10 +1543,11 @@ export function registerSrfRoutes(
     const customerKind = String(req.body?.customerKind ?? "B2C").toUpperCase() === "B2B" ? "B2B" : "B2C";
     const company = String(req.body?.company ?? "").trim() || null;
     const watchBrand = String(req.body?.watchBrand ?? "").trim();
+    const watchFamily = String(req.body?.watchFamily ?? "").trim();
     const watchModel = String(req.body?.watchModel ?? "").trim();
     const serial = String(req.body?.serial ?? "").trim();
-    if (!regionId || !storeId || !destinationStoreId || !customerName || !phone || !watchBrand || !watchModel || !serial) {
-      res.status(400).json({ error: "regionId, storeId, destinationStoreId, customerName, phone, watchBrand, watchModel, serial are required." });
+    if (!regionId || !storeId || !destinationStoreId || !customerName || !phone || !watchBrand || !watchFamily || !watchModel || !serial) {
+      res.status(400).json({ error: "regionId, storeId, destinationStoreId, customerName, phone, watchBrand, watchFamily, watchModel, serial are required." });
       return;
     }
     const client = await pool.connect();
@@ -1566,11 +1570,11 @@ export function registerSrfRoutes(
       const ref = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(storeRows[0]?.name, storeId));
       const ins = await client.query<{ id: string }>(
         `INSERT INTO srf_jobs (
-           reference, region_id, store_id, customer_name, phone, customer_kind, company, watch_brand, watch_model, serial,
+           reference, region_id, store_id, customer_name, phone, customer_kind, company, watch_brand, watch_family, watch_model, serial,
            destination_store_id, status, photo_session_active, created_by, modified_by
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'photo_pending', true, $12, $12)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'photo_pending', true, $13, $13)
          RETURNING id`,
-        [ref, regionId, storeId, customerName, phone, customerKind, company, watchBrand, watchModel, serial, destinationStoreId, actor.id],
+        [ref, regionId, storeId, customerName, phone, customerKind, company, watchBrand, watchFamily, watchModel, serial, destinationStoreId, actor.id],
       );
       const srfId = ins.rows[0]?.id;
       if (!srfId) throw new Error("Could not create SRF draft.");
@@ -1692,23 +1696,17 @@ export function registerSrfRoutes(
     let advancePaymentMode: string | null = null;
     let advancePaymentDetails: AdvancePaymentDetails = {};
     if (advanceInr > 0) {
-      advancePaymentMode = String(req.body?.advancePaymentMode ?? "").trim();
-      if (!advancePaymentMode || !(APP_PAYMENT_MODES as readonly string[]).includes(advancePaymentMode)) {
-        res.status(400).json({ error: "Valid advance payment mode is required when advance amount is entered." });
+      const payNorm = normalizePaymentForTotal(
+        advanceInr,
+        String(req.body?.advancePaymentMode ?? ""),
+        req.body?.advancePaymentDetails,
+      );
+      if (!payNorm.ok) {
+        res.status(400).json({ error: payNorm.error });
         return;
       }
-      const rawDet = req.body?.advancePaymentDetails;
-      advancePaymentDetails =
-        rawDet && typeof rawDet === "object" && !Array.isArray(rawDet) ? (rawDet as AdvancePaymentDetails) : {};
-      if (advancePaymentMode === "Cash") {
-        const cashSum = sumAdvanceCashDenominations(advancePaymentDetails.cash);
-        if (Math.abs(cashSum - advanceInr) > 0.02) {
-          res.status(400).json({
-            error: `Cash denomination total INR ${cashSum.toFixed(2)} must match advance amount INR ${advanceInr.toFixed(2)}.`,
-          });
-          return;
-        }
-      }
+      advancePaymentMode = payNorm.value.paymentMode;
+      advancePaymentDetails = payNorm.value.paymentDetails;
     }
     const client = await pool.connect();
     try {
@@ -1931,6 +1929,10 @@ export function registerSrfRoutes(
       if (typeof body.watchBrand === "string") {
         sets.push(`watch_brand = $${pi++}`);
         vals.push(String(body.watchBrand).trim());
+      }
+      if (typeof body.watchFamily === "string") {
+        sets.push(`watch_family = $${pi++}`);
+        vals.push(String(body.watchFamily).trim());
       }
       if (typeof body.watchModel === "string") {
         sets.push(`watch_model = $${pi++}`);
@@ -3508,6 +3510,7 @@ export function registerSrfRoutes(
                 j.reference,
                 j.customer_name AS "customerName",
                 j.watch_brand AS "watchBrand",
+                j.watch_family AS "watchFamily",
                 j.watch_model AS "watchModel",
                 j.serial,
                 j.complaint,
@@ -4189,6 +4192,7 @@ export function registerSrfRoutes(
                 j.customer_name AS "customerName",
                 j.phone,
                 j.watch_brand AS "watchBrand",
+                j.watch_family AS "watchFamily",
                 j.watch_model AS "watchModel",
                 j.serial,
                 j.status,

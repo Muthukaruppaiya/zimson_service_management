@@ -1,4 +1,5 @@
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
+import { InvoiceNumberScanCodes } from "./InvoiceNumberScanCodes";
 
 type Props = {
   data: ServiceInvoiceViewModel;
@@ -27,6 +28,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
 
   const FALLBACK_LOGO = "/zimson-logo.png";
   const logoSrc = data.sellerLogoUrl || FALLBACK_LOGO;
+  const scanInvoiceNumber = (data.invoiceNumber || data.serviceReference || "").trim();
 
   return (
     <div
@@ -59,7 +61,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             ) : null}
           </dl>
 
-          {/* Right — Logo only (no tagline) */}
+          {/* Right — Logo + invoice barcode / QR */}
           <div className="flex flex-col items-end">
             <img
               src={logoSrc}
@@ -70,6 +72,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
               }}
               className="h-20 w-auto max-w-[220px] object-contain print:h-14 print:max-w-[180px]"
             />
+            <InvoiceNumberScanCodes invoiceNumber={scanInvoiceNumber} />
           </div>
         </div>
 
@@ -107,6 +110,9 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs print:text-[8pt]">
               <span className="font-semibold text-stone-600 whitespace-nowrap">Customer Name</span>
               <span className="text-stone-900 font-medium">: {data.billTo.name}</span>
+
+              <span className="font-semibold text-stone-600 whitespace-nowrap">Customer ID</span>
+              <span className="font-mono text-stone-900">: {data.billTo.customerCode || ""}</span>
 
               <span className="font-semibold text-stone-600 whitespace-nowrap">Mobile Number</span>
               <span className="text-stone-900">: {data.billTo.phone || ""}</span>
@@ -240,7 +246,19 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
                 <span className="w-36 shrink-0 font-semibold text-stone-600">Advance Amount</span>
                 <span>: {fmt(data.advanceAmount ?? 0)}</span>
               </div>
-              {data.paymentMode ? (
+              {data.paymentSplits && data.paymentSplits.length > 0 ? (
+                data.paymentSplits.map((split) => (
+                  <div key={split.mode} className="flex gap-2">
+                    <span className="w-36 shrink-0 font-semibold text-stone-600">{split.mode}</span>
+                    <span className="tabular-nums">
+                      : {fmt(split.amountInr)}
+                      {split.reference?.trim() ? (
+                        <span className="ml-1 font-normal text-stone-600">({split.reference.trim()})</span>
+                      ) : null}
+                    </span>
+                  </div>
+                ))
+              ) : data.paymentMode ? (
                 <div className="flex gap-2 font-semibold">
                   <span className="w-36 shrink-0 text-stone-600">{data.paymentMode} Payment</span>
                   <span>: {fmt((data.amountPaid ?? data.totalAmount) - (data.advanceAmount ?? 0))}</span>
@@ -248,7 +266,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
               ) : null}
               <div className="flex gap-2">
                 <span className="w-36 shrink-0 font-semibold text-stone-600">
-                  {paymentAmountLabel(data.paymentMode)}
+                  {data.paymentSplits?.length ? "Total paid" : paymentAmountLabel(data.paymentMode)}
                 </span>
                 <span>: {fmt(data.amountPaid ?? data.totalAmount)}</span>
               </div>

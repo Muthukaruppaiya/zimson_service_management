@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  CustomerHandoverOtpModal,
+  type HandoverOtpMode,
+} from "../../components/service/CustomerHandoverOtpModal";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
+import { WatchFamilyPicker } from "../../components/service/WatchFamilyPicker";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
@@ -13,13 +18,12 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError, useApiMode } from "../../lib/api";
 import {
-  APP_PAYMENT_MODES,
-  ADVANCE_CASH_DENOMS,
-  advanceDetailsFromFormStrings,
-  emptyCashDenomStrings,
-  sumAdvanceCashDenominations,
-  type AppPaymentMode,
+  buildMultiPaymentPayload,
+  emptyMultiPaymentForm,
+  formatPaymentSummary,
+  validateMultiPaymentForm,
 } from "../../lib/paymentModes";
+import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
 import { printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
 import {
   generateDemoOtp,
@@ -112,6 +116,7 @@ export function SrfBookingV2Page() {
   const [gst, setGst] = useState("");
   const [pan, setPan] = useState("");
   const [watchBrand, setWatchBrand] = useState("");
+  const [watchFamily, setWatchFamily] = useState("");
   const [dbWatchModels, setDbWatchModels] = useState<SrfWatchModelRow[]>([]);
   const [catalogModelKey, setCatalogModelKey] = useState("");
   const [customModelText, setCustomModelText] = useState("");
@@ -123,9 +128,7 @@ export function SrfBookingV2Page() {
   const [estimateAmount, setEstimateAmount] = useState("");
   const [estimatedFinishDate, setEstimatedFinishDate] = useState("");
   const [advanceAmount, setAdvanceAmount] = useState("");
-  const [advancePaymentMode, setAdvancePaymentMode] = useState<AppPaymentMode>("Cash");
-  const [cashDenomStrings, setCashDenomStrings] = useState(emptyCashDenomStrings);
-  const [advancePaymentRef, setAdvancePaymentRef] = useState("");
+  const [advancePaymentForm, setAdvancePaymentForm] = useState(emptyMultiPaymentForm);
   const [estimateRemarks, setEstimateRemarks] = useState("");
   const [obsCaseCrystal, setObsCaseCrystal] = useState("");
   const [obsGlassCrystal, setObsGlassCrystal] = useState("");
@@ -159,6 +162,12 @@ export function SrfBookingV2Page() {
   /** ISO timestamps from DB when customer was verified via OTP (null = not verified). */
   const [phoneVerifiedAt, setPhoneVerifiedAt] = useState<string | null>(null);
   const [emailVerifiedAt, setEmailVerifiedAt] = useState<string | null>(null);
+  const [loadedCustomerId, setLoadedCustomerId] = useState<string | null>(null);
+  const [loadedCustomerCode, setLoadedCustomerCode] = useState<string | null>(null);
+  const [walkInPending, setWalkInPending] = useState(false);
+  const [handoverVerified, setHandoverVerified] = useState(false);
+  const [handoverModalOpen, setHandoverModalOpen] = useState(false);
+  const [handoverModalMode, setHandoverModalMode] = useState<HandoverOtpMode>("primary");
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
   const autoLookupTimerRef = useRef<number | null>(null);
@@ -242,13 +251,15 @@ export function SrfBookingV2Page() {
   }, [phone, customerName]);
   const estimateTotal = Number.parseFloat(estimateAmount) || 0;
   const advanceTotal = Number.parseFloat(advanceAmount) || 0;
-  const cashDenomTotal = useMemo(() => {
-    const det = advanceDetailsFromFormStrings("Cash", cashDenomStrings, "");
-    return sumAdvanceCashDenominations(det.cash);
-  }, [cashDenomStrings]);
-
+  const advancePaymentSummary = useMemo(() => {
+    if (advanceTotal <= 0) return "—";
+    const built = buildMultiPaymentPayload(advancePaymentForm, advanceTotal);
+    if ("error" in built) return built.error;
+    return formatPaymentSummary(built.paymentMode, built.paymentDetails);
+  }, [advanceTotal, advancePaymentForm]);
   const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
+    setWatchFamily("");
     const ms = watchModelsForBrand(nextBrand);
     if (ms.length === 0) {
       setCatalogModelKey("__new__");
@@ -299,15 +310,25 @@ export function SrfBookingV2Page() {
         return false;
       }
     }
-    if (!customerChecked) {
+    if (!customerChecked && !walkInPending) {
       setError("Please check customer mobile against DB first.");
       return false;
     }
     return true;
   }
+
+  function openHandoverOtp(mode: HandoverOtpMode) {
+    setHandoverModalMode(mode);
+    setHandoverModalOpen(true);
+  }
+
+  function onHandoverVerified() {
+    setHandoverVerified(true);
+    setError(null);
+  }
   function validateWatch() {
-    if (!watchBrand || !resolvedWatchModel || !serial.trim()) {
-      setError("Watch brand, model, and serial are required.");
+    if (!watchBrand || !watchFamily.trim() || !resolvedWatchModel || !serial.trim()) {
+      setError("Watch brand, family, model, and serial are required.");
       return false;
     }
     return true;
@@ -326,13 +347,10 @@ export function SrfBookingV2Page() {
       return false;
     }
     if (advanceTotal > 0) {
-      if (advancePaymentMode === "Cash") {
-        if (Math.abs(cashDenomTotal - advanceTotal) > 0.02) {
-          setError(
-            `Cash notes/coins total (INR ${cashDenomTotal.toFixed(2)}) must match advance amount (INR ${advanceTotal.toFixed(2)}).`,
-          );
-          return false;
-        }
+      const payErr = validateMultiPaymentForm(advancePaymentForm, advanceTotal);
+      if (payErr) {
+        setError(payErr);
+        return false;
       }
     }
     return true;
@@ -346,6 +364,7 @@ export function SrfBookingV2Page() {
     const customerNameValue = customerName.trim();
     const phoneValue = phone.trim();
     const watchBrandValue = watchBrand.trim();
+    const watchFamilyValue = watchFamily.trim();
     const watchModelValue = resolvedWatchModel.trim();
     const serialValue = serial.trim();
     if (!regionId || !storeId) {
@@ -355,6 +374,7 @@ export function SrfBookingV2Page() {
       !customerNameValue ||
       !phoneValue ||
       !watchBrandValue ||
+      !watchFamilyValue ||
       !watchModelValue ||
       !serialValue ||
       !destinationStoreId
@@ -369,6 +389,7 @@ export function SrfBookingV2Page() {
       customerKind: customerType,
       company: customerType === "B2B" ? company : undefined,
       watchBrand: watchBrandValue,
+      watchFamily: watchFamilyValue,
       watchModel: watchModelValue,
       serial: serialValue,
       destinationStoreId,
@@ -465,6 +486,7 @@ export function SrfBookingV2Page() {
         customerName,
         phone,
         watchBrand,
+        watchFamily: watchFamily.trim(),
         watchModel: resolvedWatchModel.trim(),
         serial,
       });
@@ -480,6 +502,8 @@ export function SrfBookingV2Page() {
   }
 
   type LoadedCustomer = {
+    id?: string;
+    customerCode?: string | null;
     displayName: string;
     phone: string;
     alternatePhone?: string;
@@ -498,6 +522,10 @@ export function SrfBookingV2Page() {
   function applyLoadedCustomer(data: LoadedCustomer) {
     setCustomerExists(true);
     setCustomerChecked(true);
+    setWalkInPending(false);
+    setHandoverVerified(false);
+    setLoadedCustomerId(data.id?.trim() || null);
+    setLoadedCustomerCode(data.customerCode?.trim() || null);
     setCustomerType(data.customerKind);
     setCustomerName((data.displayName ?? "").trim());
     setPhone((data.phone ?? "").trim());
@@ -539,6 +567,8 @@ export function SrfBookingV2Page() {
     const local = getById(customerId);
     if (local) {
       fromRecord({
+        id: local.id,
+        customerCode: local.customerCode,
         displayName: local.displayName,
         phone: local.phone,
         alternatePhone: local.alternatePhone,
@@ -630,6 +660,7 @@ export function SrfBookingV2Page() {
 
         const brand = job.watchBrand.trim();
         setWatchBrand(brand);
+        setWatchFamily((job.watchFamily ?? "").trim());
         const model = job.watchModel.trim();
         const seedModels = watchModelsForBrand(brand);
         const hit = seedModels.find((m) => m.model.trim() === model);
@@ -723,6 +754,8 @@ export function SrfBookingV2Page() {
         const local = customers.find((c) => phone10(c.phone) === p10);
         if (local) {
           applyLoadedCustomer({
+            id: local.id,
+            customerCode: local.customerCode,
             displayName: local.displayName,
             phone: local.phone,
             alternatePhone: local.alternatePhone,
@@ -743,16 +776,19 @@ export function SrfBookingV2Page() {
           setCustomerChecked(false);
           setPhoneVerifiedAt(null);
           setEmailVerifiedAt(null);
-          setCustomerCheckMsg("New customer — opening full registration.");
-          navigate(
-            `/service/srf/new-customer?phone=${encodeURIComponent(phone.trim())}&name=${encodeURIComponent(customerName.trim())}`,
-          );
+          setWalkInPending(true);
+          setHandoverVerified(false);
+          setLoadedCustomerId(null);
+          setLoadedCustomerCode(null);
+          setCustomerCheckMsg("Customer not in master. Register the customer, or continue and confirm watch handover at final review.");
         }
       }
     } catch (e) {
       const local = customers.find((c) => phone10(c.phone) === p10);
       if (local) {
         applyLoadedCustomer({
+          id: local.id,
+          customerCode: local.customerCode,
           displayName: local.displayName,
           phone: local.phone,
           alternatePhone: local.alternatePhone,
@@ -782,6 +818,10 @@ export function SrfBookingV2Page() {
     if (normalized === lastAutoLookupPhoneRef.current) return;
     setCustomerChecked(false);
     setCustomerExists(false);
+    setWalkInPending(false);
+    setHandoverVerified(false);
+    setLoadedCustomerId(null);
+    setLoadedCustomerCode(null);
     setPhoneVerifiedAt(null);
     setEmailVerifiedAt(null);
     if (autoLookupTimerRef.current) window.clearTimeout(autoLookupTimerRef.current);
@@ -869,19 +909,28 @@ export function SrfBookingV2Page() {
   }
 
   async function finalizeAndPrint() {
+    setError(null);
+    if (phone10(phone).length === 10 && !handoverVerified) {
+      setError(
+        "Verify handover with Send OTP to primary number or Send OTP to number before creating the SRF.",
+      );
+      return;
+    }
     try {
       const row = await ensureDraft();
-      const advanceDetails =
-        advanceTotal > 0
-          ? advanceDetailsFromFormStrings(advancePaymentMode, cashDenomStrings, advancePaymentRef)
-          : {};
+      const advancePay =
+        advanceTotal > 0 ? buildMultiPaymentPayload(advancePaymentForm, advanceTotal) : null;
+      if (advancePay && "error" in advancePay) {
+        setError(advancePay.error);
+        return;
+      }
       const out = await finalizeJob(row.srfId, {
         complaint,
         estimateTotalInr: estimateTotal,
         estimatedFinishDate: estimatedFinishDate || null,
         advanceInr: advanceTotal,
-        advancePaymentMode: advanceTotal > 0 ? advancePaymentMode : null,
-        advancePaymentDetails: advanceTotal > 0 ? advanceDetails : {},
+        advancePaymentMode: advancePay ? advancePay.paymentMode : null,
+        advancePaymentDetails: advancePay ? advancePay.paymentDetails : {},
         selectedPartIds: [],
       });
       printSrfDocument({
@@ -895,8 +944,8 @@ export function SrfBookingV2Page() {
         estimateTotalInr: estimateTotal,
         estimatedFinishDate: estimatedFinishDate || null,
         advanceInr: advanceTotal,
-        advancePaymentMode: advanceTotal > 0 ? advancePaymentMode : null,
-        advancePaymentDetails: advanceTotal > 0 ? advanceDetails : null,
+        advancePaymentMode: advancePay ? advancePay.paymentMode : null,
+        advancePaymentDetails: advancePay ? advancePay.paymentDetails : null,
         photos: photoPreview,
       });
       printEstimateDocument(
@@ -997,11 +1046,36 @@ export function SrfBookingV2Page() {
             <label className="text-sm"><input type="radio" checked={customerType === "B2B"} onChange={() => setCustomerType("B2B")} /> B2B</label>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <label className="text-sm md:col-span-2">Phone<input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
+            <label className="text-sm md:col-span-2">
+              Customer ID
+              <input
+                readOnly
+                className={`${inputClass} bg-zimson-50/80 font-mono`}
+                value={loadedCustomerCode ?? ""}
+                placeholder="—"
+              />
+            </label>
+            <label className="text-sm md:col-span-2">
+              Phone
+              <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </label>
           </div>
-          <div className="mt-3 text-xs text-stone-500">{checkingCustomer ? "Checking customer in DB..." : "Customer check is automatic after entering mobile number."}</div>
+          <div className="mt-3 text-xs text-stone-500">
+            {checkingCustomer ? "Checking customer in DB…" : "Customer check runs automatically after you enter a mobile number."}
+          </div>
           {customerCheckMsg ? (
             <p className="mt-3 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">{customerCheckMsg}</p>
+          ) : null}
+          {walkInPending && phone10(phone).length === 10 && !checkingCustomer ? (
+            <p className="mt-2">
+              <button
+                type="button"
+                onClick={() => navigate(customerOtpRegistrationHref)}
+                className="text-xs font-semibold text-zimson-800 underline"
+              >
+                Register customer
+              </button>
+            </p>
           ) : null}
           {phone10(phone).length === 10 && !checkingCustomer ? (
             <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -1093,7 +1167,15 @@ export function SrfBookingV2Page() {
         <Card title="Step 2 — Watch">
           <div className="grid gap-3 md:grid-cols-2">
             <label className="text-sm">Brand<select className={inputClass} value={watchBrand} onChange={(e) => syncModelForBrand(e.target.value)}>{brandNames.map((b) => <option key={b}>{b}</option>)}</select></label>
-            <div>
+            <WatchFamilyPicker
+              watchBrand={watchBrand}
+              apiMode={apiMode}
+              family={watchFamily}
+              onFamilyChange={setWatchFamily}
+              inputClass={inputClass}
+              idPrefix="srf"
+            />
+            <div className="md:col-span-2">
               <label htmlFor="srf-model" className="text-sm">
                 Model
               </label>
@@ -1314,72 +1396,13 @@ export function SrfBookingV2Page() {
             <label className="text-sm">Advance amount (INR)<input className={inputClass} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0.00" /></label>
             <label className="text-sm">Estimated service finish date<input type="date" className={inputClass} value={estimatedFinishDate} onChange={(e) => setEstimatedFinishDate(e.target.value)} /></label>
             {advanceTotal > 0 ? (
-              <>
-                <label className="text-sm">
-                  Advance payment method
-                  <select
-                    className={inputClass}
-                    value={advancePaymentMode}
-                    onChange={(e) => setAdvancePaymentMode(e.target.value as AppPaymentMode)}
-                  >
-                    {APP_PAYMENT_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {advancePaymentMode === "Cash" ? (
-                  <div className="md:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
-                    <p className="text-sm font-semibold text-zimson-900">Cash denomination (must total advance)</p>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                      {ADVANCE_CASH_DENOMS.map(({ key, label }) => (
-                        <label key={key} className="text-xs text-stone-600">
-                          {label}
-                          <input
-                            className={inputClass}
-                            inputMode="numeric"
-                            value={cashDenomStrings[key]}
-                            onChange={(e) =>
-                              setCashDenomStrings((prev) => ({ ...prev, [key]: e.target.value }))
-                            }
-                          />
-                        </label>
-                      ))}
-                      <label className="text-xs text-stone-600 sm:col-span-2">
-                        Coins / loose (INR)
-                        <input
-                          className={inputClass}
-                          inputMode="decimal"
-                          value={cashDenomStrings.coinsInr}
-                          onChange={(e) =>
-                            setCashDenomStrings((prev) => ({ ...prev, coinsInr: e.target.value }))
-                          }
-                          placeholder="0.00"
-                        />
-                      </label>
-                    </div>
-                    <p className="mt-2 text-xs text-stone-600">
-                      Denomination total: <strong className="text-zimson-900">INR {cashDenomTotal.toFixed(2)}</strong>
-                      {Math.abs(cashDenomTotal - advanceTotal) > 0.02 ? (
-                        <span className="ml-2 text-amber-700">(does not match advance yet)</span>
-                      ) : (
-                        <span className="ml-2 text-emerald-700">(matches advance)</span>
-                      )}
-                    </p>
-                  </div>
-                ) : (
-                  <label className="text-sm md:col-span-2">
-                    Payment reference (optional)
-                    <input
-                      className={inputClass}
-                      value={advancePaymentRef}
-                      onChange={(e) => setAdvancePaymentRef(e.target.value)}
-                      placeholder="UPI UTR / card auth / bank transfer ref"
-                    />
-                  </label>
-                )}
-              </>
+              <MultiPaymentFields
+                idPrefix="srf-advance"
+                amountLabel="advance"
+                targetInr={advanceTotal}
+                form={advancePaymentForm}
+                onChange={setAdvancePaymentForm}
+              />
             ) : null}
             <label className="text-sm md:col-span-2">Remarks<input className={inputClass} value={estimateRemarks} onChange={(e) => setEstimateRemarks(e.target.value)} placeholder="Optional remarks" /></label>
             <div className="md:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
@@ -1411,9 +1434,11 @@ export function SrfBookingV2Page() {
               Estimate: <strong>INR {estimateTotal.toFixed(2)}</strong> · Advance: <strong>INR {advanceTotal.toFixed(2)}</strong>
             </div>
           </div>
-          <div className="mt-4 flex justify-between">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
-            <button type="button" onClick={beginOtp} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Send OTP</button>
+            <button type="button" onClick={beginOtp} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">
+              Send OTP
+            </button>
           </div>
         </Card>
       ) : null}
@@ -1423,6 +1448,12 @@ export function SrfBookingV2Page() {
           <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
             <table className="min-w-full text-left text-sm">
               <tbody>
+                {(loadedCustomerCode || loadedCustomerId) ? (
+                  <tr className="border-b border-zimson-100">
+                    <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Customer ID</th>
+                    <td className="px-3 py-2 font-mono font-semibold text-zimson-900">{loadedCustomerCode ?? "—"}</td>
+                  </tr>
+                ) : null}
                 <tr className="border-b border-zimson-100">
                   <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Customer</th>
                   <td className="px-3 py-2 text-stone-800">
@@ -1456,7 +1487,10 @@ export function SrfBookingV2Page() {
                 </tr>
                 <tr className="border-b border-zimson-100">
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Watch</th>
-                  <td className="px-3 py-2 text-stone-800">{watchBrand} {resolvedWatchModel.trim()} · {serial}</td>
+                  <td className="px-3 py-2 text-stone-800">
+                    {watchBrand}
+                    {watchFamily.trim() ? ` · ${watchFamily.trim()}` : ""} {resolvedWatchModel.trim()} · {serial}
+                  </td>
                 </tr>
                 <tr className="border-b border-zimson-100">
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">After-service handover store</th>
@@ -1506,30 +1540,57 @@ export function SrfBookingV2Page() {
                   <>
                     <tr>
                       <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance payment</th>
-                      <td className="px-3 py-2 text-stone-800">
-                        {advancePaymentMode}
-                        {advancePaymentMode !== "Cash" && advancePaymentRef.trim() ? (
-                          <span className="block text-xs text-stone-600">Ref: {advancePaymentRef.trim()}</span>
-                        ) : null}
-                        {advancePaymentMode === "Cash" ? (
-                          <span className="mt-1 block text-xs text-stone-600">
-                            Notes/coins total INR {cashDenomTotal.toFixed(2)}
-                          </span>
-                        ) : null}
-                      </td>
+                      <td className="px-3 py-2 text-stone-800 whitespace-pre-line">{advancePaymentSummary}</td>
                     </tr>
                   </>
                 ) : null}
               </tbody>
             </table>
           </div>
-          <div className="mt-4 flex justify-between">
+          <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-3">
+            <p className="text-sm font-semibold text-indigo-950">Watch handover (final billing)</p>
+            {/* <p className="mt-1 text-xs text-stone-600">
+              Use one option only: OTP to the primary mobile on file, or OTP to another number you enter.
+            </p> */}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openHandoverOtp("primary")}
+                disabled={phone10(phone).length !== 10 || handoverVerified}
+                className="rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Send OTP to primary number
+              </button>
+              <button
+                type="button"
+                onClick={() => openHandoverOtp("custom")}
+                disabled={phone10(phone).length !== 10 || handoverVerified}
+                className="rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Send OTP to number
+              </button>
+              {handoverVerified ? (
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
+                  Handover verified — you can create the SRF
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap justify-between gap-3">
             <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
             <button type="button" onClick={() => void finalizeAndPrint()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Create SRF + print</button>
           </div>
         </Card>
       ) : null}
       </div>
+
+      <CustomerHandoverOtpModal
+        open={handoverModalOpen}
+        mode={handoverModalMode}
+        onClose={() => setHandoverModalOpen(false)}
+        contactPhone={phone}
+        onHandoverVerified={onHandoverVerified}
+      />
 
       {awaitingOtp ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">

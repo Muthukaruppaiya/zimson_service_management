@@ -4,7 +4,7 @@ import path from "node:path";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
-import { sumAdvanceCashDenominations, type AdvancePaymentDetails } from "../src/lib/paymentModes";
+import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib/paymentModes";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
 
@@ -71,6 +71,8 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
             qb.store_id AS "storeId",
             s.name AS "storeName",
             qb.customer_type AS "customerType",
+            qb.customer_id AS "customerId",
+            qb.customer_code AS "customerCode",
             qb.customer_name AS "customerName",
             qb.phone,
             qb.email,
@@ -80,6 +82,7 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
             qb.address,
             qb.city,
             qb.watch_brand AS "watchBrand",
+            qb.watch_family AS "watchFamily",
             qb.watch_model AS "watchModel",
             qb.watch_ref AS "watchRef",
             qb.watch_remark AS "watchRemark",
@@ -131,6 +134,8 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
     storeId: head.storeId ?? null,
     storeName: head.storeName ?? null,
     customerType: head.customerType,
+    customerId: head.customerId ?? null,
+    customerCode: head.customerCode ?? null,
     customerName: head.customerName ?? null,
     phone: head.phone ?? null,
     email: head.email ?? null,
@@ -140,6 +145,7 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
     address: (head.address as string | null) ?? null,
     city: (head.city as string | null) ?? null,
     watchBrand: head.watchBrand,
+    watchFamily: (head.watchFamily as string | null) ?? "",
     watchModel: head.watchModel,
     watchRef: head.watchRef ?? null,
     watchRemark: head.watchRemark ?? "",
@@ -250,6 +256,80 @@ export function registerQuickBillRoutes(
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Could not load watch models." });
+    }
+  });
+
+  app.get("/api/service/watch-families", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const brand = String(req.query.brand ?? "").trim();
+    if (!brand) {
+      res.status(400).json({ error: "brand query parameter is required." });
+      return;
+    }
+    const brandNorm = brand.trim().toLowerCase();
+    try {
+      const { rows } = await pool.query<{
+        id: string;
+        brand: string;
+        family: string;
+      }>(
+        `SELECT id::text AS id,
+                brand,
+                family
+         FROM watch_families_catalog
+         WHERE brand_norm = $1
+         ORDER BY family ASC`,
+        [brandNorm],
+      );
+      res.json({ families: rows });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load watch families." });
+    }
+  });
+
+  app.post("/api/service/watch-families", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const brand = String(req.body?.brand ?? "").trim();
+    const family = String(req.body?.family ?? "").trim();
+    if (!brand || !family) {
+      res.status(400).json({ error: "brand and family are required." });
+      return;
+    }
+    if (family.length > 200 || brand.length > 200) {
+      res.status(400).json({ error: "brand or family is too long." });
+      return;
+    }
+    const brandNorm = brand.toLowerCase();
+    const familyNorm = family.toLowerCase();
+    try {
+      const ins = await pool.query<{ id: string }>(
+        `INSERT INTO watch_families_catalog (brand, family, brand_norm, family_norm, created_by)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (brand_norm, family_norm) DO NOTHING
+         RETURNING id::text AS id`,
+        [brand, family, brandNorm, familyNorm, actor.id],
+      );
+      let id = ins.rows[0]?.id as string | undefined;
+      if (!id) {
+        const sel = await pool.query<{ id: string }>(
+          `SELECT id::text AS id FROM watch_families_catalog WHERE brand_norm = $1 AND family_norm = $2`,
+          [brandNorm, familyNorm],
+        );
+        id = sel.rows[0]?.id;
+      }
+      res.json({ ok: true, id: id ?? null, wasNew: Boolean(ins.rows[0]) });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not save watch family." });
     }
   });
 
@@ -539,6 +619,10 @@ export function registerQuickBillRoutes(
     const pan = String(req.body?.pan ?? "").trim().toUpperCase() || null;
     const address = String(req.body?.address ?? "").trim() || null;
     const city = String(req.body?.city ?? "").trim() || null;
+    const customerIdRaw = req.body?.customerId;
+    const customerId =
+      customerIdRaw == null || String(customerIdRaw).trim() === "" ? null : String(customerIdRaw).trim();
+    const customerCode = String(req.body?.customerCode ?? "").trim() || null;
 
     if (customerType === "B2B") {
       if (!company) {
@@ -560,16 +644,18 @@ export function registerQuickBillRoutes(
     }
 
     const watchBrand = String(req.body?.watchBrand ?? "").trim();
+    const watchFamily = String(req.body?.watchFamily ?? "").trim();
     const watchModel = String(req.body?.watchModel ?? "").trim();
     const watchRefRaw = req.body?.watchRef;
     const watchRef =
       watchRefRaw == null || String(watchRefRaw).trim() === "" ? null : String(watchRefRaw).trim();
-    if (!watchBrand || !watchModel) {
-      res.status(400).json({ error: "watchBrand and watchModel are required." });
+    if (!watchBrand || !watchFamily || !watchModel) {
+      res.status(400).json({ error: "watchBrand, watchFamily, and watchModel are required." });
       return;
     }
 
     const persistNewWatchModel = Boolean(req.body?.persistNewWatchModel);
+    const persistNewWatchFamily = Boolean(req.body?.persistNewWatchFamily);
 
     const watchRemark = String(req.body?.watchRemark ?? "").trim();
     const warrantyStatusRaw = String(req.body?.warrantyStatus ?? "unspecified").trim();
@@ -591,17 +677,6 @@ export function registerQuickBillRoutes(
       technicianNameRaw == null || String(technicianNameRaw).trim() === ""
         ? null
         : String(technicianNameRaw).trim();
-
-    const paymentMode = String(req.body?.paymentMode ?? "Cash");
-    if (
-      paymentMode !== "Cash" &&
-      paymentMode !== "Card" &&
-      paymentMode !== "UPI" &&
-      paymentMode !== "Bank Transfer"
-    ) {
-      res.status(400).json({ error: "paymentMode must be Cash, Card, UPI, or Bank Transfer." });
-      return;
-    }
 
     const notes = String(req.body?.notes ?? "").trim();
     const rawLines = req.body?.lines;
@@ -677,30 +752,17 @@ export function registerQuickBillRoutes(
       return;
     }
 
-    const rawPd = req.body?.paymentDetails;
-    let paymentDetails: AdvancePaymentDetails = {};
-    if (rawPd && typeof rawPd === "object" && !Array.isArray(rawPd)) {
-      paymentDetails = rawPd as AdvancePaymentDetails;
+    const paymentNorm = normalizePaymentForTotal(
+      totalInr,
+      String(req.body?.paymentMode ?? "Cash"),
+      req.body?.paymentDetails,
+    );
+    if (!paymentNorm.ok) {
+      res.status(400).json({ error: paymentNorm.error });
+      return;
     }
-
-    let paymentDetailsToStore: AdvancePaymentDetails = {};
-    if (paymentMode === "Cash") {
-      const cashSum = sumAdvanceCashDenominations(paymentDetails.cash);
-      if (Math.abs(cashSum - totalInr) > 0.02) {
-        res.status(400).json({
-          error: `Cash denominations must total the bill amount (INR ${totalInr.toFixed(2)}). Current: INR ${cashSum.toFixed(2)}.`,
-        });
-        return;
-      }
-      paymentDetailsToStore = paymentDetails.cash ? { cash: paymentDetails.cash } : {};
-    } else {
-      const ref = String(paymentDetails.reference ?? "").trim();
-      if (ref.length > 500) {
-        res.status(400).json({ error: "Payment reference is too long (max 500 characters)." });
-        return;
-      }
-      paymentDetailsToStore = ref ? { reference: ref } : {};
-    }
+    const paymentMode = paymentNorm.value.paymentMode;
+    const paymentDetailsToStore: AdvancePaymentDetails = paymentNorm.value.paymentDetails;
 
     const client = await pool.connect();
     try {
@@ -726,12 +788,13 @@ export function registerQuickBillRoutes(
 
       const ins = await client.query(
         `INSERT INTO quick_bills (
-           bill_number, invoice_number, region_id, store_id, customer_type, customer_name, phone, email,
-           company, gst, pan, address, city, watch_brand, watch_model, watch_ref, technician_id, technician_name,
+           bill_number, invoice_number, region_id, store_id, customer_type, customer_id, customer_code,
+           customer_name, phone, email,
+           company, gst, pan, address, city, watch_brand, watch_family, watch_model, watch_ref, technician_id, technician_name,
            payment_mode, notes, watch_remark, warranty_status, watch_document_path, watch_image_path,
            total_inr, payment_details, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26::jsonb, $27)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29::jsonb, $30)
          RETURNING id, created_at`,
         [
           billNumber,
@@ -739,6 +802,8 @@ export function registerQuickBillRoutes(
           regionId,
           storeId,
           customerType,
+          customerId,
+          customerCode,
           customerName,
           phone,
           email,
@@ -748,6 +813,7 @@ export function registerQuickBillRoutes(
           address,
           city,
           watchBrand,
+          watchFamily,
           watchModel,
           watchRef,
           technicianId,
@@ -823,6 +889,19 @@ export function registerQuickBillRoutes(
             note: `Quick bill spare usage (${billNumber}).`,
             createdBy: actor.id,
           });
+        }
+      }
+
+      if (persistNewWatchFamily) {
+        const b = watchBrand.trim();
+        const f = watchFamily.trim();
+        if (b && f) {
+          await client.query(
+            `INSERT INTO watch_families_catalog (brand, family, brand_norm, family_norm, created_by)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (brand_norm, family_norm) DO NOTHING`,
+            [b, f, b.toLowerCase(), f.toLowerCase(), actor.id],
+          );
         }
       }
 

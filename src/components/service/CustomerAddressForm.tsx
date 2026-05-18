@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiJson, useApiMode } from "../../lib/api";
+import { sanitizePhoneDigits, sanitizeTextInput } from "../../lib/inputSanitize";
 import type { CustomerAddressBlock } from "../../types/customer";
 
 const inputClass =
@@ -15,7 +16,7 @@ type Props = {
 };
 
 function digitsPin(v: string, maxLen: number): string {
-  return v.replace(/\D/g, "").slice(0, maxLen);
+  return sanitizePhoneDigits(v, maxLen);
 }
 
 export function CustomerAddressForm({ value, onChange, countries, disabled }: Props) {
@@ -163,7 +164,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         <label className="text-xs font-medium text-stone-600">Door / plot no. *</label>
         <input
           value={value.doorNo}
-          onChange={(e) => patch({ doorNo: e.target.value })}
+          onChange={(e) => patch({ doorNo: sanitizeTextInput(e.target.value, 80) })}
           className={inputClass}
           disabled={disabled}
         />
@@ -172,7 +173,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         <label className="text-xs font-medium text-stone-600">Street *</label>
         <input
           value={value.street}
-          onChange={(e) => patch({ street: e.target.value })}
+          onChange={(e) => patch({ street: sanitizeTextInput(e.target.value, 200) })}
           className={inputClass}
           disabled={disabled}
         />
@@ -221,7 +222,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         ) : (
           <input
             value={value.state}
-            onChange={(e) => patch({ state: e.target.value, district: "" })}
+            onChange={(e) => patch({ state: sanitizeTextInput(e.target.value, 80), district: "" })}
             className={inputClass}
             disabled={disabled}
             placeholder="State / region"
@@ -233,7 +234,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         {api && districts.length === 0 && value.state.trim() ? (
           <input
             value={value.district}
-            onChange={(e) => patch({ district: e.target.value })}
+            onChange={(e) => patch({ district: sanitizeTextInput(e.target.value, 80) })}
             className={inputClass}
             disabled={disabled}
             placeholder="District (no list for this state — type or use PIN lookup for India)"
@@ -268,7 +269,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
           <select
             className={inputClass}
             value={localityOptions.includes(value.city.trim()) ? value.city : localityOptions[0] ?? ""}
-            onChange={(e) => patch({ city: e.target.value })}
+            onChange={(e) => patch({ city: sanitizeTextInput(e.target.value, 80) })}
             disabled={disabled}
           >
             <option value="">Select locality</option>
@@ -281,7 +282,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         ) : (
           <input
             value={value.city}
-            onChange={(e) => patch({ city: e.target.value })}
+            onChange={(e) => patch({ city: sanitizeTextInput(e.target.value, 80) })}
             className={inputClass}
             disabled={disabled}
             placeholder={

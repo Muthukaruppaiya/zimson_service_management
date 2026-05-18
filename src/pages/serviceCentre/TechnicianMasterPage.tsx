@@ -4,6 +4,14 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { apiJson } from "../../lib/api";
+import {
+  sanitizeAlphanumericInput,
+  sanitizeEmailInput,
+  sanitizeIntegerInput,
+  sanitizeMultilineTextInput,
+  sanitizePhoneDigits,
+  sanitizeTextInput,
+} from "../../lib/inputSanitize";
 import type { TechnicianProfile } from "../../types/technician";
 
 export function TechnicianMasterPage() {
@@ -98,15 +106,15 @@ export function TechnicianMasterPage() {
 
       <Card title="Create technician">
         <div className="grid gap-3 md:grid-cols-2">
-          <label className="text-sm">Employee code<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.employeeCode} onChange={(e) => setForm((p) => ({ ...p, employeeCode: e.target.value }))} /></label>
-          <label className="text-sm">Name<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.fullName} onChange={(e) => setForm((p) => ({ ...p, fullName: e.target.value }))} /></label>
-          <label className="text-sm">Mail ID<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} /></label>
-          <label className="text-sm">Phone number<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} /></label>
-          <label className="text-sm">Grade<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.grade} onChange={(e) => setForm((p) => ({ ...p, grade: e.target.value }))} /></label>
+          <label className="text-sm">Employee code<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.employeeCode} onChange={(e) => setForm((p) => ({ ...p, employeeCode: sanitizeAlphanumericInput(e.target.value, 24) }))} /></label>
+          <label className="text-sm">Name<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.fullName} onChange={(e) => setForm((p) => ({ ...p, fullName: sanitizeTextInput(e.target.value, 120) }))} /></label>
+          <label className="text-sm">Mail ID<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: sanitizeEmailInput(e.target.value) }))} /></label>
+          <label className="text-sm">Phone number<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: sanitizePhoneDigits(e.target.value, 15) }))} /></label>
+          <label className="text-sm">Grade<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.grade} onChange={(e) => setForm((p) => ({ ...p, grade: sanitizeTextInput(e.target.value, 40) }))} /></label>
           <label className="text-sm">Region<select className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.regionId} onChange={(e) => setForm((p) => ({ ...p, regionId: e.target.value }))}><option value="">Select region</option>{regions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
-          <label className="text-sm">Specialization<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.specialization} onChange={(e) => setForm((p) => ({ ...p, specialization: e.target.value }))} /></label>
-          <label className="text-sm">Experience (years)<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.experienceYears} onChange={(e) => setForm((p) => ({ ...p, experienceYears: e.target.value }))} /></label>
-          <label className="text-sm md:col-span-2">Notes<textarea className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" rows={3} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></label>
+          <label className="text-sm">Specialization<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.specialization} onChange={(e) => setForm((p) => ({ ...p, specialization: sanitizeTextInput(e.target.value, 120) }))} /></label>
+          <label className="text-sm">Experience (years)<input className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" value={form.experienceYears} onChange={(e) => setForm((p) => ({ ...p, experienceYears: sanitizeIntegerInput(e.target.value, 3) }))} /></label>
+          <label className="text-sm md:col-span-2">Notes<textarea className="mt-1 w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm" rows={3} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: sanitizeMultilineTextInput(e.target.value, 500) }))} /></label>
         </div>
         <div className="mt-3 flex items-center gap-3">
           <button type="button" onClick={() => void createTechnician()} disabled={!canCreate} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">

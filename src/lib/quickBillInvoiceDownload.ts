@@ -1,6 +1,8 @@
-import { ADVANCE_CASH_DENOMS } from "./paymentModes";
+import { ADVANCE_CASH_DENOMS, formatPaymentSummary, paymentSplitsFromDetails } from "./paymentModes";
 import type { AdvancePaymentDetails } from "./paymentModes";
 import type { QuickBillInvoice } from "../types/quickBill";
+import { invoiceBarcodeImageSrc } from "./invoiceScanCodes";
+// import { invoiceQrImageSrc } from "./invoiceScanCodes"; // uncomment with QR img in scanBlock
 
 function escapeHtml(raw: string): string {
   return raw
@@ -13,6 +15,10 @@ function escapeHtml(raw: string): string {
 
 function formatPaymentBlock(inv: QuickBillInvoice): string {
   const pd: AdvancePaymentDetails | null | undefined = inv.paymentDetails;
+  const splits = paymentSplitsFromDetails(inv.paymentMode, pd, inv.totalInr);
+  if (splits.length > 1 || (pd as { splits?: unknown })?.splits) {
+    return escapeHtml(formatPaymentSummary(inv.paymentMode, pd));
+  }
   if (inv.paymentMode === "Cash" && pd?.cash) {
     const parts: string[] = [];
     for (const { key, face, label } of ADVANCE_CASH_DENOMS) {
@@ -24,7 +30,7 @@ function formatPaymentBlock(inv: QuickBillInvoice): string {
     return parts.length > 0 ? parts.join("<br/>") : "—";
   }
   const ref = pd?.reference?.trim();
-  return ref ? escapeHtml(ref) : "—";
+  return ref ? escapeHtml(ref) : escapeHtml(inv.paymentMode);
 }
 
 function warrantyLabel(w: string | undefined): string {
@@ -52,6 +58,17 @@ export function buildQuickBillInvoiceDownloadHtml(inv: QuickBillInvoice): string
     )
     .join("");
 
+  const scanNumber = (inv.invoiceNumber || inv.billNumber || "").trim();
+  const scanBlock = scanNumber
+    ? `<div style="float:right;text-align:right;margin:0 0 12px 16px">
+        <img src="${invoiceBarcodeImageSrc(scanNumber, 200)}" alt="Barcode ${escapeHtml(scanNumber)}" width="200" height="56" style="display:block;border:1px solid #d6d3d1;background:#fff"/>
+        <!-- QR — re-enable when needed
+        <img src="${invoiceQrImageSrc(scanNumber, 112)}" alt="QR ${escapeHtml(scanNumber)}" width="112" height="112" style="display:block;margin-top:6px;border:1px solid #d6d3d1;background:#fff"/>
+        -->
+        <p style="font-family:monospace;font-size:10px;color:#57534e;margin:4px 0 0">${escapeHtml(scanNumber)}</p>
+      </div>`
+    : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -65,10 +82,12 @@ export function buildQuickBillInvoiceDownloadHtml(inv: QuickBillInvoice): string
   th { background: #fafaf9; text-align: left; }
   .muted { color: #57534e; font-size: 0.85rem; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
+  .head { overflow: hidden; }
 </style>
 </head>
 <body>
-  <h1>Quick bill — ${escapeHtml(inv.billNumber)}</h1>
+  <div class="head">${scanBlock}<h1>Quick bill — ${escapeHtml(inv.billNumber)}</h1></div>
+  <p class="muted"><strong>Invoice no.</strong> ${escapeHtml(inv.invoiceNumber || inv.billNumber)}</p>
   <p class="muted">${escapeHtml(new Date(inv.createdAt).toLocaleString())} · ${escapeHtml([inv.regionName, inv.storeName].filter(Boolean).join(" · ") || inv.regionId)}</p>
   <div class="grid2">
     <div><strong>Bill to</strong><br/>${billTo}</div>

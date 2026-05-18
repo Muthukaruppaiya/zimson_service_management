@@ -6,6 +6,12 @@ import { useToast } from "../ui/Toast";
 import { ROLE_MODULE_ACCESS } from "../../config/moduleAccess";
 import type { ModuleKey, UserRole } from "../../types/user";
 import {
+  sanitizeAlphanumericInput,
+  sanitizeEmailInput,
+  sanitizePasswordInput,
+  sanitizeTextInput,
+} from "../../lib/inputSanitize";
+import {
   ALL_MODULE_KEYS,
   MODULE_LABELS,
   ROLE_CREATION_META,
@@ -128,6 +134,10 @@ export function UserCreationPanel() {
     }
     if (!creatableSet.has(role)) {
       setFormMessage({ type: "err", text: "Your role is not allowed to create this account type." });
+      return;
+    }
+    if (!displayName.trim()) {
+      setFormMessage({ type: "err", text: "Employee name is required." });
       return;
     }
     if (canLogin && (!employeeCode.trim() || password.length < 4)) {
@@ -350,14 +360,15 @@ export function UserCreationPanel() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <label htmlFor="uc-name" className={labelCls}>Display Name *</label>
+              <label htmlFor="uc-employee-name" className={labelCls}>Employee Name *</label>
               <input
-                id="uc-name"
+                id="uc-employee-name"
                 required
                 value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
+                onChange={(e) => setDisplayName(sanitizeTextInput(e.target.value, 240))}
                 className={inputCls}
-                placeholder="As it should appear in the directory"
+                placeholder="Full name of the employee"
+                autoComplete="name"
               />
             </div>
 
@@ -386,7 +397,7 @@ export function UserCreationPanel() {
                   <input
                     id="uc-emp-code"
                     value={employeeCode}
-                    onChange={(e) => setEmployeeCode(e.target.value)}
+                    onChange={(e) => setEmployeeCode(sanitizeAlphanumericInput(e.target.value, 24).toUpperCase())}
                     className={inputCls}
                     autoComplete="off"
                     placeholder="EMP001"
@@ -398,7 +409,7 @@ export function UserCreationPanel() {
                     id="uc-email"
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
                     className={inputCls}
                     autoComplete="off"
                     placeholder="user@zimson.com"
@@ -411,7 +422,7 @@ export function UserCreationPanel() {
                     type="password"
                     minLength={4}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => setPassword(sanitizePasswordInput(e.target.value))}
                     className={inputCls}
                     autoComplete="new-password"
                     placeholder="Minimum 4 characters"

@@ -1,5 +1,6 @@
 import { SERVICE_INVOICE_BRANDING } from "../../config/serviceInvoiceBranding";
-import type { AdvancePaymentDetails } from "../../lib/paymentModes";
+import type { AdvancePaymentDetails, MultiPaymentDetails } from "../../lib/paymentModes";
+import { paymentSplitsFromDetails } from "../../lib/paymentModes";
 import { inrAmountToWords } from "../../lib/inrAmountToWords";
 import type { QuickBillInvoice, QuickBillLineInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
 import type { ServiceInvoiceLineView, ServiceInvoiceTaxRow, ServiceInvoiceViewModel } from "../../types/serviceInvoice";
@@ -188,8 +189,10 @@ export type DemoInvoiceInput = {
   email: string;
   gst: string;
   pan: string;
+  customerCode?: string;
   address?: string;
   watchBrand: string;
+  watchFamily?: string;
   watchModel: string;
   watchRef: string;
   watchRemark?: string;
@@ -260,11 +263,12 @@ export function buildDemoServiceInvoiceViewModel(
       phone: input.phone.trim() || null,
       email: input.email.trim() || null,
       address: input.address?.trim() || null,
+      customerCode: input.customerCode?.trim() || null,
     },
     serviceMeta,
     productBlock: {
       brandName: input.watchBrand,
-      brandModel: input.watchModel,
+      brandModel: [input.watchFamily?.trim(), input.watchModel].filter(Boolean).join(" · ") || input.watchModel,
       modelOrSerial: input.watchRef.trim() || "—",
       natureOfRepair: warrantyLabel(input.warrantyStatus),
     },
@@ -339,6 +343,7 @@ export function mapQuickBillInvoiceToViewModel(
     sellerLogoUrl: sellerPack.logoUrl,
     billTo: {
       name: billName,
+      customerCode: inv.customerCode?.trim() || null,
       gstin: inv.customerType === "B2B" ? inv.gst : null,
       pan: inv.customerType === "B2B" ? inv.pan : null,
       phone: inv.phone,
@@ -348,7 +353,7 @@ export function mapQuickBillInvoiceToViewModel(
     serviceMeta,
     productBlock: {
       brandName: inv.watchBrand,
-      brandModel: inv.watchModel,
+      brandModel: [inv.watchFamily?.trim(), inv.watchModel].filter(Boolean).join(" · ") || inv.watchModel,
       modelOrSerial: inv.watchRef?.trim() || "—",
       natureOfRepair: warrantyLabel(inv.warrantyStatus),
     },
@@ -356,6 +361,10 @@ export function mapQuickBillInvoiceToViewModel(
     totalAmount: inv.totalInr,
     amountInWords: inrAmountToWords(inv.totalInr),
     paymentMode: inv.paymentMode,
+    paymentSplits: (() => {
+      const splits = paymentSplitsFromDetails(inv.paymentMode, inv.paymentDetails ?? undefined, inv.totalInr);
+      return splits.length > 0 && splits.some((s) => s.amountInr > 0) ? splits : undefined;
+    })(),
     bankDetailsLines: [],
     notes: inv.notes?.trim() || undefined,
     footerTerms: sellerPack.footerTerms,

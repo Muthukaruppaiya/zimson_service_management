@@ -159,7 +159,14 @@ type SrfJobsContextValue = {
   cancelDraftSrf: (srfId: string, reason: string) => Promise<void>;
   patchStoreDraftSrf: (
     srfId: string,
-    patch: { customerName?: string; phone?: string; watchBrand?: string; watchModel?: string; serial?: string },
+    patch: {
+      customerName?: string;
+      phone?: string;
+      watchBrand?: string;
+      watchFamily?: string;
+      watchModel?: string;
+      serial?: string;
+    },
   ) => Promise<void>;
 };
 
@@ -466,7 +473,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   const patchStoreDraftSrf = useCallback(
     async (
       srfId: string,
-      patch: { customerName?: string; phone?: string; watchBrand?: string; watchModel?: string; serial?: string },
+      patch: {
+        customerName?: string;
+        phone?: string;
+        watchBrand?: string;
+        watchFamily?: string;
+        watchModel?: string;
+        serial?: string;
+      },
     ) => {
       await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/store-draft`, {
         method: "PATCH",

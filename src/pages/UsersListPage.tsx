@@ -4,6 +4,11 @@ import type { UserPatchInput } from "../context/AuthContext";
 import { useRegions } from "../context/RegionsContext";
 import { useToast } from "../components/ui/Toast";
 import { ROLE_MODULE_ACCESS } from "../config/moduleAccess";
+import {
+  sanitizeAlphanumericInput,
+  sanitizeEmailInput,
+  sanitizeTextInput,
+} from "../lib/inputSanitize";
 import { ROLE_CREATION_META, creatableRolesForActor, isStoreRole } from "../lib/userCreationPolicy";
 import { UserModuleAccessEditor } from "../components/users/UserModuleAccessEditor";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -64,7 +69,7 @@ function UserEditModal({
   }, [user, regions]);
 
   async function handleSave() {
-    if (!displayName.trim()) { setErr("Display name is required."); return; }
+    if (!displayName.trim()) { setErr("Employee name is required."); return; }
     if (useCustomModules && selectedModules.length === 0) {
       setErr("Custom module list is empty — select at least one module.");
       return;
@@ -107,17 +112,33 @@ function UserEditModal({
 
         {/* Body */}
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-1">
-          <label className={labelCls}>Display Name *</label>
-          <input className={inputCls} value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+          <label htmlFor="edit-employee-name" className={labelCls}>Employee Name *</label>
+          <input
+            id="edit-employee-name"
+            className={inputCls}
+            value={displayName}
+            onChange={(e) => setDisplayName(sanitizeTextInput(e.target.value, 240))}
+            placeholder="Full name of the employee"
+            autoComplete="name"
+          />
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelCls}>Employee No</label>
-              <input className={inputCls} value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value.toUpperCase())} />
+              <input
+                className={inputCls}
+                value={employeeCode}
+                onChange={(e) => setEmployeeCode(sanitizeAlphanumericInput(e.target.value, 24).toUpperCase())}
+              />
             </div>
             <div>
               <label className={labelCls}>Email</label>
-              <input type="email" className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} />
+              <input
+                type="email"
+                className={inputCls}
+                value={email}
+                onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
+              />
             </div>
           </div>
 
@@ -302,7 +323,7 @@ export function UsersListPage() {
           <table className="w-full min-w-[860px] text-left text-sm">
             <thead>
               <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
-                <th className="px-4 py-3">Name</th>
+                <th className="px-4 py-3">Employee Name</th>
                 <th className="px-4 py-3">Employee No</th>
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Role</th>

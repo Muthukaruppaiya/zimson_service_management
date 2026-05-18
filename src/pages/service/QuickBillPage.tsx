@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { DemoOtpGate } from "../../components/service/DemoOtpGate";
+import {
+  CustomerHandoverOtpModal,
+  type HandoverOtpMode,
+} from "../../components/service/CustomerHandoverOtpModal";
+import { WatchFamilyPicker } from "../../components/service/WatchFamilyPicker";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -11,14 +15,21 @@ import { useBrands } from "../../context/BrandsContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
-import { buildDemoServiceInvoiceViewModel, mapQuickBillInvoiceToViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
 import {
-  ADVANCE_CASH_DENOMS,
-  advanceDetailsFromFormStrings,
-  APP_PAYMENT_MODES,
-  emptyCashDenomStrings,
-  sumAdvanceCashDenominations,
-  type AppPaymentMode,
+  sanitizeAlphanumericInput,
+  sanitizeDecimalInput,
+  sanitizeEmailInput,
+  sanitizeGstPanInput,
+  sanitizeMultilineTextInput,
+  sanitizePhoneDigits,
+  sanitizeTextInput,
+} from "../../lib/inputSanitize";
+import { buildDemoServiceInvoiceViewModel, mapQuickBillInvoiceToViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
+import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
+import {
+  buildMultiPaymentPayload,
+  emptyMultiPaymentForm,
+  validateMultiPaymentForm,
 } from "../../lib/paymentModes";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
@@ -28,10 +39,10 @@ import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import {
-  generateDemoOtp,
   isValidGstFormat,
   isValidPanFormat,
   nextQuickBillRef,
+  panFromGstin,
   watchModelsForBrand,
 } from "../../data/serviceSeed";
 import type { TechnicianProfile } from "../../types/technician";
@@ -39,6 +50,8 @@ import type { TechnicianProfile } from "../../types/technician";
 type QuickBillWatchModelRow = { id: string; brand: string; model: string; refHint: string };
 
 type LoadedCustomerRow = {
+  id?: string;
+  customerCode?: string | null;
   displayName: string;
   phone: string;
   alternatePhone?: string;
@@ -171,6 +184,8 @@ export function QuickBillPage() {
   const [city, setCity] = useState("");
 
   const [watchBrand, setWatchBrand] = useState("");
+  const [watchFamily, setWatchFamily] = useState("");
+  const [watchFamilyIsNew, setWatchFamilyIsNew] = useState(false);
   const [dbWatchModels, setDbWatchModels] = useState<QuickBillWatchModelRow[]>([]);
 
   useEffect(() => {
@@ -237,15 +252,8 @@ export function QuickBillPage() {
   const [partPick, setPartPick] = useState("");
   const [technicianId, setTechnicianId] = useState<string>("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
-  const [paymentMode, setPaymentMode] = useState<AppPaymentMode>("Cash");
+  const [multiPaymentForm, setMultiPaymentForm] = useState(emptyMultiPaymentForm);
   const [notes, setNotes] = useState("");
-  const [cashDenomStrings, setCashDenomStrings] = useState(() => emptyCashDenomStrings());
-  const [paymentReference, setPaymentReference] = useState("");
-
-  useEffect(() => {
-    if (paymentMode === "Cash") setPaymentReference("");
-    else setCashDenomStrings(emptyCashDenomStrings());
-  }, [paymentMode]);
 
   const [error, setError] = useState<string | null>(null);
   const [completion, setCompletion] = useState<CompletionState>(null);
@@ -253,9 +261,6 @@ export function QuickBillPage() {
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
   const [isSavingBill, setIsSavingBill] = useState(false);
 
-  const [awaitingOtp, setAwaitingOtp] = useState<string | null>(null);
-  const [otpInput, setOtpInput] = useState("");
-  const [otpError, setOtpError] = useState<string | null>(null);
   const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
   const [spareOptionsLoading, setSpareOptionsLoading] = useState(false);
   const [barcodeSku, setBarcodeSku] = useState("");
@@ -265,6 +270,13 @@ export function QuickBillPage() {
   const [customerChecked, setCustomerChecked] = useState(false);
   const [customerCheckMsg, setCustomerCheckMsg] = useState<string | null>(null);
   const [checkingCustomer, setCheckingCustomer] = useState(false);
+  /** Phone entered but not in customer master — verify via OTP mobile on this screen. */
+  const [walkInPending, setWalkInPending] = useState(false);
+  const [loadedCustomerId, setLoadedCustomerId] = useState<string | null>(null);
+  const [loadedCustomerCode, setLoadedCustomerCode] = useState<string | null>(null);
+  const [handoverVerified, setHandoverVerified] = useState(false);
+  const [handoverModalOpen, setHandoverModalOpen] = useState(false);
+  const [handoverModalMode, setHandoverModalMode] = useState<HandoverOtpMode>("primary");
   const autoLookupTimerRef = useRef<number | null>(null);
   const lastAutoLookupPhoneRef = useRef("");
   /** Set synchronously when a customer row is applied; OTP gate trusts this if `customerChecked` lags one frame. */
@@ -282,9 +294,13 @@ export function QuickBillPage() {
     setPan(data.pan ?? "");
     setAddress(composeAddress(data));
     setCity(data.city?.trim() || data.billingAddress?.city?.trim() || "");
+    setLoadedCustomerId(data.id?.trim() || null);
+    setLoadedCustomerCode(data.customerCode?.trim() || null);
     const p10 = phoneLast10((data.phone ?? "").trim());
     verifiedBillPhoneLast10Ref.current = p10.length === 10 ? p10 : "";
     setCustomerChecked(true);
+    setWalkInPending(false);
+    setHandoverVerified(false);
     lastAutoLookupPhoneRef.current = p10.length === 10 ? p10 : "";
   }, []);
 
@@ -317,6 +333,8 @@ export function QuickBillPage() {
         const local = customers.find((c) => phoneLast10(c.phone) === p10);
         if (local) {
           applyLoadedCustomer({
+            id: local.id,
+            customerCode: local.customerCode,
             displayName: local.displayName,
             phone: local.phone,
             alternatePhone: local.alternatePhone,
@@ -333,9 +351,12 @@ export function QuickBillPage() {
         } else {
           setCustomerChecked(false);
           verifiedBillPhoneLast10Ref.current = "";
-          setCustomerCheckMsg("New customer — opening full registration.");
-          navigate(
-            `/service/quick-bill/new-customer?phone=${encodeURIComponent(rawPhone)}&name=${encodeURIComponent(customerNameForNavRef.current)}`,
+          setWalkInPending(true);
+          setLoadedCustomerId(null);
+          setLoadedCustomerCode(null);
+          setHandoverVerified(false);
+          setCustomerCheckMsg(
+            "Customer not in master. Use Send OTP to number to verify handover, or register the customer.",
           );
         }
       }
@@ -343,6 +364,8 @@ export function QuickBillPage() {
       const local = customers.find((c) => phoneLast10(c.phone) === p10);
       if (local) {
         applyLoadedCustomer({
+          id: local.id,
+          customerCode: local.customerCode,
           displayName: local.displayName,
           phone: local.phone,
           alternatePhone: local.alternatePhone,
@@ -385,6 +408,8 @@ export function QuickBillPage() {
     const local = getById(customerId);
     if (local) {
       fromRecord({
+        id: local.id,
+        customerCode: local.customerCode,
         displayName: local.displayName,
         phone: local.phone,
         alternatePhone: local.alternatePhone,
@@ -442,10 +467,21 @@ export function QuickBillPage() {
   }, [searchParams, getById, setSearchParams, applyLoadedCustomer]);
 
   useEffect(() => {
+    if (customerType === "B2B" && isValidGstFormat(gst)) {
+      const derived = panFromGstin(gst);
+      if (derived) setPan((prev) => prev.trim() || derived);
+    }
+  }, [gst, customerType]);
+
+  useEffect(() => {
     const normalized = phoneLast10(phone);
     if (normalized === lastAutoLookupPhoneRef.current) return;
     verifiedBillPhoneLast10Ref.current = "";
     setCustomerChecked(false);
+    setWalkInPending(false);
+    setHandoverVerified(false);
+    setLoadedCustomerId(null);
+    setLoadedCustomerCode(null);
     if (autoLookupTimerRef.current) window.clearTimeout(autoLookupTimerRef.current);
     autoLookupTimerRef.current = window.setTimeout(() => {
       lastAutoLookupPhoneRef.current = normalized;
@@ -505,6 +541,8 @@ export function QuickBillPage() {
 
   const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
+    setWatchFamily("");
+    setWatchFamilyIsNew(false);
     const ms = watchModelsForBrand(nextBrand);
     if (ms.length === 0) {
       setCatalogModelKey("__new__");
@@ -594,10 +632,6 @@ export function QuickBillPage() {
       cancelled = true;
     };
   }, [spares, watchBrand, priceRegionQuery, stockQuerySuffix]);
-
-  function addLine() {
-    setLines((prev) => [...prev, emptyLine()]);
-  }
 
   function updateLine(id: string, patch: Partial<LineItem>) {
     setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -730,7 +764,7 @@ export function QuickBillPage() {
     }
   }
 
-  function validateBeforeOtp(): boolean {
+  function validateBeforeOtp(opts?: { skipHandoverCheck?: boolean }): boolean {
     setError(null);
     if (customerType === "B2B") {
       if (!company.trim()) {
@@ -741,8 +775,9 @@ export function QuickBillPage() {
         setError("B2B: enter a valid 15-character GSTIN.");
         return false;
       }
-      if (!isValidPanFormat(pan)) {
-        setError("B2B: enter a valid PAN (e.g. ABCDE1234F).");
+      const panValue = pan.trim() || panFromGstin(gst) || "";
+      if (!isValidPanFormat(panValue)) {
+        setError("B2B: enter a valid PAN or GSTIN that contains a valid PAN.");
         return false;
       }
       if (!customerName.trim() || !phone.trim()) {
@@ -752,19 +787,23 @@ export function QuickBillPage() {
     }
     const phoneDigits = phoneLast10(phone.trim());
     if (phoneDigits.length === 10) {
+      if (!opts?.skipHandoverCheck && !handoverVerified) {
+        setError(
+          "Verify handover with Send OTP to primary number or Send OTP to number, then complete the bill.",
+        );
+        return false;
+      }
       const inCustomersList = customers.some((c) => phoneLast10(c.phone) === phoneDigits);
-      const ok =
-        customerChecked ||
-        verifiedBillPhoneLast10Ref.current === phoneDigits ||
-        inCustomersList;
-      if (!ok) {
-        setError("For this mobile number, wait for lookup to finish or complete customer registration.");
+      if (!customerChecked && !inCustomersList && !walkInPending) {
+        setError("Wait for customer lookup to finish.");
         return false;
       }
       if (!customerChecked && inCustomersList) {
         const hit = customers.find((c) => phoneLast10(c.phone) === phoneDigits);
         if (hit) {
           applyLoadedCustomer({
+            id: hit.id,
+            customerCode: hit.customerCode,
             displayName: hit.displayName,
             phone: hit.phone,
             alternatePhone: hit.alternatePhone,
@@ -780,8 +819,8 @@ export function QuickBillPage() {
         }
       }
     }
-    if (!watchBrand || !resolvedWatchModel) {
-      setError("Choose a watch brand and model (pick from list or use + add new model).");
+    if (!watchBrand || !watchFamily.trim() || !resolvedWatchModel) {
+      setError("Choose watch brand, family, and model (pick from list or use + add new).");
       return false;
     }
     if (apiMode && user?.role === "super_admin" && !billingRegionId.trim()) {
@@ -808,44 +847,28 @@ export function QuickBillPage() {
         const n = Number.parseFloat(l.amount);
         return sum + (Number.isNaN(n) ? 0 : n);
       }, 0) + (Number.isFinite(extra) && extra > 0 ? extra : 0);
-    if (paymentMode === "Cash") {
-      const cashSum = sumAdvanceCashDenominations(
-        advanceDetailsFromFormStrings("Cash", cashDenomStrings, "").cash,
-      );
-      if (Math.abs(cashSum - billTotal) > 0.02) {
-        setError(
-          `Cash denominations must equal the bill total (${billTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}).`,
-        );
-        return false;
-      }
-    } else if (paymentReference.trim().length > 500) {
-      setError("Payment reference is too long (max 500 characters).");
+    const payErr = validateMultiPaymentForm(multiPaymentForm, billTotal);
+    if (payErr) {
+      setError(payErr);
       return false;
     }
     return true;
   }
 
-  function handlePrepareComplete(e: React.FormEvent) {
-    e.preventDefault();
-    if (awaitingOtp) return;
-    if (!validateBeforeOtp()) return;
-    const code = generateDemoOtp();
-    setAwaitingOtp(code);
-    setOtpInput("");
-    setOtpError(null);
+  function openHandoverOtp(mode: HandoverOtpMode) {
+    setHandoverModalMode(mode);
+    setHandoverModalOpen(true);
   }
 
-  async function handleVerifyOtp() {
-    setOtpError(null);
-    if (!awaitingOtp) return;
-    if (otpInput.trim() !== awaitingOtp) {
-      setOtpError("Incorrect OTP. No changes were saved. Enter the code shown above.");
-      return;
-    }
-    if (!validateBeforeOtp()) {
-      setOtpError("Bill form is no longer valid. Cancel verification, fix the errors on the form, and send OTP again.");
-      return;
-    }
+  function handleCompleteBill(e: React.FormEvent) {
+    e.preventDefault();
+    if (!validateBeforeOtp()) return;
+    void saveBill();
+  }
+
+  async function saveBill(opts?: { skipHandoverCheck?: boolean }) {
+    setError(null);
+    if (!validateBeforeOtp(opts)) return;
     const parsedLines = lines
       .map((l) => ({
         description: l.description.trim(),
@@ -859,10 +882,21 @@ export function QuickBillPage() {
       const regionId =
         user?.role === "super_admin" ? billingRegionId.trim() : user?.regionId?.trim() ?? "";
       if (!regionId) {
-        setOtpError("Missing region for this account. Select billing region or re-login.");
+        setError("Missing region for this account. Select billing region or re-login.");
         return;
       }
       const tech = technicians.find((t) => t.id === technicianId);
+      const billTotal =
+        parsedLines.reduce((sum, l) => sum + l.amount, 0) +
+        (() => {
+          const n = Number.parseFloat(serviceChargeInr);
+          return Number.isFinite(n) && n > 0 ? n : 0;
+        })();
+      const paymentPayload = buildMultiPaymentPayload(multiPaymentForm, billTotal);
+      if ("error" in paymentPayload) {
+        setError(paymentPayload.error);
+        return;
+      }
       setIsSavingBill(true);
       try {
         const { invoice } = await apiJson<{ invoice: QuickBillInvoice }>("/api/service/quick-bills", {
@@ -871,6 +905,8 @@ export function QuickBillPage() {
             regionId,
             storeId: user?.role === "store_user" ? user.storeId : null,
             customerType,
+            customerId: loadedCustomerId,
+            customerCode: loadedCustomerCode,
             customerName: customerName.trim() || null,
             phone: phone.trim() || null,
             email: email.trim() || null,
@@ -880,6 +916,7 @@ export function QuickBillPage() {
             address: address.trim() || null,
             city: city.trim() || null,
             watchBrand,
+            watchFamily: watchFamily.trim(),
             watchModel: resolvedWatchModel,
             watchRef: watchRef.trim() || null,
             watchRemark: watchRemark.trim(),
@@ -888,10 +925,11 @@ export function QuickBillPage() {
             watchImagePath,
             technicianId: technicianId || null,
             technicianName: tech?.fullName ?? null,
-            paymentMode,
-            paymentDetails: advanceDetailsFromFormStrings(paymentMode, cashDenomStrings, paymentReference),
+            paymentMode: paymentPayload.paymentMode,
+            paymentDetails: paymentPayload.paymentDetails,
             notes: notes.trim(),
             persistNewWatchModel: catalogModelKey === "__new__",
+            persistNewWatchFamily: watchFamilyIsNew,
             serviceChargeInr: (() => {
               const n = Number.parseFloat(serviceChargeInr);
               return Number.isFinite(n) && n > 0 ? n : undefined;
@@ -907,10 +945,8 @@ export function QuickBillPage() {
         setCompletion({ mode: "api", invoice });
         setBillPostActionNote(null);
         setBillSuccessModalOpen(true);
-        setAwaitingOtp(null);
-        setOtpInput("");
       } catch (e) {
-        setOtpError(e instanceof ApiError ? e.message : "Could not save quick bill to the server.");
+        setError(e instanceof ApiError ? e.message : "Could not save quick bill to the server.");
       } finally {
         setIsSavingBill(false);
       }
@@ -920,24 +956,15 @@ export function QuickBillPage() {
     setCompletion({ mode: "demo", ref: nextQuickBillRef() });
     setBillPostActionNote(null);
     setBillSuccessModalOpen(true);
-    setAwaitingOtp(null);
-    setOtpInput("");
   }
 
-  function cancelOtp() {
-    setAwaitingOtp(null);
-    setOtpInput("");
-    setOtpError(null);
-  }
-
-  function regenerateOtp() {
-    if (!validateBeforeOtp()) {
-      setAwaitingOtp(null);
-      return;
-    }
-    setAwaitingOtp(generateDemoOtp());
-    setOtpInput("");
-    setOtpError(null);
+  function onHandoverVerified() {
+    const p10 = phoneLast10(phone.trim());
+    setHandoverVerified(true);
+    verifiedBillPhoneLast10Ref.current = p10;
+    setCustomerCheckMsg(null);
+    setHandoverModalOpen(false);
+    void saveBill({ skipHandoverCheck: true });
   }
 
   const total =
@@ -948,12 +975,6 @@ export function QuickBillPage() {
       const n = Number.parseFloat(serviceChargeInr);
       return Number.isFinite(n) && n > 0 ? n : 0;
     })();
-
-  const cashDenomEntered = useMemo(
-    () =>
-      sumAdvanceCashDenominations(advanceDetailsFromFormStrings("Cash", cashDenomStrings, "").cash),
-    [cashDenomStrings],
-  );
 
   const invoiceVmOptions = useMemo(
     () => ({
@@ -993,16 +1014,13 @@ export function QuickBillPage() {
     setServiceChargeInr("");
     setPartPick("");
     setTechnicianId(technicians[0]?.id ?? "");
-    setPaymentMode("Cash");
+    setMultiPaymentForm(emptyMultiPaymentForm());
     setNotes("");
-    setCashDenomStrings(emptyCashDenomStrings());
-    setPaymentReference("");
     setError(null);
     setCompletion(null);
     setIsSavingBill(false);
-    setAwaitingOtp(null);
-    setOtpInput("");
-    setOtpError(null);
+    setHandoverVerified(false);
+    setHandoverModalOpen(false);
     setCustomerChecked(false);
     setCustomerCheckMsg(null);
     lastAutoLookupPhoneRef.current = "";
@@ -1091,6 +1109,7 @@ export function QuickBillPage() {
         amount: Number.parseFloat(l.amount),
       }))
       .filter((l) => l.description && !Number.isNaN(l.amount) && l.amount >= 0);
+    const demoPayment = buildMultiPaymentPayload(multiPaymentForm, total);
     const demoVm = buildDemoServiceInvoiceViewModel(
       {
         billNumber: completion.ref,
@@ -1102,8 +1121,10 @@ export function QuickBillPage() {
         email,
         gst,
         pan,
+        customerCode: loadedCustomerCode ?? undefined,
         address: address.trim() || undefined,
         watchBrand,
+        watchFamily: watchFamily.trim() || undefined,
         watchModel: resolvedWatchModel,
         watchRef,
         watchRemark,
@@ -1111,8 +1132,8 @@ export function QuickBillPage() {
         watchDocumentPath,
         watchImagePath,
         technicianName: techName,
-        paymentMode,
-        paymentDetails: advanceDetailsFromFormStrings(paymentMode, cashDenomStrings, paymentReference),
+        paymentMode: "error" in demoPayment ? "Cash" : demoPayment.paymentMode,
+        paymentDetails: "error" in demoPayment ? {} : demoPayment.paymentDetails,
         notes,
         lines: demoLines,
         total,
@@ -1205,7 +1226,7 @@ export function QuickBillPage() {
         </Card>
       ) : null}
 
-      <form onSubmit={handlePrepareComplete} className="space-y-8">
+      <form onSubmit={handleCompleteBill} className="space-y-8">
         <Card
           title="Customer"
           subtitle={
@@ -1248,14 +1269,21 @@ export function QuickBillPage() {
               Create / attach a <strong>business customer</strong>: company, GSTIN, PAN, and primary
               contact are required before completing the bill.
             </p>
-          ) : (
-            <p className="mb-4 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
-              For B2C, name and phone are <strong>optional</strong> for walk-in sales. If you enter a full 10-digit
-              mobile, we look up the customer master or guide you to registration when new.
-            </p>
-          )}
+          ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label htmlFor="qb-customer-id" className="text-xs font-medium text-stone-600">
+                Customer ID
+              </label>
+              <input
+                id="qb-customer-id"
+                readOnly
+                value={loadedCustomerCode ?? ""}
+                className={`${inputClass} bg-zimson-50/80 font-mono`}
+                placeholder="—"
+              />
+            </div>
             {customerType === "B2B" ? (
               <div className="sm:col-span-2">
                 <label htmlFor="qb-company" className="text-xs font-medium text-stone-600">
@@ -1264,7 +1292,7 @@ export function QuickBillPage() {
                 <input
                   id="qb-company"
                   value={company}
-                  onChange={(e) => setCompany(e.target.value)}
+                  onChange={(e) => setCompany(sanitizeTextInput(e.target.value, 240))}
                   className={inputClass}
                   placeholder="Registered business name"
                 />
@@ -1279,7 +1307,7 @@ export function QuickBillPage() {
                   <input
                     id="qb-gst"
                     value={gst}
-                    onChange={(e) => setGst(e.target.value.toUpperCase())}
+                    onChange={(e) => setGst(sanitizeGstPanInput(e.target.value, 15))}
                     className={inputClass}
                     placeholder="15-character GSTIN"
                     maxLength={15}
@@ -1292,7 +1320,7 @@ export function QuickBillPage() {
                   <input
                     id="qb-pan"
                     value={pan}
-                    onChange={(e) => setPan(e.target.value.toUpperCase())}
+                    onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
                     className={inputClass}
                     placeholder="ABCDE1234F"
                     maxLength={10}
@@ -1307,7 +1335,7 @@ export function QuickBillPage() {
               <input
                 id="qb-name"
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
+                onChange={(e) => setCustomerName(sanitizeTextInput(e.target.value, 240))}
                 className={inputClass}
                 placeholder={customerType === "B2B" ? "Name on account" : "Walk-in — optional"}
               />
@@ -1319,7 +1347,7 @@ export function QuickBillPage() {
               <input
                 id="qb-phone"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhone(sanitizePhoneDigits(e.target.value, 15))}
                 className={inputClass}
                 placeholder="+91 …"
               />
@@ -1332,24 +1360,31 @@ export function QuickBillPage() {
                 id="qb-email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
                 className={inputClass}
                 placeholder="optional"
               />
             </div>
-            <p className="sm:col-span-2 text-xs text-stone-500">
-              {checkingCustomer ? "Checking customer in DB…" : "Enter a full mobile number to load or register the customer."}
-            </p>
+            {checkingCustomer ? (
+              <p className="sm:col-span-2 text-xs text-stone-500">Checking customer in DB…</p>
+            ) : null}
             {customerCheckMsg ? (
               <p className="sm:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">{customerCheckMsg}</p>
+            ) : null}
+            {walkInPending ? (
+              <p className="sm:col-span-2">
+                <Link
+                  to={`/service/quick-bill/new-customer?phone=${encodeURIComponent(phone.trim())}&name=${encodeURIComponent(customerName.trim())}`}
+                  className="text-xs font-semibold text-zimson-800 underline"
+                >
+                  Register customer in master
+                </Link>
+              </p>
             ) : null}
           </div>
         </Card>
 
-        <Card
-          title="Watch on counter"
-          subtitle=""
-        >
+        <Card title="Watch on counter" subtitle="">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label htmlFor="qb-brand" className="text-xs font-medium text-stone-600">
@@ -1368,7 +1403,16 @@ export function QuickBillPage() {
                 ))}
               </select>
             </div>
-            <div className="sm:col-span-2">
+            <WatchFamilyPicker
+              watchBrand={watchBrand}
+              apiMode={apiMode}
+              family={watchFamily}
+              onFamilyChange={setWatchFamily}
+              onSelectionModeChange={setWatchFamilyIsNew}
+              inputClass={inputClass}
+              idPrefix="qb"
+            />
+            <div className="sm:col-span-2 lg:col-span-3">
               <label htmlFor="qb-model" className="text-xs font-medium text-stone-600">
                 Model *
               </label>
@@ -1469,20 +1513,20 @@ export function QuickBillPage() {
               <input
                 id="qb-ref"
                 value={watchRef}
-                onChange={(e) => setWatchRef(e.target.value)}
+                onChange={(e) => setWatchRef(sanitizeAlphanumericInput(e.target.value, 48))}
                 className={inputClass}
                 placeholder="Case / movement serial"
               />
             </div>
             <div className="sm:col-span-2">
               <label htmlFor="qb-watch-remark" className="text-xs font-medium text-stone-600">
-                Remark (watch)
+                Remark
               </label>
               <textarea
                 id="qb-watch-remark"
                 rows={2}
                 value={watchRemark}
-                onChange={(e) => setWatchRemark(e.target.value)}
+                onChange={(e) => setWatchRemark(sanitizeTextInput(e.target.value, 200))}
                 className={inputClass}
                 placeholder="Condition notes, accessories, etc."
               />
@@ -1586,13 +1630,6 @@ export function QuickBillPage() {
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={addLine}
-                className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
-              >
-                Empty line
-              </button>
             </div>
           }
         >
@@ -1606,7 +1643,7 @@ export function QuickBillPage() {
                   <span className="text-xs font-medium text-stone-600">Description</span>
                   <input
                     value={line.description}
-                    onChange={(e) => updateLine(line.id, { description: e.target.value })}
+                    onChange={(e) => updateLine(line.id, { description: sanitizeTextInput(e.target.value, 200) })}
                     className={inputClass}
                     placeholder={`Line ${index + 1}`}
                   />
@@ -1618,7 +1655,7 @@ export function QuickBillPage() {
                     min={0}
                     step={0.01}
                     value={line.amount}
-                    onChange={(e) => updateLine(line.id, { amount: e.target.value })}
+                    onChange={(e) => updateLine(line.id, { amount: sanitizeDecimalInput(e.target.value) })}
                     className={inputClass}
                     placeholder="0"
                   />
@@ -1643,7 +1680,7 @@ export function QuickBillPage() {
                 min={0}
                 step={0.01}
                 value={serviceChargeInr}
-                onChange={(e) => setServiceChargeInr(e.target.value)}
+                onChange={(e) => setServiceChargeInr(sanitizeDecimalInput(e.target.value))}
                 className={inputClass}
                 placeholder="0"
               />
@@ -1674,77 +1711,13 @@ export function QuickBillPage() {
                 ))}
               </select>
             </div>
-            <div>
-              <label htmlFor="qb-pay" className="text-xs font-medium text-stone-600">
-                Payment mode
-              </label>
-              <select
-                id="qb-pay"
-                value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value as AppPaymentMode)}
-                className={inputClass}
-              >
-                {APP_PAYMENT_MODES.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {paymentMode === "Cash" ? (
-              <div className="sm:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
-                <p className="text-sm font-semibold text-zimson-900">Cash denomination (must total bill)</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {ADVANCE_CASH_DENOMS.map(({ key, label }) => (
-                    <label key={key} className="text-xs text-stone-600">
-                      {label}
-                      <input
-                        className={inputClass}
-                        inputMode="numeric"
-                        value={cashDenomStrings[key]}
-                        onChange={(e) =>
-                          setCashDenomStrings((prev) => ({ ...prev, [key]: e.target.value }))
-                        }
-                      />
-                    </label>
-                  ))}
-                  <label className="text-xs text-stone-600 sm:col-span-2">
-                    Coins / loose (INR)
-                    <input
-                      className={inputClass}
-                      inputMode="decimal"
-                      value={cashDenomStrings.coinsInr}
-                      onChange={(e) =>
-                        setCashDenomStrings((prev) => ({ ...prev, coinsInr: e.target.value }))
-                      }
-                      placeholder="0.00"
-                    />
-                  </label>
-                </div>
-                <p className="mt-2 text-xs text-stone-600">
-                  Denomination total:{" "}
-                  <strong className="text-zimson-900">
-                    {cashDenomEntered.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                  </strong>
-                  {Math.abs(cashDenomEntered - total) > 0.02 ? (
-                    <span className="ml-2 text-amber-700">(does not match bill total yet)</span>
-                  ) : (
-                    <span className="ml-2 text-emerald-700">(matches bill total)</span>
-                  )}
-                </p>
-              </div>
-            ) : (
-              <label className="text-xs text-stone-600 sm:col-span-2">
-                Payment reference (optional)
-                <input
-                  className={inputClass}
-                  value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
-                  placeholder="UPI ID / UTR, card auth code, bank transfer ref"
-                  maxLength={500}
-                />
-              </label>
-            )}
+            <MultiPaymentFields
+              idPrefix="qb"
+              amountLabel="bill"
+              targetInr={total}
+              form={multiPaymentForm}
+              onChange={setMultiPaymentForm}
+            />
             <div className="sm:col-span-2">
               <label htmlFor="qb-notes" className="text-xs font-medium text-stone-600">
                 Notes
@@ -1753,7 +1726,7 @@ export function QuickBillPage() {
                 id="qb-notes"
                 rows={2}
                 value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                onChange={(e) => setNotes(sanitizeMultilineTextInput(e.target.value, 500))}
                 className={inputClass}
                 placeholder="Optional remarks for receipt"
               />
@@ -1767,13 +1740,39 @@ export function QuickBillPage() {
           </p>
         ) : null}
 
-        {!awaitingOtp ? (
-          <div className="flex flex-wrap gap-3">
+        <div className="space-y-3">
+          {/* <p className="text-xs text-stone-600">
+            Use one option only: OTP to the primary mobile on file, or OTP to another number you enter. After OTP
+            is verified, the bill is saved and the completion screen opens automatically.
+          </p> */}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => openHandoverOtp("primary")}
+              disabled={phoneLast10(phone).length !== 10 || handoverVerified}
+              className="rounded-xl border border-indigo-400 bg-indigo-50 px-5 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Send OTP to primary number
+            </button>
+            <button
+              type="button"
+              onClick={() => openHandoverOtp("custom")}
+              disabled={phoneLast10(phone).length !== 10 || handoverVerified}
+              className="rounded-xl border border-indigo-400 bg-indigo-50 px-5 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Send OTP to number
+            </button>
+            {handoverVerified ? (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
+                Handover verified — you can generate the invoice
+              </span>
+            ) : null}
             <button
               type="submit"
-              className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+              disabled={isSavingBill}
+              className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:opacity-60"
             >
-              Send OTP &amp; review
+              {isSavingBill ? "Saving…" : "Generate invoice"}
             </button>
             <Link
               to="/service"
@@ -1782,34 +1781,16 @@ export function QuickBillPage() {
               Cancel
             </Link>
           </div>
-        ) : null}
+        </div>
       </form>
 
-      {awaitingOtp ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <DemoOtpGate
-              title="Verify quick bill"
-              issuedCode={awaitingOtp}
-              value={otpInput}
-              onChange={setOtpInput}
-              error={otpError}
-              onVerify={() => void handleVerifyOtp()}
-              onRegenerate={regenerateOtp}
-              verifyBusy={isSavingBill}
-            />
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                onClick={cancelOtp}
-                className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900"
-              >
-                Cancel verification
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <CustomerHandoverOtpModal
+        open={handoverModalOpen}
+        mode={handoverModalMode}
+        onClose={() => setHandoverModalOpen(false)}
+        contactPhone={phone}
+        onHandoverVerified={onHandoverVerified}
+      />
     </div>
   );
 }

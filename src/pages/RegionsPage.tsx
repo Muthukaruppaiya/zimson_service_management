@@ -12,6 +12,14 @@ import {
 } from "../context/RegionsContext";
 import type { SeedRegion, SeedStore, SeedWarehouse } from "../data/seed";
 import { ApiError } from "../lib/api";
+import {
+  sanitizeAlphanumericInput,
+  sanitizeEmailInput,
+  sanitizeGstPanInput,
+  sanitizePhoneDigits,
+  sanitizeMultilineTextInput,
+  sanitizeTextInput,
+} from "../lib/inputSanitize";
 
 const inputClass =
   "mt-1 w-full border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green placeholder:text-stone-400";
@@ -174,7 +182,7 @@ function RegionFormFields({
           <input
             className={inputClass}
             value={draft.name}
-            onChange={(e) => onChange({ name: e.target.value })}
+            onChange={(e) => onChange({ name: sanitizeTextInput(e.target.value, 240) })}
             placeholder="e.g. Chennai Regional Office"
           />
         </label>
@@ -183,7 +191,7 @@ function RegionFormFields({
           <input
             className={inputClass}
             value={draft.regionCode}
-            onChange={(e) => onChange({ regionCode: e.target.value.toUpperCase() })}
+            onChange={(e) => onChange({ regionCode: sanitizeAlphanumericInput(e.target.value, 10).toUpperCase() })}
             placeholder="e.g. CHN, CBE, BLR"
             maxLength={10}
           />
@@ -197,7 +205,7 @@ function RegionFormFields({
           <input
             className={inputClass}
             value={draft.gst}
-            onChange={(e) => onChange({ gst: e.target.value.toUpperCase() })}
+            onChange={(e) => onChange({ gst: sanitizeGstPanInput(e.target.value, 15) })}
             placeholder="15-character GSTIN"
             maxLength={15}
           />
@@ -207,7 +215,7 @@ function RegionFormFields({
           <input
             className={inputClass}
             value={draft.pan}
-            onChange={(e) => onChange({ pan: e.target.value.toUpperCase() })}
+            onChange={(e) => onChange({ pan: sanitizeGstPanInput(e.target.value, 10) })}
             placeholder="10-character PAN"
             maxLength={10}
           />
@@ -222,7 +230,7 @@ function RegionFormFields({
             type="email"
             className={inputClass}
             value={draft.email}
-            onChange={(e) => onChange({ email: e.target.value })}
+            onChange={(e) => onChange({ email: sanitizeEmailInput(e.target.value) })}
             placeholder="office@zimson.com"
           />
         </label>
@@ -231,7 +239,7 @@ function RegionFormFields({
           <input
             className={inputClass}
             value={draft.phone}
-            onChange={(e) => onChange({ phone: e.target.value })}
+            onChange={(e) => onChange({ phone: sanitizePhoneDigits(e.target.value, 15) })}
             placeholder="+91 44 0000 0000"
           />
         </label>
@@ -250,7 +258,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrDoorNo}
-                onChange={(e) => onChange({ addrDoorNo: e.target.value })}
+                onChange={(e) => onChange({ addrDoorNo: sanitizeTextInput(e.target.value, 80) })}
                 placeholder="12 / A"
               />
             </label>
@@ -259,7 +267,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrStreet}
-                onChange={(e) => onChange({ addrStreet: e.target.value })}
+                onChange={(e) => onChange({ addrStreet: sanitizeTextInput(e.target.value, 200) })}
                 placeholder="T. Nagar, Mount Road…"
               />
             </label>
@@ -297,7 +305,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrCity}
-                onChange={(e) => onChange({ addrCity: e.target.value })}
+                onChange={(e) => onChange({ addrCity: sanitizeTextInput(e.target.value, 80) })}
                 placeholder="Chennai"
               />
             </label>
@@ -306,7 +314,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrDistrict}
-                onChange={(e) => onChange({ addrDistrict: e.target.value })}
+                onChange={(e) => onChange({ addrDistrict: sanitizeTextInput(e.target.value, 80) })}
                 placeholder="Chennai"
               />
             </label>
@@ -319,7 +327,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrState}
-                onChange={(e) => onChange({ addrState: e.target.value })}
+                onChange={(e) => onChange({ addrState: sanitizeTextInput(e.target.value, 80) })}
                 placeholder="Tamil Nadu"
               />
             </label>
@@ -328,7 +336,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrCountry}
-                onChange={(e) => onChange({ addrCountry: e.target.value })}
+                onChange={(e) => onChange({ addrCountry: sanitizeTextInput(e.target.value, 80) })}
                 placeholder="India"
               />
             </label>
@@ -416,7 +424,7 @@ function StoreInvoiceFields({
           <input
             className={inputClass}
             value={draft.invoiceNumberStoreCode}
-            onChange={(e) => onChange({ invoiceNumberStoreCode: e.target.value })}
+            onChange={(e) => onChange({ invoiceNumberStoreCode: sanitizeAlphanumericInput(e.target.value, 16).toUpperCase() })}
             placeholder="e.g. CHN01 — used in invoice numbers"
           />
         </label>
@@ -425,7 +433,7 @@ function StoreInvoiceFields({
           <input
             className={inputClass}
             value={draft.invoiceDisplayName}
-            onChange={(e) => onChange({ invoiceDisplayName: e.target.value })}
+            onChange={(e) => onChange({ invoiceDisplayName: sanitizeTextInput(e.target.value, 280) })}
             placeholder="e.g. ZIMSON - THE WATCH STORE"
           />
         </label>
@@ -434,7 +442,7 @@ function StoreInvoiceFields({
           <input
             className={inputClass}
             value={draft.invoiceTagline}
-            onChange={(e) => onChange({ invoiceTagline: e.target.value })}
+            onChange={(e) => onChange({ invoiceTagline: sanitizeTextInput(e.target.value, 160) })}
             placeholder="e.g. THE WATCH STORE SINCE 1948"
           />
         </label>
@@ -444,28 +452,41 @@ function StoreInvoiceFields({
             className={inputClass}
             rows={3}
             value={draft.invoiceAddress}
-            onChange={(e) => onChange({ invoiceAddress: e.target.value })}
+            onChange={(e) => onChange({ invoiceAddress: sanitizeTextInput(e.target.value, 500) })}
             placeholder={"Street, area\nCity, State - PIN"}
           />
         </label>
         <label className={labelClass}>
           Phone
-          <input className={inputClass} value={draft.invoicePhone} onChange={(e) => onChange({ invoicePhone: e.target.value })} />
+          <input
+            className={inputClass}
+            value={draft.invoicePhone}
+            onChange={(e) => onChange({ invoicePhone: sanitizePhoneDigits(e.target.value, 15) })}
+          />
         </label>
         <label className={labelClass}>
           Email
-          <input type="email" className={inputClass} value={draft.invoiceEmail} onChange={(e) => onChange({ invoiceEmail: e.target.value })} />
+          <input
+            type="email"
+            className={inputClass}
+            value={draft.invoiceEmail}
+            onChange={(e) => onChange({ invoiceEmail: sanitizeEmailInput(e.target.value) })}
+          />
         </label>
         <label className={labelClass}>
           Store GSTIN (override)
-          <input className={inputClass} value={draft.invoiceGstin} onChange={(e) => onChange({ invoiceGstin: e.target.value })} />
+          <input
+            className={inputClass}
+            value={draft.invoiceGstin}
+            onChange={(e) => onChange({ invoiceGstin: sanitizeGstPanInput(e.target.value, 15) })}
+          />
         </label>
         <label className={`${labelClass} sm:col-span-2`}>
           Legal entity ("For …" footer)
           <input
             className={inputClass}
             value={draft.invoiceLegalEntityName}
-            onChange={(e) => onChange({ invoiceLegalEntityName: e.target.value })}
+            onChange={(e) => onChange({ invoiceLegalEntityName: sanitizeTextInput(e.target.value, 280) })}
             placeholder="e.g. ZIMSON TIMES PVT LTD"
           />
         </label>
@@ -475,7 +496,7 @@ function StoreInvoiceFields({
             className={inputClass}
             rows={5}
             value={draft.invoiceTerms}
-            onChange={(e) => onChange({ invoiceTerms: e.target.value })}
+            onChange={(e) => onChange({ invoiceTerms: sanitizeTextInput(e.target.value, 500) })}
             placeholder="One point per line (numbered on print)"
           />
         </label>
@@ -928,7 +949,7 @@ export function RegionsPage() {
                         <input
                           className={inputClass}
                           value={getStoreDraft(region.id).name}
-                          onChange={(e) => patchStoreDraft(region.id, { name: e.target.value })}
+                          onChange={(e) => patchStoreDraft(region.id, { name: sanitizeTextInput(e.target.value, 240) })}
                           placeholder="e.g. CHN01"
                         />
                       </label>
@@ -999,7 +1020,13 @@ export function RegionsPage() {
                             <div className="mt-3 border-t border-rlx-rule pt-3">
                               <label className={labelClass}>
                                 Store Code / Name *
-                                <input className={inputClass} value={editStoreDraft.name} onChange={(e) => setEditStoreDraft((p) => p ? { ...p, name: e.target.value } : p)} />
+                                <input
+                                  className={inputClass}
+                                  value={editStoreDraft.name}
+                                  onChange={(e) =>
+                                    setEditStoreDraft((p) => (p ? { ...p, name: sanitizeTextInput(e.target.value, 240) } : p))
+                                  }
+                                />
                               </label>
                               <StoreInvoiceFields
                                 draft={editStoreDraft}
@@ -1042,15 +1069,41 @@ export function RegionsPage() {
                       <p className="text-xs font-bold uppercase tracking-wide text-stone-600">New Warehouse</p>
                       <label className={labelClass}>
                         Warehouse Name *
-                        <input className={inputClass} value={getWhDraft(region.id).name} onChange={(e) => patchWhDraft(region.id, { name: e.target.value })} placeholder="e.g. Chennai Central Warehouse" />
+                        <input
+                          className={inputClass}
+                          value={getWhDraft(region.id).name}
+                          onChange={(e) => patchWhDraft(region.id, { name: sanitizeTextInput(e.target.value, 240) })}
+                          placeholder="e.g. Chennai Central Warehouse"
+                        />
                       </label>
                       <label className={labelClass}>
                         Address
-                        <textarea className={inputClass} rows={2} value={getWhDraft(region.id).address} onChange={(e) => patchWhDraft(region.id, { address: e.target.value })} placeholder={"Street, Area\nCity, State - PIN"} />
+                        <textarea
+                          className={inputClass}
+                          rows={2}
+                          value={getWhDraft(region.id).address}
+                          onChange={(e) => patchWhDraft(region.id, { address: sanitizeMultilineTextInput(e.target.value, 500) })}
+                          placeholder={"Street, Area\nCity, State - PIN"}
+                        />
                       </label>
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <label className={labelClass}>Phone<input className={inputClass} value={getWhDraft(region.id).phone} onChange={(e) => patchWhDraft(region.id, { phone: e.target.value })} /></label>
-                        <label className={labelClass}>Email<input type="email" className={inputClass} value={getWhDraft(region.id).email} onChange={(e) => patchWhDraft(region.id, { email: e.target.value })} /></label>
+                        <label className={labelClass}>
+                          Phone
+                          <input
+                            className={inputClass}
+                            value={getWhDraft(region.id).phone}
+                            onChange={(e) => patchWhDraft(region.id, { phone: sanitizePhoneDigits(e.target.value, 15) })}
+                          />
+                        </label>
+                        <label className={labelClass}>
+                          Email
+                          <input
+                            type="email"
+                            className={inputClass}
+                            value={getWhDraft(region.id).email}
+                            onChange={(e) => patchWhDraft(region.id, { email: sanitizeEmailInput(e.target.value) })}
+                          />
+                        </label>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -1105,11 +1158,51 @@ export function RegionsPage() {
                           </div>
                           {editWhId === wh.id && editWhDraft && (
                             <div className="mt-3 border-t border-rlx-rule pt-3 space-y-3">
-                              <label className={labelClass}>Warehouse Name *<input className={inputClass} value={editWhDraft.name} onChange={(e) => setEditWhDraft((p) => p ? { ...p, name: e.target.value } : p)} /></label>
-                              <label className={labelClass}>Address<textarea className={inputClass} rows={2} value={editWhDraft.address} onChange={(e) => setEditWhDraft((p) => p ? { ...p, address: e.target.value } : p)} /></label>
+                              <label className={labelClass}>
+                                Warehouse Name *
+                                <input
+                                  className={inputClass}
+                                  value={editWhDraft.name}
+                                  onChange={(e) =>
+                                    setEditWhDraft((p) => (p ? { ...p, name: sanitizeTextInput(e.target.value, 240) } : p))
+                                  }
+                                />
+                              </label>
+                              <label className={labelClass}>
+                                Address
+                                <textarea
+                                  className={inputClass}
+                                  rows={2}
+                                  value={editWhDraft.address}
+                                  onChange={(e) =>
+                                    setEditWhDraft((p) =>
+                                      p ? { ...p, address: sanitizeMultilineTextInput(e.target.value, 500) } : p,
+                                    )
+                                  }
+                                />
+                              </label>
                               <div className="grid gap-2 sm:grid-cols-2">
-                                <label className={labelClass}>Phone<input className={inputClass} value={editWhDraft.phone} onChange={(e) => setEditWhDraft((p) => p ? { ...p, phone: e.target.value } : p)} /></label>
-                                <label className={labelClass}>Email<input type="email" className={inputClass} value={editWhDraft.email} onChange={(e) => setEditWhDraft((p) => p ? { ...p, email: e.target.value } : p)} /></label>
+                                <label className={labelClass}>
+                                  Phone
+                                  <input
+                                    className={inputClass}
+                                    value={editWhDraft.phone}
+                                    onChange={(e) =>
+                                      setEditWhDraft((p) => (p ? { ...p, phone: sanitizePhoneDigits(e.target.value, 15) } : p))
+                                    }
+                                  />
+                                </label>
+                                <label className={labelClass}>
+                                  Email
+                                  <input
+                                    type="email"
+                                    className={inputClass}
+                                    value={editWhDraft.email}
+                                    onChange={(e) =>
+                                      setEditWhDraft((p) => (p ? { ...p, email: sanitizeEmailInput(e.target.value) } : p))
+                                    }
+                                  />
+                                </label>
                               </div>
                               <div className="flex flex-wrap gap-2">
                                 <button type="button" disabled={whSaving} onClick={() => void handleSaveWhEdit()} className="bg-rlx-green px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{whSaving ? "Saving…" : "Save"}</button>

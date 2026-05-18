@@ -72,3 +72,11 @@ export function isValidGstFormat(gst: string): boolean {
   const g = gst.trim().toUpperCase().replace(/\s/g, "");
   return g.length === 15 && /^[0-9A-Z]+$/.test(g);
 }
+
+/** PAN is embedded in GSTIN at positions 3–12 (Indian GST format). */
+export function panFromGstin(gst: string): string | null {
+  const g = gst.trim().toUpperCase().replace(/\s/g, "");
+  if (g.length !== 15) return null;
+  const pan = g.slice(2, 12);
+  return isValidPanFormat(pan) ? pan : null;
+}

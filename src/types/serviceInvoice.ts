@@ -1,3 +1,5 @@
+import type { PaymentSplit } from "../lib/paymentModes";
+
 /** View model for the printable service invoice shell (Quick bill, SRF service bill, etc.). */
 export type ServiceInvoiceLineView = {
   slNo: number;
@@ -46,6 +48,7 @@ export type ServiceInvoiceViewModel = {
     pan?: string | null;
     phone?: string | null;
     email?: string | null;
+    customerCode?: string | null;
   };
   /** Watch, technician, payment, etc. (legacy meta list — prefer productBlock when set) */
   serviceMeta: { label: string; value: string }[];
@@ -62,6 +65,8 @@ export type ServiceInvoiceViewModel = {
   amountInWordsNote?: string;
   amountInWords?: string;
   paymentMode?: string;
+  /** Split payments (Cash + UPI, etc.) when present. */
+  paymentSplits?: PaymentSplit[];
   bankDetailsLines?: string[];
   notes?: string;
   footerTerms?: string[];

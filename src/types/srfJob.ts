@@ -55,6 +55,7 @@ export type SrfJob = {
   customerKind: "B2C" | "B2B";
   company?: string;
   watchBrand: string;
+  watchFamily?: string;
   watchModel: string;
   serial: string;
   complaint: string;
@@ -143,6 +144,7 @@ export type CreateSrfJobInput = {
   customerKind: "B2C" | "B2B";
   company?: string;
   watchBrand: string;
+  watchFamily?: string;
   watchModel: string;
   serial: string;
   complaint: string;

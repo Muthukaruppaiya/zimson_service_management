@@ -6,9 +6,15 @@ import { CustomerAddressForm } from "../../components/service/CustomerAddressFor
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useCustomers } from "../../context/CustomersContext";
-import { isValidGstFormat, isValidPanFormat } from "../../data/serviceSeed";
+import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../data/serviceSeed";
 import { apiJson, useApiMode } from "../../lib/api";
-import type { CustomerAddressBlock, CustomerKind, TaxPreference } from "../../types/customer";
+import {
+  sanitizeEmailInput,
+  sanitizeGstPanInput,
+  sanitizePhoneDigits,
+  sanitizeTextInput,
+} from "../../lib/inputSanitize";
+import type { CustomerAddressBlock, CustomerKind } from "../../types/customer";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
@@ -30,7 +36,7 @@ const FALLBACK_COUNTRIES: Array<{ id: string; name: string; sortOrder: number }>
 ];
 
 function digitsOnly(v: string, maxLen: number): string {
-  return v.replace(/\D/g, "").slice(0, maxLen);
+  return sanitizePhoneDigits(v, maxLen);
 }
 
 function emptyAddress(): CustomerAddressBlock {
@@ -91,9 +97,7 @@ export function SrfCustomerRegisterPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [b2bDisplayName, setB2bDisplayName] = useState("");
-  const [taxPreference, setTaxPreference] = useState<TaxPreference>("with_tax");
   const [phone, setPhone] = useState(initialPhone);
-  const [otpPhone, setOtpPhone] = useState("");
   const [alternatePhone, setAlternatePhone] = useState("");
   const [telephone, setTelephone] = useState("");
   const [email, setEmail] = useState("");
@@ -188,6 +192,12 @@ export function SrfCustomerRegisterPage() {
     }
   }, [sameShippingAsBilling, billing]);
 
+  useEffect(() => {
+    if (customerKind !== "B2B" || !isValidGstFormat(gst)) return;
+    const derived = panFromGstin(gst);
+    if (derived) setPan((prev) => (prev.trim() ? prev : derived));
+  }, [gst, customerKind]);
+
   const shipEffective = useMemo(
     () => (sameShippingAsBilling ? billing : shipping),
     [sameShippingAsBilling, billing, shipping],
@@ -207,6 +217,8 @@ export function SrfCustomerRegisterPage() {
       });
       const name = (out.tradeName ?? out.legalName ?? "").trim();
       if (name) setCompany(name);
+      const derivedPan = panFromGstin(gst);
+      if (derivedPan) setPan(derivedPan);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not fetch company from GSTIN.");
     } finally {
@@ -220,11 +232,6 @@ export function SrfCustomerRegisterPage() {
       setError("Enter a valid 10-digit primary mobile.");
       return;
     }
-    const otpTarget = digitsOnly(otpPhone, 12);
-    if (otpPhone.trim() && otpTarget.length !== 10) {
-      setError("OTP mobile must be 10 digits or leave it empty to use primary mobile.");
-      return;
-    }
     setOtpStartBusy(true);
     setMobileOtpVerified(false);
     setEmailOtpVerified(false);
@@ -235,7 +242,7 @@ export function SrfCustomerRegisterPage() {
     try {
       const out = await startRegistrationMobileOtp({
         primaryPhone: phone,
-        otpPhone: otpPhone,
+        otpPhone: "",
       });
       setSessionId(out.sessionId);
       setDemoMobileOtp(out.demoMobileOtp);
@@ -343,8 +350,9 @@ export function SrfCustomerRegisterPage() {
         setError("Enter a valid GSTIN.");
         return false;
       }
-      if (!isValidPanFormat(pan)) {
-        setError("Enter a valid PAN.");
+      const panValue = pan.trim() || panFromGstin(gst) || "";
+      if (!isValidPanFormat(panValue)) {
+        setError("Enter a valid PAN or a GSTIN that contains a valid PAN.");
         return false;
       }
     }
@@ -380,7 +388,7 @@ export function SrfCustomerRegisterPage() {
         firstName,
         lastName,
         phone: digitsOnly(phone, 12),
-        otpPhone: digitsOnly(otpPhone, 12),
+        otpPhone: digitsOnly(phone, 12),
         alternatePhone: alternatePhone ? digitsOnly(alternatePhone, 12) : undefined,
         telephone: telephone.trim() || undefined,
         email: email.trim().toLowerCase(),
@@ -392,10 +400,12 @@ export function SrfCustomerRegisterPage() {
           additionalAddresses.length > 0 ? additionalAddresses.map((a) => trimAddr(a)) : undefined,
         sameShippingAsBilling,
         b2bTradeDisplayName: customerKind === "B2B" ? b2bDisplayName.trim() : undefined,
-        taxPreference: customerKind === "B2B" ? taxPreference : undefined,
         company: customerKind === "B2B" ? company.trim() : undefined,
         gst: customerKind === "B2B" ? gst.trim().toUpperCase() : undefined,
-        pan: pan.trim() ? pan.trim().toUpperCase() : undefined,
+        pan: (() => {
+          const p = pan.trim().toUpperCase() || panFromGstin(gst) || "";
+          return p || undefined;
+        })(),
         remarkAttention: remarkAttention.trim() || undefined,
         referenceName: referenceName.trim() || undefined,
         representativeName: representativeName.trim() || undefined,
@@ -492,7 +502,7 @@ export function SrfCustomerRegisterPage() {
                 <label className="text-xs font-medium text-stone-600">Display name (B2B) *</label>
                 <input
                   value={b2bDisplayName}
-                  onChange={(e) => setB2bDisplayName(e.target.value)}
+                  onChange={(e) => setB2bDisplayName(sanitizeTextInput(e.target.value, 240))}
                   className={inputClass}
                   placeholder="As on invoices / correspondence"
                 />
@@ -500,11 +510,19 @@ export function SrfCustomerRegisterPage() {
             ) : null}
             <div>
               <label className="text-xs font-medium text-stone-600">First name *</label>
-              <input value={firstName} onChange={(e) => setFirstName(e.target.value)} className={inputClass} />
+              <input
+                value={firstName}
+                onChange={(e) => setFirstName(sanitizeTextInput(e.target.value, 80))}
+                className={inputClass}
+              />
             </div>
             <div>
               <label className="text-xs font-medium text-stone-600">Last name *</label>
-              <input value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputClass} />
+              <input
+                value={lastName}
+                onChange={(e) => setLastName(sanitizeTextInput(e.target.value, 80))}
+                className={inputClass}
+              />
             </div>
           </div>
         </Card>
@@ -570,17 +588,6 @@ export function SrfCustomerRegisterPage() {
               ) : null}
             </div>
             <div>
-              <label className="text-xs font-medium text-stone-600">OTP mobile (optional)</label>
-              <input
-                value={otpPhone}
-                onChange={(e) => setOtpPhone(digitsOnly(e.target.value, 10))}
-                className={inputClass}
-                placeholder="Defaults to primary mobile if empty"
-                inputMode="numeric"
-                maxLength={10}
-              />
-            </div>
-            <div>
               <label className="text-xs font-medium text-stone-600">Alternate mobile</label>
               <input
                 value={alternatePhone}
@@ -591,7 +598,11 @@ export function SrfCustomerRegisterPage() {
             </div>
             <div>
               <label className="text-xs font-medium text-stone-600">Telephone</label>
-              <input value={telephone} onChange={(e) => setTelephone(e.target.value)} className={inputClass} />
+              <input
+                value={telephone}
+                onChange={(e) => setTelephone(sanitizePhoneDigits(e.target.value, 15))}
+                className={inputClass}
+              />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Email *</label>
@@ -602,7 +613,7 @@ export function SrfCustomerRegisterPage() {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
                   disabled={!mobileOtpVerified}
                   className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-500`}
                   aria-disabled={!mobileOtpVerified}
@@ -672,7 +683,7 @@ export function SrfCustomerRegisterPage() {
                 <label className="text-xs font-medium text-stone-600">PAN (optional)</label>
                 <input
                   value={pan}
-                  onChange={(e) => setPan(e.target.value.toUpperCase())}
+                  onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
                   className={inputClass}
                   maxLength={10}
                   placeholder="10-character PAN if available"
@@ -762,17 +773,25 @@ export function SrfCustomerRegisterPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Remark / attention</label>
-              <input value={remarkAttention} onChange={(e) => setRemarkAttention(e.target.value)} className={inputClass} />
+              <input
+                value={remarkAttention}
+                onChange={(e) => setRemarkAttention(sanitizeTextInput(e.target.value, 120))}
+                className={inputClass}
+              />
             </div>
             <div>
               <label className="text-xs font-medium text-stone-600">Reference name</label>
-              <input value={referenceName} onChange={(e) => setReferenceName(e.target.value)} className={inputClass} />
+              <input
+                value={referenceName}
+                onChange={(e) => setReferenceName(sanitizeTextInput(e.target.value, 120))}
+                className={inputClass}
+              />
             </div>
             <div>
               <label className="text-xs font-medium text-stone-600">Representative name</label>
               <input
                 value={representativeName}
-                onChange={(e) => setRepresentativeName(e.target.value)}
+                onChange={(e) => setRepresentativeName(sanitizeTextInput(e.target.value, 120))}
                 className={inputClass}
               />
             </div>
@@ -787,7 +806,7 @@ export function SrfCustomerRegisterPage() {
                   <label className="text-xs font-medium text-stone-600">GSTIN *</label>
                   <input
                     value={gst}
-                    onChange={(e) => setGst(e.target.value.toUpperCase())}
+                    onChange={(e) => setGst(sanitizeGstPanInput(e.target.value, 15))}
                     className={inputClass}
                     maxLength={15}
                   />
@@ -803,27 +822,24 @@ export function SrfCustomerRegisterPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium text-stone-600">Company / legal name *</label>
-                <input value={company} onChange={(e) => setCompany(e.target.value)} className={inputClass} />
+                <input
+                  value={company}
+                  onChange={(e) => setCompany(sanitizeTextInput(e.target.value, 240))}
+                  className={inputClass}
+                />
               </div>
-              <div>
+              <div className="sm:col-span-2">
                 <label className="text-xs font-medium text-stone-600">PAN *</label>
                 <input
                   value={pan}
-                  onChange={(e) => setPan(e.target.value.toUpperCase())}
+                  onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
                   className={inputClass}
                   maxLength={10}
+                  placeholder="Filled from GSTIN after lookup if not returned by API"
                 />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-stone-600">Tax preference</label>
-                <select
-                  className={inputClass}
-                  value={taxPreference}
-                  onChange={(e) => setTaxPreference(e.target.value as TaxPreference)}
-                >
-                  <option value="with_tax">Default (tax as per rules)</option>
-                  <option value="without_tax_exhibited">Without tax exhibited</option>
-                </select>
+                <p className="mt-1 text-[11px] text-stone-500">
+                  When GST lookup does not return PAN, it is taken from characters 3–12 of the GSTIN.
+                </p>
               </div>
             </div>
           </Card>

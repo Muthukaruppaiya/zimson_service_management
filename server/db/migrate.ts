@@ -883,6 +883,27 @@ export async function runMigrations(pool: Pool): Promise<void> {
       ON watch_models_catalog (brand_norm);
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS watch_families_catalog (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      brand VARCHAR(200) NOT NULL,
+      family VARCHAR(200) NOT NULL,
+      brand_norm VARCHAR(200) NOT NULL,
+      family_norm VARCHAR(200) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_by VARCHAR(80)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_watch_families_catalog_norm
+      ON watch_families_catalog (brand_norm, family_norm);
+    CREATE INDEX IF NOT EXISTS idx_watch_families_catalog_brand_norm
+      ON watch_families_catalog (brand_norm);
+  `);
+
+  await pool.query(`
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS watch_family VARCHAR(200) NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS watch_family VARCHAR(200) NOT NULL DEFAULT '';
+  `);
+
   const { rows: rc } = await pool.query<{ c: number }>("SELECT COUNT(*)::int AS c FROM regions");
   if ((rc[0]?.c ?? 0) === 0) {
     const client = await pool.connect();
@@ -926,9 +947,8 @@ export async function runMigrations(pool: Pool): Promise<void> {
 
   await pool.query(`
     ALTER TABLE quick_bills DROP CONSTRAINT IF EXISTS quick_bills_payment_mode_check;
-    ALTER TABLE quick_bills ALTER COLUMN payment_mode TYPE VARCHAR(24);
-    ALTER TABLE quick_bills ADD CONSTRAINT quick_bills_payment_mode_check
-      CHECK (payment_mode IN ('Cash', 'Card', 'UPI', 'Bank Transfer'));
+    ALTER TABLE quick_bills ALTER COLUMN payment_mode TYPE VARCHAR(200);
+    ALTER TABLE srf_jobs ALTER COLUMN advance_payment_mode TYPE VARCHAR(200);
   `);
 
   await pool.query(
@@ -974,6 +994,29 @@ export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS address TEXT;
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS city VARCHAR(120);
+  `);
+
+  await pool.query(`
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS customer_code VARCHAR(32);
+  `);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'quick_bills' AND column_name = 'customer_id'
+      ) THEN
+        ALTER TABLE quick_bills ADD COLUMN customer_id TEXT REFERENCES customers(id);
+      ELSIF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'quick_bills' AND column_name = 'customer_id'
+          AND udt_name = 'uuid'
+      ) THEN
+        ALTER TABLE quick_bills DROP CONSTRAINT IF EXISTS quick_bills_customer_id_fkey;
+        ALTER TABLE quick_bills DROP COLUMN customer_id;
+        ALTER TABLE quick_bills ADD COLUMN customer_id TEXT REFERENCES customers(id);
+      END IF;
+    END $$;
   `);
 
   // Columns must exist before UPDATE (fresh DBs had no invoice_number_template yet).

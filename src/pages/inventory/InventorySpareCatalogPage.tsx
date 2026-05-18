@@ -9,6 +9,12 @@ import { useBrands } from "../../context/BrandsContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
+import {
+  sanitizeAlphanumericInput,
+  sanitizeDecimalInput,
+  sanitizeMultilineTextInput,
+  sanitizeTextInput,
+} from "../../lib/inputSanitize";
 import type { SparePriceLine } from "../../types/spare";
 
 const inputClass =
@@ -520,7 +526,7 @@ export function InventorySpareCatalogPage() {
                 <input
                   id="sp-sku"
                   value={sku}
-                  onChange={(e) => setSku(e.target.value)}
+                  onChange={(e) => setSku(sanitizeAlphanumericInput(e.target.value, 48))}
                   className={inputClass}
                   placeholder="e.g. SP-NEW-01"
                   autoComplete="off"
@@ -533,7 +539,7 @@ export function InventorySpareCatalogPage() {
                 <input
                   id="sp-name"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => setName(sanitizeTextInput(e.target.value, 200))}
                   className={inputClass}
                   placeholder="Part name"
                 />
@@ -542,7 +548,13 @@ export function InventorySpareCatalogPage() {
                 <label htmlFor="sp-desc" className="text-xs font-medium text-stone-600">
                   Description *
                 </label>
-                <textarea id="sp-desc" value={description} onChange={(e) => setDescription(e.target.value)} className={inputClass} rows={3} />
+                <textarea
+                  id="sp-desc"
+                  value={description}
+                  onChange={(e) => setDescription(sanitizeMultilineTextInput(e.target.value, 500))}
+                  className={inputClass}
+                  rows={3}
+                />
               </div>
               <div>
                 <label htmlFor="sp-cat" className="text-xs font-medium text-stone-600">
@@ -551,7 +563,7 @@ export function InventorySpareCatalogPage() {
                 <select
                   id="sp-cat"
                   value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  onChange={(e) => setCategory(sanitizeTextInput(e.target.value, 40))}
                   className={inputClass}
                 >
                   {categories.map((c) => (
@@ -566,7 +578,12 @@ export function InventorySpareCatalogPage() {
                   <label htmlFor="sp-hsn" className="text-xs font-medium text-stone-600">
                     HSN
                   </label>
-                  <input id="sp-hsn" value={hsn} onChange={(e) => setHsn(e.target.value)} className={inputClass} />
+                  <input
+                    id="sp-hsn"
+                    value={hsn}
+                    onChange={(e) => setHsn(sanitizeAlphanumericInput(e.target.value, 16))}
+                    className={inputClass}
+                  />
                 </div>
                 <div>
                   <label htmlFor="sp-cost" className="text-xs font-medium text-stone-600">
@@ -578,7 +595,7 @@ export function InventorySpareCatalogPage() {
                     min={0}
                     step={0.01}
                     value={costPriceInr}
-                    onChange={(e) => setCostPriceInr(e.target.value)}
+                    onChange={(e) => setCostPriceInr(sanitizeDecimalInput(e.target.value))}
                     className={inputClass}
                   />
                 </div>
@@ -592,7 +609,7 @@ export function InventorySpareCatalogPage() {
                     min={0}
                     step={0.01}
                     value={sellingPriceInr}
-                    onChange={(e) => setSellingPriceInr(e.target.value)}
+                    onChange={(e) => setSellingPriceInr(sanitizeDecimalInput(e.target.value))}
                     className={inputClass}
                   />
                 </div>

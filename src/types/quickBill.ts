@@ -21,6 +21,8 @@ export type QuickBillHistoryRow = {
   storeId: string | null;
   storeName: string | null;
   customerType: "B2C" | "B2B";
+  customerId?: string | null;
+  customerCode?: string | null;
   customerName: string | null;
   phone: string | null;
   email: string | null;
@@ -35,7 +37,7 @@ export type QuickBillHistoryRow = {
   watchRemark: string;
   warrantyStatus: QuickBillWarrantyStatus;
   technicianName: string | null;
-  paymentMode: AppPaymentMode;
+  paymentMode: string;
   notes: string;
   totalInr: number;
   createdBy: string;
@@ -53,6 +55,8 @@ export type QuickBillInvoice = {
   storeId: string | null;
   storeName: string | null;
   customerType: "B2C" | "B2B";
+  customerId?: string | null;
+  customerCode?: string | null;
   customerName: string | null;
   phone: string | null;
   email: string | null;
@@ -62,6 +66,7 @@ export type QuickBillInvoice = {
   address?: string | null;
   city?: string | null;
   watchBrand: string;
+  watchFamily?: string;
   watchModel: string;
   watchRef: string | null;
   watchRemark?: string;
@@ -70,7 +75,7 @@ export type QuickBillInvoice = {
   watchImagePath?: string | null;
   technicianId: string | null;
   technicianName: string | null;
-  paymentMode: AppPaymentMode;
+  paymentMode: string;
   /** Cash denominations, UPI/card/bank reference, etc. */
   paymentDetails?: AdvancePaymentDetails | null;
   notes: string;
