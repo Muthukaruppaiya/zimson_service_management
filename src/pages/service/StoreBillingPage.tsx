@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  CustomerHandoverOtpModal,
+  type HandoverOtpMode,
+} from "../../components/service/CustomerHandoverOtpModal";
 import { mapSrfPreviewToServiceInvoiceViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
-import { DemoOtpGate } from "../../components/service/DemoOtpGate";
+import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
@@ -8,12 +12,13 @@ import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useAuth } from "../../context/AuthContext";
+import { useCustomers } from "../../context/CustomersContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError } from "../../lib/api";
+import { phoneLast10 } from "../../lib/customerLookup";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
-import { generateDemoOtp } from "../../data/serviceSeed";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import {
   buildStoreBillingInvoiceLines,
@@ -22,11 +27,11 @@ import {
 } from "../../lib/storeBillingAmounts";
 import {
   ADVANCE_CASH_DENOMS,
-  advanceDetailsFromFormStrings,
-  emptyCashDenomStrings,
-  sumAdvanceCashDenominations,
+  buildMultiPaymentPayload,
+  emptyMultiPaymentForm,
+  formatPaymentSummary,
+  validateMultiPaymentForm,
   type AdvancePaymentDetails,
-  type AppPaymentMode,
 } from "../../lib/paymentModes";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
@@ -50,6 +55,7 @@ const billSuccessBtnOutline = `${billSuccessBtnBase} border border-stone-300 bg-
 export function StoreBillingPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
+  const { customers } = useCustomers();
   const { activeSpares } = useSpares();
   const { jobs, closeWithInvoice } = useSrfJobs();
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
@@ -61,19 +67,17 @@ export function StoreBillingPage() {
   const [billingRefInput, setBillingRefInput] = useState("");
   const [scanSrfInput, setScanSrfInput] = useState("");
   const [billingSelectedId, setBillingSelectedId] = useState("");
-  const [paymentMode, setPaymentMode] = useState<AppPaymentMode>("UPI");
+  const [multiPaymentForm, setMultiPaymentForm] = useState(emptyMultiPaymentForm);
   const [paidAmountInput, setPaidAmountInput] = useState("");
-  const [cashDenomStrings, setCashDenomStrings] = useState(emptyCashDenomStrings);
-  const [paymentReference, setPaymentReference] = useState("");
   const [hoSparesBillRef, setHoSparesBillRef] = useState("");
   const [storeBillRef, setStoreBillRef] = useState("");
+  const [handoverVerified, setHandoverVerified] = useState(false);
+  const [handoverModalOpen, setHandoverModalOpen] = useState(false);
+  const [handoverModalMode, setHandoverModalMode] = useState<HandoverOtpMode>("primary");
+  const [closingAfterOtp, setClosingAfterOtp] = useState(false);
   const [additionalChargeLines, setAdditionalChargeLines] = useState<AdditionalChargeLine[]>([
     { id: `${Date.now()}-charge`, lineType: "charge", description: "", spareId: "", qty: "1", amount: "" },
   ]);
-  const [issuedOtpByJob, setIssuedOtpByJob] = useState<Record<string, string>>({});
-  const [otpInputByJob, setOtpInputByJob] = useState<Record<string, string>>({});
-  const [otpErrorByJob, setOtpErrorByJob] = useState<Record<string, string>>({});
-  const [otpModalJobId, setOtpModalJobId] = useState<string | null>(null);
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
 
   const currentUserStore = useMemo(() => {
@@ -122,6 +126,12 @@ export function StoreBillingPage() {
   }, [receivedAtStore, billingSelectedId]);
 
   const isRejectedNoRepairFlow = billingJob?.customerReestimateResponse === "rejected";
+  const billingCustomer = useMemo(() => {
+    if (!billingJob?.phone) return null;
+    const p10 = phoneLast10(billingJob.phone);
+    return customers.find((c) => phoneLast10(c.phone) === p10) ?? null;
+  }, [billingJob?.phone, customers]);
+  const billingCustomerEmail = billingCustomer?.email?.trim() ?? "";
   const billingAmounts = useMemo(
     () => (billingJob ? resolveStoreBillingAmounts(billingJob) : null),
     [billingJob],
@@ -164,10 +174,31 @@ export function StoreBillingPage() {
     }
     return standardBillingTotal;
   }, [paidAmountInput, standardBillingTotal]);
-  const cashDenomEntered = useMemo(
-    () => sumAdvanceCashDenominations(advanceDetailsFromFormStrings("Cash", cashDenomStrings, "").cash),
-    [cashDenomStrings],
-  );
+  useEffect(() => {
+    setHandoverVerified(false);
+    setHandoverModalOpen(false);
+  }, [billingJob?.id]);
+
+  function validateBeforeHandoverOtp(): boolean {
+    const payErr = validateMultiPaymentForm(multiPaymentForm, finalBillingAmount);
+    if (payErr) {
+      setMessage({ type: "err", text: payErr });
+      return false;
+    }
+    return true;
+  }
+
+  function openHandoverOtp(mode: HandoverOtpMode) {
+    if (!validateBeforeHandoverOtp()) return;
+    setHandoverModalMode(mode);
+    setHandoverModalOpen(true);
+  }
+
+  function onHandoverVerified() {
+    setHandoverVerified(true);
+    setHandoverModalOpen(false);
+    if (billingJob) void finalizeInvoiceAfterOtp(billingJob.id);
+  }
 
   function addChargeLine() {
     setAdditionalChargeLines((prev) => [
@@ -191,15 +222,6 @@ export function StoreBillingPage() {
     setAdditionalChargeLines((prev) => prev.map((line) => (line.id === id ? { ...line, ...patch } : line)));
   }
 
-  function startCollectionOtp(jobId: string) {
-    const code = generateDemoOtp();
-    setIssuedOtpByJob((prev) => ({ ...prev, [jobId]: code }));
-    setOtpInputByJob((prev) => ({ ...prev, [jobId]: "" }));
-    setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
-    setOtpModalJobId(jobId);
-    setMessage({ type: "ok", text: "Customer collection OTP generated. Verify OTP before invoicing." });
-  }
-
   function applyScannedSrf(raw: string) {
     const scanned = raw.trim().toUpperCase();
     if (!scanned) return;
@@ -215,58 +237,17 @@ export function StoreBillingPage() {
   }
 
   async function closeJob(jobId: string) {
-    const out = await closeWithInvoice(jobId, { hoSparesBillRef, storeBillRef });
-    setIssuedOtpByJob((prev) => {
-      const next = { ...prev };
-      delete next[jobId];
-      return next;
-    });
-    setOtpInputByJob((prev) => {
-      const next = { ...prev };
-      delete next[jobId];
-      return next;
-    });
-    setOtpErrorByJob((prev) => {
-      const next = { ...prev };
-      delete next[jobId];
-      return next;
-    });
-    return out;
+    return closeWithInvoice(jobId, { hoSparesBillRef, storeBillRef });
   }
 
   async function closeRejectedNoBilling(jobId: string) {
     await closeWithInvoice(jobId, { noBillingHandover: true });
-    setIssuedOtpByJob((prev) => {
-      const next = { ...prev };
-      delete next[jobId];
-      return next;
-    });
-    setOtpInputByJob((prev) => {
-      const next = { ...prev };
-      delete next[jobId];
-      return next;
-    });
-    setOtpErrorByJob((prev) => {
-      const next = { ...prev };
-      delete next[jobId];
-      return next;
-    });
   }
 
-  async function verifyOtpAndClose(jobId: string) {
-    const issued = (issuedOtpByJob[jobId] ?? "").trim();
-    const entered = (otpInputByJob[jobId] ?? "").trim();
-    if (!issued) {
-      setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "Generate OTP first." }));
-      return;
-    }
-    if (issued !== entered) {
-      setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "Incorrect OTP. Enter the exact code shown above." }));
-      return;
-    }
+  async function finalizeInvoiceAfterOtp(jobId: string) {
     const job = receivedAtStore.find((x) => x.id === jobId);
     if (!job) {
-      setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "SRF not found in store inventory." }));
+      setMessage({ type: "err", text: "SRF not found in store inventory." });
       return;
     }
     const jobAmounts = resolveStoreBillingAmounts(job);
@@ -275,27 +256,24 @@ export function StoreBillingPage() {
     const computedTotal = Math.max(jobRepairBase + additionalChargesTotal - advanceAmount, 0);
     const finalAmount = paidAmountInput.trim() ? Number(paidAmountInput) : computedTotal;
     if (!Number.isFinite(finalAmount) || finalAmount < 0) {
-      setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "Enter valid paid amount." }));
+      setMessage({ type: "err", text: "Enter valid final billing amount." });
       return;
     }
-    if (paymentMode === "Cash") {
-      const cashSum = sumAdvanceCashDenominations(
-        advanceDetailsFromFormStrings("Cash", cashDenomStrings, "").cash,
-      );
-      if (Math.abs(cashSum - finalAmount) > 0.02) {
-        setOtpErrorByJob((prev) => ({
-          ...prev,
-          [jobId]: `Cash denominations must equal the collection amount (INR ${finalAmount.toFixed(2)}). Current total: INR ${cashSum.toFixed(2)}.`,
-        }));
-        return;
-      }
-    } else if (paymentReference.trim().length > 500) {
-      setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "Payment reference is too long (max 500 characters)." }));
+    const payPayload = buildMultiPaymentPayload(multiPaymentForm, finalAmount);
+    if ("error" in payPayload) {
+      setMessage({ type: "err", text: payPayload.error });
       return;
     }
-    setOtpErrorByJob((prev) => ({ ...prev, [jobId]: "" }));
+    const payErr = validateMultiPaymentForm(multiPaymentForm, finalAmount);
+    if (payErr) {
+      setMessage({ type: "err", text: payErr });
+      return;
+    }
+    setClosingAfterOtp(true);
+    setMessage(null);
     try {
       const closeOut = await closeJob(jobId);
+      const collectionPaymentLabel = formatPaymentSummary(payPayload.paymentMode, payPayload.paymentDetails);
       const additionalCharges = additionalChargeLines
         .map((line) => {
           if (line.lineType === "spare") {
@@ -329,8 +307,8 @@ export function StoreBillingPage() {
             advancePaymentMode: job.advancePaymentMode,
             billLines,
             collectionAmountInr: finalAmount,
-            collectionPaymentMode: paymentMode,
-            natureOfRepair: "Service completed",
+            collectionPaymentMode: collectionPaymentLabel,
+            natureOfRepair: job.repairRoute === "store_self" ? "Store self-repair completed" : "Service completed",
           },
           {
             taxSettings: serviceTaxSettings,
@@ -343,7 +321,7 @@ export function StoreBillingPage() {
       );
       setBillPostActionNote(null);
       setBillSuccessModalOpen(true);
-      setOtpModalJobId(null);
+      setHandoverVerified(false);
       setMessage({
         type: "ok",
         text: closeOut.invoiceNumber
@@ -353,15 +331,15 @@ export function StoreBillingPage() {
       setBillingSelectedId("");
       setBillingRefInput("");
       setPaidAmountInput("");
-      setCashDenomStrings(emptyCashDenomStrings());
-      setPaymentReference("");
+      setMultiPaymentForm(emptyMultiPaymentForm());
       setAdditionalChargeLines([
         { id: `${Date.now()}-charge`, lineType: "charge", description: "", spareId: "", qty: "1", amount: "" },
       ]);
     } catch (e) {
       const errText = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not close SRF.";
-      setOtpErrorByJob((prev) => ({ ...prev, [jobId]: errText }));
       setMessage({ type: "err", text: errText });
+    } finally {
+      setClosingAfterOtp(false);
     }
   }
 
@@ -808,86 +786,26 @@ export function StoreBillingPage() {
                 />
               </label>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="text-sm">
-                Payment mode
-                <select
-                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                  value={paymentMode}
-                  onChange={(e) => setPaymentMode(e.target.value as AppPaymentMode)}
-                >
-                  <option value="UPI">UPI</option>
-                  <option value="Cash">Cash</option>
-                  <option value="Card">Card</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
-                </select>
-              </label>
-              <label className="text-sm">
-                Final our billing amount (INR)
-                <input
-                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                  value={paidAmountInput}
-                  onChange={(e) => setPaidAmountInput(e.target.value)}
-                  placeholder={String(standardBillingTotal)}
-                />
-              </label>
-            </div>
-            {paymentMode === "Cash" ? (
-              <div className="rounded-xl border border-zimson-200 bg-white p-3">
-                <p className="text-sm font-semibold text-zimson-900">
-                  Cash denomination (must total collection amount)
-                </p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {ADVANCE_CASH_DENOMS.map(({ key, label }) => (
-                    <label key={key} className="text-xs text-stone-600">
-                      {label}
-                      <input
-                        className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                        inputMode="numeric"
-                        value={cashDenomStrings[key]}
-                        onChange={(e) =>
-                          setCashDenomStrings((prev) => ({ ...prev, [key]: e.target.value }))
-                        }
-                      />
-                    </label>
-                  ))}
-                  <label className="text-xs text-stone-600 sm:col-span-2">
-                    Coins / loose (INR)
-                    <input
-                      className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                      inputMode="decimal"
-                      value={cashDenomStrings.coinsInr}
-                      onChange={(e) =>
-                        setCashDenomStrings((prev) => ({ ...prev, coinsInr: e.target.value }))
-                      }
-                      placeholder="0.00"
-                    />
-                  </label>
-                </div>
-                <p className="mt-2 text-xs text-stone-600">
-                  Denomination total:{" "}
-                  <strong className="text-zimson-900">
-                    {cashDenomEntered.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                  </strong>
-                  {Math.abs(cashDenomEntered - finalBillingAmount) > 0.02 ? (
-                    <span className="ml-2 text-amber-700">(does not match collection amount yet)</span>
-                  ) : (
-                    <span className="ml-2 text-emerald-700">(matches collection amount)</span>
-                  )}
-                </p>
-              </div>
-            ) : (
-              <label className="block text-sm">
-                Payment reference (optional)
-                <input
-                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                  value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
-                  placeholder="UPI UTR, card auth code, bank transfer ref"
-                  maxLength={500}
-                />
-              </label>
-            )}
+            <label className="block text-sm">
+              Final our billing amount (INR)
+              <input
+                className="mt-1 w-full max-w-xs rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                value={paidAmountInput}
+                onChange={(e) => setPaidAmountInput(e.target.value)}
+                placeholder={String(standardBillingTotal)}
+              />
+            </label>
+            <MultiPaymentFields
+              idPrefix="store-bill"
+              amountLabel="collection"
+              targetInr={finalBillingAmount}
+              form={multiPaymentForm}
+              onChange={setMultiPaymentForm}
+            />
+            <p className="text-xs text-stone-600">
+              After OTP is verified (primary mobile/email or other number/email), the tax invoice is generated
+              automatically — same as Quick Bill.
+            </p>
               </>
             ) : null}
             {isRejectedNoRepairFlow ? (
@@ -908,23 +826,36 @@ export function StoreBillingPage() {
               >
                 Handover to customer without billing
               </button>
-            ) : !issuedOtpByJob[billingJob.id] ? (
-              <button
-                type="button"
-                onClick={() => startCollectionOtp(billingJob.id)}
-                disabled={(!billingJob.usedSpares || billingJob.usedSpares.length === 0) && !isBrandRepairFlow}
-                className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Customer present — generate OTP
-              </button>
             ) : (
-              <button
-                type="button"
-                onClick={() => setOtpModalJobId(billingJob.id)}
-                className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
-              >
-                Open OTP verification
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => openHandoverOtp("primary")}
+                  disabled={
+                    handoverVerified ||
+                    closingAfterOtp ||
+                    (phoneLast10(billingJob.phone).length !== 10 &&
+                      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(billingCustomerEmail))
+                  }
+                  className="rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Send OTP to primary (mobile / email)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openHandoverOtp("custom")}
+                  disabled={handoverVerified || closingAfterOtp}
+                  className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Send OTP to other number / email
+                </button>
+                {handoverVerified ? (
+                  <span className="text-sm font-semibold text-emerald-700">OTP verified — generating invoice…</span>
+                ) : null}
+                {closingAfterOtp ? (
+                  <span className="text-sm font-medium text-stone-600">Saving bill…</span>
+                ) : null}
+              </div>
             )}
           </div>
         )}
@@ -942,31 +873,6 @@ export function StoreBillingPage() {
         ) : null}
       </Card>
 
-      {otpModalJobId ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <DemoOtpGate
-              title="Customer collection OTP verification"
-              subtitle="After OTP verify, payment is recorded and invoice is generated."
-              issuedCode={issuedOtpByJob[otpModalJobId]}
-              value={otpInputByJob[otpModalJobId] ?? ""}
-              onChange={(value) => setOtpInputByJob((prev) => ({ ...prev, [otpModalJobId]: value }))}
-              error={otpErrorByJob[otpModalJobId] || null}
-              onVerify={() => void verifyOtpAndClose(otpModalJobId)}
-              onRegenerate={() => startCollectionOtp(otpModalJobId)}
-            />
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setOtpModalJobId(null)}
-                className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
       </div>
 
       {billingInvoiceVm ? (
@@ -1027,6 +933,15 @@ export function StoreBillingPage() {
           )}
         </ProcessSuccessModal>
       ) : null}
+
+      <CustomerHandoverOtpModal
+        open={handoverModalOpen}
+        mode={handoverModalMode}
+        onClose={() => setHandoverModalOpen(false)}
+        contactPhone={billingJob?.phone ?? ""}
+        contactEmail={billingCustomerEmail}
+        onHandoverVerified={onHandoverVerified}
+      />
 
       {traceJobId ? <SrfTraceModal srfId={traceJobId} onClose={() => setTraceJobId(null)} /> : null}
     </div>

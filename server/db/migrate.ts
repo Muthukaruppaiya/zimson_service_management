@@ -638,6 +638,8 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_coupon_valid_until DATE;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_coupon_notified_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_coupon_notify_channels JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS estimated_finish_date DATE;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS repair_route VARCHAR(20) NOT NULL DEFAULT 'send_to_ho';
+UPDATE srf_jobs SET repair_route = 'send_to_ho' WHERE repair_route IS NULL OR TRIM(repair_route) = '';
 
 CREATE TABLE IF NOT EXISTS srf_job_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

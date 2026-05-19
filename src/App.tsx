@@ -28,6 +28,7 @@ import { SrfMasterTablePage } from "./pages/service/SrfMasterTablePage";
 import { StoreBillingPage } from "./pages/service/StoreBillingPage";
 import { StoreBillingMasterPage } from "./pages/service/StoreBillingMasterPage";
 import { StoreDispatchPage } from "./pages/service/StoreDispatchPage";
+import { StoreAssignPage } from "./pages/service/StoreAssignPage";
 import { WatchInventoryPage } from "./pages/service/WatchInventoryPage";
 import { ScInwardPage } from "./pages/serviceCentre/ScInwardPage";
 import { ScLogisticsHistoryPage } from "./pages/serviceCentre/ScLogisticsHistoryPage";
@@ -159,6 +160,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service">
                       <StoreDispatchPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/store-assign"
+                  element={
+                    <ModuleRoute module="service">
+                      <StoreAssignPage />
                     </ModuleRoute>
                   }
                 />

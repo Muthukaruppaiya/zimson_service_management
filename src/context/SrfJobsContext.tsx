@@ -11,6 +11,8 @@ export type SrfTraceStatusRow = {
   changedByName: string | null;
   changedByRole: string | null;
   changedAt: string;
+  watchLocation?: string;
+  locationMove?: string | null;
 };
 
 export type SrfTraceActionRow = {
@@ -24,6 +26,8 @@ export type SrfTraceActionRow = {
   actorRole: string | null;
   actorName: string | null;
   createdAt: string;
+  watchLocation?: string;
+  locationMove?: string | null;
 };
 
 export type SrfTraceReestimateAttempt = {
@@ -66,6 +70,10 @@ export type SrfTrace = {
     storeId: string;
     storeName?: string | null;
     destinationStoreId: string | null;
+    destinationStoreName?: string | null;
+    transferSourceRegionName?: string | null;
+    transferTargetRegionName?: string | null;
+    watchLocation?: string;
     dcNumber: string | null;
     outwardDcNumber: string | null;
     hoSparesBillRef: string | null;
@@ -109,8 +117,12 @@ type SrfJobsContextValue = {
       advancePaymentMode?: string | null;
       advancePaymentDetails?: unknown;
       selectedPartIds: string[];
+      repairRoute?: import("../lib/srfRepairRoute").SrfRepairRoute;
     },
   ) => Promise<{ trackingUrl?: string }>;
+  storeSelfAssignTechnician: (jobId: string, technicianId: string) => Promise<void>;
+  storeSelfSubmitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
+  storeSelfMarkRepairComplete: (jobId: string, note?: string) => Promise<void>;
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
   confirmInwardByDc: (
     dcNumber: string,
@@ -213,6 +225,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         advancePaymentMode?: string | null;
         advancePaymentDetails?: unknown;
         selectedPartIds: string[];
+        repairRoute?: import("../lib/srfRepairRoute").SrfRepairRoute;
       },
     ) => {
       const out = await apiJson<{ trackingUrl?: string }>(
@@ -227,6 +240,30 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     },
     [refreshJobs],
   );
+
+  const storeSelfAssignTechnician = useCallback(async (jobId: string, technicianId: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/assign`, {
+      method: "POST",
+      json: { technicianId },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const storeSelfSubmitSparesSlip = useCallback(async (jobId: string, lines: UsedSpareLine[]) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/spares-slip`, {
+      method: "POST",
+      json: { lines },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const storeSelfMarkRepairComplete = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/repair-complete`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
 
   const dispatchToServiceCentre = useCallback(async (jobIds: string[]) => {
     const out = await apiJson<{ dcNumber: string; moved: number }>("/api/service/dcs", {
@@ -525,6 +562,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       getSrfTrace,
       cancelDraftSrf,
       patchStoreDraftSrf,
+      storeSelfAssignTechnician,
+      storeSelfSubmitSparesSlip,
+      storeSelfMarkRepairComplete,
     }),
     [
       jobs,
@@ -532,6 +572,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       createDraftJob,
       refreshPhotoSession,
       finalizeJob,
+      storeSelfAssignTechnician,
+      storeSelfSubmitSparesSlip,
+      storeSelfMarkRepairComplete,
       dispatchToServiceCentre,
       confirmInwardByDc,
       assignTechnician,

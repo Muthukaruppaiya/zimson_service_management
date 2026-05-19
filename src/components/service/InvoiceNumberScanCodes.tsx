@@ -13,7 +13,7 @@ export function InvoiceNumberScanCodes({ invoiceNumber, className = "" }: Props)
 
   return (
     <div
-      className={`mt-2 flex flex-col items-end gap-1.5 print:mt-1 ${className}`}
+      className={`mt-2 flex flex-col items-center gap-1 print:mt-1 ${className}`}
       aria-label={`Invoice scan codes for ${code}`}
     >
       <img
@@ -36,7 +36,7 @@ export function InvoiceNumberScanCodes({ invoiceNumber, className = "" }: Props)
         decoding="async"
       />
       */}
-      <p className="max-w-[200px] text-right font-mono text-[9px] text-stone-500 print:text-[7pt]">{code}</p>
+      <p className="max-w-[200px] text-center font-mono text-[9px] text-stone-500 print:text-[7pt]">{code}</p>
     </div>
   );
 }

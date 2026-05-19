@@ -1,10 +1,14 @@
 import type { AdvancePaymentDetails } from "../lib/paymentModes";
+import type { SrfRepairRoute } from "../lib/srfRepairRoute";
 
 /** Store ↔ service centre workflow statuses. */
 export type SrfJobStatus =
   | "draft"
   | "photo_pending"
   | "at_store"
+  | "store_self_pending"
+  | "store_self_assigned"
+  | "store_self_working"
   | "in_transit_sc"
   | "received_at_sc"
   | "sent_to_other_ho"
@@ -67,6 +71,8 @@ export type SrfJob = {
   selectedPartIds: string[];
   createdAt: string;
   status: SrfJobStatus;
+  /** send_to_ho = standard dispatch flow; store_self = assign & bill at store only. */
+  repairRoute?: SrfRepairRoute;
   photoCount?: number;
   photos?: SrfJobPhoto[];
   photoSessionActive?: boolean;
@@ -150,6 +156,7 @@ export type CreateSrfJobInput = {
   complaint: string;
   estimateTotalInr: number;
   destinationStoreId?: string;
+  repairRoute?: SrfRepairRoute;
   estimatedFinishDate?: string | null;
   advanceInr?: number;
   selectedPartIds: string[];

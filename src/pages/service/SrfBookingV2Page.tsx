@@ -31,6 +31,11 @@ import type { CustomerAddressBlock } from "../../types/customer";
 import type { SrfJob } from "../../types/srfJob";
 import { UNVERIFIED_CUSTOMER_ALERT_MESSAGE } from "../../lib/customerVerification";
 import { formatInr } from "../../lib/formatInr";
+import {
+  SRF_REPAIR_ROUTE_OPTIONS,
+  normalizeSrfRepairRoute,
+  type SrfRepairRoute,
+} from "../../lib/srfRepairRoute";
 
 const steps = ["Customer", "Watch", "Photos", "Estimate + OTP", "Review"] as const;
 
@@ -159,6 +164,8 @@ export function SrfBookingV2Page() {
   const [savingWatchModel, setSavingWatchModel] = useState(false);
   const [watchModelSaveMsg, setWatchModelSaveMsg] = useState<string | null>(null);
   const [handoverStoreId, setHandoverStoreId] = useState("");
+  /** Default: send to HO (standard dispatch flow). */
+  const [repairRoute, setRepairRoute] = useState<SrfRepairRoute>("send_to_ho");
   const [complaint, setComplaint] = useState("");
   const [estimateAmount, setEstimateAmount] = useState("");
   const [estimatedFinishDate, setEstimatedFinishDate] = useState("");
@@ -182,6 +189,7 @@ export function SrfBookingV2Page() {
   const [repDialHands, setRepDialHands] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [srfRef, setSrfRef] = useState<string | null>(null);
+  const [finalizedRepairRoute, setFinalizedRepairRoute] = useState<SrfRepairRoute>("send_to_ho");
   const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
@@ -432,6 +440,7 @@ export function SrfBookingV2Page() {
       watchModel: watchModelValue,
       serial: serialValue,
       destinationStoreId,
+      repairRoute,
       complaint: "",
       estimateTotalInr: 0,
       selectedPartIds: [],
@@ -980,6 +989,7 @@ export function SrfBookingV2Page() {
         advancePaymentMode: advancePay ? advancePay.paymentMode : null,
         advancePaymentDetails: advancePay ? advancePay.paymentDetails : {},
         selectedPartIds: [],
+        repairRoute,
       });
       printSrfDocument({
         reference: row.reference,
@@ -1034,6 +1044,7 @@ export function SrfBookingV2Page() {
         },
       );
       setSrfRef(row.reference);
+      setFinalizedRepairRoute(repairRoute);
       setTrackingUrl(out.trackingUrl ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create SRF.");
@@ -1054,15 +1065,36 @@ export function SrfBookingV2Page() {
             SRF reference <span className="font-mono font-bold text-zimson-900">{srfRef}</span>
           </p>
           <p className="mt-2 text-sm text-stone-600">
-            Status is now <strong>At store</strong>. Use store dispatch to create internal transfer at end of day.
+            {finalizedRepairRoute === "store_self" ? (
+              <>
+                Status is <strong>Pending store assign</strong>. Assign repair at your store, then bill the customer when
+                done — this SRF is <strong>not</strong> sent to dispatch.
+              </>
+            ) : (
+              <>
+                Status is <strong>At store</strong>. Use store dispatch to create internal transfer at end of day.
+              </>
+            )}
           </p>
-          <div className="mt-4 flex gap-3">
+          <div className="mt-4 flex flex-wrap gap-3">
             <Link to="/service/srf" className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">
               Book another SRF
             </Link>
-            <Link to="/service/store-dispatch" className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">
-              Go to dispatch
-            </Link>
+            {finalizedRepairRoute === "store_self" ? (
+              <Link
+                to="/service/store-assign"
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900"
+              >
+                Go to store assign
+              </Link>
+            ) : (
+              <Link
+                to="/service/store-dispatch"
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900"
+              >
+                Go to dispatch
+              </Link>
+            )}
           </div>
           {trackingUrl ? (
             <div className="mt-5 rounded-xl border border-zimson-200 bg-zimson-50/40 p-4">
@@ -1311,6 +1343,23 @@ export function SrfBookingV2Page() {
               {watchModelSaveMsg ? <p className="mt-1 text-xs text-emerald-800">{watchModelSaveMsg}</p> : null}
             </div>
             <label className="text-sm">Serial<input className={inputClass} value={serial} onChange={(e) => setSerial(e.target.value)} /></label>
+            <label className="text-sm sm:col-span-2">
+              Repair routing
+              <select
+                className={inputClass}
+                value={repairRoute}
+                onChange={(e) => setRepairRoute(normalizeSrfRepairRoute(e.target.value))}
+              >
+                {SRF_REPAIR_ROUTE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-stone-600">
+                {SRF_REPAIR_ROUTE_OPTIONS.find((o) => o.value === repairRoute)?.hint}
+              </span>
+            </label>
             <label className="text-sm">
               After-service handover store
               <select

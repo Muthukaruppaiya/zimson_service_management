@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiJson } from "../../lib/api";
 import { formatInr } from "../../lib/formatInr";
+import {
+  customerTrackingStatusLabel,
+  trackingFlowForRepairRoute,
+  trackingFlowIndex,
+  type TrackingFlowStep,
+} from "../../lib/srfTrackingFlow";
 
 type TrackHistory = { id: string; status: string; note: string; changedAt: string };
 type TrackJob = {
@@ -12,6 +18,7 @@ type TrackJob = {
   watchModel: string;
   serial: string;
   status: string;
+  repairRoute?: string | null;
   complaint: string;
   estimateTotalInr: number;
   reestimateRequestedNote: string | null;
@@ -28,64 +35,20 @@ type TrackJob = {
   timeline: TrackHistory[];
 };
 
-const flow = [
-  { id: "booked", label: "Service booked", short: "Booked" },
-  { id: "sent", label: "Watch moved for repair", short: "In transit" },
-  { id: "repair", label: "Repair in progress", short: "Repair" },
-  { id: "ready", label: "Ready for delivery", short: "Delivery" },
-] as const;
-
-function flowIndex(status: string): number {
-  if (status === "draft" || status === "photo_pending" || status === "at_store") return 0;
-  if (status === "in_transit_sc" || status === "received_at_sc" || status === "sent_to_other_ho") return 1;
-  if (
-    status === "assigned" ||
-    status === "estimate_ok" ||
-    status === "reestimate_required" ||
-    status === "customer_rejected" ||
-    status === "sent_to_brand" ||
-    status === "brand_estimate_pending" ||
-    status === "brand_approved" ||
-    status === "brand_repair_in_progress" ||
-    status === "received_from_brand" ||
-    status === "brand_credit_note_pending" ||
-    status === "brand_credit_note_active"
-  ) {
-    return 2;
-  }
-  return 3;
-}
-
-function customerStatusLabel(status: string, hasPendingReestimate: boolean): string {
-  if (hasPendingReestimate) return "Approval required";
-  if (status === "draft" || status === "photo_pending" || status === "at_store") return "Booking confirmed";
-  if (status === "in_transit_sc" || status === "received_at_sc") return "In service movement";
-  if (status === "sent_to_other_ho") return "Sent for specialist repair";
-  if (status === "assigned" || status === "estimate_ok" || status === "reestimate_required") return "Under repair";
-  if (status === "sent_to_brand" || status === "brand_estimate_pending" || status === "brand_approved" || status === "brand_repair_in_progress") return "With brand service";
-  if (status === "received_from_brand") return "Returned from brand";
-  if (status === "brand_credit_note_pending" || status === "brand_credit_note_active") return "Brand credit issued";
-  if (status === "customer_rejected") return "Awaiting confirmation";
-  if (status === "ready_for_outward" || status === "dispatched_to_store") return "Ready for return";
-  if (status === "received_at_store") return "Ready for pickup";
-  if (status === "closed") return "Delivered";
-  return "In progress";
-}
-
 function buildCouponMessage(job: TrackJob): string {
   const coupon = job.brandCouponCode ?? "-";
   const validity = job.brandCouponValidUntil ? ` Valid till ${new Date(job.brandCouponValidUntil).toLocaleDateString()}.` : "";
   return `Dear customer, SRF ${job.reference}: Brand could not repair your watch. Coupon code ${coupon} of ${formatInr(Number(job.brandCouponValueInr ?? 0))} has been issued. You can redeem it at any Zimson store.${validity}`;
 }
 
-function TrackProgress({ activeIndex }: { activeIndex: number }) {
+function TrackProgress({ activeIndex, steps }: { activeIndex: number; steps: readonly TrackingFlowStep[] }) {
   return (
     <>
       {/* Mobile: vertical timeline */}
       <ol className="mt-6 space-y-0 sm:hidden">
-        {flow.map((step, idx) => {
+        {steps.map((step, idx) => {
           const done = idx <= activeIndex;
-          const current = idx === activeIndex && activeIndex < flow.length - 1;
+          const current = idx === activeIndex && activeIndex < steps.length - 1;
           const upcoming = idx > activeIndex;
           return (
             <li key={step.id} className="flex gap-3">
@@ -101,7 +64,7 @@ function TrackProgress({ activeIndex }: { activeIndex: number }) {
                 >
                   {done ? "✓" : idx + 1}
                 </div>
-                {idx < flow.length - 1 ? (
+                {idx < steps.length - 1 ? (
                   <div className={`my-1 w-0.5 flex-1 min-h-6 ${done ? "bg-rlx-gold" : "bg-rlx-rule"}`} />
                 ) : null}
               </div>
@@ -120,12 +83,12 @@ function TrackProgress({ activeIndex }: { activeIndex: number }) {
           <div className="absolute left-0 right-0 top-[18px] h-0.5 bg-rlx-rule" aria-hidden />
           <div
             className="absolute left-0 top-[18px] h-0.5 bg-gradient-to-r from-rlx-gold to-rlx-gold-dark transition-all duration-500"
-            style={{ width: `${(activeIndex / (flow.length - 1)) * 100}%` }}
+            style={{ width: `${steps.length > 1 ? (activeIndex / (steps.length - 1)) * 100 : 0}%` }}
             aria-hidden
           />
-          {flow.map((step, idx) => {
+          {steps.map((step, idx) => {
             const done = idx <= activeIndex;
-            const current = idx === activeIndex && activeIndex < flow.length - 1;
+            const current = idx === activeIndex && activeIndex < steps.length - 1;
             return (
               <div key={step.id} className="relative z-10 flex flex-1 flex-col items-center px-1 text-center">
                 <div
@@ -285,7 +248,10 @@ export function SrfTrackingPage() {
             {jobs.map((j, jobIdx) => {
               const pendingReestimate = j.status === "reestimate_required" && !j.customerReestimateResponse;
               const isOpen = openJobId === j.id;
-              const activeFlow = flowIndex(j.status);
+              const steps = trackingFlowForRepairRoute(j.repairRoute, j.status);
+              const activeFlow = trackingFlowIndex(j.status, j.repairRoute);
+              const isStoreSelf =
+                j.repairRoute === "store_self" || j.status.startsWith("store_self_");
               return (
                 <article key={j.id} className="overflow-hidden border border-rlx-rule bg-rlx-surface shadow-md">
                   {/* Card header — always visible */}
@@ -308,7 +274,7 @@ export function SrfTrackingPage() {
                             : "bg-rlx-green text-white shadow-sm"
                         }`}
                       >
-                        {customerStatusLabel(j.status, pendingReestimate)}
+                        {customerTrackingStatusLabel(j.status, pendingReestimate, j.repairRoute)}
                       </span>
                     </div>
                     <p className="mt-2 text-sm text-rlx-ink-muted">
@@ -316,11 +282,14 @@ export function SrfTrackingPage() {
                       <span className="px-1 text-rlx-rule">·</span>
                       <span className="font-mono text-xs">{j.serial}</span>
                     </p>
+                    {isStoreSelf ? (
+                      <p className="mt-1 text-xs text-sky-800">Repaired at your Zimson store (not sent to service centre).</p>
+                    ) : null}
                   </div>
 
                   {/* Progress + details */}
                   <div className="px-4 py-5 sm:px-6 sm:py-6">
-                    <TrackProgress activeIndex={activeFlow} />
+                    <TrackProgress activeIndex={activeFlow} steps={steps} />
 
                     <button
                       type="button"

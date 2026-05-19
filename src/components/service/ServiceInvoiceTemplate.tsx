@@ -38,9 +38,9 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
       <div className="border border-stone-400 print:border-stone-600">
 
         {/* ══ HEADER ═══════════════════════════════════════════════════════ */}
-        <div className="flex items-start justify-between gap-4 border-b border-stone-400 px-4 py-3 print:px-3 print:py-2">
+        <div className="grid grid-cols-[auto_1fr_auto] items-start gap-4 border-b border-stone-400 px-4 py-3 print:gap-3 print:px-3 print:py-2">
           {/* Left — Invoice meta */}
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs print:text-[8pt]">
+          <dl className="shrink-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs print:text-[8pt]">
             <dt className="font-semibold text-stone-600 whitespace-nowrap">Invoice No</dt>
             <dd className="font-mono font-bold text-stone-900">: {data.invoiceNumber}</dd>
             <dt className="font-semibold text-stone-600 whitespace-nowrap">Invoice Date</dt>
@@ -61,8 +61,13 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             ) : null}
           </dl>
 
-          {/* Right — Logo + invoice barcode / QR */}
-          <div className="flex flex-col items-end">
+          {/* Centre — Barcode */}
+          <div className="flex justify-center self-center">
+            <InvoiceNumberScanCodes invoiceNumber={scanInvoiceNumber} className="mt-0 shrink-0" />
+          </div>
+
+          {/* Right — Logo */}
+          <div className="flex justify-end">
             <img
               src={logoSrc}
               alt="Zimson"
@@ -72,7 +77,6 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
               }}
               className="h-20 w-auto max-w-[220px] object-contain print:h-14 print:max-w-[180px]"
             />
-            <InvoiceNumberScanCodes invoiceNumber={scanInvoiceNumber} />
           </div>
         </div>
 

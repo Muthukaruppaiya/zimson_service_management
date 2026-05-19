@@ -43,6 +43,15 @@ type CustomerRegOtpSession = {
 const customerRegisterOtpSessions = new Map<string, CustomerRegOtpSession>();
 const CUSTOMER_OTP_TTL_MS = 20 * 60 * 1000;
 
+type HandoverOtpTarget = { type: "mobile" | "email"; label: string };
+
+type HandoverOtpSession = {
+  code: string;
+  expiresAt: number;
+  targets: HandoverOtpTarget[];
+};
+const handoverOtpSessions = new Map<string, HandoverOtpSession>();
+
 const CUSTOMERS_SELECT_FIELDS = `
   id,
   customer_code AS "customerCode",
@@ -2965,6 +2974,87 @@ app.post("/api/gst/lookup", async (req, res) => {
     console.error("[gst/lookup]", msg);
     res.status(502).json({ error: msg });
   }
+});
+
+/** Quick Bill / billing handover — OTP via mobile or email (one channel per session). */
+app.post("/api/customers/handover-otp/start", (req, res) => {
+  const body = req.body as { channel?: string; phone?: string; email?: string };
+  const channel = String(body.channel ?? "").trim().toLowerCase();
+  if (channel !== "mobile" && channel !== "email") {
+    res.status(400).json({ error: "channel must be mobile or email." });
+    return;
+  }
+  if (channel === "mobile") {
+    const p10 = phoneLast10(String(body.phone ?? ""));
+    if (p10.length !== 10) {
+      res.status(400).json({ error: "Enter a valid 10-digit mobile for OTP." });
+      return;
+    }
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const sessionId = crypto.randomUUID();
+    const targets: HandoverOtpTarget[] = [{ type: "mobile", label: p10 }];
+    handoverOtpSessions.set(sessionId, { code, expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS, targets });
+    res.json({ sessionId, demoOtp: code, sentTo: targets });
+    return;
+  }
+  const email = String(body.email ?? "")
+    .trim()
+    .toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: "Enter a valid email for OTP." });
+    return;
+  }
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const sessionId = crypto.randomUUID();
+  const targets: HandoverOtpTarget[] = [{ type: "email", label: email }];
+  handoverOtpSessions.set(sessionId, { code, expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS, targets });
+  res.json({ sessionId, demoOtp: code, sentTo: targets });
+});
+
+/** Same OTP code sent to every valid mobile and/or email provided. */
+app.post("/api/customers/handover-otp/start-both", (req, res) => {
+  const body = req.body as { phone?: string; email?: string };
+  const targets: HandoverOtpTarget[] = [];
+  const p10 = phoneLast10(String(body.phone ?? ""));
+  if (p10.length === 10) targets.push({ type: "mobile", label: p10 });
+  const email = String(body.email ?? "")
+    .trim()
+    .toLowerCase();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    targets.push({ type: "email", label: email });
+  }
+  if (targets.length === 0) {
+    res.status(400).json({ error: "Provide a valid mobile and/or email for OTP." });
+    return;
+  }
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const sessionId = crypto.randomUUID();
+  handoverOtpSessions.set(sessionId, {
+    code,
+    expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS,
+    targets,
+  });
+  res.json({ sessionId, demoOtp: code, sentTo: targets });
+});
+
+app.post("/api/customers/handover-otp/confirm", (req, res) => {
+  const sessionId = String((req.body as { sessionId?: string })?.sessionId ?? "").trim();
+  const otp = String((req.body as { otp?: string })?.otp ?? "").trim();
+  if (!sessionId || !otp) {
+    res.status(400).json({ error: "Session and OTP are required." });
+    return;
+  }
+  const sess = handoverOtpSessions.get(sessionId);
+  if (!sess || sess.expiresAt < Date.now()) {
+    res.status(400).json({ error: "OTP session expired. Request a new code." });
+    return;
+  }
+  if (otp !== sess.code) {
+    res.status(400).json({ error: "Incorrect OTP." });
+    return;
+  }
+  handoverOtpSessions.delete(sessionId);
+  res.json({ ok: true, sentTo: sess.targets });
 });
 
 /** Step 1: start mobile OTP only (email is collected after mobile is verified). */

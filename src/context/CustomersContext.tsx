@@ -25,6 +25,13 @@ type LocalRegOtpSession = {
   emailVerified: boolean;
 };
 
+type HandoverOtpTarget = { type: "mobile" | "email"; label: string };
+
+type LocalHandoverOtpSession = {
+  code: string;
+  targets: HandoverOtpTarget[];
+};
+
 function phoneLast10Local(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
@@ -42,6 +49,17 @@ type CustomersContextValue = {
   confirmRegistrationMobileOtp: (input: { sessionId: string; otp: string }) => Promise<void>;
   startRegistrationEmailOtp: (input: { sessionId: string; email: string }) => Promise<{ demoEmailOtp: string }>;
   confirmRegistrationEmailOtp: (input: { sessionId: string; otp: string }) => Promise<void>;
+  startHandoverOtp: (input: { channel: "mobile" | "email"; phone?: string; email?: string }) => Promise<{
+    sessionId: string;
+    demoOtp: string;
+    sentTo: HandoverOtpTarget[];
+  }>;
+  startHandoverOtpBoth: (input: { phone?: string; email?: string }) => Promise<{
+    sessionId: string;
+    demoOtp: string;
+    sentTo: HandoverOtpTarget[];
+  }>;
+  confirmHandoverOtp: (input: { sessionId: string; otp: string }) => Promise<void>;
 };
 
 const CustomersContext = createContext<CustomersContextValue | null>(null);
@@ -75,6 +93,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
   const { user, authReady } = useAuth();
   const [extra, setExtra] = useState<CustomerRecord[]>(() => (api ? [] : loadStoredCustomers()));
   const localOtpSessionsRef = useRef(new Map<string, LocalRegOtpSession>());
+  const localHandoverOtpSessionsRef = useRef(new Map<string, LocalHandoverOtpSession>());
 
   useEffect(() => {
     if (!api || !authReady || !user) return;
@@ -219,6 +238,90 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
     [api],
   );
 
+  const startHandoverOtp = useCallback(
+    async (input: { channel: "mobile" | "email"; phone?: string; email?: string }) => {
+      if (input.channel === "mobile") {
+        const p10 = phoneLast10Local(String(input.phone ?? ""));
+        if (p10.length !== 10) throw new Error("Enter a valid 10-digit mobile for OTP.");
+        if (!api) {
+          const sessionId = `handover-${createId("sess")}`;
+          const demoOtp = String(Math.floor(100000 + Math.random() * 900000));
+          const targets: HandoverOtpTarget[] = [{ type: "mobile", label: p10 }];
+          localHandoverOtpSessionsRef.current.set(sessionId, { code: demoOtp, targets });
+          return { sessionId, demoOtp, sentTo: targets };
+        }
+        return apiJson<{ sessionId: string; demoOtp: string; sentTo: HandoverOtpTarget[] }>(
+          "/api/customers/handover-otp/start",
+          { method: "POST", json: { channel: "mobile", phone: input.phone } },
+        );
+      }
+      const email = String(input.email ?? "")
+        .trim()
+        .toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new Error("Enter a valid email for OTP.");
+      }
+      if (!api) {
+        const sessionId = `handover-${createId("sess")}`;
+        const demoOtp = String(Math.floor(100000 + Math.random() * 900000));
+        const targets: HandoverOtpTarget[] = [{ type: "email", label: email }];
+        localHandoverOtpSessionsRef.current.set(sessionId, { code: demoOtp, targets });
+        return { sessionId, demoOtp, sentTo: targets };
+      }
+      return apiJson<{ sessionId: string; demoOtp: string; sentTo: HandoverOtpTarget[] }>(
+        "/api/customers/handover-otp/start",
+        { method: "POST", json: { channel: "email", email } },
+      );
+    },
+    [api],
+  );
+
+  const startHandoverOtpBoth = useCallback(
+    async (input: { phone?: string; email?: string }) => {
+      const targets: HandoverOtpTarget[] = [];
+      const p10 = phoneLast10Local(String(input.phone ?? ""));
+      if (p10.length === 10) targets.push({ type: "mobile", label: p10 });
+      const email = String(input.email ?? "")
+        .trim()
+        .toLowerCase();
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        targets.push({ type: "email", label: email });
+      }
+      if (targets.length === 0) {
+        throw new Error("Provide a valid mobile and/or email for OTP.");
+      }
+      if (!api) {
+        const sessionId = `handover-${createId("sess")}`;
+        const demoOtp = String(Math.floor(100000 + Math.random() * 900000));
+        localHandoverOtpSessionsRef.current.set(sessionId, { code: demoOtp, targets });
+        return { sessionId, demoOtp, sentTo: targets };
+      }
+      return apiJson<{ sessionId: string; demoOtp: string; sentTo: HandoverOtpTarget[] }>(
+        "/api/customers/handover-otp/start-both",
+        { method: "POST", json: { phone: input.phone, email: input.email } },
+      );
+    },
+    [api],
+  );
+
+  const confirmHandoverOtp = useCallback(
+    async (input: { sessionId: string; otp: string }) => {
+      const otp = input.otp.trim();
+      if (!api) {
+        const sess = localHandoverOtpSessionsRef.current.get(input.sessionId);
+        if (!sess) throw new Error("Unknown OTP session (local demo).");
+        if (otp !== sess.code) throw new Error("Incorrect OTP (local demo).");
+        localHandoverOtpSessionsRef.current.delete(input.sessionId);
+        return;
+      }
+      await apiJson<{ ok: boolean }>("/api/customers/handover-otp/confirm", {
+        method: "POST",
+        json: { sessionId: input.sessionId, otp },
+      });
+    },
+    [api],
+  );
+
   const registerCustomer = useCallback(
     async (input: CustomerRegistrationPayload): Promise<CustomerRecord> => {
       if (api) {
@@ -325,6 +428,9 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       confirmRegistrationMobileOtp,
       startRegistrationEmailOtp,
       confirmRegistrationEmailOtp,
+      startHandoverOtp,
+      startHandoverOtpBoth,
+      confirmHandoverOtp,
     }),
     [
       customers,
@@ -335,6 +441,9 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       confirmRegistrationMobileOtp,
       startRegistrationEmailOtp,
       confirmRegistrationEmailOtp,
+      startHandoverOtp,
+      startHandoverOtpBoth,
+      confirmHandoverOtp,
     ],
   );
 

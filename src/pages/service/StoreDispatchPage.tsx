@@ -45,7 +45,12 @@ export function StoreDispatchPage() {
 
   const atStore = useMemo(() => {
     if (!user) return [];
-    return jobs.filter((j) => j.status === "at_store" && jobVisibleToStoreUser(j, user));
+    return jobs.filter(
+      (j) =>
+        j.status === "at_store" &&
+        j.repairRoute !== "store_self" &&
+        jobVisibleToStoreUser(j, user),
+    );
   }, [jobs, user]);
   const receivedAtStore = useMemo(() => {
     if (!user) return [];

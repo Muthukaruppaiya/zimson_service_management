@@ -110,6 +110,7 @@ export function Sidebar() {
           { to: "/service/quick-bill", label: "Quick bill", module: "service" },
           { to: "/service/quick-bill-history", label: "Quick bill history", module: "service" },
           { to: "/service/srf", label: "SRF booking", module: "service" },
+          { to: "/service/store-assign", label: "Store assign", module: "service" },
           { to: "/service/srf-register", label: "SRF history", module: "service" },
           { to: "/service/srf-master", label: "SRF master table", module: "service" },
         ],

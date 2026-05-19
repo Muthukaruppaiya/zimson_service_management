@@ -5,6 +5,8 @@ import path from "node:path";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib/paymentModes";
+import { normalizeSrfRepairRoute } from "../src/lib/srfRepairRoute";
+import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../src/lib/srfTraceLocations";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
@@ -562,6 +564,7 @@ export function registerSrfRoutes(
                 j.advance_payment_details AS "advancePaymentDetails",
                 j.selected_part_ids AS "selectedPartIds",
                 j.status,
+                j.repair_route AS "repairRoute",
                 j.dc_number AS "dcNumber",
                 j.dispatched_to_sc_at AS "dispatchedToScAt",
                 j.inward_at AS "inwardAt",
@@ -729,8 +732,13 @@ export function registerSrfRoutes(
         advancePaymentMode: string | null;
         advancePaymentDetails: unknown;
         regionId: string;
+        regionName: string | null;
         storeId: string;
+        storeName: string | null;
         destinationStoreId: string | null;
+        destinationStoreName: string | null;
+        transferSourceRegionName: string | null;
+        transferTargetRegionName: string | null;
         dcNumber: string | null;
         outwardDcNumber: string | null;
         hoSparesBillRef: string | null;
@@ -757,49 +765,59 @@ export function registerSrfRoutes(
         customerCouponNotifiedAt: string | null;
         createdAt: string;
       }>(
-        `SELECT id, reference, status,
-                customer_name AS "customerName",
-                phone,
-                watch_brand AS "watchBrand",
-                watch_family AS "watchFamily",
-                watch_model AS "watchModel",
-                serial,
-                complaint,
-                estimate_total_inr::float8 AS "estimateTotalInr",
-                estimated_finish_date::text AS "estimatedFinishDate",
-                advance_inr::float8 AS "advanceInr",
-                advance_payment_mode AS "advancePaymentMode",
-                advance_payment_details AS "advancePaymentDetails",
-                region_id AS "regionId",
-                store_id AS "storeId",
-                destination_store_id AS "destinationStoreId",
-                dc_number AS "dcNumber",
-                outward_dc_number AS "outwardDcNumber",
-                ho_spares_bill_ref AS "hoSparesBillRef",
-                store_bill_ref AS "storeBillRef",
-                transfer_source_reference AS "transferSourceReference",
-                transfer_source_region_id AS "transferSourceRegionId",
-                transfer_target_region_id AS "transferTargetRegionId",
-                brand_sent_at AS "brandSentAt",
-                brand_dispatch_ref AS "brandDispatchRef",
-                brand_dispatch_note AS "brandDispatchNote",
-                brand_odc_number AS "brandOdcNumber",
-                brand_inward_ref AS "brandInwardRef",
-                brand_estimate_inr::float8 AS "brandEstimateInr",
-                brand_estimate_currency AS "brandEstimateCurrency",
-                brand_estimate_received_at AS "brandEstimateReceivedAt",
-                brand_ho_approval_sent_at AS "brandHoApprovalSentAt",
-                brand_return_received_at AS "brandReturnReceivedAt",
-                brand_invoice_ref AS "brandInvoiceRef",
-                brand_invoice_amount_inr::float8 AS "brandInvoiceAmountInr",
-                brand_coupon_code AS "brandCouponCode",
-                brand_coupon_value_inr::float8 AS "brandCouponValueInr",
-                brand_coupon_received_at AS "brandCouponReceivedAt",
-                brand_coupon_valid_until AS "brandCouponValidUntil",
-                customer_coupon_notified_at AS "customerCouponNotifiedAt",
-                created_at AS "createdAt"
-         FROM srf_jobs
-         WHERE id = $1::uuid`,
+        `SELECT j.id, j.reference, j.status,
+                j.customer_name AS "customerName",
+                j.phone,
+                j.watch_brand AS "watchBrand",
+                j.watch_family AS "watchFamily",
+                j.watch_model AS "watchModel",
+                j.serial,
+                j.complaint,
+                j.estimate_total_inr::float8 AS "estimateTotalInr",
+                j.estimated_finish_date::text AS "estimatedFinishDate",
+                j.advance_inr::float8 AS "advanceInr",
+                j.advance_payment_mode AS "advancePaymentMode",
+                j.advance_payment_details AS "advancePaymentDetails",
+                j.region_id AS "regionId",
+                r.name AS "regionName",
+                j.store_id AS "storeId",
+                s.name AS "storeName",
+                j.destination_store_id AS "destinationStoreId",
+                ds.name AS "destinationStoreName",
+                tsr.name AS "transferSourceRegionName",
+                ttr.name AS "transferTargetRegionName",
+                j.dc_number AS "dcNumber",
+                j.outward_dc_number AS "outwardDcNumber",
+                j.ho_spares_bill_ref AS "hoSparesBillRef",
+                j.store_bill_ref AS "storeBillRef",
+                j.transfer_source_reference AS "transferSourceReference",
+                j.transfer_source_region_id AS "transferSourceRegionId",
+                j.transfer_target_region_id AS "transferTargetRegionId",
+                j.brand_sent_at AS "brandSentAt",
+                j.brand_dispatch_ref AS "brandDispatchRef",
+                j.brand_dispatch_note AS "brandDispatchNote",
+                j.brand_odc_number AS "brandOdcNumber",
+                j.brand_inward_ref AS "brandInwardRef",
+                j.brand_estimate_inr::float8 AS "brandEstimateInr",
+                j.brand_estimate_currency AS "brandEstimateCurrency",
+                j.brand_estimate_received_at AS "brandEstimateReceivedAt",
+                j.brand_ho_approval_sent_at AS "brandHoApprovalSentAt",
+                j.brand_return_received_at AS "brandReturnReceivedAt",
+                j.brand_invoice_ref AS "brandInvoiceRef",
+                j.brand_invoice_amount_inr::float8 AS "brandInvoiceAmountInr",
+                j.brand_coupon_code AS "brandCouponCode",
+                j.brand_coupon_value_inr::float8 AS "brandCouponValueInr",
+                j.brand_coupon_received_at AS "brandCouponReceivedAt",
+                j.brand_coupon_valid_until AS "brandCouponValidUntil",
+                j.customer_coupon_notified_at AS "customerCouponNotifiedAt",
+                j.created_at AS "createdAt"
+         FROM srf_jobs j
+         LEFT JOIN regions r ON r.id = j.region_id
+         LEFT JOIN stores s ON s.id = j.store_id
+         LEFT JOIN stores ds ON ds.id = j.destination_store_id
+         LEFT JOIN regions tsr ON tsr.id = j.transfer_source_region_id
+         LEFT JOIN regions ttr ON ttr.id = j.transfer_target_region_id
+         WHERE j.id = $1::uuid`,
         [srfId],
       );
       const job = jobRes.rows[0];
@@ -864,10 +882,16 @@ export function registerSrfRoutes(
         [srfId],
       );
 
+      const { actions, statusHistory } = enrichTraceTimeline(job, actionsRes.rows, statusHistoryRes.rows);
+
+      const locationCtx = buildTraceLocationContext(job);
       res.json({
-        job,
-        statusHistory: statusHistoryRes.rows,
-        actions: actionsRes.rows,
+        job: {
+          ...job,
+          watchLocation: watchLocationForStatus(job.status, locationCtx),
+        },
+        statusHistory,
+        actions,
         reestimates: reestimatesRes.rows,
       });
     } catch (e) {
@@ -1571,13 +1595,29 @@ export function registerSrfRoutes(
       }
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
       const ref = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(storeRows[0]?.name, storeId));
+      const repairRoute = normalizeSrfRepairRoute(req.body?.repairRoute);
       const ins = await client.query<{ id: string }>(
         `INSERT INTO srf_jobs (
            reference, region_id, store_id, customer_name, phone, customer_kind, company, watch_brand, watch_family, watch_model, serial,
-           destination_store_id, status, photo_session_active, created_by, modified_by
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'photo_pending', true, $13, $13)
+           destination_store_id, repair_route, status, photo_session_active, created_by, modified_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'photo_pending', true, $14, $14)
          RETURNING id`,
-        [ref, regionId, storeId, customerName, phone, customerKind, company, watchBrand, watchFamily, watchModel, serial, destinationStoreId, actor.id],
+        [
+          ref,
+          regionId,
+          storeId,
+          customerName,
+          phone,
+          customerKind,
+          company,
+          watchBrand,
+          watchFamily,
+          watchModel,
+          serial,
+          destinationStoreId,
+          repairRoute,
+          actor.id,
+        ],
       );
       const srfId = ins.rows[0]?.id;
       if (!srfId) throw new Error("Could not create SRF draft.");
@@ -1586,7 +1626,7 @@ export function registerSrfRoutes(
         action: "srf_draft_created",
         description: `SRF draft created for ${customerName} (${watchBrand} ${watchModel}).`,
         actor,
-        details: { regionId, storeId, customerKind, watchBrand, watchModel, serial },
+        details: { regionId, storeId, customerKind, watchBrand, watchModel, serial, repairRoute },
         referenceDoc: ref,
       });
 
@@ -1714,8 +1754,9 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const { rows: locked } = await client.query<{ id: string; status: string; store_id: string }>(
-        `SELECT id, status, store_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+      const repairRouteBody = req.body?.repairRoute !== undefined ? normalizeSrfRepairRoute(req.body.repairRoute) : null;
+      const { rows: locked } = await client.query<{ id: string; status: string; store_id: string; repair_route: string }>(
+        `SELECT id, status, store_id, repair_route FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
       if (!locked[0] || (locked[0].status !== "draft" && locked[0].status !== "photo_pending")) {
@@ -1723,6 +1764,8 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Only draft/photo_pending SRFs can be finalized." });
         return;
       }
+      const repairRoute = repairRouteBody ?? normalizeSrfRepairRoute(locked[0].repair_route);
+      const nextStatus = repairRoute === "store_self" ? "store_self_pending" : "at_store";
       const { rows: photoCountRows } = await client.query<{ c: number }>(
         `SELECT COUNT(*)::int AS c FROM srf_job_photos WHERE srf_id = $1::uuid`,
         [srfId],
@@ -1741,7 +1784,8 @@ export function registerSrfRoutes(
              estimated_finish_date = $9::date,
              advance_payment_mode = $7,
              advance_payment_details = $8::jsonb,
-             status = 'at_store',
+             status = $10,
+             repair_route = $11,
              photo_session_active = false,
              capture_link_disabled_at = now(),
              updated_at = now(),
@@ -1757,16 +1801,22 @@ export function registerSrfRoutes(
           advancePaymentMode,
           JSON.stringify(advancePaymentDetails),
           estimatedFinishDate,
+          nextStatus,
+          repairRoute,
         ],
       );
       await client.query(
         `UPDATE srf_photo_sessions SET revoked_at = now() WHERE srf_id = $1::uuid AND revoked_at IS NULL`,
         [srfId],
       );
-      await appendStatusHistory(client, srfId, "at_store", actor.id, "SRF finalized after OTP.");
+      const finalizeNote =
+        repairRoute === "store_self"
+          ? "SRF finalized — repair by store (pending assign at store)."
+          : "SRF finalized after OTP.";
+      await appendStatusHistory(client, srfId, nextStatus, actor.id, finalizeNote);
       await appendActionLog(client, srfId, {
         action: "srf_finalized",
-        description: `SRF finalized with estimate INR ${estimateTotalInr.toFixed(2)} and advance INR ${advanceInr.toFixed(2)}.`,
+        description: `SRF finalized (${repairRoute === "store_self" ? "repair by store" : "send to HO"}) — estimate INR ${estimateTotalInr.toFixed(2)}, advance INR ${advanceInr.toFixed(2)}.`,
         amountInr: estimateTotalInr,
         actor,
         details: {
@@ -1776,6 +1826,7 @@ export function registerSrfRoutes(
           estimatedFinishDate,
           advancePaymentMode,
           advancePaymentDetails,
+          repairRoute,
         },
       });
       const refRows = await client.query<{ reference: string; customer_name: string; phone: string }>(
@@ -1945,6 +1996,10 @@ export function registerSrfRoutes(
         sets.push(`serial = $${pi++}`);
         vals.push(String(body.serial).trim());
       }
+      if (body.repairRoute !== undefined) {
+        sets.push(`repair_route = $${pi++}`);
+        vals.push(normalizeSrfRepairRoute(body.repairRoute));
+      }
       if (sets.length === 0) {
         await client.query("ROLLBACK");
         res.status(400).json({ error: "No updatable fields supplied." });
@@ -2006,15 +2061,22 @@ export function registerSrfRoutes(
       if (!dcId) throw new Error("Failed to create DC.");
       let moved = 0;
       for (const srfId of ids) {
-        const { rows } = await client.query<{ id: string; status: string; store_id: string }>(
-          `SELECT id, status, store_id
+        const { rows } = await client.query<{ id: string; status: string; store_id: string; repair_route: string }>(
+          `SELECT id, status, store_id, repair_route
            FROM srf_jobs
            WHERE id = $1::uuid
            FOR UPDATE`,
           [srfId],
         );
         const row = rows[0];
-        if (!row || row.store_id !== actor.storeId || row.status !== "at_store") continue;
+        if (
+          !row ||
+          row.store_id !== actor.storeId ||
+          row.status !== "at_store" ||
+          normalizeSrfRepairRoute(row.repair_route) === "store_self"
+        ) {
+          continue;
+        }
         await client.query(
           `INSERT INTO delivery_challan_lines (dc_id, srf_id, qty, created_by, modified_by)
            VALUES ($1::uuid, $2::uuid, 1, $3, $3)
@@ -2270,6 +2332,253 @@ export function registerSrfRoutes(
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not assign technician." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/store-self/assign", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Only store roles can assign store self-repair SRFs." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const technicianId = String(req.body?.technicianId ?? "").trim();
+    if (!srfId || !technicianId) {
+      res.status(400).json({ error: "srfId and technicianId are required." });
+      return;
+    }
+    try {
+      const techRes = await pool.query<{ full_name: string; grade: string; is_active: boolean }>(
+        `SELECT full_name, grade, is_active FROM technician_profiles WHERE id = $1::uuid LIMIT 1`,
+        [technicianId],
+      );
+      const tech = techRes.rows[0];
+      if (!tech || !tech.is_active) {
+        res.status(400).json({ error: "Selected technician is invalid or inactive." });
+        return;
+      }
+      const jobRes = await pool.query<{ store_id: string; region_id: string }>(
+        `SELECT store_id, region_id FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const job = jobRes.rows[0];
+      if (!job) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
+        if (STORE_ROLES.has(actor.role) && actor.storeId !== job.store_id) {
+          res.status(403).json({ error: "You can assign only SRFs booked at your store." });
+          return;
+        }
+        if (actor.regionId && actor.regionId !== job.region_id) {
+          res.status(403).json({ error: "Region mismatch." });
+          return;
+        }
+      }
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'store_self_working',
+             assigned_technician_id = $2,
+             assigned_at = now(),
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid
+           AND status = 'store_self_pending'
+           AND repair_route = 'store_self'`,
+        [srfId, technicianId, actor.id],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({ error: "SRF must be store self-repair and pending assign." });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "store_self_working",
+          actor.id,
+          `Store assigned technician ${tech.full_name} (${tech.grade}) — repair in progress.`,
+        );
+        await appendActionLog(client, srfId, {
+          action: "store_self_assign_technician",
+          description: `Store assigned technician ${tech.full_name} (${tech.grade}) for on-site repair (working).`,
+          actor,
+          details: { technicianId, technicianName: tech.full_name, technicianGrade: tech.grade },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not assign technician at store." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/store-self/spares-slip", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Only store roles can submit spares for store self-repair." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const lines = Array.isArray(req.body?.lines)
+      ? req.body.lines
+          .map((x: unknown) => ({
+            spareId: String((x as { spareId?: unknown })?.spareId ?? "").trim(),
+            name: String((x as { name?: unknown })?.name ?? "").trim(),
+            qty: Number((x as { qty?: unknown })?.qty ?? 0),
+            unitPriceInr: Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0),
+            lineTotalInr: Number((x as { lineTotalInr?: unknown })?.lineTotalInr ?? 0),
+          }))
+          .filter(
+            (x: { spareId: string; name: string; qty: number }) =>
+              x.spareId.length > 0 && x.name.length > 0 && Number.isFinite(x.qty) && x.qty > 0,
+          )
+      : [];
+    if (lines.length === 0) {
+      res.status(400).json({ error: "Add at least one spare line with spare, name, and quantity." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const jobRes = await client.query<{ store_id: string; region_id: string; status: string }>(
+        `SELECT store_id, region_id, status FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const job = jobRes.rows[0];
+      if (!job) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
+        if (STORE_ROLES.has(actor.role) && actor.storeId !== job.store_id) {
+          await client.query("ROLLBACK");
+          res.status(403).json({ error: "You can update only SRFs booked at your store." });
+          return;
+        }
+      }
+      if (
+        job.status !== "store_self_working" &&
+        job.status !== "store_self_assigned"
+      ) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "SRF must be in working status to submit used spares." });
+        return;
+      }
+      const normalized = lines.map((l) => ({
+        spareId: l.spareId,
+        name: l.name,
+        qty: l.qty,
+        unitPriceInr: Number.isFinite(l.unitPriceInr) ? l.unitPriceInr : 0,
+        lineTotalInr: Number.isFinite(l.lineTotalInr)
+          ? l.lineTotalInr
+          : (Number.isFinite(l.unitPriceInr) ? l.unitPriceInr : 0) * l.qty,
+      }));
+      await client.query(
+        `UPDATE srf_jobs
+         SET used_spares = $2::jsonb,
+             spares_slip_submitted_at = now(),
+             spares_slip_submitted_by = $3,
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid`,
+        [srfId, JSON.stringify(normalized), actor.id],
+      );
+      const totalInr = normalized.reduce((sum, l) => sum + l.lineTotalInr, 0);
+      await appendStatusHistory(client, srfId, job.status, actor.id, "Store self-repair: used spares recorded.");
+      await appendActionLog(client, srfId, {
+        action: "store_self_spares_slip_submitted",
+        description: `Store recorded used spares (${normalized.length} line${normalized.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}).`,
+        amountInr: totalInr,
+        actor,
+        details: { lines: normalized },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not save used spares." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/store-self/repair-complete", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Only store roles can complete store self-repair." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    try {
+      const jobRes = await pool.query<{ store_id: string; region_id: string; destination_store_id: string | null }>(
+        `SELECT store_id, region_id, destination_store_id FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const job = jobRes.rows[0];
+      if (!job) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
+        const dest = job.destination_store_id ?? job.store_id;
+        if (STORE_ROLES.has(actor.role) && actor.storeId && actor.storeId !== job.store_id && actor.storeId !== dest) {
+          res.status(403).json({ error: "You can complete only SRFs for your store." });
+          return;
+        }
+      }
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'received_at_store',
+             received_back_at_store_at = now(),
+             estimate_ok_at = COALESCE(estimate_ok_at, now()),
+             completed_at_sc = COALESCE(completed_at_sc, now()),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND status IN ('store_self_working', 'store_self_assigned')
+           AND repair_route = 'store_self'
+           AND spares_slip_submitted_at IS NOT NULL`,
+        [srfId, actor.id],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({
+          error: "Submit used spares first, then mark repair complete. SRF must be in working status.",
+        });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const histNote = note || "Store self-repair complete — ready for customer billing.";
+        await appendStatusHistory(client, srfId, "received_at_store", actor.id, histNote);
+        await appendActionLog(client, srfId, {
+          action: "store_self_repair_complete",
+          description: histNote,
+          actor,
+          details: { note: note || null },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not mark store self-repair complete." });
     }
   });
 
@@ -4041,7 +4350,8 @@ export function registerSrfRoutes(
     const repairEligibleSql = noBillingHandover
       ? `customer_reestimate_response = 'rejected'`
       : `(
-           spares_slip_submitted_at IS NOT NULL
+           repair_route = 'store_self'
+           OR spares_slip_submitted_at IS NOT NULL
            OR (
              used_spares IS NOT NULL
              AND jsonb_typeof(used_spares) = 'array'
@@ -4199,6 +4509,7 @@ export function registerSrfRoutes(
                 j.watch_model AS "watchModel",
                 j.serial,
                 j.status,
+                j.repair_route AS "repairRoute",
                 j.complaint,
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
                 j.advance_inr::float8 AS "advanceInr",

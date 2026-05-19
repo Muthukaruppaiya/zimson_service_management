@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSrfJobs, type SrfTrace, type SrfTraceActionRow, type SrfTraceReestimateAttempt, type SrfTraceStatusRow } from "../../context/SrfJobsContext";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
+import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../../lib/srfTraceLocations";
 
 type Props = {
   srfId: string;
@@ -28,6 +29,9 @@ const ACTION_LABELS: Record<string, string> = {
   inter_ho_return_to_sender: "Returned to sender HO",
   ho_dispatch_to_store: "HO dispatched to store",
   store_inward_odc: "Store inward (internal outward transfer)",
+  store_self_assign_technician: "Store assigned technician (self repair)",
+  store_self_spares_slip_submitted: "Store recorded used spares (self repair)",
+  store_self_repair_complete: "Store self-repair complete → billing",
   store_close_with_invoice: "Customer billed & SRF closed",
   store_no_billing_handover: "Customer handover (no billing)",
   customer_accept_reestimate: "Customer accepted re-estimate",
@@ -61,6 +65,13 @@ function buildTimeline(trace: SrfTrace): TimelineItem[] {
   return items;
 }
 
+function timelineLocationBlock(row: { watchLocation?: string; locationMove?: string | null }): string {
+  const parts: string[] = [];
+  if (row.locationMove) parts.push(row.locationMove);
+  if (row.watchLocation) parts.push(`Watch at: ${row.watchLocation}`);
+  return parts.join(" · ");
+}
+
 export function SrfTraceModal({ srfId, onClose }: Props) {
   const { getSrfTrace } = useSrfJobs();
   const [trace, setTrace] = useState<SrfTrace | null>(null);
@@ -89,18 +100,36 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
     };
   }, [srfId, getSrfTrace]);
 
-  const timeline = useMemo(() => (trace ? buildTimeline(trace) : []), [trace]);
+  const enrichedTrace = useMemo(() => {
+    if (!trace) return null;
+    const { actions, statusHistory } = enrichTraceTimeline(trace.job, trace.actions, trace.statusHistory);
+    const ctx = buildTraceLocationContext(trace.job);
+    return {
+      ...trace,
+      job: {
+        ...trace.job,
+        watchLocation: trace.job.watchLocation ?? watchLocationForStatus(trace.job.status, ctx),
+      },
+      actions,
+      statusHistory,
+    };
+  }, [trace]);
+
+  const timeline = useMemo(() => (enrichedTrace ? buildTimeline(enrichedTrace) : []), [enrichedTrace]);
 
   function printTrace() {
-    if (!trace) return;
+    if (!enrichedTrace) return;
+    const trace = enrichedTrace;
     const rowsHtml = timeline
       .map((it) => {
         if (it.kind === "action") {
           const r = it.row;
+          const loc = timelineLocationBlock(r);
           return `<tr>
             <td>${fmtDateTime(it.at)}</td>
             <td>Action</td>
             <td>${ACTION_LABELS[r.action] ?? r.action}</td>
+            <td>${loc || "-"}</td>
             <td>${(r.actorName ?? "-")}${r.actorRole ? ` (${r.actorRole.replace(/_/g, " ")})` : ""}</td>
             <td>${r.referenceDoc ?? ""}</td>
             <td>${r.amountInr != null ? fmtINR(r.amountInr) : ""}</td>
@@ -108,10 +137,12 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
           </tr>`;
         }
         const s = it.row;
+        const loc = timelineLocationBlock(s);
         return `<tr>
           <td>${fmtDateTime(it.at)}</td>
           <td>Status</td>
           <td>${s.status.replace(/_/g, " ")}</td>
+          <td>${loc || "-"}</td>
           <td>${(s.changedByName ?? "system")}${s.changedByRole ? ` (${s.changedByRole.replace(/_/g, " ")})` : ""}</td>
           <td></td>
           <td></td>
@@ -144,7 +175,7 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
         </table>
         <h3 style="margin-top:18px">Full timeline</h3>
         <table border="1" cellspacing="0" cellpadding="6" style="width:100%;border-collapse:collapse">
-          <thead><tr><th>Date time</th><th>Type</th><th>Action / status</th><th>By</th><th>Doc</th><th>Amount</th><th>Description</th></tr></thead>
+          <thead><tr><th>Date time</th><th>Type</th><th>Action / status</th><th>Location / movement</th><th>By</th><th>Doc</th><th>Amount</th><th>Description</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>`,
@@ -157,14 +188,15 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
         <div className="flex items-center justify-between border-b border-stone-200 px-5 py-3">
           <div>
             <h3 className="text-lg font-semibold text-zimson-900">SRF traceability</h3>
-            {trace ? (
+            {enrichedTrace ? (
               <p className="text-xs text-stone-600">
-                {trace.job.reference} · {trace.job.customerName} · {trace.job.watchBrand} {trace.job.watchModel}
+                {enrichedTrace.job.reference} · {enrichedTrace.job.customerName} · {enrichedTrace.job.watchBrand}{" "}
+                {enrichedTrace.job.watchModel}
               </p>
             ) : null}
           </div>
           <div className="flex items-center gap-2">
-            {trace ? (
+            {enrichedTrace ? (
               <button
                 type="button"
                 onClick={printTrace}
@@ -187,10 +219,10 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
             <p className="text-sm text-stone-600">Loading trace…</p>
           ) : error ? (
             <p className="text-sm text-rose-700">{error}</p>
-          ) : trace ? (
+          ) : enrichedTrace ? (
             <div className="space-y-6">
-              <SrfHeader trace={trace} />
-              <ReestimateCard reestimates={trace.reestimates} />
+              <SrfHeader trace={enrichedTrace} />
+              <ReestimateCard reestimates={enrichedTrace.reestimates} />
               <TimelineCard timeline={timeline} />
             </div>
           ) : null}
@@ -212,6 +244,11 @@ function SrfHeader({ trace }: { trace: SrfTrace }) {
         <p>
           <span className="font-semibold text-stone-900">Status:</span> {j.status.replace(/_/g, " ")}
         </p>
+        {j.watchLocation ? (
+          <p>
+            <span className="font-semibold text-stone-900">Watch now at:</span> {j.watchLocation}
+          </p>
+        ) : null}
         <p>
           <span className="font-semibold text-stone-900">Approved estimate:</span> {fmtINR(j.estimateTotalInr)}
         </p>
@@ -260,11 +297,13 @@ function SrfHeader({ trace }: { trace: SrfTrace }) {
           <span className="font-semibold text-stone-900">Booked at:</span> {j.storeName ?? j.storeId} ({j.regionName ?? j.regionId})
         </p>
         <p>
-          <span className="font-semibold text-stone-900">Customer destination:</span> {j.destinationStoreId}
+          <span className="font-semibold text-stone-900">Customer destination:</span>{" "}
+          {j.destinationStoreName ?? j.destinationStoreId ?? "—"}
         </p>
         {j.transferTargetRegionId && (
           <p className="text-amber-700">
-            <span className="font-semibold">Transferred to HO:</span> {j.transferTargetRegionId}
+            <span className="font-semibold">Transferred to HO:</span>{" "}
+            {j.transferTargetRegionName ?? j.transferTargetRegionId}
           </p>
         )}
       </div>
@@ -377,6 +416,16 @@ function TimelineCard({ timeline }: { timeline: TimelineItem[] }) {
                 </p>
                 <span className="text-[11px] text-stone-500">{fmtDateTime(it.at)}</span>
               </div>
+              {it.row.locationMove ? (
+                <p className="mt-1 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1.5 text-[11px] font-semibold text-sky-900">
+                  {it.row.locationMove}
+                </p>
+              ) : null}
+              {it.row.watchLocation ? (
+                <p className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50/80 px-2 py-1.5 text-[11px] text-emerald-900">
+                  <span className="font-semibold">Watch at:</span> {it.row.watchLocation}
+                </p>
+              ) : null}
               {it.kind === "action" ? (
                 <>
                   {it.row.description ? <p className="mt-1">{it.row.description}</p> : null}

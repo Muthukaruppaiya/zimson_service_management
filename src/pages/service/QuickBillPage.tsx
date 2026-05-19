@@ -799,7 +799,7 @@ export function QuickBillPage() {
     if (phoneDigits.length === 10) {
       if (!opts?.skipHandoverCheck && !handoverVerified) {
         setError(
-          "Verify handover with Send OTP to primary number or Send OTP to number, then complete the bill.",
+          "Verify handover with OTP (primary or other mobile/email) before generating the invoice.",
         );
         return false;
       }
@@ -868,14 +868,9 @@ export function QuickBillPage() {
   }
 
   function openHandoverOtp(mode: HandoverOtpMode) {
+    if (!validateBeforeOtp({ skipHandoverCheck: true })) return;
     setHandoverModalMode(mode);
     setHandoverModalOpen(true);
-  }
-
-  function handleCompleteBill(e: React.FormEvent) {
-    e.preventDefault();
-    if (!validateBeforeOtp()) return;
-    void saveBill();
   }
 
   async function saveBill(opts?: { skipHandoverCheck?: boolean }) {
@@ -973,8 +968,9 @@ export function QuickBillPage() {
   function onHandoverVerified() {
     const p10 = phoneLast10(phone.trim());
     setHandoverVerified(true);
-    verifiedBillPhoneLast10Ref.current = p10;
+    verifiedBillPhoneLast10Ref.current = p10.length === 10 ? p10 : verifiedBillPhoneLast10Ref.current;
     setCustomerCheckMsg(null);
+    setError(null);
     setHandoverModalOpen(false);
     void saveBill({ skipHandoverCheck: true });
   }
@@ -1236,7 +1232,12 @@ export function QuickBillPage() {
         </Card>
       ) : null}
 
-      <form onSubmit={handleCompleteBill} className="space-y-8">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+        }}
+        className="space-y-8"
+      >
         <Card
           title="Customer"
           subtitle={
@@ -1762,39 +1763,34 @@ export function QuickBillPage() {
         ) : null}
 
         <div className="space-y-3">
-          {/* <p className="text-xs text-stone-600">
-            Use one option only: OTP to the primary mobile on file, or OTP to another number you enter. After OTP
-            is verified, the bill is saved and the completion screen opens automatically.
-          </p> */}
+          <p className="text-xs text-stone-600">
+            After OTP is verified (primary or other mobile/email), the bill is saved and the success popup opens
+            automatically.
+          </p>
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => openHandoverOtp("primary")}
-              disabled={phoneLast10(phone).length !== 10 || handoverVerified}
+              disabled={
+                handoverVerified ||
+                isSavingBill ||
+                (phoneLast10(phone).length !== 10 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+              }
               className="rounded-xl border border-indigo-400 bg-indigo-50 px-5 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Send OTP to primary number
+              Send OTP to primary (mobile / email)
             </button>
             <button
               type="button"
               onClick={() => openHandoverOtp("custom")}
-              disabled={phoneLast10(phone).length !== 10 || handoverVerified}
+              disabled={handoverVerified || isSavingBill}
               className="rounded-xl border border-indigo-400 bg-indigo-50 px-5 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Send OTP to number
+              Send OTP to other number / email
             </button>
-            {handoverVerified ? (
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
-                Handover verified — you can generate the invoice
-              </span>
+            {isSavingBill ? (
+              <span className="text-sm font-medium text-stone-600">Saving quick bill…</span>
             ) : null}
-            <button
-              type="submit"
-              disabled={isSavingBill}
-              className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:opacity-60"
-            >
-              {isSavingBill ? "Saving…" : "Generate invoice"}
-            </button>
             <Link
               to="/service"
               className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-5 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
@@ -1810,6 +1806,7 @@ export function QuickBillPage() {
         mode={handoverModalMode}
         onClose={() => setHandoverModalOpen(false)}
         contactPhone={phone}
+        contactEmail={email}
         onHandoverVerified={onHandoverVerified}
       />
     </div>
