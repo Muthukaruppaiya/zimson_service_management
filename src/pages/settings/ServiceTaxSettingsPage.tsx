@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { applyAppFavicon } from "../../lib/appBranding";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
@@ -15,6 +16,7 @@ function applyIntraStateSplitFromGst(gst: number): Pick<ServiceTaxSettings, "cgs
 }
 
 export function ServiceTaxSettingsPage() {
+  const { user } = useAuth();
   const apiMode = useApiMode();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -189,6 +191,14 @@ export function ServiceTaxSettingsPage() {
             >
               Document templates
             </Link>
+            {user?.role === "super_admin" ? (
+              <Link
+                to="/settings/messaging"
+                className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              >
+                SMS, email &amp; WhatsApp
+              </Link>
+            ) : null}
             <Link
               to="/service/billing"
               className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"

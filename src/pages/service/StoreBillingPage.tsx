@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CustomerHandoverOtpModal,
   type HandoverOtpMode,
@@ -19,6 +19,7 @@ import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError } from "../../lib/api";
 import { phoneLast10 } from "../../lib/customerLookup";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
+import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import {
   buildStoreBillingInvoiceLines,
@@ -62,6 +63,7 @@ export function StoreBillingPage() {
   const [billingInvoiceVm, setBillingInvoiceVm] = useState<ServiceInvoiceViewModel | null>(null);
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
+  const [whatsappSending, setWhatsappSending] = useState(false);
   const [screenMode, setScreenMode] = useState<"select" | "invoice">("select");
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [billingRefInput, setBillingRefInput] = useState("");
@@ -342,6 +344,33 @@ export function StoreBillingPage() {
       setClosingAfterOtp(false);
     }
   }
+
+  const handleSendBillingInvoiceWhatsApp = useCallback(async () => {
+    if (!billingInvoiceVm) return;
+    const p10 = phoneLast10(billingInvoiceVm.billTo.phone ?? "");
+    if (p10.length !== 10) {
+      setBillPostActionNote("Customer mobile (10 digits) is required for WhatsApp delivery.");
+      return;
+    }
+    setWhatsappSending(true);
+    setBillPostActionNote(null);
+    try {
+      const wa = await sendInvoiceWhatsApp({
+        phone: p10,
+        customerName: billingInvoiceVm.billTo.name.trim() || "Customer",
+        invoiceNumber: billingInvoiceVm.invoiceNumber,
+      });
+      setBillPostActionNote(
+        wa.dryRun
+          ? `Test mode: PDF on API server${wa.localViewUrl ? ` — open ${wa.localViewUrl}` : ""}. Set WHATSAPP_INVOICE_DRY_RUN=false to send real WhatsApp.`
+          : "Invoice sent on WhatsApp successfully.",
+      );
+    } catch (e) {
+      setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice on WhatsApp.");
+    } finally {
+      setWhatsappSending(false);
+    }
+  }, [billingInvoiceVm]);
 
   if (!user) return null;
 
@@ -895,13 +924,10 @@ export function StoreBillingPage() {
               <button
                 type="button"
                 className={billSuccessBtnSecondary}
-                onClick={() =>
-                  setBillPostActionNote(
-                    "Resending the invoice to the customer by email, SMS, or WhatsApp is not wired yet — this will be added in a future update.",
-                  )
-                }
+                disabled={whatsappSending}
+                onClick={() => void handleSendBillingInvoiceWhatsApp()}
               >
-                Resend to customer
+                {whatsappSending ? "Sending on WhatsApp…" : "Send invoice on WhatsApp"}
               </button>
               <button type="button" className={billSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
                 Close
@@ -927,8 +953,8 @@ export function StoreBillingPage() {
             </p>
           ) : (
             <p className="text-sm text-stone-700">
-              Use <strong>Print invoice</strong> to open the print dialog for the tax invoice only (not this billing
-              screen).
+              Use <strong>Print invoice</strong> for a paper copy, or <strong>Send invoice on WhatsApp</strong> for the
+              approved template with PDF attachment.
             </p>
           )}
         </ProcessSuccessModal>

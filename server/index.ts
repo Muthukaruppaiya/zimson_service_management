@@ -1,4 +1,7 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+dotenv.config();
+dotenv.config({ path: ".env.development", override: true });
+dotenv.config({ path: ".env.local", override: true });
 import cors from "cors";
 import express from "express";
 import type { Pool } from "pg";
@@ -11,6 +14,9 @@ import { registerGeoRoutes } from "./geoRoutes";
 import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { registerQuickBillRoutes } from "./quickBillRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
+import { getMessagingPublicBaseUrl, isWhatsAppInvoiceDryRun } from "./messaging/config";
+import { initMessagingSettings } from "./messagingSettingsStore";
+import { registerMessagingSettingsRoutes } from "./messagingSettingsRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
 import { registerTechnicianRoutes } from "./technicianRoutes";
@@ -24,6 +30,15 @@ import type { AppNotification } from "../src/types/notification";
 import type { DemoUser, ModuleKey, SessionUser, UserRole } from "../src/types/user";
 import { readState, stripPassword, writeState, type AppState } from "./persist";
 import { lookupGstCompany } from "./gstLookup";
+import {
+  deliverOtpToTargets,
+  otpStartResponsePayload,
+  registerEmailOtpResponse,
+  tryDeliverEmailOtp,
+  registerMobileOtpResponse,
+} from "./messaging/deliverOtp";
+import { registerMessagingRoutes } from "./messagingRoutes";
+import { startDevPublicTunnel } from "./devPublicTunnel";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT) || 4000;
@@ -441,7 +456,17 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "5mb" }));
-app.use("/uploads", express.static(join(process.cwd(), "uploads")));
+app.use(
+  "/uploads",
+  express.static(join(process.cwd(), "uploads"), {
+    setHeaders(res, filePath) {
+      if (filePath.toLowerCase().endsWith(".pdf")) {
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+      }
+    },
+  }),
+);
 
 async function ensureSeedUsers(): Promise<void> {
   for (const user of SEED_USERS) {
@@ -2977,7 +3002,7 @@ app.post("/api/gst/lookup", async (req, res) => {
 });
 
 /** Quick Bill / billing handover — OTP via mobile or email (one channel per session). */
-app.post("/api/customers/handover-otp/start", (req, res) => {
+app.post("/api/customers/handover-otp/start", async (req, res) => {
   const body = req.body as { channel?: string; phone?: string; email?: string };
   const channel = String(body.channel ?? "").trim().toLowerCase();
   if (channel !== "mobile" && channel !== "email") {
@@ -2994,7 +3019,14 @@ app.post("/api/customers/handover-otp/start", (req, res) => {
     const sessionId = crypto.randomUUID();
     const targets: HandoverOtpTarget[] = [{ type: "mobile", label: p10 }];
     handoverOtpSessions.set(sessionId, { code, expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS, targets });
-    res.json({ sessionId, demoOtp: code, sentTo: targets });
+    try {
+      await deliverOtpToTargets(code, targets);
+      res.json(otpStartResponsePayload(sessionId, code, targets));
+    } catch (e) {
+      handoverOtpSessions.delete(sessionId);
+      const msg = e instanceof Error ? e.message : "Could not send OTP SMS.";
+      res.status(502).json({ error: msg });
+    }
     return;
   }
   const email = String(body.email ?? "")
@@ -3008,11 +3040,18 @@ app.post("/api/customers/handover-otp/start", (req, res) => {
   const sessionId = crypto.randomUUID();
   const targets: HandoverOtpTarget[] = [{ type: "email", label: email }];
   handoverOtpSessions.set(sessionId, { code, expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS, targets });
-  res.json({ sessionId, demoOtp: code, sentTo: targets });
+  try {
+    await deliverOtpToTargets(code, targets);
+    res.json(otpStartResponsePayload(sessionId, code, targets));
+  } catch (e) {
+    handoverOtpSessions.delete(sessionId);
+    const msg = e instanceof Error ? e.message : "Could not send OTP email.";
+    res.status(502).json({ error: msg });
+  }
 });
 
 /** Same OTP code sent to every valid mobile and/or email provided. */
-app.post("/api/customers/handover-otp/start-both", (req, res) => {
+app.post("/api/customers/handover-otp/start-both", async (req, res) => {
   const body = req.body as { phone?: string; email?: string };
   const targets: HandoverOtpTarget[] = [];
   const p10 = phoneLast10(String(body.phone ?? ""));
@@ -3034,7 +3073,14 @@ app.post("/api/customers/handover-otp/start-both", (req, res) => {
     expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS,
     targets,
   });
-  res.json({ sessionId, demoOtp: code, sentTo: targets });
+  try {
+    await deliverOtpToTargets(code, targets);
+    res.json(otpStartResponsePayload(sessionId, code, targets));
+  } catch (e) {
+    handoverOtpSessions.delete(sessionId);
+    const msg = e instanceof Error ? e.message : "Could not send OTP.";
+    res.status(502).json({ error: msg });
+  }
 });
 
 app.post("/api/customers/handover-otp/confirm", (req, res) => {
@@ -3058,7 +3104,7 @@ app.post("/api/customers/handover-otp/confirm", (req, res) => {
 });
 
 /** Step 1: start mobile OTP only (email is collected after mobile is verified). */
-app.post("/api/customers/register-otp/start-mobile", (req, res) => {
+app.post("/api/customers/register-otp/start-mobile", async (req, res) => {
   const primaryPhone = String((req.body as { primaryPhone?: string })?.primaryPhone ?? "").trim();
   const otpPhone = String((req.body as { otpPhone?: string })?.otpPhone ?? "").trim();
   const primaryP10 = phoneLast10(primaryPhone);
@@ -3083,7 +3129,14 @@ app.post("/api/customers/register-otp/start-mobile", (req, res) => {
     emailVerified: false,
     expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS,
   });
-  res.json({ sessionId, demoMobileOtp: mobileCode });
+  try {
+    await deliverOtpToTargets(mobileCode, [{ type: "mobile", label: p10 }]);
+    res.json(registerMobileOtpResponse(sessionId, mobileCode));
+  } catch (e) {
+    customerRegisterOtpSessions.delete(sessionId);
+    const msg = e instanceof Error ? e.message : "Could not send mobile OTP.";
+    res.status(502).json({ error: msg });
+  }
 });
 
 app.post("/api/customers/register-otp/confirm-mobile", (req, res) => {
@@ -3106,7 +3159,7 @@ app.post("/api/customers/register-otp/confirm-mobile", (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/customers/register-otp/start-email", (req, res) => {
+app.post("/api/customers/register-otp/start-email", async (req, res) => {
   const sessionId = String((req.body as { sessionId?: string })?.sessionId ?? "").trim();
   const email = String((req.body as { email?: string })?.email ?? "")
     .trim()
@@ -3132,7 +3185,8 @@ app.post("/api/customers/register-otp/start-email", (req, res) => {
   sess.emailNorm = email;
   sess.emailCode = emailCode;
   sess.emailVerified = false;
-  res.json({ demoEmailOtp: emailCode });
+  const { sent: emailDelivered } = await tryDeliverEmailOtp(emailCode, email);
+  res.json(registerEmailOtpResponse(emailCode, emailDelivered));
 });
 
 app.post("/api/customers/register-otp/confirm-email", (req, res) => {
@@ -3622,9 +3676,20 @@ async function main() {
   registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(id), allUsers, pushNotifications);
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  await initMessagingSettings(dbPool);
+  registerMessagingSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
   registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerMessagingRoutes(app, requireAuth);
+
+  await startDevPublicTunnel(PORT);
+
+  if (!getMessagingPublicBaseUrl() && !isWhatsAppInvoiceDryRun()) {
+    console.log(
+      "WhatsApp invoice: configure public PDF URL in Settings → SMS, email & WhatsApp, or MESSAGING_AUTO_TUNNEL=true in .env.",
+    );
+  }
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);

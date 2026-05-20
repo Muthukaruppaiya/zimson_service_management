@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { mapQuickBillInvoiceToViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
+import { FilterField } from "../../components/ui/FilterField";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
@@ -14,10 +15,23 @@ import type { QuickBillHistoryRow, QuickBillInvoice } from "../../types/quickBil
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
 
-/* ── Rolex-inspired design tokens ─────────────────────────────────────── */
-const fieldClass =
-  "rounded-sm border border-rlx-rule bg-white px-3 py-2.5 text-sm text-rlx-ink outline-none transition " +
-  "placeholder:text-rlx-ink-muted/60 focus:border-rlx-green focus:ring-2 focus:ring-rlx-green/10";
+const TABLE_HEADERS: { key: string; label: string; align?: "right"; hide?: string }[] = [
+  { key: "date", label: "Date" },
+  { key: "invoice", label: "Invoice" },
+  { key: "customer", label: "Customer" },
+  { key: "phone", label: "Phone", hide: "col-hide-sm" },
+  { key: "email", label: "Email", hide: "col-hide-lg" },
+  { key: "brand", label: "Brand", hide: "col-hide-md" },
+  { key: "model", label: "Model", hide: "col-hide-md" },
+  { key: "ref", label: "Ref", hide: "col-hide-xl" },
+  { key: "warranty", label: "Warranty", hide: "col-hide-xl" },
+  { key: "tech", label: "Technician", hide: "col-hide-lg" },
+  { key: "loc", label: "Location", hide: "col-hide-md" },
+  { key: "pay", label: "Payment" },
+  { key: "notes", label: "Notes", hide: "col-hide-xl" },
+  { key: "total", label: "Total", align: "right" },
+  { key: "actions", label: "Actions" },
+];
 
 /** Compact gold-accented table-action button */
 const btnAction =
@@ -250,34 +264,34 @@ export function QuickBillHistoryPage() {
   }
 
   return (
-    <div className="relative -mx-4 -mt-2 font-sans text-rlx-ink md:-mx-6">
-      <div className={`min-h-screen bg-rlx-bg ${selected ? "print:hidden" : ""}`}>
+    <div className="ui-page-bleed relative font-sans text-rlx-ink">
+      <div className={`min-h-0 bg-rlx-bg ${selected ? "print:hidden" : ""}`}>
         <ServiceBreadcrumb current="Quick bill history" />
 
         {/* ── PAGE HERO BANNER ─────────────────────────────────── */}
-        <div className="bg-rlx-green px-5 py-10 md:px-10 md:py-14">
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.45em] text-rlx-gold">
+        <div className="bg-rlx-green px-4 py-6 md:px-6 md:py-8">
+          <p className="mb-2 text-[9px] font-semibold uppercase tracking-[0.4em] text-rlx-gold">
             Zimson Service · Invoice Register
           </p>
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h1 className="font-display text-4xl font-light leading-tight tracking-wide text-white md:text-5xl">
+          <div className="flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
+              <h1 className="font-display text-2xl font-light leading-tight tracking-wide text-white md:text-3xl">
                 Quick Bill History
               </h1>
               {/* <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/70">
                 Search, preview and download issued invoices. Every record is preserved with full customer, watch and payment detail.
               </p> */}
             </div>
-            <div className="flex shrink-0 flex-wrap gap-3">
+            <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
               <Link
                 to="/service/quick-bill"
-                className="no-underline inline-flex items-center gap-2 bg-rlx-gold px-6 py-3 text-sm font-semibold tracking-wide text-rlx-green-deep shadow transition hover:bg-rlx-gold-dark"
+                className="no-underline inline-flex w-full items-center justify-center gap-2 bg-rlx-gold px-4 py-2.5 text-xs font-semibold tracking-wide text-rlx-green-deep shadow transition hover:bg-rlx-gold-dark sm:w-auto"
               >
                 + New Quick Bill
               </Link>
               <Link
                 to="/service"
-                className="no-underline inline-flex items-center gap-2 border border-white/30 bg-white/10 px-6 py-3 text-sm font-semibold tracking-wide text-white backdrop-blur-sm transition hover:bg-white/20"
+                className="no-underline inline-flex w-full items-center justify-center gap-2 border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-semibold tracking-wide text-white backdrop-blur-sm transition hover:bg-white/20 sm:w-auto"
               >
                 Service Home
               </Link>
@@ -286,7 +300,7 @@ export function QuickBillHistoryPage() {
         </div>
 
         {/* ── FILTER + TABLE SECTION ─────────────────────────── */}
-        <div className="px-5 py-8 md:px-10">
+        <div className="px-4 py-5 md:px-6">
           {/* filter strip */}
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-xs font-semibold uppercase tracking-[0.28em] text-rlx-ink-muted">
@@ -300,38 +314,76 @@ export function QuickBillHistoryPage() {
             </div>
           ) : null}
 
-          <div className="mb-5 mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-            <input
-              value={query}
-              onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-              className={`${fieldClass} lg:col-span-2`}
-              placeholder="Search invoice, customer, phone, watch, GST…"
-            />
-            <select
-              value={payment}
-              onChange={(e) => { setPayment(e.target.value as "ALL" | AppPaymentMode); setPage(1); }}
-              className={fieldClass}
-            >
-              <option value="ALL">All payment modes</option>
-              {APP_PAYMENT_MODES.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-            <input type="date" value={fromDate}
-              onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
-              className={fieldClass}
-            />
-            <input type="date" value={toDate}
-              onChange={(e) => { setToDate(e.target.value); setPage(1); }}
-              className={fieldClass}
-            />
-            <button
-              type="button"
-              onClick={() => { setQuery(""); setPayment("ALL"); setFromDate(""); setToDate(""); setPage(1); }}
-              className="border border-rlx-rule bg-white px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light"
-            >
-              Reset
-            </button>
+          <div className="ui-filter-grid mb-5 mt-4">
+            <FilterField label="Search" htmlFor="qb-hist-search" className="ui-filter-span-2-sm min-w-0">
+              <input
+                id="qb-hist-search"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPage(1);
+                }}
+                className="ui-field"
+                placeholder="Invoice, customer, phone, watch, GST…"
+              />
+            </FilterField>
+            <FilterField label="Payment mode" htmlFor="qb-hist-payment" className="min-w-0">
+              <select
+                id="qb-hist-payment"
+                value={payment}
+                onChange={(e) => {
+                  setPayment(e.target.value as "ALL" | AppPaymentMode);
+                  setPage(1);
+                }}
+                className="ui-field"
+              >
+                <option value="ALL">All payment modes</option>
+                {APP_PAYMENT_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+            <FilterField label="From date" htmlFor="qb-hist-from" className="min-w-0">
+              <input
+                id="qb-hist-from"
+                type="date"
+                value={fromDate}
+                onChange={(e) => {
+                  setFromDate(e.target.value);
+                  setPage(1);
+                }}
+                className="ui-field"
+              />
+            </FilterField>
+            <FilterField label="To date" htmlFor="qb-hist-to" className="min-w-0">
+              <input
+                id="qb-hist-to"
+                type="date"
+                value={toDate}
+                onChange={(e) => {
+                  setToDate(e.target.value);
+                  setPage(1);
+                }}
+                className="ui-field"
+              />
+            </FilterField>
+            <div className="flex min-w-0 items-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setPayment("ALL");
+                  setFromDate("");
+                  setToDate("");
+                  setPage(1);
+                }}
+                className="ui-btn-secondary"
+              >
+                Reset
+              </button>
+            </div>
           </div>
 
           {loading ? (
@@ -349,20 +401,19 @@ export function QuickBillHistoryPage() {
           {filtered.length > 0 ? (
             <>
               {/* table */}
-              <div className="overflow-auto border border-rlx-rule bg-white shadow-sm">
-                <table className="min-w-[1100px] w-full text-left text-sm">
-                  <thead className="sticky top-0 z-10 bg-rlx-green text-[10px] font-semibold uppercase tracking-[0.24em] text-white">
+              <p className="mb-2 text-[10px] text-rlx-ink-muted xl:hidden">
+                Swipe horizontally to see more columns →
+              </p>
+              <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
+                <table className="ui-table-dense w-full min-w-[36rem] text-left xl:min-w-[1000px]">
+                  <thead className="sticky top-0 z-10 bg-rlx-green text-[9px] font-semibold uppercase tracking-[0.2em] text-white">
                     <tr>
-                      {[
-                        "Date","Invoice","Customer","Phone","Email",
-                        "Brand","Model","Ref","Warranty","Technician",
-                        "Location","Payment","Notes","Total","Actions"
-                      ].map((h) => (
+                      {TABLE_HEADERS.map((h) => (
                         <th
-                          key={h}
-                          className={`whitespace-nowrap px-3 py-4 font-medium ${h === "Total" ? "text-right" : ""}`}
+                          key={h.key}
+                          className={`whitespace-nowrap font-medium ${h.hide ?? ""} ${h.align === "right" ? "text-right" : ""}`}
                         >
-                          {h}
+                          {h.label}
                         </th>
                       ))}
                     </tr>
@@ -378,33 +429,48 @@ export function QuickBillHistoryPage() {
                         onClick={() => setSelected(r)}
                         className={`cursor-pointer border-b border-rlx-rule transition-colors duration-150 hover:bg-rlx-green-light ${idx % 2 === 1 ? "bg-rlx-bg" : "bg-white"}`}
                       >
-                        <td className="whitespace-nowrap px-3 py-3.5 text-xs text-rlx-ink-muted">
+                        <td className="whitespace-nowrap text-rlx-ink-muted">
                           {new Date(r.createdAt).toLocaleString()}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3.5 font-mono text-xs font-semibold text-rlx-green">
+                        <td className="whitespace-nowrap font-mono text-xs font-semibold text-rlx-green">
                           {r.billNumber}
                         </td>
-                        <td className="max-w-[10rem] truncate px-3 py-3.5 font-medium text-rlx-ink" title={customerLabel(r)}>
+                        <td className="max-w-[10rem] truncate font-medium text-rlx-ink" title={customerLabel(r)}>
                           {customerLabel(r)}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3.5 text-xs text-rlx-ink-muted">{r.phone ?? "—"}</td>
-                        <td className="max-w-[8rem] truncate px-3 py-3.5 text-xs text-rlx-ink-muted" title={r.email ?? ""}>{r.email ?? "—"}</td>
-                        <td className="max-w-[6rem] truncate px-3 py-3.5 text-xs" title={r.watchBrand}>{r.watchBrand}</td>
-                        <td className="max-w-[8rem] truncate px-3 py-3.5 text-xs" title={r.watchModel}>{r.watchModel}</td>
-                        <td className="max-w-[6rem] truncate px-3 py-3.5 text-xs text-rlx-ink-muted" title={r.watchRef ?? ""}>{r.watchRef ?? "—"}</td>
-                        <td className="whitespace-nowrap px-3 py-3.5 text-xs text-rlx-ink-muted">{warrantyTableLabel(r.warrantyStatus)}</td>
-                        <td className="max-w-[7rem] truncate px-3 py-3.5 text-xs" title={r.technicianName ?? ""}>{r.technicianName ?? "—"}</td>
-                        <td className="max-w-[8rem] truncate px-3 py-3.5 text-xs text-rlx-ink-muted" title={r.storeName ?? r.regionName ?? r.regionId}>
+                        <td className="col-hide-sm whitespace-nowrap text-rlx-ink-muted">{r.phone ?? "—"}</td>
+                        <td className="col-hide-lg max-w-[8rem] truncate text-rlx-ink-muted" title={r.email ?? ""}>
+                          {r.email ?? "—"}
+                        </td>
+                        <td className="col-hide-md max-w-[6rem] truncate" title={r.watchBrand}>
+                          {r.watchBrand}
+                        </td>
+                        <td className="col-hide-md max-w-[8rem] truncate" title={r.watchModel}>
+                          {r.watchModel}
+                        </td>
+                        <td className="col-hide-xl max-w-[6rem] truncate text-rlx-ink-muted" title={r.watchRef ?? ""}>
+                          {r.watchRef ?? "—"}
+                        </td>
+                        <td className="col-hide-xl whitespace-nowrap text-rlx-ink-muted">
+                          {warrantyTableLabel(r.warrantyStatus)}
+                        </td>
+                        <td className="col-hide-lg max-w-[7rem] truncate" title={r.technicianName ?? ""}>
+                          {r.technicianName ?? "—"}
+                        </td>
+                        <td
+                          className="col-hide-md max-w-[8rem] truncate text-rlx-ink-muted"
+                          title={r.storeName ?? r.regionName ?? r.regionId}
+                        >
                           {r.storeName ?? r.regionName ?? r.regionId}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3.5 text-xs">{r.paymentMode}</td>
-                        <td className="max-w-[7rem] truncate px-3 py-3.5 text-xs text-rlx-ink-muted" title={r.notes}>
+                        <td className="whitespace-nowrap">{r.paymentMode}</td>
+                        <td className="col-hide-xl max-w-[7rem] truncate text-rlx-ink-muted" title={r.notes}>
                           {r.notes?.trim() || "—"}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3.5 text-right text-sm font-semibold tabular-nums text-rlx-green">
+                        <td className="whitespace-nowrap text-right text-xs font-semibold tabular-nums text-rlx-green">
                           {r.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
                         </td>
-                        <td className="px-3 py-3.5" onClick={(e) => e.stopPropagation()}>
+                        <td onClick={(e) => e.stopPropagation()}>
                           <div className="flex flex-wrap gap-1.5">
                             <button
                               type="button"
@@ -466,18 +532,20 @@ export function QuickBillHistoryPage() {
           <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] print:max-h-none print:max-w-none print:shadow-none">
 
             {/* modal header — Rolex-green top bar */}
-            <div className="sticky top-0 z-20 flex items-center justify-between bg-rlx-green px-6 py-4 print:hidden">
-              <div>
+            <div className="sticky top-0 z-20 flex flex-col gap-3 bg-rlx-green px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 print:hidden">
+              <div className="min-w-0">
                 <p className="text-[9px] font-semibold uppercase tracking-[0.45em] text-rlx-gold">Invoice preview</p>
-                <h3 className="font-display text-2xl font-light text-white md:text-3xl">{selected.billNumber}</h3>
+                <h3 className="truncate font-display text-xl font-light text-white sm:text-2xl md:text-3xl">
+                  {selected.billNumber}
+                </h3>
                 <p className="mt-0.5 text-xs text-white/60">{new Date(selected.createdAt).toLocaleString()}</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-stretch gap-2 sm:items-center">
                 {detailInvoiceVm ? (
                   <button
                     type="button"
                     onClick={() => printServiceInvoice()}
-                    className="bg-rlx-gold px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-rlx-green-deep transition hover:bg-rlx-gold-dark"
+                    className="flex-1 bg-rlx-gold px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-rlx-green-deep transition hover:bg-rlx-gold-dark sm:flex-none sm:px-5"
                   >
                     Print
                   </button>
@@ -486,7 +554,7 @@ export function QuickBillHistoryPage() {
                   <button
                     type="button"
                     onClick={() => downloadQuickBillInvoiceHtml(detailInvoice)}
-                    className="border border-white/30 bg-white/10 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-white/20"
+                    className="flex-1 border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-white/20 sm:flex-none sm:px-5"
                   >
                     Download
                   </button>
@@ -494,7 +562,7 @@ export function QuickBillHistoryPage() {
                 <button
                   type="button"
                   onClick={() => setSelected(null)}
-                  className="border border-white/20 px-5 py-2.5 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                  className="w-full border border-white/20 px-4 py-2.5 text-xs font-semibold text-white/80 transition hover:bg-white/10 sm:w-auto sm:px-5"
                 >
                   ✕ Close
                 </button>

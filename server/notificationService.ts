@@ -14,10 +14,14 @@ type ReestimateDecisionPayload = {
   note?: string;
 };
 
+/** Tracking / invoice links via WhatsApp will be wired later (Qikchat). */
 export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<void> {
   console.log(`[TRACKING LINK] Customer: ${payload.name} | Phone: ${payload.phone}`);
   console.log(`[TRACKING LINK] SRF: ${payload.srfReference}`);
   console.log(`[TRACKING LINK] URL: ${payload.trackingUrl}`);
+  if (payload.email?.trim()) {
+    console.log(`[TRACKING LINK] Email on file: ${payload.email.trim()} (email send — later)`);
+  }
 }
 
 export async function sendReestimateDecisionNotification(payload: ReestimateDecisionPayload): Promise<void> {

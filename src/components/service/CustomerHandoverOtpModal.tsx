@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DemoOtpGate } from "./DemoOtpGate";
 import { useCustomers } from "../../context/CustomersContext";
+import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { sanitizeEmailInput, sanitizePhoneDigits } from "../../lib/inputSanitize";
 
 const inputClass =
@@ -44,6 +45,7 @@ export function CustomerHandoverOtpModal({
   onHandoverVerified,
 }: CustomerHandoverOtpModalProps) {
   const { startHandoverOtpBoth, confirmHandoverOtp } = useCustomers();
+  const { showError, alertModal } = useMessageAlert();
   const [phase, setPhase] = useState<"custom-entry" | "verify">("verify");
   const [customPhone, setCustomPhone] = useState("");
   const [customEmail, setCustomEmail] = useState("");
@@ -51,7 +53,7 @@ export function CustomerHandoverOtpModal({
   const [demoOtp, setDemoOtp] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<SentTarget[]>([]);
   const [otpInput, setOtpInput] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [sendFailed, setSendFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const autoSendStartedRef = useRef(false);
 
@@ -73,29 +75,30 @@ export function CustomerHandoverOtpModal({
     setDemoOtp(null);
     setSentTo([]);
     setOtpInput("");
-    setError(null);
+    setSendFailed(false);
     setBusy(false);
     autoSendStartedRef.current = false;
   }, [isPrimary]);
 
   const sendOtpToBoth = useCallback(
     async (phone?: string, email?: string) => {
-      setError(null);
+      setSendFailed(false);
       setBusy(true);
       try {
         const out = await startHandoverOtpBoth({ phone, email });
         setSessionId(out.sessionId);
-        setDemoOtp(out.demoOtp);
+        setDemoOtp(out.demoOtp ?? null);
         setSentTo(out.sentTo);
         setPhase("verify");
         setOtpInput("");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not send OTP.");
+        setSendFailed(true);
+        showError(e instanceof Error ? e.message : "Could not send OTP.", "OTP");
       } finally {
         setBusy(false);
       }
     },
-    [startHandoverOtpBoth],
+    [startHandoverOtpBoth, showError],
   );
 
   useEffect(() => {
@@ -106,31 +109,30 @@ export function CustomerHandoverOtpModal({
   useEffect(() => {
     if (!open || !isPrimary || autoSendStartedRef.current) return;
     if (!primaryHasPhone && !primaryHasEmail) {
-      setError("Primary mobile or email is required on the bill.");
+      showError("Primary mobile or email is required on the bill.", "OTP");
       return;
     }
     autoSendStartedRef.current = true;
     void sendOtpToBoth(primaryHasPhone ? contactPhone : undefined, primaryHasEmail ? primaryEmail : undefined);
-  }, [open, isPrimary, primaryHasPhone, primaryHasEmail, contactPhone, primaryEmail, sendOtpToBoth]);
+  }, [open, isPrimary, primaryHasPhone, primaryHasEmail, contactPhone, primaryEmail, sendOtpToBoth, showError]);
 
   if (!open) return null;
 
   async function handleCustomSend() {
     if (!customHasPhone && !customHasEmail) {
-      setError("Enter OTP mobile or OTP email (at least one is required).");
+      showError("Enter OTP mobile or OTP email (at least one is required).", "OTP");
       return;
     }
     await sendOtpToBoth(customHasPhone ? customPhone : undefined, customHasEmail ? customEmail : undefined);
   }
 
   async function handleVerify() {
-    setError(null);
-    if (!sessionId || !demoOtp) {
-      setError("Send OTP first.");
+    if (!sessionId) {
+      showError("Send OTP first.", "OTP");
       return;
     }
     if (otpInput.trim().length !== 6) {
-      setError("Enter the 6-digit OTP.");
+      showError("Enter the 6-digit OTP.", "OTP");
       return;
     }
     setBusy(true);
@@ -139,7 +141,7 @@ export function CustomerHandoverOtpModal({
       onHandoverVerified();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Incorrect OTP.");
+      showError(e instanceof Error ? e.message : "Incorrect OTP.", "OTP verification failed");
     } finally {
       setBusy(false);
     }
@@ -156,113 +158,111 @@ export function CustomerHandoverOtpModal({
   const title = isPrimary ? "Confirm handover OTP" : "OTP to other number / email";
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="handover-otp-title"
-    >
-      <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 id="handover-otp-title" className="text-lg font-bold text-zimson-900">
-              {title}
-            </h2>
-            <p className="mt-1 text-xs text-stone-600">
-              {isPrimary
-                ? "The same OTP is sent automatically to the customer’s primary mobile and email on the bill."
-                : "Enter mobile and/or email — the same OTP is sent to every address you provide."}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-stone-300 px-2 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-50"
-          >
-            Close
-          </button>
-        </div>
-
-        {phase === "custom-entry" ? (
-          <div className="space-y-4">
-            <label className="block text-xs font-medium text-stone-600">
-              OTP mobile
-              <input
-                value={customPhone}
-                onChange={(e) => setCustomPhone(sanitizePhoneDigits(e.target.value, 10))}
-                className={inputClass}
-                inputMode="numeric"
-                maxLength={10}
-                placeholder="10-digit mobile (optional)"
-                autoFocus
-              />
-            </label>
-            <label className="block text-xs font-medium text-stone-600">
-              OTP email
-              <input
-                type="email"
-                value={customEmail}
-                onChange={(e) => setCustomEmail(sanitizeEmailInput(e.target.value))}
-                className={inputClass}
-                placeholder="Email (optional)"
-              />
-            </label>
-            <p className="text-[11px] text-stone-500">At least one of mobile or email is required.</p>
-            {error ? (
-              <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">{error}</p>
-            ) : null}
+    <>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="handover-otp-title"
+      >
+        <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h2 id="handover-otp-title" className="text-lg font-bold text-zimson-900">
+                {title}
+              </h2>
+              <p className="mt-1 text-xs text-stone-600">
+                {isPrimary
+                  ? "The same OTP is sent automatically to the customer’s primary mobile and email on the bill."
+                  : "Enter mobile and/or email — the same OTP is sent to every address you provide."}
+              </p>
+            </div>
             <button
               type="button"
-              onClick={() => void handleCustomSend()}
-              disabled={busy}
-              className="w-full rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zimson-700 disabled:opacity-60"
+              onClick={onClose}
+              className="rounded-lg border border-stone-300 px-2 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-50"
             >
-              {busy ? "Sending…" : "Send OTP to mobile & email"}
+              Close
             </button>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {busy && !demoOtp ? (
-              <p className="rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">Sending OTP…</p>
-            ) : null}
-            {sentTo.length > 0 ? (
-              <p className="rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-800">
-                Same OTP sent to {formatSentToList(sentTo)}.
-              </p>
-            ) : null}
-            {demoOtp ? (
-              <DemoOtpGate
-                title="Enter OTP"
-                subtitle="Use the code from SMS or email. One code works for all destinations."
-                issuedCode={demoOtp}
-                value={otpInput}
-                onChange={setOtpInput}
-                error={error}
-                onVerify={() => void handleVerify()}
-                onRegenerate={() => void handleResend()}
-                verifyBusy={busy}
-              />
-            ) : error ? (
-              <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">{error}</p>
-            ) : null}
-            {isPrimary && error && !demoOtp && !busy ? (
+
+          {phase === "custom-entry" ? (
+            <div className="space-y-4">
+              <label className="block text-xs font-medium text-stone-600">
+                OTP mobile
+                <input
+                  value={customPhone}
+                  onChange={(e) => setCustomPhone(sanitizePhoneDigits(e.target.value, 10))}
+                  className={inputClass}
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="10-digit mobile (optional)"
+                  autoFocus
+                />
+              </label>
+              <label className="block text-xs font-medium text-stone-600">
+                OTP email
+                <input
+                  type="email"
+                  value={customEmail}
+                  onChange={(e) => setCustomEmail(sanitizeEmailInput(e.target.value))}
+                  className={inputClass}
+                  placeholder="Email (optional)"
+                />
+              </label>
+              <p className="text-[11px] text-stone-500">At least one of mobile or email is required.</p>
               <button
                 type="button"
-                onClick={() =>
-                  void sendOtpToBoth(
-                    primaryHasPhone ? contactPhone : undefined,
-                    primaryHasEmail ? primaryEmail : undefined,
-                  )
-                }
+                onClick={() => void handleCustomSend()}
                 disabled={busy}
-                className="w-full rounded-xl border border-zimson-400 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                className="w-full rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zimson-700 disabled:opacity-60"
               >
-                Retry send OTP
+                {busy ? "Sending…" : "Send OTP to mobile & email"}
               </button>
-            ) : null}
-          </div>
-        )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {busy && !sessionId ? (
+                <p className="rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">Sending OTP…</p>
+              ) : null}
+              {sentTo.length > 0 ? (
+                <p className="rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-800">
+                  Same OTP sent to {formatSentToList(sentTo)}.
+                </p>
+              ) : null}
+              {sessionId ? (
+                <DemoOtpGate
+                  title="Enter OTP"
+                  subtitle="Use the code from SMS or email. One code works for all destinations."
+                  issuedCode={demoOtp ?? undefined}
+                  value={otpInput}
+                  onChange={setOtpInput}
+                  onVerify={() => void handleVerify()}
+                  onRegenerate={() => void handleResend()}
+                  verifyBusy={busy}
+                />
+              ) : sendFailed && !busy ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    isPrimary
+                      ? void sendOtpToBoth(
+                          primaryHasPhone ? contactPhone : undefined,
+                          primaryHasEmail ? primaryEmail : undefined,
+                        )
+                      : void handleResend()
+                  }
+                  disabled={busy}
+                  className="w-full rounded-xl border border-zimson-400 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                >
+                  Retry send OTP
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+      {alertModal}
+    </>
   );
 }

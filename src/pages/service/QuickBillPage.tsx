@@ -33,6 +33,7 @@ import {
 } from "../../lib/paymentModes";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
+import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import type { QuickBillInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
@@ -276,6 +277,7 @@ export function QuickBillPage() {
   const [completion, setCompletion] = useState<CompletionState>(null);
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
+  const [whatsappSending, setWhatsappSending] = useState(false);
   const [isSavingBill, setIsSavingBill] = useState(false);
 
   const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
@@ -1032,7 +1034,37 @@ export function QuickBillPage() {
     lastAutoLookupPhoneRef.current = "";
     verifiedBillPhoneLast10Ref.current = "";
     setWatchModelSaveMsg(null);
+    setWhatsappSending(false);
   }
+
+  const handleSendInvoiceWhatsApp = useCallback(
+    async (inv: QuickBillInvoice) => {
+      const p10 = (inv.phone ?? phone).replace(/\D/g, "").slice(-10);
+      if (p10.length !== 10) {
+        setBillPostActionNote("Customer mobile (10 digits) is required for WhatsApp delivery.");
+        return;
+      }
+      setWhatsappSending(true);
+      setBillPostActionNote(null);
+      try {
+        const wa = await sendInvoiceWhatsApp({
+          phone: p10,
+          customerName: (inv.customerName ?? customerName).trim() || "Customer",
+          invoiceNumber: inv.invoiceNumber || inv.billNumber,
+        });
+        setBillPostActionNote(
+          wa.dryRun
+            ? `Test mode: PDF on API server${wa.localViewUrl ? ` — open ${wa.localViewUrl}` : ""}. Set WHATSAPP_INVOICE_DRY_RUN=false to send real WhatsApp (uses Qikberry Work Drive if no public URL).`
+            : "Invoice sent on WhatsApp successfully.",
+        );
+      } catch (e) {
+        setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice on WhatsApp.");
+      } finally {
+        setWhatsappSending(false);
+      }
+    },
+    [phone, customerName],
+  );
 
   if (completion?.mode === "api") {
     const inv = completion.invoice;
@@ -1054,13 +1086,10 @@ export function QuickBillPage() {
               <button
                 type="button"
                 className={qbSuccessBtnSecondary}
-                onClick={() =>
-                  setBillPostActionNote(
-                    "Sending the invoice to the customer by email, SMS, or WhatsApp is not wired yet — this will be added in a future update.",
-                  )
-                }
+                disabled={whatsappSending}
+                onClick={() => void handleSendInvoiceWhatsApp(inv)}
               >
-                Send invoice to customer
+                {whatsappSending ? "Sending on WhatsApp…" : "Send invoice on WhatsApp"}
               </button>
               <Link to="/service" className={`${qbSuccessBtnOutline} no-underline`}>
                 Home
@@ -1078,10 +1107,12 @@ export function QuickBillPage() {
             <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
               {billPostActionNote}
             </p>
-          ) : null}
-          <p className="mt-3 text-xs text-stone-500">
-            Customer delivery covers email, SMS, and WhatsApp once integrations are enabled.
-          </p>
+          ) : (
+            <p className="mt-3 text-xs text-stone-500">
+              WhatsApp uses your approved <strong>invoice</strong> template (PDF + invoice number). Email/SMS can be added
+              later.
+            </p>
+          )}
         </ProcessSuccessModal>
 
         <ServiceBreadcrumb current="Quick bill" className="print:hidden" />

@@ -22,10 +22,9 @@ import {
 
 // ── Shared style tokens ──────────────────────────────────────────────────────
 
-const inputCls =
-  "mt-1 w-full border border-rlx-rule bg-white px-3 py-2.5 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30 transition-colors";
+const inputCls = "ui-field mt-1";
 
-const labelCls = "block text-[11px] font-semibold uppercase tracking-widest text-stone-500";
+const labelCls = "ui-field-label mt-0";
 
 function SectionHeader({ step, title }: { step: number; title: string }) {
   return (
@@ -201,7 +200,7 @@ export function UserCreationPanel() {
         {/* ── Section 1: Role ── */}
         <div className="border border-rlx-rule bg-white p-5 mb-px">
           <SectionHeader step={1} title="Role" />
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="ui-form-grid">
             <div>
               <label htmlFor="uc-role" className={labelCls}>Select Role</label>
               <select
@@ -257,7 +256,7 @@ export function UserCreationPanel() {
         {/* ── Section 2: Org Scope ── */}
         <div className="border border-rlx-rule bg-white p-5 mb-px">
           <SectionHeader step={2} title="Organisation Scope" />
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="ui-form-grid">
             {/* Region */}
             {user.role !== "admin" ? (
               <div>
@@ -358,8 +357,8 @@ export function UserCreationPanel() {
         <div className="border border-rlx-rule bg-white p-5 mb-px">
           <SectionHeader step={3} title="Identity &amp; Sign-in" />
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
+          <div className="ui-form-grid">
+            <div className="ui-span-full">
               <label htmlFor="uc-employee-name" className={labelCls}>Employee Name *</label>
               <input
                 id="uc-employee-name"
@@ -372,7 +371,7 @@ export function UserCreationPanel() {
               />
             </div>
 
-            <div className="sm:col-span-2">
+            <div className="ui-span-full">
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <input
                   type="checkbox"

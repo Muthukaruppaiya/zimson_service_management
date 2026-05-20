@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
+import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { WatchFamilyPicker } from "../../components/service/WatchFamilyPicker";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
@@ -133,6 +134,7 @@ export function SrfBookingV2Page() {
   const { regions } = useRegions();
   const { brands: catalogBrands } = useBrands();
   const { getById, customers } = useCustomers();
+  const { showError: showOtpError, alertModal } = useMessageAlert();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { createDraftJob, refreshPhotoSession, finalizeJob, cancelDraftSrf, patchStoreDraftSrf, refreshJobs } = useSrfJobs();
@@ -211,7 +213,6 @@ export function SrfBookingV2Page() {
   }, [photoLightbox]);
   const [awaitingOtp, setAwaitingOtp] = useState<string | null>(null);
   const [otpInput, setOtpInput] = useState("");
-  const [otpError, setOtpError] = useState<string | null>(null);
   const [customerChecked, setCustomerChecked] = useState(false);
   const [customerExists, setCustomerExists] = useState(false);
   const [customerCheckMsg, setCustomerCheckMsg] = useState<string | null>(null);
@@ -910,13 +911,12 @@ export function SrfBookingV2Page() {
     if (!validateEstimate()) return;
     setAwaitingOtp(generateDemoOtp());
     setOtpInput("");
-    setOtpError(null);
   }
 
   function verifyOtpAndProceed() {
     if (!awaitingOtp) return;
     if (otpInput.trim() !== awaitingOtp) {
-      setOtpError("Incorrect OTP.");
+      showOtpError("Incorrect OTP. Please check the code and try again.", "OTP verification failed");
       return;
     }
     setAwaitingOtp(null);
@@ -1691,13 +1691,13 @@ export function SrfBookingV2Page() {
               issuedCode={awaitingOtp}
               value={otpInput}
               onChange={setOtpInput}
-              error={otpError}
               onVerify={verifyOtpAndProceed}
               onRegenerate={beginOtp}
             />
           </div>
         </div>
       ) : null}
+      {alertModal}
     </div>
   );
 }

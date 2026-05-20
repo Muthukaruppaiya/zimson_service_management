@@ -948,6 +948,18 @@ export async function runMigrations(pool: Pool): Promise<void> {
   );
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS messaging_settings (
+      id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by VARCHAR(200)
+    );
+  `);
+  await pool.query(
+    `INSERT INTO messaging_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`,
+  );
+
+  await pool.query(`
     ALTER TABLE quick_bills DROP CONSTRAINT IF EXISTS quick_bills_payment_mode_check;
     ALTER TABLE quick_bills ALTER COLUMN payment_mode TYPE VARCHAR(200);
     ALTER TABLE srf_jobs ALTER COLUMN advance_payment_mode TYPE VARCHAR(200);

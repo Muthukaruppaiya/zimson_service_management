@@ -12,7 +12,7 @@ export function Card({ title, subtitle, children, className = "", action }: Card
   return (
     <section className={`border border-rlx-rule bg-white shadow-sm ${className}`}>
       {(title || action) && (
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-rlx-rule bg-rlx-green px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-rlx-rule bg-rlx-green px-4 py-3">
           <div>
             {title ? (
               <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-white">{title}</h2>
@@ -26,7 +26,7 @@ export function Card({ title, subtitle, children, className = "", action }: Card
           {action ? <div className="shrink-0">{action}</div> : null}
         </div>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-4">{children}</div>
     </section>
   );
 }

@@ -41,6 +41,7 @@ import { TechnicianMasterPage } from "./pages/serviceCentre/TechnicianMasterPage
 import { UsersPrivilegesPage } from "./pages/UsersPrivilegesPage";
 import { UsersListPage } from "./pages/UsersListPage";
 import { ServiceTaxSettingsPage } from "./pages/settings/ServiceTaxSettingsPage";
+import { MessagingSettingsPage } from "./pages/settings/MessagingSettingsPage";
 import { DocumentTemplatesPage } from "./pages/settings/DocumentTemplatesPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
 import { InventoryPoInwardPage } from "./pages/inventory/InventoryPoInwardPage";
@@ -562,6 +563,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="settings">
                       <ServiceTaxSettingsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/settings/messaging"
+                  element={
+                    <ModuleRoute module="settings">
+                      <MessagingSettingsPage />
                     </ModuleRoute>
                   }
                 />

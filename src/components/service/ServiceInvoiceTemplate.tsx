@@ -22,6 +22,11 @@ function paymentAmountLabel(mode: string | undefined): string {
   return `${mode} Amount`;
 }
 
+/** Strip leading "1." / "1)" so <ol> does not show "1. 1." */
+function normalizeTermLine(text: string): string {
+  return text.replace(/^\s*\d+[\).\]:-]+\s*/, "").trim();
+}
+
 export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
   const rootId = `${idPrefix}-service-invoice-print-root`;
   const pb = data.productBlock;
@@ -29,45 +34,60 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
   const FALLBACK_LOGO = "/zimson-logo.png";
   const logoSrc = data.sellerLogoUrl || FALLBACK_LOGO;
   const scanInvoiceNumber = (data.invoiceNumber || data.serviceReference || "").trim();
+  const grossTotal =
+    data.grossTaxableTotal ?? data.lines.reduce((s, l) => s + l.grossValue, 0);
 
   return (
     <div
       id={rootId}
-      className="service-invoice-print-root mx-auto max-w-[210mm] bg-white text-sm text-stone-900 shadow-sm print:mx-0 print:max-w-none print:text-[9.5pt] print:leading-snug print:shadow-none"
+      className="service-invoice-print-root inv-doc"
     >
-      <div className="border border-stone-400 print:border-stone-600">
+      <div className="inv-sheet">
+        {/* Document banner */}
+        <div className="inv-banner">
+          <div className="inv-banner-title">{data.documentLabel?.trim() || "TAX INVOICE"}</div>
+          <div className="inv-banner-sub">
+            <div>{data.invoiceType || "Tax Invoice"}</div>
+            {data.placeOfSupply ? <div>Place of supply: {data.placeOfSupply}</div> : null}
+          </div>
+        </div>
 
-        {/* ══ HEADER ═══════════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-[auto_1fr_auto] items-start gap-4 border-b border-stone-400 px-4 py-3 print:gap-3 print:px-3 print:py-2">
-          {/* Left — Invoice meta */}
-          <dl className="shrink-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs print:text-[8pt]">
-            <dt className="font-semibold text-stone-600 whitespace-nowrap">Invoice No</dt>
-            <dd className="font-mono font-bold text-stone-900">: {data.invoiceNumber}</dd>
-            <dt className="font-semibold text-stone-600 whitespace-nowrap">Invoice Date</dt>
-            <dd className="text-stone-900">: {data.invoiceDate}</dd>
-            {data.serviceReference ? (
-              <>
-                <dt className="font-semibold text-stone-600 whitespace-nowrap">
-                  {data.invoiceType === "Quick Bill" ? "Quick Bill No" : "SR No"}
-                </dt>
-                <dd className="font-mono text-stone-900">: {data.serviceReference}</dd>
-              </>
-            ) : null}
-            {data.invoiceType ? (
-              <>
-                <dt className="font-semibold text-stone-600 whitespace-nowrap">Invoice Type</dt>
-                <dd className="font-semibold text-stone-900">: {data.invoiceType}</dd>
-              </>
-            ) : null}
-          </dl>
-
-          {/* Centre — Barcode */}
-          <div className="flex justify-center self-center">
+        {/* Header: meta | barcode | logo */}
+        <div className="inv-top-row">
+          <div className="inv-top-cell" style={{ width: "32%" }}>
+            <div className="inv-meta-box">
+              <table>
+                <tbody>
+                  <tr>
+                    <td className="inv-meta-label">Invoice No</td>
+                    <td className="inv-meta-value mono">: {data.invoiceNumber}</td>
+                  </tr>
+                  <tr>
+                    <td className="inv-meta-label">Invoice Date</td>
+                    <td className="inv-meta-value">: {data.invoiceDate}</td>
+                  </tr>
+                  {data.serviceReference ? (
+                    <tr>
+                      <td className="inv-meta-label">
+                        {data.invoiceType === "Quick Bill" ? "Quick Bill No" : "SR No"}
+                      </td>
+                      <td className="inv-meta-value mono">: {data.serviceReference}</td>
+                    </tr>
+                  ) : null}
+                  {data.invoiceType ? (
+                    <tr>
+                      <td className="inv-meta-label">Invoice Type</td>
+                      <td className="inv-meta-value">: {data.invoiceType}</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="inv-top-cell inv-barcode-wrap" style={{ width: "36%" }}>
             <InvoiceNumberScanCodes invoiceNumber={scanInvoiceNumber} className="mt-0 shrink-0" />
           </div>
-
-          {/* Right — Logo */}
-          <div className="flex justify-end">
+          <div className="inv-top-cell inv-logo-wrap" style={{ width: "32%" }}>
             <img
               src={logoSrc}
               alt="Zimson"
@@ -75,270 +95,289 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
                 (e.currentTarget as HTMLImageElement).onerror = null;
                 (e.currentTarget as HTMLImageElement).src = FALLBACK_LOGO;
               }}
-              className="h-20 w-auto max-w-[220px] object-contain print:h-14 print:max-w-[180px]"
             />
           </div>
         </div>
 
-        {/* ══ STORE + CUSTOMER ════════════════════════════════════════════ */}
-        <div className="grid grid-cols-2 border-b border-stone-400 print:border-stone-400">
-          {/* Store — left */}
-          <div className="border-r border-stone-300 px-4 py-3 print:px-3 print:py-2">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-500 print:text-[7.5pt]">
-              Store
-            </p>
-            <p className="font-bold text-stone-900 print:text-[9pt]">{data.seller.legalName}</p>
-            {data.seller.addressLines.map((line) => (
-              <p key={line} className="text-xs leading-snug text-stone-700 print:text-[8pt]">{line}</p>
-            ))}
-            {data.seller.phone ? (
-              <p className="mt-0.5 text-xs print:text-[8pt]">
-                <span className="font-semibold">PH:</span> {data.seller.phone}
+        {/* Bill From / Bill To */}
+        <div className="inv-party-grid">
+          <div className="inv-party-col">
+            <div className="inv-section-head">Bill From (Seller)</div>
+            <div className="inv-party-body">
+              <p style={{ fontWeight: 700, margin: "0 0 4px" }}>{data.seller.legalName}</p>
+              {data.seller.addressLines.map((line) => (
+                <p key={line} style={{ margin: "0 0 2px" }}>
+                  {line}
+                </p>
+              ))}
+              {data.seller.phone ? (
+                <p style={{ margin: "4px 0 0" }}>
+                  <strong>PH:</strong> {data.seller.phone}
+                </p>
+              ) : null}
+              {data.seller.email ? (
+                <p style={{ margin: 0 }}>
+                  <strong>EMail:</strong> {data.seller.email}
+                </p>
+              ) : null}
+              <p style={{ margin: "4px 0 0" }}>
+                <strong>GSTIN:</strong>{" "}
+                <span className="mono" style={{ fontFamily: "Consolas, monospace" }}>
+                  {data.seller.gstin}
+                </span>
               </p>
-            ) : null}
-            {data.seller.email ? (
-              <p className="text-xs print:text-[8pt]">
-                <span className="font-semibold">EMail:</span> {data.seller.email}
-              </p>
-            ) : null}
-            <p className="mt-0.5 text-xs font-mono print:text-[8pt]">
-              <span className="font-semibold">GSTIN:</span> {data.seller.gstin}
-            </p>
+            </div>
           </div>
-
-          {/* Customer — right (label: value format — all fields always shown) */}
-          <div className="px-4 py-3 print:px-3 print:py-2">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-500 print:text-[7.5pt]">
-              Customer
-            </p>
-            <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs print:text-[8pt]">
-              <span className="font-semibold text-stone-600 whitespace-nowrap">Customer Name</span>
-              <span className="text-stone-900 font-medium">: {data.billTo.name}</span>
-
-              <span className="font-semibold text-stone-600 whitespace-nowrap">Customer ID</span>
-              <span className="font-mono text-stone-900">: {data.billTo.customerCode || ""}</span>
-
-              <span className="font-semibold text-stone-600 whitespace-nowrap">Mobile Number</span>
-              <span className="text-stone-900">: {data.billTo.phone || ""}</span>
-
-              <span className="font-semibold text-stone-600 whitespace-nowrap">Email ID</span>
-              <span className="text-stone-700">: {data.billTo.email || ""}</span>
-
-              <span className="font-semibold text-stone-600 whitespace-nowrap">GSTIN Number</span>
-              <span className="font-mono text-stone-900">: {data.billTo.gstin || ""}</span>
-
-              <span className="font-semibold text-stone-600 whitespace-nowrap">Pan Number</span>
-              <span className="font-mono text-stone-900">: {data.billTo.pan || ""}</span>
-
-              <span className="font-semibold text-stone-600 whitespace-nowrap">Address</span>
-              <span className="text-stone-700">: {data.billTo.address || ""}</span>
+          <div className="inv-party-col">
+            <div className="inv-section-head">Bill To (Customer)</div>
+            <div className="inv-party-body">
+              <table className="inv-field-table">
+                <tbody>
+                  <tr>
+                    <td className="inv-field-label">Customer Name</td>
+                    <td className="inv-field-value">: {data.billTo.name}</td>
+                  </tr>
+                  <tr>
+                    <td className="inv-field-label">Customer ID</td>
+                    <td className="inv-field-value mono">: {data.billTo.customerCode || "—"}</td>
+                  </tr>
+                  <tr>
+                    <td className="inv-field-label">Mobile Number</td>
+                    <td className="inv-field-value">: {data.billTo.phone || "—"}</td>
+                  </tr>
+                  <tr>
+                    <td className="inv-field-label">Email ID</td>
+                    <td className="inv-field-value">: {data.billTo.email || "—"}</td>
+                  </tr>
+                  <tr>
+                    <td className="inv-field-label">GSTIN Number</td>
+                    <td className="inv-field-value mono">: {data.billTo.gstin || "—"}</td>
+                  </tr>
+                  <tr>
+                    <td className="inv-field-label">Pan Number</td>
+                    <td className="inv-field-value mono">: {data.billTo.pan || "—"}</td>
+                  </tr>
+                  <tr>
+                    <td className="inv-field-label">Billing Address</td>
+                    <td className="inv-field-value">: {data.billTo.address || "—"}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
 
-        {/* ══ PRODUCT INFORMATION ════════════════════════════════════════ */}
+        {/* Product information */}
         {pb ? (
-          <div className="border-b border-stone-400 px-4 py-3 print:px-3 print:py-2">
-            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-stone-500 print:text-[7.5pt]">
+          <div className="inv-product-panel">
+            <div className="inv-section-head" style={{ margin: "0 -10px 8px", borderTop: "none" }}>
               Product Information
-            </p>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs print:text-[8pt]">
-              {/* Left column */}
-              <div className="space-y-0.5">
-                <div className="flex gap-2">
-                  <span className="w-32 shrink-0 font-semibold text-stone-600">Brand Name</span>
-                  <span className="text-stone-900">: {pb.brandName}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="w-32 shrink-0 font-semibold text-stone-600">Brand / Model Number</span>
-                  <span className="text-stone-900">: {pb.modelOrSerial}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="w-32 shrink-0 font-semibold text-stone-600">Nature of Repair</span>
-                  <span className="text-stone-900">: {pb.natureOfRepair}</span>
-                </div>
-              </div>
-              {/* Right column — Brand Model */}
-              <div className="flex gap-2">
-                <span className="w-24 shrink-0 font-semibold text-stone-600">Brand Model</span>
-                <span className="text-stone-900">: {pb.brandModel}</span>
-              </div>
             </div>
-            {/* Extra serviceMeta (SRF complaint etc.) */}
+            <table className="inv-field-table inv-product-fields">
+              <colgroup>
+                <col className="inv-col-label" />
+                <col className="inv-col-value" />
+                <col className="inv-col-label" />
+                <col className="inv-col-value" />
+              </colgroup>
+              <tbody>
+                <tr>
+                  <td className="inv-field-label">Brand Name</td>
+                  <td className="inv-field-value">: {pb.brandName}</td>
+                  <td className="inv-field-label">Brand Model</td>
+                  <td className="inv-field-value">: {pb.brandModel}</td>
+                </tr>
+                <tr>
+                  <td className="inv-field-label">Brand / Model Number</td>
+                  <td className="inv-field-value">: {pb.modelOrSerial}</td>
+                  <td className="inv-field-label">Nature of Repair</td>
+                  <td className="inv-field-value">: {pb.natureOfRepair}</td>
+                </tr>
+              </tbody>
+            </table>
             {data.serviceMeta.length > 0 ? (
-              <div className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs print:text-[8pt]">
-                {data.serviceMeta.map((row) => (
-                  <div key={row.label} className="contents">
-                    <span className="font-semibold text-stone-600">{row.label}</span>
-                    <span className="text-stone-900">: {row.value}</span>
-                  </div>
-                ))}
-              </div>
+              <table className="inv-field-table" style={{ marginTop: 6 }}>
+                <tbody>
+                  {data.serviceMeta.map((row) => (
+                    <tr key={row.label}>
+                      <td className="inv-field-label">{row.label}</td>
+                      <td className="inv-field-value" colSpan={3}>
+                        : {row.value}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             ) : null}
           </div>
         ) : data.serviceMeta.length > 0 ? (
-          <div className="border-b border-stone-400 px-4 py-3 print:px-3 print:py-2">
-            <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs print:text-[8pt]">
-              {data.serviceMeta.map((row) => (
-                <div key={row.label} className="contents">
-                  <span className="font-semibold text-stone-600">{row.label}</span>
-                  <span className="text-stone-900">: {row.value}</span>
-                </div>
-              ))}
-            </div>
+          <div className="inv-product-panel">
+            <table className="inv-field-table">
+              <tbody>
+                {data.serviceMeta.map((row) => (
+                  <tr key={row.label}>
+                    <td className="inv-field-label">{row.label}</td>
+                    <td className="inv-field-value">: {row.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : null}
 
-        {/* ══ ITEMS TABLE ════════════════════════════════════════════════ */}
-        <div className="border-b border-stone-400 overflow-x-auto print:overflow-visible">
-          <table className="w-full border-collapse text-xs print:text-[8pt]">
-            <thead>
-              <tr className="border-b border-stone-800 bg-stone-100 text-left font-bold text-stone-800 print:bg-stone-200">
-                <th className="px-3 py-2 print:px-2 print:py-1">S.No</th>
-                <th className="px-3 py-2 print:px-2 print:py-1">Spare Code</th>
-                <th className="px-3 py-2 print:px-2 print:py-1">Item Name</th>
-                <th className="px-3 py-2 print:px-2 print:py-1">HSN/ SAC Number</th>
-                <th className="px-3 py-2 print:px-2 print:py-1 text-right">Price</th>
-                <th className="px-3 py-2 print:px-2 print:py-1 text-right">Quantity</th>
-                <th className="px-3 py-2 print:px-2 print:py-1 text-right">Gross Value</th>
+        {/* Line items */}
+        <table className="inv-items-table">
+          <thead>
+            <tr>
+              <th>S.No</th>
+              <th>Spare Code</th>
+              <th>Item Name</th>
+              <th>HSN/SAC Number</th>
+              <th className="num">Price</th>
+              <th className="num">Quantity</th>
+              <th className="num">Gross Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.lines.map((ln) => (
+              <tr key={ln.slNo}>
+                <td>{ln.slNo}</td>
+                <td className="mono" style={{ fontFamily: "Consolas, monospace" }}>
+                  {ln.spareCode ?? "—"}
+                </td>
+                <td>{ln.description}</td>
+                <td className="mono" style={{ fontFamily: "Consolas, monospace" }}>
+                  {ln.hsnSac}
+                </td>
+                <td className="num">{fmt(ln.unitPrice)}</td>
+                <td className="num">{ln.qty}</td>
+                <td className="num">{fmt(ln.grossValue)}</td>
               </tr>
-            </thead>
-            <tbody>
-              {data.lines.map((ln) => (
-                <tr key={ln.slNo} className="border-b border-stone-200">
-                  <td className="px-3 py-1.5 text-stone-600 print:px-2 print:py-1">{ln.slNo}</td>
-                  <td className="px-3 py-1.5 font-mono text-[11px] text-stone-700 print:px-2 print:py-1 print:text-[7.5pt]">
-                    {ln.spareCode ?? "—"}
-                  </td>
-                  <td className="px-3 py-1.5 text-stone-900 print:px-2 print:py-1">{ln.description}</td>
-                  <td className="px-3 py-1.5 font-mono text-[11px] print:px-2 print:py-1 print:text-[7.5pt]">{ln.hsnSac}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums print:px-2 print:py-1">{fmt(ln.unitPrice)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums print:px-2 print:py-1">{ln.qty}</td>
-                  <td className="px-3 py-1.5 text-right font-medium tabular-nums print:px-2 print:py-1">{fmt(ln.grossValue)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-stone-800 font-semibold bg-stone-50">
-                <td colSpan={5} className="px-3 py-1.5 text-stone-700 print:px-2 print:py-1">
-                  {data.amountInWords ? (
-                    <span className="block text-[11px] font-normal italic print:text-[7.5pt]">
-                      {data.amountInWords}
-                    </span>
-                  ) : null}
-                </td>
-                <td className="px-3 py-1.5 text-right tabular-nums print:px-2 print:py-1">
-                  {data.totalQty != null ? data.totalQty : ""}
-                </td>
-                <td className="px-3 py-1.5 text-right tabular-nums font-bold text-stone-950 print:px-2 print:py-1">
-                  {fmt(data.grossTaxableTotal ?? data.lines.reduce((s, l) => s + l.grossValue, 0))}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={5}>
+                {data.amountInWords ? (
+                  <span className="inv-amount-words">{data.amountInWords}</span>
+                ) : null}
+              </td>
+              <td className="num">{data.totalQty != null ? data.totalQty : ""}</td>
+              <td className="num">{fmt(grossTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
 
-        {/* ══ PAYMENT + TOTALS ═══════════════════════════════════════════ */}
-        <div className="grid grid-cols-2 border-b border-stone-400">
-          {/* Left — Payment modes */}
-          <div className="border-r border-stone-300 px-4 py-3 print:px-3 print:py-2">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-500 print:text-[7.5pt]">
+        {/* Payment + totals */}
+        <div className="inv-bottom-grid">
+          <div className="inv-bottom-col" style={{ width: "50%" }}>
+            <div className="inv-section-head" style={{ margin: "-10px -10px 8px", borderTop: "none" }}>
               Payment Modes
-            </p>
-            <div className="space-y-0.5 text-xs print:text-[8pt]">
-              <div className="flex gap-2">
-                <span className="w-36 shrink-0 font-semibold text-stone-600">Advance Amount</span>
-                <span>: {fmt(data.advanceAmount ?? 0)}</span>
-              </div>
-              {data.paymentSplits && data.paymentSplits.length > 0 ? (
-                data.paymentSplits.map((split) => (
-                  <div key={split.mode} className="flex gap-2">
-                    <span className="w-36 shrink-0 font-semibold text-stone-600">{split.mode}</span>
-                    <span className="tabular-nums">
-                      : {fmt(split.amountInr)}
-                      {split.reference?.trim() ? (
-                        <span className="ml-1 font-normal text-stone-600">({split.reference.trim()})</span>
-                      ) : null}
-                    </span>
-                  </div>
-                ))
-              ) : data.paymentMode ? (
-                <div className="flex gap-2 font-semibold">
-                  <span className="w-36 shrink-0 text-stone-600">{data.paymentMode} Payment</span>
-                  <span>: {fmt((data.amountPaid ?? data.totalAmount) - (data.advanceAmount ?? 0))}</span>
-                </div>
-              ) : null}
-              <div className="flex gap-2">
-                <span className="w-36 shrink-0 font-semibold text-stone-600">
-                  {data.paymentSplits?.length ? "Total paid" : paymentAmountLabel(data.paymentMode)}
-                </span>
-                <span>: {fmt(data.amountPaid ?? data.totalAmount)}</span>
-              </div>
-              {data.notes ? (
-                <p className="mt-1 text-stone-600 italic print:text-[7.5pt]">
-                  Remarks: {data.notes}
-                </p>
-              ) : null}
             </div>
+            <table className="inv-pay-table">
+              <tbody>
+                <tr>
+                  <td className="inv-pay-label">Advance Amount</td>
+                  <td className="inv-pay-value">{fmt(data.advanceAmount ?? 0)}</td>
+                </tr>
+            {data.paymentSplits && data.paymentSplits.length > 0
+              ? data.paymentSplits.map((split) => (
+                      <tr key={split.mode}>
+                        <td className="inv-pay-label">{split.mode}</td>
+                        <td className="inv-pay-value">
+                          {fmt(split.amountInr)}
+                          {split.reference?.trim() ? ` (${split.reference.trim()})` : ""}
+                        </td>
+                      </tr>
+                ))
+              : data.paymentMode
+                ? (
+                        <tr>
+                          <td className="inv-pay-label">{data.paymentMode} Payment</td>
+                          <td className="inv-pay-value">
+                            {fmt((data.amountPaid ?? data.totalAmount) - (data.advanceAmount ?? 0))}
+                          </td>
+                        </tr>
+                  )
+                : null}
+                <tr>
+                  <td className="inv-pay-label">
+                    {data.paymentSplits?.length ? "Total paid" : paymentAmountLabel(data.paymentMode)}
+                  </td>
+                  <td className="inv-pay-value">{fmt(data.amountPaid ?? data.totalAmount)}</td>
+                </tr>
+              </tbody>
+            </table>
+            {data.notes ? (
+              <p style={{ marginTop: 8, fontStyle: "italic", color: "#4a5568" }}>
+                Remarks: {data.notes}
+              </p>
+            ) : null}
           </div>
-
-          {/* Right — Gross / Tax / Net */}
-          <div className="flex flex-col items-end justify-end px-4 py-3 text-xs print:px-3 print:py-2 print:text-[8pt]">
-            <div className="w-full space-y-0.5">
-              <div className="flex justify-between gap-4">
-                <span className="font-semibold text-stone-600">Gross Amount</span>
-                <span className="tabular-nums">₹ {fmt(data.grossTaxableTotal ?? 0)}</span>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="font-semibold text-stone-600">Tax Amount</span>
-                <span className="tabular-nums">₹ {fmt(data.totalTax ?? 0)}</span>
-              </div>
-              <div className="flex justify-between gap-4 border-t border-stone-400 pt-1 font-bold text-sm print:text-[9pt]">
-                <span className="text-stone-900">Net Payable</span>
-                <span className="tabular-nums text-stone-950">₹ {fmt(data.netPayable ?? data.totalAmount)}</span>
-              </div>
+          <div className="inv-bottom-col" style={{ width: "50%" }}>
+            <div className="inv-totals-box">
+              <table className="inv-totals-table">
+                <tbody>
+                  <tr>
+                    <td className="inv-total-label">Gross Amount</td>
+                    <td className="inv-total-value">₹ {fmt(data.grossTaxableTotal ?? 0)}</td>
+                  </tr>
+                  <tr>
+                    <td className="inv-total-label">Tax Amount</td>
+                    <td className="inv-total-value">₹ {fmt(data.totalTax ?? 0)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <table className="inv-net-box">
+                <tbody>
+                  <tr>
+                    <td>Net Payable</td>
+                    <td>₹ {fmt(data.netPayable ?? data.totalAmount)}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
 
-        {/* ══ TAX BREAKDOWN ══════════════════════════════════════════════ */}
+        {/* Tax breakdown */}
         {data.taxBreakdownRows && data.taxBreakdownRows.length > 0 ? (
-          <div className="border-b border-stone-400 px-4 py-3 print:px-3 print:py-2">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-500 print:text-[7.5pt]">
-              Payment Remarks
-            </p>
-            <table className="w-full border-collapse border border-stone-700 text-xs print:text-[8pt]">
+          <div className="inv-product-panel">
+            <div className="inv-section-head" style={{ margin: "0 -10px 8px", borderTop: "none" }}>
+              Tax Summary
+            </div>
+            <table className="inv-tax-table">
               <thead>
-                <tr className="bg-stone-100 font-bold print:bg-stone-200">
-                  <th className="border border-stone-600 px-2 py-1 text-left print:py-0.5">Tax Description</th>
-                  <th className="border border-stone-600 px-2 py-1 text-right print:py-0.5">Taxable Amount</th>
-                  <th className="border border-stone-600 px-2 py-1 text-right print:py-0.5">CGST</th>
-                  <th className="border border-stone-600 px-2 py-1 text-right print:py-0.5">SGST</th>
-                  <th className="border border-stone-600 px-2 py-1 text-right print:py-0.5">Total</th>
+                <tr>
+                  <th>Tax Description</th>
+                  <th style={{ textAlign: "right" }}>Taxable Amount</th>
+                  <th style={{ textAlign: "right" }}>CGST</th>
+                  <th style={{ textAlign: "right" }}>SGST</th>
+                  <th style={{ textAlign: "right" }}>Total</th>
                 </tr>
               </thead>
               <tbody>
                 {data.taxBreakdownRows.map((r, idx) => (
                   <tr key={`${r.description}-${idx}`}>
-                    <td className="border border-stone-300 px-2 py-0.5">{r.description}</td>
-                    <td className="border border-stone-300 px-2 py-0.5 text-right tabular-nums">{fmt(r.taxable)}</td>
-                    <td className="border border-stone-300 px-2 py-0.5 text-right tabular-nums">{fmt(r.cgst)}</td>
-                    <td className="border border-stone-300 px-2 py-0.5 text-right tabular-nums">{fmt(r.sgst)}</td>
-                    <td className="border border-stone-300 px-2 py-0.5 text-right tabular-nums font-semibold">{fmt(r.total)}</td>
+                    <td>{r.description}</td>
+                    <td style={{ textAlign: "right" }}>{fmt(r.taxable)}</td>
+                    <td style={{ textAlign: "right" }}>{fmt(r.cgst)}</td>
+                    <td style={{ textAlign: "right" }}>{fmt(r.sgst)}</td>
+                    <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(r.total)}</td>
                   </tr>
                 ))}
-                <tr className="font-bold bg-stone-50">
-                  <td className="border border-stone-400 px-2 py-0.5">Total</td>
-                  <td className="border border-stone-400 px-2 py-0.5 text-right tabular-nums">
+                <tr style={{ fontWeight: 700, background: "#e8edf8" }}>
+                  <td>Total</td>
+                  <td style={{ textAlign: "right" }}>
                     {fmt(data.taxBreakdownRows.reduce((s, r) => s + r.taxable, 0))}
                   </td>
-                  <td className="border border-stone-400 px-2 py-0.5 text-right tabular-nums">
+                  <td style={{ textAlign: "right" }}>
                     {fmt(data.taxBreakdownRows.reduce((s, r) => s + r.cgst, 0))}
                   </td>
-                  <td className="border border-stone-400 px-2 py-0.5 text-right tabular-nums">
+                  <td style={{ textAlign: "right" }}>
                     {fmt(data.taxBreakdownRows.reduce((s, r) => s + r.sgst, 0))}
                   </td>
-                  <td className="border border-stone-400 px-2 py-0.5 text-right tabular-nums">
+                  <td style={{ textAlign: "right" }}>
                     {fmt(data.taxBreakdownRows.reduce((s, r) => s + r.total, 0))}
                   </td>
                 </tr>
@@ -347,48 +386,41 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </div>
         ) : null}
 
-        {/* ══ TERMS AND CONDITIONS ═══════════════════════════════════════ */}
+        {/* Terms */}
         {data.footerTerms && data.footerTerms.length > 0 ? (
-          <div className="inv-terms border-b border-stone-400 px-4 py-3 print:px-3 print:py-2">
-            <p className="mb-1.5 font-bold uppercase tracking-wide text-stone-800 print:text-[8pt]">
-              Terms and Conditions
-            </p>
-            <ol className="list-decimal space-y-0.5 pl-4 text-[11px] leading-snug text-stone-700 print:space-y-0 print:pl-3 print:text-[7.5pt] print:leading-tight">
+          <div className="inv-terms">
+            <div className="inv-terms-title">Terms and Conditions</div>
+            <ol>
               {data.footerTerms.map((t, i) => (
-                <li key={i}>{t}</li>
+                <li key={i}>{normalizeTermLine(t)}</li>
               ))}
             </ol>
           </div>
         ) : null}
 
-        {/* ══ FOOTER ════════════════════════════════════════════════════ */}
-        <div className="flex items-end justify-between gap-4 px-4 py-3 text-xs text-stone-700 print:px-3 print:py-2 print:text-[8pt]">
-          <div>
+        {/* Footer */}
+        <div className="inv-footer">
+          <div className="inv-footer-left">
             {data.generatedBy ? (
-              <p>
-                <span className="font-semibold">Invoice generated by:</span> {data.generatedBy}
+              <p style={{ margin: 0 }}>
+                <strong>Invoice generated by:</strong> {data.generatedBy}
               </p>
             ) : null}
             {data.invoiceLegalFooter ? (
-              <p className="mt-1 font-bold text-stone-900 print:mt-0.5">
+              <p style={{ margin: "6px 0 0", fontWeight: 700 }}>
                 For {data.invoiceLegalFooter}
               </p>
             ) : null}
           </div>
-          <div className="text-center">
-            <div className="mb-1 h-8 print:h-6" />
-            <div className="border-t border-stone-700 pt-1 text-xs text-stone-600 print:text-[7.5pt]">
-              Authorised Signatory
-            </div>
+          <div className="inv-footer-right">
+            <div className="inv-sign-line">Authorised Signatory</div>
           </div>
         </div>
 
-        {/* Computer generated note */}
-        <div className="border-t border-stone-200 px-4 pb-2 pt-1 text-[9px] text-stone-400 print:text-[7pt]">
-          This is a computer-generated document. Signature may not be required subject to company policy.
-          Subject to jurisdiction at Chennai, Tamil Nadu, E. &amp; O.E.
+        <div className="inv-footnote">
+          This is a computer-generated document. Signature may not be required subject to company
+          policy. Subject to jurisdiction at Chennai, Tamil Nadu, E. &amp; O.E.
         </div>
-
       </div>
     </div>
   );

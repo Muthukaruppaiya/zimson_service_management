@@ -6,6 +6,7 @@ import { CustomerAddressForm } from "../../components/service/CustomerAddressFor
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useCustomers } from "../../context/CustomersContext";
+import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../data/serviceSeed";
 import { apiJson, useApiMode } from "../../lib/api";
 import {
@@ -86,6 +87,7 @@ export function SrfCustomerRegisterPage() {
     startRegistrationEmailOtp,
     confirmRegistrationEmailOtp,
   } = useCustomers();
+  const { showError: showOtpAlert, alertModal } = useMessageAlert();
   const forQuickBill = location.pathname.includes("/quick-bill/new-customer");
 
   const initialPhone = searchParams.get("phone") ?? "";
@@ -229,7 +231,7 @@ export function SrfCustomerRegisterPage() {
   async function handleStartMobileOtp() {
     setError(null);
     if (!phone.trim() || digitsOnly(phone, 12).length < 10) {
-      setError("Enter a valid 10-digit primary mobile.");
+      showOtpAlert("Enter a valid 10-digit primary mobile.", "OTP");
       return;
     }
     setOtpStartBusy(true);
@@ -245,9 +247,9 @@ export function SrfCustomerRegisterPage() {
         otpPhone: "",
       });
       setSessionId(out.sessionId);
-      setDemoMobileOtp(out.demoMobileOtp);
+      setDemoMobileOtp(out.demoMobileOtp ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send mobile OTP.");
+      showOtpAlert(e instanceof Error ? e.message : "Could not send mobile OTP.", "OTP");
     } finally {
       setOtpStartBusy(false);
     }
@@ -256,29 +258,32 @@ export function SrfCustomerRegisterPage() {
   async function handleConfirmMobileOtp() {
     setError(null);
     if (!sessionId) {
-      setError("Tap Verify next to primary mobile to send the mobile OTP first.");
+      showOtpAlert("Tap Verify next to primary mobile to send the mobile OTP first.", "OTP");
       return;
     }
     if (mobileOtpInput.trim().length !== 6) {
-      setError("Enter the 6-digit mobile OTP.");
+      showOtpAlert("Enter the 6-digit mobile OTP.", "OTP");
       return;
     }
     try {
       await confirmRegistrationMobileOtp({ sessionId, otp: mobileOtpInput.trim() });
       setMobileOtpVerified(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Mobile OTP could not be confirmed.");
+      showOtpAlert(
+        e instanceof Error ? e.message : "Mobile OTP could not be confirmed.",
+        "OTP verification failed",
+      );
     }
   }
 
   async function handleStartEmailOtp() {
     setError(null);
     if (!mobileOtpVerified || !sessionId) {
-      setError("Verify your mobile number first, then enter your email.");
+      showOtpAlert("Verify your mobile number first, then enter your email.", "OTP");
       return;
     }
     if (!isValidEmail(email)) {
-      setError("Enter a valid email before requesting email OTP.");
+      showOtpAlert("Enter a valid email before requesting email OTP.", "OTP");
       return;
     }
     setOtpStartBusy(true);
@@ -286,10 +291,15 @@ export function SrfCustomerRegisterPage() {
     setEmailOtpInput("");
     try {
       const out = await startRegistrationEmailOtp({ sessionId, email: email.trim() });
-      setDemoEmailOtp(out.demoEmailOtp);
+      setDemoEmailOtp(out.demoEmailOtp ?? null);
       setEmailOtpAnchor(emailKey);
+      if (out.demoEmailOtp) {
+        setEmailOtpInput("");
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send email OTP.");
+      showOtpAlert(e instanceof Error ? e.message : "Could not send email OTP.", "OTP");
+      setEmailOtpAnchor(null);
+      setDemoEmailOtp(null);
     } finally {
       setOtpStartBusy(false);
     }
@@ -298,25 +308,31 @@ export function SrfCustomerRegisterPage() {
   async function handleConfirmEmailOtp() {
     setError(null);
     if (!sessionId) {
-      setError("Complete mobile verification first.");
+      showOtpAlert("Complete mobile verification first.", "OTP");
       return;
     }
     if (emailOtpInput.trim().length !== 6) {
-      setError("Enter the 6-digit email OTP.");
+      showOtpAlert("Enter the 6-digit email OTP.", "OTP");
       return;
     }
     try {
       await confirmRegistrationEmailOtp({ sessionId, otp: emailOtpInput.trim() });
       setEmailOtpVerified(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Email OTP could not be confirmed.");
+      showOtpAlert(
+        e instanceof Error ? e.message : "Email OTP could not be confirmed.",
+        "OTP verification failed",
+      );
     }
   }
 
   function validateAll(): boolean {
     setError(null);
     if (!sessionId || !mobileOtpVerified || !emailOtpVerified) {
-      setError("Complete mobile and email OTP verification (Verify → enter code → Confirm OTP for each).");
+      showOtpAlert(
+        "Complete mobile and email OTP verification (Verify → enter code → Confirm OTP for each).",
+        "OTP required",
+      );
       return false;
     }
     if (!isValidEmail(email)) {
@@ -554,12 +570,19 @@ export function SrfCustomerRegisterPage() {
                   </span>
                 ) : null}
               </div>
-              {sessionId && demoMobileOtp && !mobileOtpVerified ? (
+              {sessionId && !mobileOtpVerified ? (
                 <div className="mt-2 rounded-xl border border-dashed border-zimson-400 bg-zimson-50/80 p-3">
-                  <p className="text-xs text-stone-600">
-                    <span className="font-semibold text-zimson-900">Mobile OTP (demo)</span>{" "}
-                    <span className="font-mono text-lg font-bold tracking-widest text-stone-900">{demoMobileOtp}</span>
-                  </p>
+                  {demoMobileOtp ? (
+                    <p className="text-xs text-stone-600">
+                      <span className="font-semibold text-zimson-900">Mobile OTP</span>{" "}
+                      <span className="text-stone-500">(SMS not configured — use this code)</span>{" "}
+                      <span className="font-mono text-lg font-bold tracking-widest text-stone-900">{demoMobileOtp}</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-stone-600">
+                      A 6-digit OTP was sent to <strong className="text-zimson-900">{phone}</strong>. Enter it below.
+                    </p>
+                  )}
                   <div className="mt-2 flex flex-wrap items-end gap-2">
                     <div className="min-w-0 flex-1">
                       <label className="text-xs font-medium text-stone-600" htmlFor="srf-reg-mobile-otp">
@@ -571,6 +594,7 @@ export function SrfCustomerRegisterPage() {
                         onChange={(e) => setMobileOtpInput(digitsOnly(e.target.value, 6))}
                         className={inputClass}
                         inputMode="numeric"
+                        autoComplete="one-time-code"
                         maxLength={6}
                         placeholder="6 digits"
                       />
@@ -632,12 +656,21 @@ export function SrfCustomerRegisterPage() {
                   </span>
                 ) : null}
               </div>
-              {sessionId && demoEmailOtp && !emailOtpVerified ? (
+              {sessionId && mobileOtpVerified && !emailOtpVerified && emailOtpAnchor === emailKey ? (
                 <div className="mt-2 rounded-xl border border-dashed border-zimson-400 bg-zimson-50/80 p-3">
-                  <p className="text-xs text-stone-600">
-                    <span className="font-semibold text-zimson-900">Email OTP (demo)</span>{" "}
-                    <span className="font-mono text-lg font-bold tracking-widest text-stone-900">{demoEmailOtp}</span>
-                  </p>
+                  {demoEmailOtp ? (
+                    <p className="text-xs text-stone-600">
+                      <span className="font-semibold text-zimson-900">Email OTP</span>{" "}
+                      <span className="text-stone-500">
+                        (email could not be sent — enter this code below)
+                      </span>{" "}
+                      <span className="font-mono text-lg font-bold tracking-widest text-stone-900">{demoEmailOtp}</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-stone-600">
+                      A 6-digit OTP was sent to <strong className="text-zimson-900">{email}</strong>. Enter it below.
+                    </p>
+                  )}
                   <div className="mt-2 flex flex-wrap items-end gap-2">
                     <div className="min-w-0 flex-1">
                       <label className="text-xs font-medium text-stone-600" htmlFor="srf-reg-email-otp">
@@ -649,6 +682,7 @@ export function SrfCustomerRegisterPage() {
                         onChange={(e) => setEmailOtpInput(digitsOnly(e.target.value, 6))}
                         className={inputClass}
                         inputMode="numeric"
+                        autoComplete="one-time-code"
                         maxLength={6}
                         placeholder="6 digits"
                       />
@@ -907,6 +941,7 @@ export function SrfCustomerRegisterPage() {
           </p>
         </ProcessSuccessModal>
       ) : null}
+      {alertModal}
     </div>
   );
 }

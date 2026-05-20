@@ -1,0 +1,426 @@
+/* ERP-style tax invoice — hex colours only (PDF / html2canvas safe) */
+
+.service-invoice-print-root.inv-doc {
+  max-width: 210mm;
+  margin-left: auto;
+  margin-right: auto;
+  background: #ffffff;
+  color: #0d1b2a;
+  font-family: "Segoe UI", "DM Sans", Arial, sans-serif;
+  font-size: 11px;
+  line-height: 1.35;
+  box-shadow: 0 1px 4px rgba(13, 27, 42, 0.12);
+}
+
+.service-invoice-print-root.inv-doc .inv-sheet {
+  border: 2px solid #1b3a8f;
+}
+
+/* Table layout — html2canvas renders flex/table-cell poorly in PDF capture */
+.service-invoice-print-root.inv-doc .inv-banner {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  background: #1b3a8f;
+  color: #ffffff;
+}
+
+.service-invoice-print-root.inv-doc .inv-banner-title {
+  display: table-cell;
+  vertical-align: middle;
+  padding: 10px 14px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.service-invoice-print-root.inv-doc .inv-banner-sub {
+  display: table-cell;
+  vertical-align: middle;
+  padding: 10px 14px;
+  font-size: 11px;
+  text-align: right;
+}
+
+.service-invoice-print-root.inv-doc .inv-top-row {
+  display: table;
+  width: 100%;
+  border-bottom: 1px solid #1b3a8f;
+}
+
+.service-invoice-print-root.inv-doc .inv-top-cell {
+  display: table-cell;
+  vertical-align: top;
+  padding: 10px 12px;
+  border-right: 1px solid #d8dff0;
+}
+
+.service-invoice-print-root.inv-doc .inv-top-cell:last-child {
+  border-right: none;
+}
+
+.service-invoice-print-root.inv-doc .inv-meta-box {
+  border: 1px solid #1b3a8f;
+  background: #f4f6fb;
+  padding: 8px 10px;
+  min-width: 200px;
+}
+
+.service-invoice-print-root.inv-doc .inv-meta-box table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.service-invoice-print-root.inv-doc .inv-meta-label {
+  font-weight: 600;
+  color: #4a5568;
+  padding: 2px 8px 2px 0;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.service-invoice-print-root.inv-doc .inv-meta-value {
+  font-weight: 700;
+  color: #0d1b2a;
+  padding: 2px 0;
+}
+
+.service-invoice-print-root.inv-doc .inv-meta-value.mono {
+  font-family: "Consolas", "Courier New", monospace;
+}
+
+.service-invoice-print-root.inv-doc .inv-logo-wrap {
+  text-align: right;
+}
+
+.service-invoice-print-root.inv-doc .inv-logo-wrap img {
+  height: 56px;
+  max-width: 180px;
+  object-fit: contain;
+}
+
+.service-invoice-print-root.inv-doc .inv-barcode-wrap {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.service-invoice-print-root.inv-doc .inv-section-head {
+  background: #e8edf8;
+  color: #1b3a8f;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 5px 10px;
+  border-bottom: 1px solid #1b3a8f;
+}
+
+.service-invoice-print-root.inv-doc .inv-party-grid {
+  display: table;
+  width: 100%;
+  border-bottom: 1px solid #1b3a8f;
+}
+
+.service-invoice-print-root.inv-doc .inv-party-col {
+  display: table-cell;
+  width: 50%;
+  vertical-align: top;
+  padding: 0;
+  border-right: 1px solid #d8dff0;
+}
+
+.service-invoice-print-root.inv-doc .inv-party-col:last-child {
+  border-right: none;
+}
+
+.service-invoice-print-root.inv-doc .inv-party-body {
+  padding: 8px 10px 10px;
+}
+
+.service-invoice-print-root.inv-doc .inv-field-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.service-invoice-print-root.inv-doc .inv-product-fields col.inv-col-label {
+  width: 24%;
+}
+
+.service-invoice-print-root.inv-doc .inv-product-fields col.inv-col-value {
+  width: 26%;
+}
+
+.service-invoice-print-root.inv-doc .inv-field-label {
+  width: 38%;
+  font-weight: 600;
+  color: #4a5568;
+  padding: 2px 6px 2px 0;
+  vertical-align: top;
+}
+
+.service-invoice-print-root.inv-doc .inv-field-value {
+  color: #0d1b2a;
+  padding: 2px 0;
+  vertical-align: top;
+}
+
+.service-invoice-print-root.inv-doc .inv-field-value.mono {
+  font-family: "Consolas", "Courier New", monospace;
+}
+
+.service-invoice-print-root.inv-doc .inv-product-panel {
+  border-bottom: 1px solid #1b3a8f;
+  padding: 8px 10px;
+}
+
+.service-invoice-print-root.inv-doc .inv-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.service-invoice-print-root.inv-doc .inv-items-table th {
+  background: #1b3a8f;
+  color: #ffffff;
+  font-weight: 700;
+  text-align: left;
+  padding: 6px 8px;
+  border: 1px solid #102570;
+}
+
+.service-invoice-print-root.inv-doc .inv-items-table th.num,
+.service-invoice-print-root.inv-doc .inv-items-table td.num {
+  text-align: right;
+}
+
+.service-invoice-print-root.inv-doc .inv-items-table td {
+  border: 1px solid #d8dff0;
+  padding: 5px 8px;
+  vertical-align: top;
+}
+
+.service-invoice-print-root.inv-doc .inv-items-table tbody tr:nth-child(even) td {
+  background: #f8f9fc;
+}
+
+.service-invoice-print-root.inv-doc .inv-items-table tfoot td {
+  background: #e8edf8;
+  font-weight: 700;
+  border: 1px solid #1b3a8f;
+}
+
+.service-invoice-print-root.inv-doc .inv-amount-words {
+  font-style: italic;
+  font-weight: 500;
+  color: #4a5568;
+  font-size: 10px;
+}
+
+.service-invoice-print-root.inv-doc .inv-bottom-grid {
+  display: table;
+  width: 100%;
+  border-bottom: 1px solid #1b3a8f;
+}
+
+.service-invoice-print-root.inv-doc .inv-bottom-col {
+  display: table-cell;
+  vertical-align: top;
+  padding: 10px;
+  border-right: 1px solid #d8dff0;
+}
+
+.service-invoice-print-root.inv-doc .inv-bottom-col:last-child {
+  border-right: none;
+}
+
+.service-invoice-print-root.inv-doc .inv-pay-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.service-invoice-print-root.inv-doc .inv-pay-table td {
+  padding: 3px 0;
+  border-bottom: 1px dotted #d8dff0;
+  vertical-align: top;
+}
+
+.service-invoice-print-root.inv-doc .inv-pay-label {
+  width: 58%;
+  font-weight: 600;
+  color: #4a5568;
+  padding-right: 8px;
+}
+
+.service-invoice-print-root.inv-doc .inv-pay-value {
+  width: 42%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.service-invoice-print-root.inv-doc .inv-pay-table tr:last-child td {
+  border-bottom: none;
+  font-weight: 700;
+  color: #0d1b2a;
+}
+
+.service-invoice-print-root.inv-doc .inv-totals-box {
+  border: 2px solid #1b3a8f;
+  background: #f4f6fb;
+  padding: 8px 10px;
+}
+
+.service-invoice-print-root.inv-doc .inv-totals-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.service-invoice-print-root.inv-doc .inv-totals-table td {
+  padding: 3px 0;
+  vertical-align: top;
+}
+
+.service-invoice-print-root.inv-doc .inv-totals-table .inv-total-label {
+  font-weight: 600;
+  color: #4a5568;
+}
+
+.service-invoice-print-root.inv-doc .inv-totals-table .inv-total-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.service-invoice-print-root.inv-doc .inv-net-box {
+  margin-top: 8px;
+  width: 100%;
+  border-collapse: collapse;
+  background: #1b3a8f;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.service-invoice-print-root.inv-doc .inv-net-box td {
+  padding: 8px 10px;
+  vertical-align: middle;
+}
+
+.service-invoice-print-root.inv-doc .inv-net-box td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.service-invoice-print-root.inv-doc .inv-tax-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin-top: 6px;
+}
+
+.service-invoice-print-root.inv-doc .inv-tax-table th,
+.service-invoice-print-root.inv-doc .inv-tax-table td {
+  border: 1px solid #1b3a8f;
+  padding: 4px 6px;
+}
+
+.service-invoice-print-root.inv-doc .inv-tax-table th {
+  background: #e8edf8;
+  font-weight: 700;
+}
+
+.service-invoice-print-root.inv-doc .inv-terms {
+  padding: 8px 10px;
+  border-bottom: 1px solid #d8dff0;
+  font-size: 9px;
+  color: #4a5568;
+}
+
+.service-invoice-print-root.inv-doc .inv-terms-title {
+  font-weight: 700;
+  color: #1b3a8f;
+  text-transform: uppercase;
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+.service-invoice-print-root.inv-doc .inv-terms ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.service-invoice-print-root.inv-doc .inv-terms li {
+  margin-bottom: 2px;
+}
+
+.service-invoice-print-root.inv-doc .inv-footer {
+  display: table;
+  width: 100%;
+  padding: 10px;
+}
+
+.service-invoice-print-root.inv-doc .inv-footer-left,
+.service-invoice-print-root.inv-doc .inv-footer-right {
+  display: table-cell;
+  vertical-align: bottom;
+}
+
+.service-invoice-print-root.inv-doc .inv-footer-right {
+  text-align: right;
+  width: 40%;
+}
+
+.service-invoice-print-root.inv-doc .inv-sign-line {
+  border-top: 1px solid #0d1b2a;
+  margin-top: 32px;
+  padding-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.service-invoice-print-root.inv-doc .inv-footnote {
+  text-align: center;
+  font-size: 8px;
+  color: #6b7280;
+  padding: 6px 10px;
+  border-top: 1px solid #d8dff0;
+  background: #f8f9fc;
+}
+
+/* WhatsApp / html2pdf capture — match on-screen ERP layout */
+.service-invoice-print-root.inv-doc.inv-pdf-capture {
+  box-shadow: none;
+  max-width: 210mm;
+  width: 210mm;
+}
+
+.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-terms {
+  column-count: 2;
+  column-gap: 4mm;
+}
+
+.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-sheet,
+.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-party-grid,
+.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-bottom-grid {
+  page-break-inside: avoid;
+}
+
+@media print {
+  .service-invoice-print-root.inv-doc {
+    box-shadow: none;
+    max-width: none;
+    font-size: 9.5pt;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-logo-wrap img {
+    height: 48px;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-terms {
+    break-inside: avoid;
+    column-count: 2;
+    column-gap: 4mm;
+  }
+}

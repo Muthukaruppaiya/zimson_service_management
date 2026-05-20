@@ -44,19 +44,22 @@ type CustomersContextValue = {
   registerCustomer: (input: CustomerRegistrationPayload) => Promise<CustomerRecord>;
   startRegistrationMobileOtp: (input: { primaryPhone: string; otpPhone: string }) => Promise<{
     sessionId: string;
-    demoMobileOtp: string;
+    demoMobileOtp?: string;
   }>;
   confirmRegistrationMobileOtp: (input: { sessionId: string; otp: string }) => Promise<void>;
-  startRegistrationEmailOtp: (input: { sessionId: string; email: string }) => Promise<{ demoEmailOtp: string }>;
+  startRegistrationEmailOtp: (input: {
+    sessionId: string;
+    email: string;
+  }) => Promise<{ demoEmailOtp?: string; emailDelivered?: boolean }>;
   confirmRegistrationEmailOtp: (input: { sessionId: string; otp: string }) => Promise<void>;
   startHandoverOtp: (input: { channel: "mobile" | "email"; phone?: string; email?: string }) => Promise<{
     sessionId: string;
-    demoOtp: string;
+    demoOtp?: string;
     sentTo: HandoverOtpTarget[];
   }>;
   startHandoverOtpBoth: (input: { phone?: string; email?: string }) => Promise<{
     sessionId: string;
-    demoOtp: string;
+    demoOtp?: string;
     sentTo: HandoverOtpTarget[];
   }>;
   confirmHandoverOtp: (input: { sessionId: string; otp: string }) => Promise<void>;
@@ -164,7 +167,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         });
         return { sessionId, demoMobileOtp };
       }
-      return apiJson<{ sessionId: string; demoMobileOtp: string }>("/api/customers/register-otp/start-mobile", {
+      return apiJson<{ sessionId: string; demoMobileOtp?: string }>("/api/customers/register-otp/start-mobile", {
         method: "POST",
         json: {
           primaryPhone: input.primaryPhone.trim(),
@@ -207,12 +210,15 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         sess.emailNorm = email;
         sess.emailCode = demoEmailOtp;
         sess.emailVerified = false;
-        return { demoEmailOtp };
+        return { demoEmailOtp, emailDelivered: false };
       }
-      return apiJson<{ demoEmailOtp: string }>("/api/customers/register-otp/start-email", {
-        method: "POST",
-        json: { sessionId: input.sessionId, email },
-      });
+      return apiJson<{ demoEmailOtp?: string; emailDelivered?: boolean }>(
+        "/api/customers/register-otp/start-email",
+        {
+          method: "POST",
+          json: { sessionId: input.sessionId, email },
+        },
+      );
     },
     [api],
   );
