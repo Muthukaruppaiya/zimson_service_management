@@ -23,7 +23,6 @@ import {
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
 import { printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
 import {
-  generateDemoOtp,
   isValidGstFormat,
   isValidPanFormat,
   watchModelsForBrand,
@@ -191,8 +190,14 @@ export function SrfBookingV2Page() {
   const [repDialHands, setRepDialHands] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [srfRef, setSrfRef] = useState<string | null>(null);
+  const [finalizedSrfId, setFinalizedSrfId] = useState<string | null>(null);
   const [finalizedRepairRoute, setFinalizedRepairRoute] = useState<SrfRepairRoute>("send_to_ho");
   const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
+  const [trackingWhatsAppState, setTrackingWhatsAppState] = useState<{
+    sent: boolean;
+    reason: string | null;
+  } | null>(null);
+  const [resendingTrackingWhatsApp, setResendingTrackingWhatsApp] = useState(false);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
   const [photoPreview, setPhotoPreview] = useState<SrfPhotoThumb[]>([]);
@@ -211,7 +216,10 @@ export function SrfBookingV2Page() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [photoLightbox]);
-  const [awaitingOtp, setAwaitingOtp] = useState<string | null>(null);
+  const [otpGateOpen, setOtpGateOpen] = useState(false);
+  const [otpSessionId, setOtpSessionId] = useState<string | null>(null);
+  const [issuedOtp, setIssuedOtp] = useState<string | null>(null);
+  const [otpBusy, setOtpBusy] = useState(false);
   const [otpInput, setOtpInput] = useState("");
   const [customerChecked, setCustomerChecked] = useState(false);
   const [customerExists, setCustomerExists] = useState(false);
@@ -907,21 +915,63 @@ export function SrfBookingV2Page() {
     setPhotoMsg("Capture link regenerated.");
   }
 
-  function beginOtp() {
+  async function beginOtp() {
     if (!validateEstimate()) return;
-    setAwaitingOtp(generateDemoOtp());
+    setError(null);
+    setOtpBusy(true);
     setOtpInput("");
-  }
-
-  function verifyOtpAndProceed() {
-    if (!awaitingOtp) return;
-    if (otpInput.trim() !== awaitingOtp) {
-      showOtpError("Incorrect OTP. Please check the code and try again.", "OTP verification failed");
+    setOtpSessionId(null);
+    setIssuedOtp(null);
+    if (!apiMode) {
+      const demo = String(Math.floor(100000 + Math.random() * 900000));
+      setIssuedOtp(demo);
+      setOtpGateOpen(true);
+      setOtpBusy(false);
       return;
     }
-    setAwaitingOtp(null);
-    setOtpInput("");
-    setStep(4);
+    try {
+      const out = await apiJson<{ sessionId: string; demoOtp?: string }>("/api/customers/handover-otp/start", {
+        method: "POST",
+        json: { channel: "mobile", phone: phone10(phone) },
+      });
+      setOtpSessionId(out.sessionId);
+      setIssuedOtp(out.demoOtp ?? null);
+      setOtpGateOpen(true);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not send OTP.");
+    } finally {
+      setOtpBusy(false);
+    }
+  }
+
+  async function verifyOtpAndProceed() {
+    if (!otpGateOpen) return;
+    const entered = otpInput.trim();
+    if (entered.length !== 6) {
+      showOtpError("Enter the 6-digit OTP to continue.", "OTP required");
+      return;
+    }
+    setOtpBusy(true);
+    try {
+      if (apiMode && otpSessionId) {
+        await apiJson<{ ok: boolean }>("/api/customers/handover-otp/confirm", {
+          method: "POST",
+          json: { sessionId: otpSessionId, otp: entered },
+        });
+      } else if (!issuedOtp || entered !== issuedOtp) {
+        showOtpError("Incorrect OTP. Please check the code and try again.", "OTP verification failed");
+        return;
+      }
+      setOtpGateOpen(false);
+      setOtpSessionId(null);
+      setIssuedOtp(null);
+      setOtpInput("");
+      setStep(4);
+    } catch (e) {
+      showOtpError(e instanceof ApiError ? e.message : "OTP verification failed.", "OTP verification failed");
+    } finally {
+      setOtpBusy(false);
+    }
   }
 
   async function saveNewWatchModelToCatalog() {
@@ -991,8 +1041,43 @@ export function SrfBookingV2Page() {
         selectedPartIds: [],
         repairRoute,
       });
-      printSrfDocument({
-        reference: row.reference,
+      setSrfRef(row.reference);
+      setFinalizedSrfId(row.srfId);
+      setFinalizedRepairRoute(repairRoute);
+      setTrackingUrl(out.trackingUrl ?? null);
+      setTrackingWhatsAppState({
+        sent: Boolean(out.whatsappSent),
+        reason: out.whatsappReason ?? null,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create SRF.");
+    }
+  }
+
+  function reprintSrfAndEstimate() {
+    if (!srfRef) return;
+    const advancePay = advanceTotal > 0 ? buildMultiPaymentPayload(advancePaymentForm, advanceTotal) : null;
+    const resolvedAdvanceMode = advancePay && !("error" in advancePay) ? advancePay.paymentMode : null;
+    const resolvedAdvanceDetails = advancePay && !("error" in advancePay) ? advancePay.paymentDetails : null;
+    printSrfDocument({
+      reference: srfRef,
+      customerName,
+      phone,
+      watchBrand,
+      watchModel: resolvedWatchModel.trim(),
+      serial,
+      complaint,
+      estimateTotalInr: estimateTotal,
+      estimatedFinishDate: estimatedFinishDate || null,
+      advanceInr: advanceTotal,
+      advancePaymentMode: resolvedAdvanceMode,
+      advancePaymentDetails: resolvedAdvanceDetails,
+      photos: photoPreview,
+    });
+    printEstimateDocument(
+      {
+        id: finalizedSrfId ?? "",
+        reference: srfRef,
         customerName,
         phone,
         watchBrand,
@@ -1001,53 +1086,55 @@ export function SrfBookingV2Page() {
         complaint,
         estimateTotalInr: estimateTotal,
         estimatedFinishDate: estimatedFinishDate || null,
-        advanceInr: advanceTotal,
-        advancePaymentMode: advancePay ? advancePay.paymentMode : null,
-        advancePaymentDetails: advancePay ? advancePay.paymentDetails : null,
-        photos: photoPreview,
-      });
-      printEstimateDocument(
-        {
-          ...(row as unknown as object),
-          id: row.srfId,
-          reference: row.reference,
-          customerName,
-          phone,
-          watchBrand,
-          watchModel: resolvedWatchModel.trim(),
-          serial,
-          complaint,
-          estimateTotalInr: estimateTotal,
-          estimatedFinishDate: estimatedFinishDate || null,
-          usedSpares: [],
-        } as unknown as import("../../types/srfJob").SrfJob,
-        {
-          observations: {
-            caseCrystal: obsCaseCrystal,
-            glassCrystal: obsGlassCrystal,
-            strapBracelet: obsStrapBracelet,
-            hands: obsHands,
-            crownPushers: obsCrownPushers,
-            movement: obsMovement,
-            waterResistance: obsWaterResistance,
-            additionalNotes: obsAdditionalNotes || estimateRemarks,
-          },
-          suggestedRepairs: {
-            movementOverhaul: repMovementOverhaul,
-            polishing: repPolishing,
-            waterKit: repWaterKit,
-            bezel: repBezel,
-            crownStem: repCrownStem,
-            glassCrystal: repGlassCrystal,
-            dialHands: repDialHands,
-          },
+        usedSpares: [],
+      } as unknown as SrfJob,
+      {
+        observations: {
+          caseCrystal: obsCaseCrystal,
+          glassCrystal: obsGlassCrystal,
+          strapBracelet: obsStrapBracelet,
+          hands: obsHands,
+          crownPushers: obsCrownPushers,
+          movement: obsMovement,
+          waterResistance: obsWaterResistance,
+          additionalNotes: obsAdditionalNotes || estimateRemarks,
         },
+        suggestedRepairs: {
+          movementOverhaul: repMovementOverhaul,
+          polishing: repPolishing,
+          waterKit: repWaterKit,
+          bezel: repBezel,
+          crownStem: repCrownStem,
+          glassCrystal: repGlassCrystal,
+          dialHands: repDialHands,
+        },
+      },
+    );
+  }
+
+  async function resendTrackingWhatsApp() {
+    if (!apiMode || !finalizedSrfId) {
+      setTrackingWhatsAppState({ sent: false, reason: "SRF id missing for resend." });
+      return;
+    }
+    setResendingTrackingWhatsApp(true);
+    try {
+      const out = await apiJson<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>(
+        `/api/service/srf-jobs/${encodeURIComponent(finalizedSrfId)}/resend-tracking-whatsapp`,
+        { method: "POST" },
       );
-      setSrfRef(row.reference);
-      setFinalizedRepairRoute(repairRoute);
-      setTrackingUrl(out.trackingUrl ?? null);
+      if (out.trackingUrl) setTrackingUrl(out.trackingUrl);
+      setTrackingWhatsAppState({
+        sent: Boolean(out.whatsappSent),
+        reason: out.whatsappReason ?? null,
+      });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not create SRF.");
+      setTrackingWhatsAppState({
+        sent: false,
+        reason: e instanceof ApiError ? e.message : "Could not resend WhatsApp message.",
+      });
+    } finally {
+      setResendingTrackingWhatsApp(false);
     }
   }
 
@@ -1058,50 +1145,57 @@ export function SrfBookingV2Page() {
 
   if (srfRef) {
     return (
-      <div>
-        <ServiceBreadcrumb current="SRF booking" />
-        <Card title="Service request booked" subtitle="SRF created — SRF form and estimate sent to print. Tax invoice is issued at store billing when the customer collects the watch.">
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+        <Card
+          title="SRF completed successfully"
+          subtitle="Tracking WhatsApp message is auto-sent on completion. Use resend if customer has not received it."
+          className="w-full max-w-2xl"
+        >
           <p className="text-sm text-stone-700">
             SRF reference <span className="font-mono font-bold text-zimson-900">{srfRef}</span>
           </p>
           <p className="mt-2 text-sm text-stone-600">
-            {finalizedRepairRoute === "store_self" ? (
-              <>
-                Status is <strong>Pending store assign</strong>. Assign repair at your store, then bill the customer when
-                done — this SRF is <strong>not</strong> sent to dispatch.
-              </>
-            ) : (
-              <>
-                Status is <strong>At store</strong>. Use store dispatch to create internal transfer at end of day.
-              </>
-            )}
+            {finalizedRepairRoute === "store_self"
+              ? "Status: Pending store assign."
+              : "Status: At store. Move to dispatch when ready."}
           </p>
+          <div
+            className={`mt-3 rounded-xl border px-3 py-2 text-sm ${
+              trackingWhatsAppState?.sent
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-amber-200 bg-amber-50 text-amber-900"
+            }`}
+          >
+            {trackingWhatsAppState?.sent
+              ? "Tracking WhatsApp sent to customer mobile."
+              : `Tracking WhatsApp not confirmed${
+                  trackingWhatsAppState?.reason ? `: ${trackingWhatsAppState.reason}` : "."
+                }`}
+          </div>
           <div className="mt-4 flex flex-wrap gap-3">
-            <Link to="/service/srf" className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">
-              Book another SRF
+            <Link to="/" className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">
+              Home
             </Link>
-            {finalizedRepairRoute === "store_self" ? (
-              <Link
-                to="/service/store-assign"
-                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900"
-              >
-                Go to store assign
-              </Link>
-            ) : (
-              <Link
-                to="/service/store-dispatch"
-                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900"
-              >
-                Go to dispatch
-              </Link>
-            )}
+            <button
+              type="button"
+              onClick={reprintSrfAndEstimate}
+              className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white"
+            >
+              SRF print
+            </button>
+            <button
+              type="button"
+              onClick={() => void resendTrackingWhatsApp()}
+              disabled={resendingTrackingWhatsApp}
+              className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900 disabled:opacity-60"
+            >
+              {resendingTrackingWhatsApp ? "Resending..." : "Resend WhatsApp msg"}
+            </button>
           </div>
           {trackingUrl ? (
             <div className="mt-5 rounded-xl border border-zimson-200 bg-zimson-50/40 p-4">
               <p className="text-sm font-semibold text-zimson-900">Customer tracking link</p>
               <p className="mt-1 break-all font-mono text-xs text-stone-700">{trackingUrl}</p>
-              <p className="mt-1 text-xs text-stone-600">Share this URL with the customer via SMS/WhatsApp or scan the QR code.</p>
-              <CustomerLinkQr url={trackingUrl} size={240} mode="qr" caption="Scan QR code to open customer review" className="mt-3" />
             </div>
           ) : null}
         </Card>
@@ -1534,7 +1628,7 @@ export function SrfBookingV2Page() {
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
-            <button type="button" onClick={beginOtp} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">
+            <button type="button" onClick={() => void beginOtp()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">
               Send OTP
             </button>
           </div>
@@ -1646,7 +1740,7 @@ export function SrfBookingV2Page() {
           </div>
           <div className="mt-4 flex flex-wrap justify-between gap-3">
             <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
-            <button type="button" onClick={() => void finalizeAndPrint()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Create SRF + print</button>
+            <button type="button" onClick={() => void finalizeAndPrint()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Create SRF</button>
           </div>
         </Card>
       ) : null}
@@ -1683,16 +1777,17 @@ export function SrfBookingV2Page() {
         </div>
       ) : null}
 
-      {awaitingOtp ? (
+      {otpGateOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
             <DemoOtpGate
               title="OTP verification"
-              issuedCode={awaitingOtp}
+              issuedCode={issuedOtp ?? undefined}
               value={otpInput}
               onChange={setOtpInput}
-              onVerify={verifyOtpAndProceed}
-              onRegenerate={beginOtp}
+              onVerify={() => void verifyOtpAndProceed()}
+              onRegenerate={() => void beginOtp()}
+              verifyBusy={otpBusy}
             />
           </div>
         </div>

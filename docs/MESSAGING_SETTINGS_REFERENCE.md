@@ -87,6 +87,24 @@ The PDF file must be reachable at a **direct public HTTPS link** ending in `.pdf
 
 **Do not use** `localhost` or unstable free tunnels for production.
 
+### SRF tracking template (`customer_link`)
+
+For SRF status link messages, create template name `customer_link` in Meta/Qikchat with:
+
+- `{{1}}` = customer name
+- `{{2}}` = SRF number
+- `{{3}}` = tracking URL
+
+Suggested body:
+
+```text
+Hi {{1}}, your service request {{2}} has been registered with Zimson.
+Track live status here: {{3}}
+Thank you for choosing Zimson.
+```
+
+If your template name is different, set `QIKCHAT_TRACKING_TEMPLATE_NAME` in server `.env`.
+
 ### Invoice send modes
 
 | Mode | When to use |

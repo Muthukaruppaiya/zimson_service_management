@@ -1841,17 +1841,64 @@ export function registerSrfRoutes(
       );
       await client.query("COMMIT");
       const trackingUrl = `${resolvePublicAppBaseUrl(req)}/track?t=${encodeURIComponent(trackingToken)}`;
-      await sendTrackingLink({
+      const sent = await sendTrackingLink({
         phone: refRow?.phone ?? "",
         name: refRow?.customer_name ?? "Customer",
         trackingUrl,
         srfReference: refRow?.reference ?? "",
-      }).catch(() => {});
-      res.json({ ok: true, trackingUrl });
+      }).catch(() => ({ sent: false, reason: "Could not send WhatsApp message." }));
+      res.json({ ok: true, trackingUrl, whatsappSent: sent.sent, whatsappReason: sent.reason ?? null });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
       res.status(400).json({ error: "Could not finalize SRF." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/resend-tracking-whatsapp", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    if (!srfId) {
+      res.status(400).json({ error: "SRF id is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const refRows = await client.query<{ reference: string; customer_name: string; phone: string }>(
+        `SELECT reference, customer_name, phone FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const refRow = refRows.rows[0];
+      if (!refRow) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      const trackingToken = await getOrCreateTrackingToken(client, refRow.phone ?? "");
+      await client.query(
+        `UPDATE customer_tracking_tokens SET last_sent_at = now() WHERE phone_last10 = $1`,
+        [phoneLast10(refRow.phone ?? "")],
+      );
+      await client.query("COMMIT");
+      const trackingUrl = `${resolvePublicAppBaseUrl(req)}/track?t=${encodeURIComponent(trackingToken)}`;
+      const sent = await sendTrackingLink({
+        phone: refRow.phone ?? "",
+        name: refRow.customer_name ?? "Customer",
+        trackingUrl,
+        srfReference: refRow.reference ?? "",
+      }).catch(() => ({ sent: false, reason: "Could not resend WhatsApp message." }));
+      res.json({ ok: true, trackingUrl, whatsappSent: sent.sent, whatsappReason: sent.reason ?? null });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not resend tracking WhatsApp message." });
     } finally {
       client.release();
     }

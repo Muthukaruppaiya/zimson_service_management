@@ -119,7 +119,7 @@ type SrfJobsContextValue = {
       selectedPartIds: string[];
       repairRoute?: import("../lib/srfRepairRoute").SrfRepairRoute;
     },
-  ) => Promise<{ trackingUrl?: string }>;
+  ) => Promise<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>;
   storeSelfAssignTechnician: (jobId: string, technicianId: string) => Promise<void>;
   storeSelfSubmitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   storeSelfMarkRepairComplete: (jobId: string, note?: string) => Promise<void>;
@@ -228,7 +228,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         repairRoute?: import("../lib/srfRepairRoute").SrfRepairRoute;
       },
     ) => {
-      const out = await apiJson<{ trackingUrl?: string }>(
+      const out = await apiJson<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>(
         `/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`,
         {
           method: "POST",
