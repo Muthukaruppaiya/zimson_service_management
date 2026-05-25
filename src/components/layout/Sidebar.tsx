@@ -151,6 +151,7 @@ export function Sidebar() {
         title: "Logistics", icon: "logistics",
         items: [
           { to: "/service/store-dispatch", label: "Store dispatch", module: "service" },
+          { to: "/service/store-logistics-history", label: "Inward & outward history", module: "service" },
           { to: "/service-centre/logistics?tab=inward", label: "Internal inward (Store → HO)", module: "service_centre", roles: ["service_centre_clerk", "service_centre_clerk"] },
           { to: "/service-centre/logistics?tab=outward", label: "Internal outward (HO → Store)", module: "service_centre", roles: ["service_centre_clerk", "service_centre_clerk"] },
           { to: "/service-centre/logistics-history", label: "DC / ODC history", module: "service_centre", roles: ["service_centre_clerk", "service_centre_clerk", "service_centre_clerk"] },

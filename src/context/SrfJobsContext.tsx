@@ -123,7 +123,11 @@ type SrfJobsContextValue = {
   storeSelfAssignTechnician: (jobId: string, technicianId: string) => Promise<void>;
   storeSelfSubmitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   storeSelfMarkRepairComplete: (jobId: string, note?: string) => Promise<void>;
-  dispatchToServiceCentre: (jobIds: string[]) => Promise<{ dcNumber: string; moved: number }>;
+  dispatchToServiceCentre: (jobIds: string[]) => Promise<{
+    dcNumber: string;
+    moved: number;
+    printMeta?: import("../lib/serviceDocuments").TransferPrintMeta;
+  }>;
   confirmInwardByDc: (
     dcNumber: string,
   ) => Promise<{ updated: number; dcNumber?: string; documentKind?: "store_transfer" | "inter_ho_dc" | "inter_ho_return" }>;
@@ -160,7 +164,12 @@ type SrfJobsContextValue = {
   createOutwardBatch: (
     items: { jobId: string; destinationStoreId: string }[],
     opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
-  ) => Promise<{ odcNumber: string; moved: number; documentKind?: "DC" | "ODC" }>;
+  ) => Promise<{
+    odcNumber: string;
+    moved: number;
+    documentKind?: "DC" | "ODC" | "TD";
+    printMeta?: import("../lib/serviceDocuments").TransferPrintMeta;
+  }>;
   receiveOutwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   closeWithInvoice: (
     srfId: string,
@@ -266,7 +275,11 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   }, [refreshJobs]);
 
   const dispatchToServiceCentre = useCallback(async (jobIds: string[]) => {
-    const out = await apiJson<{ dcNumber: string; moved: number }>("/api/service/dcs", {
+    const out = await apiJson<{
+      dcNumber: string;
+      moved: number;
+      printMeta?: import("../lib/serviceDocuments").TransferPrintMeta;
+    }>("/api/service/dcs", {
       method: "POST",
       json: { srfIds: jobIds },
     });
@@ -453,7 +466,12 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     items: { jobId: string; destinationStoreId: string }[],
     opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
   ) => {
-    const out = await apiJson<{ odcNumber: string; moved: number; documentKind?: "DC" | "ODC" }>("/api/service/odcs", {
+    const out = await apiJson<{
+      odcNumber: string;
+      moved: number;
+      documentKind?: "DC" | "ODC" | "TD";
+      printMeta?: import("../lib/serviceDocuments").TransferPrintMeta;
+    }>("/api/service/odcs", {
       method: "POST",
       json: {
         items: items.map((x) => ({ srfId: x.jobId, destinationStoreId: x.destinationStoreId })),

@@ -5,10 +5,18 @@ import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useAuth } from "../../context/AuthContext";
+import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
-import { printDcDocument } from "../../lib/serviceDocuments";
+import {
+  printStoreInwardReceiptDocument,
+  printTransferFromMeta,
+  type TransferPrintMeta,
+} from "../../lib/serviceDocuments";
+import { storeInwardReceiptPrintSubtitle } from "../../lib/srfLogisticsDocs";
+import { resolveHoToStorePrint, resolveStoreToHoPrint } from "../../lib/transferDocumentKind";
+import type { TransferPartyBlock } from "../../lib/transferDocumentKind";
 import type { SrfJob } from "../../types/srfJob";
 
 const rowClass = "border-b border-zimson-100 last:border-0";
@@ -24,6 +32,7 @@ type StoreOutwardAck = {
   dcNumber: string;
   rows: SrfJob[];
   moved: number;
+  printMeta: TransferPrintMeta;
   printOpts: {
     fromLocation: string;
     toLocation: string;
@@ -32,8 +41,20 @@ type StoreOutwardAck = {
   };
 };
 
+type StoreInwardAck = {
+  inwardNumber: string;
+  rows: SrfJob[];
+  updated: number;
+  receivedAt: Date;
+  storeLabel: string;
+  fromHoLabel: string;
+  partyFrom?: TransferPartyBlock;
+  partyTo?: TransferPartyBlock;
+};
+
 export function StoreDispatchPage() {
   const { user } = useAuth();
+  const { regions } = useRegions();
   const { jobs, dispatchToServiceCentre, receiveOutwardByDc } = useSrfJobs();
   const [mode, setMode] = useState<DispatchMode>("outward");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -42,6 +63,7 @@ export function StoreDispatchPage() {
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
   const [scanInwardDcInput, setScanInwardDcInput] = useState("");
   const [outwardAck, setOutwardAck] = useState<StoreOutwardAck | null>(null);
+  const [storeInwardAck, setStoreInwardAck] = useState<StoreInwardAck | null>(null);
 
   const atStore = useMemo(() => {
     if (!user) return [];
@@ -78,7 +100,7 @@ export function StoreDispatchPage() {
     if (!scanned) return;
     const hit = pendingOdcOptions.find((dc) => dc.trim().toUpperCase() === scanned);
     if (!hit) {
-      setMessage({ type: "err", text: `Scanned DC/ODC not found in pending inward list: ${scanned}` });
+      setMessage({ type: "err", text: `Scanned TD/DC not found in pending inward list: ${scanned}` });
       return;
     }
     setOutwardDcInput(hit);
@@ -87,9 +109,38 @@ export function StoreDispatchPage() {
 
   async function handleReceiveOutward() {
     setMessage(null);
+    const dcNumber = outwardDcInput.trim();
+    if (!dcNumber || !user) return;
+    const rows = jobs.filter(
+      (j) =>
+        j.outwardDcNumber === dcNumber &&
+        j.status === "dispatched_to_store" &&
+        jobVisibleToStoreUser(j, user),
+    );
     try {
-      const out = await receiveOutwardByDc(outwardDcInput);
-      setMessage({ type: "ok", text: `Received ${out.updated} watch(es) against internal transfer ${outwardDcInput}.` });
+      const out = await receiveOutwardByDc(dcNumber);
+      const store = regions.flatMap((r) => r.stores).find((s) => s.id === user.storeId);
+      const region = regions.find((r) => r.id === user.regionId);
+      const storeLabel = store?.invoiceDisplayName?.trim() || store?.name || user.storeId || "Store";
+      const fromHoLabel = region?.name ?? "Service centre";
+      let partyFrom: TransferPartyBlock | undefined;
+      let partyTo: TransferPartyBlock | undefined;
+      if (store && region) {
+        const r = resolveHoToStorePrint(region, store, region);
+        partyFrom = r.from;
+        partyTo = r.to;
+      }
+      setStoreInwardAck({
+        inwardNumber: dcNumber,
+        rows,
+        updated: out.updated,
+        receivedAt: new Date(),
+        storeLabel,
+        fromHoLabel,
+        partyFrom,
+        partyTo,
+      });
+      setMessage({ type: "ok", text: `Received ${out.updated} watch(es) against internal transfer ${dcNumber}.` });
       setOutwardDcInput("");
     } catch (e) {
       setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not receive internal transfer." });
@@ -131,10 +182,52 @@ export function StoreDispatchPage() {
         fromHo: rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-",
         toHo: rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-",
       };
+      const storeId = rows[0]?.storeId ?? user?.storeId ?? "";
+      const regionId = rows[0]?.regionId ?? user?.regionId ?? "";
+      const store = regions.flatMap((r) => r.stores).find((s) => s.id === storeId);
+      const region = regions.find((r) => r.id === regionId);
+      const fallback =
+        store && region
+          ? (() => {
+              const r = resolveStoreToHoPrint(store, region);
+              return {
+                printKind: r.printKind,
+                flow: "store_to_ho" as const,
+                transferNumber: result.dcNumber,
+                from: r.from,
+                to: r.to,
+              };
+            })()
+          : null;
+      const printMeta = result.printMeta ?? fallback;
+      if (!printMeta) {
+        setMessage({ type: "err", text: "Transfer created but print details are unavailable. Configure store/region addresses in Regions." });
+      }
       setOutwardAck({
         dcNumber: result.dcNumber,
         rows,
         moved: result.moved,
+        printMeta: printMeta ?? {
+          printKind: "transfer",
+          flow: "store_to_ho",
+          transferNumber: result.dcNumber,
+          from: {
+            locationLabel: printOpts.fromLocation,
+            legalName: printOpts.fromHo,
+            address: "—",
+            phone: "—",
+            email: "—",
+            gstin: "—",
+          },
+          to: {
+            locationLabel: printOpts.toLocation,
+            legalName: printOpts.toHo,
+            address: "—",
+            phone: "—",
+            email: "—",
+            gstin: "—",
+          },
+        },
         printOpts,
       });
       void apiJson("/api/notifications/service-dispatch", {
@@ -157,6 +250,12 @@ export function StoreDispatchPage() {
         description=""
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link
+              to="/service/store-logistics-history"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Inward & outward history
+            </Link>
             <Link
               to="/service/srf-master"
               className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
@@ -317,10 +416,10 @@ export function StoreDispatchPage() {
                 </select>
               </label>
               <label className="text-sm">
-                Scan DC/ODC barcode
+                Scan TD/DC barcode
                 <input
                   className="mt-1 min-w-[280px] rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                  placeholder="Scan DC/ODC and press Enter"
+                  placeholder="Scan TD or DC and press Enter"
                   value={scanInwardDcInput}
                   onChange={(e) => setScanInwardDcInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -395,6 +494,80 @@ export function StoreDispatchPage() {
         </p>
       ) : null}
 
+      {storeInwardAck ? (
+        <ProcessSuccessModal
+          open
+          title="SRF received at store"
+          description={`${storeInwardAck.inwardNumber} · ${storeInwardAck.updated} watch${storeInwardAck.updated === 1 ? "" : "es"}`}
+          onBackdropClick={() => setStoreInwardAck(null)}
+          actions={
+            <>
+              <button
+                type="button"
+                className={ackBtnPrimary}
+                onClick={() =>
+                  printStoreInwardReceiptDocument({
+                    inwardNumber: storeInwardAck.inwardNumber,
+                    storeLabel: storeInwardAck.storeLabel,
+                    fromHoLabel: storeInwardAck.fromHoLabel,
+                    receivedBy: user?.displayName?.trim() || user?.email?.trim() || "Store",
+                    receivedAt: storeInwardAck.receivedAt,
+                    jobs: storeInwardAck.rows,
+                    partyFrom: storeInwardAck.partyFrom,
+                    partyTo: storeInwardAck.partyTo,
+                  })
+                }
+              >
+                Print inward receipt
+              </button>
+              <button type="button" className={ackBtnOutline} onClick={() => setStoreInwardAck(null)}>
+                Done
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-stone-700">{storeInwardReceiptPrintSubtitle()}</p>
+          <div className="mt-4 rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">Transfer number (TD)</p>
+            <p className="mt-1 font-mono text-2xl font-bold text-stone-900">{storeInwardAck.inwardNumber}</p>
+          </div>
+          <dl className="mt-4 space-y-1.5 text-sm text-stone-700">
+            <div className="flex justify-between gap-2">
+              <dt className="text-stone-500">Received at store</dt>
+              <dd className="font-medium text-stone-900">{storeInwardAck.storeLabel}</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-stone-500">From HO</dt>
+              <dd className="font-medium text-stone-900">{storeInwardAck.fromHoLabel}</dd>
+            </div>
+          </dl>
+          {storeInwardAck.rows.length > 0 ? (
+            <div className="mt-4 max-h-36 overflow-y-auto rounded-lg border border-rlx-rule text-xs">
+              <table className="min-w-full">
+                <thead className="sticky top-0 bg-stone-50 text-left font-semibold text-stone-600">
+                  <tr>
+                    <th className="px-2 py-1.5">SRF</th>
+                    <th className="px-2 py-1.5">Customer</th>
+                    <th className="px-2 py-1.5">Watch</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {storeInwardAck.rows.map((j) => (
+                    <tr key={j.id} className="border-t border-rlx-rule">
+                      <td className="px-2 py-1.5 font-mono font-semibold">{j.reference}</td>
+                      <td className="px-2 py-1.5">{j.customerName}</td>
+                      <td className="px-2 py-1.5">
+                        {j.watchBrand} {j.watchModel}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </ProcessSuccessModal>
+      ) : null}
+
       {outwardAck ? (
         <ProcessSuccessModal
           open
@@ -407,9 +580,9 @@ export function StoreDispatchPage() {
                 type="button"
                 className={ackBtnPrimary}
                 onClick={() =>
-                  printDcDocument("DC", outwardAck.dcNumber, outwardAck.rows, {
-                    ...outwardAck.printOpts,
-                    documentHeading: "Internal Transfer (Store → HO)",
+                  printTransferFromMeta(outwardAck.printMeta, outwardAck.rows, {
+                    seriesCode: "TD",
+                    preparedBy: user?.displayName?.trim() || user?.email?.trim(),
                   })
                 }
               >
@@ -422,11 +595,12 @@ export function StoreDispatchPage() {
           }
         >
           <p className="text-sm text-stone-700">
-            Hand over the physical watch(es) with the printed transfer copy. Your regional HO inward desk will select
-            this transfer from their pending list — no manual DC entry required.
+            Hand over the physical watch(es) with the printed internal transfer document. Store → HO movement
+            uses a transfer document (not a GST delivery challan). Your regional HO inward desk will select this
+            batch from their pending list.
           </p>
           <div className="mt-4 rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">Internal transfer number</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">Transfer number (TD)</p>
             <p className="mt-1 font-mono text-2xl font-bold text-stone-900">{outwardAck.dcNumber}</p>
           </div>
           <dl className="mt-4 space-y-1.5 text-sm text-stone-700">

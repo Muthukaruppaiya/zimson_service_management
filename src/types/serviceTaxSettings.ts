@@ -18,6 +18,9 @@ export type ServiceTaxSettings = {
   dcSuffix: string;
   odcPrefix: string;
   odcSuffix: string;
+  /** Internal transfer (store ↔ HO) — e.g. TD26CBE0101001 */
+  tdPrefix: string;
+  tdSuffix: string;
   appLogoUrl: string;
   appFaviconUrl: string;
   /** Invoice print: store trading name (e.g. ZIMSON - THE WATCH STORE). */

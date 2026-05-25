@@ -6,7 +6,9 @@ import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
-import { printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
+import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
+import { useRegions } from "../../context/RegionsContext";
+import { repairRouteLabel } from "../../lib/srfRepairRoute";
 import {
   jobVisibleToServiceCentre,
   jobVisibleToStoreUser,
@@ -49,6 +51,7 @@ const statusCls: Record<string, string> = {
 export function SrfBookingsRegisterPage() {
   const { user } = useAuth();
   const { jobs } = useSrfJobs();
+  const { regions } = useRegions();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [status, setStatus] = useState<"ALL" | SrfJobStatus>("ALL");
@@ -250,12 +253,25 @@ export function SrfBookingsRegisterPage() {
                       reference: detail.reference,
                       customerName: detail.customerName,
                       phone: detail.phone,
+                      company: detail.company,
                       watchBrand: detail.watchBrand,
+                      watchFamily: detail.watchFamily,
                       watchModel: detail.watchModel,
                       serial: detail.serial,
                       complaint: detail.complaint || "-",
                       estimateTotalInr: Number(detail.estimateTotalInr ?? 0),
-                      photos: detail.photos ?? [],
+                      estimatedFinishDate: detail.estimatedFinishDate ?? null,
+                      advanceInr: Number(detail.advanceInr ?? 0),
+                      advancePaymentMode: detail.advancePaymentMode,
+                      advancePaymentDetails: detail.advancePaymentDetails ?? null,
+                      bookingDate: detail.createdAt,
+                      repairRoute: detail.repairRoute,
+                      natureOfRepair: detail.repairRoute ? repairRouteLabel(detail.repairRoute) : undefined,
+                      modelNumber: detail.serial,
+                      storeInfo: (() => {
+                        const store = regions.flatMap((r) => r.stores).find((s) => s.id === detail.storeId);
+                        return store ? srfPrintStoreFromSeed(store) : undefined;
+                      })(),
                     })
                   }
                   className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"

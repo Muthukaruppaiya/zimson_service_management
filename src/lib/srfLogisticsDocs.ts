@@ -13,7 +13,7 @@ export function scInwardDocumentKindFromJob(
 }
 
 export function scInwardNumberLabel(kind: ScInwardDocumentKind): string {
-  return kind === "store_transfer" ? "Internal transfer number" : "DC number";
+  return kind === "store_transfer" ? "Transfer number (TD)" : "DC number";
 }
 
 export function scInwardAckTitle(kind: ScInwardDocumentKind): string {
@@ -31,4 +31,19 @@ export function scInwardAckSubtitle(kind: ScInwardDocumentKind, updated: number)
     return `${n} inwarded from another HO. Supervisor can convert to local or assign as per queue.`;
   }
   return `${n} inwarded successfully. Supervisor can now assign technicians.`;
+}
+
+/** Printed inward receipt banner subtitle (confirmation at location). */
+export function scInwardReceiptPrintSubtitle(kind: ScInwardDocumentKind): string {
+  if (kind === "inter_ho_return") {
+    return "SRF watch(es) received at sender HO — return DC inward confirmed.";
+  }
+  if (kind === "inter_ho_dc") {
+    return "SRF watch(es) received at this service centre from another HO.";
+  }
+  return "SRF watch(es) received and inwarded at this service centre location.";
+}
+
+export function storeInwardReceiptPrintSubtitle(): string {
+  return "SRF watch(es) received and inwarded at the store location.";
 }

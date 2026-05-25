@@ -7,15 +7,24 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
+import type { SeedRegion } from "../../data/seed";
 import type { SrfJob } from "../../types/srfJob";
-import { printDcDocument, printScInwardAckDocument } from "../../lib/serviceDocuments";
+import { printScInwardAckDocument, printTransferFromMeta, type TransferPrintMeta } from "../../lib/serviceDocuments";
+import {
+  resolveHoToHoPrint,
+  resolveHoToStorePrint,
+  resolveStoreToHoPrint,
+  transferDocumentTitle,
+} from "../../lib/transferDocumentKind";
 import {
   scInwardAckSubtitle,
   scInwardAckTitle,
   scInwardDocumentKindFromJob,
   scInwardNumberLabel,
+  scInwardReceiptPrintSubtitle,
   type ScInwardDocumentKind,
 } from "../../lib/srfLogisticsDocs";
+import type { TransferPartyBlock } from "../../lib/transferDocumentKind";
 
 const selectClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm outline-none ring-zimson-400/40 focus:ring-2";
@@ -24,6 +33,55 @@ const tabBtn =
   "rounded-xl px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-zimson-400";
 const tabActive = "bg-zimson-600 text-white shadow-sm";
 const tabIdle = "border border-zimson-300 bg-white text-zimson-900 hover:bg-zimson-50";
+
+function inwardFromLocationName(kind: ScInwardDocumentKind, storeLabel: string): string {
+  if (kind === "store_transfer") return storeLabel;
+  if (kind === "inter_ho_return") return "Sender HO (return leg)";
+  return "Other HO";
+}
+
+function buildScInwardPrintParties(
+  ack: {
+    documentKind: ScInwardDocumentKind;
+    inwardNumber: string;
+    jobs: SrfJob[];
+  },
+  regions: SeedRegion[],
+  userRegionId: string | undefined,
+): { partyFrom?: TransferPartyBlock; partyTo?: TransferPartyBlock } {
+  const first = ack.jobs[0];
+  if (!first) return {};
+  if (ack.documentKind === "store_transfer") {
+    const store = regions.flatMap((r) => r.stores).find((s) => s.id === first.storeId);
+    const region = regions.find((r) => r.id === first.regionId);
+    if (store && region) {
+      const r = resolveStoreToHoPrint(store, region);
+      return { partyFrom: r.from, partyTo: r.to };
+    }
+    return {};
+  }
+  if (ack.documentKind === "inter_ho_dc" || ack.documentKind === "inter_ho_return") {
+    const fromRegionId =
+      ack.documentKind === "inter_ho_return"
+        ? (first.transferTargetRegionId ?? first.regionId)
+        : (first.transferSourceRegionId ?? first.regionId);
+    const toRegionId =
+      ack.documentKind === "inter_ho_return"
+        ? (first.transferSourceRegionId ?? userRegionId ?? first.regionId)
+        : (userRegionId ?? first.regionId);
+    const fromReg = fromRegionId ? regions.find((r) => r.id === fromRegionId) : undefined;
+    const toReg = toRegionId ? regions.find((r) => r.id === toRegionId) : undefined;
+    if (fromReg && toReg) {
+      const r = resolveHoToHoPrint(
+        fromReg,
+        toReg,
+        ack.documentKind === "inter_ho_return" ? "ho_to_ho_return" : "ho_to_ho_dispatch",
+      );
+      return { partyFrom: r.from, partyTo: r.to };
+    }
+  }
+  return {};
+}
 
 type OnlineSpareOrderRow = {
   id: string;
@@ -91,7 +149,7 @@ export function ScLogisticsPage() {
   } | null>(null);
   const [outwardAck, setOutwardAck] = useState<{
     odcNumber: string;
-    documentKind: "DC" | "ODC";
+    documentKind: "DC" | "ODC" | "TD";
     watchCount: number;
     fromLocation: string;
     toLocation: string;
@@ -99,6 +157,7 @@ export function ScLogisticsPage() {
     toHo: string;
     dispatchedAt: Date;
     rows: SrfJob[];
+    printMeta: TransferPrintMeta;
     printOpts: {
       fromLocation: string;
       toLocation: string;
@@ -383,7 +442,67 @@ export function ScLogisticsPage() {
         hoInvoiceRef: hasReturnToSender ? (selectedRows[0]?.hoSparesBillRef ?? undefined) : undefined,
         storeInvoiceRef: undefined,
       };
-      const docKind = result.documentKind ?? (hasReturnToSender || selectedRows.some((j) => j.requiresLocalConversion && j.transferTargetRegionId) ? "DC" : "ODC");
+      const docKind = result.documentKind ?? (hasReturnToSender || selectedRows.some((j) => j.requiresLocalConversion && j.transferTargetRegionId) ? "DC" : "TD");
+      const destStoreId = items[0]?.destinationStoreId ?? first?.destinationStoreId ?? "";
+      const fromRegion = regions.find((r) => r.id === (first?.regionId ?? user?.regionId));
+      const destStore = regions.flatMap((r) => r.stores).find((s) => s.id === destStoreId);
+      const destRegion = regions.find((r) => r.stores.some((s) => s.id === destStoreId));
+      const toRegionId =
+        hasReturnToSender && first?.transferSourceRegionId
+          ? first.transferSourceRegionId
+          : first?.transferTargetRegionId ?? first?.regionId;
+      const toRegion = toRegionId ? regions.find((r) => r.id === toRegionId) : undefined;
+      const fallbackMeta = (() => {
+        if (!fromRegion) return null;
+        if ((hasReturnToSender || first?.requiresLocalConversion) && toRegion) {
+          const r = resolveHoToHoPrint(
+            fromRegion,
+            toRegion,
+            hasReturnToSender ? "ho_to_ho_return" : "ho_to_ho_dispatch",
+          );
+          return {
+            printKind: r.printKind,
+            flow: r.flow,
+            transferNumber: result.odcNumber,
+            from: r.from,
+            to: r.to,
+          } satisfies TransferPrintMeta;
+        }
+        if (destStore) {
+          const r = resolveHoToStorePrint(fromRegion, destStore, destRegion);
+          return {
+            printKind: r.printKind,
+            flow: "ho_to_store" as const,
+            transferNumber: result.odcNumber,
+            from: r.from,
+            to: r.to,
+          } satisfies TransferPrintMeta;
+        }
+        return null;
+      })();
+      const printMeta =
+        result.printMeta ??
+        fallbackMeta ?? {
+          printKind: "dc" as const,
+          flow: (hasReturnToSender ? "ho_to_ho_return" : "ho_to_store") as TransferPrintMeta["flow"],
+          transferNumber: result.odcNumber,
+          from: {
+            locationLabel: printOpts.fromLocation,
+            legalName: fromHo,
+            address: "—",
+            phone: "—",
+            email: "—",
+            gstin: "—",
+          },
+          to: {
+            locationLabel: toLocation,
+            legalName: toHo,
+            address: "—",
+            phone: "—",
+            email: "—",
+            gstin: "—",
+          },
+        };
       setOutwardAck({
         odcNumber: result.odcNumber,
         documentKind: docKind,
@@ -394,14 +513,17 @@ export function ScLogisticsPage() {
         toHo,
         dispatchedAt: new Date(),
         rows,
+        printMeta,
         printOpts,
       });
       setOutwardMsg({
         type: "ok",
         text:
-          docKind === "DC"
-            ? `Inter-HO DC ${result.odcNumber} created. Acknowledgment shown — print when ready.`
-            : `Outward ODC ${result.odcNumber} created. Acknowledgment shown — print when ready.`,
+          printMeta.flow === "ho_to_store"
+            ? `Internal transfer ${result.odcNumber} created (HO → store). Print when ready.`
+            : printMeta.printKind === "dc"
+              ? `Delivery Challan ${result.odcNumber} created (${transferDocumentTitle(printMeta.printKind, printMeta.flow)}). Print when ready.`
+              : `Internal transfer ${result.odcNumber} created. Print when ready.`,
       });
       setSelectedOut({});
     } catch (e) {
@@ -858,10 +980,10 @@ export function ScLogisticsPage() {
                   outwardAck.documentKind === "DC" ? "text-emerald-100" : "text-indigo-100"
                 }`}
               >
-                {outwardAck.documentKind === "DC" ? "Inter-HO dispatch confirmed" : "Outward confirmed"}
+                {outwardAck.documentKind === "DC" ? "Inter-HO dispatch confirmed" : "Internal transfer confirmed"}
               </p>
               <h2 id="outward-ack-title" className="mt-1 text-xl font-bold">
-                {outwardAck.documentKind === "DC" ? "HO → HO delivery challan (DC)" : "Watches dispatched to store"}
+                {outwardAck.documentKind === "DC" ? "HO → HO delivery challan (DC)" : "HO → store transfer (TD)"}
               </h2>
             </div>
             <div className="px-5 py-5">
@@ -873,7 +995,7 @@ export function ScLogisticsPage() {
                   </>
                 ) : (
                   <>
-                    <strong>{outwardAck.watchCount}</strong> watch{outwardAck.watchCount === 1 ? "" : "es"} on outward ODC.
+                    <strong>{outwardAck.watchCount}</strong> watch{outwardAck.watchCount === 1 ? "" : "es"} on transfer document (TD).
                     Store can inward when the batch arrives.
                   </>
                 )}
@@ -890,7 +1012,7 @@ export function ScLogisticsPage() {
                     outwardAck.documentKind === "DC" ? "text-emerald-800" : "text-indigo-800"
                   }`}
                 >
-                  {outwardAck.documentKind === "DC" ? "DC number" : "ODC number"}
+                  {outwardAck.documentKind === "DC" ? "DC number" : "Transfer number (TD)"}
                 </p>
                 <p
                   className={`mt-1 font-mono text-2xl font-bold ${
@@ -944,21 +1066,21 @@ export function ScLogisticsPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    printDcDocument(outwardAck.documentKind, outwardAck.odcNumber, outwardAck.rows, {
-                      ...outwardAck.printOpts,
-                      documentHeading:
-                        outwardAck.documentKind === "DC"
-                          ? "Delivery Challan (Inter-HO DC)"
-                          : "Outward Delivery Challan (ODC)",
+                    printTransferFromMeta(outwardAck.printMeta, outwardAck.rows, {
+                      seriesCode: outwardAck.documentKind === "DC" ? "DC" : "TD",
+                      hoInvoiceRef: outwardAck.printOpts.hoInvoiceRef,
+                      storeInvoiceRef: outwardAck.printOpts.storeInvoiceRef,
+                      preparedBy: user?.displayName?.trim() || user?.email?.trim(),
+                      transferDate: outwardAck.dispatchedAt,
                     })
                   }
                   className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-semibold ${
-                    outwardAck.documentKind === "DC"
+                    outwardAck.printMeta.printKind === "dc"
                       ? "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
                       : "border-indigo-300 bg-indigo-50 text-indigo-900 hover:bg-indigo-100"
                   }`}
                 >
-                  Print {outwardAck.documentKind === "DC" ? "DC" : "ODC"} copy
+                  Print {outwardAck.documentKind === "DC" ? "DC" : "TD"} copy
                 </button>
                 <button
                   type="button"
@@ -1049,33 +1171,93 @@ export function ScLogisticsPage() {
                   </table>
                 </div>
               ) : null}
-              <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    const parties = buildScInwardPrintParties(inwardAck, regions, user?.regionId);
                     printScInwardAckDocument({
                       inwardNumber: inwardAck.inwardNumber,
                       numberLabel: scInwardNumberLabel(inwardAck.documentKind),
-                      hoName: inwardAck.hoLabel,
-                      fromStoreName:
-                        inwardAck.documentKind === "store_transfer"
-                          ? inwardAck.storeLabel
-                          : inwardAck.documentKind === "inter_ho_return"
-                            ? "Sender HO (return leg)"
-                            : "Other HO",
+                      documentTitle: "SRF Inward Acknowledgment",
+                      documentSubtitle: scInwardReceiptPrintSubtitle(inwardAck.documentKind),
+                      receivedAtLocation: inwardAck.hoLabel,
+                      fromLocationLabel:
+                        inwardAck.documentKind === "store_transfer" ? "Received from (store)" : "Received from",
+                      fromLocationName: inwardFromLocationName(inwardAck.documentKind, inwardAck.storeLabel),
                       receivedBy: user?.displayName?.trim() || user?.email?.trim() || "Service centre",
                       receivedAt: inwardAck.receivedAt,
                       jobs: inwardAck.jobs,
-                    })
-                  }
+                      transferSeries: inwardAck.documentKind === "store_transfer" ? "TD" : "DC",
+                      partyFrom: parties.partyFrom,
+                      partyTo: parties.partyTo,
+                    });
+                  }}
+                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                >
+                  Print inward receipt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const first = inwardAck.jobs[0];
+                    if (inwardAck.documentKind === "store_transfer" && first) {
+                      const store = regions.flatMap((r) => r.stores).find((s) => s.id === first.storeId);
+                      const region = regions.find((r) => r.id === first.regionId);
+                      if (store && region) {
+                        const r = resolveStoreToHoPrint(store, region);
+                        printTransferFromMeta(
+                          {
+                            printKind: r.printKind,
+                            flow: "store_to_ho",
+                            transferNumber: inwardAck.inwardNumber,
+                            from: r.from,
+                            to: r.to,
+                          },
+                          inwardAck.jobs,
+                          {
+                            seriesCode: "TD",
+                            preparedBy: user?.displayName?.trim() || user?.email?.trim(),
+                            transferDate: inwardAck.receivedAt,
+                          },
+                        );
+                        return;
+                      }
+                    }
+                    if (
+                      (inwardAck.documentKind === "inter_ho_dc" || inwardAck.documentKind === "inter_ho_return") &&
+                      first
+                    ) {
+                      const parties = buildScInwardPrintParties(inwardAck, regions, user?.regionId);
+                      if (parties.partyFrom && parties.partyTo) {
+                        const flow =
+                          inwardAck.documentKind === "inter_ho_return" ? "ho_to_ho_return" : "ho_to_ho_dispatch";
+                        printTransferFromMeta(
+                          {
+                            printKind: "dc",
+                            flow,
+                            transferNumber: inwardAck.inwardNumber,
+                            from: parties.partyFrom,
+                            to: parties.partyTo,
+                          },
+                          inwardAck.jobs,
+                          {
+                            seriesCode: "DC",
+                            preparedBy: user?.displayName?.trim() || user?.email?.trim(),
+                            transferDate: inwardAck.receivedAt,
+                          },
+                        );
+                      }
+                    }
+                  }}
                   className="flex-1 rounded-xl border border-zimson-300 bg-zimson-50 px-4 py-2.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-100"
                 >
-                  Print acknowledgment
+                  Print transfer / DC copy
                 </button>
                 <button
                   type="button"
                   onClick={() => setInwardAck(null)}
-                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                  className="flex-1 rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50"
                 >
                   Done
                 </button>

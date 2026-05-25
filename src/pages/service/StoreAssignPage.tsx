@@ -394,9 +394,14 @@ export function StoreAssignPage() {
               <button
                 type="button"
                 className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90 sm:w-auto"
-                onClick={() => printAssignmentSlip(assignAck.job, assignAck.technicianLabel)}
+                onClick={() =>
+                  printAssignmentSlip(assignAck.job, assignAck.technicianLabel, {
+                    assignedAt: assignAck.job.assignedAt ? new Date(assignAck.job.assignedAt) : new Date(),
+                    serviceCentreLabel: assignAck.job.regionName,
+                  })
+                }
               >
-                Print technician slip
+                Print technician notes
               </button>
               <button
                 type="button"

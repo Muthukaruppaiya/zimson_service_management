@@ -44,6 +44,8 @@ export function ServiceTaxSettingsPage() {
   const [dcSuffix, setDcSuffix] = useState("");
   const [odcPrefix, setOdcPrefix] = useState("ODC");
   const [odcSuffix, setOdcSuffix] = useState("");
+  const [tdPrefix, setTdPrefix] = useState("TD");
+  const [tdSuffix, setTdSuffix] = useState("");
   const [appLogoUrl, setAppLogoUrl] = useState("");
   const [appFaviconUrl, setAppFaviconUrl] = useState("");
   const [notes, setNotes] = useState("");
@@ -81,6 +83,8 @@ export function ServiceTaxSettingsPage() {
       setDcSuffix(s.dcSuffix ?? "");
       setOdcPrefix(s.odcPrefix ?? "ODC");
       setOdcSuffix(s.odcSuffix ?? "");
+      setTdPrefix(s.tdPrefix ?? "TD");
+      setTdSuffix(s.tdSuffix ?? "");
       setAppLogoUrl(s.appLogoUrl ?? "");
       setAppFaviconUrl(s.appFaviconUrl ?? "");
       setNotes(s.notes);
@@ -128,6 +132,8 @@ export function ServiceTaxSettingsPage() {
         dcSuffix: dcSuffix.trim(),
         odcPrefix: odcPrefix.trim(),
         odcSuffix: odcSuffix.trim(),
+        tdPrefix: tdPrefix.trim(),
+        tdSuffix: tdSuffix.trim(),
         appLogoUrl: appLogoUrl.trim(),
         appFaviconUrl: appFaviconUrl.trim(),
         notes: notes.trim(),
@@ -158,6 +164,8 @@ export function ServiceTaxSettingsPage() {
       setDcSuffix(s.dcSuffix ?? "");
       setOdcPrefix(s.odcPrefix ?? "ODC");
       setOdcSuffix(s.odcSuffix ?? "");
+      setTdPrefix(s.tdPrefix ?? "TD");
+      setTdSuffix(s.tdSuffix ?? "");
       setAppLogoUrl(s.appLogoUrl ?? "");
       setAppFaviconUrl(s.appFaviconUrl ?? "");
       setNotes(s.notes);
@@ -386,7 +394,7 @@ export function ServiceTaxSettingsPage() {
             <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-4">
               <p className="text-xs font-semibold text-stone-700">Document number prefix / suffix settings</p>
               <p className="mt-1 text-xs text-stone-500">
-                Format remains sequence based; these values control start/end text of generated SRF, PR, PO, GRN, DC, and ODC numbers.
+                Format: PREFIX + YY + scope + sequence + suffix (e.g. TD26CBE0101001). TD = store ↔ HO transfer; DC = delivery challan (inter-HO).
               </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="text-xs font-medium text-stone-600">SRF prefix<input className={inputClass} value={srfPrefix} onChange={(e) => setSrfPrefix(e.target.value)} /></label>
@@ -397,9 +405,11 @@ export function ServiceTaxSettingsPage() {
                 <label className="text-xs font-medium text-stone-600">PO suffix<input className={inputClass} value={poSuffix} onChange={(e) => setPoSuffix(e.target.value)} /></label>
                 <label className="text-xs font-medium text-stone-600">GRN prefix<input className={inputClass} value={grnPrefix} onChange={(e) => setGrnPrefix(e.target.value)} /></label>
                 <label className="text-xs font-medium text-stone-600">GRN suffix<input className={inputClass} value={grnSuffix} onChange={(e) => setGrnSuffix(e.target.value)} /></label>
-                <label className="text-xs font-medium text-stone-600">DC prefix<input className={inputClass} value={dcPrefix} onChange={(e) => setDcPrefix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">TD prefix (store ↔ HO transfer)<input className={inputClass} value={tdPrefix} onChange={(e) => setTdPrefix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">TD suffix<input className={inputClass} value={tdSuffix} onChange={(e) => setTdSuffix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">DC prefix (delivery challan)<input className={inputClass} value={dcPrefix} onChange={(e) => setDcPrefix(e.target.value)} /></label>
                 <label className="text-xs font-medium text-stone-600">DC suffix<input className={inputClass} value={dcSuffix} onChange={(e) => setDcSuffix(e.target.value)} /></label>
-                <label className="text-xs font-medium text-stone-600">ODC prefix<input className={inputClass} value={odcPrefix} onChange={(e) => setOdcPrefix(e.target.value)} /></label>
+                <label className="text-xs font-medium text-stone-600">ODC prefix (legacy)<input className={inputClass} value={odcPrefix} onChange={(e) => setOdcPrefix(e.target.value)} /></label>
                 <label className="text-xs font-medium text-stone-600">ODC suffix<input className={inputClass} value={odcSuffix} onChange={(e) => setOdcSuffix(e.target.value)} /></label>
               </div>
             </div>

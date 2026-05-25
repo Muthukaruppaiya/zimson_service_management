@@ -25,6 +25,8 @@ type TaxRow = {
   dc_suffix: string;
   odc_prefix: string;
   odc_suffix: string;
+  td_prefix: string;
+  td_suffix: string;
   app_logo_url: string;
   app_favicon_url: string;
   invoice_store_display_name?: string | null;
@@ -71,6 +73,8 @@ function rowToPayload(row: TaxRow) {
     dcSuffix: row.dc_suffix ?? "",
     odcPrefix: row.odc_prefix ?? "ODC",
     odcSuffix: row.odc_suffix ?? "",
+    tdPrefix: row.td_prefix ?? "TD",
+    tdSuffix: row.td_suffix ?? "",
     appLogoUrl: row.app_logo_url ?? "",
     appFaviconUrl: row.app_favicon_url ?? "",
     invoiceStoreDisplayName: String(row.invoice_store_display_name ?? "").trim(),
@@ -119,7 +123,7 @@ function parseSeriesSuffix(raw: unknown): string {
 const TAX_SELECT = `SELECT id, gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
                 igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive, supplier_tax_person_types,
                 srf_prefix, srf_suffix, pr_prefix, pr_suffix, po_prefix, po_suffix,
-                grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix,
+                grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix, td_prefix, td_suffix,
                 app_logo_url, app_favicon_url,
                 invoice_store_display_name, invoice_store_tagline, invoice_store_address,
                 invoice_store_phone, invoice_store_email, invoice_store_gstin,
@@ -185,6 +189,8 @@ export function registerTaxSettingsRoutes(
     const dcSuffix = parseSeriesSuffix(body.dcSuffix);
     const odcPrefix = parseSeriesPart(body.odcPrefix, "ODC");
     const odcSuffix = parseSeriesSuffix(body.odcSuffix);
+    const tdPrefix = parseSeriesPart(body.tdPrefix, "TD");
+    const tdSuffix = parseSeriesSuffix(body.tdSuffix);
     const notes = String(body.notes ?? "").slice(0, 2000);
     const appLogoUrl = String(body.appLogoUrl ?? "").trim().slice(0, 4000);
     const appFaviconUrl = String(body.appFaviconUrl ?? "").trim().slice(0, 4000);
@@ -268,26 +274,28 @@ export function registerTaxSettingsRoutes(
            dc_suffix = $17,
            odc_prefix = $18,
            odc_suffix = $19,
-           app_logo_url = $20,
-           app_favicon_url = $21,
-           invoice_store_display_name = $22,
-           invoice_store_tagline = $23,
-           invoice_store_address = $24,
-           invoice_store_phone = $25,
-           invoice_store_email = $26,
-           invoice_store_gstin = $27,
-           invoice_legal_entity_name = $28,
-           invoice_terms = $29,
-           invoice_number_template = $30,
-           invoice_number_seq_width = $31,
-           notes = $32,
+           td_prefix = $20,
+           td_suffix = $21,
+           app_logo_url = $22,
+           app_favicon_url = $23,
+           invoice_store_display_name = $24,
+           invoice_store_tagline = $25,
+           invoice_store_address = $26,
+           invoice_store_phone = $27,
+           invoice_store_email = $28,
+           invoice_store_gstin = $29,
+           invoice_legal_entity_name = $30,
+           invoice_terms = $31,
+           invoice_number_template = $32,
+           invoice_number_seq_width = $33,
+           notes = $34,
            updated_at = now(),
-           updated_by = $33
+           updated_by = $35
          WHERE id = 1
          RETURNING id, gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
                   igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive, supplier_tax_person_types,
                   srf_prefix, srf_suffix, pr_prefix, pr_suffix, po_prefix, po_suffix,
-                  grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix,
+                  grn_prefix, grn_suffix, dc_prefix, dc_suffix, odc_prefix, odc_suffix, td_prefix, td_suffix,
                   app_logo_url, app_favicon_url,
                   invoice_store_display_name, invoice_store_tagline, invoice_store_address,
                   invoice_store_phone, invoice_store_email, invoice_store_gstin,
@@ -314,6 +322,8 @@ export function registerTaxSettingsRoutes(
           dcSuffix,
           odcPrefix,
           odcSuffix,
+          tdPrefix,
+          tdSuffix,
           appLogoUrl,
           appFaviconUrl,
           invoiceStoreDisplayName,

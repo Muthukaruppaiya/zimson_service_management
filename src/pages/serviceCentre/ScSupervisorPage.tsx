@@ -2367,9 +2367,17 @@ export function ScSupervisorPage() {
               <button
                 type="button"
                 className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90 sm:w-auto"
-                onClick={() => printAssignmentSlip(assignSuccessAck.job, assignSuccessAck.technicianLabel)}
+                onClick={() =>
+                  printAssignmentSlip(assignSuccessAck.job, assignSuccessAck.technicianLabel, {
+                    assignedAt: assignSuccessAck.job.assignedAt
+                      ? new Date(assignSuccessAck.job.assignedAt)
+                      : new Date(),
+                    serviceCentreLabel:
+                      regions.find((r) => r.id === user?.regionId)?.name ?? assignSuccessAck.job.regionName,
+                  })
+                }
               >
-                Print assignment slip
+                Print technician notes
               </button>
               <button
                 type="button"

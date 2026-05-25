@@ -13,6 +13,7 @@ import { sendReestimateDecisionNotification, sendTrackingLink } from "./notifica
 import { resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
+import { buildHoOutwardPrintMeta, buildStoreToHoPrintMeta } from "./transferDocMeta";
 
 type Authed = Request & { userId: string };
 
@@ -186,11 +187,25 @@ function visibleWhere(actor: DemoUser, idxStart = 1): { sql: string; params: unk
 
 async function getSeriesPrefixSuffix(
   client: PoolClient,
-  doc: "srf" | "dc" | "odc",
+  doc: "srf" | "dc" | "odc" | "td",
   fallbackPrefix: string,
 ): Promise<{ prefix: string; suffix: string }> {
-  const prefixColumn = doc === "srf" ? "srf_prefix" : doc === "dc" ? "dc_prefix" : "odc_prefix";
-  const suffixColumn = doc === "srf" ? "srf_suffix" : doc === "dc" ? "dc_suffix" : "odc_suffix";
+  const prefixColumn =
+    doc === "srf"
+      ? "srf_prefix"
+      : doc === "dc"
+        ? "dc_prefix"
+        : doc === "td"
+          ? "td_prefix"
+          : "odc_prefix";
+  const suffixColumn =
+    doc === "srf"
+      ? "srf_suffix"
+      : doc === "dc"
+        ? "dc_suffix"
+        : doc === "td"
+          ? "td_suffix"
+          : "odc_suffix";
   const { rows } = await client.query<{ prefix: string; suffix: string }>(
     `SELECT ${prefixColumn} AS prefix, ${suffixColumn} AS suffix
      FROM service_tax_settings
@@ -2095,7 +2110,7 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Store login must be tied to a store for internal transfer numbering." });
         return;
       }
-      const { prefix, suffix } = await getSeriesPrefixSuffix(client, "dc", "DC");
+      const { prefix, suffix } = await getSeriesPrefixSuffix(client, "td", "TD");
       const storeScope = await storeDcScopeCode(client, storeId);
       const dcNumber = await nextDocNumber(client, prefix, suffix, storeScope);
       const dcIns = await client.query<{ id: string }>(
@@ -2140,10 +2155,10 @@ export function registerSrfRoutes(
            WHERE id = $1::uuid`,
           [srfId, dcNumber, actor.id],
         );
-        await appendStatusHistory(client, srfId, "in_transit_sc", actor.id, `Dispatched to HO in ${dcNumber}.`);
+        await appendStatusHistory(client, srfId, "in_transit_sc", actor.id, `Dispatched to HO in transfer ${dcNumber}.`);
         await appendActionLog(client, srfId, {
           action: "store_dc_dispatch",
-          description: `Watch dispatched to service centre via DC ${dcNumber}.`,
+          description: `Watch dispatched to service centre via transfer ${dcNumber}.`,
           actor,
           referenceDoc: dcNumber,
         });
@@ -2154,8 +2169,9 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Selected rows must be at-store SRFs for your own store." });
         return;
       }
+      const printMeta = await buildStoreToHoPrintMeta(client, storeId, regionId, dcNumber);
       await client.query("COMMIT");
-      res.json({ dcNumber, moved });
+      res.json({ dcNumber, moved, printMeta });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -4090,8 +4106,8 @@ export function registerSrfRoutes(
       const firstRecovery = firstTransfer ? returnParentRecovery[firstTransfer.id] : undefined;
       const isInterHoBatch = !!firstTransfer;
       const hoScope = await srfRegionScopeCode(client, regionId);
-      const seriesKey = isInterHoBatch ? ("dc" as const) : ("odc" as const);
-      const seriesFallback = isInterHoBatch ? "DC" : "ODC";
+      const seriesKey = isInterHoBatch ? ("dc" as const) : ("td" as const);
+      const seriesFallback = isInterHoBatch ? "DC" : "TD";
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, seriesKey, seriesFallback);
       const dcNumber = await nextDocNumber(client, prefix, suffix, hoScope);
       const interHoTargetRegionId = firstTransfer?.requires_local_conversion
@@ -4297,11 +4313,23 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "No ready-for-outward SRFs matched." });
         return;
       }
+      const destStoreForMeta =
+        items.find((it: { destinationStoreId: string }) => it.destinationStoreId)?.destinationStoreId ??
+        fromStoreId;
+      const printMeta = await buildHoOutwardPrintMeta(client, {
+        fromRegionId: regionId,
+        destinationStoreId: destStoreForMeta,
+        transferNumber: dcNumber,
+        isInterHoBatch,
+        interHoTargetRegionId: interHoTargetRegionId ?? null,
+        isReturnLeg: isReturnToSenderBatch,
+      });
       await client.query("COMMIT");
       res.json({
         odcNumber: dcNumber,
         moved,
-        documentKind: isInterHoBatch ? ("DC" as const) : ("ODC" as const),
+        documentKind: isInterHoBatch ? ("DC" as const) : ("TD" as const),
+        printMeta,
       });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});

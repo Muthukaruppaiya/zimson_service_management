@@ -21,7 +21,7 @@ import {
   validateMultiPaymentForm,
 } from "../../lib/paymentModes";
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
-import { printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
+import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
 import {
   isValidGstFormat,
   isValidPanFormat,
@@ -1059,11 +1059,23 @@ export function SrfBookingV2Page() {
     const advancePay = advanceTotal > 0 ? buildMultiPaymentPayload(advancePaymentForm, advanceTotal) : null;
     const resolvedAdvanceMode = advancePay && !("error" in advancePay) ? advancePay.paymentMode : null;
     const resolvedAdvanceDetails = advancePay && !("error" in advancePay) ? advancePay.paymentDetails : null;
+    const printStore =
+      handoverStoreOptions.find((s) => s.id === handoverStoreId) || currentUserStore;
+    const srfComments = [
+      estimateRemarks.trim(),
+      repMovementOverhaul.trim() ? `Movement overhaul: ${repMovementOverhaul.trim()}` : "",
+      repPolishing.trim() ? `Polishing: ${repPolishing.trim()}` : "",
+      obsAdditionalNotes.trim(),
+    ]
+      .filter(Boolean)
+      .join(" / ");
     printSrfDocument({
       reference: srfRef,
       customerName,
       phone,
+      company: customerType === "B2B" ? company.trim() : undefined,
       watchBrand,
+      watchFamily: watchFamily.trim(),
       watchModel: resolvedWatchModel.trim(),
       serial,
       complaint,
@@ -1072,7 +1084,32 @@ export function SrfBookingV2Page() {
       advanceInr: advanceTotal,
       advancePaymentMode: resolvedAdvanceMode,
       advancePaymentDetails: resolvedAdvanceDetails,
-      photos: photoPreview,
+      bookingDate: new Date(),
+      repairRoute: finalizedRepairRoute,
+      natureOfRepair: finalizedRepairRoute === "store_self" ? "Store repair" : "HO Service",
+      receptionistRemarks: estimateRemarks.trim() || obsAdditionalNotes.trim(),
+      comments: srfComments || complaint,
+      modelNumber: serial.trim(),
+      storeInfo: printStore ? srfPrintStoreFromSeed(printStore) : undefined,
+      observations: {
+        caseCrystal: obsCaseCrystal,
+        glassCrystal: obsGlassCrystal,
+        strapBracelet: obsStrapBracelet,
+        hands: obsHands,
+        crownPushers: obsCrownPushers,
+        movement: obsMovement,
+        waterResistance: obsWaterResistance,
+        additionalNotes: obsAdditionalNotes || estimateRemarks,
+      },
+      suggestedRepairs: {
+        movementOverhaul: repMovementOverhaul,
+        polishing: repPolishing,
+        waterKit: repWaterKit,
+        bezel: repBezel,
+        crownStem: repCrownStem,
+        glassCrystal: repGlassCrystal,
+        dialHands: repDialHands,
+      },
     });
     printEstimateDocument(
       {

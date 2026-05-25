@@ -1,6 +1,24 @@
 import { openPrintDocument } from "./inventoryDocuments";
+import { getAppLogoUrl } from "./appBranding";
 import { ADVANCE_CASH_DENOMS, type AdvancePaymentDetails } from "./paymentModes";
+import { repairRouteLabel, type SrfRepairRoute } from "./srfRepairRoute";
 import type { SrfJob } from "../types/srfJob";
+import {
+  transferDocumentTitle,
+  transferNumberLabel,
+  type TransferFlow,
+  type TransferPartyBlock,
+  type TransferPrintKind,
+} from "./transferDocumentKind";
+
+export type { TransferFlow, TransferPartyBlock, TransferPrintKind } from "./transferDocumentKind";
+export type TransferPrintMeta = {
+  printKind: TransferPrintKind;
+  flow: TransferFlow;
+  transferNumber: string;
+  from: TransferPartyBlock;
+  to: TransferPartyBlock;
+};
 
 function base(title: string, body: string): string {
   const baseHref = typeof window !== "undefined" ? window.location.origin : "";
@@ -61,12 +79,33 @@ function formatAdvanceForPrint(
   return parts.join("");
 }
 
-export function printSrfDocument(job: {
+export type SrfPrintObservations = Partial<
+  Record<
+    "caseCrystal" | "glassCrystal" | "strapBracelet" | "hands" | "crownPushers" | "movement" | "waterResistance" | "additionalNotes",
+    string
+  >
+>;
+
+export type SrfPrintStoreInfo = {
+  displayName?: string;
+  tagline?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  gstin?: string;
+};
+
+export type SrfSuggestedRepairs = Partial<
+  Record<"movementOverhaul" | "polishing" | "waterKit" | "bezel" | "crownStem" | "glassCrystal" | "dialHands", string>
+>;
+
+export type SrfPrintInput = {
   reference: string;
   customerName: string;
   phone: string;
   watchBrand: string;
   watchModel: string;
+  watchFamily?: string;
   serial: string;
   complaint: string;
   estimateTotalInr: number;
@@ -74,35 +113,499 @@ export function printSrfDocument(job: {
   advanceInr?: number;
   advancePaymentMode?: string | null;
   advancePaymentDetails?: AdvancePaymentDetails | null;
-  photos?: Array<{ id: string; photoKind?: string; filePath: string }>;
-}): void {
-  const photoBlocks = (job.photos ?? [])
-    .map((p) => {
-      const src = absolutePhotoSrc(p.filePath);
-      return `<div style="width:160px">
-        <img src="${src}" alt="${p.photoKind ?? "watch photo"}" style="width:160px;height:110px;object-fit:cover;border:1px solid #ccc;border-radius:6px"/>
-        <div style="font-size:11px;margin-top:4px;text-transform:capitalize">${p.photoKind ?? "other"}</div>
-      </div>`;
-    })
-    .join("");
-  const html = base(
-    `SRF ${job.reference}`,
-    `${barcodeBlock(job.reference)}<h2 style="margin:0 0 12px">Service Request Form</h2>
-     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
-       <tbody>
-         <tr><td><strong>SRF</strong></td><td>${job.reference}</td><td><strong>Customer</strong></td><td>${job.customerName}</td></tr>
-         <tr><td><strong>Phone</strong></td><td>${job.phone}</td><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td></tr>
-        <tr><td><strong>Serial</strong></td><td>${job.serial}</td><td><strong>Estimate</strong></td><td>INR ${job.estimateTotalInr.toFixed(2)}</td></tr>
-        <tr><td><strong>Estimated service finish</strong></td><td>${job.estimatedFinishDate || "-"}</td><td><strong></strong></td><td></td></tr>
-         <tr><td><strong>Complaint</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
-       </tbody>
-     </table>
-     ${formatAdvanceForPrint(job.advanceInr, job.advancePaymentMode, job.advancePaymentDetails ?? null)}
-     <h3 style="margin:16px 0 6px">Watch images</h3>
-     <div style="display:flex;flex-wrap:wrap;gap:8px">${photoBlocks || "<div>No images uploaded</div>"}</div>
-     <div style="margin-top:24px">Customer Sign: _____________________</div>
-     <div style="margin-top:16px">Store Sign: _____________________</div>`,
-  );
+  bookingDate?: string | Date | null;
+  manualRefNo?: string;
+  company?: string;
+  storeInfo?: SrfPrintStoreInfo;
+  natureOfRepair?: string;
+  repairRoute?: SrfRepairRoute | string;
+  invoiceNumber?: string;
+  invoiceDate?: string;
+  chainCount?: string;
+  receptionistRemarks?: string;
+  comments?: string;
+  observations?: SrfPrintObservations;
+  suggestedRepairs?: SrfSuggestedRepairs;
+  modelNumber?: string;
+};
+
+const SRF_FALLBACK_LOGO = "/zimson-logo.png";
+
+/** Map a store record to invoice block fields for SRF print. */
+export function srfPrintStoreFromSeed(store: {
+  name: string;
+  invoiceDisplayName?: string;
+  invoiceTagline?: string;
+  invoiceAddress?: string;
+  invoicePhone?: string;
+  invoiceEmail?: string;
+  invoiceGstin?: string;
+}): SrfPrintStoreInfo {
+  return {
+    displayName: store.invoiceDisplayName?.trim() || store.name,
+    tagline: store.invoiceTagline?.trim() || "SINCE 1948",
+    address: store.invoiceAddress?.trim() || "",
+    phone: store.invoicePhone?.trim() || "",
+    email: store.invoiceEmail?.trim() || "",
+    gstin: store.invoiceGstin?.trim() || "",
+  };
+}
+
+function escHtml(v: string): string {
+  return v
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function formatDateTime(value?: string | Date | null): string {
+  if (!value) return new Date().toLocaleString("en-IN", { hour12: false });
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString("en-IN", { hour12: false });
+}
+
+function formatDateOnly(value?: string | null): string {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-IN");
+}
+
+function absoluteAssetUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function srfDisplay(v?: string | null): string {
+  const t = String(v ?? "").trim();
+  return t || "-";
+}
+
+function resolveSrfLogoUrl(): string {
+  const raw = getAppLogoUrl().trim();
+  if (!raw || raw === "/icons.svg" || raw.endsWith("/icons.svg")) {
+    return absoluteAssetUrl(SRF_FALLBACK_LOGO);
+  }
+  if (raw.startsWith("data:")) return raw;
+  return absoluteAssetUrl(raw);
+}
+
+function srfLogoImgHtml(): string {
+  const primary = resolveSrfLogoUrl();
+  const fallback = absoluteAssetUrl(SRF_FALLBACK_LOGO);
+  return `<img class="srf-logo" src="${escHtml(primary)}" alt="Zimson" onerror="this.onerror=null;this.src='${escHtml(fallback)}';" />`;
+}
+
+function bookingCenterBlock(store?: SrfPrintStoreInfo): string {
+  const name = store?.displayName?.trim() || "ZIMSON - THE WATCH STORE";
+  const tagline = store?.tagline?.trim() || "SINCE 1948";
+  const address = store?.address?.trim() || "—";
+  const phone = store?.phone?.trim() || "—";
+  const email = store?.email?.trim() || "—";
+  const gstin = store?.gstin?.trim() || "—";
+  return `<div class="srf-center-lines">
+    <span class="srf-center-name">${escHtml(name)}</span>${tagline ? ` <span class="srf-center-tag">${escHtml(tagline)}</span>` : ""}<br/>
+    ${escHtml(address).replace(/\n/g, "<br/>")}<br/>
+    <strong>Ph:</strong> ${escHtml(phone)} &nbsp; <strong>Email:</strong> ${escHtml(email)} &nbsp; <strong>GSTIN:</strong> ${escHtml(gstin)}
+  </div>`;
+}
+
+function buildRepairLines(repairs?: SrfSuggestedRepairs): string[] {
+  if (!repairs) return [];
+  const pairs: [string, string | undefined][] = [
+    ["Movement overhaul", repairs.movementOverhaul],
+    ["Polishing", repairs.polishing],
+    ["Water kit", repairs.waterKit],
+    ["Bezel", repairs.bezel],
+    ["Crown / stem", repairs.crownStem],
+    ["Glass / crystal", repairs.glassCrystal],
+    ["Dial / hands", repairs.dialHands],
+  ];
+  return pairs.filter(([, v]) => String(v ?? "").trim()).map(([k, v]) => `${k}: ${String(v).trim()}`);
+}
+
+const SRF_SPARE_ROWS = 5;
+
+function srfBarcode(reference: string): string {
+  const q = encodeURIComponent(reference);
+  return `<img src="https://bwipjs-api.metafloor.com/?bcid=code128&text=${q}&scale=1.35&height=7&includetext=true&textxalign=center" alt="${escHtml(reference)}" class="srf-barcode" />`;
+}
+
+function technicianSpareRows(count = SRF_SPARE_ROWS): string {
+  return Array.from({ length: count }, (_, i) => {
+    const n = i + 1;
+    return `<tr>
+      <td class="c">${n}</td>
+      <td>&nbsp;</td>
+      <td>&nbsp;</td>
+      <td>&nbsp;</td>
+      <td>&nbsp;</td>
+      <td>&nbsp;</td>
+    </tr>`;
+  }).join("");
+}
+
+function srfField(label: string, value: string): string {
+  return `<div class="field"><span class="field-lbl">${escHtml(label)}</span><span class="field-val">${escHtml(value)}</span></div>`;
+}
+
+function srfRemarksCompact(label: string, value: string): string {
+  const v = value.trim() || "-";
+  const short = v.length > 220 ? `${v.slice(0, 217)}…` : v;
+  return `<div class="remark-chip"><span class="remark-chip-lbl">${escHtml(label)}</span><span class="remark-chip-val">${escHtml(short)}</span></div>`;
+}
+
+/** Invoice-aligned palette — full A4 sheet (210 × 297 mm). */
+const SRF_PRINT_CSS = `
+  @page { size: A4 portrait; margin: 8mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    font-size: 10px;
+    line-height: 1.35;
+    color: #0d1b2a;
+    background: #e8edf8;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .doc {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    border: 2px solid #1b3a8f;
+    background: #fff;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .srf-banner {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+    background: #1b3a8f;
+    color: #fff;
+  }
+  .srf-banner-title {
+    display: table-cell;
+    vertical-align: middle;
+    padding: 10px 14px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .srf-banner-sub {
+    display: table-cell;
+    vertical-align: middle;
+    padding: 10px 14px;
+    font-size: 10px;
+    text-align: right;
+  }
+  .srf-accent { height: 4px; background: linear-gradient(90deg, #c9a227 0%, #e8d48a 50%, #c9a227 100%); }
+  .srf-top-row {
+    display: table;
+    width: 100%;
+    border-bottom: 1px solid #1b3a8f;
+  }
+  .srf-top-cell {
+    display: table-cell;
+    vertical-align: top;
+    padding: 10px 12px;
+    border-right: 1px solid #d8dff0;
+    width: 33.33%;
+  }
+  .srf-top-cell:last-child { border-right: none; }
+  .srf-barcode-wrap { text-align: center; vertical-align: middle; }
+  .srf-barcode { max-width: 100%; height: 48px; object-fit: contain; }
+  .srf-logo-wrap { text-align: right; vertical-align: middle; }
+  .srf-logo {
+    height: 56px;
+    max-width: 180px;
+    object-fit: contain;
+    display: inline-block;
+  }
+  .srf-meta-box {
+    border: 1px solid #1b3a8f;
+    background: #f4f6fb;
+    padding: 6px 8px;
+    font-size: 9.5px;
+  }
+  .srf-meta-box div { margin-bottom: 3px; }
+  .srf-meta-box strong { color: #1b3a8f; }
+  .srf-center {
+    padding: 8px 12px;
+    border-bottom: 1px solid #d8dff0;
+    background: #fafbfd;
+    font-size: 9.5px;
+    line-height: 1.4;
+  }
+  .srf-center-head {
+    font-size: 10px;
+    font-weight: 700;
+    color: #1b3a8f;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+  }
+  .srf-center-name { font-weight: 700; color: #0d1b2a; }
+  .srf-center-tag { font-weight: 600; color: #c9a227; }
+  .srf-body { padding: 0 12px 12px; }
+  .sec-title {
+    background: #e8edf8;
+    color: #1b3a8f;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 5px 10px;
+    margin: 8px 0 4px;
+    border: 1px solid #1b3a8f;
+    border-bottom-width: 2px;
+  }
+  .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 18px; }
+  .field { display: flex; gap: 6px; margin-bottom: 3px; align-items: baseline; font-size: 9.5px; }
+  .field-lbl { font-weight: 600; color: #4a5568; min-width: 118px; flex-shrink: 0; }
+  .field-val { font-weight: 600; color: #0d1b2a; flex: 1; }
+  .remarks-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 4px 0 6px; }
+  .remark-chip {
+    border: 1px solid #d8dff0;
+    background: #f4f6fb;
+    padding: 5px 7px;
+    min-height: 36px;
+  }
+  .remark-chip-lbl { display: block; font-weight: 700; color: #1b3a8f; font-size: 8px; text-transform: uppercase; margin-bottom: 2px; }
+  .remark-chip-val { display: block; font-size: 9px; line-height: 1.3; white-space: pre-wrap; }
+  .repair-chip {
+    border: 1px dashed #c9a227;
+    background: #fffdf5;
+    padding: 5px 8px;
+    margin-bottom: 6px;
+    font-size: 9px;
+    line-height: 1.35;
+  }
+  .repair-chip strong { color: #1b3a8f; }
+  .amounts {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .amount-card {
+    border: 1px solid #1b3a8f;
+    background: linear-gradient(180deg, #f4f6fb 0%, #fff 100%);
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .amount-card-lbl { font-size: 8px; font-weight: 600; color: #4a5568; text-transform: uppercase; display: block; }
+  .amount-card-val { font-size: 11px; font-weight: 700; color: #1b3a8f; display: block; margin-top: 2px; }
+  .advance-note { font-size: 9px; color: #4a5568; margin: 0 0 6px; padding: 4px 8px; background: #f4f6fb; border-left: 3px solid #c9a227; }
+  .tech-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    font-size: 9px;
+    padding: 4px 0 6px;
+    color: #4a5568;
+  }
+  .tech-strip b { color: #1b3a8f; }
+  .spares-table { width: 100%; border-collapse: collapse; font-size: 9px; }
+  .spares-table th {
+    background: #1b3a8f;
+    color: #c9a227;
+    font-weight: 700;
+    text-align: center;
+    padding: 4px 5px;
+    border: 1px solid #1b3a8f;
+    font-size: 8px;
+    text-transform: uppercase;
+  }
+  .spares-table td {
+    border: 1px solid #d8dff0;
+    padding: 3px 5px;
+    height: 16px;
+    vertical-align: middle;
+  }
+  .spares-table td.c { text-align: center; width: 22px; background: #f4f6fb; font-weight: 600; }
+  .spares-table tfoot td {
+    font-weight: 700;
+    background: #e8edf8;
+    color: #1b3a8f;
+    padding: 3px 5px;
+    border: 1px solid #1b3a8f;
+  }
+  .sign-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #1b3a8f;
+  }
+  .sign-lbl { font-size: 8px; font-weight: 700; color: #1b3a8f; text-transform: uppercase; margin-bottom: 14px; }
+  .sign-line { border-bottom: 1px solid #1b3a8f; }
+  .sign-wide { grid-column: 1 / -1; margin-top: 2px; }
+  .sign-wide .sign-line { min-height: 18px; }
+  @media print {
+    body { background: #fff; }
+    .doc { width: 100%; min-height: auto; margin: 0; }
+  }
+  @media screen {
+    body { padding: 12px 0; }
+  }
+`;
+
+export function printSrfDocument(job: SrfPrintInput): void {
+  const obs = job.observations ?? {};
+  const advance = Number(job.advanceInr ?? 0);
+  const estimate = Number(job.estimateTotalInr ?? 0);
+  const balance = Math.max(estimate - advance, 0);
+  const bookingDate = formatDateTime(job.bookingDate ?? new Date());
+  const estdDelivery = job.estimatedFinishDate ? formatDateOnly(job.estimatedFinishDate) : "-";
+  const nature =
+    job.natureOfRepair?.trim() ||
+    (job.repairRoute ? repairRouteLabel(job.repairRoute) : "Chargeable - Service");
+  const modelNo = srfDisplay(job.modelNumber?.trim() || job.serial);
+  const brandModel =
+    [job.watchFamily?.trim(), job.watchModel.trim()].filter(Boolean).join(" ") || job.watchModel || "-";
+  const repairLines = buildRepairLines(job.suggestedRepairs);
+  const repairBlock =
+    repairLines.length > 0
+      ? `<div class="repair-chip"><strong>Suggested repairs:</strong> ${escHtml(repairLines.join(" · "))}</div>`
+      : "";
+  const comments =
+    job.comments?.trim() ||
+    [obs.additionalNotes?.trim(), repairLines.length ? repairLines.join("; ") : ""].filter(Boolean).join("\n") ||
+    "-";
+  const barcode = srfBarcode(job.reference);
+  const bookingCenter = bookingCenterBlock(job.storeInfo);
+  const logoHtml = srfLogoImgHtml();
+  const baseHref = typeof window !== "undefined" ? window.location.origin : "";
+  const advanceNote =
+    advance > 0
+      ? `<div class="advance-note">${formatAdvanceForPrint(job.advanceInr, job.advancePaymentMode, job.advancePaymentDetails ?? null)}</div>`
+      : "";
+  const companyLine = job.company?.trim()
+    ? `<div><strong>Company:</strong> ${escHtml(job.company.trim())}</div>`
+    : "";
+
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <base href="${escHtml(baseHref)}/" />
+  <title>SRF ${escHtml(job.reference)}</title>
+  <style>${SRF_PRINT_CSS}</style>
+</head>
+<body>
+  <div class="doc">
+    <div class="srf-banner">
+      <div class="srf-banner-title">Service Acknowledgment Form</div>
+      <div class="srf-banner-sub">Internal Copy<br/>Manual Ref: ${escHtml(job.manualRefNo?.trim() || "—")}</div>
+    </div>
+    <div class="srf-accent" aria-hidden="true"></div>
+
+    <div class="srf-top-row">
+      <div class="srf-top-cell">
+        <div class="srf-meta-box">
+          <div><strong>Service Entry No:</strong> ${escHtml(job.reference)}</div>
+          <div><strong>Booking Date:</strong> ${escHtml(bookingDate)}</div>
+          <div><strong>Customer:</strong> ${escHtml(job.customerName)}</div>
+          <div><strong>Mobile:</strong> ${escHtml(job.phone)}</div>
+          ${companyLine}
+        </div>
+      </div>
+      <div class="srf-top-cell srf-barcode-wrap">${barcode}</div>
+      <div class="srf-top-cell srf-logo-wrap">${logoHtml}</div>
+    </div>
+
+    <div class="srf-center">
+      <div class="srf-center-head">Booking Center</div>
+      ${bookingCenter}
+    </div>
+
+    <div class="srf-body">
+      <div class="sec-title">Product Information</div>
+      <div class="cols-2">
+        <div>
+          ${srfField("Brand / Model No", modelNo)}
+          ${srfField("Brand Name", srfDisplay(job.watchBrand))}
+          ${srfField("Brand Model", srfDisplay(brandModel))}
+          ${srfField("Nature of Repair", srfDisplay(nature))}
+          ${srfField("Invoice Number", srfDisplay(job.invoiceNumber))}
+          ${srfField("Invoice Date", srfDisplay(job.invoiceDate ? formatDateOnly(job.invoiceDate) : null))}
+        </div>
+        <div>
+          ${srfField("Dial / CLR", srfDisplay(obs.glassCrystal))}
+          ${srfField("Strap / Chain", srfDisplay(obs.strapBracelet))}
+          ${srfField("Case / Crystal", srfDisplay(obs.caseCrystal))}
+          ${srfField("Hands", srfDisplay(obs.hands))}
+          ${srfField("Crown / Pushers", srfDisplay(obs.crownPushers))}
+          ${srfField("Movement", srfDisplay(obs.movement))}
+          ${srfField("Water Resistance", srfDisplay(obs.waterResistance))}
+          ${srfField("Back Cover / S.No", srfDisplay(job.serial))}
+          ${srfField("Chain Count", srfDisplay(job.chainCount))}
+        </div>
+      </div>
+      ${repairBlock}
+      <div class="remarks-row">
+        ${srfRemarksCompact("Customer Remarks", job.complaint || "-")}
+        ${srfRemarksCompact("Receptionist Remarks", job.receptionistRemarks?.trim() || "-")}
+        ${srfRemarksCompact("Comments", comments)}
+      </div>
+
+      <div class="sec-title">Service Information</div>
+      <div class="amounts">
+        <div class="amount-card"><span class="amount-card-lbl">Estd. Delivery</span><span class="amount-card-val">${escHtml(estdDelivery)}</span></div>
+        <div class="amount-card"><span class="amount-card-lbl">Advance Paid (INR)</span><span class="amount-card-val">${advance.toFixed(2)}</span></div>
+        <div class="amount-card"><span class="amount-card-lbl">Est. Service Cost</span><span class="amount-card-val">${estimate.toFixed(2)}</span></div>
+        <div class="amount-card"><span class="amount-card-lbl">Balance (Excl. Tax)</span><span class="amount-card-val">${balance.toFixed(2)}</span></div>
+      </div>
+      ${advanceNote}
+
+      <div class="sec-title">Technician Entry — Spares</div>
+      <div class="tech-strip">
+        <span><b>SAF No:</b> ${escHtml(job.reference)}</span>
+        <span><b>Brand:</b> ${escHtml(srfDisplay(job.watchBrand))}</span>
+        <span><b>Calibre:</b> ${escHtml(srfDisplay(brandModel))}</span>
+        <span><b>Model No:</b> ${escHtml(modelNo)}</span>
+        <span><b>Chargeable / Free:</b> ${escHtml(srfDisplay(nature))}</span>
+        <span><b>Date:</b> ${escHtml(formatDateOnly(job.bookingDate ? String(job.bookingDate) : undefined))}</span>
+      </div>
+
+      <table class="spares-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Parts Name</th>
+            <th>Stock No.</th>
+            <th>Defect</th>
+            <th>Issued Y/N</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>${technicianSpareRows(SRF_SPARE_ROWS)}</tbody>
+        <tfoot>
+          <tr><td colspan="5" style="text-align:right">Total Spares</td><td></td></tr>
+          <tr><td colspan="5" style="text-align:right">Labour / Overhaul</td><td></td></tr>
+          <tr><td colspan="5" style="text-align:right">Total</td><td></td></tr>
+        </tfoot>
+      </table>
+
+      <div class="sign-row">
+        <div><div class="sign-lbl">Mechanics Name</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">Code</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">Serviced Date</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">Inspected By</div><div class="sign-line"></div></div>
+        <div class="sign-wide"><div class="sign-lbl">Remarks</div><div class="sign-line"></div></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
   openPrintDocument(`SRF ${job.reference}`, html);
 }
 
@@ -189,59 +692,500 @@ export function printFullSrfDocument(
 }
 
 /** Service centre acknowledgment after inwarding watches from store DC. */
-export function printScInwardAckDocument(payload: {
-  inwardNumber: string;
-  numberLabel?: string;
-  hoName: string;
-  fromStoreName: string;
-  receivedBy: string;
-  receivedAt: Date;
-  jobs: SrfJob[];
-}): void {
-  const { inwardNumber, numberLabel = "Inward number", hoName, fromStoreName, receivedBy, receivedAt, jobs } = payload;
-  const rows = jobs
+const TRANSFER_PRINT_CSS = `
+  @page { size: A4 portrait; margin: 8mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    font-size: 10px;
+    line-height: 1.35;
+    color: #0d1b2a;
+    background: #e8edf8;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .doc {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    border: 2px solid #1b3a8f;
+    background: #fff;
+    page-break-inside: avoid;
+  }
+  .xfer-banner { display: table; width: 100%; table-layout: fixed; background: #1b3a8f; color: #fff; }
+  .xfer-banner-title {
+    display: table-cell; vertical-align: middle; padding: 10px 14px;
+    font-size: 17px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .xfer-banner-sub { display: table-cell; vertical-align: middle; padding: 10px 14px; font-size: 10px; text-align: right; }
+  .xfer-accent { height: 4px; background: linear-gradient(90deg, #c9a227 0%, #e8d48a 50%, #c9a227 100%); }
+  .xfer-top-row { display: table; width: 100%; border-bottom: 1px solid #1b3a8f; }
+  .xfer-top-cell { display: table-cell; vertical-align: top; padding: 10px 12px; border-right: 1px solid #d8dff0; width: 33.33%; }
+  .xfer-top-cell:last-child { border-right: none; }
+  .xfer-barcode-wrap { text-align: center; vertical-align: middle; }
+  .xfer-barcode { max-width: 100%; height: 48px; object-fit: contain; }
+  .xfer-logo-wrap { text-align: right; vertical-align: middle; }
+  .xfer-logo { height: 56px; max-width: 180px; object-fit: contain; display: inline-block; }
+  .xfer-meta-box { border: 1px solid #1b3a8f; background: #f4f6fb; padding: 6px 8px; font-size: 9.5px; }
+  .xfer-meta-box div { margin-bottom: 3px; }
+  .xfer-meta-box strong { color: #1b3a8f; }
+  .xfer-body { padding: 0 12px 14px; }
+  .xfer-party-grid { display: table; width: 100%; border-bottom: 1px solid #1b3a8f; }
+  .xfer-party-col { display: table-cell; width: 50%; vertical-align: top; padding: 0; border-right: 1px solid #d8dff0; }
+  .xfer-party-col:last-child { border-right: none; }
+  .xfer-party-head {
+    background: #e8edf8; color: #1b3a8f; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em; padding: 5px 10px; border-bottom: 1px solid #1b3a8f;
+  }
+  .xfer-party-body { padding: 8px 10px; font-size: 9.5px; line-height: 1.4; min-height: 88px; }
+  .xfer-party-body .name { font-weight: 700; font-size: 10px; margin-bottom: 4px; color: #0d1b2a; }
+  .xfer-party-body .loc { color: #c9a227; font-weight: 600; font-size: 9px; margin-bottom: 4px; }
+  .sec-title {
+    background: #e8edf8; color: #1b3a8f; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em; padding: 5px 10px; margin: 8px 0 4px;
+    border: 1px solid #1b3a8f; border-bottom-width: 2px;
+  }
+  .xfer-watches { width: 100%; border-collapse: collapse; font-size: 9px; }
+  .xfer-watches th {
+    background: #1b3a8f; color: #c9a227; font-weight: 700; text-align: center;
+    padding: 4px 5px; border: 1px solid #1b3a8f; font-size: 8px; text-transform: uppercase;
+  }
+  .xfer-watches td { border: 1px solid #d8dff0; padding: 4px 5px; vertical-align: top; }
+  .xfer-watches td.c { text-align: center; width: 24px; background: #f4f6fb; font-weight: 600; }
+  .xfer-watches td.mono { font-family: Consolas, monospace; font-weight: 600; }
+  .xfer-watches tfoot td { font-weight: 700; background: #e8edf8; color: #1b3a8f; border: 1px solid #1b3a8f; }
+  .xfer-refs { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 9px; margin: 4px 0 8px; color: #4a5568; }
+  .xfer-refs b { color: #1b3a8f; }
+  .sign-row {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    margin-top: 10px; padding-top: 8px; border-top: 1px solid #1b3a8f;
+  }
+  .sign-lbl { font-size: 8px; font-weight: 700; color: #1b3a8f; text-transform: uppercase; margin-bottom: 16px; }
+  .sign-line { border-bottom: 1px solid #1b3a8f; min-height: 1px; }
+  @media print { body { background: #fff; } .doc { width: 100%; min-height: auto; margin: 0; } }
+  @media screen { body { padding: 12px 0; } }
+`;
+
+function xferPartyHtml(head: string, party: TransferPartyBlock): string {
+  return `<div class="xfer-party-col">
+    <div class="xfer-party-head">${escHtml(head)}</div>
+    <div class="xfer-party-body">
+      <div class="loc">${escHtml(party.locationLabel)}</div>
+      <div class="name">${escHtml(party.legalName)}</div>
+      ${escHtml(party.address).replace(/\n/g, "<br/>")}<br/>
+      <strong>Ph:</strong> ${escHtml(party.phone)} &nbsp; <strong>Email:</strong> ${escHtml(party.email)}<br/>
+      <strong>GSTIN:</strong> ${escHtml(party.gstin)}
+    </div>
+  </div>`;
+}
+
+function xferWatchRows(jobs: SrfJob[]): string {
+  return jobs
     .map(
       (j, idx) =>
         `<tr>
-           <td>${idx + 1}</td>
-           <td>${j.reference}</td>
-           <td>${j.customerName}</td>
-           <td>${j.watchBrand} ${j.watchModel}</td>
-           <td>${j.serial}</td>
-         </tr>`,
+          <td class="c">${idx + 1}</td>
+          <td class="mono">${escHtml(j.reference)}</td>
+          <td>${escHtml(j.customerName)}</td>
+          <td>${escHtml(j.phone)}</td>
+          <td>${escHtml(j.watchBrand)}</td>
+          <td>${escHtml(j.watchModel)}</td>
+          <td class="mono">${escHtml(j.serial || "—")}</td>
+        </tr>`,
     )
     .join("");
-  const html = base(
-    `SC Inward ${inwardNumber}`,
-    `${barcodeBlock(inwardNumber)}
-     <h2 style="margin:0 0 8px;color:#1B3A8F">Service Centre — Inward Acknowledgment</h2>
-     <p style="margin:0 0 16px;font-size:13px;color:#4A5568">Watches listed below have been received and inwarded at the service centre.</p>
-     <table style="width:100%;border-collapse:collapse;margin-bottom:16px" border="1" cellspacing="0" cellpadding="8">
-       <tbody>
-         <tr><td style="width:38%;background:#E8EDF8"><strong>${numberLabel}</strong></td><td style="font-family:monospace;font-size:15px;font-weight:bold">${inwardNumber}</td></tr>
-         <tr><td style="background:#E8EDF8"><strong>Service centre (HO)</strong></td><td>${hoName}</td></tr>
-         <tr><td style="background:#E8EDF8"><strong>Received from store</strong></td><td>${fromStoreName}</td></tr>
-         <tr><td style="background:#E8EDF8"><strong>Inward date &amp; time</strong></td><td>${receivedAt.toLocaleString()}</td></tr>
-         <tr><td style="background:#E8EDF8"><strong>Received by</strong></td><td>${receivedBy}</td></tr>
-         <tr><td style="background:#E8EDF8"><strong>Total watches</strong></td><td>${jobs.length}</td></tr>
-       </tbody>
-     </table>
-     <h3 style="margin:16px 0 8px;color:#1B3A8F">Watches inwarded</h3>
-     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
-       <thead style="background:#E8EDF8">
-         <tr><th>#</th><th>SRF</th><th>Customer</th><th>Watch</th><th>Serial</th></tr>
-       </thead>
-       <tbody>${rows || '<tr><td colspan="5">No rows</td></tr>'}</tbody>
-     </table>
-     <p style="margin-top:20px;font-size:12px;color:#4A5568">Store dispatch copy attached to internal transfer ${inwardNumber}. Supervisor may assign technicians after inward.</p>
-     <div style="margin-top:28px;display:flex;gap:48px">
-       <div>SC received by: _____________________<br/><span style="font-size:11px">Signature &amp; stamp</span></div>
-       <div>Date: _____________________</div>
-     </div>`,
-  );
-  openPrintDocument(`SC Inward ${inwardNumber}`, html);
 }
 
+export type TransferPrintInput = {
+  transferNumber: string;
+  printKind: TransferPrintKind;
+  flow: TransferFlow;
+  transferDate?: Date | string;
+  from: TransferPartyBlock;
+  to: TransferPartyBlock;
+  jobs: SrfJob[];
+  seriesCode?: string;
+  hoInvoiceRef?: string;
+  storeInvoiceRef?: string;
+  preparedBy?: string;
+};
+
+export function printTransferDocument(input: TransferPrintInput): void {
+  const title = transferDocumentTitle(input.printKind, input.flow);
+  const numLabel = transferNumberLabel(input.printKind, input.seriesCode);
+  const docTypeLabel =
+    input.flow === "store_to_ho" || input.flow === "ho_to_store"
+      ? "Internal Transfer (Store ↔ HO)"
+      : input.printKind === "dc"
+        ? "Delivery Challan (Inter-HO / GST differs)"
+        : "Internal Transfer (same GSTIN)";
+  const when = input.transferDate
+    ? input.transferDate instanceof Date
+      ? input.transferDate.toLocaleString("en-IN", { hour12: false })
+      : new Date(input.transferDate).toLocaleString("en-IN", { hour12: false })
+    : new Date().toLocaleString("en-IN", { hour12: false });
+  const barcode = srfBarcode(input.transferNumber);
+  const logoHtml = srfLogoImgHtml();
+  const baseHref = typeof window !== "undefined" ? window.location.origin : "";
+  const refs: string[] = [];
+  if (input.hoInvoiceRef?.trim()) refs.push(`<span><b>HO invoice ref:</b> ${escHtml(input.hoInvoiceRef.trim())}</span>`);
+  if (input.storeInvoiceRef?.trim()) refs.push(`<span><b>Store invoice ref:</b> ${escHtml(input.storeInvoiceRef.trim())}</span>`);
+  const refsBlock = refs.length ? `<div class="xfer-refs">${refs.join("")}</div>` : "";
+
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <base href="${escHtml(baseHref)}/" />
+  <title>${escHtml(title)} ${escHtml(input.transferNumber)}</title>
+  <style>${TRANSFER_PRINT_CSS}</style>
+</head>
+<body>
+  <div class="doc">
+    <div class="xfer-banner">
+      <div class="xfer-banner-title">${escHtml(title)}</div>
+      <div class="xfer-banner-sub">Internal logistics copy<br/>Printed ${escHtml(when)}</div>
+    </div>
+    <div class="xfer-accent" aria-hidden="true"></div>
+    <div class="xfer-top-row">
+      <div class="xfer-top-cell">
+        <div class="xfer-meta-box">
+          <div><strong>${escHtml(numLabel)}</strong> ${escHtml(input.transferNumber)}</div>
+          <div><strong>Transfer date:</strong> ${escHtml(when)}</div>
+          <div><strong>Total watches:</strong> ${input.jobs.length}</div>
+          <div><strong>Document type:</strong> ${escHtml(docTypeLabel)}</div>
+          <div><strong>From GSTIN:</strong> ${escHtml(input.from.gstin)}</div>
+          <div><strong>To GSTIN:</strong> ${escHtml(input.to.gstin)}</div>
+        </div>
+      </div>
+      <div class="xfer-top-cell xfer-barcode-wrap">${barcode}</div>
+      <div class="xfer-top-cell xfer-logo-wrap">${logoHtml}</div>
+    </div>
+    <div class="xfer-body">
+      <div class="xfer-party-grid">
+        ${xferPartyHtml("From (Sender)", input.from)}
+        ${xferPartyHtml("To (Receiver)", input.to)}
+      </div>
+      ${refsBlock}
+      <div class="sec-title">Watches in this transfer (${input.jobs.length})</div>
+      <table class="xfer-watches">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>SRF No.</th>
+            <th>Customer</th>
+            <th>Mobile</th>
+            <th>Brand</th>
+            <th>Model</th>
+            <th>Serial No.</th>
+          </tr>
+        </thead>
+        <tbody>${xferWatchRows(input.jobs) || '<tr><td colspan="7">No watches listed</td></tr>'}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="6" style="text-align:right">Total watches</td>
+            <td style="text-align:center">${input.jobs.length}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="sign-row">
+        <div><div class="sign-lbl">Dispatched by</div><div class="sign-line"></div>${input.preparedBy ? `<div style="font-size:8px;margin-top:4px">${escHtml(input.preparedBy)}</div>` : ""}</div>
+        <div><div class="sign-lbl">Received by</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">Date &amp; stamp</div><div class="sign-line"></div></div>
+      </div>
+      <p style="font-size:8px;color:#4a5568;margin-top:8px">
+        ${input.flow === "store_to_ho" || input.flow === "ho_to_store"
+          ? "Internal transfer between store and regional service centre (HO). Not a GST delivery challan."
+          : input.printKind === "dc"
+            ? "Delivery Challan for inter-HO movement or when sender and receiver GSTIN differ."
+            : "Internal transfer document when sender and receiver share the same GSTIN."}
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  openPrintDocument(`${title} ${input.transferNumber}`, html);
+}
+
+export function printTransferFromMeta(
+  meta: TransferPrintMeta,
+  jobs: SrfJob[],
+  opts?: { seriesCode?: string; hoInvoiceRef?: string; storeInvoiceRef?: string; preparedBy?: string; transferDate?: Date },
+): void {
+  printTransferDocument({
+    transferNumber: meta.transferNumber,
+    printKind: meta.printKind,
+    flow: meta.flow,
+    from: meta.from,
+    to: meta.to,
+    jobs,
+    seriesCode: opts?.seriesCode,
+    hoInvoiceRef: opts?.hoInvoiceRef,
+    storeInvoiceRef: opts?.storeInvoiceRef,
+    preparedBy: opts?.preparedBy,
+    transferDate: opts?.transferDate ?? new Date(),
+  });
+}
+
+const INWARD_RECEIPT_EXTRA_CSS = `
+  .inward-srf-table th { font-size: 7px; padding: 3px 2px; letter-spacing: 0.03em; }
+  .inward-srf-table td { font-size: 7.5px; padding: 3px 2px; }
+  .inward-srf-table td.complaint { max-width: 88px; word-break: break-word; line-height: 1.25; }
+  .inward-srf-table td.amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .inward-received-banner {
+    margin: 8px 0 4px; padding: 8px 10px; border: 2px solid #1b3a8f; background: #f4f6fb;
+    font-size: 10px; font-weight: 700; color: #1b3a8f; text-align: center; text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+`;
+
+function truncateInwardText(value: string | null | undefined, max: number): string {
+  const t = String(value ?? "").trim();
+  if (!t) return "—";
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+function inwardJobStatusLabel(status: string): string {
+  return status.replace(/_/g, " ");
+}
+
+function inwardReceiptWatchRows(jobs: SrfJob[], receivedAtLocation: string): string {
+  return jobs
+    .map(
+      (j, idx) =>
+        `<tr>
+          <td class="c">${idx + 1}</td>
+          <td class="mono">${escHtml(j.reference)}</td>
+          <td>${escHtml(j.customerName)}</td>
+          <td>${escHtml(j.phone || "—")}</td>
+          <td>${escHtml(srfDisplay(j.watchBrand))}</td>
+          <td>${escHtml(srfDisplay(j.watchModel))}</td>
+          <td class="mono">${escHtml(j.serial || "—")}</td>
+          <td class="complaint">${escHtml(truncateInwardText(j.complaint, 72))}</td>
+          <td class="amt">${escHtml(
+            Number.isFinite(j.estimateTotalInr)
+              ? j.estimateTotalInr.toLocaleString("en-IN", { maximumFractionDigits: 0 })
+              : "—",
+          )}</td>
+          <td>${escHtml(inwardJobStatusLabel(j.status))}</td>
+          <td>${escHtml(receivedAtLocation)}</td>
+        </tr>`,
+    )
+    .join("");
+}
+
+export type SrfInwardReceiptInput = {
+  inwardNumber: string;
+  numberLabel?: string;
+  documentTitle?: string;
+  documentSubtitle?: string;
+  receivedAtLocation: string;
+  receivedAtDetail?: string;
+  fromLocationLabel?: string;
+  fromLocationName: string;
+  fromLocationDetail?: string;
+  receivedBy: string;
+  receivedAt: Date;
+  jobs: SrfJob[];
+  transferSeries?: "TD" | "DC";
+  partyFrom?: TransferPartyBlock;
+  partyTo?: TransferPartyBlock;
+  /** @deprecated Use receivedAtLocation */
+  hoName?: string;
+  /** @deprecated Use fromLocationName */
+  fromStoreName?: string;
+};
+
+function normalizeInwardReceiptInput(payload: SrfInwardReceiptInput): Required<
+  Pick<
+    SrfInwardReceiptInput,
+    | "inwardNumber"
+    | "numberLabel"
+    | "documentTitle"
+    | "documentSubtitle"
+    | "receivedAtLocation"
+    | "fromLocationLabel"
+    | "fromLocationName"
+    | "receivedBy"
+    | "receivedAt"
+    | "jobs"
+  >
+> &
+  Pick<SrfInwardReceiptInput, "receivedAtDetail" | "fromLocationDetail" | "transferSeries" | "partyFrom" | "partyTo"> {
+  return {
+    inwardNumber: payload.inwardNumber,
+    numberLabel: payload.numberLabel ?? "Inward / transfer number",
+    documentTitle: payload.documentTitle ?? "SRF Inward Acknowledgment",
+    documentSubtitle:
+      payload.documentSubtitle ??
+      "The SRF watch(es) listed below have been physically received and inwarded at the location shown.",
+    receivedAtLocation: payload.receivedAtLocation || payload.hoName || "—",
+    receivedAtDetail: payload.receivedAtDetail,
+    fromLocationLabel: payload.fromLocationLabel ?? "Received from",
+    fromLocationName: payload.fromLocationName || payload.fromStoreName || "—",
+    fromLocationDetail: payload.fromLocationDetail,
+    receivedBy: payload.receivedBy,
+    receivedAt: payload.receivedAt,
+    jobs: payload.jobs,
+    transferSeries: payload.transferSeries,
+    partyFrom: payload.partyFrom,
+    partyTo: payload.partyTo,
+  };
+}
+
+export function printSrfInwardReceiptDocument(payload: SrfInwardReceiptInput): void {
+  const input = normalizeInwardReceiptInput(payload);
+  const when = input.receivedAt.toLocaleString("en-IN", { hour12: false });
+  const barcode = srfBarcode(input.inwardNumber);
+  const logoHtml = srfLogoImgHtml();
+  const baseHref = typeof window !== "undefined" ? window.location.origin : "";
+  const seriesNote = input.transferSeries
+    ? `<div><strong>Transfer series:</strong> ${escHtml(input.transferSeries)}</div>`
+    : "";
+  const receivedDetail = input.receivedAtDetail?.trim()
+    ? `<br/>${escHtml(input.receivedAtDetail).replace(/\n/g, "<br/>")}`
+    : "";
+  const fromDetail = input.fromLocationDetail?.trim()
+    ? `<br/>${escHtml(input.fromLocationDetail).replace(/\n/g, "<br/>")}`
+    : "";
+
+  const partyBlock =
+    input.partyFrom && input.partyTo
+      ? `<div class="xfer-party-grid">
+          ${xferPartyHtml("Shipped from (Sender)", input.partyFrom)}
+          ${xferPartyHtml("Received at (Location)", input.partyTo)}
+        </div>`
+      : `<div class="xfer-party-grid">
+          <div class="xfer-party-col">
+            <div class="xfer-party-head">Received at location</div>
+            <div class="xfer-party-body">
+              <div class="name">${escHtml(input.receivedAtLocation)}</div>
+              ${receivedDetail}
+            </div>
+          </div>
+          <div class="xfer-party-col">
+            <div class="xfer-party-head">${escHtml(input.fromLocationLabel)}</div>
+            <div class="xfer-party-body">
+              <div class="name">${escHtml(input.fromLocationName)}</div>
+              ${fromDetail}
+            </div>
+          </div>
+        </div>`;
+
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <base href="${escHtml(baseHref)}/" />
+  <title>${escHtml(input.documentTitle)} ${escHtml(input.inwardNumber)}</title>
+  <style>${TRANSFER_PRINT_CSS}${INWARD_RECEIPT_EXTRA_CSS}</style>
+</head>
+<body>
+  <div class="doc">
+    <div class="xfer-banner">
+      <div class="xfer-banner-title">${escHtml(input.documentTitle)}</div>
+      <div class="xfer-banner-sub">Inward receipt · Received at location<br/>Printed ${escHtml(when)}</div>
+    </div>
+    <div class="xfer-accent" aria-hidden="true"></div>
+    <div class="xfer-top-row">
+      <div class="xfer-top-cell">
+        <div class="xfer-meta-box">
+          <div><strong>${escHtml(input.numberLabel)}</strong> ${escHtml(input.inwardNumber)}</div>
+          <div><strong>Received at:</strong> ${escHtml(input.receivedAtLocation)}</div>
+          <div><strong>${escHtml(input.fromLocationLabel)}:</strong> ${escHtml(input.fromLocationName)}</div>
+          <div><strong>Inward date &amp; time:</strong> ${escHtml(when)}</div>
+          <div><strong>Received by:</strong> ${escHtml(input.receivedBy)}</div>
+          <div><strong>Total SRF watches:</strong> ${input.jobs.length}</div>
+          ${seriesNote}
+        </div>
+      </div>
+      <div class="xfer-top-cell xfer-barcode-wrap">${barcode}</div>
+      <div class="xfer-top-cell xfer-logo-wrap">${logoHtml}</div>
+    </div>
+    <div class="xfer-body">
+      ${partyBlock}
+      <div class="inward-received-banner">SRF received at: ${escHtml(input.receivedAtLocation)}</div>
+      <p style="font-size:9px;color:#4a5568;margin:0 0 6px">${escHtml(input.documentSubtitle)}</p>
+      <div class="sec-title">SRF details received (${input.jobs.length})</div>
+      <table class="xfer-watches inward-srf-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>SRF No.</th>
+            <th>Customer</th>
+            <th>Mobile</th>
+            <th>Brand</th>
+            <th>Model</th>
+            <th>Serial</th>
+            <th>Complaint</th>
+            <th>Est. (₹)</th>
+            <th>Status</th>
+            <th>Received at</th>
+          </tr>
+        </thead>
+        <tbody>${inwardReceiptWatchRows(input.jobs, input.receivedAtLocation) || '<tr><td colspan="11">No SRF rows</td></tr>'}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="10" style="text-align:right">Total watches inwarded</td>
+            <td style="text-align:center">${input.jobs.length}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="sign-row">
+        <div><div class="sign-lbl">Received by</div><div class="sign-line"></div><div style="font-size:8px;margin-top:4px">${escHtml(input.receivedBy)}</div></div>
+        <div><div class="sign-lbl">Verified by (supervisor)</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">Date &amp; stamp</div><div class="sign-line"></div></div>
+      </div>
+      <p style="font-size:8px;color:#4a5568;margin-top:8px">
+        This document confirms physical receipt of the SRF watch(es) at ${escHtml(input.receivedAtLocation)} against ${escHtml(input.numberLabel)} ${escHtml(input.inwardNumber)}.
+        Retain for store/HO records and customer traceability.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  openPrintDocument(`${input.documentTitle} ${input.inwardNumber}`, html);
+}
+
+/** Service centre inward acknowledgment (A4, tabular SRF details). */
+export function printScInwardAckDocument(payload: SrfInwardReceiptInput): void {
+  printSrfInwardReceiptDocument(payload);
+}
+
+/** Store inward acknowledgment when HO return is received at store. */
+export function printStoreInwardReceiptDocument(payload: {
+  inwardNumber: string;
+  storeLabel: string;
+  fromHoLabel: string;
+  receivedBy: string;
+  receivedAt: Date;
+  jobs: SrfJob[];
+  partyFrom?: TransferPartyBlock;
+  partyTo?: TransferPartyBlock;
+}): void {
+  printSrfInwardReceiptDocument({
+    inwardNumber: payload.inwardNumber,
+    numberLabel: "Transfer number (TD)",
+    documentTitle: "SRF Inward Acknowledgment — Received at Store",
+    documentSubtitle:
+      "The SRF watch(es) below have been received at the store location and are available for customer collection when ready.",
+    receivedAtLocation: payload.storeLabel,
+    fromLocationLabel: "From service centre (HO)",
+    fromLocationName: payload.fromHoLabel,
+    receivedBy: payload.receivedBy,
+    receivedAt: payload.receivedAt,
+    jobs: payload.jobs,
+    transferSeries: "TD",
+    partyFrom: payload.partyFrom,
+    partyTo: payload.partyTo,
+  });
+}
+
+/** @deprecated Prefer printTransferDocument / printTransferFromMeta with full party addresses. */
 export function printDcDocument(
   kind: "DC" | "ODC",
   number: string,
@@ -253,129 +1197,320 @@ export function printDcDocument(
     toHo?: string;
     hoInvoiceRef?: string;
     storeInvoiceRef?: string;
-    /** e.g. "Internal Transfer" for store→HO; defaults to `${kind} Document`. */
     documentHeading?: string;
+    printMeta?: TransferPrintMeta;
+    flow?: TransferFlow;
+    printKind?: TransferPrintKind;
+    from?: TransferPartyBlock;
+    to?: TransferPartyBlock;
+    preparedBy?: string;
   },
 ): void {
-  const rows = jobs
-    .map(
-      (j, idx) =>
-        `<tr><td>${idx + 1}</td><td>${j.reference}</td><td>${j.customerName}</td><td>${j.watchBrand} ${j.watchModel}</td><td>${j.serial}</td></tr>`,
-    )
-    .join("");
+  if (opts?.printMeta) {
+    printTransferFromMeta(opts.printMeta, jobs, {
+      seriesCode: kind,
+      hoInvoiceRef: opts.hoInvoiceRef,
+      storeInvoiceRef: opts.storeInvoiceRef,
+      preparedBy: opts.preparedBy,
+    });
+    return;
+  }
+  if (opts?.from && opts?.to && opts.flow && opts.printKind) {
+    printTransferDocument({
+      transferNumber: number,
+      printKind: opts.printKind,
+      flow: opts.flow,
+      from: opts.from,
+      to: opts.to,
+      jobs,
+      seriesCode: kind,
+      hoInvoiceRef: opts.hoInvoiceRef,
+      storeInvoiceRef: opts.storeInvoiceRef,
+      preparedBy: opts.preparedBy,
+    });
+    return;
+  }
   const first = jobs[0];
-  const defaultFromLocation =
-    kind === "DC"
-      ? `Store: ${first?.storeName ?? first?.storeId ?? "-"}`
-      : `HO / Service Centre: ${first?.regionName ?? first?.regionId ?? "-"}`;
-  const defaultToLocation =
-    kind === "DC"
-      ? `HO / Service Centre: ${first?.regionName ?? first?.regionId ?? "-"}`
-      : `Store: ${first?.destinationStoreId ?? first?.storeName ?? first?.storeId ?? "-"}`;
-  const fromLocation = opts?.fromLocation ?? defaultFromLocation;
-  const toLocation = opts?.toLocation ?? defaultToLocation;
-  const fromHo = opts?.fromHo ?? (first?.regionName ?? first?.regionId ?? "-");
-  const toHo = opts?.toHo ?? (first?.regionName ?? first?.regionId ?? "-");
-  const hoInvoiceRef = opts?.hoInvoiceRef ?? first?.hoSparesBillRef ?? "-";
-  const storeInvoiceRef = opts?.storeInvoiceRef ?? first?.storeBillRef ?? "-";
-
-  const docHeading = opts?.documentHeading ?? `${kind} Document`;
-  const html = base(
-    `${kind} ${number}`,
-    `${barcodeBlock(number)}<h2 style="margin:0 0 12px">${docHeading}</h2>
-     <div><strong>No:</strong> ${number}</div>
-     <div><strong>From Location:</strong> ${fromLocation}</div>
-     <div><strong>To Location:</strong> ${toLocation}</div>
-     <div><strong>From HO:</strong> ${fromHo}</div>
-     <div><strong>To HO:</strong> ${toHo}</div>
-     <div><strong>HO -> HO Invoice Ref:</strong> ${hoInvoiceRef}</div>
-     <div><strong>HO -> Store Invoice Ref:</strong> ${storeInvoiceRef}</div>
-     <table style="width:100%;border-collapse:collapse;margin-top:12px" border="1" cellspacing="0" cellpadding="6">
-       <thead><tr><th>#</th><th>SRF</th><th>Customer</th><th>Watch</th><th>Serial</th></tr></thead>
-       <tbody>${rows || '<tr><td colspan="5">No rows</td></tr>'}</tbody>
-     </table>
-     <div style="margin-top:24px">Prepared By: _____________________</div>
-     <div style="margin-top:16px">Received By: _____________________</div>`,
-  );
-  openPrintDocument(`${kind} ${number}`, html);
+  const from: TransferPartyBlock = {
+    locationLabel: opts?.fromLocation ?? `From: ${first?.storeName ?? first?.regionName ?? "—"}`,
+    legalName: opts?.fromHo ?? first?.regionName ?? "—",
+    address: opts?.fromLocation ?? "—",
+    phone: "—",
+    email: "—",
+    gstin: "—",
+  };
+  const to: TransferPartyBlock = {
+    locationLabel: opts?.toLocation ?? `To: ${first?.destinationStoreId ?? first?.storeName ?? "—"}`,
+    legalName: opts?.toHo ?? first?.regionName ?? "—",
+    address: opts?.toLocation ?? "—",
+    phone: "—",
+    email: "—",
+    gstin: "—",
+  };
+  const flow: TransferFlow =
+    opts?.flow ?? (kind === "DC" && opts?.documentHeading?.toLowerCase().includes("store") ? "store_to_ho" : "ho_to_store");
+  printTransferDocument({
+    transferNumber: number,
+    printKind: opts?.printKind ?? "dc",
+    flow,
+    from,
+    to,
+    jobs,
+    seriesCode: kind,
+    hoInvoiceRef: opts?.hoInvoiceRef ?? first?.hoSparesBillRef ?? undefined,
+    storeInvoiceRef: opts?.storeInvoiceRef ?? first?.storeBillRef ?? undefined,
+    preparedBy: opts?.preparedBy,
+  });
 }
 
-export function printAssignmentSlip(job: SrfJob, technicianLabel: string): void {
-  const html = base(
-    `Assignment ${job.reference}`,
-    `${barcodeBlock(job.reference)}<h2 style="margin:0 0 12px">Technician Assignment Slip</h2>
-     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
-       <tbody>
-         <tr><td><strong>SRF</strong></td><td>${job.reference}</td><td><strong>Technician</strong></td><td>${technicianLabel}</td></tr>
-         <tr><td><strong>Customer</strong></td><td>${job.customerName}</td><td><strong>Phone</strong></td><td>${job.phone}</td></tr>
-         <tr><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td><td><strong>Serial</strong></td><td>${job.serial}</td></tr>
-         <tr><td><strong>Estimate</strong></td><td>INR ${(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Status</strong></td><td>${job.status}</td></tr>
-         <tr><td><strong>Complaint</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
-       </tbody>
-     </table>
-     <div style="margin-top:20px">Technician Notes:</div>
-     <div style="height:120px;border:1px solid #333;margin-top:8px"></div>`,
-  );
-  openPrintDocument(`Assignment ${job.reference}`, html);
+const TECH_NOTES_PRINT_EXTRA_CSS = `
+  .tech-notes-prefill {
+    font-size: 9px; color: #0d1b2a; white-space: pre-wrap; margin-bottom: 6px;
+    padding: 6px 8px; background: #f4f6fb; border: 1px solid #d8dff0;
+  }
+  .tech-notes-ruled {
+    min-height: 100mm;
+    border: 2px solid #1b3a8f;
+    background-color: #fff;
+    background-image: repeating-linear-gradient(
+      180deg,
+      transparent,
+      transparent 17px,
+      #d8dff0 17px,
+      #d8dff0 18px
+    );
+    padding: 8px 10px 10px;
+  }
+  .complaint-block {
+    font-size: 9px; line-height: 1.45; padding: 6px 8px;
+    border: 1px solid #d8dff0; background: #fafbfd; min-height: 36px;
+  }
+`;
+
+function assignmentSlipWatchRow(job: SrfJob): string {
+  return `<tr>
+    <td class="c">1</td>
+    <td class="mono">${escHtml(job.reference)}</td>
+    <td>${escHtml(job.customerName)}</td>
+    <td>${escHtml(job.phone || "—")}</td>
+    <td>${escHtml(srfDisplay(job.watchBrand))}</td>
+    <td>${escHtml(srfDisplay(job.watchModel))}</td>
+    <td class="mono">${escHtml(job.serial || "—")}</td>
+    <td class="amt">${escHtml(
+      Number.isFinite(job.estimateTotalInr)
+        ? job.estimateTotalInr.toLocaleString("en-IN", { maximumFractionDigits: 2 })
+        : "—",
+    )}</td>
+    <td>${escHtml(inwardJobStatusLabel(job.status))}</td>
+  </tr>`;
+}
+
+export type TechnicianNotesPrintOpts = {
+  assignedAt?: Date;
+  serviceCentreLabel?: string;
+  prefillNotes?: string;
+};
+
+/** Technician assignment slip with ruled notes area (A4, branded template). */
+export function printAssignmentSlip(
+  job: SrfJob,
+  technicianLabel: string,
+  opts?: TechnicianNotesPrintOpts,
+): void {
+  const when = (opts?.assignedAt ?? new Date()).toLocaleString("en-IN", { hour12: false });
+  const printed = new Date().toLocaleString("en-IN", { hour12: false });
+  const barcode = srfBarcode(job.reference);
+  const logoHtml = srfLogoImgHtml();
+  const baseHref = typeof window !== "undefined" ? window.location.origin : "";
+  const hoLabel = opts?.serviceCentreLabel?.trim() || job.regionName?.trim() || "Service centre";
+  const storeLine = job.storeName?.trim() ? `${job.storeName}${job.regionName ? ` · ${job.regionName}` : ""}` : "—";
+  const estFinish = job.estimatedFinishDate ? formatDateOnly(job.estimatedFinishDate) : "—";
+  const prefill = opts?.prefillNotes?.trim() || job.reestimateRequestedNote?.trim() || "";
+  const prefillBlock = prefill
+    ? `<div class="tech-notes-prefill"><strong>System / prior note:</strong> ${escHtml(prefill)}</div>`
+    : "";
+
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <base href="${escHtml(baseHref)}/" />
+  <title>Technician Notes ${escHtml(job.reference)}</title>
+  <style>${TRANSFER_PRINT_CSS}${TECH_NOTES_PRINT_EXTRA_CSS}</style>
+</head>
+<body>
+  <div class="doc">
+    <div class="xfer-banner">
+      <div class="xfer-banner-title">Technician Assignment &amp; Work Notes</div>
+      <div class="xfer-banner-sub">Internal repair copy<br/>Printed ${escHtml(printed)}</div>
+    </div>
+    <div class="xfer-accent" aria-hidden="true"></div>
+    <div class="xfer-top-row">
+      <div class="xfer-top-cell">
+        <div class="xfer-meta-box">
+          <div><strong>SRF No.:</strong> ${escHtml(job.reference)}</div>
+          <div><strong>Technician:</strong> ${escHtml(technicianLabel)}</div>
+          <div><strong>Assigned at:</strong> ${escHtml(when)}</div>
+          <div><strong>Service centre:</strong> ${escHtml(hoLabel)}</div>
+          <div><strong>Booking store:</strong> ${escHtml(storeLine)}</div>
+          <div><strong>Est. finish:</strong> ${escHtml(estFinish)}</div>
+        </div>
+      </div>
+      <div class="xfer-top-cell xfer-barcode-wrap">${barcode}</div>
+      <div class="xfer-top-cell xfer-logo-wrap">${logoHtml}</div>
+    </div>
+    <div class="xfer-body">
+      <div class="sec-title">SRF / watch details</div>
+      <table class="xfer-watches inward-srf-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>SRF No.</th>
+            <th>Customer</th>
+            <th>Mobile</th>
+            <th>Brand</th>
+            <th>Model</th>
+            <th>Serial</th>
+            <th>Estimate (₹)</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${assignmentSlipWatchRow(job)}</tbody>
+      </table>
+      <div class="sec-title">Customer complaint / remarks</div>
+      <div class="complaint-block">${escHtml(job.complaint?.trim() || "—")}</div>
+      <div class="sec-title">Technician notes (diagnosis, work done, parts used)</div>
+      <p style="font-size:8px;color:#4a5568;margin:0 0 4px">Use the ruled area below for handwritten or stamped workshop notes. Retain with the watch until repair is complete.</p>
+      ${prefillBlock}
+      <div class="tech-notes-ruled" aria-label="Technician notes area"></div>
+      <div class="sign-row">
+        <div><div class="sign-lbl">Technician</div><div class="sign-line"></div><div style="font-size:8px;margin-top:4px">${escHtml(technicianLabel)}</div></div>
+        <div><div class="sign-lbl">Supervisor</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">Date &amp; stamp</div><div class="sign-line"></div></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  openPrintDocument(`Technician Notes ${job.reference}`, html);
 }
 
 export function printBrandDispatchDocument(job: SrfJob, payload?: { dispatchRef?: string; note?: string }): void {
-  const dispatchRef = payload?.dispatchRef?.trim() || "-";
-  const note = payload?.note?.trim() || "External brand repair required (cannot be repaired at HO).";
-  const now = new Date();
-  const bookingCenter = job.storeName ?? job.storeId ?? "-";
-  const bookingAddress = [job.storeName, job.regionName].filter(Boolean).join(", ") || "-";
+  const dispatchRef = payload?.dispatchRef?.trim() || job.brandDispatchRef?.trim() || "—";
+  const note =
+    payload?.note?.trim() ||
+    job.brandDispatchNote?.trim() ||
+    "External brand repair required (cannot be repaired at HO).";
+  const printed = new Date().toLocaleString("en-IN", { hour12: false });
+  const bookingDate = formatDateTime(job.createdAt);
+  const bookingCenter = job.storeName ?? job.storeId ?? "—";
+  const bookingAddress = [job.storeName, job.regionName].filter(Boolean).join(", ") || "—";
+  const barcode = srfBarcode(job.reference);
+  const logoHtml = srfLogoImgHtml();
+  const baseHref = typeof window !== "undefined" ? window.location.origin : "";
+  const totalAmt = Number(job.brandInvoiceAmountInr ?? job.estimateTotalInr ?? 0);
   const sparesRows = (job.usedSpares ?? [])
     .map(
       (x, idx) =>
         `<tr>
-           <td>${idx + 1}</td>
-           <td>${x.spareId ?? "-"}</td>
-           <td>${x.name}</td>
-           <td>${Number(x.qty ?? 0)}</td>
-           <td>INR ${Number(x.unitPriceInr ?? 0).toFixed(2)}</td>
-           <td>INR ${Number(x.lineTotalInr ?? Number(x.unitPriceInr ?? 0) * Number(x.qty ?? 0)).toFixed(2)}</td>
-         </tr>`,
+          <td class="c">${idx + 1}</td>
+          <td class="mono">${escHtml(x.spareId ?? "—")}</td>
+          <td>${escHtml(x.name)}</td>
+          <td class="c">${escHtml(String(Number(x.qty ?? 0)))}</td>
+          <td class="amt">${escHtml(Number(x.unitPriceInr ?? 0).toFixed(2))}</td>
+          <td class="amt">${escHtml(
+            Number(x.lineTotalInr ?? Number(x.unitPriceInr ?? 0) * Number(x.qty ?? 0)).toFixed(2),
+          )}</td>
+        </tr>`,
     )
     .join("");
-  const html = base(
-    `Brand Dispatch ${job.reference}`,
-    `${barcodeBlock(job.reference)}
-     <h2 style="margin:0 0 10px">Service Acknowledgment / Brand Dispatch Form</h2>
-     <div style="font-size:12px;color:#555">Internal Copy · Printed on ${now.toLocaleString()}</div>
-     <table style="width:100%;border-collapse:collapse;margin-top:12px" border="1" cellspacing="0" cellpadding="6">
-       <tbody>
-         <tr><td><strong>Service Entry Number</strong></td><td>${job.reference}</td><td><strong>Dispatch ODC</strong></td><td>${job.brandOdcNumber ?? "-"}</td></tr>
-         <tr><td><strong>Booking Date</strong></td><td>${new Date(job.createdAt).toLocaleString()}</td><td><strong>Booking Center</strong></td><td>${bookingCenter}</td></tr>
-         <tr><td><strong>Dispatch Ref / AWB</strong></td><td>${dispatchRef}</td><td><strong>Brand Inward Ref</strong></td><td>${job.brandInwardRef ?? "-"}</td></tr>
-         <tr><td><strong>Brand Invoice Ref</strong></td><td>${job.brandInvoiceRef ?? "-"}</td><td><strong>Brand Invoice Amount</strong></td><td>INR ${Number(job.brandInvoiceAmountInr ?? 0).toFixed(2)}</td></tr>
-       </tbody>
-     </table>
-     <h3 style="margin:14px 0 6px">Customer &amp; Product Information</h3>
-     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
-       <tbody>
-         <tr><td><strong>Customer Name</strong></td><td>${job.customerName}</td><td><strong>Mobile</strong></td><td>${job.phone}</td></tr>
-         <tr><td><strong>Brand / Model</strong></td><td>${job.watchBrand} ${job.watchModel}</td><td><strong>Serial</strong></td><td>${job.serial}</td></tr>
-         <tr><td><strong>Nature of Repair</strong></td><td colspan="3">Chargeable / Brand External Service</td></tr>
-         <tr><td><strong>Customer Remarks</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
-         <tr><td><strong>Supervisor Note</strong></td><td colspan="3">${note}</td></tr>
-         <tr><td><strong>Center Address</strong></td><td colspan="3">${bookingAddress}</td></tr>
-       </tbody>
-     </table>
-     <h3 style="margin:14px 0 6px">Technician / Spares Entry</h3>
-     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
-       <thead><tr><th>#</th><th>Stock No</th><th>Part Name</th><th>Qty</th><th>Unit</th><th>Line Total</th></tr></thead>
-       <tbody>${sparesRows || '<tr><td colspan="6">No spares lines entered yet.</td></tr>'}</tbody>
-     </table>
-     <div style="margin-top:12px"><strong>Total Spares / Main Amount:</strong> INR ${Number(job.brandInvoiceAmountInr ?? job.estimateTotalInr ?? 0).toFixed(2)}</div>
-     <div style="margin-top:18px;height:70px;border:1px solid #ccc;padding:8px"><strong>Accessories / Packing Remarks:</strong></div>
-     <div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:18px">
-       <div>Prepared By (Supervisor): _____________________</div>
-       <div>Received By (Brand Service): _____________________</div>
-       <div>Outward Date/Time: _____________________</div>
-       <div>Inward Date/Time: _____________________</div>
-     </div>`,
-  );
+
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <base href="${escHtml(baseHref)}/" />
+  <title>Brand Dispatch ${escHtml(job.reference)}</title>
+  <style>${TRANSFER_PRINT_CSS}${TECH_NOTES_PRINT_EXTRA_CSS}</style>
+</head>
+<body>
+  <div class="doc">
+    <div class="xfer-banner">
+      <div class="xfer-banner-title">Brand Dispatch &amp; Technician Notes</div>
+      <div class="xfer-banner-sub">External brand service copy<br/>Printed ${escHtml(printed)}</div>
+    </div>
+    <div class="xfer-accent" aria-hidden="true"></div>
+    <div class="xfer-top-row">
+      <div class="xfer-top-cell">
+        <div class="xfer-meta-box">
+          <div><strong>SRF No.:</strong> ${escHtml(job.reference)}</div>
+          <div><strong>Dispatch ODC:</strong> ${escHtml(job.brandOdcNumber ?? "—")}</div>
+          <div><strong>Dispatch ref / AWB:</strong> ${escHtml(dispatchRef)}</div>
+          <div><strong>Booking date:</strong> ${escHtml(bookingDate)}</div>
+          <div><strong>Booking centre:</strong> ${escHtml(bookingCenter)}</div>
+        </div>
+      </div>
+      <div class="xfer-top-cell xfer-barcode-wrap">${barcode}</div>
+      <div class="xfer-top-cell xfer-logo-wrap">${logoHtml}</div>
+    </div>
+    <div class="xfer-body">
+      <div class="sec-title">Customer &amp; product</div>
+      <table class="xfer-watches inward-srf-table">
+        <thead>
+          <tr>
+            <th>SRF No.</th>
+            <th>Customer</th>
+            <th>Mobile</th>
+            <th>Brand / model</th>
+            <th>Serial</th>
+            <th>Brand inward ref</th>
+            <th>Invoice ref</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono">${escHtml(job.reference)}</td>
+            <td>${escHtml(job.customerName)}</td>
+            <td>${escHtml(job.phone || "—")}</td>
+            <td>${escHtml(`${job.watchBrand} ${job.watchModel}`.trim())}</td>
+            <td class="mono">${escHtml(job.serial || "—")}</td>
+            <td>${escHtml(job.brandInwardRef ?? "—")}</td>
+            <td>${escHtml(job.brandInvoiceRef ?? "—")}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="sec-title">Customer complaint</div>
+      <div class="complaint-block">${escHtml(job.complaint?.trim() || "—")}</div>
+      <div class="sec-title">Technician / supervisor paper note</div>
+      <div class="tech-notes-prefill">${escHtml(note)}</div>
+      <div class="sec-title">Centre address</div>
+      <div class="complaint-block">${escHtml(bookingAddress)}</div>
+      <div class="sec-title">Spares / parts entry</div>
+      <table class="xfer-watches">
+        <thead>
+          <tr><th>#</th><th>Stock no.</th><th>Part name</th><th>Qty</th><th>Unit (₹)</th><th>Line (₹)</th></tr>
+        </thead>
+        <tbody>${sparesRows || '<tr><td colspan="6">No spares lines entered yet.</td></tr>'}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="5" style="text-align:right">Total spares / main amount (₹)</td>
+            <td class="amt">${escHtml(totalAmt.toFixed(2))}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="sec-title">Accessories / packing remarks</div>
+      <div class="tech-notes-ruled" style="min-height: 28mm"></div>
+      <div class="sign-row">
+        <div><div class="sign-lbl">Prepared by (supervisor)</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">Received by (brand)</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">Outward / inward date</div><div class="sign-line"></div></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
   openPrintDocument(`Brand Dispatch ${job.reference}`, html);
 }
 
