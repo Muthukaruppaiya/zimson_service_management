@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import type { Pool } from "pg";
+import { fetchIndiaPinLookupServer } from "./pinLookupIndia";
 
 const COUNTRIES_NOW = "https://countriesnow.space/api/v0.1";
 
@@ -117,43 +118,13 @@ export function registerGeoRoutes(app: Express, dbPool: Pool | null) {
       return;
     }
     try {
-      const r = await fetch(`https://api.postalpincode.in/pincode/${encodeURIComponent(pin)}`, {
-        headers: { accept: "application/json" },
-      });
-      const raw: unknown = await r.json().catch(() => null);
-      /** India Post API returns either one object or a single-element array. */
-      const root = Array.isArray(raw) && raw.length > 0 ? raw[0] : raw;
-      const json = root as {
-        Status?: string;
-        Message?: string;
-        PostOffice?: Array<{ Name?: string; District?: string; State?: string; Block?: string }>;
-      };
-      if (!json || typeof json !== "object" || json.Status !== "Success" || !Array.isArray(json.PostOffice) || json.PostOffice.length === 0) {
-        res.status(404).json({ error: json?.Message ?? "PIN code not found." });
-        return;
-      }
-      const offices = json.PostOffice;
-      const states = [...new Set(offices.map((o) => (o.State ?? "").trim()).filter(Boolean))];
-      const districts = [...new Set(offices.map((o) => (o.District ?? "").trim()).filter(Boolean))];
-      const state = states[0] ?? "";
-      const district = districts[0] ?? "";
-      const citySuggestion = (offices[0]?.Name ?? "").trim();
-      res.json({
-        state,
-        district,
-        districts,
-        states,
-        postOffices: offices.map((o) => ({
-          name: (o.Name ?? "").trim(),
-          district: (o.District ?? "").trim(),
-          state: (o.State ?? "").trim(),
-          block: (o.Block ?? "").trim(),
-        })),
-        citySuggestion,
-      });
+      const out = await fetchIndiaPinLookupServer(pin);
+      res.json(out);
     } catch (e) {
       console.error("[geo/pin-lookup-in]", e);
-      res.status(502).json({ error: "Could not look up PIN code." });
+      const msg = e instanceof Error ? e.message : "Could not look up PIN code.";
+      const status = /not found/i.test(msg) ? 404 : 502;
+      res.status(status).json({ error: msg });
     }
   });
 }

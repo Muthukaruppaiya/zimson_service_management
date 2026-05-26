@@ -7,7 +7,8 @@ import { FilterField } from "../../components/ui/FilterField";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
-import { downloadQuickBillInvoiceHtml } from "../../lib/quickBillInvoiceDownload";
+import { SendInvoiceWhatsAppButton } from "../../components/service/SendInvoiceWhatsAppButton";
+import { downloadQuickBillInvoicePdf } from "../../lib/quickBillInvoiceDownload";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { APP_PAYMENT_MODES, ADVANCE_CASH_DENOMS, sumAdvanceCashDenominations } from "../../lib/paymentModes";
 import type { AppPaymentMode } from "../../lib/paymentModes";
@@ -95,6 +96,8 @@ export function QuickBillHistoryPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [downloadBusyId, setDownloadBusyId] = useState<string | null>(null);
+  const [detailDownloadBusy, setDetailDownloadBusy] = useState(false);
+  const [whatsappNote, setWhatsappNote] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [invoiceHsnSac, setInvoiceHsnSac] = useState("9987");
@@ -156,6 +159,10 @@ export function QuickBillHistoryPage() {
   }, [selected, apiMode]);
 
   useEffect(() => {
+    setWhatsappNote(null);
+  }, [selected?.id]);
+
+  useEffect(() => {
     if (!apiMode || !user) return;
     let cancelled = false;
     void (async () => {
@@ -184,24 +191,32 @@ export function QuickBillHistoryPage() {
     return undefined;
   }, [regions, user?.storeId]);
 
-  const billStoreForInvoice = useMemo(() => {
-    const sid = detailInvoice?.storeId?.trim();
-    if (!sid) return undefined;
-    for (const r of regions) {
-      const st = r.stores.find((x) => x.id === sid);
-      if (st) return st;
-    }
-    return undefined;
-  }, [regions, detailInvoice?.storeId]);
+  const storeForInvoice = useCallback(
+    (storeId: string | null | undefined) => {
+      const sid = storeId?.trim();
+      if (!sid) return undefined;
+      for (const r of regions) {
+        const st = r.stores.find((x) => x.id === sid);
+        if (st) return st;
+      }
+      return undefined;
+    },
+    [regions],
+  );
 
-  const invoiceVmOptions = useMemo(
-    () => ({
+  const invoiceVmOptionsFor = useCallback(
+    (storeId: string | null | undefined) => ({
       defaultHsnSac: invoiceHsnSac,
       taxSettings: serviceTaxSettings,
-      storeInvoice: seedStoreToInvoiceProfile(billStoreForInvoice ?? currentUserStore),
+      storeInvoice: seedStoreToInvoiceProfile(storeForInvoice(storeId) ?? currentUserStore),
       generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
     }),
-    [invoiceHsnSac, serviceTaxSettings, billStoreForInvoice, currentUserStore, user?.displayName, user?.email, user?.id],
+    [invoiceHsnSac, serviceTaxSettings, storeForInvoice, currentUserStore, user?.displayName, user?.email, user?.id],
+  );
+
+  const invoiceVmOptions = useMemo(
+    () => invoiceVmOptionsFor(detailInvoice?.storeId),
+    [invoiceVmOptionsFor, detailInvoice?.storeId],
   );
 
   const detailInvoiceVm = useMemo(
@@ -255,11 +270,23 @@ export function QuickBillHistoryPage() {
     setDownloadBusyId(r.id);
     try {
       const data = await apiJson<{ invoice: QuickBillInvoice }>(`/api/service/quick-bills/${r.id}`);
-      downloadQuickBillInvoiceHtml(data.invoice);
+      await downloadQuickBillInvoicePdf(data.invoice, invoiceVmOptionsFor(r.storeId), false);
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : "Could not download invoice.");
+      window.alert(err instanceof Error ? err.message : "Could not download invoice PDF.");
     } finally {
       setDownloadBusyId(null);
+    }
+  }
+
+  async function handleDownloadDetail() {
+    if (!detailInvoice || !detailInvoiceVm) return;
+    setDetailDownloadBusy(true);
+    try {
+      await downloadQuickBillInvoicePdf(detailInvoice, invoiceVmOptions, true);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Could not download invoice PDF.");
+    } finally {
+      setDetailDownloadBusy(false);
     }
   }
 
@@ -535,7 +562,7 @@ export function QuickBillHistoryPage() {
             <div className="sticky top-0 z-20 flex flex-col gap-3 bg-rlx-green px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 print:hidden">
               <div className="min-w-0">
                 <p className="text-[9px] font-semibold uppercase tracking-[0.45em] text-rlx-gold">Invoice preview</p>
-                <h3 className="truncate font-display text-xl font-light text-white sm:text-2xl md:text-3xl">
+                <h3 className="truncate font-sans text-xl font-semibold tracking-normal text-white sm:text-2xl">
                   {selected.billNumber}
                 </h3>
                 <p className="mt-0.5 text-xs text-white/60">{new Date(selected.createdAt).toLocaleString()}</p>
@@ -550,14 +577,31 @@ export function QuickBillHistoryPage() {
                     Print
                   </button>
                 ) : null}
-                {detailInvoice ? (
+                {detailInvoice && detailInvoiceVm ? (
                   <button
                     type="button"
-                    onClick={() => downloadQuickBillInvoiceHtml(detailInvoice)}
-                    className="flex-1 border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-white/20 sm:flex-none sm:px-5"
+                    disabled={detailDownloadBusy}
+                    onClick={() => void handleDownloadDetail()}
+                    className="flex-1 border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-white/20 disabled:opacity-50 sm:flex-none sm:px-5"
                   >
-                    Download
+                    {detailDownloadBusy ? "Preparing…" : "Download PDF"}
                   </button>
+                ) : null}
+                {detailInvoice && apiMode ? (
+                  <SendInvoiceWhatsAppButton
+                    phone={detailInvoice.phone ?? ""}
+                    customerName={
+                      detailInvoice.customerType === "B2B"
+                        ? detailInvoice.company ?? detailInvoice.customerName ?? "Customer"
+                        : detailInvoice.customerName ?? "Customer"
+                    }
+                    invoiceNumber={detailInvoice.invoiceNumber || detailInvoice.billNumber}
+                    disabled={!detailInvoiceVm}
+                    label="Resend WhatsApp"
+                    busyLabel="Sending…"
+                    className="flex-1 border border-emerald-300/80 bg-emerald-600 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-50 sm:flex-none sm:px-5"
+                    onResult={(msg) => setWhatsappNote(msg)}
+                  />
                 ) : null}
                 <button
                   type="button"
@@ -579,6 +623,11 @@ export function QuickBillHistoryPage() {
               {detailError ? (
                 <div className="mb-5 border-l-4 border-red-500 bg-red-50 px-4 py-3 text-sm text-red-800 print:hidden">
                   {detailError}
+                </div>
+              ) : null}
+              {whatsappNote ? (
+                <div className="mb-5 border-l-4 border-emerald-500 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 print:hidden">
+                  {whatsappNote}
                 </div>
               ) : null}
 

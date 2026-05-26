@@ -118,6 +118,11 @@ type SrfJobsContextValue = {
       advancePaymentDetails?: unknown;
       selectedPartIds: string[];
       repairRoute?: import("../lib/srfRepairRoute").SrfRepairRoute;
+      caseType?: string;
+      strapChainType?: string;
+      natureOfRepair?: string;
+      chainCount?: string;
+      customerRemarks?: string;
     },
   ) => Promise<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>;
   storeSelfAssignTechnician: (jobId: string, technicianId: string) => Promise<void>;
@@ -187,6 +192,11 @@ type SrfJobsContextValue = {
       watchFamily?: string;
       watchModel?: string;
       serial?: string;
+      caseType?: string;
+      strapChainType?: string;
+      natureOfRepair?: string;
+      chainCount?: string;
+      customerRemarks?: string;
     },
   ) => Promise<void>;
 };
@@ -235,6 +245,11 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         advancePaymentDetails?: unknown;
         selectedPartIds: string[];
         repairRoute?: import("../lib/srfRepairRoute").SrfRepairRoute;
+        caseType?: string;
+        strapChainType?: string;
+        natureOfRepair?: string;
+        chainCount?: string;
+        customerRemarks?: string;
       },
     ) => {
       const out = await apiJson<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>(
@@ -535,6 +550,11 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         watchFamily?: string;
         watchModel?: string;
         serial?: string;
+        caseType?: string;
+        strapChainType?: string;
+        natureOfRepair?: string;
+        chainCount?: string;
+        customerRemarks?: string;
       },
     ) => {
       await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/store-draft`, {

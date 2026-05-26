@@ -26,6 +26,17 @@ export function sanitizeEmailInput(value: string, maxLen = 200): string {
   return value.replace(/[^a-zA-Z0-9@._+\-]/g, "").slice(0, maxLen);
 }
 
+export function isValidEmail(value: string): boolean {
+  const s = value.trim();
+  if (!s || s.length > 240) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+/** Login username: employee ID (letters/digits) or email (@ . _ - + only). */
+export function sanitizeLoginIdInput(value: string, maxLen = 240): string {
+  return value.replace(/[^a-zA-Z0-9@._+\-]/g, "").slice(0, maxLen);
+}
+
 /** Mobile / PIN: digits only. */
 export function sanitizePhoneDigits(value: string, maxLen = 15): string {
   return value.replace(/\D/g, "").slice(0, maxLen);

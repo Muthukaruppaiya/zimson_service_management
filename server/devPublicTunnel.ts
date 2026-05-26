@@ -2,8 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getMessagingPublicBaseUrl } from "./messaging/config";
+import { patchMessagingPublicBaseUrl } from "./messagingSettingsStore";
 
 let tunnelChild: ChildProcess | null = null;
+let activeTunnelUrl: string | null = null;
+let tunnelStartPromise: Promise<string | null> | null = null;
 
 function logTunnelBanner(url: string, provider: string): void {
   console.log("");
@@ -11,7 +14,7 @@ function logTunnelBanner(url: string, provider: string): void {
   console.log(`  WhatsApp PDF public URL (${provider})`);
   console.log(`  MESSAGING_PUBLIC_BASE_URL=${url}`);
   console.log(`  Open once in browser, then test PDF:`);
-  console.log(`  ${url}/uploads/invoice-pdf/`);
+  console.log(`  ${url}/api/messaging/public-ping`);
   if (provider.includes("localtunnel") || provider.includes("loca")) {
     console.log("  loca.lt often fails WhatsApp (502/408) — use cloudflared or ngrok.");
   }
@@ -55,6 +58,11 @@ function startCloudflaredTunnel(port: number): Promise<string | null> {
       return;
     }
 
+    if (tunnelChild) {
+      tunnelChild.kill();
+      tunnelChild = null;
+    }
+
     const args = ["tunnel", "--url", `http://127.0.0.1:${port}`];
     const proc = spawn(bin, args, {
       shell: false,
@@ -73,11 +81,11 @@ function startCloudflaredTunnel(port: number): Promise<string | null> {
 
     const timer = setTimeout(() => {
       if (!resolved) {
-        console.warn("[dev-tunnel] cloudflared timed out starting (25s).");
+        console.warn("[dev-tunnel] cloudflared timed out starting (30s).");
         proc.kill();
         done(null);
       }
-    }, 25_000);
+    }, 30_000);
 
     const onData = (chunk: Buffer) => {
       const text = chunk.toString();
@@ -109,6 +117,7 @@ async function startLocaltunnel(port: number): Promise<string | null> {
     const url = tunnel.url.replace(/\/$/, "");
     tunnel.on("close", () => {
       console.warn("[dev-tunnel] localtunnel closed. WhatsApp PDF links will break.");
+      activeTunnelUrl = null;
     });
     console.warn(
       "[dev-tunnel] WARNING: loca.lt often returns 502 Bad Gateway or 408 for WhatsApp. Set CLOUDFLARED_PATH or use ngrok.",
@@ -120,36 +129,30 @@ async function startLocaltunnel(port: number): Promise<string | null> {
   }
 }
 
-/** Quick check that the tunnel forwards to our API (avoids sending dead loca.lt links). */
-async function verifyTunnelBaseUrl(baseUrl: string): Promise<boolean> {
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 12_000);
-    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/auth/me`, {
-      signal: ctrl.signal,
-      headers: { Accept: "application/json" },
-    });
-    clearTimeout(t);
-    return res.status < 500;
-  } catch {
-    return false;
+/** Confirms tunnel forwards to this API (no auth). */
+export async function verifyTunnelBaseUrl(baseUrl: string): Promise<boolean> {
+  const base = baseUrl.replace(/\/$/, "");
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 15_000);
+      const res = await fetch(`${base}/api/messaging/public-ping`, {
+        signal: ctrl.signal,
+        headers: { Accept: "application/json" },
+      });
+      clearTimeout(t);
+      if (res.ok) return true;
+    } catch {
+      /* retry */
+    }
+    if (attempt < 3) {
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
   }
+  return false;
 }
 
-/**
- * Public HTTPS URL for invoice PDFs in local dev.
- * WhatsApp/Meta cannot use localhost; loca.lt often 502/408 — cloudflared/ngrok work.
- */
-export async function startDevPublicTunnel(port: number): Promise<string | null> {
-  if (process.env.MESSAGING_AUTO_TUNNEL !== "true") return null;
-  if (process.env.NODE_ENV === "production") return null;
-
-  const existing = getMessagingPublicBaseUrl();
-  if (existing) {
-    console.log(`[dev-tunnel] Using MESSAGING_PUBLIC_BASE_URL=${existing}`);
-    return existing;
-  }
-
+async function startNewTunnel(port: number): Promise<string | null> {
   const provider = (process.env.MESSAGING_TUNNEL_PROVIDER ?? "cloudflared").trim().toLowerCase();
 
   let url: string | null = null;
@@ -173,37 +176,91 @@ export async function startDevPublicTunnel(port: number): Promise<string | null>
   if (!url) {
     console.error(
       "[dev-tunnel] No tunnel. Add to .env:\n" +
+        "  MESSAGING_AUTO_TUNNEL=true\n" +
         "  CLOUDFLARED_PATH=C:\\Program Files (x86)\\cloudflared\\cloudflared.exe\n" +
         "Or: ngrok http 4000 → MESSAGING_PUBLIC_BASE_URL=https://xxxx.ngrok-free.app",
     );
     return null;
   }
 
-  await new Promise((r) => setTimeout(r, 2000));
-  const ok = await verifyTunnelBaseUrl(url);
-  if (!ok) {
-    console.error(
-      `[dev-tunnel] Tunnel URL not reachable (${url}) — Bad Gateway likely. ` +
-        "Restart npm run dev or use cloudflared/ngrok. WhatsApp invoices will fail until this works.",
-    );
-    if (usedProvider.includes("localtunnel")) {
-      const cf = await startCloudflaredTunnel(port);
-      if (cf) {
-        const cfOk = await verifyTunnelBaseUrl(cf);
-        if (cfOk) {
-          url = cf;
-          usedProvider = "cloudflared (trycloudflare.com)";
-        }
+  await new Promise((r) => setTimeout(r, 3000));
+  let ok = await verifyTunnelBaseUrl(url);
+
+  if (!ok && usedProvider.includes("localtunnel")) {
+    console.warn("[dev-tunnel] localtunnel not reachable, trying cloudflared…");
+    const cf = await startCloudflaredTunnel(port);
+    if (cf) {
+      await new Promise((r) => setTimeout(r, 3000));
+      if (await verifyTunnelBaseUrl(cf)) {
+        url = cf;
+        usedProvider = "cloudflared (trycloudflare.com)";
+        ok = true;
       }
     }
   }
 
-  process.env.MESSAGING_PUBLIC_BASE_URL = url;
+  if (!ok) {
+    console.error(
+      `[dev-tunnel] Tunnel URL not reachable (${url}). ` +
+        "Restart npm run dev, install cloudflared, or set MESSAGING_PUBLIC_BASE_URL to a working ngrok HTTPS URL.",
+    );
+    return null;
+  }
+
+  activeTunnelUrl = url;
+  patchMessagingPublicBaseUrl(url);
   logTunnelBanner(url, usedProvider);
   return url;
+}
+
+/**
+ * Public HTTPS URL for invoice PDFs in local dev.
+ * WhatsApp/Meta cannot use localhost; trycloudflare / ngrok work.
+ */
+export async function startDevPublicTunnel(port: number): Promise<string | null> {
+  if (process.env.MESSAGING_AUTO_TUNNEL !== "true") return null;
+  if (process.env.NODE_ENV === "production") return null;
+
+  const existing = getMessagingPublicBaseUrl();
+  if (existing) {
+    if (await verifyTunnelBaseUrl(existing)) {
+      console.log(`[dev-tunnel] Using public base URL: ${existing}`);
+      activeTunnelUrl = existing;
+      patchMessagingPublicBaseUrl(existing);
+      return existing;
+    }
+    console.warn(`[dev-tunnel] Saved public URL not reachable (${existing}), starting a new tunnel…`);
+    patchMessagingPublicBaseUrl("");
+  }
+
+  return startNewTunnel(port);
+}
+
+/** Called when sending an invoice if no working public URL is configured yet. */
+export async function ensureDevPublicTunnel(port: number): Promise<string | null> {
+  if (process.env.NODE_ENV === "production") return getMessagingPublicBaseUrl() || null;
+  if (process.env.MESSAGING_AUTO_TUNNEL !== "true") return getMessagingPublicBaseUrl() || null;
+
+  const current = getMessagingPublicBaseUrl();
+  if (current && (await verifyTunnelBaseUrl(current))) {
+    return current;
+  }
+
+  if (activeTunnelUrl && (await verifyTunnelBaseUrl(activeTunnelUrl))) {
+    patchMessagingPublicBaseUrl(activeTunnelUrl);
+    return activeTunnelUrl;
+  }
+
+  if (!tunnelStartPromise) {
+    tunnelStartPromise = startNewTunnel(port).finally(() => {
+      tunnelStartPromise = null;
+    });
+  }
+  return tunnelStartPromise;
 }
 
 export function stopDevPublicTunnel(): void {
   tunnelChild?.kill();
   tunnelChild = null;
+  activeTunnelUrl = null;
 }

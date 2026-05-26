@@ -4,7 +4,6 @@ export type AppPaymentMode = (typeof APP_PAYMENT_MODES)[number];
 
 /** Indian note / coin breakdown for cash advance (counts except coinsInr = rupee value). */
 export const ADVANCE_CASH_DENOMS: ReadonlyArray<{ key: keyof AdvanceCashDenominations; face: number; label: string }> = [
-  { key: "n2000", face: 2000, label: "2000 ×" },
   { key: "n500", face: 500, label: "500 ×" },
   { key: "n200", face: 200, label: "200 ×" },
   { key: "n100", face: 100, label: "100 ×" },
@@ -15,6 +14,7 @@ export const ADVANCE_CASH_DENOMS: ReadonlyArray<{ key: keyof AdvanceCashDenomina
 ];
 
 export type AdvanceCashDenominations = {
+  /** Legacy field — no longer shown in UI; still counted when loading old payments. */
   n2000?: number;
   n500?: number;
   n200?: number;
@@ -51,6 +51,8 @@ export function sumAdvanceCashDenominations(cash: AdvanceCashDenominations | nul
     const qty = Number(cash[key]);
     if (Number.isFinite(qty) && qty > 0) sum += qty * face;
   }
+  const legacy2000 = Number(cash.n2000);
+  if (Number.isFinite(legacy2000) && legacy2000 > 0) sum += legacy2000 * 2000;
   const coins = Number(cash.coinsInr);
   if (Number.isFinite(coins) && coins > 0) sum += coins;
   return sum;
@@ -59,7 +61,6 @@ export function sumAdvanceCashDenominations(cash: AdvanceCashDenominations | nul
 /** Build details from form strings (empty = 0). */
 export function emptyCashDenomStrings(): Record<keyof AdvanceCashDenominations, string> {
   return {
-    n2000: "",
     n500: "",
     n200: "",
     n100: "",

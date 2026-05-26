@@ -1118,6 +1118,40 @@ export async function runMigrations(pool: Pool): Promise<void> {
   // FULFILLED is reserved for when HO physically transfers stock to the store.
   // Also correct any PRs wrongly set to FULFILLED by a prior migration run.
   await pool.query(`
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS case_type VARCHAR(120) NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS strap_chain_type VARCHAR(120) NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS nature_of_repair VARCHAR(240) NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS chain_count VARCHAR(32) NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS customer_remarks TEXT NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS case_type VARCHAR(120) NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS strap_chain_type VARCHAR(120) NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS nature_of_repair VARCHAR(240) NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS chain_count VARCHAR(32) NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_remarks TEXT NOT NULL DEFAULT '';
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quick_bill_capture_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      token_hash VARCHAR(128) NOT NULL UNIQUE,
+      region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+      store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+      created_by VARCHAR(80),
+      customer_label TEXT NOT NULL DEFAULT '',
+      watch_label TEXT NOT NULL DEFAULT '',
+      watch_document_path TEXT,
+      watch_image_path TEXT,
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      used_at TIMESTAMPTZ,
+      quick_bill_id UUID REFERENCES quick_bills(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_qb_capture_sessions_store ON quick_bill_capture_sessions (store_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_qb_capture_sessions_expiry ON quick_bill_capture_sessions (expires_at);
+  `);
+
+  await pool.query(`
     UPDATE purchase_requests pr
     SET status = 'GOODS_AT_HO', updated_at = now()
     FROM (

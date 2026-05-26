@@ -10,6 +10,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
+import { SendInvoiceWhatsAppButton } from "../../components/service/SendInvoiceWhatsAppButton";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { isArchivedSrfJob, jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { buildStoreBillingInvoiceFromClosedJob } from "../../lib/storeBillingAmounts";
@@ -30,6 +31,7 @@ export function StoreBillingMasterPage() {
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
   const [printInvoiceVm, setPrintInvoiceVm] = useState<ServiceInvoiceViewModel | null>(null);
   const [resendVm, setResendVm] = useState<ServiceInvoiceViewModel | null>(null);
+  const [resendJob, setResendJob] = useState<SrfJob | null>(null);
   const [resendNote, setResendNote] = useState<string | null>(null);
   const pageSize = 10;
 
@@ -82,6 +84,7 @@ export function StoreBillingMasterPage() {
 
   function handleResendInvoice(job: SrfJob) {
     setResendNote(null);
+    setResendJob(job);
     setResendVm(invoiceVmForJob(job));
   }
 
@@ -230,59 +233,69 @@ export function StoreBillingMasterPage() {
         </div>
       ) : null}
 
-      {resendVm ? (
-        <ProcessSuccessModal
-          open
-          title="Resend invoice"
-          description={`Invoice ${resendVm.invoiceNumber} · SRF ${resendVm.serviceReference ?? ""}`}
-          onBackdropClick={() => setResendVm(null)}
-          actions={
-            <>
-              <button
-                type="button"
-                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 sm:w-auto"
-                onClick={() => {
-                  setPrintInvoiceVm(resendVm);
-                  window.setTimeout(() => {
-                    printServiceInvoice();
-                    window.setTimeout(() => setPrintInvoiceVm(null), 500);
-                  }, 80);
-                }}
-              >
-                Print invoice
-              </button>
-              <button
-                type="button"
-                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 sm:w-auto"
-                onClick={() =>
-                  setResendNote(
-                    "Sending the invoice to the customer by email, SMS, or WhatsApp is not wired yet — this will be added in a future update.",
-                  )
-                }
-              >
-                Send to customer
-              </button>
-              <button
-                type="button"
-                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition hover:bg-stone-50 sm:w-auto"
-                onClick={() => setResendVm(null)}
-              >
-                Close
-              </button>
-            </>
-          }
-        >
-          {resendNote ? (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
-              {resendNote}
-            </p>
-          ) : (
-            <p className="text-sm text-stone-700">
-              Re-send or print the tax invoice for this closed SRF. Customer delivery channels will be enabled in a
-              future update.
-            </p>
-          )}
-        </ProcessSuccessModal>
+      {resendVm && resendJob ? (
+        <>
+          <div className="pointer-events-none fixed -left-[12000px] top-0 opacity-0" aria-hidden>
+            <ServiceInvoiceTemplate data={resendVm} idPrefix="store-billing-resend-wa" />
+          </div>
+          <ProcessSuccessModal
+            open
+            title="Resend invoice"
+            description={`Invoice ${resendVm.invoiceNumber} · SRF ${resendVm.serviceReference ?? ""}`}
+            onBackdropClick={() => {
+              setResendVm(null);
+              setResendJob(null);
+              setResendNote(null);
+            }}
+            actions={
+              <>
+                <button
+                  type="button"
+                  className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 sm:w-auto"
+                  onClick={() => {
+                    setPrintInvoiceVm(resendVm);
+                    window.setTimeout(() => {
+                      printServiceInvoice();
+                      window.setTimeout(() => setPrintInvoiceVm(null), 500);
+                    }, 80);
+                  }}
+                >
+                  Print invoice
+                </button>
+                <SendInvoiceWhatsAppButton
+                  phone={resendJob.phone}
+                  customerName={resendJob.customerName}
+                  invoiceNumber={resendVm.invoiceNumber}
+                  label="Resend WhatsApp"
+                  busyLabel="Sending…"
+                  className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-emerald-500 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
+                  onResult={(msg) => setResendNote(msg)}
+                />
+                <button
+                  type="button"
+                  className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition hover:bg-stone-50 sm:w-auto"
+                  onClick={() => {
+                    setResendVm(null);
+                    setResendJob(null);
+                    setResendNote(null);
+                  }}
+                >
+                  Close
+                </button>
+              </>
+            }
+          >
+            {resendNote ? (
+              <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-950 ring-1 ring-emerald-200/80">
+                {resendNote}
+              </p>
+            ) : (
+              <p className="text-sm text-stone-700">
+                Resend the tax invoice PDF on WhatsApp or print a copy for the customer.
+              </p>
+            )}
+          </ProcessSuccessModal>
+        </>
       ) : null}
 
       {traceId ? <SrfTraceModal srfId={traceId} onClose={() => setTraceId(null)} /> : null}

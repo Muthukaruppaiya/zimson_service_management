@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { SEED_USERS } from "../data/seed";
+import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
 import { ROLE_CREATION_META } from "../lib/userCreationPolicy";
 import type { UserRole } from "../types/user";
 
@@ -13,10 +14,18 @@ function roleLabel(role: string) {
   return ROLE_CREATION_META.find((r) => r.value === role)?.label ?? role;
 }
 
-type DemoRow = { employeeCode: string; password: string; role: string; note: string; canLogin: boolean };
+type DemoRow = {
+  employeeCode: string;
+  email: string;
+  password: string;
+  role: string;
+  note: string;
+  canLogin: boolean;
+};
 
 const seedRows: DemoRow[] = SEED_USERS.filter((u) => u.isSeed).map((u) => ({
   employeeCode: displayEmployeeCode(u.employeeCode ?? u.id),
+  email: String(u.email ?? "").trim().toLowerCase(),
   password: u.password,
   role: roleLabel(u.role as UserRole),
   note: u.displayName,
@@ -29,7 +38,7 @@ export function LoginPage() {
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "/";
 
-  const [employeeCode, setEmployeeCode] = useState("");
+  const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [storeId, setStoreId] = useState("");
   const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
@@ -39,11 +48,12 @@ export function LoginPage() {
   useEffect(() => {
     fetch("/api/demo-users")
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { users: { employeeCode: string; password: string; displayName: string; role: string; canLogin: boolean }[] } | null) => {
+      .then((data: { users: { employeeCode: string; email?: string; password: string; displayName: string; role: string; canLogin: boolean }[] } | null) => {
         if (!data?.users?.length) return;
         setDemoRows(
           data.users.map((u) => ({
             employeeCode: u.employeeCode,
+            email: String(u.email ?? "").trim().toLowerCase(),
             password: u.password,
             role: roleLabel(u.role as UserRole),
             note: u.displayName,
@@ -67,7 +77,7 @@ export function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const result = await login(employeeCode, password, storeId || null);
+    const result = await login(loginId, password, storeId || null);
     if (result.ok) {
       navigate(from === "/login" ? "/" : from, { replace: true });
     } else if ("code" in result && result.code === "STORE_SELECTION_REQUIRED") {
@@ -82,7 +92,7 @@ export function LoginPage() {
 
   function fillDemo(row: (typeof demoRows)[number]) {
     if (!row.canLogin) return;
-    setEmployeeCode(row.employeeCode);
+    setLoginId(row.employeeCode);
     setPassword(row.password);
     setStoreOptions([]);
     setStoreId("");
@@ -102,16 +112,15 @@ export function LoginPage() {
 
         {/* ── Brand mark ──────────────────────────── */}
         <div className="mb-10 flex flex-col items-center gap-5 text-center">
-          {/* actual Zimson logo on dark bg */}
+          {/* Zimson logo on royal blue (matches page background) */}
           <div
             className="flex items-center justify-center px-6 py-4 shadow-[0_0_0_1px_rgba(201,162,39,0.35),0_12px_48px_rgba(0,0,0,0.6)]"
-            style={{ background: "linear-gradient(135deg, #003320 0%, #005030 100%)" }}
+            style={{ background: "linear-gradient(135deg, #0D1B5E 0%, #1B3A8F 50%, #102570 100%)" }}
           >
             <img
               src="/zimson-logo.png"
               alt="Zimson — The Watch Store Since 1948"
               className="h-14 w-auto object-contain"
-              style={{ filter: "brightness(1.05) saturate(1.1)" }}
             />
           </div>
           {/* gold rule + subtitle */}
@@ -134,23 +143,23 @@ export function LoginPage() {
             <h2 className="text-sm font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
               Sign in
             </h2>
-            <p className="mt-0.5 text-xs text-white/60">Enter your employee credentials to continue.</p>
+            {/* <p className="mt-0.5 text-xs text-white/60">Sign in with employee ID or email, then your password.</p> */}
           </div>
 
           {/* form */}
           <form onSubmit={handleSubmit} className="space-y-4 px-7 py-6">
             <div>
               <label htmlFor="login-emp" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
-                Employee number
+                Employee ID
               </label>
               <input
                 id="login-emp"
                 type="text"
                 autoComplete="username"
-                value={employeeCode}
-                onChange={(e) => setEmployeeCode(e.target.value)}
+                value={loginId}
+                onChange={(e) => setLoginId(sanitizeLoginIdInput(e.target.value))}
                 className={fieldCls}
-                placeholder="e.g. EMP001"
+                // placeholder="e.g. EMP001 or name@company.com"
               />
             </div>
 
@@ -179,15 +188,23 @@ export function LoginPage() {
             ) : null}
 
             <div>
-              <label htmlFor="login-password" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
-                Password
-              </label>
+              <div className="flex items-end justify-between gap-2">
+                <label htmlFor="login-password" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
+                  Password
+                </label>
+                <Link
+                  to="/login/forgot-password"
+                  className="text-[10px] font-semibold text-rlx-green hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <input
                 id="login-password"
                 type="password"
                 autoComplete="current-password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => setPassword(sanitizePasswordInput(e.target.value))}
                 className={fieldCls}
                 placeholder="••••••••"
               />
@@ -237,13 +254,13 @@ export function LoginPage() {
               <table className="w-full min-w-[620px] border-collapse text-left">
                 <thead>
                   <tr style={{ background: "#102570" }}>
-                    {["Employee No", "Password", "Role", "User", "Login"].map((h) => (
+                    {["Employee No", "Email", "Password", "Role", "User", "Login"].map((h) => (
                       <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#C9A227" }}>
                         {h}
                       </th>
                     ))}
                   </tr>
-                  <tr><td colSpan={5} className="p-0" style={{ height: "1px", background: "linear-gradient(90deg, #A8850F, #C9A227, #A8850F)" }} /></tr>
+                  <tr><td colSpan={6} className="p-0" style={{ height: "1px", background: "linear-gradient(90deg, #A8850F, #C9A227, #A8850F)" }} /></tr>
                 </thead>
                 <tbody>
                   {demoRows.map((row, idx) => (
@@ -262,6 +279,7 @@ export function LoginPage() {
                           {row.employeeCode}
                         </button>
                       </td>
+                      <td className="px-4 py-2.5 text-xs text-rlx-ink-muted">{row.email || "—"}</td>
                       <td className="px-4 py-2.5 font-mono text-xs text-rlx-ink-muted">{row.password}</td>
                       <td className="px-4 py-2.5 text-xs text-rlx-ink">{row.role}</td>
                       <td className="px-4 py-2.5 text-xs text-rlx-ink-muted">{row.note}</td>

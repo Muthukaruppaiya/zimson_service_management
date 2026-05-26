@@ -30,6 +30,15 @@ import {
 import type { CustomerAddressBlock } from "../../types/customer";
 import type { SrfJob } from "../../types/srfJob";
 import { UNVERIFIED_CUSTOMER_ALERT_MESSAGE } from "../../lib/customerVerification";
+import {
+  storeServiceChargeMaxLabel,
+  validateStoreServiceAmountInr,
+} from "../../lib/serviceChargeLimits";
+import {
+  WatchServiceDetailFields,
+  type WatchServiceDetailValues,
+} from "../../components/service/WatchServiceDetailFields";
+import { sanitizeDecimalInput } from "../../lib/inputSanitize";
 import { formatInr } from "../../lib/formatInr";
 import {
   SRF_REPAIR_ROUTE_OPTIONS,
@@ -53,11 +62,11 @@ function formFieldsFromBillingOrLegacy(
 ): { line: string; city: string; state: string; country: string; pin: string } {
   const hasStructured =
     billing &&
-    [billing.doorNo, billing.street, billing.city, billing.district, billing.state, billing.countryId, billing.pincode].some(
+    [billing.addressLine1, billing.addressLine2, billing.city, billing.district, billing.state, billing.countryId, billing.pincode].some(
       (x) => String(x ?? "").trim(),
     );
   if (hasStructured && billing) {
-    const line = [billing.doorNo, billing.street, billing.district]
+    const line = [billing.addressLine1 ?? billing.doorNo, billing.addressLine2 ?? billing.street, billing.district]
       .map((s) => String(s ?? "").trim())
       .filter(Boolean)
       .join(", ");
@@ -104,26 +113,46 @@ function SrfPhotoThumbTile({
   imgClassName,
   wrapperClassName,
   onPreview,
+  onRemove,
+  removeBusy,
 }: {
   photo: SrfPhotoThumb;
   imgClassName: string;
   wrapperClassName?: string;
   onPreview: (photo: SrfPhotoThumb) => void;
+  onRemove?: (photo: SrfPhotoThumb) => void;
+  removeBusy?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onPreview(photo)}
-      title="Click to preview"
-      className={`group w-full cursor-zoom-in text-left transition hover:border-zimson-400 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-zimson-500 ${wrapperClassName ?? ""}`}
-    >
-      <img
-        src={`/${photo.filePath}`}
-        alt={photo.photoKind ?? "watch photo"}
-        className={`${imgClassName} w-full rounded object-cover`}
-      />
-      <p className="mt-1 text-[11px] capitalize text-stone-600 group-hover:text-zimson-800">{photo.photoKind ?? "other"}</p>
-    </button>
+    <div className={`relative ${wrapperClassName ?? ""}`}>
+      {onRemove ? (
+        <button
+          type="button"
+          title="Remove photo"
+          disabled={removeBusy}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(photo);
+          }}
+          className="absolute right-1 top-1 z-10 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white shadow hover:bg-rose-700 disabled:opacity-50"
+        >
+          {removeBusy ? "…" : "×"}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => onPreview(photo)}
+        title="Click to preview"
+        className="group w-full cursor-zoom-in text-left transition hover:border-zimson-400 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-zimson-500"
+      >
+        <img
+          src={`/${photo.filePath}`}
+          alt={photo.photoKind ?? "watch photo"}
+          className={`${imgClassName} w-full rounded object-cover`}
+        />
+        <p className="mt-1 text-[11px] capitalize text-stone-600 group-hover:text-zimson-800">{photo.photoKind ?? "other"}</p>
+      </button>
+    </div>
   );
 }
 
@@ -162,6 +191,13 @@ export function SrfBookingV2Page() {
   const [catalogModelKey, setCatalogModelKey] = useState("");
   const [customModelText, setCustomModelText] = useState("");
   const [serial, setSerial] = useState("");
+  const [watchServiceDetails, setWatchServiceDetails] = useState<WatchServiceDetailValues>({
+    caseType: "",
+    strapChainType: "",
+    natureOfRepair: "",
+    chainCount: "",
+    customerRemarks: "",
+  });
   const [savingWatchModel, setSavingWatchModel] = useState(false);
   const [watchModelSaveMsg, setWatchModelSaveMsg] = useState<string | null>(null);
   const [handoverStoreId, setHandoverStoreId] = useState("");
@@ -203,6 +239,7 @@ export function SrfBookingV2Page() {
   const [photoPreview, setPhotoPreview] = useState<SrfPhotoThumb[]>([]);
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
   const [photoLightbox, setPhotoLightbox] = useState<{ src: string; label: string } | null>(null);
+  const [photoRemoveBusyId, setPhotoRemoveBusyId] = useState<string | null>(null);
 
   const openPhotoPreview = useCallback((photo: SrfPhotoThumb) => {
     setPhotoLightbox({ src: `/${photo.filePath}`, label: photoKindLabel(photo.photoKind) });
@@ -398,6 +435,11 @@ export function SrfBookingV2Page() {
       setError("Enter a valid estimate amount.");
       return false;
     }
+    const estimateErr = validateStoreServiceAmountInr(estimateTotal, user?.role);
+    if (estimateErr) {
+      setError(estimateErr);
+      return false;
+    }
     if (advanceAmount.trim() && (!Number.isFinite(advanceTotal) || advanceTotal < 0)) {
       setError("Advance amount must be a valid non-negative number.");
       return false;
@@ -469,6 +511,31 @@ export function SrfBookingV2Page() {
       setPhotoMsg((data.photoCount ?? 0) > 0 ? `${data.photoCount} photo(s) uploaded.` : "No photos yet.");
     } catch (e) {
       setPhotoMsg(e instanceof Error ? e.message : "Could not check uploads.");
+    }
+  }
+
+  const canRemoveUploadedPhotos = Boolean(draft);
+
+  async function removeUploadedPhoto(photo: SrfPhotoThumb) {
+    if (!canRemoveUploadedPhotos) return;
+    const label = photoKindLabel(photo.photoKind);
+    if (!window.confirm(`Remove the ${label} photo? The customer can upload it again from the capture link.`)) {
+      return;
+    }
+    setPhotoRemoveBusyId(photo.id);
+    setPhotoMsg(null);
+    try {
+      const row = await ensureDraft();
+      await apiJson<{ ok: boolean; photoCount: number }>(
+        `/api/service/srf-jobs/${encodeURIComponent(row.srfId)}/photos/${encodeURIComponent(photo.id)}`,
+        { method: "DELETE" },
+      );
+      await refreshPhotoStatus();
+      setPhotoMsg(`${label} photo removed.`);
+    } catch (e) {
+      setPhotoMsg(e instanceof Error ? e.message : "Could not remove photo.");
+    } finally {
+      setPhotoRemoveBusyId(null);
     }
   }
 
@@ -555,6 +622,11 @@ export function SrfBookingV2Page() {
         watchFamily: watchFamily.trim(),
         watchModel: resolvedWatchModel.trim(),
         serial,
+        caseType: watchServiceDetails.caseType.trim(),
+        strapChainType: watchServiceDetails.strapChainType.trim(),
+        natureOfRepair: watchServiceDetails.natureOfRepair.trim(),
+        chainCount: watchServiceDetails.chainCount.trim(),
+        customerRemarks: watchServiceDetails.customerRemarks.trim(),
       });
       setStep(1);
     } catch (e) {
@@ -1040,6 +1112,11 @@ export function SrfBookingV2Page() {
         advancePaymentDetails: advancePay ? advancePay.paymentDetails : {},
         selectedPartIds: [],
         repairRoute,
+        caseType: watchServiceDetails.caseType.trim(),
+        strapChainType: watchServiceDetails.strapChainType.trim(),
+        natureOfRepair: watchServiceDetails.natureOfRepair.trim(),
+        chainCount: watchServiceDetails.chainCount.trim(),
+        customerRemarks: watchServiceDetails.customerRemarks.trim(),
       });
       setSrfRef(row.reference);
       setFinalizedSrfId(row.srfId);
@@ -1086,7 +1163,13 @@ export function SrfBookingV2Page() {
       advancePaymentDetails: resolvedAdvanceDetails,
       bookingDate: new Date(),
       repairRoute: finalizedRepairRoute,
-      natureOfRepair: finalizedRepairRoute === "store_self" ? "Store repair" : "HO Service",
+      natureOfRepair:
+        watchServiceDetails.natureOfRepair.trim() ||
+        (finalizedRepairRoute === "store_self" ? "Store repair" : "HO Service"),
+      caseType: watchServiceDetails.caseType.trim(),
+      strapChainType: watchServiceDetails.strapChainType.trim(),
+      chainCount: watchServiceDetails.chainCount.trim(),
+      customerRemarks: watchServiceDetails.customerRemarks.trim(),
       receptionistRemarks: estimateRemarks.trim() || obsAdditionalNotes.trim(),
       comments: srfComments || complaint,
       modelNumber: serial.trim(),
@@ -1474,6 +1557,14 @@ export function SrfBookingV2Page() {
               {watchModelSaveMsg ? <p className="mt-1 text-xs text-emerald-800">{watchModelSaveMsg}</p> : null}
             </div>
             <label className="text-sm">Serial<input className={inputClass} value={serial} onChange={(e) => setSerial(e.target.value)} /></label>
+            <div className="md:col-span-2 grid gap-3 sm:grid-cols-2">
+              <WatchServiceDetailFields
+                idPrefix="srf"
+                inputClass={inputClass}
+                values={watchServiceDetails}
+                onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
+              />
+            </div>
             <label className="text-sm sm:col-span-2">
               Repair routing
               <select
@@ -1545,6 +1636,8 @@ export function SrfBookingV2Page() {
                         imgClassName="h-28"
                         wrapperClassName="rounded-lg border border-zimson-200 p-1.5"
                         onPreview={openPhotoPreview}
+                        onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
+                        removeBusy={photoRemoveBusyId === p.id}
                       />
                     ))}
                   </div>
@@ -1572,6 +1665,8 @@ export function SrfBookingV2Page() {
                             imgClassName="h-24"
                             wrapperClassName="rounded-md border border-amber-100 p-1"
                             onPreview={openPhotoPreview}
+                            onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
+                            removeBusy={photoRemoveBusyId === p.id}
                           />
                         ))}
                       </div>
@@ -1617,7 +1712,24 @@ export function SrfBookingV2Page() {
             <label className="text-sm md:col-span-2">Watch complaint<textarea className={inputClass} rows={3} value={complaint} onChange={(e) => setComplaint(e.target.value)} /></label>
             <label className="text-sm">
               Estimate amount (₹)
-              <input className={inputClass} value={estimateAmount} onChange={(e) => setEstimateAmount(e.target.value)} />
+              <p className="text-[11px] font-normal text-stone-500">{storeServiceChargeMaxLabel(user?.role)}</p>
+              <input
+                className={inputClass}
+                value={estimateAmount}
+                onChange={(e) => {
+                  const v = sanitizeDecimalInput(e.target.value);
+                  const n = Number.parseFloat(v);
+                  if (Number.isFinite(n) && n > 0) {
+                    const err = validateStoreServiceAmountInr(n, user?.role);
+                    if (err) {
+                      setError(err);
+                      return;
+                    }
+                  }
+                  setError(null);
+                  setEstimateAmount(v);
+                }}
+              />
             </label>
             <label className="text-sm">
               Advance amount (₹)
@@ -1746,6 +1858,8 @@ export function SrfBookingV2Page() {
                             imgClassName="h-24"
                             wrapperClassName="rounded-lg border border-zimson-200 bg-white p-1.5"
                             onPreview={openPhotoPreview}
+                            onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
+                            removeBusy={photoRemoveBusyId === p.id}
                           />
                         ))}
                       </div>

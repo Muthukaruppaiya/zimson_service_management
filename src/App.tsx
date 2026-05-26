@@ -62,6 +62,7 @@ import { InventoryStockAdjustmentPage } from "./pages/inventory/InventoryStockAd
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
 import { SrfPhotoCapturePage } from "./pages/public/SrfPhotoCapturePage";
+import { QuickBillCapturePage } from "./pages/public/QuickBillCapturePage";
 import { SrfTrackingPage } from "./pages/public/SrfTrackingPage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
@@ -82,6 +83,7 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/service/srf-capture" element={<SrfPhotoCapturePage />} />
+            <Route path="/service/quick-bill-capture" element={<QuickBillCapturePage />} />
             <Route path="/track" element={<SrfTrackingPage />} />
             <Route element={<RequireAuth />}>
               <Route element={<AppShell />}>

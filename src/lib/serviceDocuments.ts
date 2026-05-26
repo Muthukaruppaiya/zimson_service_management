@@ -119,9 +119,12 @@ export type SrfPrintInput = {
   storeInfo?: SrfPrintStoreInfo;
   natureOfRepair?: string;
   repairRoute?: SrfRepairRoute | string;
+  caseType?: string;
+  strapChainType?: string;
   invoiceNumber?: string;
   invoiceDate?: string;
   chainCount?: string;
+  customerRemarks?: string;
   receptionistRemarks?: string;
   comments?: string;
   observations?: SrfPrintObservations;
@@ -533,13 +536,14 @@ export function printSrfDocument(job: SrfPrintInput): void {
           ${srfField("Brand / Model No", modelNo)}
           ${srfField("Brand Name", srfDisplay(job.watchBrand))}
           ${srfField("Brand Model", srfDisplay(brandModel))}
+          ${srfField("Case Type", srfDisplay(job.caseType))}
           ${srfField("Nature of Repair", srfDisplay(nature))}
           ${srfField("Invoice Number", srfDisplay(job.invoiceNumber))}
           ${srfField("Invoice Date", srfDisplay(job.invoiceDate ? formatDateOnly(job.invoiceDate) : null))}
         </div>
         <div>
           ${srfField("Dial / CLR", srfDisplay(obs.glassCrystal))}
-          ${srfField("Strap / Chain", srfDisplay(obs.strapBracelet))}
+          ${srfField("Strap / Chain Type", srfDisplay(job.strapChainType || obs.strapBracelet))}
           ${srfField("Case / Crystal", srfDisplay(obs.caseCrystal))}
           ${srfField("Hands", srfDisplay(obs.hands))}
           ${srfField("Crown / Pushers", srfDisplay(obs.crownPushers))}
@@ -551,7 +555,7 @@ export function printSrfDocument(job: SrfPrintInput): void {
       </div>
       ${repairBlock}
       <div class="remarks-row">
-        ${srfRemarksCompact("Customer Remarks", job.complaint || "-")}
+        ${srfRemarksCompact("Customer Remarks", job.customerRemarks?.trim() || job.complaint || "-")}
         ${srfRemarksCompact("Receptionist Remarks", job.receptionistRemarks?.trim() || "-")}
         ${srfRemarksCompact("Comments", comments)}
       </div>

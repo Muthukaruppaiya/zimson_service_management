@@ -31,6 +31,21 @@ function resolvedHsnSac(options?: ServiceInvoiceMappingOptions): string {
   return v || "9987";
 }
 
+function watchDetailMetaRows(source: {
+  caseType?: string | null;
+  strapChainType?: string | null;
+  natureOfRepair?: string | null;
+  chainCount?: string | null;
+  customerRemarks?: string | null;
+}): { label: string; value: string }[] {
+  const rows: { label: string; value: string }[] = [];
+  if (source.caseType?.trim()) rows.push({ label: "Case Type", value: source.caseType.trim() });
+  if (source.strapChainType?.trim()) rows.push({ label: "Strap / Chain Type", value: source.strapChainType.trim() });
+  if (source.chainCount?.trim()) rows.push({ label: "Chain Count", value: source.chainCount.trim() });
+  if (source.customerRemarks?.trim()) rows.push({ label: "Customer Remarks", value: source.customerRemarks.trim() });
+  return rows;
+}
+
 function warrantyLabel(status: QuickBillWarrantyStatus | undefined): string {
   switch (status) {
     case "none":
@@ -196,6 +211,11 @@ export type DemoInvoiceInput = {
   watchModel: string;
   watchRef: string;
   watchRemark?: string;
+  caseType?: string;
+  strapChainType?: string;
+  natureOfRepair?: string;
+  chainCount?: string;
+  customerRemarks?: string;
   warrantyStatus?: QuickBillWarrantyStatus;
   watchDocumentPath?: string | null;
   watchImagePath?: string | null;
@@ -228,7 +248,7 @@ export function buildDemoServiceInvoiceViewModel(
     }));
   const gst = buildGstLines(qbLines, hsnSac, tax?.gstRatePercent ?? 18, Boolean(tax?.pricesTaxInclusive), input.total);
   // Payment mode / technician / reference shown in payment section, not product block
-  const serviceMeta: { label: string; value: string }[] = [];
+  const serviceMeta = watchDetailMetaRows(input);
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
   // invoiceNumber = shared sequential store invoice number (common for QB + SRF)
   // serviceReference = QB-specific reference number
@@ -270,7 +290,7 @@ export function buildDemoServiceInvoiceViewModel(
       brandName: input.watchBrand,
       brandModel: [input.watchFamily?.trim(), input.watchModel].filter(Boolean).join(" · ") || input.watchModel,
       modelOrSerial: input.watchRef.trim() || "—",
-      natureOfRepair: warrantyLabel(input.warrantyStatus),
+      natureOfRepair: input.natureOfRepair?.trim() || warrantyLabel(input.warrantyStatus),
     },
     lines: gst.lines,
     totalAmount: input.total,
@@ -308,7 +328,7 @@ export function mapQuickBillInvoiceToViewModel(
 
   // Quick Bill invoice: technician, payment mode, payment reference are
   // shown in the dedicated payment section — not repeated in the product block.
-  const serviceMeta: { label: string; value: string }[] = [];
+  const serviceMeta = watchDetailMetaRows(inv);
 
   const gst = buildGstLines(inv.lines, hsnSac, tax?.gstRatePercent ?? 18, Boolean(tax?.pricesTaxInclusive), inv.totalInr);
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
@@ -355,7 +375,7 @@ export function mapQuickBillInvoiceToViewModel(
       brandName: inv.watchBrand,
       brandModel: [inv.watchFamily?.trim(), inv.watchModel].filter(Boolean).join(" · ") || inv.watchModel,
       modelOrSerial: inv.watchRef?.trim() || "—",
-      natureOfRepair: warrantyLabel(inv.warrantyStatus),
+      natureOfRepair: inv.natureOfRepair?.trim() || warrantyLabel(inv.warrantyStatus),
     },
     lines: gst.lines,
     totalAmount: inv.totalInr,

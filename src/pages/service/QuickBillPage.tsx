@@ -32,6 +32,7 @@ import {
   validateMultiPaymentForm,
 } from "../../lib/paymentModes";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import type { QuickBillInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
@@ -51,6 +52,15 @@ import {
   isFullyOtpVerified,
   UNVERIFIED_CUSTOMER_ALERT_MESSAGE,
 } from "../../lib/customerVerification";
+import { watchAttachmentDisplayName } from "../../lib/watchAttachmentUpload";
+import {
+  storeServiceChargeMaxLabel,
+  validateStoreServiceAmountInr,
+} from "../../lib/serviceChargeLimits";
+import {
+  WatchServiceDetailFields,
+  type WatchServiceDetailValues,
+} from "../../components/service/WatchServiceDetailFields";
 
 type QuickBillWatchModelRow = { id: string; brand: string; model: string; refHint: string };
 
@@ -88,7 +98,9 @@ function composeAddress(row: LoadedCustomerRow): string {
   if (row.address?.trim()) return row.address.trim();
   const b = row.billingAddress;
   if (!b) return "";
-  return [b.doorNo, b.street, b.city, b.district, b.state, b.pincode]
+  const line1 = (b as { addressLine1?: string }).addressLine1 ?? b.doorNo;
+  const line2 = (b as { addressLine2?: string }).addressLine2 ?? b.street;
+  return [line1, line2, b.city, b.district, b.state, b.pincode]
     .map((s) => s?.trim())
     .filter(Boolean)
     .join(", ");
@@ -111,6 +123,8 @@ function emptyLine(): LineItem {
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
+
+const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
 
 const qbSuccessBtnBase =
   "inline-flex w-full min-w-0 items-center justify-center rounded-xl px-4 py-2.5 text-center text-sm font-semibold shadow-sm transition sm:w-auto";
@@ -258,14 +272,27 @@ export function QuickBillPage() {
   }, [catalogModelKey, customModelText]);
   const [watchRef, setWatchRef] = useState("");
   const [watchRemark, setWatchRemark] = useState("");
+  const [watchServiceDetails, setWatchServiceDetails] = useState<WatchServiceDetailValues>({
+    caseType: "",
+    strapChainType: "",
+    natureOfRepair: "",
+    chainCount: "",
+    customerRemarks: "",
+  });
   const [warrantyStatus, setWarrantyStatus] = useState<QuickBillWarrantyStatus>("unspecified");
   const [watchDocumentPath, setWatchDocumentPath] = useState<string | null>(null);
   const [watchImagePath, setWatchImagePath] = useState<string | null>(null);
-  const [uploadBusy, setUploadBusy] = useState<null | "doc" | "img">(null);
+  const [captureSession, setCaptureSession] = useState<{
+    sessionId: string;
+    token: string;
+    captureUrl: string;
+  } | null>(null);
+  const [captureLinkBusy, setCaptureLinkBusy] = useState(false);
+  const [captureMsg, setCaptureMsg] = useState<string | null>(null);
   const [savingWatchModel, setSavingWatchModel] = useState(false);
   const [watchModelSaveMsg, setWatchModelSaveMsg] = useState<string | null>(null);
 
-  const [lines, setLines] = useState<LineItem[]>([emptyLine()]);
+  const [lines, setLines] = useState<LineItem[]>([]);
   const [serviceChargeInr, setServiceChargeInr] = useState("");
   const [partPick, setPartPick] = useState("");
   const [technicianId, setTechnicianId] = useState<string>("");
@@ -293,6 +320,21 @@ export function QuickBillPage() {
   const [walkInPending, setWalkInPending] = useState(false);
   const [loadedCustomerId, setLoadedCustomerId] = useState<string | null>(null);
   const [loadedCustomerCode, setLoadedCustomerCode] = useState<string | null>(null);
+  /** Existing customer row applied from API / local lookup — master fields stay read-only. */
+  const customerLockedFromDb = Boolean(loadedCustomerId && customerChecked);
+
+  const clearLoadedCustomer = useCallback(() => {
+    setLoadedCustomerId(null);
+    setLoadedCustomerCode(null);
+    setCustomerChecked(false);
+    setCustomerCheckMsg(null);
+    setPhoneVerifiedAt(null);
+    setEmailVerifiedAt(null);
+    setHandoverVerified(false);
+    verifiedBillPhoneLast10Ref.current = "";
+    lastAutoLookupPhoneRef.current = "";
+    unverifiedAlertShownForRef.current = null;
+  }, []);
   const [phoneVerifiedAt, setPhoneVerifiedAt] = useState<string | null>(null);
   const [emailVerifiedAt, setEmailVerifiedAt] = useState<string | null>(null);
   const unverifiedAlertShownForRef = useRef<string | null>(null);
@@ -642,8 +684,40 @@ export function QuickBillPage() {
     setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
 
+  function addChargeLine() {
+    setLines((prev) => [...prev, emptyLine()]);
+  }
+
   function removeLine(id: string) {
-    setLines((prev) => (prev.length <= 1 ? prev : prev.filter((l) => l.id !== id)));
+    setLines((prev) => prev.filter((l) => l.id !== id));
+  }
+
+  function handleManualLineAmount(id: string, raw: string) {
+    const amount = sanitizeDecimalInput(raw);
+    const n = Number.parseFloat(amount);
+    if (Number.isFinite(n) && n > 0) {
+      const err = validateStoreServiceAmountInr(n, user?.role);
+      if (err) {
+        setError(err);
+        return;
+      }
+    }
+    setError(null);
+    updateLine(id, { amount });
+  }
+
+  function handleServiceChargeChange(raw: string) {
+    const amount = sanitizeDecimalInput(raw);
+    const n = Number.parseFloat(amount);
+    if (Number.isFinite(n) && n > 0) {
+      const err = validateStoreServiceAmountInr(n, user?.role);
+      if (err) {
+        setError(err);
+        return;
+      }
+    }
+    setError(null);
+    setServiceChargeInr(amount);
   }
 
   async function addPartLine(spareId: string) {
@@ -696,30 +770,121 @@ export function QuickBillPage() {
     setBarcodeSku("");
   }
 
-  async function uploadWatchFile(kind: "doc" | "img", file: File | null) {
-    if (!file) return;
-    setUploadBusy(kind);
+  const captureUrl = useMemo(() => {
+    if (!captureSession?.captureUrl) return "";
+    return new URL(captureSession.captureUrl, window.location.origin).toString();
+  }, [captureSession?.captureUrl]);
+
+  const refreshCaptureSession = useCallback(async () => {
+    if (!captureSession?.sessionId || !apiMode) return;
+    try {
+      const data = await apiJson<{
+        documentPath: string | null;
+        imagePath: string | null;
+      }>(`/api/service/quick-bill/capture-session/${encodeURIComponent(captureSession.sessionId)}`);
+      if (data.documentPath) setWatchDocumentPath(data.documentPath);
+      if (data.imagePath) setWatchImagePath(data.imagePath);
+      const parts: string[] = [];
+      if (data.documentPath) parts.push("document");
+      if (data.imagePath) parts.push("image");
+      setCaptureMsg(parts.length > 0 ? `Customer uploaded: ${parts.join(" & ")}.` : "Waiting for customer uploads…");
+    } catch {
+      /* ignore poll errors */
+    }
+  }, [apiMode, captureSession?.sessionId]);
+
+  useEffect(() => {
+    if (!captureSession?.sessionId || !apiMode) return;
+    void refreshCaptureSession();
+    const t = window.setInterval(() => void refreshCaptureSession(), 6000);
+    return () => window.clearInterval(t);
+  }, [captureSession?.sessionId, apiMode, refreshCaptureSession]);
+
+  async function createCaptureLink() {
+    if (!apiMode) {
+      setError("Customer upload link requires API mode.");
+      return;
+    }
+    const regionId = String(user?.regionId ?? "").trim();
+    const storeId = String(user?.storeId ?? "").trim();
+    if (!regionId || !storeId) {
+      setError("Your login must be mapped to a store to generate an upload link.");
+      return;
+    }
+    setCaptureLinkBusy(true);
+    setCaptureMsg(null);
     setError(null);
     try {
-      if (!apiMode) {
-        const label = `(demo, not saved) ${file.name}`;
-        if (kind === "doc") setWatchDocumentPath(label);
-        else setWatchImagePath(label);
-        return;
-      }
-      const fd = new FormData();
-      fd.append("file", file);
-      const out = await apiJson<{ url: string }>("/api/service/quick-bill-attachments", {
+      const data = await apiJson<{
+        sessionId: string;
+        token: string;
+        captureUrl: string;
+      }>("/api/service/quick-bill/capture-session", {
         method: "POST",
-        body: fd,
+        json: {
+          regionId,
+          storeId,
+          customerName: customerName.trim() || "Customer",
+          watchBrand: watchBrand.trim(),
+          watchModel: resolvedWatchModel.trim(),
+        },
       });
-      if (kind === "doc") setWatchDocumentPath(out.url);
-      else setWatchImagePath(out.url);
+      setCaptureSession(data);
+      setCaptureMsg("Share the QR or link with the customer.");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Upload failed.");
+      setError(e instanceof ApiError ? e.message : "Could not create upload link.");
     } finally {
-      setUploadBusy(null);
+      setCaptureLinkBusy(false);
     }
+  }
+
+  async function refreshCaptureLink() {
+    if (!captureSession?.sessionId || !apiMode) return;
+    setCaptureLinkBusy(true);
+    try {
+      const data = await apiJson<{
+        sessionId: string;
+        token: string;
+        captureUrl: string;
+        documentPath: string | null;
+        imagePath: string | null;
+      }>(`/api/service/quick-bill/capture-session/${encodeURIComponent(captureSession.sessionId)}/refresh`, {
+        method: "POST",
+      });
+      setCaptureSession({ sessionId: data.sessionId, token: data.token, captureUrl: data.captureUrl });
+      if (data.documentPath) setWatchDocumentPath(data.documentPath);
+      if (data.imagePath) setWatchImagePath(data.imagePath);
+      setCaptureMsg("New upload link generated.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not refresh link.");
+    } finally {
+      setCaptureLinkBusy(false);
+    }
+  }
+
+  async function removeCaptureAttachment(kind: "doc" | "img") {
+    if (captureSession?.sessionId && apiMode) {
+      try {
+        await apiJson(
+          `/api/service/quick-bill/capture-session/${encodeURIComponent(captureSession.sessionId)}/attachment?kind=${kind}`,
+          { method: "DELETE" },
+        );
+      } catch {
+        /* still clear local */
+      }
+    }
+    if (kind === "doc") setWatchDocumentPath(null);
+    else setWatchImagePath(null);
+  }
+
+  function clearWatchDocumentUpload() {
+    if (!window.confirm("Remove the uploaded document? The customer can upload again from the capture link.")) return;
+    void removeCaptureAttachment("doc");
+  }
+
+  function clearWatchImageUpload() {
+    if (!window.confirm("Remove the uploaded image? The customer can upload again from the capture link.")) return;
+    void removeCaptureAttachment("img");
   }
 
   async function saveNewWatchModelToCatalog() {
@@ -856,6 +1021,25 @@ export function QuickBillPage() {
       setError("Service / repair charge cannot be negative.");
       return false;
     }
+    for (const l of lines) {
+      const desc = l.description.trim();
+      const amount = Number.parseFloat(l.amount);
+      if (!desc || Number.isNaN(amount) || amount < 0) continue;
+      if (!l.spareId) {
+        const err = validateStoreServiceAmountInr(amount, user?.role);
+        if (err) {
+          setError(err);
+          return false;
+        }
+      }
+    }
+    if (Number.isFinite(extra) && extra > 0) {
+      const err = validateStoreServiceAmountInr(extra, user?.role);
+      if (err) {
+        setError(err);
+        return false;
+      }
+    }
     const billTotal =
       lines.reduce((sum, l) => {
         const n = Number.parseFloat(l.amount);
@@ -929,9 +1113,15 @@ export function QuickBillPage() {
             watchModel: resolvedWatchModel,
             watchRef: watchRef.trim() || null,
             watchRemark: watchRemark.trim(),
+            caseType: watchServiceDetails.caseType.trim(),
+            strapChainType: watchServiceDetails.strapChainType.trim(),
+            natureOfRepair: watchServiceDetails.natureOfRepair.trim(),
+            chainCount: watchServiceDetails.chainCount.trim(),
+            customerRemarks: watchServiceDetails.customerRemarks.trim(),
             warrantyStatus,
             watchDocumentPath,
             watchImagePath,
+            captureSessionId: captureSession?.sessionId ?? null,
             technicianId: technicianId || null,
             technicianName: tech?.fullName ?? null,
             paymentMode: paymentPayload.paymentMode,
@@ -1015,10 +1205,17 @@ export function QuickBillPage() {
     setCustomModelText("");
     setWatchRef("");
     setWatchRemark("");
+    setWatchServiceDetails({
+      caseType: "",
+      strapChainType: "",
+      natureOfRepair: "",
+      chainCount: "",
+      customerRemarks: "",
+    });
     setWarrantyStatus("unspecified");
     setWatchDocumentPath(null);
     setWatchImagePath(null);
-    setLines([emptyLine()]);
+    setLines([]);
     setServiceChargeInr("");
     setPartPick("");
     setTechnicianId(technicians[0]?.id ?? "");
@@ -1165,6 +1362,7 @@ export function QuickBillPage() {
         watchModel: resolvedWatchModel,
         watchRef,
         watchRemark,
+        ...watchServiceDetails,
         warrantyStatus,
         watchDocumentPath,
         watchImagePath,
@@ -1277,33 +1475,50 @@ export function QuickBillPage() {
               : ""
           }
         >
-          <div className="mb-4 flex gap-4">
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="qb-cust"
-                checked={customerType === "B2C"}
-                onChange={() => {
-                  setCustomerType("B2C");
-                  setError(null);
-                }}
-                className="text-zimson-600 focus:ring-zimson-500"
-              />
-              B2C
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="qb-cust"
-                checked={customerType === "B2B"}
-                onChange={() => {
-                  setCustomerType("B2B");
-                  setError(null);
-                }}
-                className="text-zimson-600 focus:ring-zimson-500"
-              />
-              B2B
-            </label>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex gap-4">
+              <label
+                className={`flex items-center gap-2 text-sm ${customerLockedFromDb ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+              >
+                <input
+                  type="radio"
+                  name="qb-cust"
+                  checked={customerType === "B2C"}
+                  disabled={customerLockedFromDb}
+                  onChange={() => {
+                    setCustomerType("B2C");
+                    setError(null);
+                  }}
+                  className="text-zimson-600 focus:ring-zimson-500"
+                />
+                B2C
+              </label>
+              <label
+                className={`flex items-center gap-2 text-sm ${customerLockedFromDb ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+              >
+                <input
+                  type="radio"
+                  name="qb-cust"
+                  checked={customerType === "B2B"}
+                  disabled={customerLockedFromDb}
+                  onChange={() => {
+                    setCustomerType("B2B");
+                    setError(null);
+                  }}
+                  className="text-zimson-600 focus:ring-zimson-500"
+                />
+                B2B
+              </label>
+            </div>
+            {customerLockedFromDb ? (
+              <button
+                type="button"
+                onClick={clearLoadedCustomer}
+                className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+              >
+                Change customer
+              </button>
+            ) : null}
           </div>
 
           {customerType === "B2B" ? (
@@ -1333,21 +1548,31 @@ export function QuickBillPage() {
               <input
                 id="qb-phone"
                 value={phone}
-                onChange={(e) => setPhone(sanitizePhoneDigits(e.target.value, 15))}
-                className={inputClass}
+                readOnly={customerLockedFromDb}
+                onChange={
+                  customerLockedFromDb
+                    ? undefined
+                    : (e) => setPhone(sanitizePhoneDigits(e.target.value, 15))
+                }
+                className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
                 placeholder="+91 …"
               />
             </div>
             {customerType === "B2B" ? (
               <div className="sm:col-span-2">
                 <label htmlFor="qb-company" className="text-xs font-medium text-stone-600">
-                  Company / legal name *
+                  Company name *
                 </label>
                 <input
                   id="qb-company"
                   value={company}
-                  onChange={(e) => setCompany(sanitizeTextInput(e.target.value, 240))}
-                  className={inputClass}
+                  readOnly={customerLockedFromDb}
+                  onChange={
+                    customerLockedFromDb
+                      ? undefined
+                      : (e) => setCompany(sanitizeTextInput(e.target.value, 240))
+                  }
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
                   placeholder="Registered business name"
                 />
               </div>
@@ -1361,8 +1586,13 @@ export function QuickBillPage() {
                   <input
                     id="qb-gst"
                     value={gst}
-                    onChange={(e) => setGst(sanitizeGstPanInput(e.target.value, 15))}
-                    className={inputClass}
+                    readOnly={customerLockedFromDb}
+                    onChange={
+                      customerLockedFromDb
+                        ? undefined
+                        : (e) => setGst(sanitizeGstPanInput(e.target.value, 15))
+                    }
+                    className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
                     placeholder="15-character GSTIN"
                     maxLength={15}
                   />
@@ -1374,8 +1604,13 @@ export function QuickBillPage() {
                   <input
                     id="qb-pan"
                     value={pan}
-                    onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
-                    className={inputClass}
+                    readOnly={customerLockedFromDb}
+                    onChange={
+                      customerLockedFromDb
+                        ? undefined
+                        : (e) => setPan(sanitizeGstPanInput(e.target.value, 10))
+                    }
+                    className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
                     placeholder="ABCDE1234F"
                     maxLength={10}
                   />
@@ -1389,8 +1624,13 @@ export function QuickBillPage() {
               <input
                 id="qb-name"
                 value={customerName}
-                onChange={(e) => setCustomerName(sanitizeTextInput(e.target.value, 240))}
-                className={inputClass}
+                readOnly={customerLockedFromDb}
+                onChange={
+                  customerLockedFromDb
+                    ? undefined
+                    : (e) => setCustomerName(sanitizeTextInput(e.target.value, 240))
+                }
+                className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
                 placeholder={customerType === "B2B" ? "Name on account" : "Walk-in — optional"}
               />
             </div>
@@ -1402,8 +1642,11 @@ export function QuickBillPage() {
                 id="qb-email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
-                className={inputClass}
+                readOnly={customerLockedFromDb}
+                onChange={
+                  customerLockedFromDb ? undefined : (e) => setEmail(sanitizeEmailInput(e.target.value))
+                }
+                className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
                 placeholder="optional"
               />
             </div>
@@ -1411,7 +1654,14 @@ export function QuickBillPage() {
               <p className="sm:col-span-2 text-xs text-stone-500">Checking customer in DB…</p>
             ) : null}
             {customerCheckMsg ? (
-              <p className="sm:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">{customerCheckMsg}</p>
+              <p className="sm:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">
+                {customerCheckMsg}
+                {customerLockedFromDb ? (
+                  <span className="mt-1 block text-xs text-stone-600">
+                    Customer master data is read-only. Use Change customer to search another mobile.
+                  </span>
+                ) : null}
+              </p>
             ) : null}
             {customerChecked && loadedCustomerId && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
               <div
@@ -1571,6 +1821,12 @@ export function QuickBillPage() {
                 placeholder="Case / movement serial"
               />
             </div>
+            <WatchServiceDetailFields
+              idPrefix="qb"
+              inputClass={inputClass}
+              values={watchServiceDetails}
+              onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
+            />
             <div className="sm:col-span-2">
               <label htmlFor="qb-watch-remark" className="text-xs font-medium text-stone-600">
                 Remark
@@ -1600,36 +1856,137 @@ export function QuickBillPage() {
                 <option value="extended">Extended warranty (bill impact — to finalise)</option>
               </select>
             </div>
-            <div>
-              <label htmlFor="qb-doc" className="text-xs font-medium text-stone-600">
-                Document upload
-              </label>
-              <input
-                id="qb-doc"
-                type="file"
-                className="mt-1 block w-full text-sm text-stone-700 file:mr-3 file:rounded-lg file:border file:border-zimson-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-zimson-900"
-                accept=".pdf,.doc,.docx,image/*"
-                disabled={uploadBusy === "doc"}
-                onChange={(e) => void uploadWatchFile("doc", e.target.files?.[0] ?? null)}
-              />
-              {watchDocumentPath ? (
-                <p className="mt-1 text-xs text-emerald-800">Saved: {watchDocumentPath}</p>
-              ) : null}
-            </div>
-            <div>
-              <label htmlFor="qb-img" className="text-xs font-medium text-stone-600">
-                Image upload
-              </label>
-              <input
-                id="qb-img"
-                type="file"
-                className="mt-1 block w-full text-sm text-stone-700 file:mr-3 file:rounded-lg file:border file:border-zimson-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-zimson-900"
-                accept="image/*"
-                disabled={uploadBusy === "img"}
-                onChange={(e) => void uploadWatchFile("img", e.target.files?.[0] ?? null)}
-              />
-              {watchImagePath ? (
-                <p className="mt-1 text-xs text-emerald-800">Saved: {watchImagePath}</p>
+            <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-zimson-200 bg-zimson-50/50 p-4">
+              <p className="text-sm font-semibold text-zimson-900">Document &amp; watch image (customer link)</p>
+              <p className="mt-1 text-xs text-stone-600">
+                Like SRF booking: generate a QR/link for the customer to upload document and watch photo from their phone. Store staff do not upload files here.
+              </p>
+              <div className="mt-3 grid gap-4 md:grid-cols-[200px,1fr]">
+                {captureUrl ? (
+                  <CustomerLinkQr
+                    url={captureUrl}
+                    size={200}
+                    mode="qr"
+                    caption="Scan to upload"
+                    className="mx-auto text-center"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center rounded-lg border border-dashed border-zimson-300 bg-white p-6 text-center text-xs text-stone-500">
+                    QR appears after you generate a link
+                  </div>
+                )}
+                <div className="space-y-2 text-sm">
+                  {captureUrl ? (
+                    <p className="break-all text-xs text-stone-500">{captureUrl}</p>
+                  ) : null}
+                  {captureMsg ? (
+                    <p className="rounded-lg bg-white px-3 py-2 text-xs text-zimson-900">{captureMsg}</p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    {!captureSession ? (
+                      <button
+                        type="button"
+                        disabled={captureLinkBusy || !apiMode}
+                        onClick={() => void createCaptureLink()}
+                        className="rounded-lg bg-zimson-700 px-4 py-2 text-xs font-semibold text-white hover:bg-zimson-800 disabled:opacity-50"
+                      >
+                        {captureLinkBusy ? "Generating…" : "Generate upload link"}
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          disabled={captureLinkBusy}
+                          onClick={() => void refreshCaptureSession()}
+                          className="rounded-lg border border-zimson-300 bg-white px-4 py-2 text-xs font-semibold text-zimson-900"
+                        >
+                          Refresh uploads
+                        </button>
+                        <button
+                          type="button"
+                          disabled={captureLinkBusy}
+                          onClick={() => void refreshCaptureLink()}
+                          className="rounded-lg border border-zimson-300 bg-white px-4 py-2 text-xs font-semibold text-zimson-900"
+                        >
+                          New link
+                        </button>
+                        {captureUrl ? (
+                          <a
+                            href={captureUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-lg bg-zimson-700 px-4 py-2 text-xs font-semibold text-white"
+                          >
+                            Open capture page
+                          </a>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {(watchDocumentPath || watchImagePath) ? (
+                <div className="mt-4 rounded-lg border border-zimson-200 bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Uploaded from customer link</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {watchDocumentPath ? (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+                        <p className="text-xs font-semibold text-emerald-900">Document</p>
+                        <p className="mt-1 truncate text-xs text-emerald-800">
+                          {watchAttachmentDisplayName(watchDocumentPath)}
+                        </p>
+                        {watchDocumentPath.startsWith("/") ? (
+                          <a
+                            href={watchDocumentPath}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 inline-block text-xs font-semibold text-zimson-700 underline"
+                          >
+                            Open document
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={clearWatchDocumentUpload}
+                          className="mt-2 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-stone-200 p-3 text-xs text-stone-500">
+                        No document yet
+                      </div>
+                    )}
+                    {watchImagePath ? (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+                        <p className="text-xs font-semibold text-emerald-900">Watch image</p>
+                        {watchImagePath.startsWith("/") ? (
+                          <img
+                            src={watchImagePath}
+                            alt="Watch from customer"
+                            className="mt-2 max-h-40 w-full rounded-md border border-stone-200 object-contain bg-white"
+                          />
+                        ) : (
+                          <p className="mt-1 text-xs text-emerald-800">{watchAttachmentDisplayName(watchImagePath)}</p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={clearWatchImageUpload}
+                          className="mt-2 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-stone-200 p-3 text-xs text-stone-500">
+                        No watch image yet
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : captureSession ? (
+                <p className="mt-4 text-xs text-stone-500">Waiting for customer to upload document and/or watch image…</p>
               ) : null}
             </div>
           </div>
@@ -1687,53 +2044,79 @@ export function QuickBillPage() {
           }
         >
           <div className="space-y-3">
-            {lines.map((line, index) => (
-              <div
-                key={line.id}
-                className="flex flex-col gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:flex-row sm:items-end"
-              >
-                <div className="min-w-0 flex-1">
-                  <span className="text-xs font-medium text-stone-600">Description</span>
-                  <input
-                    value={line.description}
-                    onChange={(e) => updateLine(line.id, { description: sanitizeTextInput(e.target.value, 200) })}
-                    className={inputClass}
-                    placeholder={`Line ${index + 1}`}
-                  />
-                </div>
-                <div className="w-full sm:w-36">
-                  <span className="text-xs font-medium text-stone-600">Amount (INR)</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={line.amount}
-                    onChange={(e) => updateLine(line.id, { amount: sanitizeDecimalInput(e.target.value) })}
-                    className={inputClass}
-                    placeholder="0"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removeLine(line.id)}
-                  disabled={lines.length <= 1}
-                  className="rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+            {lines.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-zimson-200 bg-zimson-50/40 px-3 py-4 text-sm text-stone-600">
+                Add spares from the catalog above. Use &quot;Add charge line&quot; or service charge below for labour /
+                repair fees.
+              </p>
+            ) : (
+              lines.map((line, index) => (
+                <div
+                  key={line.id}
+                  className="flex flex-col gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:flex-row sm:items-end"
                 >
-                  Remove
-                </button>
-              </div>
-            ))}
+                  <div className="min-w-0 flex-1">
+                    <span className="text-xs font-medium text-stone-600">
+                      {line.spareId ? "Spare" : "Description"}
+                    </span>
+                    <input
+                      value={line.description}
+                      readOnly={Boolean(line.spareId)}
+                      onChange={
+                        line.spareId
+                          ? undefined
+                          : (e) => updateLine(line.id, { description: sanitizeTextInput(e.target.value, 200) })
+                      }
+                      className={line.spareId ? `${inputClass} cursor-not-allowed bg-stone-100` : inputClass}
+                      placeholder={`Line ${index + 1}`}
+                    />
+                  </div>
+                  <div className="w-full sm:w-36">
+                    <span className="text-xs font-medium text-stone-600">Amount (INR)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={line.amount}
+                      readOnly={Boolean(line.spareId)}
+                      onChange={
+                        line.spareId ? undefined : (e) => handleManualLineAmount(line.id, e.target.value)
+                      }
+                      className={line.spareId ? `${inputClass} cursor-not-allowed bg-stone-100` : inputClass}
+                      placeholder="0"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeLine(line.id)}
+                    className="rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={addChargeLine}
+                className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+              >
+                Add charge line
+              </button>
+            </div>
             <div className="mt-4 rounded-xl border border-zimson-200/80 bg-white/80 p-3 sm:max-w-xs">
               <label htmlFor="qb-svc" className="text-xs font-medium text-stone-600">
                 Service / repair charge (INR, optional)
               </label>
+              <p className="text-[11px] text-stone-500">{storeServiceChargeMaxLabel(user?.role)}</p>
               <input
                 id="qb-svc"
                 type="number"
                 min={0}
                 step={0.01}
                 value={serviceChargeInr}
-                onChange={(e) => setServiceChargeInr(sanitizeDecimalInput(e.target.value))}
+                onChange={(e) => handleServiceChargeChange(e.target.value)}
                 className={inputClass}
                 placeholder="0"
               />

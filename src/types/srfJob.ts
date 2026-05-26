@@ -63,6 +63,11 @@ export type SrfJob = {
   watchModel: string;
   serial: string;
   complaint: string;
+  caseType?: string;
+  strapChainType?: string;
+  natureOfRepair?: string;
+  chainCount?: string;
+  customerRemarks?: string;
   estimateTotalInr: number;
   estimatedFinishDate?: string | null;
   advanceInr?: number;

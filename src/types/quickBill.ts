@@ -70,6 +70,11 @@ export type QuickBillInvoice = {
   watchModel: string;
   watchRef: string | null;
   watchRemark?: string;
+  caseType?: string;
+  strapChainType?: string;
+  natureOfRepair?: string;
+  chainCount?: string;
+  customerRemarks?: string;
   warrantyStatus?: QuickBillWarrantyStatus;
   watchDocumentPath?: string | null;
   watchImagePath?: string | null;

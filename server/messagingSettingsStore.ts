@@ -402,6 +402,19 @@ export function getMessagingFlags(): MessagingFlags {
   return flagsCache;
 }
 
+/** Dev tunnel or manual override — keeps process.env and in-memory flags in sync. */
+export function patchMessagingPublicBaseUrl(url: string): void {
+  const clean = url.trim().replace(/\/$/, "");
+  if (clean) {
+    process.env.MESSAGING_PUBLIC_BASE_URL = clean;
+  } else {
+    delete process.env.MESSAGING_PUBLIC_BASE_URL;
+  }
+  if (flagsCache) {
+    flagsCache = { ...flagsCache, messagingPublicBaseUrl: clean };
+  }
+}
+
 export function getDbConfigSnapshot(): MessagingSettingsDb {
   return { ...dbConfig };
 }

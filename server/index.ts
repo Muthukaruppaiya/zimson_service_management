@@ -13,6 +13,7 @@ import { registerCatalogRoutes } from "./catalogRoutes";
 import { registerGeoRoutes } from "./geoRoutes";
 import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { registerQuickBillRoutes } from "./quickBillRoutes";
+import { registerQuickBillCaptureRoutes } from "./quickBillCaptureRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { getMessagingPublicBaseUrl, isWhatsAppInvoiceDryRun } from "./messaging/config";
 import { initMessagingSettings } from "./messagingSettingsStore";
@@ -104,14 +105,16 @@ const CUSTOMERS_SELECT_FIELDS = `
 function normalizeCustomerAddressJson(v: unknown): CustomerRecord["billingAddress"] {
   if (!v || typeof v !== "object") return undefined;
   const o = v as Record<string, unknown>;
+  const line1 = String(o.addressLine1 ?? o.doorNo ?? "").trim();
+  const line2 = String(o.addressLine2 ?? o.street ?? "").trim();
   return {
-    doorNo: String(o.doorNo ?? ""),
-    street: String(o.street ?? ""),
-    city: String(o.city ?? ""),
-    district: String(o.district ?? ""),
-    state: String(o.state ?? ""),
-    countryId: String(o.countryId ?? ""),
-    pincode: String(o.pincode ?? ""),
+    addressLine1: line1,
+    addressLine2: line2,
+    city: String(o.city ?? "").trim(),
+    district: String(o.district ?? "").trim(),
+    state: String(o.state ?? "").trim(),
+    countryId: String(o.countryId ?? "").trim(),
+    pincode: String(o.pincode ?? "").trim(),
   };
 }
 
@@ -222,6 +225,25 @@ function hashPassword(value: string): string {
 
 function normalizeEmployeeCode(value: string): string {
   return String(value).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
+}
+
+function normalizeEmail(value: string): string {
+  return String(value).trim().toLowerCase();
+}
+
+function isValidEmail(value: string): boolean {
+  const s = normalizeEmail(value);
+  if (!s || s.length > 240) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+function userMatchesLoginId(user: DemoUser, loginId: string): boolean {
+  const raw = String(loginId).trim();
+  if (!raw) return false;
+  if (raw.includes("@")) {
+    return normalizeEmail(user.email) === normalizeEmail(raw);
+  }
+  return normalizeEmployeeCode(String(user.employeeCode ?? user.id)) === normalizeEmployeeCode(raw);
 }
 
 const MODULE_KEY_ALLOWLIST: ModuleKey[] = [
@@ -517,15 +539,18 @@ async function ensureSeedUsers(): Promise<void> {
 }
 
 app.post("/api/auth/login", async (req, res) => {
-  const employeeCode = normalizeEmployeeCode(String(req.body?.employeeCode ?? ""));
+  const loginId = String(req.body?.loginId ?? req.body?.employeeCode ?? "").trim();
   const password = String(req.body?.password ?? "").trim();
   const selectedStoreId = String(req.body?.storeId ?? "").trim() || null;
+  if (!loginId) {
+    res.status(400).json({ ok: false, message: "Enter your employee ID or email address." });
+    return;
+  }
   const users = await allUsers();
-  const found = users.find(
-    (u) => normalizeEmployeeCode(String(u.employeeCode ?? u.id)) === employeeCode && u.password === hashPassword(password),
-  );
+  const passwordHash = hashPassword(password);
+  const found = users.find((u) => userMatchesLoginId(u, loginId) && u.password === passwordHash);
   if (!found) {
-    res.status(401).json({ ok: false, message: "Invalid employee number or password." });
+    res.status(401).json({ ok: false, message: "Invalid employee ID, email, or password." });
     return;
   }
   if (found.canLogin === false) {
@@ -616,18 +641,20 @@ app.get("/api/demo-users", async (_req, res) => {
   try {
     const { rows } = await dbPool.query<{
       employee_code: string | null;
+      email: string;
       plain_password: string | null;
       display_name: string;
       role: string;
       can_login: boolean;
     }>(
-      `SELECT employee_code, plain_password, display_name, role, can_login
+      `SELECT employee_code, email, plain_password, display_name, role, can_login
        FROM app_users
        ORDER BY created_at ASC`,
     );
     res.json({
       users: rows.map((r) => ({
         employeeCode: String(r.employee_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24),
+        email: String(r.email ?? "").trim().toLowerCase(),
         password: r.plain_password ?? (r.role === "super_admin" ? "super123" : "123456"),
         displayName: r.display_name,
         role: r.role,
@@ -680,9 +707,13 @@ app.post("/api/users", requireAuth, async (req, res) => {
   };
   const canLogin = input.canLogin !== false;
   const employeeCode = normalizeEmployeeCode(String(input.employeeCode ?? ""));
-  const email = String(input.email ?? "").trim().toLowerCase();
+  const email = normalizeEmail(String(input.email ?? ""));
   if (!input.displayName.trim()) {
     res.status(400).json({ ok: false, message: "Display name is required." });
+    return;
+  }
+  if (!email || !isValidEmail(email)) {
+    res.status(400).json({ ok: false, message: "A valid email address is required (must be unique)." });
     return;
   }
   if (canLogin) {
@@ -695,12 +726,13 @@ app.post("/api/users", requireAuth, async (req, res) => {
       return;
     }
   }
-  if (employeeCode && (await allUsers()).some((u) => normalizeEmployeeCode(String(u.employeeCode ?? u.id)) === employeeCode)) {
-    res.status(400).json({ ok: false, message: "An account with this employee number already exists." });
+  const existingUsers = await allUsers();
+  if (existingUsers.some((u) => normalizeEmail(u.email) === email)) {
+    res.status(400).json({ ok: false, message: "An account with this email already exists." });
     return;
   }
-  if (email && (await allUsers()).some((u) => u.email.toLowerCase() === email)) {
-    res.status(400).json({ ok: false, message: "An account with this email already exists." });
+  if (employeeCode && existingUsers.some((u) => normalizeEmployeeCode(String(u.employeeCode ?? u.id)) === employeeCode)) {
+    res.status(400).json({ ok: false, message: "An account with this employee number already exists." });
     return;
   }
 
@@ -752,7 +784,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
   const newUser: DemoUser = {
     id: createId("user"),
     employeeCode: employeeCode || normalizeEmployeeCode(createId("emp")),
-    email: email || `${createId("user")}@directory.local`,
+    email,
     password: hashPassword(plainPwd),
     displayName: input.displayName.trim(),
     role: input.role as UserRole,
@@ -830,8 +862,32 @@ app.patch("/api/users/:userId", requireAuth, async (req, res) => {
     const push = (col: string, val: unknown) => { params.push(val); sets.push(`${col} = $${params.length}`); };
 
     if ("displayName" in body) push("display_name", String(body.displayName ?? "").trim());
-    if ("email" in body) push("email", String(body.email ?? "").trim().toLowerCase());
-    if ("employeeCode" in body) push("employee_code", String(body.employeeCode ?? "").trim().toUpperCase() || null);
+    if ("email" in body) {
+      const nextEmail = normalizeEmail(String(body.email ?? ""));
+      if (!nextEmail || !isValidEmail(nextEmail)) {
+        res.status(400).json({ error: "A valid email address is required." });
+        return;
+      }
+      const dup = (await allUsers()).some((u) => u.id !== targetId && normalizeEmail(u.email) === nextEmail);
+      if (dup) {
+        res.status(400).json({ error: "An account with this email already exists." });
+        return;
+      }
+      push("email", nextEmail);
+    }
+    if ("employeeCode" in body) {
+      const nextCode = normalizeEmployeeCode(String(body.employeeCode ?? ""));
+      if (nextCode) {
+        const dup = (await allUsers()).some(
+          (u) => u.id !== targetId && normalizeEmployeeCode(String(u.employeeCode ?? u.id)) === nextCode,
+        );
+        if (dup) {
+          res.status(400).json({ error: "An account with this employee number already exists." });
+          return;
+        }
+      }
+      push("employee_code", nextCode || null);
+    }
     if ("canLogin" in body) push("can_login", Boolean(body.canLogin));
     if ("regionId" in body) push("region_id", String(body.regionId ?? "").trim() || null);
     if ("storeId" in body) push("store_id", String(body.storeId ?? "").trim() || null);
@@ -3274,6 +3330,8 @@ app.post("/api/customers", async (req, res) => {
   const actor = uid ? findUser(uid) : null;
 
   type AddrIn = {
+    addressLine1?: string;
+    addressLine2?: string;
     doorNo?: string;
     street?: string;
     city?: string;
@@ -3315,9 +3373,9 @@ app.post("/api/customers", async (req, res) => {
     if (!a) return false;
     const pin = String(a.pincode ?? "").trim();
     if (pin.length < 4 || pin.length > 12) return false;
+    const line1 = String(a.addressLine1 ?? a.doorNo ?? "").trim();
     return (
-      !!(a.doorNo ?? "").trim() &&
-      !!(a.street ?? "").trim() &&
+      !!line1 &&
       !!(a.city ?? "").trim() &&
       !!(a.district ?? "").trim() &&
       !!(a.state ?? "").trim() &&
@@ -3326,9 +3384,13 @@ app.post("/api/customers", async (req, res) => {
   }
 
   function normalizeAddrJson(a: AddrIn): Record<string, string> {
+    const line1 = String(a.addressLine1 ?? a.doorNo ?? "").trim();
+    const line2 = String(a.addressLine2 ?? a.street ?? "").trim();
     return {
-      doorNo: String(a.doorNo ?? "").trim(),
-      street: String(a.street ?? "").trim(),
+      addressLine1: line1,
+      addressLine2: line2,
+      doorNo: line1,
+      street: line2,
       city: String(a.city ?? "").trim(),
       district: String(a.district ?? "").trim(),
       state: String(a.state ?? "").trim(),
@@ -3459,7 +3521,7 @@ app.post("/api/customers", async (req, res) => {
   const shipJson = JSON.stringify(normalizeAddrJson(shippingAddress));
 
   const addressLegacy = [
-    `Billing: ${billingAddress.doorNo}, ${billingAddress.street}`,
+    `Billing: ${String(billingAddress.addressLine1 ?? billingAddress.doorNo ?? "").trim()}, ${String(billingAddress.addressLine2 ?? billingAddress.street ?? "").trim()}`,
     `${billingAddress.city}, ${billingAddress.district}, ${billingAddress.state}`,
   ].join("\n");
   const cityLegacy = `${billingAddress.city}, ${billingAddress.district}`.slice(0, 120);
@@ -3675,6 +3737,7 @@ async function main() {
   });
   registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(id), allUsers, pushNotifications);
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerQuickBillCaptureRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   await initMessagingSettings(dbPool);
   registerMessagingSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
@@ -3683,16 +3746,16 @@ async function main() {
   registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerMessagingRoutes(app, requireAuth);
 
-  await startDevPublicTunnel(PORT);
-
-  if (!getMessagingPublicBaseUrl() && !isWhatsAppInvoiceDryRun()) {
-    console.log(
-      "WhatsApp invoice: configure public PDF URL in Settings → SMS, email & WhatsApp, or MESSAGING_AUTO_TUNNEL=true in .env.",
-    );
-  }
-
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);
+    void (async () => {
+      await startDevPublicTunnel(PORT);
+      if (!getMessagingPublicBaseUrl() && !isWhatsAppInvoiceDryRun()) {
+        console.log(
+          "WhatsApp invoice: configure public PDF URL in Settings → SMS, email & WhatsApp, or MESSAGING_AUTO_TUNNEL=true in .env.",
+        );
+      }
+    })();
   });
 }
 

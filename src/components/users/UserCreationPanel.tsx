@@ -6,6 +6,7 @@ import { useToast } from "../ui/Toast";
 import { ROLE_MODULE_ACCESS } from "../../config/moduleAccess";
 import type { ModuleKey, UserRole } from "../../types/user";
 import {
+  isValidEmail,
   sanitizeAlphanumericInput,
   sanitizeEmailInput,
   sanitizePasswordInput,
@@ -139,8 +140,15 @@ export function UserCreationPanel() {
       setFormMessage({ type: "err", text: "Employee name is required." });
       return;
     }
+    if (!email.trim() || !isValidEmail(email)) {
+      setFormMessage({ type: "err", text: "A valid email address is required (must be unique in the system)." });
+      return;
+    }
     if (canLogin && (!employeeCode.trim() || password.length < 4)) {
-      setFormMessage({ type: "err", text: "Login-enabled users need an employee number and password (min 4 chars)." });
+      setFormMessage({
+        type: "err",
+        text: "Login-enabled users need an employee number and password (min 4 chars). They can sign in with employee ID or email.",
+      });
       return;
     }
     if (useCustomModules && selectedModules.length === 0) {
@@ -389,6 +397,21 @@ export function UserCreationPanel() {
               </label>
             </div>
 
+            <div className={canLogin ? "" : "ui-span-full"}>
+              <label htmlFor="uc-email" className={labelCls}>Email *</label>
+              <input
+                id="uc-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
+                className={inputCls}
+                autoComplete="off"
+                placeholder="user@zimson.com"
+              />
+              <p className="mt-1 text-[11px] text-stone-400">Must be unique. Used for sign-in when login is enabled.</p>
+            </div>
+
             {canLogin ? (
               <>
                 <div>
@@ -401,18 +424,7 @@ export function UserCreationPanel() {
                     autoComplete="off"
                     placeholder="EMP001"
                   />
-                </div>
-                <div>
-                  <label htmlFor="uc-email" className={labelCls}>Email</label>
-                  <input
-                    id="uc-email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
-                    className={inputCls}
-                    autoComplete="off"
-                    placeholder="user@zimson.com"
-                  />
+                  <p className="mt-1 text-[11px] text-stone-400">Sign in with employee ID or email.</p>
                 </div>
                 <div>
                   <label htmlFor="uc-password" className={labelCls}>Initial Password *</label>
@@ -429,8 +441,8 @@ export function UserCreationPanel() {
                 </div>
               </>
             ) : (
-              <div className="sm:col-span-2 border border-dashed border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-400">
-                No credentials required — the system assigns a placeholder email. Login can be enabled later.
+              <div className="ui-span-full border border-dashed border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-500">
+                Directory-only profile — no employee number or password yet. Enable login later to allow sign-in with employee ID or email.
               </div>
             )}
           </div>

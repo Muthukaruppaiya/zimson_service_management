@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useSrfJobs, type SrfTrace, type SrfTraceActionRow, type SrfTraceReestimateAttempt, type SrfTraceStatusRow } from "../../context/SrfJobsContext";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../../lib/srfTraceLocations";
+import {
+  ResendSrfTrackingWhatsAppButton,
+  srfTrackingWhatsAppResultMessage,
+} from "./ResendSrfTrackingWhatsAppButton";
+import { canResendSrfTrackingWhatsApp } from "../../lib/resendSrfTrackingWhatsApp";
 
 type Props = {
   srfId: string;
@@ -77,6 +82,7 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
   const [trace, setTrace] = useState<SrfTrace | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [whatsappNote, setWhatsappNote] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,6 +202,15 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
             ) : null}
           </div>
           <div className="flex items-center gap-2">
+            {enrichedTrace && canResendSrfTrackingWhatsApp(enrichedTrace.job.status) ? (
+              <ResendSrfTrackingWhatsAppButton
+                srfId={srfId}
+                phone={enrichedTrace.job.phone}
+                label="Resend WhatsApp"
+                className="rounded-lg border border-emerald-400 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                onResult={(r) => setWhatsappNote(srfTrackingWhatsAppResultMessage(r))}
+              />
+            ) : null}
             {enrichedTrace ? (
               <button
                 type="button"
@@ -221,6 +236,11 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
             <p className="text-sm text-rose-700">{error}</p>
           ) : enrichedTrace ? (
             <div className="space-y-6">
+              {whatsappNote ? (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  {whatsappNote}
+                </p>
+              ) : null}
               <SrfHeader trace={enrichedTrace} />
               <ReestimateCard reestimates={enrichedTrace.reestimates} />
               <TimelineCard timeline={timeline} />

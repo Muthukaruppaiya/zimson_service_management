@@ -2,8 +2,12 @@ export type CustomerKind = "B2C" | "B2B";
 
 /** Structured address (billing / shipping). */
 export type CustomerAddressBlock = {
-  doorNo: string;
-  street: string;
+  addressLine1: string;
+  addressLine2: string;
+  /** @deprecated Legacy JSON — mirrored from addressLine1 when saving */
+  doorNo?: string;
+  /** @deprecated Legacy JSON — mirrored from addressLine2 when saving */
+  street?: string;
   city: string;
   district: string;
   state: string;
@@ -58,7 +62,7 @@ export type CustomerRecord = {
 export type CustomerRegistrationPayload = {
   sessionId: string;
   mobileOtp: string;
-  emailOtp: string;
+  emailOtp?: string;
   customerKind: CustomerKind;
   salutation: string;
   firstName: string;
@@ -67,7 +71,7 @@ export type CustomerRegistrationPayload = {
   otpPhone: string;
   alternatePhone?: string;
   telephone?: string;
-  email: string;
+  email?: string;
   dob?: string;
   anniversaryDate?: string;
   billingAddress: CustomerAddressBlock;

@@ -15,6 +15,12 @@ import {
   sanitizePhoneDigits,
   sanitizeTextInput,
 } from "../../lib/inputSanitize";
+import {
+  emptyCustomerAddress,
+  isCustomerAddressComplete,
+  trimCustomerAddress,
+  validateCustomerAnniversary,
+} from "../../lib/customerAddress";
 import type { CustomerAddressBlock, CustomerKind } from "../../types/customer";
 
 const inputClass =
@@ -40,34 +46,7 @@ function digitsOnly(v: string, maxLen: number): string {
   return sanitizePhoneDigits(v, maxLen);
 }
 
-function emptyAddress(): CustomerAddressBlock {
-  return { doorNo: "", street: "", city: "", district: "", state: "", countryId: "", pincode: "" };
-}
-
-function isAddressComplete(b: CustomerAddressBlock): boolean {
-  const pin = b.pincode.trim();
-  if (pin.length < 4 || pin.length > 12) return false;
-  return !!(
-    b.doorNo.trim() &&
-    b.street.trim() &&
-    b.city.trim() &&
-    b.district.trim() &&
-    b.state.trim() &&
-    b.countryId.trim()
-  );
-}
-
-function trimAddr(b: CustomerAddressBlock): CustomerAddressBlock {
-  return {
-    doorNo: b.doorNo.trim(),
-    street: b.street.trim(),
-    city: b.city.trim(),
-    district: b.district.trim(),
-    state: b.state.trim(),
-    countryId: b.countryId.trim(),
-    pincode: b.pincode.trim(),
-  };
-}
+const MAX_ADDITIONAL_ADDRESSES = 2;
 
 function isValidEmail(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
@@ -91,6 +70,7 @@ export function SrfCustomerRegisterPage() {
   const forQuickBill = location.pathname.includes("/quick-bill/new-customer");
 
   const initialPhone = searchParams.get("phone") ?? "";
+  const lockedQuickBillPhone = forQuickBill && digitsOnly(initialPhone, 10).length === 10;
   const initialName = searchParams.get("name") ?? "";
   const returnTo = searchParams.get("returnTo") ?? "";
 
@@ -99,14 +79,15 @@ export function SrfCustomerRegisterPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [b2bDisplayName, setB2bDisplayName] = useState("");
-  const [phone, setPhone] = useState(initialPhone);
+  const [phoneEditable, setPhoneEditable] = useState(() => digitsOnly(initialPhone, 10));
+  const phone = lockedQuickBillPhone ? digitsOnly(initialPhone, 10) : phoneEditable;
   const [alternatePhone, setAlternatePhone] = useState("");
   const [telephone, setTelephone] = useState("");
   const [email, setEmail] = useState("");
   const [dob, setDob] = useState("");
   const [anniversaryDate, setAnniversaryDate] = useState("");
-  const [billing, setBilling] = useState<CustomerAddressBlock>(() => emptyAddress());
-  const [shipping, setShipping] = useState<CustomerAddressBlock>(() => emptyAddress());
+  const [billing, setBilling] = useState<CustomerAddressBlock>(() => emptyCustomerAddress());
+  const [shipping, setShipping] = useState<CustomerAddressBlock>(() => emptyCustomerAddress());
   const [additionalAddresses, setAdditionalAddresses] = useState<CustomerAddressBlock[]>([]);
   const [sameShippingAsBilling, setSameShippingAsBilling] = useState(false);
   const [company, setCompany] = useState("");
@@ -328,15 +309,20 @@ export function SrfCustomerRegisterPage() {
 
   function validateAll(): boolean {
     setError(null);
-    if (!sessionId || !mobileOtpVerified || !emailOtpVerified) {
+    if (!sessionId || !mobileOtpVerified) {
       showOtpAlert(
-        "Complete mobile and email OTP verification (Verify → enter code → Confirm OTP for each).",
+        "Complete mobile OTP verification (Verify → enter code → Confirm OTP).",
         "OTP required",
       );
       return false;
     }
-    if (!isValidEmail(email)) {
-      setError("Valid email is required.");
+    if (email.trim() && !isValidEmail(email)) {
+      setError("Enter a valid email or leave the field blank.");
+      return false;
+    }
+    const annErr = validateCustomerAnniversary(dob, anniversaryDate);
+    if (annErr) {
+      setError(annErr);
       return false;
     }
     const p10 = digitsOnly(phone, 12);
@@ -372,16 +358,16 @@ export function SrfCustomerRegisterPage() {
         return false;
       }
     }
-    if (!isAddressComplete(billing)) {
-      setError("Complete billing address (door, street, country, state, district, city, PIN).");
+    if (!isCustomerAddressComplete(billing)) {
+      setError("Complete billing address (line 1, country, state, district, city, PIN).");
       return false;
     }
-    if (!isAddressComplete(shipEffective)) {
+    if (!isCustomerAddressComplete(shipEffective)) {
       setError("Complete shipping address or tick same as billing.");
       return false;
     }
     for (let i = 0; i < additionalAddresses.length; i++) {
-      if (!isAddressComplete(additionalAddresses[i]!)) {
+      if (!isCustomerAddressComplete(additionalAddresses[i]!)) {
         setError(`Complete additional address #${i + 1} or remove it.`);
         return false;
       }
@@ -398,7 +384,6 @@ export function SrfCustomerRegisterPage() {
       const row = await registerCustomer({
         sessionId: sessionId!,
         mobileOtp: mobileOtpInput.trim(),
-        emailOtp: emailOtpInput.trim(),
         customerKind,
         salutation,
         firstName,
@@ -407,13 +392,14 @@ export function SrfCustomerRegisterPage() {
         otpPhone: digitsOnly(phone, 12),
         alternatePhone: alternatePhone ? digitsOnly(alternatePhone, 12) : undefined,
         telephone: telephone.trim() || undefined,
-        email: email.trim().toLowerCase(),
+        email: isValidEmail(email) ? email.trim().toLowerCase() : undefined,
+        emailOtp: emailOtpVerified ? emailOtpInput.trim() : undefined,
         dob: dob || undefined,
         anniversaryDate: anniversaryDate || undefined,
-        billingAddress: trimAddr(billing),
-        shippingAddress: trimAddr(shipEffective),
+        billingAddress: trimCustomerAddress(billing),
+        shippingAddress: trimCustomerAddress(shipEffective),
         additionalAddresses:
-          additionalAddresses.length > 0 ? additionalAddresses.map((a) => trimAddr(a)) : undefined,
+          additionalAddresses.length > 0 ? additionalAddresses.map((a) => trimCustomerAddress(a)) : undefined,
         sameShippingAsBilling,
         b2bTradeDisplayName: customerKind === "B2B" ? b2bDisplayName.trim() : undefined,
         company: customerKind === "B2B" ? company.trim() : undefined,
@@ -547,14 +533,28 @@ export function SrfCustomerRegisterPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Primary mobile *</label>
+              {lockedQuickBillPhone ? (
+                <p className="mt-0.5 text-xs text-stone-500">
+                  Mobile from Quick Bill (cannot be changed on this screen).
+                </p>
+              ) : null}
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <input
                   value={phone}
-                  onChange={(e) => setPhone(digitsOnly(e.target.value, 10))}
-                  className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1`}
+                  readOnly={lockedQuickBillPhone}
+                  onChange={
+                    lockedQuickBillPhone
+                      ? undefined
+                      : (e) => setPhoneEditable(digitsOnly(e.target.value, 10))
+                  }
+                  className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1${
+                    lockedQuickBillPhone ? " cursor-not-allowed bg-stone-100 text-stone-700" : ""
+                  }`}
                   placeholder="10-digit mobile"
                   inputMode="numeric"
                   maxLength={10}
+                  autoComplete="tel"
+                  aria-readonly={lockedQuickBillPhone}
                 />
                 <button
                   type="button"
@@ -629,18 +629,19 @@ export function SrfCustomerRegisterPage() {
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-stone-600">Email *</label>
-              {!mobileOtpVerified ? (
-                <p className="mt-1 text-xs text-amber-800">Verify primary mobile above before entering email.</p>
-              ) : null}
+              <label className="text-xs font-medium text-stone-600">Email (optional)</label>
+              <p className="mt-1 text-xs text-stone-500">
+                You can enter email anytime. Use Verify after mobile OTP is confirmed (or save with verification
+                pending).
+              </p>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
-                  disabled={!mobileOtpVerified}
-                  className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-500`}
-                  aria-disabled={!mobileOtpVerified}
+                  className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1`}
+                  placeholder="name@example.com"
+                  autoComplete="email"
                 />
                 <button
                   type="button"
@@ -653,6 +654,10 @@ export function SrfCustomerRegisterPage() {
                 {emailOtpVerified ? (
                   <span className={contactVerifyPill} title="Email verified">
                     <span aria-hidden="true">✓</span> Verified
+                  </span>
+                ) : isValidEmail(email) && mobileOtpVerified ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+                    Email verification pending
                   </span>
                 ) : null}
               </div>
@@ -710,7 +715,14 @@ export function SrfCustomerRegisterPage() {
                 value={anniversaryDate}
                 onChange={(e) => setAnniversaryDate(e.target.value)}
                 className={inputClass}
+                min={dob || undefined}
               />
+              <p className="mt-1 text-[11px] text-stone-500">
+                If entered, must be at least 18 years after date of birth.
+              </p>
+              {dob && anniversaryDate && validateCustomerAnniversary(dob, anniversaryDate) ? (
+                <p className="mt-1 text-xs text-red-700">{validateCustomerAnniversary(dob, anniversaryDate)}</p>
+              ) : null}
             </div>
             {customerKind === "B2C" ? (
               <div className="sm:col-span-2">
@@ -736,15 +748,29 @@ export function SrfCustomerRegisterPage() {
             <div className="rounded-xl border border-zimson-200 bg-white/80 p-4 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-zimson-900">Shipping address</h3>
-                <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-stone-700">
-                  <input
-                    type="checkbox"
-                    checked={sameShippingAsBilling}
-                    onChange={(e) => setSameShippingAsBilling(e.target.checked)}
-                    className="rounded border-zimson-300 text-zimson-600 focus:ring-zimson-500"
-                  />
-                  Same as billing
-                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-stone-700">
+                    <input
+                      type="checkbox"
+                      checked={sameShippingAsBilling}
+                      onChange={(e) => setSameShippingAsBilling(e.target.checked)}
+                      className="rounded border-zimson-300 text-zimson-600 focus:ring-zimson-500"
+                    />
+                    Same as billing
+                  </label>
+                  {!sameShippingAsBilling ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShipping(emptyCustomerAddress());
+                        setSameShippingAsBilling(false);
+                      }}
+                      className="rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+                    >
+                      Clear address
+                    </button>
+                  ) : null}
+                </div>
               </div>
               {sameShippingAsBilling ? (
                 <div className="space-y-2">
@@ -796,28 +822,25 @@ export function SrfCustomerRegisterPage() {
           ))}
           <button
             type="button"
-            onClick={() => setAdditionalAddresses((list) => [...list, emptyAddress()])}
-            className="inline-flex items-center gap-2 rounded-xl border border-dashed border-zimson-400 bg-zimson-50/60 px-4 py-2.5 text-sm font-semibold text-zimson-900 transition hover:bg-zimson-100"
+            disabled={additionalAddresses.length >= MAX_ADDITIONAL_ADDRESSES}
+            onClick={() =>
+              setAdditionalAddresses((list) =>
+                list.length < MAX_ADDITIONAL_ADDRESSES ? [...list, emptyCustomerAddress()] : list,
+              )
+            }
+            className="inline-flex items-center gap-2 rounded-xl border border-dashed border-zimson-400 bg-zimson-50/60 px-4 py-2.5 text-sm font-semibold text-zimson-900 transition hover:bg-zimson-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <span className="text-lg leading-none">+</span> Add address
+            <span className="text-lg leading-none">+</span> Add address ({additionalAddresses.length}/{MAX_ADDITIONAL_ADDRESSES})
           </button>
         </Card>
 
         <Card title="Additional">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-stone-600">Remark / attention</label>
+              <label className="text-xs font-medium text-stone-600">Remark</label>
               <input
                 value={remarkAttention}
                 onChange={(e) => setRemarkAttention(sanitizeTextInput(e.target.value, 120))}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-stone-600">Reference name</label>
-              <input
-                value={referenceName}
-                onChange={(e) => setReferenceName(sanitizeTextInput(e.target.value, 120))}
                 className={inputClass}
               />
             </div>
@@ -826,6 +849,14 @@ export function SrfCustomerRegisterPage() {
               <input
                 value={representativeName}
                 onChange={(e) => setRepresentativeName(sanitizeTextInput(e.target.value, 120))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-stone-600">Reference name</label>
+              <input
+                value={referenceName}
+                onChange={(e) => setReferenceName(sanitizeTextInput(e.target.value, 120))}
                 className={inputClass}
               />
             </div>
@@ -884,7 +915,7 @@ export function SrfCustomerRegisterPage() {
         <div className="sticky bottom-2 z-10 flex flex-wrap gap-3 rounded-xl border border-zimson-200 bg-white/90 p-3 shadow-lg backdrop-blur">
           <button
             type="submit"
-            disabled={saving || !mobileOtpVerified || !emailOtpVerified}
+            disabled={saving || !mobileOtpVerified}
             className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Create customer"}

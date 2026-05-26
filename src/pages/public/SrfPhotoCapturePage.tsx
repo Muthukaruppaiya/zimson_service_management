@@ -54,6 +54,8 @@ export function SrfPhotoCapturePage() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraTarget, setCameraTarget] = useState<CameraTarget>("watch");
   const [cameraStarting, setCameraStarting] = useState(false);
+  const [capturePreviewUrl, setCapturePreviewUrl] = useState<string | null>(null);
+  const capturePreviewBlobRef = useRef<Blob | null>(null);
 
   const canUpload = useMemo(() => !!token && !!session, [token, session]);
 
@@ -84,10 +86,14 @@ export function SrfPhotoCapturePage() {
   useEffect(() => {
     if (!selectedKind && availableKinds.length > 0) {
       setSelectedKind(availableKinds[0]);
-    } else if (selectedKind && !availableKinds.includes(selectedKind)) {
+    } else if (
+      selectedKind &&
+      !availableKinds.includes(selectedKind) &&
+      !photoByKind.has(selectedKind)
+    ) {
       setSelectedKind(availableKinds[0] ?? "");
     }
-  }, [availableKinds, selectedKind]);
+  }, [availableKinds, selectedKind, photoByKind]);
 
   const stopCameraStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -96,11 +102,18 @@ export function SrfPhotoCapturePage() {
     if (v) v.srcObject = null;
   }, []);
 
+  const clearCapturePreview = useCallback(() => {
+    if (capturePreviewUrl) URL.revokeObjectURL(capturePreviewUrl);
+    setCapturePreviewUrl(null);
+    capturePreviewBlobRef.current = null;
+  }, [capturePreviewUrl]);
+
   const closeCamera = useCallback(() => {
+    clearCapturePreview();
     stopCameraStream();
     setCameraOpen(false);
     setCameraStarting(false);
-  }, [stopCameraStream]);
+  }, [clearCapturePreview, stopCameraStream]);
 
   useEffect(() => {
     return () => stopCameraStream();
@@ -143,12 +156,13 @@ export function SrfPhotoCapturePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  function prepareWatchUpload(): boolean {
-    if (!selectedKind) {
+  function prepareWatchUpload(kindOverride?: SrfWatchPhotoKind): boolean {
+    const kind = kindOverride ?? selectedKind;
+    if (!kind || !isWatchPhotoKind(kind)) {
       setUploadError("Select a photo category first.");
       return false;
     }
-    pendingKindRef.current = selectedKind;
+    pendingKindRef.current = kind;
     setUploadError(null);
     return true;
   }
@@ -163,9 +177,9 @@ export function SrfPhotoCapturePage() {
     requestAnimationFrame(() => input.current?.click());
   }
 
-  async function startCamera(target: CameraTarget) {
+  async function startCamera(target: CameraTarget, watchKindOverride?: SrfWatchPhotoKind) {
     setCameraTarget(target);
-    if (target === "watch" && !prepareWatchUpload()) return;
+    if (target === "watch" && !prepareWatchUpload(watchKindOverride)) return;
     setUploadError(null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -266,14 +280,75 @@ export function SrfPhotoCapturePage() {
       setUploadError("Could not capture photo.");
       return;
     }
-    const file = new File([blob], `capture-${Date.now()}.jpg`, { type: "image/jpeg" });
+    stopCameraStream();
+    clearCapturePreview();
+    capturePreviewBlobRef.current = blob;
+    setCapturePreviewUrl(URL.createObjectURL(blob));
+  }
+
+  async function confirmCaptureUpload() {
+    const blob = capturePreviewBlobRef.current;
+    if (!blob) {
+      setUploadError("No photo to upload. Capture again.");
+      return;
+    }
     const kind = cameraTarget === "document" ? SRF_DOCUMENT_PHOTO_KIND : pendingKindRef.current;
-    closeCamera();
     if (cameraTarget === "watch" && (!kind || !isWatchPhotoKind(kind))) {
       setUploadError("Select a photo category first.");
       return;
     }
+    const file = new File([blob], `capture-${Date.now()}.jpg`, { type: "image/jpeg" });
+    closeCamera();
     await uploadFile(file, kind);
+  }
+
+  function retakeCapturePreview() {
+    clearCapturePreview();
+    void (async () => {
+      setCameraStarting(true);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+        streamRef.current = stream;
+        setCameraOpen(true);
+      } catch {
+        setUploadError("Could not reopen camera.");
+        closeCamera();
+      } finally {
+        setCameraStarting(false);
+      }
+    })();
+  }
+
+  function prepareRetakeWatch(kind: SrfWatchPhotoKind) {
+    setSelectedKind(kind);
+    setUploadError(null);
+    void startCamera("watch", kind);
+  }
+
+  function prepareRetakeDocument() {
+    setUploadError(null);
+    void startCamera("document");
+  }
+
+  async function removePhoto(photoId: string) {
+    if (!token) return;
+    setBusy(true);
+    setUploadError(null);
+    try {
+      await apiJson<{ ok: boolean; photoCount: number }>(
+        `/api/public/srf-photo/${encodeURIComponent(photoId)}?token=${encodeURIComponent(token)}`,
+        { method: "DELETE" },
+      );
+      await refresh();
+      setStatus("Photo removed.");
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Could not remove photo.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const documentIsPdf =
@@ -411,7 +486,39 @@ export function SrfPhotoCapturePage() {
                     alt={SRF_PHOTO_SLOT_LABELS[kind]}
                     className="h-14 w-14 shrink-0 rounded object-cover"
                   />
-                  <span className="text-sm font-medium text-stone-800">{SRF_PHOTO_SLOT_LABELS[kind]}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-stone-800">{SRF_PHOTO_SLOT_LABELS[kind]}</p>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={!canUpload || busy || cameraStarting}
+                        onClick={() => prepareRetakeWatch(kind)}
+                        className="text-xs font-semibold text-zimson-800 underline disabled:opacity-50"
+                      >
+                        Retake (camera)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canUpload || busy}
+                        onClick={() => {
+                          setSelectedKind(kind);
+                          pendingKindRef.current = kind;
+                          openGalleryPicker();
+                        }}
+                        className="text-xs font-semibold text-zimson-800 underline disabled:opacity-50"
+                      >
+                        Replace (gallery)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canUpload || busy}
+                        onClick={() => void removePhoto(shot!.id)}
+                        className="text-xs font-semibold text-rose-700 underline disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -454,9 +561,9 @@ export function SrfPhotoCapturePage() {
                 <div className="mt-1 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    disabled={!canUpload || busy}
-                    onClick={() => void startCamera("document")}
-                    className="text-xs font-semibold text-zimson-800 underline"
+                    disabled={!canUpload || busy || cameraStarting}
+                    onClick={prepareRetakeDocument}
+                    className="text-xs font-semibold text-zimson-800 underline disabled:opacity-50"
                   >
                     Retake (camera)
                   </button>
@@ -467,6 +574,14 @@ export function SrfPhotoCapturePage() {
                     className="text-xs font-semibold text-zimson-800 underline"
                   >
                     Replace (file)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canUpload || busy}
+                    onClick={() => void removePhoto(documentPhoto.id)}
+                    className="text-xs font-semibold text-rose-700 underline disabled:opacity-50"
+                  >
+                    Remove
                   </button>
                 </div>
               </div>
@@ -500,24 +615,51 @@ export function SrfPhotoCapturePage() {
             </button>
           </div>
           <div className="relative min-h-0 flex-1 bg-black">
-            <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
+            {capturePreviewUrl ? (
+              <img src={capturePreviewUrl} alt="Preview" className="h-full w-full object-contain" />
+            ) : (
+              <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3 border-t border-white/20 bg-stone-950 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <button
-              type="button"
-              onClick={closeCamera}
-              className="rounded-xl border border-white/40 py-3 text-sm font-semibold text-white"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void captureFromCamera()}
-              className="rounded-xl bg-zimson-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {busy ? "Saving…" : "Capture & upload"}
-            </button>
+            {capturePreviewUrl ? (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={retakeCapturePreview}
+                  className="rounded-xl border border-white/40 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Retake
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void confirmCaptureUpload()}
+                  className="rounded-xl bg-zimson-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {busy ? "Saving…" : "Use photo"}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={closeCamera}
+                  className="rounded-xl border border-white/40 py-3 text-sm font-semibold text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || cameraStarting}
+                  onClick={() => void captureFromCamera()}
+                  className="rounded-xl bg-zimson-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Capture
+                </button>
+              </>
+            )}
           </div>
         </div>
       ) : null}

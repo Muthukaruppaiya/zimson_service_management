@@ -6,6 +6,10 @@ import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib/paymentModes";
 import { normalizeSrfRepairRoute } from "../src/lib/srfRepairRoute";
+import {
+  isUnlimitedServiceChargeRole,
+  STORE_SERVICE_CHARGE_MAX_INR,
+} from "../src/lib/serviceChargeLimits";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../src/lib/srfTraceLocations";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
 import type { DemoUser, UserRole } from "../src/types/user";
@@ -476,6 +480,32 @@ function normalizePhotoKind(input: string): "front" | "back" | "strap" | "serial
   return "other";
 }
 
+async function unlinkSrfPhotoFile(filePath: string): Promise<void> {
+  const fp = String(filePath ?? "").replace(/\\/g, "/");
+  if (!fp) return;
+  const abs = path.isAbsolute(fp) ? fp : path.join(process.cwd(), fp);
+  await fs.promises.unlink(abs).catch(() => {});
+}
+
+async function deleteSrfJobPhoto(pool: Pool, srfId: string, photoId: string): Promise<number> {
+  const { rows } = await pool.query<{ filePath: string }>(
+    `DELETE FROM srf_job_photos
+     WHERE id = $1::uuid AND srf_id = $2::uuid
+     RETURNING file_path AS "filePath"`,
+    [photoId, srfId],
+  );
+  const deleted = rows[0];
+  if (!deleted) {
+    throw new Error("Photo not found.");
+  }
+  await unlinkSrfPhotoFile(deleted.filePath);
+  const { rows: countRows } = await pool.query<{ c: number }>(
+    `SELECT COUNT(*)::int AS c FROM srf_job_photos WHERE srf_id = $1::uuid`,
+    [srfId],
+  );
+  return countRows[0]?.c ?? 0;
+}
+
 function parseReestimateEntry(
   note: string,
   changedAt: string,
@@ -572,6 +602,11 @@ export function registerSrfRoutes(
                 j.watch_model AS "watchModel",
                 j.serial,
                 j.complaint,
+                j.case_type AS "caseType",
+                j.strap_chain_type AS "strapChainType",
+                j.nature_of_repair AS "natureOfRepair",
+                j.chain_count AS "chainCount",
+                j.customer_remarks AS "customerRemarks",
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
                 j.estimated_finish_date::text AS "estimatedFinishDate",
                 j.advance_inr::float8 AS "advanceInr",
@@ -788,6 +823,11 @@ export function registerSrfRoutes(
                 j.watch_model AS "watchModel",
                 j.serial,
                 j.complaint,
+                j.case_type AS "caseType",
+                j.strap_chain_type AS "strapChainType",
+                j.nature_of_repair AS "natureOfRepair",
+                j.chain_count AS "chainCount",
+                j.customer_remarks AS "customerRemarks",
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
                 j.estimated_finish_date::text AS "estimatedFinishDate",
                 j.advance_inr::float8 AS "advanceInr",
@@ -1747,6 +1787,20 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "estimateTotalInr must be a valid non-negative number." });
       return;
     }
+    if (
+      estimateTotalInr > STORE_SERVICE_CHARGE_MAX_INR &&
+      !isUnlimitedServiceChargeRole(actor.role)
+    ) {
+      res.status(400).json({
+        error: `Estimate cannot exceed ₹${STORE_SERVICE_CHARGE_MAX_INR.toLocaleString("en-IN")} unless entered by an administrator.`,
+      });
+      return;
+    }
+    const caseType = String(req.body?.caseType ?? "").trim();
+    const strapChainType = String(req.body?.strapChainType ?? "").trim();
+    const natureOfRepair = String(req.body?.natureOfRepair ?? "").trim();
+    const chainCount = String(req.body?.chainCount ?? "").trim();
+    const customerRemarks = String(req.body?.customerRemarks ?? "").trim();
     if (!Number.isFinite(advanceInr) || advanceInr < 0) {
       res.status(400).json({ error: "advanceInr must be a valid non-negative number." });
       return;
@@ -1801,6 +1855,11 @@ export function registerSrfRoutes(
              advance_payment_details = $8::jsonb,
              status = $10,
              repair_route = $11,
+             case_type = $12,
+             strap_chain_type = $13,
+             nature_of_repair = $14,
+             chain_count = $15,
+             customer_remarks = $16,
              photo_session_active = false,
              capture_link_disabled_at = now(),
              updated_at = now(),
@@ -1818,6 +1877,11 @@ export function registerSrfRoutes(
           estimatedFinishDate,
           nextStatus,
           repairRoute,
+          caseType,
+          strapChainType,
+          natureOfRepair,
+          chainCount,
+          customerRemarks,
         ],
       );
       await client.query(
@@ -2057,6 +2121,26 @@ export function registerSrfRoutes(
       if (typeof body.serial === "string") {
         sets.push(`serial = $${pi++}`);
         vals.push(String(body.serial).trim());
+      }
+      if (typeof body.caseType === "string") {
+        sets.push(`case_type = $${pi++}`);
+        vals.push(String(body.caseType).trim());
+      }
+      if (typeof body.strapChainType === "string") {
+        sets.push(`strap_chain_type = $${pi++}`);
+        vals.push(String(body.strapChainType).trim());
+      }
+      if (typeof body.natureOfRepair === "string") {
+        sets.push(`nature_of_repair = $${pi++}`);
+        vals.push(String(body.natureOfRepair).trim());
+      }
+      if (typeof body.chainCount === "string") {
+        sets.push(`chain_count = $${pi++}`);
+        vals.push(String(body.chainCount).trim());
+      }
+      if (typeof body.customerRemarks === "string") {
+        sets.push(`customer_remarks = $${pi++}`);
+        vals.push(String(body.customerRemarks).trim());
       }
       if (body.repairRoute !== undefined) {
         sets.push(`repair_route = $${pi++}`);
@@ -4586,6 +4670,11 @@ export function registerSrfRoutes(
                 j.status,
                 j.repair_route AS "repairRoute",
                 j.complaint,
+                j.case_type AS "caseType",
+                j.strap_chain_type AS "strapChainType",
+                j.nature_of_repair AS "natureOfRepair",
+                j.chain_count AS "chainCount",
+                j.customer_remarks AS "customerRemarks",
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
                 j.advance_inr::float8 AS "advanceInr",
                 j.reestimate_requested_note AS "reestimateRequestedNote",
@@ -5010,6 +5099,84 @@ export function registerSrfRoutes(
       console.error(e);
       if (req.file?.path) fs.unlink(req.file.path, () => {});
       res.status(500).json({ error: "Could not upload photo." });
+    }
+  });
+
+  app.delete("/api/public/srf-photo/:photoId", async (req, res) => {
+    const token = String(req.query.token ?? "").trim();
+    const photoId = String(req.params.photoId ?? "").trim();
+    if (!token) {
+      res.status(400).json({ error: "token is required." });
+      return;
+    }
+    if (!photoId) {
+      res.status(400).json({ error: "photo id is required." });
+      return;
+    }
+    try {
+      const { rows } = await pool.query<{
+        id: string;
+        srf_id: string;
+        status: string;
+        revoked_at: Date | null;
+        expires_at: Date;
+        capture_link_disabled_at: Date | null;
+      }>(
+        `SELECT sps.id, sps.srf_id, sps.expires_at, sps.revoked_at, j.status, j.capture_link_disabled_at
+         FROM srf_photo_sessions sps
+         JOIN srf_jobs j ON j.id = sps.srf_id
+         WHERE sps.token_hash = $1
+         ORDER BY sps.created_at DESC
+         LIMIT 1`,
+        [tokenHash(token)],
+      );
+      const row = rows[0];
+      const error = ensurePhotoTokenSession(row);
+      if (error) {
+        res.status(400).json({ error });
+        return;
+      }
+      const photoCount = await deleteSrfJobPhoto(pool, row!.srf_id, photoId);
+      res.json({ ok: true, photoCount });
+    } catch (e) {
+      console.error(e);
+      const msg = e instanceof Error ? e.message : "Could not remove photo.";
+      res.status(msg === "Photo not found." ? 404 : 500).json({ error: msg });
+    }
+  });
+
+  app.delete("/api/service/srf-jobs/:srfId/photos/:photoId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const photoId = String(req.params.photoId ?? "").trim();
+    if (!srfId || !photoId) {
+      res.status(400).json({ error: "Invalid SRF or photo id." });
+      return;
+    }
+    try {
+      const { rows } = await pool.query<{ status: string; capture_link_disabled_at: Date | null }>(
+        `SELECT status, capture_link_disabled_at FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const job = rows[0];
+      if (!job) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (job.capture_link_disabled_at || (job.status !== "draft" && job.status !== "photo_pending")) {
+        res.status(400).json({ error: "Photos can only be removed while the SRF is draft or photo pending." });
+        return;
+      }
+      const photoCount = await deleteSrfJobPhoto(pool, srfId, photoId);
+      res.json({ ok: true, photoCount });
+    } catch (e) {
+      console.error(e);
+      const msg = e instanceof Error ? e.message : "Could not remove photo.";
+      res.status(msg === "Photo not found." ? 404 : 500).json({ error: msg });
     }
   });
 }

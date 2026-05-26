@@ -5,8 +5,17 @@ import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
 import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib/paymentModes";
+import {
+  validateQuickBillAttachmentFile,
+  WATCH_ATTACHMENT_MAX_BYTES,
+} from "../src/lib/watchAttachmentUpload";
+import {
+  isUnlimitedServiceChargeRole,
+  STORE_SERVICE_CHARGE_MAX_INR,
+} from "../src/lib/serviceChargeLimits";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
+import { finalizeQuickBillCaptureSession } from "./quickBillCaptureRoutes";
 
 type Authed = Request & { userId: string };
 
@@ -26,7 +35,7 @@ const qbUpload = multer({
       cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`);
     },
   }),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: WATCH_ATTACHMENT_MAX_BYTES },
 });
 
 const WARRANTY_VALUES = new Set(["unspecified", "none", "under_warranty", "extended"]);
@@ -86,6 +95,11 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
             qb.watch_model AS "watchModel",
             qb.watch_ref AS "watchRef",
             qb.watch_remark AS "watchRemark",
+            qb.case_type AS "caseType",
+            qb.strap_chain_type AS "strapChainType",
+            qb.nature_of_repair AS "natureOfRepair",
+            qb.chain_count AS "chainCount",
+            qb.customer_remarks AS "customerRemarks",
             qb.warranty_status AS "warrantyStatus",
             qb.watch_document_path AS "watchDocumentPath",
             qb.watch_image_path AS "watchImagePath",
@@ -149,6 +163,11 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
     watchModel: head.watchModel,
     watchRef: head.watchRef ?? null,
     watchRemark: head.watchRemark ?? "",
+    caseType: (head.caseType as string | null) ?? "",
+    strapChainType: (head.strapChainType as string | null) ?? "",
+    natureOfRepair: (head.natureOfRepair as string | null) ?? "",
+    chainCount: (head.chainCount as string | null) ?? "",
+    customerRemarks: (head.customerRemarks as string | null) ?? "",
     warrantyStatus: head.warrantyStatus ?? "unspecified",
     watchDocumentPath: head.watchDocumentPath ?? null,
     watchImagePath: head.watchImagePath ?? null,
@@ -388,6 +407,26 @@ export function registerQuickBillRoutes(
     const f = (req as Request & { file?: Express.Multer.File }).file;
     if (!f?.filename) {
       res.status(400).json({ error: "file field is required." });
+      return;
+    }
+    const kindRaw = String(req.body?.kind ?? "").trim();
+    if (kindRaw !== "doc" && kindRaw !== "img") {
+      try {
+        fs.unlinkSync(f.path);
+      } catch {
+        /* ignore */
+      }
+      res.status(400).json({ error: "kind must be doc or img." });
+      return;
+    }
+    const validationError = validateQuickBillAttachmentFile(f, kindRaw);
+    if (validationError) {
+      try {
+        fs.unlinkSync(f.path);
+      } catch {
+        /* ignore */
+      }
+      res.status(400).json({ error: validationError });
       return;
     }
     res.json({ url: `/uploads/quick-bill/${f.filename}` });
@@ -658,7 +697,13 @@ export function registerQuickBillRoutes(
     const persistNewWatchFamily = Boolean(req.body?.persistNewWatchFamily);
 
     const watchRemark = String(req.body?.watchRemark ?? "").trim();
+    const caseType = String(req.body?.caseType ?? "").trim();
+    const strapChainType = String(req.body?.strapChainType ?? "").trim();
+    const natureOfRepair = String(req.body?.natureOfRepair ?? "").trim();
+    const chainCount = String(req.body?.chainCount ?? "").trim();
+    const customerRemarks = String(req.body?.customerRemarks ?? "").trim();
     const warrantyStatusRaw = String(req.body?.warrantyStatus ?? "unspecified").trim();
+    const unlimitedCharges = isUnlimitedServiceChargeRole(actor.role);
     const warrantyStatus = WARRANTY_VALUES.has(warrantyStatusRaw) ? warrantyStatusRaw : "unspecified";
     const docPathRaw = req.body?.watchDocumentPath;
     const imgPathRaw = req.body?.watchImagePath;
@@ -709,6 +754,12 @@ export function registerQuickBillRoutes(
         res.status(400).json({ error: `Line ${lineNo}: description and non-negative amount are required.` });
         return;
       }
+      if (!spareId && !unlimitedCharges && amountInr > STORE_SERVICE_CHARGE_MAX_INR) {
+        res.status(400).json({
+          error: `Line ${lineNo}: charge cannot exceed ₹${STORE_SERVICE_CHARGE_MAX_INR.toLocaleString("en-IN")} unless entered by an administrator.`,
+        });
+        return;
+      }
       if (description.length > 2000) {
         res.status(400).json({ error: `Line ${lineNo}: description is too long.` });
         return;
@@ -733,6 +784,16 @@ export function registerQuickBillRoutes(
     }
 
     const serviceChargeInr = Number(req.body?.serviceChargeInr ?? 0);
+    if (
+      Number.isFinite(serviceChargeInr) &&
+      serviceChargeInr > STORE_SERVICE_CHARGE_MAX_INR &&
+      !unlimitedCharges
+    ) {
+      res.status(400).json({
+        error: `Service / repair charge cannot exceed ₹${STORE_SERVICE_CHARGE_MAX_INR.toLocaleString("en-IN")} unless entered by an administrator.`,
+      });
+      return;
+    }
     if (Number.isFinite(serviceChargeInr) && serviceChargeInr > 0) {
       lineNo += 1;
       const rounded = Math.round(serviceChargeInr * 100) / 100;
@@ -791,10 +852,11 @@ export function registerQuickBillRoutes(
            bill_number, invoice_number, region_id, store_id, customer_type, customer_id, customer_code,
            customer_name, phone, email,
            company, gst, pan, address, city, watch_brand, watch_family, watch_model, watch_ref, technician_id, technician_name,
-           payment_mode, notes, watch_remark, warranty_status, watch_document_path, watch_image_path,
+           payment_mode, notes, watch_remark, case_type, strap_chain_type, nature_of_repair, chain_count, customer_remarks,
+           warranty_status, watch_document_path, watch_image_path,
            total_inr, payment_details, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29::jsonb, $30)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35::jsonb, $36)
          RETURNING id, created_at`,
         [
           billNumber,
@@ -821,6 +883,11 @@ export function registerQuickBillRoutes(
           paymentMode,
           notes,
           watchRemark,
+          caseType,
+          strapChainType,
+          natureOfRepair,
+          chainCount,
+          customerRemarks,
           warrantyStatus,
           watchDocumentPath,
           watchImagePath,
@@ -830,6 +897,11 @@ export function registerQuickBillRoutes(
         ],
       );
       const billId = ins.rows[0].id as string;
+
+      const captureSessionId = String(req.body?.captureSessionId ?? "").trim();
+      if (captureSessionId) {
+        await finalizeQuickBillCaptureSession(client, captureSessionId, billId);
+      }
 
       for (const ln of lines) {
         await client.query(

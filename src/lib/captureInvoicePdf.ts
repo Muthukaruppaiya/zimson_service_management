@@ -1,7 +1,7 @@
 /**
  * Renders the on-screen tax invoice DOM to a PDF blob (for WhatsApp document header).
  * Tailwind v4 uses oklch() in the main bundle — we strip those sheets on clone and inject
- * hex-only invoice CSS so html2canvas/html2pdf match the ERP layout in the app.
+ * hex-only stone invoice CSS so html2canvas/html2pdf match the classic grey ERP layout.
  */
 
 import serviceInvoiceCss from "../styles/service-invoice.css?raw";
@@ -85,6 +85,22 @@ export async function captureInvoicePdfBlob(
 export function findInvoicePrintRoot(): HTMLElement | null {
   const el = document.querySelector(".service-invoice-print-root");
   return el instanceof HTMLElement ? el : null;
+}
+
+export function triggerBlobDownload(blob: Blob, filename: string): void {
+  const name = filename.trim().toLowerCase().endsWith(".pdf") ? filename.trim() : `${filename.trim()}.pdf`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Downloads the on-screen `.service-invoice-print-root` as a PDF file. */
+export async function downloadServiceInvoicePdfFromPage(filename: string): Promise<void> {
+  const blob = await captureInvoicePdfFromPage();
+  triggerBlobDownload(blob, filename);
 }
 
 /** Captures invoice even when the print root is `display:none` (e.g. store billing). */

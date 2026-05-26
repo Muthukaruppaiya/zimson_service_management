@@ -12,6 +12,7 @@ import {
   sendInvoiceWhatsApp,
 } from "./messaging/qikchatWhatsApp";
 import { shouldUseWorkDriveForInvoicePdf, uploadInvoicePdfToWorkDrive } from "./messaging/qikberryWorkDrive";
+import { ensureDevPublicTunnel, verifyTunnelBaseUrl } from "./devPublicTunnel";
 
 const INVOICE_PDF_DIR = path.join(process.cwd(), "uploads", "invoice-pdf");
 
@@ -55,10 +56,25 @@ function getPublicBaseFromRequest(req: Request): string | null {
   return null;
 }
 
-function resolvePublicDocumentUrl(relativePath: string, req?: Request): string {
+async function resolvePublicBaseForInvoice(req: Request): Promise<string> {
+  const port = Number(process.env.PORT) || 4000;
+  let base = getMessagingPublicBaseUrl() || getPublicBaseFromRequest(req) || "";
+
+  if (base && (await verifyTunnelBaseUrl(base))) {
+    return base.replace(/\/$/, "");
+  }
+
+  const tunneled = await ensureDevPublicTunnel(port);
+  if (tunneled) return tunneled.replace(/\/$/, "");
+
+  base = getMessagingPublicBaseUrl() || getPublicBaseFromRequest(req) || "";
+  if (base) return base.replace(/\/$/, "");
+
+  return "";
+}
+
+function resolvePublicDocumentUrl(relativePath: string, base: string): string {
   const rel = relativePath.startsWith("/") ? relativePath : `/${relativePath}`;
-  const base =
-    getMessagingPublicBaseUrl() || (req ? getPublicBaseFromRequest(req) : null) || "";
   if (!base) {
     throw new Error(
       "MESSAGING_PUBLIC_BASE_URL is not set. For local testing set WHATSAPP_INVOICE_DRY_RUN=true (PDF only, no WhatsApp), or run: ngrok http 4000 and add the https URL to .env.",
@@ -71,6 +87,11 @@ export function registerMessagingRoutes(
   app: Express,
   requireAuth: (req: Request, res: Response, next: NextFunction) => void,
 ): void {
+  /** No auth — used by cloudflared/WhatsApp to verify the tunnel reaches this API. */
+  app.get("/api/messaging/public-ping", (_req, res) => {
+    res.json({ ok: true, service: "zimson-api" });
+  });
+
   app.get("/api/messaging/whatsapp/status", requireAuth, (_req, res) => {
     res.json({
       configured: isWhatsAppConfigured(),
@@ -150,17 +171,21 @@ export function registerMessagingRoutes(
         }
 
         if (!documentUrl && savedRelativePath) {
-          const publicBase = getMessagingPublicBaseUrl() || getPublicBaseFromRequest(req);
+          const publicBase = await resolvePublicBaseForInvoice(req);
           if (publicBase) {
-            documentUrl = resolvePublicDocumentUrl(savedRelativePath, req);
+            documentUrl = resolvePublicDocumentUrl(savedRelativePath, publicBase);
           } else if (shouldUseWorkDriveForInvoicePdf() && file?.path) {
             documentUrl = await uploadInvoicePdfToWorkDrive(
               file.path,
               documentFilename || `Zimson-Invoice-${invoiceNumber}.pdf`,
             );
           } else {
+            const devHint =
+              process.env.NODE_ENV !== "production"
+                ? " For local dev add MESSAGING_AUTO_TUNNEL=true to .env and install cloudflared (winget install Cloudflare.cloudflared), or run: ngrok http 4000 and paste the https URL in Settings → Public PDF base URL."
+                : "";
             throw new Error(
-              "Set MESSAGING_PUBLIC_BASE_URL to a public HTTPS base (ngrok https → port 4000, or production API URL). Qikchat downloads the PDF from that link per Media Messages API — see https://qikchat.gitbook.io/apidocs/reference/api-reference/media-messages",
+              `Set MESSAGING_PUBLIC_BASE_URL to a public HTTPS base (ngrok → port 4000, or your production API URL). Qikchat must download the PDF from that link.${devHint} See https://qikchat.gitbook.io/apidocs/reference/api-reference/media-messages`,
             );
           }
         }

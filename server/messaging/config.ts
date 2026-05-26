@@ -38,8 +38,11 @@ export function isWhatsAppConfigured(): boolean {
  * Public base URL of this API (HTTPS in production) so WhatsApp can fetch uploaded invoice PDFs.
  * Example: https://api.zimson.in or https://your-server.com:4000
  */
+/** Runtime tunnel / .env wins over DB cache (tunnel starts after settings init). */
 export function getMessagingPublicBaseUrl(): string {
-  return getMessagingFlags().messagingPublicBaseUrl;
+  const runtime = process.env.MESSAGING_PUBLIC_BASE_URL?.trim();
+  if (runtime) return runtime.replace(/\/$/, "");
+  return getMessagingFlags().messagingPublicBaseUrl || "";
 }
 
 /** Local testing without ngrok: saves PDF and skips Qikchat (no WhatsApp delivered). */
