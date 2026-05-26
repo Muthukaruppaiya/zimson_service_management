@@ -3,7 +3,7 @@ import { applyTemplate, getMessagingConfig, isEmailConfigured } from "./config";
 
 let transporter: nodemailer.Transporter | null = null;
 
-function getTransporter(): nodemailer.Transporter {
+export function getTransporter(): nodemailer.Transporter {
   if (transporter) return transporter;
   const cfg = getMessagingConfig().email;
   transporter = nodemailer.createTransport({

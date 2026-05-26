@@ -39,6 +39,7 @@ import {
   registerMobileOtpResponse,
 } from "./messaging/deliverOtp";
 import { registerMessagingRoutes } from "./messagingRoutes";
+import { registerPasswordResetRoutes } from "./passwordResetRoutes";
 import { startDevPublicTunnel } from "./devPublicTunnel";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -3745,6 +3746,9 @@ async function main() {
   registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
   registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerMessagingRoutes(app, requireAuth);
+  registerPasswordResetRoutes(app, dbPool, {
+    onPasswordChanged: () => refreshUsersFromDb(),
+  });
 
   app.listen(PORT, () => {
     console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);

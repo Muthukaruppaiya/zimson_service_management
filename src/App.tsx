@@ -13,6 +13,8 @@ import { SrfJobsProvider } from "./context/SrfJobsContext";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AccountsSetupPage } from "./pages/accounts/AccountsSetupPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { RegionsPage } from "./pages/RegionsPage";
 import { QuickBillPage } from "./pages/service/QuickBillPage";
 import { QuickBillHistoryPage } from "./pages/service/QuickBillHistoryPage";
@@ -82,6 +84,8 @@ export default function App() {
             <SparesProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/login/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/login/reset-password" element={<ResetPasswordPage />} />
             <Route path="/service/srf-capture" element={<SrfPhotoCapturePage />} />
             <Route path="/service/quick-bill-capture" element={<QuickBillCapturePage />} />
             <Route path="/track" element={<SrfTrackingPage />} />
