@@ -107,6 +107,8 @@ function isFullyOtpVerified(phoneAt: string | null, emailAt: string | null): boo
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
 
+const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
+
 type SrfWatchModelRow = { id: string; brand: string; model: string; refHint: string };
 
 type SrfPhotoThumb = { id: string; photoKind?: string; filePath: string };
@@ -277,12 +279,27 @@ export function SrfBookingV2Page() {
   const [emailVerifiedAt, setEmailVerifiedAt] = useState<string | null>(null);
   const [loadedCustomerId, setLoadedCustomerId] = useState<string | null>(null);
   const [loadedCustomerCode, setLoadedCustomerCode] = useState<string | null>(null);
+  /** Existing customer row from API / local lookup — master fields stay read-only. */
+  const customerLockedFromDb = Boolean(loadedCustomerId && customerChecked);
   const [walkInPending, setWalkInPending] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
   const autoLookupTimerRef = useRef<number | null>(null);
   const lastAutoLookupPhoneRef = useRef("");
   const unverifiedAlertShownForRef = useRef<string | null>(null);
+
+  const clearLoadedCustomer = useCallback(() => {
+    setLoadedCustomerId(null);
+    setLoadedCustomerCode(null);
+    setCustomerChecked(false);
+    setCustomerExists(false);
+    setCustomerCheckMsg(null);
+    setPhoneVerifiedAt(null);
+    setEmailVerifiedAt(null);
+    setWalkInPending(false);
+    lastAutoLookupPhoneRef.current = "";
+    unverifiedAlertShownForRef.current = null;
+  }, []);
 
   const catalogModels = useMemo(() => {
     const seed = watchModelsForBrand(watchBrand).map((m) => ({
@@ -1447,9 +1464,40 @@ export function SrfBookingV2Page() {
       <div key={step} className="animate-srf-step-enter">
       {step === 0 ? (
         <Card title="Step 1 — Customer">
-          <div className="mb-3 flex gap-4">
-            <label className="text-sm"><input type="radio" checked={customerType === "B2C"} onChange={() => setCustomerType("B2C")} /> B2C</label>
-            <label className="text-sm"><input type="radio" checked={customerType === "B2B"} onChange={() => setCustomerType("B2B")} /> B2B</label>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex gap-4">
+              <label
+                className={`flex items-center gap-2 text-sm ${customerLockedFromDb ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+              >
+                <input
+                  type="radio"
+                  checked={customerType === "B2C"}
+                  disabled={customerLockedFromDb}
+                  onChange={() => setCustomerType("B2C")}
+                />{" "}
+                B2C
+              </label>
+              <label
+                className={`flex items-center gap-2 text-sm ${customerLockedFromDb ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+              >
+                <input
+                  type="radio"
+                  checked={customerType === "B2B"}
+                  disabled={customerLockedFromDb}
+                  onChange={() => setCustomerType("B2B")}
+                />{" "}
+                B2B
+              </label>
+            </div>
+            {customerLockedFromDb ? (
+              <button
+                type="button"
+                onClick={clearLoadedCustomer}
+                className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+              >
+                Change customer
+              </button>
+            ) : null}
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <label className="text-sm md:col-span-2">
@@ -1463,14 +1511,26 @@ export function SrfBookingV2Page() {
             </label>
             <label className="text-sm md:col-span-2">
               Phone
-              <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+              <input
+                className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                value={phone}
+                readOnly={customerLockedFromDb}
+                onChange={customerLockedFromDb ? undefined : (e) => setPhone(e.target.value)}
+              />
             </label>
           </div>
           <div className="mt-3 text-xs text-stone-500">
             {checkingCustomer ? "Checking customer in DB…" : "Customer check runs automatically after you enter a mobile number."}
           </div>
           {customerCheckMsg ? (
-            <p className="mt-3 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">{customerCheckMsg}</p>
+            <p className="mt-3 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">
+              {customerCheckMsg}
+              {customerLockedFromDb ? (
+                <span className="mt-1 block text-xs text-stone-600">
+                  Customer master data is read-only. Use Change customer to search another mobile.
+                </span>
+              ) : null}
+            </p>
           ) : null}
           {phone10(phone).length === 10 && !checkingCustomer ? (
             <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -1490,7 +1550,12 @@ export function SrfBookingV2Page() {
                       )
                     ) : null}
                   </span>
-                  <input className={inputClass} value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+                  <input
+                    className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                    value={customerName}
+                    readOnly={customerLockedFromDb}
+                    onChange={customerLockedFromDb ? undefined : (e) => setCustomerName(e.target.value)}
+                  />
                 </label>
                 {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
                   <div
@@ -1515,36 +1580,71 @@ export function SrfBookingV2Page() {
                   </div>
                 ) : null}
               </div>
-              <label className="text-sm">Email<input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-              <label className="text-sm">Alternate mobile<input className={inputClass} value={alternatePhone} onChange={(e) => setAlternatePhone(e.target.value)} /></label>
+              <label className="text-sm">
+                Email
+                <input
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  type="email"
+                  value={email}
+                  readOnly={customerLockedFromDb}
+                  onChange={customerLockedFromDb ? undefined : (e) => setEmail(e.target.value)}
+                />
+              </label>
+              <label className="text-sm">
+                Alternate mobile
+                <input
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  value={alternatePhone}
+                  readOnly={customerLockedFromDb}
+                  onChange={customerLockedFromDb ? undefined : (e) => setAlternatePhone(e.target.value)}
+                />
+              </label>
               <label className="text-sm md:col-span-2">
                 Street / building address
                 <textarea
-                  className={inputClass}
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
                   rows={2}
                   value={address}
-                  onChange={(e) => setAddress(e.target.value)}
+                  readOnly={customerLockedFromDb}
+                  onChange={customerLockedFromDb ? undefined : (e) => setAddress(e.target.value)}
                   placeholder="Door no., street, area"
                 />
               </label>
               <label className="text-sm">
                 City
-                <input className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} />
+                <input
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  value={city}
+                  readOnly={customerLockedFromDb}
+                  onChange={customerLockedFromDb ? undefined : (e) => setCity(e.target.value)}
+                />
               </label>
               <label className="text-sm">
                 State
-                <input className={inputClass} value={stateName} onChange={(e) => setStateName(e.target.value)} />
+                <input
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  value={stateName}
+                  readOnly={customerLockedFromDb}
+                  onChange={customerLockedFromDb ? undefined : (e) => setStateName(e.target.value)}
+                />
               </label>
               <label className="text-sm">
                 Country
-                <input className={inputClass} value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g. India" />
+                <input
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  value={country}
+                  readOnly={customerLockedFromDb}
+                  onChange={customerLockedFromDb ? undefined : (e) => setCountry(e.target.value)}
+                  placeholder="e.g. India"
+                />
               </label>
               <label className="text-sm">
                 PIN code
                 <input
-                  className={inputClass}
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
                   value={pincode}
-                  onChange={(e) => setPincode(e.target.value)}
+                  readOnly={customerLockedFromDb}
+                  onChange={customerLockedFromDb ? undefined : (e) => setPincode(e.target.value)}
                   inputMode="numeric"
                   autoComplete="postal-code"
                   placeholder="6-digit PIN"
@@ -1552,9 +1652,33 @@ export function SrfBookingV2Page() {
               </label>
               {customerType === "B2B" ? (
                 <>
-                  <label className="text-sm">Company<input className={inputClass} value={company} onChange={(e) => setCompany(e.target.value)} /></label>
-                  <label className="text-sm">GSTIN<input className={inputClass} value={gst} onChange={(e) => setGst(e.target.value)} /></label>
-                  <label className="text-sm">PAN<input className={inputClass} value={pan} onChange={(e) => setPan(e.target.value)} /></label>
+                  <label className="text-sm">
+                    Company
+                    <input
+                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                      value={company}
+                      readOnly={customerLockedFromDb}
+                      onChange={customerLockedFromDb ? undefined : (e) => setCompany(e.target.value)}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    GSTIN
+                    <input
+                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                      value={gst}
+                      readOnly={customerLockedFromDb}
+                      onChange={customerLockedFromDb ? undefined : (e) => setGst(e.target.value)}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    PAN
+                    <input
+                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                      value={pan}
+                      readOnly={customerLockedFromDb}
+                      onChange={customerLockedFromDb ? undefined : (e) => setPan(e.target.value)}
+                    />
+                  </label>
                 </>
               ) : null}
             </div>

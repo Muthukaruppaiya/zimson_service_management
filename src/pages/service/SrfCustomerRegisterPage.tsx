@@ -437,13 +437,24 @@ export function SrfCustomerRegisterPage() {
   function afterSuccessNavigate() {
     if (!successInfo) return;
     const digits = successInfo.phoneDigits || digitsOnly(phone, 12);
-    const q = `customerId=${encodeURIComponent(successInfo.id)}&phone=${encodeURIComponent(digits)}`;
+    const q = new URLSearchParams({
+      customerId: successInfo.id,
+      phone: digits,
+    });
     if (returnTo && returnTo.startsWith("/")) {
-      navigate(`${returnTo}${returnTo.includes("?") ? "&" : "?"}${q}`, { replace: true });
+      if (returnTo.startsWith("/service/quick-bill")) {
+        q.set("resumeCustomer", "1");
+      } else if (returnTo.startsWith("/service/srf")) {
+        q.set("resumeStep", "1");
+      }
+      const join = returnTo.includes("?") ? "&" : "?";
+      navigate(`${returnTo}${join}${q.toString()}`, { replace: true });
     } else if (forQuickBill) {
-      navigate(`/service/quick-bill?resumeCustomer=1&${q}`, { replace: true });
+      q.set("resumeCustomer", "1");
+      navigate(`/service/quick-bill?${q.toString()}`, { replace: true });
     } else {
-      navigate(`/service/srf?resumeStep=1&${q}`, { replace: true });
+      q.set("resumeStep", "1");
+      navigate(`/service/srf?${q.toString()}`, { replace: true });
     }
   }
 

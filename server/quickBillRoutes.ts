@@ -730,13 +730,29 @@ export function registerQuickBillRoutes(
         : String(technicianNameRaw).trim();
 
     const notes = String(req.body?.notes ?? "").trim();
+    const serviceChargeInrEarly = Number(req.body?.serviceChargeInr ?? 0);
+    const hasServiceChargeOnly =
+      Number.isFinite(serviceChargeInrEarly) && serviceChargeInrEarly > 0;
     const rawLines = req.body?.lines;
-    if (!Array.isArray(rawLines) || rawLines.length === 0) {
-      res.status(400).json({ error: "lines array with at least one row is required." });
+    if (!Array.isArray(rawLines)) {
+      res.status(400).json({ error: "lines must be an array." });
+      return;
+    }
+    if (rawLines.length === 0 && !hasServiceChargeOnly) {
+      res.status(400).json({
+        error: "Add at least one line item or a service / repair charge.",
+      });
       return;
     }
     if (rawLines.length > 60) {
       res.status(400).json({ error: "Too many line items." });
+      return;
+    }
+
+    if (actor.role === "admin" && !storeId) {
+      res.status(400).json({
+        error: "Select a billing store before saving the quick bill.",
+      });
       return;
     }
 
@@ -862,7 +878,7 @@ export function registerQuickBillRoutes(
            warranty_status, watch_document_path, watch_image_path,
            total_inr, payment_details, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35::jsonb, $36)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34::jsonb, $35)
          RETURNING id, created_at`,
         [
           billNumber,
@@ -1009,7 +1025,11 @@ export function registerQuickBillRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not save quick bill." });
+      const message =
+        e instanceof Error && e.message.trim()
+          ? e.message.trim()
+          : "Could not save quick bill.";
+      res.status(400).json({ error: message });
     } finally {
       client.release();
     }

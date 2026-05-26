@@ -219,6 +219,7 @@ export function QuickBillPage() {
       if (phoneRaw.trim()) q.set("phone", phoneRaw.trim());
       const name = customerNameForNavRef.current;
       if (name) q.set("name", name);
+      q.set("returnTo", "/service/quick-bill");
       navigate(`/service/quick-bill/new-customer?${q.toString()}`, { replace: true });
     },
     [navigate],
@@ -488,10 +489,12 @@ export function QuickBillPage() {
   }, [searchParams, setSearchParams]);
 
   useLayoutEffect(() => {
-    const resume = searchParams.get("resumeCustomer");
     const customerId = searchParams.get("customerId");
     const phoneHint = searchParams.get("phone");
-    if (resume !== "1" || !customerId) return;
+    const resume = searchParams.get("resumeCustomer");
+    if (!customerId) return;
+    if (resume && resume !== "1") return;
+    if (phoneHint) setPhone((prev) => prev.trim() || phoneHint);
 
     const fromRecord = (row: LoadedCustomerRow) => {
       applyLoadedCustomer(row);
@@ -1148,6 +1151,14 @@ export function QuickBillPage() {
         user?.role === "store_user"
           ? user.storeId
           : effectiveBillingStoreId || null;
+      if (
+        (user?.role === "admin" || user?.role === "super_admin") &&
+        hoNeedsOperatingStorePicker(user?.role, user?.storeId, user?.storeIds) &&
+        !storeIdForBill
+      ) {
+        setError("Select a billing store at the top of the page before saving.");
+        return;
+      }
       const tech = technicians.find((t) => t.id === technicianId);
       const billTotal =
         parsedLines.reduce((sum, l) => sum + l.amount, 0) +
@@ -1364,9 +1375,6 @@ export function QuickBillPage() {
               <button type="button" className={qbSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
                 View invoice below
               </button>
-              <button type="button" className={qbSuccessBtnSecondary} onClick={() => resetForm()}>
-                New quick bill
-              </button>
             </>
           }
         >
@@ -1474,9 +1482,6 @@ export function QuickBillPage() {
               </Link>
               <button type="button" className={qbSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
                 View invoice below
-              </button>
-              <button type="button" className={qbSuccessBtnSecondary} onClick={() => resetForm()}>
-                New quick bill
               </button>
             </>
           }
