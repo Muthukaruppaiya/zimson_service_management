@@ -85,6 +85,11 @@ export function shouldExposeEmailOtpInUi(): boolean {
   return !isEmailConfigured();
 }
 
+/** Show password-reset link on screen instead of email (same rules as email OTP demo). */
+export function shouldExposePasswordResetInUi(): boolean {
+  return shouldExposeEmailOtpInUi();
+}
+
 /** When true, API returns demoOtp in JSON for UI testing (no real SMS/email). */
 export function shouldExposeDemoOtp(): boolean {
   const setting = messagingExposeDemoOtpSetting();

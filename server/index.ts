@@ -32,6 +32,10 @@ import type { DemoUser, ModuleKey, SessionUser, UserRole } from "../src/types/us
 import { readState, stripPassword, writeState, type AppState } from "./persist";
 import { lookupGstCompany } from "./gstLookup";
 import {
+  validateCustomerB2bGstin,
+  ZIMSON_COMPANY_GST_ENTRIES,
+} from "../src/lib/zimsonCompanyGst";
+import {
   deliverOtpToTargets,
   otpStartResponsePayload,
   registerEmailOtpResponse,
@@ -3040,12 +3044,22 @@ app.get("/api/countries", (_req, res) => {
  * GSTIN → legal / trade name. Uses Sandbox.co.in when key+secret are set, or a custom GET URL + API key;
  * otherwise returns stub demo names (see server/gstLookup.ts).
  */
+/** Zimson branch GSTINs — use on invoices / region-store setup, not on B2B customers. */
+app.get("/api/zimson/company-gstins", (_req, res) => {
+  res.json({ entries: ZIMSON_COMPANY_GST_ENTRIES });
+});
+
 app.post("/api/gst/lookup", async (req, res) => {
   const gst = String((req.body as { gst?: string })?.gst ?? "")
     .trim()
     .toUpperCase();
   if (!GSTIN_RE.test(gst)) {
     res.status(400).json({ error: "Enter a valid 15-character GSTIN to fetch company name." });
+    return;
+  }
+  const zimsonGstErr = validateCustomerB2bGstin(gst);
+  if (zimsonGstErr) {
+    res.status(400).json({ error: zimsonGstErr });
     return;
   }
   try {
@@ -3486,6 +3500,11 @@ app.post("/api/customers", async (req, res) => {
       res.status(400).json({ error: "Valid 15-character GSTIN is required for B2B." });
       return;
     }
+    const zimsonGstErr = validateCustomerB2bGstin(gst);
+    if (zimsonGstErr) {
+      res.status(400).json({ error: zimsonGstErr });
+      return;
+    }
     if (!pan || !/^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(pan)) {
       res.status(400).json({ error: "Valid PAN is required for B2B." });
       return;
@@ -3654,6 +3673,31 @@ app.put("/api/customers/:id", async (req, res) => {
   if (p10.length !== 10) {
     res.status(400).json({ error: "Valid 10-digit mobile number is required." });
     return;
+  }
+  if (customerKind === "B2B") {
+    if (!company) {
+      res.status(400).json({ error: "Company name is required for B2B." });
+      return;
+    }
+    if (!gst || !GSTIN_RE.test(gst)) {
+      res.status(400).json({ error: "Valid 15-character GSTIN is required for B2B." });
+      return;
+    }
+    const zimsonGstErr = validateCustomerB2bGstin(gst);
+    if (zimsonGstErr) {
+      res.status(400).json({ error: zimsonGstErr });
+      return;
+    }
+    if (!pan || !/^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(pan)) {
+      res.status(400).json({ error: "Valid PAN is required for B2B." });
+      return;
+    }
+  } else if (gst) {
+    const zimsonGstErr = validateCustomerB2bGstin(gst);
+    if (zimsonGstErr) {
+      res.status(400).json({ error: zimsonGstErr });
+      return;
+    }
   }
   try {
     const upd = await dbPool.query(

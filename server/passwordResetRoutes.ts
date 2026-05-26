@@ -1,13 +1,16 @@
 import crypto from "node:crypto";
 import type { Express, Request } from "express";
 import type { Pool } from "pg";
-import { isEmailConfigured } from "./messaging/config";
+import { isEmailConfigured, shouldExposePasswordResetInUi } from "./messaging/config";
 import { sendPasswordResetEmail } from "./messaging/passwordResetEmail";
 import { resolvePublicAppBaseUrl } from "./publicAppUrl";
 
 const RESET_TTL_MS = 60 * 60 * 1000;
 const GENERIC_OK_MESSAGE =
   "If an account exists for that email or employee ID, we sent password reset instructions. Check your inbox and spam folder.";
+
+const DEMO_OK_MESSAGE =
+  "SMTP is not configured (or email failed). Use the reset link shown below to test — configure Settings → SMS, email & WhatsApp when ready.";
 
 function hashPassword(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -79,16 +82,14 @@ export function registerPasswordResetRoutes(
       res.status(400).json({ ok: false, message: "Enter your employee ID or email address." });
       return;
     }
-    if (!isEmailConfigured()) {
-      res.status(503).json({
-        ok: false,
-        message:
-          "Password reset email is not configured. Ask your administrator to set SMTP under Settings → SMS, email & WhatsApp.",
-      });
-      return;
-    }
+    const demoUi = shouldExposePasswordResetInUi();
+    const devFallback =
+      process.env.NODE_ENV !== "production" || process.env.PASSWORD_RESET_DEMO_UI === "true";
 
     try {
+      let demoResetUrl: string | undefined;
+      let emailDelivered = false;
+
       const user = await findUserForPasswordReset(pool, loginId);
       if (user && user.can_login && isValidEmail(user.email)) {
         const rawToken = crypto.randomBytes(32).toString("hex");
@@ -108,10 +109,37 @@ export function registerPasswordResetRoutes(
 
         const base = resolvePublicAppBaseUrl(req as Request);
         const resetUrl = `${base}/login/reset-password?token=${encodeURIComponent(rawToken)}`;
-        await sendPasswordResetEmail(user.email, user.display_name, resetUrl);
+
+        if (isEmailConfigured()) {
+          try {
+            await sendPasswordResetEmail(user.email, user.display_name, resetUrl);
+            emailDelivered = true;
+          } catch (mailErr) {
+            console.error("[forgot-password] SMTP send failed:", mailErr);
+            if (demoUi || devFallback) {
+              demoResetUrl = resetUrl;
+            } else {
+              throw mailErr;
+            }
+          }
+        } else if (demoUi || devFallback) {
+          demoResetUrl = resetUrl;
+        }
       }
 
-      res.json({ ok: true, message: GENERIC_OK_MESSAGE });
+      const payload: {
+        ok: boolean;
+        message: string;
+        demoResetUrl?: string;
+        emailDelivered?: boolean;
+      } = {
+        ok: true,
+        message: demoResetUrl ? DEMO_OK_MESSAGE : GENERIC_OK_MESSAGE,
+        emailDelivered,
+      };
+      if (demoResetUrl) payload.demoResetUrl = demoResetUrl;
+
+      res.json(payload);
     } catch (e) {
       console.error("[forgot-password]", e);
       const msg = e instanceof Error ? e.message : "Could not send reset email.";

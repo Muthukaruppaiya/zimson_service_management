@@ -167,7 +167,7 @@ export function WatchFamilyPicker({
   const label = required ? "Family *" : "Family";
 
   return (
-    <div>
+    <div className="min-w-0">
       <label htmlFor={`${idPrefix}-family`} className="text-xs font-medium text-stone-600">
         {label}
       </label>

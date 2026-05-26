@@ -19,7 +19,7 @@ type Props = {
 export function WatchServiceDetailFields({ idPrefix, values, onChange, inputClass, disabled }: Props) {
   return (
     <>
-      <div>
+      <div className="min-w-0">
         <label htmlFor={`${idPrefix}-case-type`} className="text-xs font-medium text-stone-600">
           Case Type
         </label>
@@ -32,7 +32,7 @@ export function WatchServiceDetailFields({ idPrefix, values, onChange, inputClas
           placeholder="e.g. Oyster, Jubilee"
         />
       </div>
-      <div>
+      <div className="min-w-0">
         <label htmlFor={`${idPrefix}-strap-chain`} className="text-xs font-medium text-stone-600">
           Strap / Chain Type
         </label>
@@ -45,7 +45,7 @@ export function WatchServiceDetailFields({ idPrefix, values, onChange, inputClas
           placeholder="e.g. Steel bracelet, leather"
         />
       </div>
-      <div>
+      <div className="min-w-0">
         <label htmlFor={`${idPrefix}-nature-repair`} className="text-xs font-medium text-stone-600">
           Nature of Repair
         </label>
@@ -58,7 +58,7 @@ export function WatchServiceDetailFields({ idPrefix, values, onChange, inputClas
           placeholder="e.g. Full service, battery only"
         />
       </div>
-      <div>
+      <div className="min-w-0">
         <label htmlFor={`${idPrefix}-chain-count`} className="text-xs font-medium text-stone-600">
           Chain Count
         </label>
@@ -72,7 +72,7 @@ export function WatchServiceDetailFields({ idPrefix, values, onChange, inputClas
           inputMode="numeric"
         />
       </div>
-      <div className="sm:col-span-2">
+      <div className="min-w-0 sm:col-span-2 xl:col-span-3">
         <label htmlFor={`${idPrefix}-cust-remarks`} className="text-xs font-medium text-stone-600">
           Customer Remarks
         </label>

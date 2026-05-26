@@ -3,6 +3,7 @@ import { ServiceBreadcrumb } from "../../../components/service/ServiceBreadcrumb
 import { Card } from "../../../components/ui/Card";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { isValidGstFormat, isValidPanFormat } from "../../../data/serviceSeed";
+import { validateCustomerB2bGstin } from "../../../lib/zimsonCompanyGst";
 import { apiJson } from "../../../lib/api";
 import type { CustomerKind, CustomerRecord } from "../../../types/customer";
 
@@ -105,6 +106,11 @@ export function CustomerMasterPage() {
       }
       if (!isValidGstFormat(edit.gst)) {
         setError("Enter valid GSTIN for B2B.");
+        return;
+      }
+      const zimsonGstErr = validateCustomerB2bGstin(edit.gst);
+      if (zimsonGstErr) {
+        setError(zimsonGstErr);
         return;
       }
       if (!isValidPanFormat(edit.pan)) {

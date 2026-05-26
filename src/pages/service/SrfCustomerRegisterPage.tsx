@@ -8,6 +8,10 @@ import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useCustomers } from "../../context/CustomersContext";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../data/serviceSeed";
+import {
+  validateCustomerB2bGstin,
+  ZIMSON_OWN_GSTIN_FIELD_HINT,
+} from "../../lib/zimsonCompanyGst";
 import { apiJson, useApiMode } from "../../lib/api";
 import {
   sanitizeEmailInput,
@@ -191,6 +195,11 @@ export function SrfCustomerRegisterPage() {
       setError("Enter a valid 15-character GSTIN before lookup.");
       return;
     }
+    const zimsonErr = validateCustomerB2bGstin(gst);
+    if (zimsonErr) {
+      setError(zimsonErr);
+      return;
+    }
     setGstFetchBusy(true);
     setError(null);
     try {
@@ -350,6 +359,11 @@ export function SrfCustomerRegisterPage() {
       }
       if (!isValidGstFormat(gst)) {
         setError("Enter a valid GSTIN.");
+        return false;
+      }
+      const zimsonErr = validateCustomerB2bGstin(gst);
+      if (zimsonErr) {
+        setError(zimsonErr);
         return false;
       }
       const panValue = pan.trim() || panFromGstin(gst) || "";
@@ -885,6 +899,7 @@ export function SrfCustomerRegisterPage() {
                   {gstFetchBusy ? "…" : "Fetch company from GST"}
                 </button>
               </div>
+              <p className="sm:col-span-2 text-[11px] text-amber-900/90">{ZIMSON_OWN_GSTIN_FIELD_HINT}</p>
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium text-stone-600">Company / legal name *</label>
                 <input

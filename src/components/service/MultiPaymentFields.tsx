@@ -59,7 +59,7 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
   }
 
   return (
-    <div className="sm:col-span-2 space-y-3">
+    <div className="min-w-0 space-y-3">
       <p className="text-xs font-medium text-stone-600">
         Payment methods <span className="font-normal text-stone-500">(select one or more)</span>
       </p>

@@ -12,8 +12,8 @@ export function Card({ title, subtitle, children, className = "", action }: Card
   return (
     <section className={`border border-rlx-rule bg-white shadow-sm ${className}`}>
       {(title || action) && (
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-rlx-rule bg-rlx-green px-4 py-3">
-          <div>
+        <div className="flex min-w-0 flex-col gap-3 border-b border-rlx-rule bg-rlx-green px-3 py-3 sm:flex-row sm:items-start sm:justify-between sm:px-4">
+          <div className="min-w-0">
             {title ? (
               <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-white">{title}</h2>
             ) : null}
@@ -23,10 +23,10 @@ export function Card({ title, subtitle, children, className = "", action }: Card
               </p>
             ) : null}
           </div>
-          {action ? <div className="shrink-0">{action}</div> : null}
+          {action ? <div className="min-w-0 w-full sm:w-auto sm:max-w-full">{action}</div> : null}
         </div>
       )}
-      <div className="p-4">{children}</div>
+      <div className="min-w-0 p-3 sm:p-4">{children}</div>
     </section>
   );
 }

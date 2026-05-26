@@ -13,6 +13,7 @@ import {
   isUnlimitedServiceChargeRole,
   STORE_SERVICE_CHARGE_MAX_INR,
 } from "../src/lib/serviceChargeLimits";
+import { validateCustomerB2bGstin } from "../src/lib/zimsonCompanyGst";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
 import { finalizeQuickBillCaptureSession } from "./quickBillCaptureRoutes";
@@ -670,6 +671,11 @@ export function registerQuickBillRoutes(
       }
       if (!gst || !isValidGst(gst)) {
         res.status(400).json({ error: "B2B: valid 15-character GSTIN is required." });
+        return;
+      }
+      const zimsonGstErr = validateCustomerB2bGstin(gst);
+      if (zimsonGstErr) {
+        res.status(400).json({ error: zimsonGstErr });
         return;
       }
       if (!pan || !isValidPan(pan)) {

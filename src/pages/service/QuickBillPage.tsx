@@ -47,6 +47,7 @@ import {
   panFromGstin,
   watchModelsForBrand,
 } from "../../data/serviceSeed";
+import { validateCustomerB2bGstin, ZIMSON_OWN_GSTIN_FIELD_HINT } from "../../lib/zimsonCompanyGst";
 import type { TechnicianProfile } from "../../types/technician";
 import {
   isFullyOtpVerified,
@@ -122,7 +123,13 @@ function emptyLine(): LineItem {
 }
 
 const inputClass =
-  "mt-1 w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
+  "mt-1 w-full min-w-0 max-w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
+
+/** Responsive form layout — stacks on narrow / quarter-screen laptop windows. */
+const qbPage = "min-w-0 max-w-full";
+const qbGrid2 = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2";
+const qbGrid3 = "grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
+const qbField = "min-w-0";
 
 const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
 
@@ -952,6 +959,11 @@ export function QuickBillPage() {
         setError("B2B: enter a valid 15-character GSTIN.");
         return false;
       }
+      const zimsonGstErr = validateCustomerB2bGstin(gst);
+      if (zimsonGstErr) {
+        setError(zimsonGstErr);
+        return false;
+      }
       const panValue = pan.trim() || panFromGstin(gst) || "";
       if (!isValidPanFormat(panValue)) {
         setError("B2B: enter a valid PAN or GSTIN that contains a valid PAN.");
@@ -1429,7 +1441,7 @@ export function QuickBillPage() {
   }
 
   return (
-    <div>
+    <div className={qbPage}>
       <ServiceBreadcrumb current="Quick bill" />
       <PageHeader
         title="Quick bill"
@@ -1465,7 +1477,7 @@ export function QuickBillPage() {
         onSubmit={(e) => {
           e.preventDefault();
         }}
-        className="space-y-8"
+        className="min-w-0 space-y-6 sm:space-y-8"
       >
         <Card
           title="Customer"
@@ -1528,8 +1540,8 @@ export function QuickBillPage() {
             </p>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
+          <div className={qbGrid2}>
+            <div className={qbField}>
               <label htmlFor="qb-customer-id" className="text-xs font-medium text-stone-600">
                 Customer ID
               </label>
@@ -1541,7 +1553,7 @@ export function QuickBillPage() {
                 placeholder="—"
               />
             </div>
-            <div>
+            <div className={qbField}>
               <label htmlFor="qb-phone" className="text-xs font-medium text-stone-600">
                 {customerType === "B2B" ? "Contact phone *" : "Phone (optional)"}
               </label>
@@ -1559,7 +1571,7 @@ export function QuickBillPage() {
               />
             </div>
             {customerType === "B2B" ? (
-              <div className="sm:col-span-2">
+              <div className={`${qbField} md:col-span-2`}>
                 <label htmlFor="qb-company" className="text-xs font-medium text-stone-600">
                   Company name *
                 </label>
@@ -1579,7 +1591,7 @@ export function QuickBillPage() {
             ) : null}
             {customerType === "B2B" ? (
               <>
-                <div>
+                <div className={qbField}>
                   <label htmlFor="qb-gst" className="text-xs font-medium text-stone-600">
                     GSTIN *
                   </label>
@@ -1596,8 +1608,13 @@ export function QuickBillPage() {
                     placeholder="15-character GSTIN"
                     maxLength={15}
                   />
+                  {!customerLockedFromDb ? (
+                    <p className="mt-1 break-words text-[11px] leading-snug text-amber-900/90">
+                      {ZIMSON_OWN_GSTIN_FIELD_HINT}
+                    </p>
+                  ) : null}
                 </div>
-                <div>
+                <div className={qbField}>
                   <label htmlFor="qb-pan" className="text-xs font-medium text-stone-600">
                     PAN *
                   </label>
@@ -1617,7 +1634,7 @@ export function QuickBillPage() {
                 </div>
               </>
             ) : null}
-            <div className="sm:col-span-2">
+            <div className={`${qbField} md:col-span-2`}>
               <label htmlFor="qb-name" className="text-xs font-medium text-stone-600">
                 {customerType === "B2B" ? "Contact person *" : "Customer name (optional)"}
               </label>
@@ -1634,7 +1651,7 @@ export function QuickBillPage() {
                 placeholder={customerType === "B2B" ? "Name on account" : "Walk-in — optional"}
               />
             </div>
-            <div>
+            <div className={qbField}>
               <label htmlFor="qb-email" className="text-xs font-medium text-stone-600">
                 Email (optional)
               </label>
@@ -1651,10 +1668,10 @@ export function QuickBillPage() {
               />
             </div>
             {checkingCustomer ? (
-              <p className="sm:col-span-2 text-xs text-stone-500">Checking customer in DB…</p>
+              <p className="md:col-span-2 text-xs text-stone-500">Checking customer in DB…</p>
             ) : null}
             {customerCheckMsg ? (
-              <p className="sm:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">
+              <p className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">
                 {customerCheckMsg}
                 {customerLockedFromDb ? (
                   <span className="mt-1 block text-xs text-stone-600">
@@ -1665,7 +1682,7 @@ export function QuickBillPage() {
             ) : null}
             {customerChecked && loadedCustomerId && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
               <div
-                className="sm:col-span-2 rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
+                className="md:col-span-2 rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
                 role="alert"
               >
                 Alert: Customer not verified — complete mobile and email OTP in customer registration.
@@ -1682,8 +1699,8 @@ export function QuickBillPage() {
         </Card>
 
         <Card title="Watch on counter" subtitle="">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
+          <div className={qbGrid3}>
+            <div className={qbField}>
               <label htmlFor="qb-brand" className="text-xs font-medium text-stone-600">
                 Brand *
               </label>
@@ -1701,17 +1718,19 @@ export function QuickBillPage() {
                 ))}
               </select>
             </div>
-            <WatchFamilyPicker
-              watchBrand={watchBrand}
-              apiMode={apiMode}
-              family={watchFamily}
-              onFamilyChange={setWatchFamily}
-              onSelectionModeChange={setWatchFamilyIsNew}
-              disableAutoSelect
-              inputClass={inputClass}
-              idPrefix="qb"
-            />
-            <div className="sm:col-span-2 lg:col-span-3">
+            <div className={qbField}>
+              <WatchFamilyPicker
+                watchBrand={watchBrand}
+                apiMode={apiMode}
+                family={watchFamily}
+                onFamilyChange={setWatchFamily}
+                onSelectionModeChange={setWatchFamilyIsNew}
+                disableAutoSelect
+                inputClass={inputClass}
+                idPrefix="qb"
+              />
+            </div>
+            <div className={`${qbField} sm:col-span-2 xl:col-span-3`}>
               <label htmlFor="qb-model" className="text-xs font-medium text-stone-600">
                 Model *
               </label>
@@ -1809,7 +1828,7 @@ export function QuickBillPage() {
                 <p className="mt-1.5 text-xs font-medium text-emerald-800">{watchModelSaveMsg}</p>
               ) : null}
             </div>
-            <div>
+            <div className={qbField}>
               <label htmlFor="qb-ref" className="text-xs font-medium text-stone-600">
                 Serial number (optional)
               </label>
@@ -1827,7 +1846,7 @@ export function QuickBillPage() {
               values={watchServiceDetails}
               onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
             />
-            <div className="sm:col-span-2">
+            <div className={`${qbField} sm:col-span-2 xl:col-span-3`}>
               <label htmlFor="qb-watch-remark" className="text-xs font-medium text-stone-600">
                 Remark
               </label>
@@ -1840,7 +1859,7 @@ export function QuickBillPage() {
                 placeholder="Condition notes, accessories, etc."
               />
             </div>
-            <div className="sm:col-span-2 lg:col-span-3">
+            <div className={`${qbField} sm:col-span-2 xl:col-span-3`}>
               <label htmlFor="qb-warranty" className="text-xs font-medium text-stone-600">
                 Warranty
               </label>
@@ -1856,26 +1875,28 @@ export function QuickBillPage() {
                 <option value="extended">Extended warranty (bill impact — to finalise)</option>
               </select>
             </div>
-            <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-zimson-200 bg-zimson-50/50 p-4">
+            <div className={`${qbField} min-w-0 sm:col-span-2 xl:col-span-3 rounded-xl border border-zimson-200 bg-zimson-50/50 p-3 sm:p-4`}>
               <p className="text-sm font-semibold text-zimson-900">Document &amp; watch image (customer link)</p>
-              <p className="mt-1 text-xs text-stone-600">
+              <p className="mt-1 text-xs leading-relaxed text-stone-600">
                 Like SRF booking: generate a QR/link for the customer to upload document and watch photo from their phone. Store staff do not upload files here.
               </p>
-              <div className="mt-3 grid gap-4 md:grid-cols-[200px,1fr]">
-                {captureUrl ? (
-                  <CustomerLinkQr
-                    url={captureUrl}
-                    size={200}
-                    mode="qr"
-                    caption="Scan to upload"
-                    className="mx-auto text-center"
-                  />
-                ) : (
-                  <div className="flex items-center justify-center rounded-lg border border-dashed border-zimson-300 bg-white p-6 text-center text-xs text-stone-500">
-                    QR appears after you generate a link
-                  </div>
-                )}
-                <div className="space-y-2 text-sm">
+              <div className="mt-3 flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
+                <div className="mx-auto w-full max-w-[200px] shrink-0 lg:mx-0">
+                  {captureUrl ? (
+                    <CustomerLinkQr
+                      url={captureUrl}
+                      size={180}
+                      mode="qr"
+                      caption="Scan to upload"
+                      className="mx-auto text-center"
+                    />
+                  ) : (
+                    <div className="flex min-h-[140px] items-center justify-center rounded-lg border border-dashed border-zimson-300 bg-white p-4 text-center text-xs text-stone-500">
+                      QR appears after you generate a link
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1 space-y-2 text-sm">
                   {captureUrl ? (
                     <p className="break-all text-xs text-stone-500">{captureUrl}</p>
                   ) : null}
@@ -1992,12 +2013,11 @@ export function QuickBillPage() {
           </div>
         </Card>
 
-        <Card
-          title="Service lines"
-          subtitle=""
-          action={
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2">
+        <Card title="Service lines" subtitle="">
+          <div className="mb-4 flex min-w-0 flex-col gap-3 border-b border-zimson-100 pb-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Add lines</p>
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
+              <div className="flex min-w-0 flex-1 flex-col gap-2 sm:max-w-md sm:flex-row">
                 <input
                   value={barcodeSku}
                   onChange={(e) => setBarcodeSku(e.target.value.toUpperCase())}
@@ -2007,14 +2027,14 @@ export function QuickBillPage() {
                       addScannedSku();
                     }
                   }}
-                  className="rounded-lg border border-zimson-400 bg-white px-2 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm"
+                  className="min-w-0 flex-1 rounded-lg border border-zimson-400 bg-white px-2 py-2 text-xs font-semibold text-zimson-900 shadow-sm"
                   placeholder="Scan barcode / SKU"
                   aria-label="Scan barcode sku"
                 />
                 <button
                   type="button"
                   onClick={addScannedSku}
-                  className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
+                  className="shrink-0 rounded-lg border border-zimson-400 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
                 >
                   Add by scan
                 </button>
@@ -2025,7 +2045,7 @@ export function QuickBillPage() {
                   const v = e.target.value;
                   if (v) void addPartLine(v);
                 }}
-                className="rounded-lg border border-zimson-400 bg-white px-2 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm"
+                className="min-w-0 w-full rounded-lg border border-zimson-400 bg-white px-2 py-2 text-xs font-semibold text-zimson-900 shadow-sm sm:min-w-[12rem] sm:flex-1"
                 aria-label="Add part from catalog"
               >
                 <option value="">
@@ -2035,14 +2055,13 @@ export function QuickBillPage() {
                 </option>
                 {spareOptions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({s.sku}) — ₹{s.price} · regional qty {s.stockQty}
+                    {s.name} ({s.sku}) — ₹{s.price} · qty {s.stockQty}
                     {s.stockQty <= 0 ? " · Out of stock" : ""}
                   </option>
                 ))}
               </select>
             </div>
-          }
-        >
+          </div>
           <div className="space-y-3">
             {lines.length === 0 ? (
               <p className="rounded-xl border border-dashed border-zimson-200 bg-zimson-50/40 px-3 py-4 text-sm text-stone-600">
@@ -2053,9 +2072,9 @@ export function QuickBillPage() {
               lines.map((line, index) => (
                 <div
                   key={line.id}
-                  className="flex flex-col gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:flex-row sm:items-end"
+                  className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[1fr_minmax(0,9rem)_auto] sm:items-end"
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0">
                     <span className="text-xs font-medium text-stone-600">
                       {line.spareId ? "Spare" : "Description"}
                     </span>
@@ -2071,7 +2090,7 @@ export function QuickBillPage() {
                       placeholder={`Line ${index + 1}`}
                     />
                   </div>
-                  <div className="w-full sm:w-36">
+                  <div className="min-w-0 w-full">
                     <span className="text-xs font-medium text-stone-600">Amount (INR)</span>
                     <input
                       type="number"
@@ -2089,7 +2108,7 @@ export function QuickBillPage() {
                   <button
                     type="button"
                     onClick={() => removeLine(line.id)}
-                    className="rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50"
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 sm:w-auto"
                   >
                     Remove
                   </button>
@@ -2105,7 +2124,7 @@ export function QuickBillPage() {
                 Add charge line
               </button>
             </div>
-            <div className="mt-4 rounded-xl border border-zimson-200/80 bg-white/80 p-3 sm:max-w-xs">
+            <div className="mt-4 w-full max-w-md rounded-xl border border-zimson-200/80 bg-white/80 p-3">
               <label htmlFor="qb-svc" className="text-xs font-medium text-stone-600">
                 Service / repair charge (INR, optional)
               </label>
@@ -2128,8 +2147,8 @@ export function QuickBillPage() {
         </Card>
 
         <Card title="Assignment & payment">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
+          <div className={qbGrid2}>
+            <div className={qbField}>
               <label htmlFor="qb-tech" className="text-xs font-medium text-stone-600">
                 Technician
               </label>
@@ -2147,14 +2166,16 @@ export function QuickBillPage() {
                 ))}
               </select>
             </div>
-            <MultiPaymentFields
-              idPrefix="qb"
-              amountLabel="bill"
-              targetInr={total}
-              form={multiPaymentForm}
-              onChange={setMultiPaymentForm}
-            />
-            <div className="sm:col-span-2">
+            <div className={`${qbField} md:col-span-2`}>
+              <MultiPaymentFields
+                idPrefix="qb"
+                amountLabel="bill"
+                targetInr={total}
+                form={multiPaymentForm}
+                onChange={setMultiPaymentForm}
+              />
+            </div>
+            <div className={`${qbField} md:col-span-2`}>
               <label htmlFor="qb-notes" className="text-xs font-medium text-stone-600">
                 Notes
               </label>
@@ -2181,7 +2202,7 @@ export function QuickBillPage() {
             After OTP is verified (primary or other mobile/email), the bill is saved and the success popup opens
             automatically.
           </p>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <button
               type="button"
               onClick={() => openHandoverOtp("primary")}
@@ -2190,7 +2211,7 @@ export function QuickBillPage() {
                 isSavingBill ||
                 (phoneLast10(phone).length !== 10 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
               }
-              className="rounded-xl border border-indigo-400 bg-indigo-50 px-5 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2.5 text-center text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-5"
             >
               Send OTP to primary (mobile / email)
             </button>
@@ -2198,16 +2219,16 @@ export function QuickBillPage() {
               type="button"
               onClick={() => openHandoverOtp("custom")}
               disabled={handoverVerified || isSavingBill}
-              className="rounded-xl border border-indigo-400 bg-indigo-50 px-5 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2.5 text-center text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-5"
             >
               Send OTP to other number / email
             </button>
             {isSavingBill ? (
-              <span className="text-sm font-medium text-stone-600">Saving quick bill…</span>
+              <span className="text-center text-sm font-medium text-stone-600 sm:text-left">Saving quick bill…</span>
             ) : null}
             <Link
               to="/service"
-              className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-5 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              className="inline-flex w-full items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-center text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 sm:w-auto sm:px-5"
             >
               Cancel
             </Link>
