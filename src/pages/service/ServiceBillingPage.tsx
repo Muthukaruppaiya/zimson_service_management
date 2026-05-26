@@ -264,7 +264,7 @@ export function ServiceBillingPage() {
     if (result.status === "phone_exists") {
       setSelectedCustomer(result.customer);
       setLookupNote(
-        `This mobile number is already on file for “${result.customer.displayName}”. You can use that profile or register a new customer if this is a different person.`,
+        `This mobile number is already on file for “${result.customer.displayName}”. Continue with that profile — duplicate registration is not allowed.`,
       );
       setPhase("match");
       return;
@@ -661,13 +661,6 @@ export function ServiceBillingPage() {
               className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
             >
               Continue to bill
-            </button>
-            <button
-              type="button"
-              onClick={() => goRegisterNew("choice")}
-              className="rounded-xl border border-zimson-400 bg-white px-5 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Register new customer instead
             </button>
             <button
               type="button"

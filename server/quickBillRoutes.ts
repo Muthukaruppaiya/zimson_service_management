@@ -17,6 +17,7 @@ import { validateCustomerB2bGstin } from "../src/lib/zimsonCompanyGst";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
 import { finalizeQuickBillCaptureSession } from "./quickBillCaptureRoutes";
+import { registerWatchCatalogRoutes } from "./watchCatalogRoutes";
 
 type Authed = Request & { userId: string };
 
@@ -398,6 +399,8 @@ export function registerQuickBillRoutes(
       res.status(500).json({ error: "Could not save watch model." });
     }
   });
+
+  registerWatchCatalogRoutes(app, pool, requireAuth, getUserById);
 
   app.post("/api/service/quick-bill-attachments", requireAuth, qbUpload.single("file"), (req, res) => {
     const actor = getUserById((req as Authed).userId);

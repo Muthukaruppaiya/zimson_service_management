@@ -3,10 +3,10 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { WatchFamilyPicker } from "../../components/service/WatchFamilyPicker";
+import { WatchModelPicker } from "../../components/service/WatchModelPicker";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
-import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
+import { FormPageShell } from "../../components/layout/FormPageShell";
 import { Card } from "../../components/ui/Card";
-import { PageHeader } from "../../components/ui/PageHeader";
 import { Stepper } from "../../components/ui/Stepper";
 import { useAuth } from "../../context/AuthContext";
 import { useBrands } from "../../context/BrandsContext";
@@ -25,7 +25,6 @@ import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "
 import {
   isValidGstFormat,
   isValidPanFormat,
-  watchModelsForBrand,
 } from "../../data/serviceSeed";
 import type { CustomerAddressBlock } from "../../types/customer";
 import type { SrfJob } from "../../types/srfJob";
@@ -36,6 +35,8 @@ import {
 } from "../../lib/serviceChargeLimits";
 import {
   WatchServiceDetailFields,
+  emptyWatchServiceDetailValues,
+  watchServiceDetailsToApiPayload,
   type WatchServiceDetailValues,
 } from "../../components/service/WatchServiceDetailFields";
 import { sanitizeDecimalInput } from "../../lib/inputSanitize";
@@ -106,8 +107,6 @@ function isFullyOtpVerified(phoneAt: string | null, emailAt: string | null): boo
 }
 
 const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
-
-type SrfWatchModelRow = { id: string; brand: string; model: string; refHint: string };
 
 type SrfPhotoThumb = { id: string; photoKind?: string; filePath: string };
 
@@ -197,19 +196,11 @@ export function SrfBookingV2Page() {
   const [pan, setPan] = useState("");
   const [watchBrand, setWatchBrand] = useState("");
   const [watchFamily, setWatchFamily] = useState("");
-  const [dbWatchModels, setDbWatchModels] = useState<SrfWatchModelRow[]>([]);
-  const [catalogModelKey, setCatalogModelKey] = useState("");
-  const [customModelText, setCustomModelText] = useState("");
+  const [watchModel, setWatchModel] = useState("");
   const [serial, setSerial] = useState("");
-  const [watchServiceDetails, setWatchServiceDetails] = useState<WatchServiceDetailValues>({
-    caseType: "",
-    strapChainType: "",
-    natureOfRepair: "",
-    chainCount: "",
-    customerRemarks: "",
-  });
-  const [savingWatchModel, setSavingWatchModel] = useState(false);
-  const [watchModelSaveMsg, setWatchModelSaveMsg] = useState<string | null>(null);
+  const [watchServiceDetails, setWatchServiceDetails] = useState<WatchServiceDetailValues>(
+    emptyWatchServiceDetailValues,
+  );
   const [handoverStoreId, setHandoverStoreId] = useState("");
   /** Default: send to HO (standard dispatch flow). */
   const [repairRoute, setRepairRoute] = useState<SrfRepairRoute>("send_to_ho");
@@ -299,56 +290,6 @@ export function SrfBookingV2Page() {
     unverifiedAlertShownForRef.current = null;
   }, []);
 
-  const catalogModels = useMemo(() => {
-    const seed = watchModelsForBrand(watchBrand).map((m) => ({
-      id: m.id,
-      brand: m.brand,
-      model: m.model,
-      refHint: m.refHint,
-    }));
-    const by = new Map<string, SrfWatchModelRow>();
-    for (const m of seed) by.set(m.model.trim().toLowerCase(), m);
-    for (const m of dbWatchModels) {
-      const key = m.model.trim().toLowerCase();
-      if (!by.has(key)) by.set(key, m);
-    }
-    return [...by.values()].sort((a, b) => a.model.localeCompare(b.model));
-  }, [watchBrand, dbWatchModels]);
-
-  const resolvedWatchModel = useMemo(() => {
-    if (catalogModelKey === "__new__") return customModelText.trim();
-    return catalogModelKey.trim();
-  }, [catalogModelKey, customModelText]);
-
-  useEffect(() => {
-    if (!apiMode || !watchBrand.trim()) {
-      setDbWatchModels([]);
-      return;
-    }
-    let cancelled = false;
-    setDbWatchModels([]);
-    void apiJson<{ models: { id: string; brand: string; model: string; refHint: string | null }[] }>(
-      `/api/service/watch-models?brand=${encodeURIComponent(watchBrand)}`,
-    )
-      .then((out) => {
-        if (cancelled) return;
-        setDbWatchModels(
-          out.models.map((row) => ({
-            id: row.id,
-            brand: row.brand,
-            model: row.model,
-            refHint: row.refHint ?? "",
-          })),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setDbWatchModels([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiMode, watchBrand]);
-
   const effectiveOperatingRegionId = useMemo(
     () => resolveOperatingRegionId(user?.role, user?.regionId, operatingRegionId),
     [user?.role, user?.regionId, operatingRegionId],
@@ -398,16 +339,8 @@ export function SrfBookingV2Page() {
   const syncModelForBrand = useCallback((nextBrand: string) => {
     setWatchBrand(nextBrand);
     setWatchFamily("");
-    const ms = watchModelsForBrand(nextBrand);
-    if (ms.length === 0) {
-      setCatalogModelKey("__new__");
-      setCustomModelText("");
-      setSerial("");
-    } else {
-      setCatalogModelKey(ms[0]!.model);
-      setCustomModelText("");
-      setSerial(ms[0]?.refHint ?? "");
-    }
+    setWatchModel("");
+    setSerial("");
   }, []);
 
   useEffect(() => {
@@ -416,22 +349,6 @@ export function SrfBookingV2Page() {
       syncModelForBrand(brandNames[0]!);
     }
   }, [brandNames, watchBrand, syncModelForBrand]);
-
-  useEffect(() => {
-    if (catalogModelKey === "__new__") return;
-    const match = catalogModels.some((m) => m.model === catalogModelKey);
-    if (match) return;
-    if (catalogModels.length === 0) {
-      setCatalogModelKey("__new__");
-      setCustomModelText("");
-      setSerial("");
-      return;
-    }
-    setCatalogModelKey(catalogModels[0]!.model);
-    setCustomModelText("");
-    if (catalogModels[0]?.refHint) setSerial(catalogModels[0].refHint);
-    else setSerial("");
-  }, [catalogModels, catalogModelKey]);
 
   useEffect(() => {
     if (!apiMode || user?.role !== "super_admin") return;
@@ -488,7 +405,7 @@ export function SrfBookingV2Page() {
   }
 
   function validateWatch() {
-    if (!watchBrand || !watchFamily.trim() || !resolvedWatchModel || !serial.trim()) {
+    if (!watchBrand || !watchFamily.trim() || !watchModel.trim() || !serial.trim()) {
       setError("Watch brand, family, model, and serial are required.");
       return false;
     }
@@ -531,7 +448,7 @@ export function SrfBookingV2Page() {
     const phoneValue = phone.trim();
     const watchBrandValue = watchBrand.trim();
     const watchFamilyValue = watchFamily.trim();
-    const watchModelValue = resolvedWatchModel.trim();
+    const watchModelValue = watchModel.trim();
     const serialValue = serial.trim();
     if (!regionId || !storeId) {
       throw new Error(
@@ -692,13 +609,9 @@ export function SrfBookingV2Page() {
         phone,
         watchBrand,
         watchFamily: watchFamily.trim(),
-        watchModel: resolvedWatchModel.trim(),
+        watchModel: watchModel.trim(),
         serial,
-        caseType: watchServiceDetails.caseType.trim(),
-        strapChainType: watchServiceDetails.strapChainType.trim(),
-        natureOfRepair: watchServiceDetails.natureOfRepair.trim(),
-        chainCount: watchServiceDetails.chainCount.trim(),
-        customerRemarks: watchServiceDetails.customerRemarks.trim(),
+        ...watchServiceDetailsToApiPayload(watchServiceDetails),
       });
       setStep(1);
     } catch (e) {
@@ -877,16 +790,7 @@ export function SrfBookingV2Page() {
         const brand = job.watchBrand.trim();
         setWatchBrand(brand);
         setWatchFamily((job.watchFamily ?? "").trim());
-        const model = job.watchModel.trim();
-        const seedModels = watchModelsForBrand(brand);
-        const hit = seedModels.find((m) => m.model.trim() === model);
-        if (hit) {
-          setCatalogModelKey(hit.model);
-          setCustomModelText("");
-        } else {
-          setCatalogModelKey("__new__");
-          setCustomModelText(model);
-        }
+        setWatchModel(job.watchModel.trim());
         setSerial(job.serial);
 
         setCustomerChecked(true);
@@ -1118,53 +1022,6 @@ export function SrfBookingV2Page() {
     }
   }
 
-  async function saveNewWatchModelToCatalog() {
-    const model =
-      catalogModelKey === "__new__"
-        ? customModelText.trim()
-        : catalogModels.length === 0
-          ? customModelText.trim()
-          : "";
-    if (!watchBrand.trim() || !model) return;
-    if (!apiMode) {
-      setWatchModelSaveMsg(null);
-      setError("Turn on API mode (VITE_USE_API) to save models to the server.");
-      return;
-    }
-    setSavingWatchModel(true);
-    setWatchModelSaveMsg(null);
-    setError(null);
-    try {
-      await apiJson<{ ok: boolean }>("/api/service/watch-models", {
-        method: "POST",
-        json: {
-          brand: watchBrand.trim(),
-          model,
-          refHint: serial.trim() || null,
-        },
-      });
-      const list = await apiJson<{ models: { id: string; brand: string; model: string; refHint: string | null }[] }>(
-        `/api/service/watch-models?brand=${encodeURIComponent(watchBrand)}`,
-      );
-      setDbWatchModels(
-        list.models.map((row) => ({
-          id: row.id,
-          brand: row.brand,
-          model: row.model,
-          refHint: row.refHint ?? "",
-        })),
-      );
-      setCatalogModelKey(model);
-      setCustomModelText("");
-      setWatchModelSaveMsg("Saved — model is in the list for this brand.");
-      window.setTimeout(() => setWatchModelSaveMsg(null), 4000);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not save model.");
-    } finally {
-      setSavingWatchModel(false);
-    }
-  }
-
   async function finalizeAndPrint() {
     setError(null);
     try {
@@ -1184,11 +1041,7 @@ export function SrfBookingV2Page() {
         advancePaymentDetails: advancePay ? advancePay.paymentDetails : {},
         selectedPartIds: [],
         repairRoute,
-        caseType: watchServiceDetails.caseType.trim(),
-        strapChainType: watchServiceDetails.strapChainType.trim(),
-        natureOfRepair: watchServiceDetails.natureOfRepair.trim(),
-        chainCount: watchServiceDetails.chainCount.trim(),
-        customerRemarks: watchServiceDetails.customerRemarks.trim(),
+        ...watchServiceDetailsToApiPayload(watchServiceDetails),
       });
       setSrfRef(row.reference);
       setFinalizedSrfId(row.srfId);
@@ -1218,6 +1071,7 @@ export function SrfBookingV2Page() {
     ]
       .filter(Boolean)
       .join(" / ");
+    const svcDetailPayload = watchServiceDetailsToApiPayload(watchServiceDetails);
     printSrfDocument({
       reference: srfRef,
       customerName,
@@ -1225,7 +1079,7 @@ export function SrfBookingV2Page() {
       company: customerType === "B2B" ? company.trim() : undefined,
       watchBrand,
       watchFamily: watchFamily.trim(),
-      watchModel: resolvedWatchModel.trim(),
+      watchModel: watchModel.trim(),
       serial,
       complaint,
       estimateTotalInr: estimateTotal,
@@ -1235,13 +1089,13 @@ export function SrfBookingV2Page() {
       advancePaymentDetails: resolvedAdvanceDetails,
       bookingDate: new Date(),
       repairRoute: finalizedRepairRoute,
+      caseType: svcDetailPayload.caseType,
+      strapChainType: svcDetailPayload.strapChainType,
+      chainCount: svcDetailPayload.chainCount,
+      customerRemarks: svcDetailPayload.customerRemarks,
       natureOfRepair:
         watchServiceDetails.natureOfRepair.trim() ||
         (finalizedRepairRoute === "store_self" ? "Store repair" : "HO Service"),
-      caseType: watchServiceDetails.caseType.trim(),
-      strapChainType: watchServiceDetails.strapChainType.trim(),
-      chainCount: watchServiceDetails.chainCount.trim(),
-      customerRemarks: watchServiceDetails.customerRemarks.trim(),
       receptionistRemarks: estimateRemarks.trim() || obsAdditionalNotes.trim(),
       comments: srfComments || complaint,
       modelNumber: serial.trim(),
@@ -1273,7 +1127,7 @@ export function SrfBookingV2Page() {
         customerName,
         phone,
         watchBrand,
-        watchModel: resolvedWatchModel.trim(),
+        watchModel: watchModel.trim(),
         serial,
         complaint,
         estimateTotalInr: estimateTotal,
@@ -1396,14 +1250,12 @@ export function SrfBookingV2Page() {
   }
 
   return (
-    <div>
-      <ServiceBreadcrumb current="SRF booking" />
-      <PageHeader title="SRF booking" description="" />
+    <FormPageShell breadcrumb="SRF booking" title="SRF booking">
       {apiMode && showHoOperatingLocation ? (
         <Card
           title="Operating location"
           subtitle="Intake store for this SRF. Required when your login is not tied to a single store."
-          className="mb-6"
+          className="mb-4"
         >
           <div className="grid gap-4 sm:grid-cols-2">
             {user?.role === "super_admin" ? (
@@ -1532,52 +1384,28 @@ export function SrfBookingV2Page() {
           ) : null}
           {phone10(phone).length === 10 && !checkingCustomer ? (
             <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div className="md:col-span-2 space-y-2">
-                <label className="block text-sm">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span>Customer name</span>
-                    {customerExists && customerChecked ? (
-                      isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
-                        <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                          Verified
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                          Unverified
-                        </span>
-                      )
-                    ) : null}
-                  </span>
-                  <input
-                    className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
-                    value={customerName}
-                    readOnly={customerLockedFromDb}
-                    onChange={customerLockedFromDb ? undefined : (e) => setCustomerName(e.target.value)}
-                  />
-                </label>
-                {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
-                  <div
-                    className="rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
-                    role="alert"
-                  >
-                    Alert: Customer not verified — complete mobile and email OTP before handover.
-                  </div>
-                ) : null}
-                {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
-                  <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50/95 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs text-amber-950">
-                      Complete mobile and email OTP on customer registration to mark this customer verified.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => redirectToCustomerRegister(phone.trim())}
-                      className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
-                    >
-                      Verify with OTP
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+              <label className="block text-sm">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span>Customer name</span>
+                  {customerExists && customerChecked ? (
+                    isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
+                      <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                        Verified
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                        Unverified
+                      </span>
+                    )
+                  ) : null}
+                </span>
+                <input
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  value={customerName}
+                  readOnly={customerLockedFromDb}
+                  onChange={customerLockedFromDb ? undefined : (e) => setCustomerName(e.target.value)}
+                />
+              </label>
               <label className="text-sm">
                 Email
                 <input
@@ -1588,6 +1416,28 @@ export function SrfBookingV2Page() {
                   onChange={customerLockedFromDb ? undefined : (e) => setEmail(e.target.value)}
                 />
               </label>
+              {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
+                <div
+                  className="md:col-span-2 rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
+                  role="alert"
+                >
+                  Alert: Customer not verified — complete mobile and email OTP before handover.
+                </div>
+              ) : null}
+              {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
+                <div className="md:col-span-2 flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50/95 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-amber-950">
+                    Complete mobile and email OTP on customer registration to mark this customer verified.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => redirectToCustomerRegister(phone.trim())}
+                    className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                  >
+                    Verify with OTP
+                  </button>
+                </div>
+              ) : null}
               <label className="text-sm">
                 Alternate mobile
                 <input
@@ -1690,116 +1540,53 @@ export function SrfBookingV2Page() {
 
       {step === 1 ? (
         <Card title="Step 2 — Watch">
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="text-sm">Brand<select className={inputClass} value={watchBrand} onChange={(e) => syncModelForBrand(e.target.value)}>{brandNames.map((b) => <option key={b}>{b}</option>)}</select></label>
-            <WatchFamilyPicker
-              watchBrand={watchBrand}
-              apiMode={apiMode}
-              family={watchFamily}
-              onFamilyChange={setWatchFamily}
-              inputClass={inputClass}
-              idPrefix="srf"
-            />
-            <div className="md:col-span-2">
-              <label htmlFor="srf-model" className="text-sm">
-                Model
+          <div className="flex flex-col gap-4">
+            <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
+              <label className="min-w-0 text-sm">
+                Brand
+                <select className={inputClass} value={watchBrand} onChange={(e) => syncModelForBrand(e.target.value)}>
+                  {brandNames.map((b) => (
+                    <option key={b}>{b}</option>
+                  ))}
+                </select>
               </label>
-              {catalogModels.length > 0 ? (
-                <>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <div className="min-w-0 flex-1">
-                      <select
-                        id="srf-model"
-                        className={inputClass.replace("mt-1 ", "")}
-                        value={catalogModelKey === "__new__" ? "__new__" : catalogModelKey}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setWatchModelSaveMsg(null);
-                          if (v === "__new__") {
-                            setCatalogModelKey("__new__");
-                            setCustomModelText("");
-                            return;
-                          }
-                          setCatalogModelKey(v);
-                          setCustomModelText("");
-                          const m = catalogModels.find((x) => x.model === v);
-                          if (m?.refHint) setSerial(m.refHint);
-                        }}
-                      >
-                        {catalogModels.map((m) => (
-                          <option key={m.id} value={m.model}>
-                            {m.model}
-                          </option>
-                        ))}
-                        <option value="__new__">+ Add new model…</option>
-                      </select>
-                    </div>
-                    {catalogModelKey === "__new__" && apiMode ? (
-                      <button
-                        type="button"
-                        disabled={!customModelText.trim() || savingWatchModel}
-                        title="Save new model to database (uses serial field as ref. hint if filled)"
-                        onClick={() => void saveNewWatchModelToCatalog()}
-                        className="shrink-0 rounded-md border border-zimson-500 bg-zimson-600 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {savingWatchModel ? "…" : "Save"}
-                      </button>
-                    ) : null}
-                  </div>
-                  {catalogModelKey === "__new__" ? (
-                    <input
-                      className={`${inputClass} mt-2`}
-                      placeholder="Type new model name"
-                      value={customModelText}
-                      onChange={(e) => {
-                        setCustomModelText(e.target.value);
-                        setWatchModelSaveMsg(null);
-                      }}
-                      aria-label="New model name"
-                    />
-                  ) : null}
-                </>
-              ) : (
-                <div>
-                  <p className="mb-1 text-xs text-amber-900">No saved models for this brand — enter the model name.</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <input
-                      id="srf-model-custom"
-                      className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1 basis-[min(100%,14rem)]`}
-                      placeholder="Model name"
-                      value={customModelText}
-                      onChange={(e) => {
-                        setCustomModelText(e.target.value);
-                        setCatalogModelKey("__new__");
-                        setWatchModelSaveMsg(null);
-                      }}
-                    />
-                    {apiMode ? (
-                      <button
-                        type="button"
-                        disabled={!customModelText.trim() || savingWatchModel}
-                        title="Save new model to database (uses serial field as ref. hint if filled)"
-                        onClick={() => void saveNewWatchModelToCatalog()}
-                        className="shrink-0 rounded-md border border-zimson-500 bg-zimson-600 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {savingWatchModel ? "…" : "Save"}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              )}
-              {watchModelSaveMsg ? <p className="mt-1 text-xs text-emerald-800">{watchModelSaveMsg}</p> : null}
+              <div className="min-w-0">
+                <WatchFamilyPicker
+                  watchBrand={watchBrand}
+                  apiMode={apiMode}
+                  family={watchFamily}
+                  onFamilyChange={setWatchFamily}
+                  inputClass={inputClass}
+                  idPrefix="srf"
+                />
+              </div>
             </div>
-            <label className="text-sm">Serial<input className={inputClass} value={serial} onChange={(e) => setSerial(e.target.value)} /></label>
-            <div className="md:col-span-2 grid gap-3 sm:grid-cols-2">
-              <WatchServiceDetailFields
-                idPrefix="srf"
+            <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
+            <div className="min-w-0">
+              <WatchModelPicker
+                watchBrand={watchBrand}
+                apiMode={apiMode}
+                model={watchModel}
+                onModelChange={setWatchModel}
+                disableAutoSelect
                 inputClass={inputClass}
-                values={watchServiceDetails}
-                onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
+                idPrefix="srf"
+                serialHint={serial}
+                onSerialHintFromModel={setSerial}
               />
             </div>
-            <label className="text-sm sm:col-span-2">
+            <label className="text-sm">
+              Serial
+              <input className={inputClass} value={serial} onChange={(e) => setSerial(e.target.value)} />
+            </label>
+            </div>
+            <WatchServiceDetailFields
+              idPrefix="srf"
+              inputClass={inputClass}
+              values={watchServiceDetails}
+              onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
+            />
+            <label className="text-sm">
               Repair routing
               <select
                 className={inputClass}
@@ -2064,7 +1851,7 @@ export function SrfBookingV2Page() {
                   <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Watch</th>
                   <td className="px-3 py-2 text-stone-800">
                     {watchBrand}
-                    {watchFamily.trim() ? ` · ${watchFamily.trim()}` : ""} {resolvedWatchModel.trim()} · {serial}
+                    {watchFamily.trim() ? ` · ${watchFamily.trim()}` : ""} {watchModel.trim()} · {serial}
                   </td>
                 </tr>
                 <tr className="border-b border-zimson-100">
@@ -2178,6 +1965,6 @@ export function SrfBookingV2Page() {
         </div>
       ) : null}
       {alertModal}
-    </div>
+    </FormPageShell>
   );
 }

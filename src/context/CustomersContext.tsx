@@ -154,6 +154,12 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       if (p10.length !== 10) {
         throw new Error("Enter a valid 10-digit mobile for OTP (or fill OTP mobile).");
       }
+      const phoneTaken = customers.some((c) => phoneLast10Local(c.phone) === primaryP10);
+      if (phoneTaken) {
+        throw new Error(
+          "This mobile number is already registered. Open Customer master to view or edit the existing profile.",
+        );
+      }
       if (!api) {
         const sessionId = `local-${createId("sess")}`;
         const demoMobileOtp = String(Math.floor(100000 + Math.random() * 900000));
@@ -175,7 +181,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         },
       });
     },
-    [api],
+    [api, customers],
   );
 
   const confirmRegistrationMobileOtp = useCallback(
@@ -330,6 +336,12 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
 
   const registerCustomer = useCallback(
     async (input: CustomerRegistrationPayload): Promise<CustomerRecord> => {
+      const regP10 = phoneLast10Local(input.phone.trim());
+      if (regP10.length === 10 && customers.some((c) => phoneLast10Local(c.phone) === regP10)) {
+        throw new Error(
+          "This mobile number is already registered. Open Customer master to view or edit the existing profile.",
+        );
+      }
       if (api) {
         const data = await apiJson<{ customer: CustomerRecord }>("/api/customers", {
           method: "POST",
@@ -421,7 +433,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       saveStoredCustomers(next);
       return row;
     },
-    [api, extra],
+    [api, customers, extra],
   );
 
   const value = useMemo(

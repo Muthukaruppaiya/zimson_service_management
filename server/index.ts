@@ -3183,6 +3183,19 @@ app.post("/api/customers/register-otp/start-mobile", async (req, res) => {
     res.status(400).json({ error: "Primary mobile must be 10 digits." });
     return;
   }
+  if (dbPool) {
+    const { rows: dupRows } = await dbPool.query(
+      `SELECT id FROM customers WHERE is_active = true AND phone_last10 = $1 LIMIT 1`,
+      [primaryP10],
+    );
+    if (dupRows.length > 0) {
+      res.status(400).json({
+        error:
+          "This mobile number is already registered. Open Customer master to view or edit the existing profile.",
+      });
+      return;
+    }
+  }
   const target = otpPhone || primaryPhone;
   const p10 = phoneLast10(target);
   if (p10.length !== 10) {
@@ -3549,6 +3562,17 @@ app.post("/api/customers", async (req, res) => {
   const id = createId("cust");
   const client = await dbPool.connect();
   try {
+    const { rows: dupRows } = await client.query(
+      `SELECT id FROM customers WHERE is_active = true AND phone_last10 = $1 LIMIT 1`,
+      [p10Primary],
+    );
+    if (dupRows.length > 0) {
+      res.status(400).json({
+        error:
+          "This mobile number is already registered. Open Customer master to view or edit the existing profile.",
+      });
+      return;
+    }
     await client.query("BEGIN");
     const customerCode = await nextCustomerCode(client);
     await client.query(

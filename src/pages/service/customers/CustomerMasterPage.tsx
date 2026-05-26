@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../../components/service/ServiceBreadcrumb";
 import { Card } from "../../../components/ui/Card";
 import { PageHeader } from "../../../components/ui/PageHeader";
@@ -150,6 +151,14 @@ export function CustomerMasterPage() {
       <PageHeader
         title="Customer master"
         description=""
+        actions={
+          <Link
+            to="/service/customers/register"
+            className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
+          >
+            Create customer →
+          </Link>
+        }
       />
       {error ? <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
       <Card title="Customers">

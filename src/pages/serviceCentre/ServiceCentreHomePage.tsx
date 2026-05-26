@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
+import { FormPageShell } from "../../components/layout/FormPageShell";
 import { Card } from "../../components/ui/Card";
-import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import type { UserRole } from "../../types/user";
 
@@ -11,8 +11,8 @@ function can(role: UserRole | undefined, allowed: UserRole[]) {
 }
 
 const cardBtn =
-  "mt-4 inline-flex rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700";
-const disabledNote = "mt-4 text-xs text-stone-500";
+  "mt-3 inline-flex border border-rlx-gold/50 bg-rlx-green px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white transition hover:bg-rlx-green-deep";
+const disabledNote = "mt-3 text-[11px] text-rlx-ink-muted";
 
 export function ServiceCentreHomePage() {
   const { user } = useAuth();
@@ -32,29 +32,27 @@ export function ServiceCentreHomePage() {
   const techOk = can(user?.role, ["technician"]);
 
   return (
-    <div>
-      <PageHeader
-        title="Service centre (HO / regional)"
-        description=""
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              to="/service-centre/watch-inventory"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Watch inventory
-            </Link>
-            <Link
-              to="/service"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Store / SRF
-            </Link>
-          </div>
-        }
-      />
-
-      <div className="grid gap-6 md:grid-cols-5">
+    <FormPageShell
+      breadcrumb="Service centre"
+      title="Service centre (HO / regional)"
+      actions={
+        <div className="flex flex-wrap gap-1.5">
+          <Link
+            to="/service-centre/watch-inventory"
+            className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
+          >
+            Watch inventory
+          </Link>
+          <Link
+            to="/service"
+            className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
+          >
+            Store / SRF
+          </Link>
+        </div>
+      }
+    >
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Card title="Logistics">
           {inwardOk ? (
             <Link to="/service-centre/logistics" className={cardBtn}>
@@ -105,6 +103,6 @@ export function ServiceCentreHomePage() {
           )}
         </Card>
       </div>
-    </div>
+    </FormPageShell>
   );
 }

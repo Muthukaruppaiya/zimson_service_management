@@ -906,6 +906,36 @@ export async function runMigrations(pool: Pool): Promise<void> {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS watch_case_types_catalog (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(200) NOT NULL,
+      name_norm VARCHAR(200) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_by VARCHAR(80)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_watch_case_types_catalog_norm
+      ON watch_case_types_catalog (name_norm);
+    CREATE INDEX IF NOT EXISTS idx_watch_case_types_catalog_active
+      ON watch_case_types_catalog (is_active, sort_order);
+
+    CREATE TABLE IF NOT EXISTS watch_strap_chain_types_catalog (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(200) NOT NULL,
+      name_norm VARCHAR(200) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_by VARCHAR(80)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_watch_strap_chain_types_catalog_norm
+      ON watch_strap_chain_types_catalog (name_norm);
+    CREATE INDEX IF NOT EXISTS idx_watch_strap_chain_types_catalog_active
+      ON watch_strap_chain_types_catalog (is_active, sort_order);
+  `);
+
+  await pool.query(`
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS watch_family VARCHAR(200) NOT NULL DEFAULT '';
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS watch_family VARCHAR(200) NOT NULL DEFAULT '';
   `);
@@ -1118,16 +1148,20 @@ export async function runMigrations(pool: Pool): Promise<void> {
   // FULFILLED is reserved for when HO physically transfers stock to the store.
   // Also correct any PRs wrongly set to FULFILLED by a prior migration run.
   await pool.query(`
-    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS case_type VARCHAR(120) NOT NULL DEFAULT '';
-    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS strap_chain_type VARCHAR(120) NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS case_type TEXT NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS strap_chain_type TEXT NOT NULL DEFAULT '';
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS nature_of_repair VARCHAR(240) NOT NULL DEFAULT '';
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS chain_count VARCHAR(32) NOT NULL DEFAULT '';
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS customer_remarks TEXT NOT NULL DEFAULT '';
-    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS case_type VARCHAR(120) NOT NULL DEFAULT '';
-    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS strap_chain_type VARCHAR(120) NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS case_type TEXT NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS strap_chain_type TEXT NOT NULL DEFAULT '';
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS nature_of_repair VARCHAR(240) NOT NULL DEFAULT '';
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS chain_count VARCHAR(32) NOT NULL DEFAULT '';
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_remarks TEXT NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ALTER COLUMN case_type TYPE TEXT;
+    ALTER TABLE quick_bills ALTER COLUMN strap_chain_type TYPE TEXT;
+    ALTER TABLE srf_jobs ALTER COLUMN case_type TYPE TEXT;
+    ALTER TABLE srf_jobs ALTER COLUMN strap_chain_type TYPE TEXT;
   `);
 
   await pool.query(`
@@ -1177,4 +1211,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
     WHERE pr.id = has_grn.pr_id
       AND pr.status IN ('APPROVED', 'PARTIAL', 'FULFILLED')
   `);
+
+  const { seedWatchCatalogTables } = await import("../watchCatalogRoutes");
+  await seedWatchCatalogTables(pool);
 }

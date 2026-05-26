@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, apiJson } from "../../lib/api";
 import { sanitizeTextInput } from "../../lib/inputSanitize";
+import { SearchableCombobox } from "./SearchableCombobox";
 
 export type WatchFamilyRow = { id: string; brand: string; family: string };
 
@@ -12,9 +13,7 @@ type WatchFamilyPickerProps = {
   inputClass: string;
   idPrefix?: string;
   required?: boolean;
-  /** Fires when user picks an existing family vs typing a new one. */
   onSelectionModeChange?: (isNewFamily: boolean) => void;
-  /** When true, do not auto-pick the first family or pre-fill serial/refs. */
   disableAutoSelect?: boolean;
 };
 
@@ -140,7 +139,6 @@ export function WatchFamilyPicker({
           : "";
     if (!watchBrand.trim() || !name) return;
     if (!apiMode) {
-      setSaveMsg(null);
       setLoadError("Turn on API mode (VITE_USE_API) to save families to the server.");
       return;
     }
@@ -165,100 +163,98 @@ export function WatchFamilyPicker({
   }
 
   const label = required ? "Family *" : "Family";
+  const comboboxOptions = useMemo(
+    () => catalogFamilies.map((f) => ({ value: f.family, label: f.family })),
+    [catalogFamilies],
+  );
+
+  if (catalogFamilies.length === 0) {
+    return (
+      <div className="min-w-0">
+        <p className="mb-1 text-xs text-amber-900">No saved families for this brand — enter a family name.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchableCombobox
+            id={`${idPrefix}-family-custom`}
+            label={label}
+            freeText
+            freeTextValue={customFamilyText}
+            onFreeTextChange={(t) => {
+              setCustomFamilyText(sanitizeTextInput(t, 120));
+              setCatalogFamilyKey("__new__");
+              setSaveMsg(null);
+            }}
+            value="__new__"
+            options={[]}
+            onChange={() => {}}
+            inputClass={inputClass}
+            placeholder="Family name *"
+            required={required}
+          />
+          {apiMode ? (
+            <button
+              type="button"
+              disabled={!customFamilyText.trim() || saving}
+              onClick={() => void saveNewFamily()}
+              className="mt-6 shrink-0 border border-rlx-gold/60 bg-white px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
+            >
+              {saving ? "…" : "Save"}
+            </button>
+          ) : null}
+        </div>
+        {saveMsg ? <p className="mt-1.5 text-xs font-medium text-emerald-800">{saveMsg}</p> : null}
+        {loadError ? <p className="mt-1.5 text-xs text-red-800">{loadError}</p> : null}
+      </div>
+    );
+  }
 
   return (
     <div className="min-w-0">
-      <label htmlFor={`${idPrefix}-family`} className="text-xs font-medium text-stone-600">
-        {label}
-      </label>
-      {catalogFamilies.length > 0 ? (
-        <>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <select
-                id={`${idPrefix}-family`}
-                value={catalogFamilyKey === "__new__" ? "__new__" : catalogFamilyKey || ""}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setSaveMsg(null);
-                  if (!v) {
-                    setCatalogFamilyKey("");
-                    setCustomFamilyText("");
-                    return;
-                  }
-                  if (v === "__new__") {
-                    setCatalogFamilyKey("__new__");
-                    setCustomFamilyText("");
-                    return;
-                  }
-                  setCatalogFamilyKey(v);
-                  setCustomFamilyText("");
-                }}
-                className={inputClass.replace("mt-1 ", "")}
-              >
-                {disableAutoSelect ? <option value="">Select family</option> : null}
-                {catalogFamilies.map((f) => (
-                  <option key={f.id} value={f.family}>
-                    {f.family}
-                  </option>
-                ))}
-                <option value="__new__">+ Add new family…</option>
-              </select>
-            </div>
-            {catalogFamilyKey === "__new__" && apiMode ? (
-              <button
-                type="button"
-                disabled={!customFamilyText.trim() || saving}
-                title="Save new family to database"
-                onClick={() => void saveNewFamily()}
-                className="shrink-0 rounded-md border border-zimson-500 bg-zimson-600 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving ? "…" : "Save"}
-              </button>
-            ) : null}
-          </div>
-          {catalogFamilyKey === "__new__" ? (
-            <input
-              className={`${inputClass} mt-2`}
-              placeholder="Type new family name"
-              value={customFamilyText}
-              onChange={(e) => {
-                setCustomFamilyText(sanitizeTextInput(e.target.value, 120));
-                setSaveMsg(null);
-              }}
-              aria-label="New family name"
-            />
-          ) : null}
-        </>
-      ) : (
-        <div>
-          <p className="mb-1 text-xs text-amber-900">No saved families for this brand — enter a family name.</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <input
-              id={`${idPrefix}-family-custom`}
-              className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1 basis-[min(100%,14rem)]`}
-              placeholder="Family name *"
-              value={customFamilyText}
-              onChange={(e) => {
-                setCustomFamilyText(sanitizeTextInput(e.target.value, 120));
-                setCatalogFamilyKey("__new__");
-                setSaveMsg(null);
-              }}
-            />
-            {apiMode ? (
-              <button
-                type="button"
-                disabled={!customFamilyText.trim() || saving}
-                title="Save new family to database"
-                onClick={() => void saveNewFamily()}
-                className="shrink-0 rounded-md border border-zimson-500 bg-zimson-600 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving ? "…" : "Save"}
-              </button>
-            ) : null}
-          </div>
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <SearchableCombobox
+            id={`${idPrefix}-family`}
+            label={label}
+            required={required}
+            value={catalogFamilyKey === "__new__" ? "" : catalogFamilyKey}
+            options={comboboxOptions}
+            onChange={(v) => {
+              setSaveMsg(null);
+              if (!v) {
+                setCatalogFamilyKey("");
+                setCustomFamilyText("");
+                return;
+              }
+              setCatalogFamilyKey(v);
+              setCustomFamilyText("");
+            }}
+            inputClass={inputClass}
+            placeholder="Search or select family…"
+            actionOption={{ value: "__new__", label: "+ Add new family…" }}
+            onActionSelect={() => {
+              setCatalogFamilyKey("__new__");
+              setCustomFamilyText("");
+            }}
+            freeText={catalogFamilyKey === "__new__"}
+            freeTextValue={customFamilyText}
+            onFreeTextChange={(t) => {
+              setCustomFamilyText(sanitizeTextInput(t, 120));
+              setCatalogFamilyKey("__new__");
+              setSaveMsg(null);
+            }}
+          />
         </div>
-      )}
+        {catalogFamilyKey === "__new__" && apiMode ? (
+          <button
+            type="button"
+            disabled={!customFamilyText.trim() || saving}
+            title="Save new family to database"
+            onClick={() => void saveNewFamily()}
+            className="mt-6 shrink-0 border border-rlx-gold/60 bg-white px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
+          >
+            {saving ? "…" : "Save"}
+          </button>
+        ) : null}
+      </div>
       {saveMsg ? <p className="mt-1.5 text-xs font-medium text-emerald-800">{saveMsg}</p> : null}
       {loadError ? <p className="mt-1.5 text-xs text-red-800">{loadError}</p> : null}
     </div>

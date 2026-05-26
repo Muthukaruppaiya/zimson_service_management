@@ -1,9 +1,9 @@
-import { PageHeader } from "../../components/ui/PageHeader";
+import { FormPageShell } from "../../components/layout/FormPageShell";
 
 export function InventoryModulePage() {
   return (
-    <div>
-      <PageHeader title="Inventory" description="" />
-    </div>
+    <FormPageShell breadcrumb="Inventory" title="Inventory" description="Spares, stock, purchase orders, and suppliers.">
+      <p className="text-[11px] text-rlx-ink-muted">Use the sidebar to open inventory screens.</p>
+    </FormPageShell>
   );
 }

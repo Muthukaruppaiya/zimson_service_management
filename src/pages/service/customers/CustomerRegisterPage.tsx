@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { CustomerDetailsModal } from "../../../components/service/CustomerDetailsModal";
 import { ServiceBreadcrumb } from "../../../components/service/ServiceBreadcrumb";
 import { Card } from "../../../components/ui/Card";
 import { PageHeader } from "../../../components/ui/PageHeader";
@@ -11,7 +12,6 @@ const inputClass =
 
 export function CustomerRegisterPage() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   const initialName = searchParams.get("name") ?? "";
   const initialPhone = searchParams.get("phone") ?? "";
@@ -21,6 +21,7 @@ export function CustomerRegisterPage() {
   const [checking, setChecking] = useState(false);
   const [checkedCustomer, setCheckedCustomer] = useState<CustomerRecord | null>(null);
   const [showCreatePopup, setShowCreatePopup] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const hint = useMemo(() => {
     if (searchParams.get("reason") === "new") {
@@ -107,31 +108,27 @@ export function CustomerRegisterPage() {
             Type: {checkedCustomer.customerKind}
             {checkedCustomer.company ? ` · ${checkedCustomer.company}` : ""}
           </p>
-          <div className="mt-4 flex flex-wrap gap-3">
+          <p className="mt-3 text-xs text-stone-600">
+            This mobile is already registered. You cannot create another profile with the same number.
+          </p>
+          <div className="mt-4">
             <button
               type="button"
-              onClick={() =>
-                navigate(`/service/billing/create?customerId=${encodeURIComponent(checkedCustomer.id)}`, {
-                  replace: true,
-                })
-              }
-              className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+              onClick={() => setDetailsOpen(true)}
+              className="inline-flex border border-rlx-gold/60 bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
             >
-              Use this customer
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCheckedCustomer(null);
-                setShowCreatePopup(true);
-              }}
-              className="rounded-xl border border-zimson-400 bg-white px-5 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-            >
-              Create as new customer
+              Customer details
             </button>
           </div>
         </Card>
       ) : null}
+
+      <CustomerDetailsModal
+        customerId={checkedCustomer?.id ?? null}
+        open={detailsOpen}
+        onClose={() => setDetailsOpen(false)}
+        fallback={checkedCustomer}
+      />
 
       {showCreatePopup ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">

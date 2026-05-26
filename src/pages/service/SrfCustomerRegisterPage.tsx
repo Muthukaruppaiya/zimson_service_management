@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
+import { FormPageShell } from "../../components/layout/FormPageShell";
 import { Card } from "../../components/ui/Card";
 import { CustomerAddressForm } from "../../components/service/CustomerAddressForm";
-import { PageHeader } from "../../components/ui/PageHeader";
+import { CustomerDetailsModal } from "../../components/service/CustomerDetailsModal";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useCustomers } from "../../context/CustomersContext";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
@@ -25,7 +25,7 @@ import {
   trimCustomerAddress,
   validateCustomerAnniversary,
 } from "../../lib/customerAddress";
-import type { CustomerAddressBlock, CustomerKind } from "../../types/customer";
+import type { CustomerAddressBlock, CustomerKind, CustomerRecord } from "../../types/customer";
 import { inputClass } from "../../lib/uiForm";
 
 const contactVerifyPill =
@@ -62,6 +62,7 @@ export function SrfCustomerRegisterPage() {
   const navigate = useNavigate();
   const api = useApiMode();
   const {
+    lookup,
     registerCustomer,
     startRegistrationMobileOtp,
     confirmRegistrationMobileOtp,
@@ -132,6 +133,40 @@ export function SrfCustomerRegisterPage() {
 
   const phoneKey = useMemo(() => digitsOnly(phone, 12), [phone]);
   const emailKey = useMemo(() => email.trim().toLowerCase(), [email]);
+  const [existingCustomer, setExistingCustomer] = useState<CustomerRecord | null>(null);
+  const [phoneCheckBusy, setPhoneCheckBusy] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    if (phoneKey.length < 10) {
+      setExistingCustomer(null);
+      return;
+    }
+    let cancelled = false;
+    setPhoneCheckBusy(true);
+    void (async () => {
+      try {
+        if (api) {
+          const data = await apiJson<{ customer: CustomerRecord | null }>(
+            `/api/customers?phone=${encodeURIComponent(phoneKey)}`,
+          );
+          if (!cancelled) setExistingCustomer(data.customer ?? null);
+        } else {
+          const result = lookup("", phone);
+          if (!cancelled) {
+            setExistingCustomer(result.status === "new" ? null : result.customer);
+          }
+        }
+      } catch {
+        if (!cancelled) setExistingCustomer(null);
+      } finally {
+        if (!cancelled) setPhoneCheckBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, lookup, phone, phoneKey]);
 
   useEffect(() => {
     setSessionId(null);
@@ -218,6 +253,13 @@ export function SrfCustomerRegisterPage() {
 
   async function handleStartMobileOtp() {
     setError(null);
+    if (existingCustomer) {
+      showOtpAlert(
+        `Mobile ${phoneKey} is already registered as “${existingCustomer.displayName}”. Use Customer master to view or edit that profile.`,
+        "Already registered",
+      );
+      return;
+    }
     if (!phone.trim() || digitsOnly(phone, 12).length < 10) {
       showOtpAlert("Enter a valid 10-digit primary mobile.", "OTP");
       return;
@@ -316,6 +358,12 @@ export function SrfCustomerRegisterPage() {
 
   function validateAll(): boolean {
     setError(null);
+    if (existingCustomer) {
+      setError(
+        `This mobile is already on file for “${existingCustomer.displayName}”. You cannot create a second profile with the same number.`,
+      );
+      return false;
+    }
     if (!sessionId || !mobileOtpVerified) {
       showOtpAlert(
         "Complete mobile OTP verification (Verify → enter code → Confirm OTP).",
@@ -456,27 +504,48 @@ export function SrfCustomerRegisterPage() {
     }
   }
 
-  return (
-    <div className="space-y-4">
-      <ServiceBreadcrumb current={forQuickBill ? "Quick bill — new customer" : "SRF — new customer"} />
-      <PageHeader
-        title="Register customer"
-        description=""
-        actions={
-          <Link
-            to={
-              forQuickBill
-                ? `/service/quick-bill${initialPhone ? `?restorePhone=${encodeURIComponent(initialPhone)}` : ""}`
-                : `/service/srf${initialPhone ? `?restorePhone=${encodeURIComponent(initialPhone)}` : ""}`
-            }
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            {forQuickBill ? "Back to quick bill" : "Back to SRF"}
-          </Link>
-        }
-      />
+  const backHref = forQuickBill
+    ? `/service/quick-bill${initialPhone ? `?restorePhone=${encodeURIComponent(initialPhone)}` : ""}`
+    : `/service/srf${initialPhone ? `?restorePhone=${encodeURIComponent(initialPhone)}` : ""}`;
 
-      <form onSubmit={(e) => void handleFinalSubmit(e)} className="space-y-6 rounded-2xl border border-zimson-200/80 bg-zimson-50/40 p-4 sm:p-6">
+  return (
+    <FormPageShell
+      breadcrumb={forQuickBill ? "Quick bill — new customer" : "SRF — new customer"}
+      title="Register customer"
+      actions={
+        <Link
+          to={backHref}
+          className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
+        >
+          {forQuickBill ? "Back to quick bill" : "Back to SRF"}
+        </Link>
+      }
+    >
+      <form onSubmit={(e) => void handleFinalSubmit(e)} className="space-y-4">
+        {phoneCheckBusy && phoneKey.length >= 10 ? (
+          <p className="text-[11px] text-rlx-ink-muted">Checking mobile number…</p>
+        ) : null}
+        {existingCustomer ? (
+          <div className="border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-[11px] text-amber-950">
+            <p className="font-semibold">Mobile already registered</p>
+            <p className="mt-1">
+              <strong>{existingCustomer.displayName}</strong>
+              {existingCustomer.customerCode ? (
+                <> · Code <span className="font-mono">{existingCustomer.customerCode}</span></>
+              ) : null}
+              {" "}· {existingCustomer.phone}
+            </p>
+            <p className="mt-2">
+              <button
+                type="button"
+                onClick={() => setDetailsOpen(true)}
+                className="inline-flex border border-rlx-gold/60 bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
+              >
+                Customer details
+              </button>
+            </p>
+          </div>
+        ) : null}
         <Card title="Customer type">
           <div className="grid gap-3 sm:grid-cols-2">
             <label
@@ -582,7 +651,7 @@ export function SrfCustomerRegisterPage() {
                 <button
                   type="button"
                   onClick={() => void handleStartMobileOtp()}
-                  disabled={otpStartBusy}
+                  disabled={otpStartBusy || phoneCheckBusy || !!existingCustomer}
                   className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {otpStartBusy ? "…" : "Verify"}
@@ -939,7 +1008,7 @@ export function SrfCustomerRegisterPage() {
         <div className="sticky bottom-2 z-10 flex flex-wrap gap-3 rounded-xl border border-zimson-200 bg-white/90 p-3 shadow-lg backdrop-blur">
           <button
             type="submit"
-            disabled={saving || !mobileOtpVerified}
+            disabled={saving || !mobileOtpVerified || !!existingCustomer || phoneCheckBusy}
             className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Create customer"}
@@ -997,6 +1066,12 @@ export function SrfCustomerRegisterPage() {
         </ProcessSuccessModal>
       ) : null}
       {alertModal}
-    </div>
+      <CustomerDetailsModal
+        customerId={existingCustomer?.id ?? null}
+        open={detailsOpen}
+        onClose={() => setDetailsOpen(false)}
+        fallback={existingCustomer}
+      />
+    </FormPageShell>
   );
 }
