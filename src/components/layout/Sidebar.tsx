@@ -260,7 +260,7 @@ export function Sidebar() {
           to="/"
           end
           className={({ isActive }) =>
-            `group flex items-center gap-3 px-3 py-2.5 text-[13px] font-semibold transition-all duration-150 ${
+            `group flex items-center gap-2.5 px-2.5 py-2 text-[11px] font-semibold transition-all duration-150 ${
               isActive
                 ? "bg-white/15 text-white"
                 : "text-white/70 hover:bg-white/8 hover:text-white"
@@ -296,7 +296,7 @@ export function Sidebar() {
                 <button
                   type="button"
                   onClick={() => setOpenSection((prev) => prev === section.title ? null : section.title)}
-                  className={`group relative flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[13px] font-semibold transition-all duration-150 ${
+                  className={`group relative flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-[11px] font-semibold transition-all duration-150 ${
                     isOpen || hasActiveChild
                       ? "bg-white/15 text-white"
                       : "text-white/70 hover:bg-white/8 hover:text-white"

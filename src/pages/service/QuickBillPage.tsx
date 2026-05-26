@@ -70,6 +70,7 @@ import {
   WatchServiceDetailFields,
   type WatchServiceDetailValues,
 } from "../../components/service/WatchServiceDetailFields";
+import { inputClass } from "../../lib/uiForm";
 
 type QuickBillWatchModelRow = { id: string; brand: string; model: string; refHint: string };
 
@@ -129,9 +130,6 @@ type QuickBillSpareOption = {
 function emptyLine(): LineItem {
   return { id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, description: "", amount: "" };
 }
-
-const inputClass =
-  "mt-1 w-full min-w-0 max-w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
 
 /** Responsive form layout — stacks on narrow / quarter-screen laptop windows. */
 const qbPage = "min-w-0 max-w-full";
@@ -1573,7 +1571,7 @@ export function QuickBillPage() {
         onSubmit={(e) => {
           e.preventDefault();
         }}
-        className="min-w-0 space-y-6 sm:space-y-8"
+        className="min-w-0 space-y-4 sm:space-y-5"
       >
         <Card
           title="Customer"

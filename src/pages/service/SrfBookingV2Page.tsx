@@ -53,6 +53,7 @@ import {
   resolveOperatingStoreId,
   storesForRegion,
 } from "../../lib/serviceOperatingContext";
+import { inputClass } from "../../lib/uiForm";
 
 const steps = ["Customer", "Watch", "Photos", "Estimate + OTP", "Review"] as const;
 
@@ -103,9 +104,6 @@ function isVerifiedTimestamp(iso: string | null): boolean {
 function isFullyOtpVerified(phoneAt: string | null, emailAt: string | null): boolean {
   return isVerifiedTimestamp(phoneAt) && isVerifiedTimestamp(emailAt);
 }
-
-const inputClass =
-  "mt-1 w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
 
 const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
 

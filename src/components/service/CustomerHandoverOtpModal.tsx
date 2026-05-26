@@ -3,9 +3,7 @@ import { DemoOtpGate } from "./DemoOtpGate";
 import { useCustomers } from "../../context/CustomersContext";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { sanitizeEmailInput, sanitizePhoneDigits } from "../../lib/inputSanitize";
-
-const inputClass =
-  "mt-1 w-full rounded-xl border border-zimson-200 bg-white px-3 py-2.5 text-sm text-stone-900 shadow-sm outline-none ring-zimson-400/40 placeholder:text-stone-400 transition focus:border-zimson-500 focus:ring-2";
+import { inputClass } from "../../lib/uiForm";
 
 function phoneLast10(v: string): string {
   const digits = v.replace(/\D/g, "");
