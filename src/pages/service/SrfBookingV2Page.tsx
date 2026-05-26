@@ -45,6 +45,14 @@ import {
   normalizeSrfRepairRoute,
   type SrfRepairRoute,
 } from "../../lib/srfRepairRoute";
+import {
+  hoNeedsOperatingStorePicker,
+  isHoServiceOperator,
+  pickDefaultStoreId,
+  resolveOperatingRegionId,
+  resolveOperatingStoreId,
+  storesForRegion,
+} from "../../lib/serviceOperatingContext";
 
 const steps = ["Customer", "Watch", "Photos", "Estimate + OTP", "Review"] as const;
 
@@ -169,6 +177,8 @@ export function SrfBookingV2Page() {
   const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
 
   const [step, setStep] = useState(0);
+  const [operatingRegionId, setOperatingRegionId] = useState("");
+  const [operatingStoreId, setOperatingStoreId] = useState("");
   const [customerType, setCustomerType] = useState<"B2C" | "B2B">("B2C");
   const [customerName, setCustomerName] = useState("");
   const customerNameForNavRef = useRef("");
@@ -324,9 +334,20 @@ export function SrfBookingV2Page() {
     };
   }, [apiMode, watchBrand]);
 
-  const fallbackStoreId = Array.isArray(user?.storeIds) && user.storeIds.length > 0 ? user.storeIds[0] : "";
-  const currentStoreId = String(user?.storeId ?? fallbackStoreId ?? "").trim();
-  const currentRegionId = String(user?.regionId ?? "").trim();
+  const effectiveOperatingRegionId = useMemo(
+    () => resolveOperatingRegionId(user?.role, user?.regionId, operatingRegionId),
+    [user?.role, user?.regionId, operatingRegionId],
+  );
+  const currentStoreId = useMemo(
+    () => resolveOperatingStoreId(user?.role, user?.storeId, user?.storeIds, operatingStoreId),
+    [user?.role, user?.storeId, user?.storeIds, operatingStoreId],
+  );
+  const currentRegionId = effectiveOperatingRegionId;
+  const operatingStoreOptions = useMemo(
+    () => storesForRegion(regions, effectiveOperatingRegionId),
+    [regions, effectiveOperatingRegionId],
+  );
+  const showHoOperatingLocation = isHoServiceOperator(user?.role);
   const handoverStoreOptions = useMemo(() => {
     const region = regions.find((r) => r.id === currentRegionId);
     return region?.stores ?? [];
@@ -398,8 +419,40 @@ export function SrfBookingV2Page() {
   }, [catalogModels, catalogModelKey]);
 
   useEffect(() => {
+    if (!apiMode || user?.role !== "super_admin") return;
+    if (regions.length > 0 && !operatingRegionId) setOperatingRegionId(regions[0]!.id);
+  }, [apiMode, user?.role, regions, operatingRegionId]);
+
+  useEffect(() => {
+    if (!apiMode || !hoNeedsOperatingStorePicker(user?.role, user?.storeId, user?.storeIds)) return;
+    if (!effectiveOperatingRegionId) return;
+    const defaultId = pickDefaultStoreId(regions, effectiveOperatingRegionId, user?.storeId);
+    if (defaultId && !operatingStoreId) setOperatingStoreId(defaultId);
+  }, [
+    apiMode,
+    user?.role,
+    user?.storeId,
+    user?.storeIds,
+    regions,
+    effectiveOperatingRegionId,
+    operatingStoreId,
+  ]);
+
+  useEffect(() => {
+    if (!operatingStoreId || operatingStoreOptions.some((s) => s.id === operatingStoreId)) return;
+    const defaultId = pickDefaultStoreId(regions, effectiveOperatingRegionId, null);
+    if (defaultId) setOperatingStoreId(defaultId);
+  }, [operatingStoreId, operatingStoreOptions, regions, effectiveOperatingRegionId]);
+
+  useEffect(() => {
     if (!handoverStoreId && currentStoreId) setHandoverStoreId(currentStoreId);
   }, [handoverStoreId, currentStoreId]);
+
+  useEffect(() => {
+    if (!ENABLE_SRF_HANDOVER_STORE_SELECT && operatingStoreId) {
+      setHandoverStoreId(operatingStoreId);
+    }
+  }, [operatingStoreId]);
 
   function validateCustomer() {
     if (!customerName.trim() || !phone.trim()) {
@@ -456,7 +509,7 @@ export function SrfBookingV2Page() {
 
   async function ensureDraft() {
     if (draft) return draft;
-    const regionId = String(user?.regionId ?? "").trim();
+    const regionId = effectiveOperatingRegionId;
     const storeId = currentStoreId;
     const destinationStoreId = String(handoverStoreId || currentStoreId).trim();
     const customerNameValue = customerName.trim();
@@ -466,7 +519,11 @@ export function SrfBookingV2Page() {
     const watchModelValue = resolvedWatchModel.trim();
     const serialValue = serial.trim();
     if (!regionId || !storeId) {
-      throw new Error("Current login is not mapped to store/region. Please re-login and select the store.");
+      throw new Error(
+        showHoOperatingLocation
+          ? "Select operating region and store at the top of this page before continuing."
+          : "Current login is not mapped to store/region. Please re-login and select the store.",
+      );
     }
     if (
       !customerNameValue ||
@@ -1327,6 +1384,61 @@ export function SrfBookingV2Page() {
     <div>
       <ServiceBreadcrumb current="SRF booking" />
       <PageHeader title="SRF booking" description="" />
+      {apiMode && showHoOperatingLocation ? (
+        <Card
+          title="Operating location"
+          subtitle="Intake store for this SRF. Required when your login is not tied to a single store."
+          className="mb-6"
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            {user?.role === "super_admin" ? (
+              <label className="text-sm">
+                <span className="text-xs font-medium text-stone-600">Region *</span>
+                <select
+                  value={operatingRegionId}
+                  onChange={(e) => {
+                    setOperatingRegionId(e.target.value);
+                    setOperatingStoreId("");
+                  }}
+                  className={inputClass}
+                >
+                  <option value="">Select region</option>
+                  {regions.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="text-sm">
+                <span className="text-xs font-medium text-stone-600">Region</span>
+                <p className="mt-1 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-stone-800">
+                  {regions.find((r) => r.id === user?.regionId)?.name ?? user?.regionId ?? "—"}
+                </p>
+              </div>
+            )}
+            {hoNeedsOperatingStorePicker(user?.role, user?.storeId, user?.storeIds) ? (
+              <label className="text-sm">
+                <span className="text-xs font-medium text-stone-600">Store *</span>
+                <select
+                  value={operatingStoreId}
+                  onChange={(e) => setOperatingStoreId(e.target.value)}
+                  className={inputClass}
+                  disabled={!effectiveOperatingRegionId}
+                >
+                  <option value="">Select store</option>
+                  {operatingStoreOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
       <div className="mb-6 rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
         <Stepper steps={[...steps]} activeIndex={step} />
       </div>

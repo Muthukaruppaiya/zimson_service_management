@@ -48,6 +48,14 @@ import {
   watchModelsForBrand,
 } from "../../data/serviceSeed";
 import { validateCustomerB2bGstin, ZIMSON_OWN_GSTIN_FIELD_HINT } from "../../lib/zimsonCompanyGst";
+import {
+  hoNeedsOperatingStorePicker,
+  isHoServiceOperator,
+  pickDefaultStoreId,
+  resolveOperatingRegionId,
+  resolveOperatingStoreId,
+  storesForRegion,
+} from "../../lib/serviceOperatingContext";
 import type { TechnicianProfile } from "../../types/technician";
 import {
   isFullyOtpVerified,
@@ -198,6 +206,7 @@ export function QuickBillPage() {
   const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
   const { spares } = useSpares();
   const [billingRegionId, setBillingRegionId] = useState("");
+  const [billingStoreId, setBillingStoreId] = useState("");
   const [customerType, setCustomerType] = useState<"B2C" | "B2B">("B2C");
   const [customerName, setCustomerName] = useState("");
   /** Keeps new-customer navigate URL stable without putting `customerName` in `checkCustomerInDb` deps (which retriggered lookup and cleared `customerChecked`). */
@@ -597,10 +606,23 @@ export function QuickBillPage() {
     };
   }, [apiMode, user]);
 
+  const effectiveBillingRegionId = useMemo(
+    () => resolveOperatingRegionId(user?.role, user?.regionId, billingRegionId),
+    [user?.role, user?.regionId, billingRegionId],
+  );
+  const effectiveBillingStoreId = useMemo(
+    () => resolveOperatingStoreId(user?.role, user?.storeId, user?.storeIds, billingStoreId),
+    [user?.role, user?.storeId, user?.storeIds, billingStoreId],
+  );
+  const billingStoreOptions = useMemo(
+    () => storesForRegion(regions, effectiveBillingRegionId),
+    [regions, effectiveBillingRegionId],
+  );
+  const showHoBillingLocation = isHoServiceOperator(user?.role);
+
   const priceRegionQuery = useMemo(() => {
-    const rid = user?.role === "super_admin" ? billingRegionId : user?.regionId ?? "";
-    return rid ? `?regionId=${encodeURIComponent(rid)}` : "";
-  }, [user?.role, user?.regionId, billingRegionId]);
+    return effectiveBillingRegionId ? `?regionId=${encodeURIComponent(effectiveBillingRegionId)}` : "";
+  }, [effectiveBillingRegionId]);
 
   const stockQuerySuffix = useMemo(() => {
     const qs = new URLSearchParams();
@@ -615,6 +637,27 @@ export function QuickBillPage() {
     if (!apiMode || user?.role !== "super_admin") return;
     if (regions.length > 0 && !billingRegionId) setBillingRegionId(regions[0]!.id);
   }, [apiMode, user?.role, regions, billingRegionId]);
+
+  useEffect(() => {
+    if (!apiMode || !hoNeedsOperatingStorePicker(user?.role, user?.storeId, user?.storeIds)) return;
+    if (!effectiveBillingRegionId) return;
+    const defaultId = pickDefaultStoreId(regions, effectiveBillingRegionId, user?.storeId);
+    if (defaultId && !billingStoreId) setBillingStoreId(defaultId);
+  }, [
+    apiMode,
+    user?.role,
+    user?.storeId,
+    user?.storeIds,
+    regions,
+    effectiveBillingRegionId,
+    billingStoreId,
+  ]);
+
+  useEffect(() => {
+    if (!billingStoreId || billingStoreOptions.some((s) => s.id === billingStoreId)) return;
+    const defaultId = pickDefaultStoreId(regions, effectiveBillingRegionId, null);
+    if (defaultId) setBillingStoreId(defaultId);
+  }, [billingStoreId, billingStoreOptions, regions, effectiveBillingRegionId]);
 
   useEffect(() => {
     void apiJson<{ rows: TechnicianProfile[] }>("/api/service/technicians?activeOnly=1")
@@ -812,10 +855,14 @@ export function QuickBillPage() {
       setError("Customer upload link requires API mode.");
       return;
     }
-    const regionId = String(user?.regionId ?? "").trim();
-    const storeId = String(user?.storeId ?? "").trim();
+    const regionId = effectiveBillingRegionId;
+    const storeId = effectiveBillingStoreId;
     if (!regionId || !storeId) {
-      setError("Your login must be mapped to a store to generate an upload link.");
+      setError(
+        showHoBillingLocation
+          ? "Select billing region and store before generating an upload link."
+          : "Your login must be mapped to a store to generate an upload link.",
+      );
       return;
     }
     setCaptureLinkBusy(true);
@@ -1018,6 +1065,14 @@ export function QuickBillPage() {
       setError("Select billing region (required to load prices and save the bill).");
       return false;
     }
+    if (apiMode && user?.role === "admin" && !user?.regionId?.trim()) {
+      setError("Your account is missing a region. Contact an administrator.");
+      return false;
+    }
+    if (apiMode && hoNeedsOperatingStorePicker(user?.role, user?.storeId, user?.storeIds) && !effectiveBillingStoreId) {
+      setError("Select billing store (required for upload link and to save the bill).");
+      return false;
+    }
     const parsed = lines
       .map((l) => ({
         description: l.description.trim(),
@@ -1084,12 +1139,15 @@ export function QuickBillPage() {
       .filter((l) => l.description && !Number.isNaN(l.amount) && l.amount >= 0);
 
     if (apiMode) {
-      const regionId =
-        user?.role === "super_admin" ? billingRegionId.trim() : user?.regionId?.trim() ?? "";
+      const regionId = effectiveBillingRegionId;
       if (!regionId) {
         setError("Missing region for this account. Select billing region or re-login.");
         return;
       }
+      const storeIdForBill =
+        user?.role === "store_user"
+          ? user.storeId
+          : effectiveBillingStoreId || null;
       const tech = technicians.find((t) => t.id === technicianId);
       const billTotal =
         parsedLines.reduce((sum, l) => sum + l.amount, 0) +
@@ -1108,7 +1166,7 @@ export function QuickBillPage() {
           method: "POST",
           json: {
             regionId,
-            storeId: user?.role === "store_user" ? user.storeId : null,
+            storeId: storeIdForBill,
             customerType,
             customerId: loadedCustomerId,
             customerCode: loadedCustomerCode,
@@ -1448,28 +1506,61 @@ export function QuickBillPage() {
         description=""
       />
 
-      {apiMode && user?.role === "super_admin" ? (
+      {apiMode && showHoBillingLocation ? (
         <Card
-          title="Billing region"
-          subtitle="Used for regional spare prices and stored on the quick bill."
+          title="Billing location"
+          subtitle="Regional spare prices and the store on the quick bill. Required for HO admin accounts."
           className="mb-8"
         >
-          <label htmlFor="qb-bill-region" className="text-xs font-medium text-stone-600">
-            Region *
-          </label>
-          <select
-            id="qb-bill-region"
-            value={billingRegionId}
-            onChange={(e) => setBillingRegionId(e.target.value)}
-            className={inputClass}
-          >
-            <option value="">Select region</option>
-            {regions.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {user?.role === "super_admin" ? (
+              <label htmlFor="qb-bill-region" className="text-sm">
+                <span className="text-xs font-medium text-stone-600">Region *</span>
+                <select
+                  id="qb-bill-region"
+                  value={billingRegionId}
+                  onChange={(e) => {
+                    setBillingRegionId(e.target.value);
+                    setBillingStoreId("");
+                  }}
+                  className={inputClass}
+                >
+                  <option value="">Select region</option>
+                  {regions.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="text-sm">
+                <span className="text-xs font-medium text-stone-600">Region</span>
+                <p className="mt-1 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-stone-800">
+                  {regions.find((r) => r.id === user?.regionId)?.name ?? user?.regionId ?? "—"}
+                </p>
+              </div>
+            )}
+            {hoNeedsOperatingStorePicker(user?.role, user?.storeId, user?.storeIds) ? (
+              <label htmlFor="qb-bill-store" className="text-sm">
+                <span className="text-xs font-medium text-stone-600">Store *</span>
+                <select
+                  id="qb-bill-store"
+                  value={billingStoreId}
+                  onChange={(e) => setBillingStoreId(e.target.value)}
+                  className={inputClass}
+                  disabled={!effectiveBillingRegionId}
+                >
+                  <option value="">Select store</option>
+                  {billingStoreOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
         </Card>
       ) : null}
 
