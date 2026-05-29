@@ -15,26 +15,37 @@ function escapeHref(href: string): string {
   return href.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
-/** Outlook + Gmail compatible CTA — link on the anchor, not only the table cell. */
-function renderEmailButton(href: string, label: string): string {
-  const safeHref = escapeHref(href);
+/** Absolute https URL required — relative links are not clickable in most inboxes. */
+export function normalizeEmailActionUrl(href: string): string {
+  const trimmed = href.trim();
+  if (!trimmed) throw new Error("Email action URL is empty");
+  const u = new URL(trimmed);
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error(`Email action URL must be http(s): ${trimmed.slice(0, 80)}`);
+  }
+  return u.toString();
+}
+
+/** Minimal CTA — nested tables/MSO break Gmail; include optional full-URL link (always clickable). */
+function renderEmailButton(href: string, label: string, showFullUrlLink: boolean): string {
+  const url = normalizeEmailActionUrl(href);
+  const safeHref = escapeHref(url);
   const safeLabel = escapeHtml(label);
-  const safeHrefMso = href.replace(/"/g, "&quot;");
-  return `<table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 18px;">
-  <tr>
-    <td align="left" bgcolor="#1B3A8F" style="border-radius:8px;background-color:#1B3A8F;mso-padding-alt:0;">
-      <!--[if mso]>
-      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${safeHrefMso}" style="height:48px;v-text-anchor:middle;width:260px;" arcsize="12%" strokecolor="#C9A227" fillcolor="#1B3A8F">
-        <w:anchorlock/>
-        <center style="color:#ffffff;font-family:Segoe UI,Arial,sans-serif;font-size:15px;font-weight:bold;">${safeLabel}</center>
-      </v:roundrect>
-      <![endif]-->
-      <!--[if !mso]><!-->
-      <a href="${safeHref}" style="background-color:#1B3A8F;border:2px solid #C9A227;border-radius:8px;color:#ffffff;display:inline-block;font-family:Segoe UI,Arial,sans-serif;font-size:15px;font-weight:600;line-height:1.25;mso-hide:all;padding:14px 28px;text-align:center;text-decoration:none;-webkit-text-size-adjust:none;">${safeLabel}</a>
-      <!--<![endif]-->
-    </td>
-  </tr>
-</table>`;
+  const parts = [
+    `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#27272a;">
+  <a href="${safeHref}" style="display:inline-block;background-color:#1B3A8F;border:2px solid #C9A227;border-radius:8px;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;padding:14px 28px;text-decoration:none;">${safeLabel}</a>
+</p>`,
+    `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#27272a;">
+  <a href="${safeHref}" style="color:#1B3A8F;font-weight:700;text-decoration:underline;">${safeLabel}</a>
+</p>`,
+  ];
+  if (showFullUrlLink) {
+    parts.push(`<p style="margin:0 0 18px;font-size:13px;line-height:1.5;color:#52525b;">
+  If the button does not open, tap this link:<br>
+  <a href="${safeHref}" style="word-break:break-all;color:#1B3A8F;text-decoration:underline;">${safeHref}</a>
+</p>`);
+  }
+  return parts.join("\n");
 }
 
 export function parseFromAddress(from: string): { name: string; email: string; formatted: string } {
@@ -90,16 +101,7 @@ function renderBlocks(blocks: TransactionalBodyBlock[]): string {
   </tr>
 </table>`;
       }
-      const button = renderEmailButton(b.href, b.label);
-      if (!b.showUrlFallback) {
-        return button;
-      }
-      const copyUrl = escapeHtml(b.hint ?? b.href);
-      return `${button}
-<p style="margin:0 0 14px;font-size:13px;line-height:1.5;color:#52525b;">
-  If the button does not open, copy and paste this into your browser:<br>
-  <span style="word-break:break-all;color:#1B3A8F;">${copyUrl}</span>
-</p>`;
+      return renderEmailButton(b.href, b.label, Boolean(b.showUrlFallback));
     })
     .join("\n");
 }
@@ -118,7 +120,7 @@ export function buildTransactionalHtml(subject: string, preheader: string, block
   <title>${safeSubject}</title>
 </head>
 <body style="margin:0;padding:0;background:#f4f4f5;font-family:'Segoe UI',Roboto,Arial,sans-serif;">
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${safePreheader}</div>
+  <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;color:#f4f4f5;">${safePreheader}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;">
     <tr>
       <td align="center" style="padding:28px 16px;">

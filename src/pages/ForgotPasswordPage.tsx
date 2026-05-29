@@ -88,9 +88,11 @@ export function ForgotPasswordPage() {
             ) : null}
             {demoResetUrl ? (
               <div className="rounded-lg border-2 border-amber-400 bg-amber-50 px-3 py-3 text-xs text-amber-950">
-                <p className="font-semibold uppercase tracking-wide">Test mode — reset link (no email)</p>
+                <p className="font-semibold uppercase tracking-wide">Reset link (use on this device)</p>
                 <p className="mt-1 text-[11px] leading-relaxed">
-                  SMTP is not set up or email failed (e.g. Gmail app password). Open this link to set a new password:
+                  {demoResetUrl.includes("localhost") || demoResetUrl.includes("127.0.0.1")
+                    ? "Email links cannot use localhost in Gmail. Add APP_BASE_URL=https://zimsonwatchcare.com to your .env, restart the server, and request reset again — or open this link on the same PC where the app is running:"
+                    : "SMTP is not set up or email could not be sent. Open this link to set a new password:"}
                 </p>
                 <a
                   href={demoResetUrl}

@@ -16,7 +16,7 @@ import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext 
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
-import { getAppBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
+import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
 import { buildHoOutwardPrintMeta, buildStoreToHoPrintMeta } from "./transferDocMeta";
@@ -1906,7 +1906,13 @@ export function registerSrfRoutes(
         [phoneLast10(refRow?.phone ?? "")],
       );
       await client.query("COMMIT");
-      const trackingUrl = `${getAppBaseUrl(req)}/track?t=${encodeURIComponent(trackingToken)}`;
+      let trackingBase: string;
+      try {
+        trackingBase = getEmailActionBaseUrl(req);
+      } catch {
+        trackingBase = getAppBaseUrl(req);
+      }
+      const trackingUrl = `${trackingBase}/track?t=${encodeURIComponent(trackingToken)}`;
       const sent = await sendTrackingLink({
         phone: refRow?.phone ?? "",
         name: refRow?.customer_name ?? "Customer",
@@ -1953,7 +1959,13 @@ export function registerSrfRoutes(
         [phoneLast10(refRow.phone ?? "")],
       );
       await client.query("COMMIT");
-      const trackingUrl = `${getAppBaseUrl(req)}/track?t=${encodeURIComponent(trackingToken)}`;
+      let trackingBase: string;
+      try {
+        trackingBase = getEmailActionBaseUrl(req);
+      } catch {
+        trackingBase = getAppBaseUrl(req);
+      }
+      const trackingUrl = `${trackingBase}/track?t=${encodeURIComponent(trackingToken)}`;
       const sent = await sendTrackingLink({
         phone: refRow.phone ?? "",
         name: refRow.customer_name ?? "Customer",

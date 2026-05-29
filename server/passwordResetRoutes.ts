@@ -3,7 +3,7 @@ import type { Express, Request } from "express";
 import type { Pool } from "pg";
 import { isEmailConfigured, shouldExposePasswordResetInUi } from "./messaging/config";
 import { sendPasswordResetEmail } from "./messaging/passwordResetEmail";
-import { getAppBaseUrl } from "./publicAppUrl";
+import { buildPasswordResetUrl, getAppBaseUrl } from "./publicAppUrl";
 
 const RESET_TTL_MS = 60 * 60 * 1000;
 const GENERIC_OK_MESSAGE =
@@ -107,11 +107,19 @@ export function registerPasswordResetRoutes(
           [user.id, tokenHash, expiresAt.toISOString()],
         );
 
-        const base = getAppBaseUrl(req as Request);
-        const resetUrl = `${base}/login/reset-password?token=${encodeURIComponent(rawToken)}`;
+        let resetUrl: string;
+        try {
+          resetUrl = buildPasswordResetUrl(req as Request, rawToken);
+        } catch (urlErr) {
+          const localUrl = `${getAppBaseUrl(req as Request)}/login/reset-password?token=${encodeURIComponent(rawToken)}`;
+          console.warn("[forgot-password] Public reset URL not configured:", urlErr);
+          demoResetUrl = localUrl;
+          resetUrl = localUrl;
+        }
 
-        if (isEmailConfigured()) {
+        if (isEmailConfigured() && !demoResetUrl) {
           try {
+            console.log("[forgot-password] Sending reset email with link host:", new URL(resetUrl).host);
             await sendPasswordResetEmail(user.email, user.display_name, resetUrl);
             emailDelivered = true;
           } catch (mailErr) {
@@ -123,7 +131,7 @@ export function registerPasswordResetRoutes(
             }
           }
         } else if (demoUi || devFallback) {
-          demoResetUrl = resetUrl;
+          demoResetUrl = demoResetUrl ?? resetUrl;
         }
       }
 

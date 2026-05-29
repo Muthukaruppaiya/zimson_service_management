@@ -87,3 +87,56 @@ export function getAppBaseUrl(req?: Request): string {
   if (req) return resolvePublicAppBaseUrl(req);
   return publicAppBaseUrlFromEnv();
 }
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+
+export function isLocalOrPrivateAppHost(hostname: string): boolean {
+  const h = hostname.trim().toLowerCase();
+  if (LOCAL_HOSTS.has(h)) return true;
+  if (/^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  return false;
+}
+
+/**
+ * Base URL for links inside emails (password reset, tracking).
+ * Must be a public https URL — Gmail disables localhost / private IP links.
+ */
+export function getEmailActionBaseUrl(req?: Request): string {
+  const envUrl = appBaseUrlFromEnvVars();
+  if (envUrl) return normalizeEmailActionBaseUrl(envUrl);
+
+  if (req) {
+    const fromReq = resolvePublicAppBaseUrl(req);
+    if (!isLocalOrPrivateAppHost(new URL(fromReq).hostname)) {
+      return normalizeEmailActionBaseUrl(fromReq);
+    }
+  }
+
+  throw new Error(
+    "APP_BASE_URL must be set to your public site (e.g. https://zimsonwatchcare.com). " +
+      "localhost links do not work in Gmail or on mobile.",
+  );
+}
+
+/** Use https for real domains; block localhost in email hrefs. */
+export function normalizeEmailActionBaseUrl(base: string): string {
+  const trimmed = base.trim().replace(/\/+$/, "");
+  const u = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+  if (isLocalOrPrivateAppHost(u.hostname)) {
+    throw new Error(
+      `Email links cannot use ${u.hostname}. Set APP_BASE_URL=https://zimsonwatchcare.com in .env`,
+    );
+  }
+  if (u.protocol === "http:" && process.env.NODE_ENV === "production") {
+    u.protocol = "https:";
+  }
+  if (u.hostname.endsWith("zimsonwatchcare.com") && u.protocol === "http:") {
+    u.protocol = "https:";
+  }
+  return `${u.protocol}//${u.host}`;
+}
+
+export function buildPasswordResetUrl(req: Request, rawToken: string): string {
+  const base = getEmailActionBaseUrl(req);
+  return `${base}/login/reset-password?token=${encodeURIComponent(rawToken)}`;
+}

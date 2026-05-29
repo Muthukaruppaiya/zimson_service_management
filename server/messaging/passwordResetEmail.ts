@@ -1,5 +1,10 @@
 import { getMessagingConfig, isEmailConfigured } from "./config";
-import { escapeHtml, parseFromAddress, sendTransactionalEmail } from "./transactionalEmail";
+import {
+  escapeHtml,
+  normalizeEmailActionUrl,
+  parseFromAddress,
+  sendTransactionalEmail,
+} from "./transactionalEmail";
 
 export async function sendPasswordResetEmail(
   toEmail: string,
@@ -11,6 +16,7 @@ export async function sendPasswordResetEmail(
       "Email (SMTP) is not configured. Ask your administrator to set SMTP in Settings → SMS, email & WhatsApp.",
     );
   }
+  normalizeEmailActionUrl(resetUrl);
   const cfg = getMessagingConfig().email;
   const from = parseFromAddress(cfg.from.includes("<") ? cfg.from : `Zimson Watch Care <${cfg.from}>`);
   const name = displayName.trim() || "there";
@@ -44,12 +50,13 @@ If you did not request this, ignore this email — your password will not change
       },
       {
         type: "paragraph",
-        html: "We received a request to reset the password for your Zimson account. Click the button below to choose a new password.",
+        html: "We received a request to reset the password for your Zimson account. Tap the blue button below, or use the underlined link under it.",
       },
       {
         type: "link",
         href: resetUrl,
         label: linkLabel,
+        showUrlFallback: true,
       },
       {
         type: "paragraph",

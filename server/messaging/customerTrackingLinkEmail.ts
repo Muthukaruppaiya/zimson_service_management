@@ -1,5 +1,10 @@
 import { getMessagingConfig, isEmailConfigured } from "./config";
-import { escapeHtml, parseFromAddress, sendTransactionalEmail } from "./transactionalEmail";
+import {
+  escapeHtml,
+  normalizeEmailActionUrl,
+  parseFromAddress,
+  sendTransactionalEmail,
+} from "./transactionalEmail";
 
 export async function sendCustomerTrackingLinkEmail(
   toEmail: string,
@@ -10,6 +15,7 @@ export async function sendCustomerTrackingLinkEmail(
   if (!isEmailConfigured()) {
     throw new Error("Email (SMTP) is not configured.");
   }
+  normalizeEmailActionUrl(trackingUrl);
   const cfg = getMessagingConfig().email;
   const from = parseFromAddress(cfg.from.includes("<") ? cfg.from : `Zimson Watch Care <${cfg.from}>`);
   const name = customerName.trim() || "Customer";
@@ -41,7 +47,7 @@ ${trackingUrl}
         type: "paragraph",
         html: `You can follow the progress of your service request <strong>${escapeHtml(ref)}</strong> online. Click the button below to open your tracking page.`,
       },
-      { type: "link", href: trackingUrl, label: buttonLabel },
+      { type: "link", href: trackingUrl, label: buttonLabel, showUrlFallback: true },
       {
         type: "paragraph",
         html: "Bookmark this page to check updates at any time. If you did not request this email, you can ignore it.",
