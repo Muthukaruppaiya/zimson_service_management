@@ -1,36 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { SEED_USERS } from "../data/seed";
 import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
-import { ROLE_CREATION_META } from "../lib/userCreationPolicy";
-import type { UserRole } from "../types/user";
-
-function displayEmployeeCode(seedIdOrCode: string): string {
-  return String(seedIdOrCode).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24);
-}
-
-function roleLabel(role: string) {
-  return ROLE_CREATION_META.find((r) => r.value === role)?.label ?? role;
-}
-
-type DemoRow = {
-  employeeCode: string;
-  email: string;
-  password: string;
-  role: string;
-  note: string;
-  canLogin: boolean;
-};
-
-const seedRows: DemoRow[] = SEED_USERS.filter((u) => u.isSeed).map((u) => ({
-  employeeCode: displayEmployeeCode(u.employeeCode ?? u.id),
-  email: String(u.email ?? "").trim().toLowerCase(),
-  password: u.password,
-  role: roleLabel(u.role as UserRole),
-  note: u.displayName,
-  canLogin: u.canLogin ?? true,
-}));
 
 export function LoginPage() {
   const { user, login, authReady } = useAuth();
@@ -43,26 +14,6 @@ export function LoginPage() {
   const [storeId, setStoreId] = useState("");
   const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [demoRows, setDemoRows] = useState<DemoRow[]>(seedRows);
-
-  useEffect(() => {
-    fetch("/api/demo-users")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { users: { employeeCode: string; email?: string; password: string; displayName: string; role: string; canLogin: boolean }[] } | null) => {
-        if (!data?.users?.length) return;
-        setDemoRows(
-          data.users.map((u) => ({
-            employeeCode: u.employeeCode,
-            email: String(u.email ?? "").trim().toLowerCase(),
-            password: u.password,
-            role: roleLabel(u.role as UserRole),
-            note: u.displayName,
-            canLogin: u.canLogin,
-          })),
-        );
-      })
-      .catch(() => { /* fallback to seed */ });
-  }, []);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -90,15 +41,6 @@ export function LoginPage() {
     }
   }
 
-  function fillDemo(row: (typeof demoRows)[number]) {
-    if (!row.canLogin) return;
-    setLoginId(row.employeeCode);
-    setPassword(row.password);
-    setStoreOptions([]);
-    setStoreId("");
-    setError(null);
-  }
-
   const fieldCls =
     "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-sm text-rlx-ink placeholder-rlx-ink-muted/50 outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
 
@@ -112,7 +54,6 @@ export function LoginPage() {
 
         {/* ── Brand mark ──────────────────────────── */}
         <div className="mb-10 flex flex-col items-center gap-5 text-center">
-          {/* Zimson logo on royal blue (matches page background) */}
           <div
             className="flex items-center justify-center px-6 py-4 shadow-[0_0_0_1px_rgba(201,162,39,0.35),0_12px_48px_rgba(0,0,0,0.6)]"
             style={{ background: "linear-gradient(135deg, #0D1B5E 0%, #1B3A8F 50%, #102570 100%)" }}
@@ -123,7 +64,6 @@ export function LoginPage() {
               className="h-14 w-auto object-contain"
             />
           </div>
-          {/* gold rule + subtitle */}
           <div>
             <div className="mx-auto h-[1.5px] w-24" style={{ background: "linear-gradient(90deg, transparent, #C9A227, transparent)" }} />
             <p className="mt-2 text-[9px] font-bold uppercase tracking-[0.45em]" style={{ color: "#C9A227" }}>
@@ -138,15 +78,12 @@ export function LoginPage() {
           style={{ borderTop: "3px solid #C9A227" }}
         >
 
-          {/* card header — green band with gold text */}
           <div className="px-7 py-5" style={{ background: "#1B3A8F" }}>
             <h2 className="text-sm font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
               Sign in
             </h2>
-            {/* <p className="mt-0.5 text-xs text-white/60">Sign in with employee ID or email, then your password.</p> */}
           </div>
 
-          {/* form */}
           <form onSubmit={handleSubmit} className="space-y-4 px-7 py-6">
             <div>
               <label htmlFor="login-emp" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
@@ -159,7 +96,6 @@ export function LoginPage() {
                 value={loginId}
                 onChange={(e) => setLoginId(sanitizeLoginIdInput(e.target.value))}
                 className={fieldCls}
-                // placeholder="e.g. EMP001 or name@company.com"
               />
             </div>
 
@@ -216,7 +152,6 @@ export function LoginPage() {
               </div>
             ) : null}
 
-            {/* Gold CTA button */}
             <button
               type="submit"
               disabled={storeOptions.length > 0 && !storeId}
@@ -227,7 +162,6 @@ export function LoginPage() {
             </button>
           </form>
 
-          {/* card footer */}
           <div className="border-t border-rlx-rule bg-rlx-bg px-7 py-3">
             <p className="text-[10px] text-rlx-ink-muted">
               Having trouble?{" "}
@@ -236,76 +170,6 @@ export function LoginPage() {
               </Link>
             </p>
           </div>
-        </div>
-
-        {/* ── Demo credentials table ──────────────── */}
-        <div className="mt-12 w-full max-w-4xl">
-          {/* divider with gold label */}
-          <div className="mb-4 flex items-center gap-3">
-            <div className="h-px flex-1" style={{ background: "linear-gradient(90deg, transparent, rgba(212,175,55,0.3))" }} />
-            <p className="text-[9.5px] font-bold uppercase tracking-[0.35em]" style={{ color: "#C9A227" }}>
-              Demo credentials
-            </p>
-            <div className="h-px flex-1" style={{ background: "linear-gradient(90deg, rgba(212,175,55,0.3), transparent)" }} />
-          </div>
-
-          <div className="overflow-hidden bg-white shadow-[0_8px_32px_rgba(0,0,0,0.35)]" style={{ borderTop: "2px solid #C9A227" }}>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[620px] border-collapse text-left">
-                <thead>
-                  <tr style={{ background: "#102570" }}>
-                    {["Employee No", "Email", "Password", "Role", "User", "Login"].map((h) => (
-                      <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#C9A227" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                  <tr><td colSpan={6} className="p-0" style={{ height: "1px", background: "linear-gradient(90deg, #A8850F, #C9A227, #A8850F)" }} /></tr>
-                </thead>
-                <tbody>
-                  {demoRows.map((row, idx) => (
-                    <tr
-                      key={row.employeeCode}
-                      className={`border-b border-rlx-rule ${idx % 2 === 0 ? "bg-white" : "bg-rlx-bg"}`}
-                    >
-                      <td className="px-4 py-2.5">
-                        <button
-                          type="button"
-                          onClick={() => fillDemo(row)}
-                          disabled={!row.canLogin}
-                          className="font-mono text-xs font-bold transition disabled:no-underline disabled:opacity-40"
-                          style={{ color: "#C9A227" }}
-                        >
-                          {row.employeeCode}
-                        </button>
-                      </td>
-                      <td className="px-4 py-2.5 text-xs text-rlx-ink-muted">{row.email || "—"}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-rlx-ink-muted">{row.password}</td>
-                      <td className="px-4 py-2.5 text-xs text-rlx-ink">{row.role}</td>
-                      <td className="px-4 py-2.5 text-xs text-rlx-ink-muted">{row.note}</td>
-                      <td className="px-4 py-2.5">
-                        <span
-                          className="inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                          style={row.canLogin
-                            ? { border: "1px solid #C9A227", background: "rgba(212,175,55,0.08)", color: "#A8850F" }
-                            : { border: "1px solid #e0e0dc", color: "#9a9a90" }}
-                        >
-                          {row.canLogin ? "Yes" : "No"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <p className="mt-4 text-center text-[10px] text-white/30">
-            Module visibility per role configured in{" "}
-            <code className="rounded bg-white/8 px-1 py-0.5 font-mono text-[9px] text-white/50">
-              src/config/moduleAccess.ts
-            </code>
-          </p>
         </div>
       </div>
     </div>

@@ -2,8 +2,10 @@ import {
   formatIndiaMobileE164,
   getMessagingConfig,
   getQikchatMessagesUrl,
+  isEmailConfigured,
   isWhatsAppConfigured,
 } from "./messaging/config";
+import { sendCustomerTrackingLinkEmail } from "./messaging/customerTrackingLinkEmail";
 import { qikchatApiHeaders, type QikchatSendMessageResponse } from "./messaging/qikchatApi";
 
 type TrackingLinkPayload = {
@@ -27,11 +29,28 @@ type ReestimateDecisionPayload = {
 };
 
 export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<TrackingLinkSendResult> {
-  console.log(`[TRACKING LINK] Customer: ${payload.name} | Phone: ${payload.phone}`);
-  console.log(`[TRACKING LINK] SRF: ${payload.srfReference}`);
-  console.log(`[TRACKING LINK] URL: ${payload.trackingUrl}`);
-  if (payload.email?.trim()) {
-    console.log(`[TRACKING LINK] Email on file: ${payload.email.trim()} (email send — later)`);
+  const customerName = payload.name.trim() || "Customer";
+  const srfNumber = payload.srfReference.trim();
+  const trackingUrl = payload.trackingUrl.trim();
+  const email = payload.email?.trim();
+
+  console.log(`[TRACKING LINK] Customer: ${customerName} | Phone: ${payload.phone}`);
+  console.log(`[TRACKING LINK] SRF: ${srfNumber}`);
+  console.log(`[TRACKING LINK] URL: ${trackingUrl}`);
+
+  if (!srfNumber || !trackingUrl) {
+    console.log("[TRACKING LINK] Missing SRF number or tracking URL.");
+    return { sent: false, reason: "Missing SRF number or tracking URL." };
+  }
+
+  if (email && isEmailConfigured()) {
+    try {
+      await sendCustomerTrackingLinkEmail(email, customerName, srfNumber, trackingUrl);
+    } catch (e) {
+      console.error("[TRACKING LINK] Email send failed", e);
+    }
+  } else if (email) {
+    console.log("[TRACKING LINK] Email on file but SMTP not configured — skipped email send.");
   }
 
   if (!isWhatsAppConfigured()) {
@@ -42,13 +61,6 @@ export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<Tr
   const cfg = getMessagingConfig().whatsapp;
   const templateName = process.env.QIKCHAT_TRACKING_TEMPLATE_NAME?.trim() || "customer_link";
   const language = cfg.templateLanguage?.trim() || "en";
-  const customerName = payload.name.trim() || "Customer";
-  const srfNumber = payload.srfReference.trim();
-  const trackingUrl = payload.trackingUrl.trim();
-  if (!srfNumber || !trackingUrl) {
-    console.log("[TRACKING LINK] Missing SRF number or tracking URL. Skipping WhatsApp send.");
-    return { sent: false, reason: "Missing SRF number or tracking URL." };
-  }
 
   let toContact = "";
   try {

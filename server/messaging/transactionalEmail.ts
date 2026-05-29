@@ -23,21 +23,18 @@ export function parseFromAddress(from: string): { name: string; email: string; f
   };
 }
 
-/** Short label for long reset URLs (avoids ugly ngrok strings in the HTML body). */
-export function linkDisplayLabel(url: string): string {
-  try {
-    const u = new URL(url);
-    const path = u.pathname.replace(/\/$/, "") || "/";
-    return `${u.host}${path}`;
-  } catch {
-    return "open link";
-  }
-}
-
 type TransactionalBodyBlock =
   | { type: "paragraph"; html: string }
   | { type: "otp"; code: string }
-  | { type: "link"; href: string; label: string; hint?: string };
+  | {
+      type: "link";
+      href: string;
+      label: string;
+      /** @deprecated URL is hidden in HTML; only used when showUrlFallback is true */
+      hint?: string;
+      /** Show raw URL under the button (default: hidden) */
+      showUrlFallback?: boolean;
+    };
 
 type SendTransactionalEmailInput = {
   from: string;
@@ -68,12 +65,20 @@ function renderBlocks(blocks: TransactionalBodyBlock[]): string {
       }
       const href = escapeHtml(b.href);
       const label = escapeHtml(b.label);
+      const button = `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">
+  <tr>
+    <td align="left" style="border-radius:6px;background:#1B3A8F;border:2px solid #C9A227;">
+      <a href="${href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:4px;">${label}</a>
+    </td>
+  </tr>
+</table>`;
+      if (!b.showUrlFallback) {
+        return button;
+      }
       const copyUrl = escapeHtml(b.hint ?? b.href);
-      return `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#27272a;">
-  <a href="${href}" style="color:#1B3A8F;font-weight:600;text-decoration:underline;">${label}</a>
-</p>
+      return `${button}
 <p style="margin:0 0 14px;font-size:13px;line-height:1.5;color:#52525b;">
-  If the link does not open, copy and paste this into your browser:<br>
+  If the button does not open, copy and paste this into your browser:<br>
   <span style="word-break:break-all;color:#1B3A8F;">${copyUrl}</span>
 </p>`;
     })

@@ -634,47 +634,6 @@ app.get("/api/auth/me", async (req, res) => {
   res.json({ user: u ? stripPassword(u) : null });
 });
 
-app.get("/api/auth/demo-logins", (_req, res) => {
-  const users = allUsers()
-    .filter((u) => u.isSeed)
-    .map((u) => ({ email: u.email, password: "••••", role: u.role, name: u.displayName }));
-  res.json({ users });
-});
-
-// Public demo endpoint — exposes all user credentials for the login page demo table (wireframe only)
-app.get("/api/demo-users", async (_req, res) => {
-  if (!dbPool) {
-    res.json({ users: [] });
-    return;
-  }
-  try {
-    const { rows } = await dbPool.query<{
-      employee_code: string | null;
-      email: string;
-      plain_password: string | null;
-      display_name: string;
-      role: string;
-      can_login: boolean;
-    }>(
-      `SELECT employee_code, email, plain_password, display_name, role, can_login
-       FROM app_users
-       ORDER BY created_at ASC`,
-    );
-    res.json({
-      users: rows.map((r) => ({
-        employeeCode: String(r.employee_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24),
-        email: String(r.email ?? "").trim().toLowerCase(),
-        password: r.plain_password ?? (r.role === "super_admin" ? "super123" : "123456"),
-        displayName: r.display_name,
-        role: r.role,
-        canLogin: r.can_login,
-      })),
-    });
-  } catch {
-    res.json({ users: [] });
-  }
-});
-
 app.get("/api/users", requireAuth, async (req, res) => {
   const uid = (req as express.Request & { userId: string }).userId;
   const actor = await findUser(uid);

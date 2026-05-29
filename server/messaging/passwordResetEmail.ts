@@ -22,7 +22,9 @@ export async function sendPasswordResetEmail(
 
 We received a request to reset the password for your Zimson Service Management account.
 
-Reset your password (link valid for 1 hour):
+Open this email in HTML view and click the "Reset your password" button (valid for 1 hour).
+
+If you cannot use the button, paste this link into your browser:
 ${resetUrl}
 
 If you did not request this, ignore this email — your password will not change.
@@ -42,13 +44,12 @@ If you did not request this, ignore this email — your password will not change
       },
       {
         type: "paragraph",
-        html: "We received a request to reset the password for your Zimson account. Use the link below to choose a new password.",
+        html: "We received a request to reset the password for your Zimson account. Click the button below to choose a new password.",
       },
       {
         type: "link",
         href: resetUrl,
         label: linkLabel,
-        hint: resetUrl,
       },
       {
         type: "paragraph",
