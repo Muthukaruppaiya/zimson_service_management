@@ -17,7 +17,9 @@
     "typecheck:server": "tsc --noEmit --project server/tsconfig.json",
     "certs:rds": "node scripts/fetch-rds-ca.mjs",
     "env:sync-smtp": "node scripts/update-smtp-settings.mjs",
-    "setup:server": "npm ci && npm run certs:rds && npm run build"
+    "setup:server": "npm ci && npm run certs:rds && npm run build",
+    "reinstall:server": "rm -rf node_modules && npm ci && node scripts/ensure-rolldown-binding.mjs && npm run build",
+    "postinstall": "node scripts/ensure-rolldown-binding.mjs"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -31,6 +33,11 @@
     "localtunnel": "^2.0.2",
     "typescript": "~6.0.2",
     "vite": "^8.0.4"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-arm64-gnu": "1.0.0-rc.15",
+    "@rolldown/binding-linux-x64-gnu": "1.0.0-rc.15",
+    "@rolldown/binding-win32-x64-msvc": "1.0.0-rc.15"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1056.0",

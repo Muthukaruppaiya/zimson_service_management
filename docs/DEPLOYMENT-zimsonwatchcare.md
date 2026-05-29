@@ -90,13 +90,27 @@ sudo apt-get install -y nodejs build-essential
 node -v   # must be v20.19+ or v22.12+
 ```
 
-Then reinstall dependencies (important after Node upgrade):
+Then reinstall dependencies **on the EC2 machine** (never copy `node_modules` from Windows):
 
 ```bash
 cd ~/zimson_service_management
+git pull
 rm -rf node_modules
 npm ci
 ```
+
+**ARM64 EC2 (Graviton):** If `npm run build` fails with `Cannot find native binding` / `@rolldown/binding-linux-arm64-gnu`:
+
+```bash
+git pull
+rm -rf node_modules
+npm ci
+# postinstall installs the ARM binding; if needed:
+npm install @rolldown/binding-linux-arm64-gnu@1.0.0-rc.15
+npm run build
+```
+
+Never copy `node_modules` from your Windows PC to the server.
 
 ### Install dependencies (fixes `concurrently: not found`, `tsx: not found`, `vite: not found`)
 
