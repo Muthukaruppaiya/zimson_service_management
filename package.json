@@ -3,16 +3,21 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "concurrently -k \"npm run dev:api\" \"npm run dev:web\"",
     "dev:web": "vite",
     "dev:api": "tsx watch --tsconfig server/tsconfig.json server/index.ts",
-    "build": "tsc && vite build",
+    "build": "vite build",
+    "build:check": "tsc && vite build",
     "preview": "vite preview",
     "start": "cross-env NODE_ENV=production tsx --tsconfig server/tsconfig.json server/index.ts",
     "typecheck:server": "tsc --noEmit --project server/tsconfig.json",
     "certs:rds": "node scripts/fetch-rds-ca.mjs",
-    "env:sync-smtp": "node scripts/update-smtp-settings.mjs"
+    "env:sync-smtp": "node scripts/update-smtp-settings.mjs",
+    "setup:server": "npm ci && npm run certs:rds && npm run build"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

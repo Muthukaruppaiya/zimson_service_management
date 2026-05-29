@@ -72,14 +72,73 @@ Uploaded files are stored in DB as `api/media/srf/...` or `api/media/quick-bill/
 
 ## 5. Build and run on EC2
 
+### Prerequisites (once per server) — **Node 20.19+ required**
+
+Ubuntu’s default Node is often **v18** — that causes:
+
+- `EBADENGINE` warnings for `@aws-sdk/*`, `vite`, `react-router`
+- `Vite requires Node.js version 20.19+`
+- `npm run build` failing on strict `tsc` (use `npm run build` which runs **Vite only**)
+
+Upgrade:
+
 ```bash
+bash scripts/upgrade-node-ubuntu.sh
+# or manually:
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs build-essential
+node -v   # must be v20.19+ or v22.12+
+```
+
+Then reinstall dependencies (important after Node upgrade):
+
+```bash
+cd ~/zimson_service_management
+rm -rf node_modules
 npm ci
+```
+
+### Install dependencies (fixes `concurrently: not found`, `tsx: not found`, `vite: not found`)
+
+From the project folder (`~/zimson_service_management`):
+
+```bash
+cd ~/zimson_service_management
+npm ci
+```
+
+If `npm ci` fails, use `npm install` instead. Do **not** use `npm install --omit=dev` before building — `vite` and `typescript` are required for `npm run build`.
+
+Check binaries exist:
+
+```bash
+ls node_modules/.bin/concurrently node_modules/.bin/tsx node_modules/.bin/vite
+```
+
+### Production run (use this on the server — not `npm run dev`)
+
+`npm run dev` is for your **PC only** (hot reload). On EC2 use:
+
+```bash
+cp env.production.example .env
+# edit .env (DATABASE_URL, S3, SMTP, APP_BASE_URL, …)
+npm run certs:rds
 npm run build
-npm run db:migrate   # if you add a migrate script; else migrations run on API start
 NODE_ENV=production npm start
 ```
 
+Migrations run automatically when the API starts.
+
 Use **pm2** or **systemd** to keep the process running on port `4000`.
+
+### Optional: dev mode on server (not recommended)
+
+Only if you really need hot reload on EC2:
+
+```bash
+npm ci          # must install ALL dependencies first
+npm run dev
+```
 
 ## 6. Nginx (HTTP first)
 

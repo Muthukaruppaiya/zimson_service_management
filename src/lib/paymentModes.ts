@@ -61,6 +61,7 @@ export function sumAdvanceCashDenominations(cash: AdvanceCashDenominations | nul
 /** Build details from form strings (empty = 0). */
 export function emptyCashDenomStrings(): Record<keyof AdvanceCashDenominations, string> {
   return {
+    n2000: "",
     n500: "",
     n200: "",
     n100: "",
