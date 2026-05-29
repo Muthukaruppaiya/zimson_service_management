@@ -3,7 +3,7 @@ import type { Express, Request } from "express";
 import type { Pool } from "pg";
 import { isEmailConfigured, shouldExposePasswordResetInUi } from "./messaging/config";
 import { sendPasswordResetEmail } from "./messaging/passwordResetEmail";
-import { resolvePublicAppBaseUrl } from "./publicAppUrl";
+import { getAppBaseUrl } from "./publicAppUrl";
 
 const RESET_TTL_MS = 60 * 60 * 1000;
 const GENERIC_OK_MESSAGE =
@@ -107,7 +107,7 @@ export function registerPasswordResetRoutes(
           [user.id, tokenHash, expiresAt.toISOString()],
         );
 
-        const base = resolvePublicAppBaseUrl(req as Request);
+        const base = getAppBaseUrl(req as Request);
         const resetUrl = `${base}/login/reset-password?token=${encodeURIComponent(rawToken)}`;
 
         if (isEmailConfigured()) {

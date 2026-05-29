@@ -10,6 +10,33 @@ export function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Encode URL for HTML href (keeps query string intact for email clients). */
+function escapeHref(href: string): string {
+  return href.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+/** Outlook + Gmail compatible CTA — link on the anchor, not only the table cell. */
+function renderEmailButton(href: string, label: string): string {
+  const safeHref = escapeHref(href);
+  const safeLabel = escapeHtml(label);
+  const safeHrefMso = href.replace(/"/g, "&quot;");
+  return `<table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 18px;">
+  <tr>
+    <td align="left" bgcolor="#1B3A8F" style="border-radius:8px;background-color:#1B3A8F;mso-padding-alt:0;">
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${safeHrefMso}" style="height:48px;v-text-anchor:middle;width:260px;" arcsize="12%" strokecolor="#C9A227" fillcolor="#1B3A8F">
+        <w:anchorlock/>
+        <center style="color:#ffffff;font-family:Segoe UI,Arial,sans-serif;font-size:15px;font-weight:bold;">${safeLabel}</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-->
+      <a href="${safeHref}" style="background-color:#1B3A8F;border:2px solid #C9A227;border-radius:8px;color:#ffffff;display:inline-block;font-family:Segoe UI,Arial,sans-serif;font-size:15px;font-weight:600;line-height:1.25;mso-hide:all;padding:14px 28px;text-align:center;text-decoration:none;-webkit-text-size-adjust:none;">${safeLabel}</a>
+      <!--<![endif]-->
+    </td>
+  </tr>
+</table>`;
+}
+
 export function parseFromAddress(from: string): { name: string; email: string; formatted: string } {
   const trimmed = from.trim();
   const m = trimmed.match(/^(.+?)\s*<([^>]+)>$/);
@@ -63,15 +90,7 @@ function renderBlocks(blocks: TransactionalBodyBlock[]): string {
   </tr>
 </table>`;
       }
-      const href = escapeHtml(b.href);
-      const label = escapeHtml(b.label);
-      const button = `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">
-  <tr>
-    <td align="left" style="border-radius:6px;background:#1B3A8F;border:2px solid #C9A227;">
-      <a href="${href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:4px;">${label}</a>
-    </td>
-  </tr>
-</table>`;
+      const button = renderEmailButton(b.href, b.label);
       if (!b.showUrlFallback) {
         return button;
       }

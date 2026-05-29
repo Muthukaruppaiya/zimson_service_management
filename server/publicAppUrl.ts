@@ -24,7 +24,7 @@ function originFromUrl(urlStr: string): string | null {
  * - If the request hits the API directly (Host ends with API port), map to WEB_DEV_PORT (default 5173).
  */
 export function resolvePublicAppBaseUrl(req: Request): string {
-  const envUrl = (process.env.APP_BASE_URL ?? process.env.PUBLIC_APP_URL ?? "").trim().replace(/\/+$/, "");
+  const envUrl = appBaseUrlFromEnvVars();
   if (envUrl) return envUrl;
 
   const origin = originFromUrl(header(req, "origin"));
@@ -68,8 +68,22 @@ export function resolvePublicAppBaseUrl(req: Request): string {
 
 /** For jobs that only have env (e.g. future SMS worker) — no Request. */
 export function publicAppBaseUrlFromEnv(): string {
-  const envUrl = (process.env.APP_BASE_URL ?? process.env.PUBLIC_APP_URL ?? "").trim().replace(/\/+$/, "");
+  const envUrl = appBaseUrlFromEnvVars();
   if (envUrl) return envUrl;
   const webPort = String(process.env.WEB_DEV_PORT ?? "5173").trim() || "5173";
   return `http://localhost:${webPort}`;
+}
+
+function appBaseUrlFromEnvVars(): string {
+  return (process.env.APP_BASE_URL ?? process.env.MESSAGING_PUBLIC_BASE_URL ?? process.env.PUBLIC_APP_URL ?? "")
+    .trim()
+    .replace(/\/+$/, "");
+}
+
+/** Prefer APP_BASE_URL / MESSAGING_PUBLIC_BASE_URL (emails, WhatsApp); fall back to request Origin. */
+export function getAppBaseUrl(req?: Request): string {
+  const envUrl = appBaseUrlFromEnvVars();
+  if (envUrl) return envUrl;
+  if (req) return resolvePublicAppBaseUrl(req);
+  return publicAppBaseUrlFromEnv();
 }

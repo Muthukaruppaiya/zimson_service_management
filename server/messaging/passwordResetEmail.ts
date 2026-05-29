@@ -53,7 +53,11 @@ If you did not request this, ignore this email — your password will not change
       },
       {
         type: "paragraph",
-        html: "<strong>This link expires in 1 hour.</strong> If you did not request a password reset, you can safely ignore this message.",
+        html: "<strong>This link expires in 1 hour.</strong> If the button does not open, go to <strong>zimsonwatchcare.com</strong>, choose <strong>Forgot password?</strong>, and request a new link.",
+      },
+      {
+        type: "paragraph",
+        html: "If you did not request a password reset, you can safely ignore this message.",
       },
     ],
   });
