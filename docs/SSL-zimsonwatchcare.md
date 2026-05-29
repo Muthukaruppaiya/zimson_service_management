@@ -128,6 +128,47 @@ bash scripts/ssl-install-commercial.sh
 | `502 Bad Gateway` | Node not running — `npm start` on port 4000 |
 | HTTP still works without redirect | Switch to `nginx-zimsonwatchcare-ssl.conf` (redirects 80 → 443) |
 
+### PFX error: `not enough data` (file is wrong — not password)
+
+This means the `.pfx` on the server is **not** a valid PKCS#12 file (often CSR/CRT renamed, or a broken upload).
+
+On EC2:
+
+```bash
+bash scripts/diagnose-ssl-files.sh
+```
+
+`file zimsonwatchcare.pfx` must **not** say “ASCII text” or “UTF-8”. It should be **data** / **PKCS12**.
+
+**Fix on Windows:**
+
+1. Open the folder from your certificate provider again.
+2. Find the real **`.pfx`** or **`.p12`** (often 3–20 KB+, “PFX” / “PKCS#12” in the name).
+3. Do **not** upload CSR, CRT, or “PFX Password” text as the pfx file.
+4. Re-upload with binary mode:
+
+```powershell
+scp -r "C:\path\to\ssl\zimsonwatchcare.pfx" ubuntu@18.61.69.104:/tmp/ssl/zimsonwatchcare.pfx
+```
+
+5. Use the **exact** password from the `PFX Password` file (not the placeholder `your-actual-password`):
+
+```bash
+export PFX_PASS='ExactPasswordFromProviderFile'
+openssl pkcs12 -in /tmp/ssl/zimsonwatchcare.pfx -info -nokeys -passin pass:"$PFX_PASS"
+```
+
+**Private key was created on another PC?** The key lives on the machine that generated the CSR. Export `.pfx` from that PC’s certificate store, or get the `.key` file from the provider.
+
+**Fast alternative (free, auto):** Let’s Encrypt (if commercial PFX is unavailable):
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo cp deploy/nginx-zimsonwatchcare.conf /etc/nginx/sites-available/zimsonwatchcare
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d zimsonwatchcare.com -d www.zimsonwatchcare.com
+```
+
 ### If PFX will not open — use CRT + separate `.key`
 
 Some providers give a **`.key`** file instead of PFX. If you have it:
