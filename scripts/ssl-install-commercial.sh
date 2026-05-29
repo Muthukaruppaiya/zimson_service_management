@@ -14,8 +14,20 @@ if [ ! -f "$PFX" ]; then
   echo "Missing $PFX — copy zimsonwatchcare.pfx to $UPLOAD_DIR"
   exit 1
 fi
-if [ -z "${PFX_PASS:-}" ]; then
-  echo "Set PFX password:  export PFX_PASS='your-password'"
+if [ -z "${PFX_PASS:-}" ] || [ "$PFX_PASS" = "paste-password-from-PFX-Password-file" ]; then
+  echo "Set the real PFX password:  export PFX_PASS='actual-password-from-provider'"
+  exit 1
+fi
+
+echo "Checking upload files..."
+file "$PFX" "$CRT" "$CA" 2>/dev/null || file "$PFX"
+PFX_SIZE=$(stat -c%s "$PFX" 2>/dev/null || stat -f%z "$PFX")
+if [ "$PFX_SIZE" -lt 500 ]; then
+  echo "WARN: PFX is very small (${PFX_SIZE} bytes) — wrong file? Use the .pfx/.p12 from the provider, not CSR/CRT."
+fi
+if ! openssl pkcs12 -in "$PFX" -noout -passin "pass:$PFX_PASS" 2>/dev/null; then
+  echo "ERROR: Cannot read PFX (wrong password or corrupt file). Try:"
+  echo "  openssl pkcs12 -in $PFX -info -passin pass:YOUR_PASSWORD -nokeys"
   exit 1
 fi
 

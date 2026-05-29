@@ -120,10 +120,22 @@ bash scripts/ssl-install-commercial.sh
 
 | Problem | Fix |
 |---------|-----|
+| `asn1 encoding routines: not enough data` on PFX | Wrong file (CSR/CRT renamed as .pfx), incomplete upload, or bad password. Run `file /tmp/ssl/zimsonwatchcare.pfx` — must say **PKCS12**. Re-upload the real `.pfx`/`.p12` from the provider. |
+| `unknown directive "http2"` | Pull latest repo — config uses `listen 443 ssl http2;` (works on Ubuntu nginx). |
 | `nginx: certificate and key do not match` | Re-export key from same PFX; ensure CRT matches the cert in PFX |
 | Browser “not secure” | CA bundle missing from fullchain — append CA Bundle file again |
 | `502 Bad Gateway` | Node not running — `npm start` on port 4000 |
 | HTTP still works without redirect | Switch to `nginx-zimsonwatchcare-ssl.conf` (redirects 80 → 443) |
+
+### If PFX will not open — use CRT + separate `.key`
+
+Some providers give a **`.key`** file instead of PFX. If you have it:
+
+```bash
+sudo cp /tmp/ssl/zimsonwatchcare.key /etc/ssl/zimsonwatchcare/privkey.pem
+sudo chmod 600 /etc/ssl/zimsonwatchcare/privkey.pem
+sudo bash -c 'cat /tmp/ssl/zimsonwatchcare.crt /tmp/ssl/zimsonwatchcare-ca-bundle.crt > /etc/ssl/zimsonwatchcare/fullchain.pem'
+```
 
 ---
 
