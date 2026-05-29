@@ -44,6 +44,7 @@ import {
   registerMobileOtpResponse,
 } from "./messaging/deliverOtp";
 import { registerMessagingRoutes } from "./messagingRoutes";
+import { issueSessionForUser, SESSION_COOKIE } from "./authSession";
 import { registerPasswordResetRoutes } from "./passwordResetRoutes";
 import { startDevPublicTunnel } from "./devPublicTunnel";
 import { isS3StorageEnabled } from "./storage/config";
@@ -52,7 +53,7 @@ import { registerMediaRoutes } from "./storage/mediaRoutes";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT) || 4000;
 const HOST = process.env.HOST?.trim() || "0.0.0.0";
-const COOKIE = "zimson_session";
+const COOKIE = SESSION_COOKIE;
 const dbPool = createPool();
 
 type CustomerRegOtpSession = {
@@ -567,53 +568,25 @@ app.post("/api/auth/login", async (req, res) => {
     res.status(403).json({ ok: false, message: "This profile is directory-only and cannot sign in." });
     return;
   }
-  if (STORE_ROLES.has(found.role)) {
-    const allowedStores = (found.storeIds ?? []).filter(Boolean);
-    if (allowedStores.length === 0) {
-      res.status(403).json({ ok: false, message: "No store mapping found for this account." });
-      return;
-    }
-    if (!selectedStoreId && allowedStores.length > 1) {
-      const { rows: storeRows } = await dbPool.query<{ id: string; name: string }>(
-        `SELECT id, name FROM stores WHERE id = ANY($1::text[]) ORDER BY name`,
-        [allowedStores],
-      );
+  try {
+    const session = await issueSessionForUser(dbPool, res, found, selectedStoreId);
+    if (!session.ok) {
       res.status(400).json({
         ok: false,
-        code: "STORE_SELECTION_REQUIRED",
-        message: "Select a store to continue login.",
-        stores: storeRows,
+        code: session.code,
+        message: session.message,
+        stores: session.stores,
       });
       return;
     }
-    const effectiveStoreId = selectedStoreId ?? allowedStores[0]!;
-    if (!allowedStores.includes(effectiveStoreId)) {
-      res.status(400).json({ ok: false, message: "Selected store is not assigned for this user." });
-      return;
-    }
-    await dbPool.query(
-      `UPDATE app_users
-       SET store_id = $2,
-           updated_at = now()
-       WHERE id = $1`,
-      [found.id, effectiveStoreId],
-    );
     await refreshUsersFromDb();
+    const refreshed = allUsers().find((u) => u.id === session.user.id) ?? found;
+    res.json({ ok: true, user: stripPassword(refreshed) });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Could not sign in.";
+    const status = msg.includes("store") ? 403 : 500;
+    res.status(status).json({ ok: false, message: msg });
   }
-  const refreshed = allUsers().find((u) => u.id === found.id) ?? found;
-  const sid = createId("sid");
-  await dbPool.query(
-    `INSERT INTO auth_sessions (id, user_id, expires_at)
-     VALUES ($1, $2, now() + interval '7 day')`,
-    [sid, found.id],
-  );
-  res.cookie(COOKIE, sid, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-  res.json({ ok: true, user: stripPassword(refreshed) });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -3794,6 +3767,12 @@ async function main() {
   registerMessagingRoutes(app, requireAuth);
   registerPasswordResetRoutes(app, dbPool, {
     onPasswordChanged: () => refreshUsersFromDb(),
+    findUserById: (userId) => findUser(userId),
+    issueSession: async (req, res, user, storeId) => {
+      const result = await issueSessionForUser(dbPool, res, user, storeId);
+      if (result.ok) await refreshUsersFromDb();
+      return result;
+    },
   });
 
   app.listen(PORT, HOST, () => {

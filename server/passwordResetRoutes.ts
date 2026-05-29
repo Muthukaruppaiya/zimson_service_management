@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
-import type { Express, Request } from "express";
+import type { Express, Request, Response } from "express";
 import type { Pool } from "pg";
+import type { DemoUser } from "../src/types/user";
+import type { IssueSessionResult } from "./authSession";
 import { isEmailConfigured, shouldExposePasswordResetInUi } from "./messaging/config";
 import { sendPasswordResetEmail } from "./messaging/passwordResetEmail";
 import { buildPasswordResetUrl, getAppBaseUrl } from "./publicAppUrl";
@@ -70,7 +72,16 @@ async function findUserForPasswordReset(pool: Pool, loginId: string): Promise<Re
 export function registerPasswordResetRoutes(
   app: Express,
   pool: Pool | null,
-  hooks?: { onPasswordChanged?: () => void | Promise<void> },
+  hooks?: {
+    onPasswordChanged?: () => void | Promise<void>;
+    issueSession?: (
+      req: Request,
+      res: Response,
+      user: DemoUser,
+      storeId: string | null,
+    ) => Promise<IssueSessionResult>;
+    findUserById?: (userId: string) => DemoUser | undefined;
+  },
 ): void {
   app.post("/api/auth/forgot-password", async (req, res) => {
     if (!pool) {
@@ -187,6 +198,7 @@ export function registerPasswordResetRoutes(
     }
     const token = String(req.body?.token ?? "").trim();
     const password = String(req.body?.password ?? "");
+    const storeId = String(req.body?.storeId ?? "").trim() || null;
     if (!token) {
       res.status(400).json({ ok: false, message: "Reset link is invalid or expired." });
       return;
@@ -227,7 +239,40 @@ export function registerPasswordResetRoutes(
       ]);
       await hooks?.onPasswordChanged?.();
 
-      res.json({ ok: true, message: "Password updated. You can sign in with your new password." });
+      const found = hooks?.findUserById?.(row.user_id);
+      if (!found) {
+        res.json({ ok: true, message: "Password updated. Please sign in with your new password." });
+        return;
+      }
+
+      if (!hooks?.issueSession) {
+        res.json({ ok: true, message: "Password updated. Please sign in with your new password." });
+        return;
+      }
+
+      try {
+        const session = await hooks.issueSession(req as Request, res, found, storeId);
+        if (session.ok) {
+          res.json({
+            ok: true,
+            message: "Password updated. Redirecting you to the app…",
+            user: session.user,
+            signedIn: true,
+          });
+          return;
+        }
+        res.json({
+          ok: true,
+          message: session.message,
+          signedIn: false,
+          code: session.code,
+          stores: session.stores,
+          loginId: session.loginId,
+        });
+      } catch (sessionErr) {
+        const msg = sessionErr instanceof Error ? sessionErr.message : "Could not sign you in automatically.";
+        res.json({ ok: true, message: `Password updated. ${msg} Please sign in manually.` });
+      }
     } catch (e) {
       console.error("[reset-password]", e);
       res.status(500).json({ ok: false, message: "Could not reset password. Try again." });

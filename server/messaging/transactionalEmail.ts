@@ -26,23 +26,28 @@ export function normalizeEmailActionUrl(href: string): string {
   return u.toString();
 }
 
-/** Minimal CTA — nested tables/MSO break Gmail; include optional full-URL link (always clickable). */
+/** Table-based CTA — works in Gmail/Outlook mobile (inline-block-only buttons often fail). */
 function renderEmailButton(href: string, label: string, showFullUrlLink: boolean): string {
   const url = normalizeEmailActionUrl(href);
   const safeHref = escapeHref(url);
   const safeLabel = escapeHtml(label);
   const parts = [
-    `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#27272a;">
-  <a href="${safeHref}" style="display:inline-block;background-color:#1B3A8F;border:2px solid #C9A227;border-radius:8px;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;padding:14px 28px;text-decoration:none;">${safeLabel}</a>
-</p>`,
-    `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#27272a;">
-  <a href="${safeHref}" style="color:#1B3A8F;font-weight:700;text-decoration:underline;">${safeLabel}</a>
+    `<table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 16px;">
+  <tr>
+    <td align="center" bgcolor="#1B3A8F" style="border-radius:8px;border:2px solid #C9A227;mso-padding-alt:14px 28px;">
+      <a href="${safeHref}" target="_blank" rel="noopener noreferrer"
+         style="display:block;padding:14px 28px;font-size:16px;font-family:Arial,Helvetica,sans-serif;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:8px;line-height:1.25;">${safeLabel}</a>
+    </td>
+  </tr>
+</table>`,
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#27272a;">
+  <a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="color:#1B3A8F;font-weight:700;text-decoration:underline;">${safeLabel}</a>
 </p>`,
   ];
   if (showFullUrlLink) {
     parts.push(`<p style="margin:0 0 18px;font-size:13px;line-height:1.5;color:#52525b;">
   If the button does not open, tap this link:<br>
-  <a href="${safeHref}" style="word-break:break-all;color:#1B3A8F;text-decoration:underline;">${safeHref}</a>
+  <a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="word-break:break-all;color:#1B3A8F;text-decoration:underline;">${safeHref}</a>
 </p>`);
   }
   return parts.join("\n");

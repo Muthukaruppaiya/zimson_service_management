@@ -1,13 +1,27 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { ApiError, apiJson } from "../lib/api";
 import { sanitizePasswordInput } from "../lib/inputSanitize";
+import type { SessionUser } from "../types/user";
 
 const fieldCls =
-  "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-sm text-rlx-ink placeholder-rlx-ink-muted/50 outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
+  "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-sm text-rlx-ink outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
+
+type ResetPasswordResponse = {
+  ok: boolean;
+  message: string;
+  signedIn?: boolean;
+  user?: SessionUser;
+  code?: string;
+  stores?: { id: string; name: string }[];
+  loginId?: string;
+};
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { adoptSession, login } = useAuth();
   const token = String(searchParams.get("token") ?? "").trim();
 
   const [password, setPassword] = useState("");
@@ -17,6 +31,9 @@ export function ResetPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
+  const [storeId, setStoreId] = useState("");
+  const [pendingLoginId, setPendingLoginId] = useState("");
 
   useEffect(() => {
     if (!token) {
@@ -42,6 +59,11 @@ export function ResetPasswordPage() {
     };
   }, [token]);
 
+  async function finishSignIn(sessionUser: SessionUser) {
+    await adoptSession(sessionUser);
+    navigate("/", { replace: true });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -55,13 +77,48 @@ export function ResetPasswordPage() {
     }
     setBusy(true);
     try {
-      const data = await apiJson<{ ok: boolean; message: string }>("/api/auth/reset-password", {
+      const data = await apiJson<ResetPasswordResponse>("/api/auth/reset-password", {
         method: "POST",
-        json: { token, password },
+        json: { token, password, storeId: storeId || null },
       });
+      if (data.signedIn && data.user) {
+        setSuccess(data.message);
+        await finishSignIn(data.user);
+        return;
+      }
+      if (data.code === "STORE_SELECTION_REQUIRED" && Array.isArray(data.stores) && data.stores.length > 0) {
+        setStoreOptions(data.stores);
+        setPendingLoginId(String(data.loginId ?? "").trim());
+        setSuccess(data.message);
+        return;
+      }
       setSuccess(data.message);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reset password.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStoreContinue(e: React.FormEvent) {
+    e.preventDefault();
+    if (!storeId) {
+      setError("Select a store to continue.");
+      return;
+    }
+    if (!pendingLoginId) {
+      setError("Could not complete sign-in. Use the sign-in page with your new password.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await login(pendingLoginId, password, storeId);
+      if (result.ok) {
+        navigate("/", { replace: true });
+        return;
+      }
+      setError(result.message);
     } finally {
       setBusy(false);
     }
@@ -94,17 +151,42 @@ export function ResetPasswordPage() {
                   Request new link
                 </Link>
               </div>
-            ) : success ? (
-              <div className="space-y-3">
+            ) : storeOptions.length > 0 ? (
+              <form onSubmit={handleStoreContinue} className="space-y-4">
                 <p className="text-sm text-emerald-900">{success}</p>
-                <Link
-                  to="/login"
-                  className="inline-block w-full py-3 text-center text-xs font-bold uppercase tracking-[0.25em]"
+                <div>
+                  <label htmlFor="reset-store" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
+                    Select store
+                  </label>
+                  <select
+                    id="reset-store"
+                    value={storeId}
+                    onChange={(e) => setStoreId(e.target.value)}
+                    className={fieldCls}
+                    required
+                  >
+                    <option value="">Choose a store…</option>
+                    {storeOptions.map((store) => (
+                      <option key={store.id} value={store.id}>
+                        {store.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {error ? (
+                  <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">{error}</div>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full py-3 text-xs font-bold uppercase tracking-[0.25em] transition disabled:opacity-60"
                   style={{ background: "linear-gradient(135deg, #A8850F, #C9A227)", color: "#003a22" }}
                 >
-                  Sign in
-                </Link>
-              </div>
+                  {busy ? "Signing in…" : "Continue to app"}
+                </button>
+              </form>
+            ) : success ? (
+              <p className="text-sm text-emerald-900">{success}</p>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>

@@ -50,6 +50,8 @@ type AuthContextValue = {
   authReady: boolean;
   listUsers: SessionUser[];
   login: (employeeCode: string, password: string, storeId?: string | null) => Promise<LoginResult>;
+  /** Apply server session after password reset (cookie already set). */
+  adoptSession: (user: SessionUser) => Promise<void>;
   logout: () => Promise<void>;
   createUser: (input: CreateUserInput) => Promise<{ ok: true } | { ok: false; message: string }>;
   updateUser: (userId: string, patch: UserPatchInput) => Promise<{ ok: boolean; message: string }>;
@@ -156,6 +158,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [api, refreshDirectory]);
+
+  const adoptSession = useCallback(
+    async (sessionUser: SessionUser) => {
+      setUser(sessionUser);
+      await refreshDirectory(sessionUser);
+    },
+    [refreshDirectory],
+  );
 
   const login = useCallback(
     async (employeeCode: string, password: string, storeId?: string | null): Promise<LoginResult> => {
@@ -384,11 +394,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authReady,
       listUsers: api ? listUsers : allWithPassword.map(stripPassword),
       login,
+      adoptSession,
       logout,
       createUser,
       updateUser,
     }),
-    [effectiveUser, authReady, api, listUsers, allWithPassword, login, logout, createUser, updateUser],
+    [effectiveUser, authReady, api, listUsers, allWithPassword, login, adoptSession, logout, createUser, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
