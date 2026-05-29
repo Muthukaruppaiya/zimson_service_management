@@ -49,12 +49,17 @@ if (!token || !templateId) {
   process.exit(1);
 }
 
+const defaultOtpMessage =
+  "Dear Customer, Your One Time Password is {{1}}. Please use this code to complete your verification - ZIMSON";
+
 const patch = {
   smsUrl: process.env.QIKBERRY_SMS_URL?.trim() || "https://rest.qikberry.ai/v1/sms/messages",
   smsToken: token,
   smsTemplateId: templateId,
   smsSender: process.env.QIKBERRY_SMS_SENDER?.trim() || "ZIMSON",
   smsService: process.env.QIKBERRY_SMS_SERVICE?.trim() || "SI",
+  smsOtpMessageTemplate:
+    process.env.QIKBERRY_SMS_OTP_MESSAGE?.trim() || defaultOtpMessage,
   smsEnabled: true,
 };
 
