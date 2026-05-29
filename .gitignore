@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 .env
+.env.production
+
+# RDS CA (re-download with npm run certs:rds)
+# certs/global-bundle.pem
 
 # Local API persistence (Zimson server)
 server/data/state.json

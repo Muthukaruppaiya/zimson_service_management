@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { MessagingConfig } from "./messaging/types";
+import { resetSmtpTransporter } from "./messaging/smtpTransport";
 import { envFirst } from "./messaging/env";
 
 /** Stored in `messaging_settings.config` (JSONB). Secrets are plain text in DB — super-admin only API. */
@@ -93,7 +94,7 @@ const DEFAULT_SMS_OTP_MESSAGE =
   "Dear Customer, Your One Time Password is {{1}}. Please use this code to complete your verification - ZIMSON";
 const DEFAULT_EMAIL_OTP_SUBJECT = "Your Zimson verification code";
 const DEFAULT_EMAIL_OTP_TEXT =
-  "Your one time password - OTP is {{otp}} to sign in to your Zimson account. Valid for 20 minutes. Do not share this code.\n\n— Team Zimson";
+  "Your verification code for Zimson Service Management is {{otp}}.\n\nThis code is valid for 20 minutes. Enter it on the screen where you requested verification.\n\nDo not share this code with anyone.\n\n— Zimson Watch Care";
 
 let poolRef: Pool | null = null;
 let dbConfig: MessagingSettingsDb = {};
@@ -168,7 +169,7 @@ function configFromEnv(): MessagingSettingsDb {
     smtpFrom:
       envFirst("SMTP_FROM", "SPRING_MAIL_FROM") ||
       envFirst("SMTP_USER", "SPRING_MAIL_USERNAME", "spring.mail.username") ||
-      "Zimson Service <promotion@zimson.in>",
+      "Zimson Watch Care <noreply@zimsonwatchcare.com>",
     smtpOtpSubject: envFirst("SMTP_OTP_SUBJECT") || DEFAULT_EMAIL_OTP_SUBJECT,
     smtpOtpMessage: envFirst("SMTP_OTP_MESSAGE") || DEFAULT_EMAIL_OTP_TEXT,
 
@@ -296,7 +297,7 @@ function resolveMerged(db: MessagingSettingsDb): {
       from:
         track(pickDbOrEnv(db.smtpFrom, ["SMTP_FROM", "SPRING_MAIL_FROM"])) ||
         track(pickDbOrEnv(db.smtpUser, ["SMTP_USER", "SPRING_MAIL_USERNAME"])) ||
-        "Zimson Service <promotion@zimson.in>",
+        "Zimson Watch Care <noreply@zimsonwatchcare.com>",
       otpSubject: track(pickDbOrEnv(db.smtpOtpSubject, ["SMTP_OTP_SUBJECT"], DEFAULT_EMAIL_OTP_SUBJECT)),
       otpTextTemplate: track(pickDbOrEnv(db.smtpOtpMessage, ["SMTP_OTP_MESSAGE"], DEFAULT_EMAIL_OTP_TEXT)),
     },
@@ -499,6 +500,7 @@ export async function saveMessagingSettings(
   if (!str(incoming.workdriveToken) && str(cur.workdriveToken)) next.workdriveToken = cur.workdriveToken;
 
   if (str(incoming.smsToken)) next.smsToken = incoming.smsToken!.replace(/^bearer\s+/i, "").trim();
+  if (str(incoming.smtpPassword)) next.smtpPassword = incoming.smtpPassword!.replace(/\s+/g, "");
   if (str(incoming.workdriveToken)) {
     next.workdriveToken = incoming.workdriveToken!.replace(/^bearer\s+/i, "").trim();
   }
@@ -511,5 +513,6 @@ export async function saveMessagingSettings(
   const row = rows[0];
   if (!row) throw new Error("Messaging settings row missing.");
   applyCache((row.config ?? {}) as MessagingSettingsDb, row);
+  resetSmtpTransporter();
   return toPublicSettings();
 }

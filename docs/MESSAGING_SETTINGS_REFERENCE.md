@@ -138,9 +138,9 @@ Used for: email OTP on customer registration (when configured).
 | **Email channel enabled** | Yes | ON to send email OTP. | ON |
 | **SMTP host** | Yes | Mail server hostname. | `smtp.gmail.com` |
 | **SMTP port** | Yes | Usually `587` (TLS). | `587` |
-| **Username** | Yes | Mailbox login email. | `promotion@zimson.in` |
+| **Username** | Yes | Mailbox login email. | `noreply@zimsonwatchcare.com` |
 | **Password** | Yes | App password (Gmail: 16-char app password, **no spaces**). | From Google Account → Security → App passwords |
-| **From address** | Yes | What recipients see as sender. | `Zimson Service <promotion@zimson.in>` |
+| **From address** | Yes | What recipients see as sender. | `Zimson Watch Care <noreply@zimsonwatchcare.com>` |
 | **OTP subject** | Yes | Email subject for OTP. | `Your Zimson verification code` |
 | **OTP body** | Yes | Email body; use `{{otp}}` for the code. | See example below |
 

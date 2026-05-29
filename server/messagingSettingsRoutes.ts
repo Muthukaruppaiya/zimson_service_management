@@ -46,7 +46,7 @@ function bodyToDb(body: Record<string, unknown>): MessagingSettingsDb {
     smtpHost: String(body.smtpHost ?? "").trim().slice(0, 200) || undefined,
     smtpPort,
     smtpUser: String(body.smtpUser ?? "").trim().slice(0, 200) || undefined,
-    smtpPassword: String(body.smtpPassword ?? "").trim().slice(0, 500) || undefined,
+    smtpPassword: String(body.smtpPassword ?? "").replace(/\s+/g, "").slice(0, 500) || undefined,
     smtpFrom: String(body.smtpFrom ?? "").trim().slice(0, 200) || undefined,
     smtpOtpSubject: String(body.smtpOtpSubject ?? "").trim().slice(0, 200) || undefined,
     smtpOtpMessage: String(body.smtpOtpMessage ?? "").trim().slice(0, 4000) || undefined,

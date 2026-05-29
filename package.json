@@ -10,7 +10,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "start": "cross-env NODE_ENV=production tsx --tsconfig server/tsconfig.json server/index.ts",
-    "typecheck:server": "tsc --noEmit --project server/tsconfig.json"
+    "typecheck:server": "tsc --noEmit --project server/tsconfig.json",
+    "certs:rds": "node scripts/fetch-rds-ca.mjs",
+    "env:sync-smtp": "node scripts/update-smtp-settings.mjs"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -26,6 +28,8 @@
     "vite": "^8.0.4"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1056.0",
+    "@aws-sdk/s3-request-presigner": "^3.1056.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

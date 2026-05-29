@@ -1,7 +1,6 @@
 import type { Express, NextFunction, Request, Response } from "express";
-import fs from "node:fs";
-import path from "node:path";
-import multer from "multer";
+import { persistUploadedFile } from "./storage/fileStorage";
+import { createMemoryUpload } from "./storage/multerMemory";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
 import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib/paymentModes";
@@ -21,24 +20,7 @@ import { registerWatchCatalogRoutes } from "./watchCatalogRoutes";
 
 type Authed = Request & { userId: string };
 
-const QB_UPLOAD_DIR = path.join(process.cwd(), "uploads", "quick-bill");
-const qbUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      try {
-        fs.mkdirSync(QB_UPLOAD_DIR, { recursive: true });
-      } catch {
-        /* ignore */
-      }
-      cb(null, QB_UPLOAD_DIR);
-    },
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname || "") || ".bin";
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`);
-    },
-  }),
-  limits: { fileSize: WATCH_ATTACHMENT_MAX_BYTES },
-});
+const qbUpload = createMemoryUpload(WATCH_ATTACHMENT_MAX_BYTES);
 
 const WARRANTY_VALUES = new Set(["unspecified", "none", "under_warranty", "extended"]);
 
@@ -402,38 +384,40 @@ export function registerQuickBillRoutes(
 
   registerWatchCatalogRoutes(app, pool, requireAuth, getUserById);
 
-  app.post("/api/service/quick-bill-attachments", requireAuth, qbUpload.single("file"), (req, res) => {
+  app.post("/api/service/quick-bill-attachments", requireAuth, qbUpload.single("file"), async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor) {
       res.status(401).json({ error: "Invalid session." });
       return;
     }
     const f = (req as Request & { file?: Express.Multer.File }).file;
-    if (!f?.filename) {
+    if (!f?.buffer?.length) {
       res.status(400).json({ error: "file field is required." });
       return;
     }
     const kindRaw = String(req.body?.kind ?? "").trim();
     if (kindRaw !== "doc" && kindRaw !== "img") {
-      try {
-        fs.unlinkSync(f.path);
-      } catch {
-        /* ignore */
-      }
       res.status(400).json({ error: "kind must be doc or img." });
       return;
     }
     const validationError = validateQuickBillAttachmentFile(f, kindRaw);
     if (validationError) {
-      try {
-        fs.unlinkSync(f.path);
-      } catch {
-        /* ignore */
-      }
       res.status(400).json({ error: validationError });
       return;
     }
-    res.json({ url: `/uploads/quick-bill/${f.filename}` });
+    try {
+      const storagePath = await persistUploadedFile({
+        category: "quick-bill",
+        buffer: f.buffer,
+        originalName: f.originalname || (kindRaw === "doc" ? "document.pdf" : "image.jpg"),
+        mime: f.mimetype || "application/octet-stream",
+        fallbackExt: kindRaw === "doc" ? ".pdf" : ".jpg",
+      });
+      res.json({ url: `/${storagePath}` });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not save attachment." });
+    }
   });
 
   app.get("/api/service/quick-bills", requireAuth, async (req, res) => {

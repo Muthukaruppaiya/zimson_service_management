@@ -1,8 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import multer from "multer";
+import { deleteStoredFile, persistUploadedFile } from "./storage/fileStorage";
+import { createMemoryUpload } from "./storage/multerMemory";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
 import {
@@ -12,25 +11,7 @@ import {
 
 type Authed = Request & { userId: string };
 
-const QB_UPLOAD_DIR = path.join(process.cwd(), "uploads", "quick-bill");
-
-const qbCaptureUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      try {
-        fs.mkdirSync(QB_UPLOAD_DIR, { recursive: true });
-      } catch {
-        /* ignore */
-      }
-      cb(null, QB_UPLOAD_DIR);
-    },
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname || "") || ".bin";
-      cb(null, `qb-cap-${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`);
-    },
-  }),
-  limits: { fileSize: WATCH_ATTACHMENT_MAX_BYTES },
-});
+const qbCaptureUpload = createMemoryUpload(WATCH_ATTACHMENT_MAX_BYTES);
 
 function tokenHash(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -77,11 +58,7 @@ function ensureCaptureSessionActive(row: {
 }
 
 async function unlinkQuickBillFile(filePath: string | null | undefined): Promise<void> {
-  const fp = String(filePath ?? "").replace(/\\/g, "/").trim();
-  if (!fp || fp.startsWith("(demo")) return;
-  const rel = fp.replace(/^\//, "");
-  const abs = path.isAbsolute(fp) ? fp : path.join(process.cwd(), rel);
-  await fs.promises.unlink(abs).catch(() => {});
+  await deleteStoredFile(filePath);
 }
 
 type SessionRow = {
@@ -151,12 +128,10 @@ export function registerQuickBillCaptureRoutes(
       const token = String(req.body?.token ?? "").trim();
       const kindRaw = String(req.body?.kind ?? "").trim();
       if (!token) {
-        if (req.file?.path) fs.unlink(req.file.path, () => {});
         res.status(400).json({ error: "token is required." });
         return;
       }
       if (kindRaw !== "doc" && kindRaw !== "img") {
-        if (req.file?.path) fs.unlink(req.file.path, () => {});
         res.status(400).json({ error: "kind must be doc or img." });
         return;
       }
@@ -166,7 +141,6 @@ export function registerQuickBillCaptureRoutes(
       }
       const validationError = validateQuickBillAttachmentFile(req.file, kindRaw);
       if (validationError) {
-        fs.unlink(req.file.path, () => {});
         res.status(400).json({ error: validationError });
         return;
       }
@@ -184,12 +158,17 @@ export function registerQuickBillCaptureRoutes(
         const row = rows[0];
         const error = ensureCaptureSessionActive(row);
         if (error) {
-          fs.unlink(req.file.path, () => {});
           res.status(400).json({ error });
           return;
         }
-        const relPath = path.relative(process.cwd(), req.file.path).replace(/\\/g, "/");
-        const urlPath = relPath.startsWith("uploads/") ? `/${relPath}` : `/uploads/quick-bill/${req.file.filename}`;
+        const storagePath = await persistUploadedFile({
+          category: "quick-bill",
+          buffer: req.file.buffer,
+          originalName: req.file.originalname || (kindRaw === "doc" ? "document.pdf" : "image.jpg"),
+          mime: req.file.mimetype || "application/octet-stream",
+          fallbackExt: kindRaw === "doc" ? ".pdf" : ".jpg",
+        });
+        const urlPath = `/${storagePath}`;
         const col = kindRaw === "doc" ? "watch_document_path" : "watch_image_path";
         const oldPath = kindRaw === "doc" ? row!.watch_document_path : row!.watch_image_path;
         await pool.query(
@@ -207,7 +186,6 @@ export function registerQuickBillCaptureRoutes(
         res.json({ ok: true, url: urlPath, ...mapSessionPublic(updated[0]!) });
       } catch (e) {
         console.error(e);
-        if (req.file?.path) fs.unlink(req.file.path, () => {});
         res.status(500).json({ error: "Could not upload file." });
       }
     },

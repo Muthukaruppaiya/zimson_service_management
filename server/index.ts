@@ -45,6 +45,8 @@ import {
 import { registerMessagingRoutes } from "./messagingRoutes";
 import { registerPasswordResetRoutes } from "./passwordResetRoutes";
 import { startDevPublicTunnel } from "./devPublicTunnel";
+import { isS3StorageEnabled } from "./storage/config";
+import { registerMediaRoutes } from "./storage/mediaRoutes";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT) || 4000;
@@ -483,6 +485,7 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "5mb" }));
+registerMediaRoutes(app);
 app.use(
   "/uploads",
   express.static(join(process.cwd(), "uploads"), {
@@ -3784,6 +3787,9 @@ async function main() {
     console.error("Missing database configuration: set DATABASE_URL or PGHOST/PGDATABASE/PGUSER/PGPASSWORD.");
     process.exit(1);
   }
+  console.log(
+    `[storage] ${isS3StorageEnabled() ? `Amazon S3 (${process.env.AWS_S3_BUCKET})` : "local disk (uploads/)"}`,
+  );
   try {
     await runMigrations(dbPool);
     await ensureSeedUsers();

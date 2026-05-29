@@ -1,0 +1,92 @@
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { s3Bucket, s3KeyPrefix, s3Region } from "./config";
+
+let client: S3Client | null = null;
+
+function getClient(): S3Client {
+  if (!client) {
+    client = new S3Client({
+      region: s3Region(),
+      credentials:
+        process.env.AWS_ACCESS_KEY_ID?.trim() && process.env.AWS_SECRET_ACCESS_KEY?.trim()
+          ? {
+              accessKeyId: process.env.AWS_ACCESS_KEY_ID.trim(),
+              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY.trim(),
+            }
+          : undefined,
+    });
+  }
+  return client;
+}
+
+export function fullS3Key(relativeKey: string): string {
+  const rel = relativeKey.replace(/^\/+/, "");
+  const prefix = s3KeyPrefix();
+  return rel.startsWith(`${prefix}/`) ? rel : `${prefix}/${rel}`;
+}
+
+export async function s3PutObject(
+  relativeKey: string,
+  body: Buffer,
+  contentType: string,
+): Promise<void> {
+  await getClient().send(
+    new PutObjectCommand({
+      Bucket: s3Bucket(),
+      Key: fullS3Key(relativeKey),
+      Body: body,
+      ContentType: contentType || "application/octet-stream",
+    }),
+  );
+}
+
+export async function s3DeleteObject(relativeKey: string): Promise<void> {
+  await getClient().send(
+    new DeleteObjectCommand({
+      Bucket: s3Bucket(),
+      Key: fullS3Key(relativeKey),
+    }),
+  );
+}
+
+export async function s3ObjectExists(relativeKey: string): Promise<boolean> {
+  try {
+    await getClient().send(
+      new HeadObjectCommand({
+        Bucket: s3Bucket(),
+        Key: fullS3Key(relativeKey),
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function s3PresignedGetUrl(relativeKey: string, expiresSec = 3600): Promise<string> {
+  return getSignedUrl(
+    getClient(),
+    new GetObjectCommand({
+      Bucket: s3Bucket(),
+      Key: fullS3Key(relativeKey),
+    }),
+    { expiresIn: expiresSec },
+  );
+}
+
+export async function s3GetObjectStream(relativeKey: string) {
+  const out = await getClient().send(
+    new GetObjectCommand({
+      Bucket: s3Bucket(),
+      Key: fullS3Key(relativeKey),
+    }),
+  );
+  return out;
+}

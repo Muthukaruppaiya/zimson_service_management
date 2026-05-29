@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
+import { deleteStoredFile, persistUploadedFile } from "./storage/fileStorage";
+import { createMemoryUpload } from "./storage/multerMemory";
 import type { Pool, PoolClient } from "pg";
 import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib/paymentModes";
 import { normalizeSrfRepairRoute } from "../src/lib/srfRepairRoute";
@@ -89,19 +91,7 @@ function toJsonMeta(input: unknown): Record<string, unknown> {
   return input as Record<string, unknown>;
 }
 
-const SRF_UPLOAD_ROOT = path.resolve(process.cwd(), "uploads", "srf");
-fs.mkdirSync(SRF_UPLOAD_ROOT, { recursive: true });
-
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, SRF_UPLOAD_ROOT),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname || "").slice(0, 10) || ".jpg";
-      cb(null, `${Date.now()}-${crypto.randomUUID()}${ext}`);
-    },
-  }),
-  limits: { fileSize: SRF_CUSTOMER_PHOTO_MAX_BYTES, files: 1 },
-});
+const upload = createMemoryUpload(SRF_CUSTOMER_PHOTO_MAX_BYTES);
 
 function srfPublicPhotoUpload(req: Request, res: Response, next: NextFunction) {
   upload.single("file")(req, res, (err: unknown) => {
@@ -481,10 +471,7 @@ function normalizePhotoKind(input: string): "front" | "back" | "strap" | "serial
 }
 
 async function unlinkSrfPhotoFile(filePath: string): Promise<void> {
-  const fp = String(filePath ?? "").replace(/\\/g, "/");
-  if (!fp) return;
-  const abs = path.isAbsolute(fp) ? fp : path.join(process.cwd(), fp);
-  await fs.promises.unlink(abs).catch(() => {});
+  await deleteStoredFile(filePath);
 }
 
 async function deleteSrfJobPhoto(pool: Pool, srfId: string, photoId: string): Promise<number> {
@@ -4986,7 +4973,6 @@ export function registerSrfRoutes(
   app.post("/api/public/srf-photo/upload", srfPublicPhotoUpload, async (req, res) => {
     const token = String(req.body?.token ?? "").trim();
     if (!token) {
-      if (req.file?.path) fs.unlink(req.file.path, () => {});
       res.status(400).json({ error: "token is required." });
       return;
     }
@@ -5015,11 +5001,16 @@ export function registerSrfRoutes(
       const row = rows[0];
       const error = ensurePhotoTokenSession(row);
       if (error) {
-        fs.unlink(req.file.path, () => {});
         res.status(400).json({ error });
         return;
       }
-      const relPath = path.relative(process.cwd(), req.file.path).replace(/\\/g, "/");
+      const relPath = await persistUploadedFile({
+        category: "srf",
+        buffer: req.file.buffer,
+        originalName: req.file.originalname || "photo.jpg",
+        mime: req.file.mimetype || "image/jpeg",
+        fallbackExt: ".jpg",
+      });
       const photoKind = normalizePhotoKind(String(req.body?.photoKind ?? ""));
       if (photoKind === "document") {
         const { rows: docRows } = await pool.query<{ c: number }>(
@@ -5038,11 +5029,7 @@ export function registerSrfRoutes(
           const old = existingDoc[0];
           if (old?.id) {
             await pool.query(`DELETE FROM srf_job_photos WHERE id = $1::uuid`, [old.id]);
-            const fp = String(old.filePath ?? "").replace(/\\/g, "/");
-            if (fp) {
-              const abs = path.isAbsolute(fp) ? fp : path.join(process.cwd(), fp);
-              fs.unlink(abs, () => {});
-            }
+            await deleteStoredFile(old.filePath);
           }
         }
       } else {
@@ -5052,7 +5039,7 @@ export function registerSrfRoutes(
         );
         const kinds = new Set(kindRows.map((r) => r.photo_kind));
         if (!kinds.has(photoKind) && kinds.size >= 6) {
-          fs.unlink(req.file.path, () => {});
+          await deleteStoredFile(relPath);
           res.status(400).json({ error: "Maximum 6 watch photos allowed. Each type can be used once." });
           return;
         }
@@ -5072,10 +5059,7 @@ export function registerSrfRoutes(
           [row!.srf_id, photoKind, newId],
         );
         for (const r of removed) {
-          const fp = String(r.filePath ?? "").replace(/\\/g, "/");
-          if (!fp) continue;
-          const abs = path.isAbsolute(fp) ? fp : path.join(process.cwd(), fp);
-          fs.unlink(abs, () => {});
+          await deleteStoredFile(r.filePath);
         }
       }
       await pool.query(
@@ -5097,7 +5081,6 @@ export function registerSrfRoutes(
       res.json({ ok: true, photoCount: countRows[0]?.c ?? 1 });
     } catch (e) {
       console.error(e);
-      if (req.file?.path) fs.unlink(req.file.path, () => {});
       res.status(500).json({ error: "Could not upload photo." });
     }
   });
