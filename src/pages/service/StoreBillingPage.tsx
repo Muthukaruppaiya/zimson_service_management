@@ -20,6 +20,7 @@ import { apiJson, ApiError } from "../../lib/api";
 import { phoneLast10 } from "../../lib/customerLookup";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
+import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import {
   buildStoreBillingInvoiceLines,
@@ -64,6 +65,7 @@ export function StoreBillingPage() {
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
   const [whatsappSending, setWhatsappSending] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
   const [screenMode, setScreenMode] = useState<"select" | "invoice">("select");
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [billingRefInput, setBillingRefInput] = useState("");
@@ -371,6 +373,30 @@ export function StoreBillingPage() {
       setWhatsappSending(false);
     }
   }, [billingInvoiceVm]);
+
+  const handleSendBillingInvoiceEmail = useCallback(async () => {
+    if (!billingInvoiceVm) return;
+    const to = (billingInvoiceVm.billTo.email ?? billingCustomerEmail).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      setBillPostActionNote("Customer email is required to send the invoice.");
+      return;
+    }
+    setEmailSending(true);
+    setBillPostActionNote(null);
+    try {
+      await sendInvoiceEmail({
+        email: to,
+        customerName: billingInvoiceVm.billTo.name.trim() || "Customer",
+        invoiceNumber: billingInvoiceVm.invoiceNumber,
+        totalInr: billingInvoiceVm.netPayable ?? billingInvoiceVm.totalAmount,
+      });
+      setBillPostActionNote("Invoice sent by email successfully (PDF attached).");
+    } catch (e) {
+      setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice by email.");
+    } finally {
+      setEmailSending(false);
+    }
+  }, [billingInvoiceVm, billingCustomerEmail]);
 
   if (!user) return null;
 
@@ -924,7 +950,15 @@ export function StoreBillingPage() {
               <button
                 type="button"
                 className={billSuccessBtnSecondary}
-                disabled={whatsappSending}
+                disabled={emailSending || whatsappSending}
+                onClick={() => void handleSendBillingInvoiceEmail()}
+              >
+                {emailSending ? "Sending email…" : "Send invoice by email"}
+              </button>
+              <button
+                type="button"
+                className={billSuccessBtnSecondary}
+                disabled={whatsappSending || emailSending}
                 onClick={() => void handleSendBillingInvoiceWhatsApp()}
               >
                 {whatsappSending ? "Sending on WhatsApp…" : "Send invoice on WhatsApp"}
@@ -953,8 +987,8 @@ export function StoreBillingPage() {
             </p>
           ) : (
             <p className="text-sm text-stone-700">
-              Use <strong>Print invoice</strong> for a paper copy, or <strong>Send invoice on WhatsApp</strong> for the
-              approved template with PDF attachment.
+              Use <strong>Print invoice</strong>, <strong>Send invoice by email</strong> (PDF attachment), or{" "}
+              <strong>Send invoice on WhatsApp</strong> when configured.
             </p>
           )}
         </ProcessSuccessModal>

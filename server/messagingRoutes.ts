@@ -4,9 +4,12 @@ import path from "node:path";
 import multer from "multer";
 import {
   getMessagingPublicBaseUrl,
+  isEmailConfigured,
   isWhatsAppConfigured,
   isWhatsAppInvoiceDryRun,
 } from "./messaging/config";
+import { isValidCustomerEmail } from "./messaging/customerContact";
+import { sendCustomerInvoiceEmail } from "./messaging/invoiceEmail";
 import {
   getWhatsAppInvoiceSendMode,
   sendInvoiceWhatsApp,
@@ -90,6 +93,10 @@ export function registerMessagingRoutes(
   /** No auth — used by cloudflared/WhatsApp to verify the tunnel reaches this API. */
   app.get("/api/messaging/public-ping", (_req, res) => {
     res.json({ ok: true, service: "zimson-api" });
+  });
+
+  app.get("/api/messaging/email/status", requireAuth, (_req, res) => {
+    res.json({ configured: isEmailConfigured() });
   });
 
   app.get("/api/messaging/whatsapp/status", requireAuth, (_req, res) => {
@@ -203,6 +210,73 @@ export function registerMessagingRoutes(
         console.error("[messaging/whatsapp/invoice]", e);
         res.status(502).json({
           error: e instanceof Error ? e.message : "Could not send invoice on WhatsApp.",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/messaging/email/invoice",
+    requireAuth,
+    (req, res, next) => {
+      invoicePdfUpload.single("document")(req, res, (err: unknown) => {
+        if (err) {
+          const msg = err instanceof Error ? err.message : "Invalid upload.";
+          res.status(400).json({ error: msg });
+          return;
+        }
+        next();
+      });
+    },
+    async (req, res) => {
+      try {
+        if (!isEmailConfigured()) {
+          res.status(503).json({ error: "Email (SMTP) is not configured." });
+          return;
+        }
+
+        const body = req.body as Record<string, string | undefined>;
+        const toEmail = String(body.email ?? body.toEmail ?? "").trim().toLowerCase();
+        const customerName = String(body.customerName ?? "").trim();
+        const invoiceNumber = String(body.invoiceNumber ?? "").trim();
+        const totalRaw = String(body.totalInr ?? "").trim();
+        const totalInr = totalRaw ? Number.parseFloat(totalRaw) : null;
+
+        if (!isValidCustomerEmail(toEmail)) {
+          res.status(400).json({ error: "Valid customer email is required." });
+          return;
+        }
+        if (!invoiceNumber) {
+          res.status(400).json({ error: "Invoice number is required." });
+          return;
+        }
+
+        const file = req.file;
+        if (!file?.path) {
+          res.status(400).json({ error: "Upload the invoice PDF (document field)." });
+          return;
+        }
+
+        const pdfBuffer = fs.readFileSync(file.path);
+        const documentFilename =
+          String(body.documentFilename ?? "").trim() ||
+          file.originalname ||
+          `Zimson-Invoice-${invoiceNumber}.pdf`;
+
+        await sendCustomerInvoiceEmail({
+          toEmail,
+          customerName: customerName || "Customer",
+          invoiceNumber,
+          totalInr: totalInr != null && Number.isFinite(totalInr) ? totalInr : null,
+          pdfBuffer,
+          pdfFilename: documentFilename,
+        });
+
+        res.json({ ok: true, emailSent: true });
+      } catch (e) {
+        console.error("[messaging/email/invoice]", e);
+        res.status(502).json({
+          error: e instanceof Error ? e.message : "Could not send invoice by email.",
         });
       }
     },

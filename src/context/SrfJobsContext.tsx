@@ -250,15 +250,19 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         natureOfRepair?: string;
         chainCount?: string;
         customerRemarks?: string;
+        customerEmail?: string;
       },
     ) => {
-      const out = await apiJson<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>(
-        `/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`,
-        {
-          method: "POST",
-          json: payload,
-        },
-      );
+      const out = await apiJson<{
+        trackingUrl?: string;
+        whatsappSent?: boolean;
+        whatsappReason?: string | null;
+        emailSent?: boolean;
+        emailReason?: string | null;
+      }>(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`, {
+        method: "POST",
+        json: payload,
+      });
       await refreshJobs();
       return out;
     },

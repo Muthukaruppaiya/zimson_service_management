@@ -20,17 +20,19 @@ export async function sendCustomerTrackingLinkEmail(
   const from = parseFromAddress(cfg.from.includes("<") ? cfg.from : `Zimson Watch Care <${cfg.from}>`);
   const name = customerName.trim() || "Customer";
   const ref = srfReference.trim();
-  const subject = `Track your service request — ${ref}`;
-  const preheader = `View status and updates for ${ref} at Zimson Watch Care.`;
-  const buttonLabel = "View service status";
+  const subject = `Your Zimson service request — ${ref}`;
+  const preheader = `SRF ${ref} registered. Track your watch service online.`;
+  const buttonLabel = "Track my service";
 
   const text = `Hello ${name},
 
-Your service request ${ref} is ready to track online.
+Your service request form (SRF) ${ref} has been registered at Zimson Watch Care.
 
-Open this email in HTML view and click "${buttonLabel}".
+Please keep the printed SRF copy you received at the store for your records.
 
-If you cannot use the button, paste this link into your browser:
+Track repair status online — open this email in HTML view and click "${buttonLabel}".
+
+If the button does not open, paste this link into your browser:
 ${trackingUrl}
 
 — Zimson Watch Care`;
@@ -45,7 +47,7 @@ ${trackingUrl}
       { type: "paragraph", html: `Hello ${escapeHtml(name)},` },
       {
         type: "paragraph",
-        html: `You can follow the progress of your service request <strong>${escapeHtml(ref)}</strong> online. Click the button below to open your tracking page.`,
+        html: `Your service request form <strong>(SRF ${escapeHtml(ref)})</strong> is registered. Please keep the printed copy from the store. Use the button below to track repair status online at any time.`,
       },
       { type: "link", href: trackingUrl, label: buttonLabel, showUrlFallback: true },
       {

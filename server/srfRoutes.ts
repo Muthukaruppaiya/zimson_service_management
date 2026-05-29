@@ -15,6 +15,7 @@ import {
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../src/lib/srfTraceLocations";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
 import type { DemoUser, UserRole } from "../src/types/user";
+import { resolveCustomerEmail } from "./messaging/customerContact";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
 import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { appendStockHistory } from "./db/stockHistory";
@@ -1913,13 +1914,31 @@ export function registerSrfRoutes(
         trackingBase = getAppBaseUrl(req);
       }
       const trackingUrl = `${trackingBase}/track?t=${encodeURIComponent(trackingToken)}`;
+      const customerEmail = await resolveCustomerEmail(
+        pool,
+        refRow?.phone ?? "",
+        String(req.body?.customerEmail ?? req.body?.email ?? "").trim() || null,
+      );
       const sent = await sendTrackingLink({
         phone: refRow?.phone ?? "",
+        email: customerEmail ?? undefined,
         name: refRow?.customer_name ?? "Customer",
         trackingUrl,
         srfReference: refRow?.reference ?? "",
-      }).catch(() => ({ sent: false, reason: "Could not send WhatsApp message." }));
-      res.json({ ok: true, trackingUrl, whatsappSent: sent.sent, whatsappReason: sent.reason ?? null });
+      }).catch(() => ({
+        sent: false,
+        reason: "Could not send WhatsApp message.",
+        emailSent: false,
+        emailReason: "Could not send customer notifications.",
+      }));
+      res.json({
+        ok: true,
+        trackingUrl,
+        whatsappSent: sent.sent,
+        whatsappReason: sent.reason ?? null,
+        emailSent: sent.emailSent,
+        emailReason: sent.emailReason ?? null,
+      });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -1966,17 +1985,35 @@ export function registerSrfRoutes(
         trackingBase = getAppBaseUrl(req);
       }
       const trackingUrl = `${trackingBase}/track?t=${encodeURIComponent(trackingToken)}`;
+      const customerEmail = await resolveCustomerEmail(
+        pool,
+        refRow.phone ?? "",
+        String(req.body?.customerEmail ?? req.body?.email ?? "").trim() || null,
+      );
       const sent = await sendTrackingLink({
         phone: refRow.phone ?? "",
+        email: customerEmail ?? undefined,
         name: refRow.customer_name ?? "Customer",
         trackingUrl,
         srfReference: refRow.reference ?? "",
-      }).catch(() => ({ sent: false, reason: "Could not resend WhatsApp message." }));
-      res.json({ ok: true, trackingUrl, whatsappSent: sent.sent, whatsappReason: sent.reason ?? null });
+      }).catch(() => ({
+        sent: false,
+        reason: "Could not resend WhatsApp message.",
+        emailSent: false,
+        emailReason: "Could not resend customer notifications.",
+      }));
+      res.json({
+        ok: true,
+        trackingUrl,
+        whatsappSent: sent.sent,
+        whatsappReason: sent.reason ?? null,
+        emailSent: sent.emailSent,
+        emailReason: sent.emailReason ?? null,
+      });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not resend tracking WhatsApp message." });
+      res.status(400).json({ error: "Could not resend tracking link to customer." });
     } finally {
       client.release();
     }

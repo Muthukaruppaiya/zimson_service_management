@@ -8,6 +8,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { SendInvoiceWhatsAppButton } from "../../components/service/SendInvoiceWhatsAppButton";
+import { SendInvoiceEmailButton } from "../../components/service/SendInvoiceEmailButton";
 import { downloadQuickBillInvoicePdf } from "../../lib/quickBillInvoiceDownload";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { APP_PAYMENT_MODES, ADVANCE_CASH_DENOMS, sumAdvanceCashDenominations } from "../../lib/paymentModes";
@@ -588,20 +589,37 @@ export function QuickBillHistoryPage() {
                   </button>
                 ) : null}
                 {detailInvoice && apiMode ? (
-                  <SendInvoiceWhatsAppButton
-                    phone={detailInvoice.phone ?? ""}
-                    customerName={
-                      detailInvoice.customerType === "B2B"
-                        ? detailInvoice.company ?? detailInvoice.customerName ?? "Customer"
-                        : detailInvoice.customerName ?? "Customer"
-                    }
-                    invoiceNumber={detailInvoice.invoiceNumber || detailInvoice.billNumber}
-                    disabled={!detailInvoiceVm}
-                    label="Resend WhatsApp"
-                    busyLabel="Sending…"
-                    className="flex-1 border border-emerald-300/80 bg-emerald-600 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-50 sm:flex-none sm:px-5"
-                    onResult={(msg) => setWhatsappNote(msg)}
-                  />
+                  <>
+                    <SendInvoiceEmailButton
+                      email={detailInvoice.email ?? ""}
+                      customerName={
+                        detailInvoice.customerType === "B2B"
+                          ? detailInvoice.company ?? detailInvoice.customerName ?? "Customer"
+                          : detailInvoice.customerName ?? "Customer"
+                      }
+                      invoiceNumber={detailInvoice.invoiceNumber || detailInvoice.billNumber}
+                      totalInr={detailInvoice.totalInr}
+                      disabled={!detailInvoiceVm}
+                      label="Send email"
+                      busyLabel="Sending…"
+                      className="flex-1 border border-sky-300/80 bg-sky-700 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-sky-800 disabled:opacity-50 sm:flex-none sm:px-5"
+                      onResult={(msg) => setWhatsappNote(msg)}
+                    />
+                    <SendInvoiceWhatsAppButton
+                      phone={detailInvoice.phone ?? ""}
+                      customerName={
+                        detailInvoice.customerType === "B2B"
+                          ? detailInvoice.company ?? detailInvoice.customerName ?? "Customer"
+                          : detailInvoice.customerName ?? "Customer"
+                      }
+                      invoiceNumber={detailInvoice.invoiceNumber || detailInvoice.billNumber}
+                      disabled={!detailInvoiceVm}
+                      label="Resend WhatsApp"
+                      busyLabel="Sending…"
+                      className="flex-1 border border-emerald-300/80 bg-emerald-600 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-50 sm:flex-none sm:px-5"
+                      onResult={(msg) => setWhatsappNote(msg)}
+                    />
+                  </>
                 ) : null}
                 <button
                   type="button"

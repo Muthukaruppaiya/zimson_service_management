@@ -234,6 +234,10 @@ export function SrfBookingV2Page() {
     sent: boolean;
     reason: string | null;
   } | null>(null);
+  const [trackingEmailState, setTrackingEmailState] = useState<{
+    sent: boolean;
+    reason: string | null;
+  } | null>(null);
   const [resendingTrackingWhatsApp, setResendingTrackingWhatsApp] = useState(false);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
@@ -1041,6 +1045,7 @@ export function SrfBookingV2Page() {
         advancePaymentDetails: advancePay ? advancePay.paymentDetails : {},
         selectedPartIds: [],
         repairRoute,
+        customerEmail: email.trim() || undefined,
         ...watchServiceDetailsToApiPayload(watchServiceDetails),
       });
       setSrfRef(row.reference);
@@ -1050,6 +1055,10 @@ export function SrfBookingV2Page() {
       setTrackingWhatsAppState({
         sent: Boolean(out.whatsappSent),
         reason: out.whatsappReason ?? null,
+      });
+      setTrackingEmailState({
+        sent: Boolean(out.emailSent),
+        reason: out.emailReason ?? null,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create SRF.");
@@ -1165,14 +1174,24 @@ export function SrfBookingV2Page() {
     }
     setResendingTrackingWhatsApp(true);
     try {
-      const out = await apiJson<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>(
-        `/api/service/srf-jobs/${encodeURIComponent(finalizedSrfId)}/resend-tracking-whatsapp`,
-        { method: "POST" },
-      );
+      const out = await apiJson<{
+        trackingUrl?: string;
+        whatsappSent?: boolean;
+        whatsappReason?: string | null;
+        emailSent?: boolean;
+        emailReason?: string | null;
+      }>(`/api/service/srf-jobs/${encodeURIComponent(finalizedSrfId)}/resend-tracking-whatsapp`, {
+        method: "POST",
+        json: email.trim() ? { customerEmail: email.trim() } : undefined,
+      });
       if (out.trackingUrl) setTrackingUrl(out.trackingUrl);
       setTrackingWhatsAppState({
         sent: Boolean(out.whatsappSent),
         reason: out.whatsappReason ?? null,
+      });
+      setTrackingEmailState({
+        sent: Boolean(out.emailSent),
+        reason: out.emailReason ?? null,
       });
     } catch (e) {
       setTrackingWhatsAppState({
@@ -1194,7 +1213,7 @@ export function SrfBookingV2Page() {
       <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
         <Card
           title="SRF completed successfully"
-          subtitle="Tracking WhatsApp message is auto-sent on completion. Use resend if customer has not received it."
+          subtitle="Tracking link is sent to the customer by email (if on file) and WhatsApp when configured. Use resend if needed."
           className="w-full max-w-2xl"
         >
           <p className="text-sm text-stone-700">
@@ -1207,6 +1226,17 @@ export function SrfBookingV2Page() {
           </p>
           <div
             className={`mt-3 rounded-xl border px-3 py-2 text-sm ${
+              trackingEmailState?.sent
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-amber-200 bg-amber-50 text-amber-900"
+            }`}
+          >
+            {trackingEmailState?.sent
+              ? "Tracking link emailed to customer (includes SRF reference and online status link)."
+              : `Email not sent${trackingEmailState?.reason ? `: ${trackingEmailState.reason}` : "."}`}
+          </div>
+          <div
+            className={`mt-2 rounded-xl border px-3 py-2 text-sm ${
               trackingWhatsAppState?.sent
                 ? "border-emerald-200 bg-emerald-50 text-emerald-900"
                 : "border-amber-200 bg-amber-50 text-amber-900"
@@ -1235,7 +1265,7 @@ export function SrfBookingV2Page() {
               disabled={resendingTrackingWhatsApp}
               className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900 disabled:opacity-60"
             >
-              {resendingTrackingWhatsApp ? "Resending..." : "Resend WhatsApp msg"}
+              {resendingTrackingWhatsApp ? "Resending..." : "Resend to customer"}
             </button>
           </div>
           {trackingUrl ? (

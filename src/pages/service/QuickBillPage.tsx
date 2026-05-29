@@ -37,6 +37,7 @@ import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceT
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
+import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import type { QuickBillInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
@@ -266,6 +267,7 @@ export function QuickBillPage() {
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
   const [whatsappSending, setWhatsappSending] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
   const [isSavingBill, setIsSavingBill] = useState(false);
 
   const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
@@ -1199,6 +1201,7 @@ export function QuickBillPage() {
     lastAutoLookupPhoneRef.current = "";
     verifiedBillPhoneLast10Ref.current = "";
     setWhatsappSending(false);
+    setEmailSending(false);
   }
 
   const handleSendInvoiceWhatsApp = useCallback(
@@ -1230,6 +1233,32 @@ export function QuickBillPage() {
     [phone, customerName],
   );
 
+  const handleSendInvoiceEmail = useCallback(
+    async (inv: QuickBillInvoice) => {
+      const to = (inv.email ?? email).trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        setBillPostActionNote("Customer email is required to send the invoice.");
+        return;
+      }
+      setEmailSending(true);
+      setBillPostActionNote(null);
+      try {
+        await sendInvoiceEmail({
+          email: to,
+          customerName: (inv.customerName ?? customerName).trim() || "Customer",
+          invoiceNumber: inv.invoiceNumber || inv.billNumber,
+          totalInr: inv.totalInr,
+        });
+        setBillPostActionNote("Invoice sent by email successfully (PDF attached).");
+      } catch (e) {
+        setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice by email.");
+      } finally {
+        setEmailSending(false);
+      }
+    },
+    [email, customerName],
+  );
+
   if (completion?.mode === "api") {
     const inv = completion.invoice;
     const qbVm = mapQuickBillInvoiceToViewModel(inv, invoiceVmOptions);
@@ -1250,7 +1279,15 @@ export function QuickBillPage() {
               <button
                 type="button"
                 className={qbSuccessBtnSecondary}
-                disabled={whatsappSending}
+                disabled={emailSending || whatsappSending}
+                onClick={() => void handleSendInvoiceEmail(inv)}
+              >
+                {emailSending ? "Sending email…" : "Send invoice by email"}
+              </button>
+              <button
+                type="button"
+                className={qbSuccessBtnSecondary}
+                disabled={whatsappSending || emailSending}
                 onClick={() => void handleSendInvoiceWhatsApp(inv)}
               >
                 {whatsappSending ? "Sending on WhatsApp…" : "Send invoice on WhatsApp"}
@@ -1270,8 +1307,7 @@ export function QuickBillPage() {
             </p>
           ) : (
             <p className="mt-3 text-xs text-stone-500">
-              WhatsApp uses your approved <strong>invoice</strong> template (PDF + invoice number). Email/SMS can be added
-              later.
+              Email sends the invoice PDF via SMTP. WhatsApp uses your approved invoice template when configured.
             </p>
           )}
         </ProcessSuccessModal>
@@ -1355,13 +1391,25 @@ export function QuickBillPage() {
               <button
                 type="button"
                 className={qbSuccessBtnSecondary}
-                onClick={() =>
-                  setBillPostActionNote(
-                    "Sending the invoice to the customer by email, SMS, or WhatsApp is not wired yet — this will be added in a future update.",
-                  )
+                disabled={
+                  emailSending || !apiMode || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
                 }
+                onClick={() => {
+                  setEmailSending(true);
+                  void sendInvoiceEmail({
+                    email: email.trim(),
+                    customerName: customerName.trim() || "Customer",
+                    invoiceNumber: completion.ref,
+                    totalInr: total,
+                  })
+                    .then(() => setBillPostActionNote("Invoice sent by email successfully."))
+                    .catch((e) =>
+                      setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice by email."),
+                    )
+                    .finally(() => setEmailSending(false));
+                }}
               >
-                Send invoice to customer
+                {emailSending ? "Sending email…" : "Send invoice by email"}
               </button>
               <Link to="/service" className={`${qbSuccessBtnOutline} no-underline`}>
                 Home

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ApiError } from "../../lib/api";
 import {
   resendSrfTrackingWhatsApp,
-  srfTrackingWhatsAppResultMessage,
+  srfTrackingCustomerNotifyMessage,
   type ResendSrfTrackingWhatsAppResult,
 } from "../../lib/resendSrfTrackingWhatsApp";
 import { isValidIndianMobile10 } from "../../lib/whatsappInvoiceUi";
@@ -10,6 +10,7 @@ import { isValidIndianMobile10 } from "../../lib/whatsappInvoiceUi";
 type Props = {
   srfId: string;
   phone?: string;
+  customerEmail?: string;
   disabled?: boolean;
   className?: string;
   label?: string;
@@ -20,9 +21,10 @@ type Props = {
 export function ResendSrfTrackingWhatsAppButton({
   srfId,
   phone,
+  customerEmail,
   disabled,
   className,
-  label = "Resend WhatsApp",
+  label = "Resend to customer",
   busyLabel = "Sending…",
   onResult,
 }: Props) {
@@ -31,17 +33,24 @@ export function ResendSrfTrackingWhatsAppButton({
   async function handleClick() {
     if (!srfId.trim()) return;
     if (phone != null && !isValidIndianMobile10(phone)) {
-      onResult?.({ whatsappSent: false, whatsappReason: "Customer mobile (10 digits) is required." });
+      onResult?.({
+        whatsappSent: false,
+        whatsappReason: "Customer mobile (10 digits) is required.",
+        emailSent: false,
+        emailReason: null,
+      });
       return;
     }
     setBusy(true);
     try {
-      const result = await resendSrfTrackingWhatsApp(srfId);
+      const result = await resendSrfTrackingWhatsApp(srfId, customerEmail);
       onResult?.(result);
     } catch (e) {
       onResult?.({
         whatsappSent: false,
-        whatsappReason: e instanceof ApiError ? e.message : "Could not resend WhatsApp message.",
+        whatsappReason: e instanceof ApiError ? e.message : "Could not resend to customer.",
+        emailSent: false,
+        emailReason: null,
       });
     } finally {
       setBusy(false);
@@ -63,4 +72,4 @@ export function ResendSrfTrackingWhatsAppButton({
   );
 }
 
-export { srfTrackingWhatsAppResultMessage };
+export { srfTrackingCustomerNotifyMessage, srfTrackingCustomerNotifyMessage as srfTrackingWhatsAppResultMessage };
