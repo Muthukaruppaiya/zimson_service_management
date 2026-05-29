@@ -145,6 +145,60 @@ function envHasAnyCredential(): boolean {
   );
 }
 
+/** In production, .env is the deploy source of truth — keep RDS in sync when values differ. */
+function shouldSyncCredentialsFromEnv(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.MESSAGING_SYNC_FROM_ENV === "true";
+}
+
+function mergeEnvCredentialsIntoConfig(cfg: MessagingSettingsDb): { next: MessagingSettingsDb; changed: boolean } {
+  const fromEnv = configFromEnv();
+  const next: MessagingSettingsDb = { ...cfg };
+  let changed = false;
+
+  const setIfEnv = <K extends keyof MessagingSettingsDb>(key: K, envVal: MessagingSettingsDb[K] | undefined) => {
+    if (typeof envVal === "string") {
+      const ev = envVal.trim();
+      if (!ev) return;
+      if (str(next[key]) !== ev) {
+        next[key] = envVal;
+        changed = true;
+      }
+      return;
+    }
+    if (typeof envVal === "number" && !Number.isNaN(envVal) && next[key] !== envVal) {
+      next[key] = envVal;
+      changed = true;
+    }
+  };
+
+  if (str(fromEnv.smsToken)) {
+    setIfEnv("smsToken", fromEnv.smsToken);
+    setIfEnv("smsTemplateId", fromEnv.smsTemplateId);
+    setIfEnv("smsSender", fromEnv.smsSender);
+    setIfEnv("smsService", fromEnv.smsService);
+    setIfEnv("smsUrl", fromEnv.smsUrl);
+    setIfEnv("smsOtpMessageTemplate", fromEnv.smsOtpMessageTemplate);
+  }
+
+  if (str(fromEnv.smtpUser) || str(fromEnv.smtpPassword)) {
+    setIfEnv("smtpHost", fromEnv.smtpHost);
+    setIfEnv("smtpPort", fromEnv.smtpPort);
+    setIfEnv("smtpUser", fromEnv.smtpUser);
+    setIfEnv("smtpPassword", fromEnv.smtpPassword);
+    setIfEnv("smtpFrom", fromEnv.smtpFrom);
+    setIfEnv("smtpOtpSubject", fromEnv.smtpOtpSubject);
+    setIfEnv("smtpOtpMessage", fromEnv.smtpOtpMessage);
+  }
+
+  if (str(fromEnv.qikchatApiKey)) {
+    setIfEnv("qikchatApiKey", fromEnv.qikchatApiKey);
+    setIfEnv("qikchatApiBaseUrl", fromEnv.qikchatApiBaseUrl);
+    setIfEnv("qikchatTemplateName", fromEnv.qikchatTemplateName);
+  }
+
+  return { next, changed };
+}
+
 function configFromEnv(): MessagingSettingsDb {
   const rawSms = envFirst("QIKBERRY_SMS_TOKEN", "qikberry.sms.token").replace(/^bearer\s+/i, "");
   const rawWd = envFirst("QIKBERRY_WORKDRIVE_TOKEN", "qikberry.workdrive.token").replace(/^bearer\s+/i, "");
@@ -354,19 +408,36 @@ export async function initMessagingSettings(pool: Pool): Promise<void> {
     return;
   }
 
-  const cfg = (row.config && typeof row.config === "object" ? row.config : {}) as MessagingSettingsDb;
+  let cfg = (row.config && typeof row.config === "object" ? row.config : {}) as MessagingSettingsDb;
+  let updatedBy: string | null = null;
+
   if (!dbHasAnyCredential(cfg) && envHasAnyCredential()) {
-    const seeded = { ...configFromEnv(), ...cfg };
+    cfg = { ...configFromEnv(), ...cfg };
+    updatedBy = "env-import";
+  } else if (shouldSyncCredentialsFromEnv() && envHasAnyCredential()) {
+    const merged = mergeEnvCredentialsIntoConfig(cfg);
+    if (merged.changed) {
+      cfg = merged.next;
+      updatedBy = "env-sync";
+    }
+  }
+
+  if (updatedBy) {
     await pool.query(
-      `UPDATE messaging_settings SET config = $1::jsonb, updated_at = now(), updated_by = 'env-import' WHERE id = 1`,
-      [JSON.stringify(seeded)],
+      `UPDATE messaging_settings SET config = $1::jsonb, updated_at = now(), updated_by = $2 WHERE id = 1`,
+      [JSON.stringify(cfg), updatedBy],
     );
     const again = await pool.query<{ config: MessagingSettingsDb; updated_at: Date; updated_by: string | null }>(
       `SELECT config, updated_at, updated_by FROM messaging_settings WHERE id = 1`,
     );
     row = again.rows[0]!;
-    applyCache((row.config ?? {}) as MessagingSettingsDb, row);
-    console.log("[messaging-settings] Imported credentials from .env into database (one-time).");
+    cfg = (row.config ?? {}) as MessagingSettingsDb;
+    applyCache(cfg, row);
+    console.log(
+      updatedBy === "env-import"
+        ? "[messaging-settings] Imported credentials from .env into database (one-time)."
+        : "[messaging-settings] Synced credentials from .env into database (production).",
+    );
     return;
   }
 

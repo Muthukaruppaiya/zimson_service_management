@@ -19,6 +19,7 @@
     "env:sync-smtp": "node scripts/update-smtp-settings.mjs",
     "env:sync-sms": "node scripts/update-sms-settings.mjs",
     "env:sync-messaging": "npm run env:sync-smtp && npm run env:sync-sms",
+    "env:check-messaging": "node scripts/diagnose-messaging.mjs",
     "setup:server": "npm ci && npm run certs:rds && npm run build",
     "reinstall:server": "rm -rf node_modules && npm ci && node scripts/ensure-rolldown-binding.mjs && npm run build",
     "postinstall": "node scripts/ensure-rolldown-binding.mjs"
