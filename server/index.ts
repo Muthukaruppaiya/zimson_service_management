@@ -35,6 +35,7 @@ import {
   validateCustomerB2bGstin,
   ZIMSON_COMPANY_GST_ENTRIES,
 } from "../src/lib/zimsonCompanyGst";
+import { shouldExposeMobileOtpInUi } from "./messaging/config";
 import {
   deliverOtpToTargets,
   otpStartResponsePayload,
@@ -3180,9 +3181,18 @@ app.post("/api/customers/register-otp/start-mobile", async (req, res) => {
     await deliverOtpToTargets(mobileCode, [{ type: "mobile", label: p10 }]);
     res.json(registerMobileOtpResponse(sessionId, mobileCode));
   } catch (e) {
-    customerRegisterOtpSessions.delete(sessionId);
     const msg = e instanceof Error ? e.message : "Could not send mobile OTP.";
-    res.status(502).json({ error: msg });
+    if (shouldExposeMobileOtpInUi()) {
+      res.json(registerMobileOtpResponse(sessionId, mobileCode));
+      return;
+    }
+    customerRegisterOtpSessions.delete(sessionId);
+    console.error("[register-otp/start-mobile]", msg);
+    res.status(503).json({
+      error: msg.includes("401") || msg.includes("access token")
+        ? "SMS provider rejected the API token. Update QIKBERRY_SMS_TOKEN on the server and run: npm run env:sync-sms"
+        : msg,
+    });
   }
 });
 

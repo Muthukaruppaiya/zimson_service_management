@@ -6,9 +6,19 @@ import {
   type QikberrySendMessageResponse,
 } from "./qikberryApi";
 
-/** Final working Qikberry payload — OTP inlined in message (no {{1}}, no variables). */
-export function buildQikberryOtpMessage(otp: string): string {
-  return `Dear Customer, Your One Time Password is ${otp}. Please use this code to complete your verification - ZIMSON`;
+/**
+ * Build SMS body from configured DLT template.
+ * Supports common OTP placeholders used in provider templates.
+ */
+export function buildQikberryOtpMessage(template: string, otp: string): string {
+  const src = String(template ?? "").trim();
+  const replaced = src
+    .replace(/\{\{\s*otp\s*\}\}/gi, otp)
+    .replace(/\{\{\s*1\s*\}\}/g, otp)
+    .replace(/\{#var#\}/gi, otp);
+
+  // If template has no placeholder, keep it untouched to avoid static-part mismatch.
+  return replaced || `Dear Customer, Your One Time Password is ${otp}. Please use this code to complete your verification - ZIMSON`;
 }
 
 async function fetchMessageStatus(
@@ -30,7 +40,7 @@ export async function sendOtpSms(phone10: string, otpCode: string): Promise<void
   }
   const cfg = getMessagingConfig().sms;
   const to = formatIndiaMobileE164(phone10);
-  const message = buildQikberryOtpMessage(otpCode);
+  const message = buildQikberryOtpMessage(cfg.otpMessageTemplate, otpCode);
 
   const payload = {
     to,
