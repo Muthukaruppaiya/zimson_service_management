@@ -50,6 +50,7 @@ import { registerMediaRoutes } from "./storage/mediaRoutes";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT) || 4000;
+const HOST = process.env.HOST?.trim() || "0.0.0.0";
 const COOKIE = "zimson_session";
 const dbPool = createPool();
 
@@ -3779,6 +3780,8 @@ if (process.env.NODE_ENV === "production") {
     app.get(/^(?!\/api).*/, (_req, res) => {
       res.sendFile(join(dist, "index.html"));
     });
+  } else {
+    console.warn("[production] dist/ not found — run `npm run build` so the web UI is served.");
   }
 }
 
@@ -3824,8 +3827,8 @@ async function main() {
     onPasswordChanged: () => refreshUsersFromDb(),
   });
 
-  app.listen(PORT, () => {
-    console.log(`Zimson API listening on http://127.0.0.1:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`Zimson API listening on http://${HOST}:${PORT} (browser: http://<server-ip>:${PORT})`);
     void (async () => {
       await startDevPublicTunnel(PORT);
       if (!getMessagingPublicBaseUrl() && !isWhatsAppInvoiceDryRun()) {

@@ -154,26 +154,57 @@ npm ci          # must install ALL dependencies first
 npm run dev
 ```
 
-## 6. Nginx (HTTP first)
+## 6. Nginx — URL **without** port number (required)
+
+Browsers use **port 80** (HTTP) or **443** (HTTPS) by default. Node stays on **127.0.0.1:4000**; Nginx forwards traffic.
+
+**AWS security group (inbound):**
+
+| Port | Purpose |
+|------|---------|
+| **80** | HTTP — `http://zimsonwatchcare.com` |
+| **443** | HTTPS — after SSL |
+| **22** | SSH |
+| ~~4000~~ | **Do not open** — not needed publicly |
+
+On EC2:
 
 ```bash
-sudo cp deploy/nginx-zimsonwatchcare.conf /etc/nginx/sites-available/zimsonwatchcare
-sudo ln -sf /etc/nginx/sites-available/zimsonwatchcare /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
+cd ~/zimson_service_management
+git pull
+bash scripts/setup-nginx-ubuntu.sh
 ```
 
-Open `http://zimsonwatchcare.com` and confirm login/API.
+Set in `.env`:
 
-## 7. SSL (later)
+```env
+HOST=127.0.0.1
+PORT=4000
+APP_BASE_URL=http://zimsonwatchcare.com
+MESSAGING_PUBLIC_BASE_URL=http://zimsonwatchcare.com
+```
+
+Keep Node running (`npm start` or pm2), then open:
+
+**http://zimsonwatchcare.com** (no `:4000`)
+
+## 7. SSL (HTTPS, no port in URL)
+
+**Commercial certificate (CRT + CA Bundle + PFX):** full guide → [SSL-zimsonwatchcare.md](./SSL-zimsonwatchcare.md)
+
+Short version:
+
+1. Copy `zimsonwatchcare.crt`, `zimsonwatchcare-ca-bundle.crt`, `zimsonwatchcare.pfx` to server `/tmp/ssl/`
+2. `export PFX_PASS='...'` → `bash scripts/ssl-install-commercial.sh`
+3. Set `APP_BASE_URL=https://zimsonwatchcare.com` in `.env` and restart Node
+4. AWS security group: allow **443**
+
+**Free alternative (Let’s Encrypt):**
 
 ```bash
 sudo apt install certbot python3-certbot-nginx
 sudo certbot --nginx -d zimsonwatchcare.com -d www.zimsonwatchcare.com
 ```
-
-Then uncomment the HTTPS `server` blocks in `deploy/nginx-zimsonwatchcare.conf` and reload nginx.
-
-Ensure `.env` uses `https://` for `APP_BASE_URL` and `MESSAGING_PUBLIC_BASE_URL`.
 
 ## 8. Security groups
 
