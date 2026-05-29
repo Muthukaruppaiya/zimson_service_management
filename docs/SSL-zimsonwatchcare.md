@@ -120,6 +120,7 @@ bash scripts/ssl-install-commercial.sh
 
 | Problem | Fix |
 |---------|-----|
+| `PEM_read_bio_X509_AUX: bad end line` | Windows **CRLF** in CRT/CA files. Run `bash scripts/fix-ssl-fullchain.sh` or `dos2unix` on `/tmp/ssl/*.crt` then rebuild fullchain. |
 | `asn1 encoding routines: not enough data` on PFX | Wrong file (CSR/CRT renamed as .pfx), incomplete upload, or bad password. Run `file /tmp/ssl/zimsonwatchcare.pfx` — must say **PKCS12**. Re-upload the real `.pfx`/`.p12` from the provider. |
 | `unknown directive "http2"` | Pull latest repo — config uses `listen 443 ssl http2;` (works on Ubuntu nginx). |
 | `nginx: certificate and key do not match` | Re-export key from same PFX; ensure CRT matches the cert in PFX |
