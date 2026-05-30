@@ -2,8 +2,12 @@ import { SERVICE_INVOICE_BRANDING } from "../../config/serviceInvoiceBranding";
 import type { AdvancePaymentDetails, MultiPaymentDetails } from "../../lib/paymentModes";
 import { paymentSplitsFromDetails } from "../../lib/paymentModes";
 import { inrAmountToWords } from "../../lib/inrAmountToWords";
-import { natureOfRepairLabel } from "../../lib/natureOfRepair";
-import { resolveCustomerSupplyStateCode, resolveSellerStateCode } from "../../lib/gstSupply";
+import { billableLineAmount, natureOfRepairLabel } from "../../lib/natureOfRepair";
+import {
+  formatPlaceOfSupplyLabel,
+  resolveCustomerSupplyStateCode,
+  resolveSellerStateCode,
+} from "../../lib/gstSupply";
 import { gstRateFromHsn } from "../../lib/hsnGst";
 import { computeServiceBillGst } from "../../lib/serviceBillGst";
 import type { QuickBillInvoice, QuickBillLineInvoice } from "../../types/quickBill";
@@ -120,7 +124,7 @@ function mergeSellerFromSettings(
     ? termsRaw.split(/\r?\n/).map((t) => t.trim()).filter(Boolean)
     : [...b.footerTerms];
   const logoUrl = tax?.appLogoUrl?.trim() || null;
-  const stateCode = resolveSellerStateCode(gstin, b.sellerStateCode);
+  const stateCode = resolveSellerStateCode(gstin);
   return {
     legalName: name,
     addressLines,
@@ -171,7 +175,7 @@ function buildGstLines(
   const configured = tax?.gstRatePercent ?? 18;
   const gstResult = computeServiceBillGst({
     lines: invLines.map((ln) => ({
-      amountInr: ln.amountInr,
+      amountInr: billableLineAmount(natureOfRepair, ln.amountInr, ln.spareId),
       qty: ln.qty,
       spareId: ln.spareId,
       hsnSac: lineHsnForInvoice(ln, defaultHsnSac, spareHsnLookup),
@@ -186,14 +190,17 @@ function buildGstLines(
     natureOfRepair,
     sellerStateCode,
     customerStateCode,
-    billTotalInr: totalInr,
+    billTotalInr: invLines.reduce(
+      (s, ln) => s + billableLineAmount(natureOfRepair, ln.amountInr, ln.spareId),
+      0,
+    ),
   });
 
   const outLines: ServiceInvoiceLineView[] = [];
   let totalQty = 0;
   invLines.forEach((ln, i) => {
     const qty = Math.max(Number(ln.qty) || 1, 0.0001);
-    const lineAmt = Number(ln.amountInr) || 0;
+    const lineAmt = billableLineAmount(natureOfRepair, Number(ln.amountInr) || 0, ln.spareId);
     const hsn = lineHsnForInvoice(ln, defaultHsnSac, spareHsnLookup);
     const rate = gstRateFromHsn(hsn, configured);
     const g = rate / 100;
@@ -226,19 +233,37 @@ function buildGstLines(
   };
 }
 
+type GstSupplySource = {
+  customerType?: "B2C" | "B2B";
+  gst?: string | null;
+  address?: string | null;
+  city?: string | null;
+};
+
 function gstSupplyContext(
   options: ServiceInvoiceMappingOptions | undefined,
   sellerPack: ReturnType<typeof mergeSellerFromSettings>,
-  inv?: { customerType?: "B2C" | "B2B"; gst?: string | null },
-): { sellerStateCode: string; customerStateCode: string } {
-  const sellerStateCode = resolveSellerStateCode(sellerPack.gstin, sellerPack.stateCode ?? "33");
+  inv?: GstSupplySource,
+): { sellerStateCode: string; customerStateCode: string; placeOfSupply: string } {
+  const sellerStateCode = resolveSellerStateCode(sellerPack.gstin);
+  const billingStateName = options?.customerBillingState ?? null;
+  const addressText = inv?.address ?? null;
+  const cityText = inv?.city ?? null;
   const customerStateCode = resolveCustomerSupplyStateCode({
     customerType: options?.customerType ?? inv?.customerType ?? "B2C",
     customerGstin: options?.customerGstin ?? inv?.gst ?? null,
-    billingStateName: options?.customerBillingState ?? null,
+    billingStateName,
+    addressText,
+    cityText,
     sellerStateCode,
   });
-  return { sellerStateCode, customerStateCode };
+  const placeOfSupply = formatPlaceOfSupplyLabel({
+    customerStateCode,
+    billingStateName,
+    addressText,
+    cityText,
+  });
+  return { sellerStateCode, customerStateCode, placeOfSupply };
 }
 
 export type DemoInvoiceInput = {
@@ -295,6 +320,8 @@ export function buildDemoServiceInvoiceViewModel(
   const supply = gstSupplyContext(options, sellerPack, {
     customerType: input.customerType,
     gst: input.gst,
+    address: input.address,
+    city: undefined,
   });
   const gst = buildGstLines(
     qbLines,
@@ -322,7 +349,7 @@ export function buildDemoServiceInvoiceViewModel(
     invoiceNumber: demoInvoiceNumber,
     serviceReference: demoServiceRef,
     invoiceDate: demoDate,
-    placeOfSupply: input.placeOfSupply || "—",
+    placeOfSupply: supply.placeOfSupply || input.placeOfSupply || "—",
     reverseCharge: "No",
     seller: {
       legalName: sellerPack.legalName,
@@ -383,16 +410,17 @@ export function mapQuickBillInvoiceToViewModel(
   const hsnSac = resolvedHsnSac(options);
   const tax = options?.taxSettings ?? null;
   const sellerPack = mergeSellerFromSettings(tax, options?.storeInvoice ?? undefined);
-  const placeParts = [inv.regionName, inv.storeName].filter(Boolean);
-  const placeOfSupply = placeParts.length > 0 ? placeParts.join(" · ") : inv.regionId;
   const billName =
     inv.customerType === "B2B" ? (inv.company ?? "—") : inv.customerName?.trim() || "Walk-in / B2C";
 
-  // Quick Bill invoice: technician, payment mode, payment reference are
-  // shown in the dedicated payment section — not repeated in the product block.
   const serviceMeta = watchDetailMetaRows(inv);
 
-  const supply = gstSupplyContext(options, sellerPack, inv);
+  const supply = gstSupplyContext(options, sellerPack, {
+    customerType: inv.customerType,
+    gst: inv.gst,
+    address: inv.address,
+    city: inv.city,
+  });
   const gst = buildGstLines(
     inv.lines,
     hsnSac,
@@ -421,7 +449,7 @@ export function mapQuickBillInvoiceToViewModel(
     invoiceNumber: inv.invoiceNumber,
     serviceReference: inv.billNumber,
     invoiceDate: fmtDate(inv.createdAt),
-    placeOfSupply,
+    placeOfSupply: supply.placeOfSupply,
     reverseCharge: "No",
     seller: {
       legalName: sellerPack.legalName,
@@ -453,11 +481,11 @@ export function mapQuickBillInvoiceToViewModel(
         "—",
     },
     lines: gst.lines,
-    totalAmount: inv.totalInr,
-    amountInWords: inrAmountToWords(inv.totalInr),
+    totalAmount: gst.net,
+    amountInWords: inrAmountToWords(gst.net),
     paymentMode: inv.paymentMode,
     paymentSplits: (() => {
-      const splits = paymentSplitsFromDetails(inv.paymentMode, inv.paymentDetails ?? undefined, inv.totalInr);
+      const splits = paymentSplitsFromDetails(inv.paymentMode, inv.paymentDetails ?? undefined, gst.net);
       return splits.length > 0 && splits.some((s) => s.amountInr > 0) ? splits : undefined;
     })(),
     bankDetailsLines: [],
@@ -471,7 +499,7 @@ export function mapQuickBillInvoiceToViewModel(
     netPayable: gst.net,
     totalQty: gst.totalQty,
     advanceAmount: 0,
-    amountPaid: inv.totalInr,
+    amountPaid: gst.net,
     paymentRemarks: inv.notes?.trim() || undefined,
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
@@ -541,6 +569,8 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
   const supply = gstSupplyContext(options, sellerPack, {
     customerType: input.gst?.trim() ? "B2B" : "B2C",
     gst: input.gst,
+    address: input.address,
+    city: undefined,
   });
   const gst = buildGstLines(
     qbLines,
@@ -573,7 +603,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     // invoiceNumber = shared sequential store invoice number (same sequence as QB invoices)
     invoiceNumber: options?.invoiceNumber?.trim() || (input.invoiceNumber ?? "").trim() || input.reference,
     invoiceDate: srfDate,
-    placeOfSupply: "—",
+    placeOfSupply: supply.placeOfSupply,
     reverseCharge: "No",
     seller: {
       legalName: sellerPack.legalName,

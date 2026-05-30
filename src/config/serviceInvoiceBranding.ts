@@ -8,10 +8,10 @@ export const SERVICE_INVOICE_BRANDING = {
     "Corporate / registered office address line 1",
     "City, State — PIN (placeholder)",
   ] as string[],
-  sellerGstin: "29AABCU9603R1ZX (placeholder)",
+  sellerGstin: "33AAACZ0566D1ZN",
   sellerPhone: "+91-0000-000000",
   sellerEmail: "accounts@zimson.com",
-  sellerStateCode: "29",
+  sellerStateCode: "33",
   bankDetailsLines: [
     "Bank: — (configure in settings)",
     "A/c: — · IFSC: —",

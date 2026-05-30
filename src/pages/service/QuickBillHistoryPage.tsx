@@ -206,18 +206,21 @@ export function QuickBillHistoryPage() {
   );
 
   const invoiceVmOptionsFor = useCallback(
-    (storeId: string | null | undefined) => ({
+    (inv: QuickBillInvoice | null | undefined) => ({
       defaultHsnSac: invoiceHsnSac,
       taxSettings: serviceTaxSettings,
-      storeInvoice: seedStoreToInvoiceProfile(storeForInvoice(storeId) ?? currentUserStore),
+      storeInvoice: seedStoreToInvoiceProfile(storeForInvoice(inv?.storeId) ?? currentUserStore),
+      customerBillingState: inv?.customerBillingState ?? null,
+      customerType: inv?.customerType,
+      customerGstin: inv?.gst ?? null,
       generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
     }),
     [invoiceHsnSac, serviceTaxSettings, storeForInvoice, currentUserStore, user?.displayName, user?.email, user?.id],
   );
 
   const invoiceVmOptions = useMemo(
-    () => invoiceVmOptionsFor(detailInvoice?.storeId),
-    [invoiceVmOptionsFor, detailInvoice?.storeId],
+    () => invoiceVmOptionsFor(detailInvoice),
+    [invoiceVmOptionsFor, detailInvoice],
   );
 
   const detailInvoiceVm = useMemo(
@@ -271,7 +274,7 @@ export function QuickBillHistoryPage() {
     setDownloadBusyId(r.id);
     try {
       const data = await apiJson<{ invoice: QuickBillInvoice }>(`/api/service/quick-bills/${r.id}`);
-      await downloadQuickBillInvoicePdf(data.invoice, invoiceVmOptionsFor(r.storeId), false);
+      await downloadQuickBillInvoicePdf(data.invoice, invoiceVmOptionsFor(data.invoice), false);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "Could not download invoice PDF.");
     } finally {

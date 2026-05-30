@@ -1,6 +1,6 @@
 import { effectiveGstRatePercent } from "./natureOfRepair";
 import { gstRateFromHsn, normalizeHsnCode } from "./hsnGst";
-import { isInterstateSupply } from "./gstSupply";
+import { isInterstateSupply, splitGstAmount } from "./gstSupply";
 import type { ServiceInvoiceTaxRow } from "../types/serviceInvoice";
 
 export type ServiceBillGstLine = {
@@ -98,22 +98,17 @@ export function computeServiceBillGst(params: {
     const taxable = round2(b.taxable);
     grossTaxable += taxable;
     const g = b.ratePercent / 100;
-    let tax = g > 0 ? round2(taxable * g) : 0;
-    let cgst = 0;
-    let sgst = 0;
-    let igst = 0;
-    if (tax > 0) {
-      if (interstate) {
-        igst = tax;
-      } else {
-        const cgstPct = cgstRatePercent > 0 ? cgstRatePercent : b.ratePercent / 2;
-        const sgstPct = sgstRatePercent > 0 ? sgstRatePercent : b.ratePercent / 2;
-        cgst = round2(taxable * (cgstPct / 100));
-        sgst = round2(taxable * (sgstPct / 100));
-        tax = round2(cgst + sgst);
-        igst = 0;
-      }
-    }
+    const split = splitGstAmount(
+      taxable,
+      b.ratePercent,
+      cgstRatePercent,
+      sgstRatePercent,
+      interstate,
+    );
+    const cgst = split.cgst;
+    const sgst = split.sgst;
+    const igst = split.igst;
+    let tax = split.total;
     totalTax += tax;
     previewLines.push({ hsnSac: b.hsnSac, ratePercent: b.ratePercent, taxable, tax });
     if (tax > 0) {

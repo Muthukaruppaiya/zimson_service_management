@@ -1,4 +1,10 @@
 import { mapSrfPreviewToServiceInvoiceViewModel } from "../components/service/mapQuickBillToServiceInvoice";
+import {
+  billableServiceBaseInr,
+  billableStoreLineAmount,
+  billableUsedSparesInr,
+} from "./natureOfRepairBilling";
+import { normalizeNatureOfRepair } from "./natureOfRepair";
 import type { ServiceInvoiceViewModel } from "../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../types/serviceTaxSettings";
 import type { StoreInvoicePrintProfile } from "../types/storeInvoice";
@@ -42,16 +48,21 @@ export type StoreBillingAmounts = {
 };
 
 export function resolveStoreBillingAmounts(job: SrfJob): StoreBillingAmounts {
-  const usedSparesAmount = sumUsedSparesInr(job);
+  const usedSparesAmountRaw = sumUsedSparesInr(job);
+  const usedSparesAmount = billableUsedSparesInr(job, usedSparesAmountRaw);
   const isBrandRepair = Boolean(job.brandInvoiceAmountInr && job.brandInvoiceAmountInr > 0);
   const isInterHoReturn = !isBrandRepair && isInterHoReturnJob(job);
   const brandAmount = isBrandRepair ? Number(job.brandInvoiceAmountInr ?? 0) : 0;
-  const serviceBaseAmount = isInterHoReturn ? resolveCustomerServiceBaseInr(job) : usedSparesAmount;
-  const billableBaseAmount = isBrandRepair
+  const serviceBaseRaw = isInterHoReturn ? resolveCustomerServiceBaseInr(job) : usedSparesAmountRaw;
+  const serviceBaseAmount = billableServiceBaseInr(job, serviceBaseRaw);
+  let billableBaseAmount = isBrandRepair
     ? brandAmount
     : isInterHoReturn
       ? Math.max(serviceBaseAmount, usedSparesAmount)
       : usedSparesAmount;
+  if (normalizeNatureOfRepair(job.natureOfRepair) === "warranty_non_chargeable" && !isBrandRepair) {
+    billableBaseAmount = 0;
+  }
   return {
     isInterHoReturn,
     isBrandRepair,
@@ -82,9 +93,10 @@ export function buildStoreBillingInvoiceLines(
       const lineTotal = Number(spare.lineTotalInr ?? NaN);
       const qty = Number(spare.qty ?? 0);
       const unit = Number(spare.unitPriceInr ?? 0);
-      const amt = Number.isFinite(lineTotal)
+      const amtRaw = Number.isFinite(lineTotal)
         ? lineTotal
         : (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
+      const amt = billableStoreLineAmount(job.natureOfRepair, amtRaw, { isSpareLine: true });
       if (amt > 0) {
         lines.push({
           description: spare.qty > 1 ? `${spare.name} x ${spare.qty}` : spare.name,
@@ -142,7 +154,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
       billLines,
       collectionAmountInr: collectionAmount,
       collectionPaymentMode: job.advancePaymentMode,
-      natureOfRepair: "Service completed",
+      natureOfRepair: job.natureOfRepair?.trim() || "Service completed",
     },
     {
       taxSettings: options.taxSettings,

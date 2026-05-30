@@ -13,10 +13,14 @@ export const NATURE_OF_REPAIR_OPTIONS: {
   label: string;
   taxNote: string;
 }[] = [
-  { value: "regular", label: "Regular", taxNote: "Tax included" },
-  { value: "warranty_chargeable", label: "Warranty — chargeable", taxNote: "Tax included" },
-  { value: "warranty_non_chargeable", label: "Warranty — non chargeable", taxNote: "No tax" },
-  { value: "internal_service", label: "Internal service", taxNote: "No tax" },
+  { value: "regular", label: "Regular", taxNote: "Full charges + tax" },
+  { value: "warranty_chargeable", label: "Warranty — chargeable", taxNote: "Full charges + tax" },
+  {
+    value: "warranty_non_chargeable",
+    label: "Warranty — non chargeable",
+    taxNote: "No charge (parts & labour)",
+  },
+  { value: "internal_service", label: "Internal service", taxNote: "Labour only (no spare charges)" },
 ];
 
 const LABEL_BY_VALUE = new Map(NATURE_OF_REPAIR_OPTIONS.map((o) => [o.value, o.label]));
@@ -47,15 +51,11 @@ export function normalizeNatureOfRepair(raw: string | null | undefined): string 
   return v;
 }
 
-/** Regular + warranty chargeable → GST applied; warranty non-chargeable + internal → no tax. */
+/** Regular + warranty chargeable → GST on billable amounts; warranty non → none. */
 export function isNatureOfRepairTaxable(raw: string | null | undefined): boolean {
   const norm = normalizeNatureOfRepair(raw);
   if (!norm) return true;
-  if (norm === "warranty_non_chargeable" || norm === "internal_service") return false;
-  if (norm === "regular" || norm === "warranty_chargeable") return true;
-  if (/internal/i.test(norm)) return false;
-  if (/non.?charg|no tax/i.test(norm)) return false;
-  return true;
+  return norm !== "warranty_non_chargeable";
 }
 
 export function effectiveGstRatePercent(
@@ -63,4 +63,58 @@ export function effectiveGstRatePercent(
   configuredRate: number,
 ): number {
   return isNatureOfRepairTaxable(natureOfRepair) ? Math.max(0, configuredRate) : 0;
+}
+
+/**
+ * Billable INR for a line: warranty non → 0; internal → 0 for spare lines only.
+ */
+export function billableLineAmount(
+  natureOfRepair: string | null | undefined,
+  amountInr: number,
+  spareId: string | null | undefined,
+): number {
+  const amt = Math.max(0, Number(amountInr) || 0);
+  const norm = normalizeNatureOfRepair(natureOfRepair);
+  if (norm === "warranty_non_chargeable") return 0;
+  if (spareId && norm === "internal_service") return 0;
+  return amt;
+}
+
+/** Service / repair labour field on Quick Bill (not a spare line). */
+export function billableServiceChargeInr(
+  natureOfRepair: string | null | undefined,
+  serviceChargeInr: number,
+): number {
+  return billableLineAmount(natureOfRepair, serviceChargeInr, null);
+}
+
+export function sumQuickBillBillableSubtotal(
+  natureOfRepair: string | null | undefined,
+  lines: { amountInr?: number; amount?: number; spareId?: string | null }[],
+  serviceChargeInr = 0,
+): number {
+  let sum = 0;
+  for (const l of lines) {
+    const amt = Number(l.amountInr ?? l.amount ?? 0);
+    sum += billableLineAmount(natureOfRepair, amt, l.spareId ?? null);
+  }
+  sum += billableServiceChargeInr(natureOfRepair, serviceChargeInr);
+  return Math.round(sum * 100) / 100;
+}
+
+/** Zero-total bills allowed (warranty non-chargeable with parts on job card). */
+export function allowsZeroBillTotal(natureOfRepair: string | null | undefined): boolean {
+  const norm = normalizeNatureOfRepair(natureOfRepair);
+  return norm === "warranty_non_chargeable" || norm === "internal_service";
+}
+
+export function natureOfRepairBillingNote(raw: string | null | undefined): string {
+  const norm = normalizeNatureOfRepair(raw);
+  if (norm === "warranty_non_chargeable") {
+    return "Customer not charged — spare lines and service/labour are billed at ₹0.";
+  }
+  if (norm === "internal_service") {
+    return "Spare/part lines are not charged; service/labour and other non-spare lines follow normal tax.";
+  }
+  return "";
 }

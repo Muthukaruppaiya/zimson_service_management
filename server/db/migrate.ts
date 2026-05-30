@@ -1153,6 +1153,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS nature_of_repair VARCHAR(240) NOT NULL DEFAULT '';
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS chain_count VARCHAR(32) NOT NULL DEFAULT '';
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS customer_remarks TEXT NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS customer_billing_state VARCHAR(64);
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS case_type TEXT NOT NULL DEFAULT '';
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS strap_chain_type TEXT NOT NULL DEFAULT '';
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS nature_of_repair VARCHAR(240) NOT NULL DEFAULT '';

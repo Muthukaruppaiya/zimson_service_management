@@ -30,10 +30,6 @@ import type { CustomerAddressBlock } from "../../types/customer";
 import type { SrfJob } from "../../types/srfJob";
 import { UNVERIFIED_CUSTOMER_ALERT_MESSAGE } from "../../lib/customerVerification";
 import {
-  storeServiceChargeMaxLabel,
-  validateStoreServiceAmountInr,
-} from "../../lib/serviceChargeLimits";
-import {
   WatchServiceDetailFields,
   emptyWatchServiceDetailValues,
   watchServiceDetailsToApiPayload,
@@ -423,11 +419,6 @@ export function SrfBookingV2Page() {
     }
     if (!estimateAmount.trim() || estimateTotal <= 0) {
       setError("Enter a valid estimate amount.");
-      return false;
-    }
-    const estimateErr = validateStoreServiceAmountInr(estimateTotal, user?.role);
-    if (estimateErr) {
-      setError(estimateErr);
       return false;
     }
     if (advanceAmount.trim() && (!Number.isFinite(advanceTotal) || advanceTotal < 0)) {
@@ -1764,22 +1755,12 @@ export function SrfBookingV2Page() {
             <label className="text-sm md:col-span-2">Watch complaint<textarea className={inputClass} rows={3} value={complaint} onChange={(e) => setComplaint(e.target.value)} /></label>
             <label className="text-sm">
               Estimate amount (₹)
-              <p className="text-[11px] font-normal text-stone-500">{storeServiceChargeMaxLabel(user?.role)}</p>
               <input
                 className={inputClass}
                 value={estimateAmount}
                 onChange={(e) => {
-                  const v = sanitizeDecimalInput(e.target.value);
-                  const n = Number.parseFloat(v);
-                  if (Number.isFinite(n) && n > 0) {
-                    const err = validateStoreServiceAmountInr(n, user?.role);
-                    if (err) {
-                      setError(err);
-                      return;
-                    }
-                  }
                   setError(null);
-                  setEstimateAmount(v);
+                  setEstimateAmount(sanitizeDecimalInput(e.target.value));
                 }}
               />
             </label>

@@ -5,6 +5,14 @@ export function isUnlimitedServiceChargeRole(role: string | undefined | null): b
   return role === "admin" || role === "super_admin";
 }
 
+/** Quick bill only — service/repair charge and manual charge lines. SRF estimates are not capped. */
+export function validateQuickBillServiceChargeInr(
+  amountInr: number,
+  role: string | undefined | null,
+): string | null {
+  return validateStoreServiceAmountInr(amountInr, role);
+}
+
 export function validateStoreServiceAmountInr(
   amountInr: number,
   role: string | undefined | null,

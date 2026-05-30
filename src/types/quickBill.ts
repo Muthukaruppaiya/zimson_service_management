@@ -65,6 +65,8 @@ export type QuickBillInvoice = {
   pan: string | null;
   address?: string | null;
   city?: string | null;
+  /** Customer place-of-supply state (e.g. Karnataka) for GST / invoice header. */
+  customerBillingState?: string | null;
   watchBrand: string;
   watchFamily?: string;
   watchModel: string;

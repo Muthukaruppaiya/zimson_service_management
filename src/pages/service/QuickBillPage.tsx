@@ -41,12 +41,19 @@ import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import type { QuickBillInvoice } from "../../types/quickBill";
 import { computeServiceBillGst } from "../../lib/serviceBillGst";
 import {
+  parseStateCodeFromText,
   resolveCustomerSupplyStateCode,
   resolveSellerStateCode,
   stateCodeLabel,
 } from "../../lib/gstSupply";
 import { gstRateFromHsn, normalizeHsnCode } from "../../lib/hsnGst";
-import { isNatureOfRepairTaxable } from "../../lib/natureOfRepair";
+import {
+  allowsZeroBillTotal,
+  billableLineAmount,
+  billableServiceChargeInr,
+  isNatureOfRepairTaxable,
+  natureOfRepairBillingNote,
+} from "../../lib/natureOfRepair";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
@@ -74,8 +81,9 @@ import {
 import { watchAttachmentDisplayName } from "../../lib/watchAttachmentUpload";
 import {
   storeServiceChargeMaxLabel,
-  validateStoreServiceAmountInr,
+  validateQuickBillServiceChargeInr,
 } from "../../lib/serviceChargeLimits";
+import { customerPayableInr } from "../../lib/quickBillPayable";
 import {
   WatchServiceDetailFields,
   emptyWatchServiceDetailValues,
@@ -335,9 +343,15 @@ export function QuickBillPage() {
     setCompany(data.company ?? "");
     setGst(data.gst ?? "");
     setPan(data.pan ?? "");
-    setAddress(composeAddress(data));
-    setCity(data.city?.trim() || data.billingAddress?.city?.trim() || "");
-    setCustomerBillingState(data.billingAddress?.state?.trim() || "");
+    const composedAddr = composeAddress(data);
+    setAddress(composedAddr);
+    const cityVal = data.city?.trim() || data.billingAddress?.city?.trim() || "";
+    setCity(cityVal);
+    const stateFromBilling = data.billingAddress?.state?.trim() || "";
+    const stateFromAddr = parseStateCodeFromText(stateFromBilling, composedAddr, cityVal);
+    setCustomerBillingState(
+      stateFromBilling || (stateFromAddr ? stateCodeLabel(stateFromAddr) : ""),
+    );
     setLoadedCustomerId(data.id?.trim() || null);
     setLoadedCustomerCode(data.customerCode?.trim() || null);
     setPhoneVerifiedAt(data.phoneVerifiedAt ?? null);
@@ -740,7 +754,7 @@ export function QuickBillPage() {
     const amount = sanitizeDecimalInput(raw);
     const n = Number.parseFloat(amount);
     if (Number.isFinite(n) && n > 0) {
-      const err = validateStoreServiceAmountInr(n, user?.role);
+      const err = validateQuickBillServiceChargeInr(n, user?.role);
       if (err) {
         setError(err);
         return;
@@ -754,7 +768,7 @@ export function QuickBillPage() {
     const amount = sanitizeDecimalInput(raw);
     const n = Number.parseFloat(amount);
     if (Number.isFinite(n) && n > 0) {
-      const err = validateStoreServiceAmountInr(n, user?.role);
+      const err = validateQuickBillServiceChargeInr(n, user?.role);
       if (err) {
         setError(err);
         return;
@@ -1045,7 +1059,7 @@ export function QuickBillPage() {
       const amount = Number.parseFloat(l.amount);
       if (!desc || Number.isNaN(amount) || amount < 0) continue;
       if (!l.spareId) {
-        const err = validateStoreServiceAmountInr(amount, user?.role);
+        const err = validateQuickBillServiceChargeInr(amount, user?.role);
         if (err) {
           setError(err);
           return false;
@@ -1053,18 +1067,17 @@ export function QuickBillPage() {
       }
     }
     if (Number.isFinite(extra) && extra > 0) {
-      const err = validateStoreServiceAmountInr(extra, user?.role);
+      const err = validateQuickBillServiceChargeInr(extra, user?.role);
       if (err) {
         setError(err);
         return false;
       }
     }
-    const billTotal =
-      lines.reduce((sum, l) => {
-        const n = Number.parseFloat(l.amount);
-        return sum + (Number.isNaN(n) ? 0 : n);
-      }, 0) + (Number.isFinite(extra) && extra > 0 ? extra : 0);
-    const payErr = validateMultiPaymentForm(multiPaymentForm, billTotal);
+    if (payableTotal <= 0 && !allowsZeroBillTotal(watchServiceDetails.natureOfRepair)) {
+      setError("Bill total must be greater than zero for this nature of repair.");
+      return false;
+    }
+    const payErr = validateMultiPaymentForm(multiPaymentForm, payableTotal);
     if (payErr) {
       setError(payErr);
       return false;
@@ -1109,13 +1122,7 @@ export function QuickBillPage() {
         return;
       }
       const tech = technicians.find((t) => t.id === technicianId);
-      const billTotal =
-        parsedLines.reduce((sum, l) => sum + l.amount, 0) +
-        (() => {
-          const n = Number.parseFloat(serviceChargeInr);
-          return Number.isFinite(n) && n > 0 ? n : 0;
-        })();
-      const paymentPayload = buildMultiPaymentPayload(multiPaymentForm, billTotal);
+      const paymentPayload = buildMultiPaymentPayload(multiPaymentForm, payableTotal);
       if ("error" in paymentPayload) {
         setError(paymentPayload.error);
         return;
@@ -1138,6 +1145,7 @@ export function QuickBillPage() {
             pan: pan.trim().toUpperCase() || null,
             address: address.trim() || null,
             city: city.trim() || null,
+            customerBillingState: customerBillingState.trim() || null,
             watchBrand,
             watchFamily: watchFamily.trim(),
             watchModel: watchModel.trim(),
@@ -1192,14 +1200,20 @@ export function QuickBillPage() {
     void saveBill({ skipHandoverCheck: true });
   }
 
+  const natureOfRepair = watchServiceDetails.natureOfRepair;
+  const serviceChargeBillable = billableServiceChargeInr(
+    natureOfRepair,
+    (() => {
+      const n = Number.parseFloat(serviceChargeInr);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    })(),
+  );
   const total =
     lines.reduce((sum, l) => {
       const n = Number.parseFloat(l.amount);
-      return sum + (Number.isNaN(n) ? 0 : n);
-    }, 0) + (() => {
-      const n = Number.parseFloat(serviceChargeInr);
-      return Number.isFinite(n) && n > 0 ? n : 0;
-    })();
+      const raw = Number.isNaN(n) ? 0 : n;
+      return sum + billableLineAmount(natureOfRepair, raw, l.spareId);
+    }, 0) + serviceChargeBillable;
 
   const billingStore = useMemo(() => {
     const sid = effectiveBillingStoreId || user?.storeId;
@@ -1252,22 +1266,29 @@ export function QuickBillPage() {
       customerType,
       customerGstin: gst,
       billingStateName: customerBillingState,
+      addressText: address,
+      cityText: city,
       sellerStateCode: sellerState,
     });
     const gstLines = lines
       .map((l) => {
         const n = Number.parseFloat(l.amount);
         if (Number.isNaN(n) || n <= 0) return null;
+        const billable = billableLineAmount(natureOfRepair, n, l.spareId);
+        if (billable <= 0) return null;
         return {
-          amountInr: n,
+          amountInr: billable,
           spareId: l.spareId,
           hsnSac: l.hsn,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x != null);
-    const svc = Number.parseFloat(serviceChargeInr);
-    if (Number.isFinite(svc) && svc > 0) {
-      gstLines.push({ amountInr: svc, spareId: undefined, hsnSac: invoiceHsnSac });
+    if (serviceChargeBillable > 0) {
+      gstLines.push({
+        amountInr: serviceChargeBillable,
+        spareId: undefined,
+        hsnSac: invoiceHsnSac,
+      });
     }
     if (gstLines.length === 0) return null;
     return computeServiceBillGst({
@@ -1279,7 +1300,7 @@ export function QuickBillPage() {
       sgstRatePercent: serviceTaxSettings?.sgstRatePercent ?? configured / 2,
       igstRatePercent: serviceTaxSettings?.igstRatePercent ?? configured,
       pricesTaxInclusive: Boolean(serviceTaxSettings?.pricesTaxInclusive),
-      natureOfRepair: watchServiceDetails.natureOfRepair,
+      natureOfRepair,
       sellerStateCode: sellerState,
       customerStateCode: customerState,
       billTotalInr: total,
@@ -1293,10 +1314,23 @@ export function QuickBillPage() {
     customerType,
     gst,
     customerBillingState,
-    watchServiceDetails.natureOfRepair,
+    address,
+    city,
+    natureOfRepair,
+    serviceChargeBillable,
     spareHsnLookup,
     total,
   ]);
+
+  const payableTotal = useMemo(
+    () =>
+      customerPayableInr(
+        total,
+        taxPreview?.totalTax ?? 0,
+        Boolean(serviceTaxSettings?.pricesTaxInclusive),
+      ),
+    [total, taxPreview, serviceTaxSettings?.pricesTaxInclusive],
+  );
 
   const serviceSacHsn = invoiceHsnSac;
   const serviceHsnGstRate = useMemo(
@@ -1506,7 +1540,7 @@ export function QuickBillPage() {
         amount: Number.parseFloat(l.amount),
       }))
       .filter((l) => l.description && !Number.isNaN(l.amount) && l.amount >= 0);
-    const demoPayment = buildMultiPaymentPayload(multiPaymentForm, total);
+    const demoPayment = buildMultiPaymentPayload(multiPaymentForm, payableTotal);
     const demoVm = buildDemoServiceInvoiceViewModel(
       {
         billNumber: completion.ref,
@@ -1533,7 +1567,7 @@ export function QuickBillPage() {
         paymentDetails: "error" in demoPayment ? {} : demoPayment.paymentDetails,
         notes,
         lines: demoLines,
-        total,
+        total: payableTotal,
       },
       invoiceVmOptions,
     );
@@ -1562,7 +1596,7 @@ export function QuickBillPage() {
                     email: email.trim(),
                     customerName: customerName.trim() || "Customer",
                     invoiceNumber: completion.ref,
-                    totalInr: total,
+                    totalInr: payableTotal,
                   })
                     .then(() => setBillPostActionNote("Invoice sent by email successfully."))
                     .catch((e) =>
@@ -2244,21 +2278,49 @@ export function QuickBillPage() {
                 Add charge line
               </button>
             </div>
-            <div className="mt-4 w-full max-w-md rounded-xl border border-zimson-200/80 bg-white/80 p-3">
-              <label htmlFor="qb-svc" className="text-xs font-medium text-stone-600">
-                Service / repair charge (INR, optional)
-              </label>
-              <p className="text-[11px] text-stone-500">{storeServiceChargeMaxLabel(user?.role)}</p>
-              <input
-                id="qb-svc"
-                type="number"
-                min={0}
-                step={0.01}
-                value={serviceChargeInr}
-                onChange={(e) => handleServiceChargeChange(e.target.value)}
-                className={inputClass}
-                placeholder="0"
-              />
+            <div className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[1fr_minmax(0,7rem)_minmax(0,9rem)_auto] sm:items-end">
+              <div className="min-w-0">
+                <span className="text-xs font-medium text-stone-600">Service / repair charge</span>
+                <input
+                  readOnly
+                  value="Labour / service charge"
+                  className={`${inputClass} cursor-default bg-stone-100`}
+                />
+              </div>
+              <div className="min-w-0 w-full">
+                <span className="text-xs font-medium text-stone-600">HSN / SAC</span>
+                <input
+                  readOnly
+                  value={serviceSacHsn}
+                  className={`${inputClass} cursor-not-allowed bg-stone-100 font-mono text-xs`}
+                  aria-label="SAC for service charge"
+                />
+                <p className="mt-0.5 text-[10px] text-stone-500">GST {serviceHsnGstRate}%</p>
+              </div>
+              <div className="min-w-0 w-full">
+                <span className="text-xs font-medium text-stone-600">Amount (INR)</span>
+                <p className="text-[10px] text-stone-500 sm:hidden">{storeServiceChargeMaxLabel(user?.role)}</p>
+                <input
+                  id="qb-svc"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={serviceChargeInr}
+                  onChange={(e) => handleServiceChargeChange(e.target.value)}
+                  className={inputClass}
+                  placeholder="0"
+                />
+                <p className="mt-0.5 hidden text-[10px] text-stone-500 sm:block">
+                  {storeServiceChargeMaxLabel(user?.role)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setServiceChargeInr("")}
+                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 sm:w-auto"
+              >
+                Clear
+              </button>
             </div>
           </div>
           <div className="mt-4 space-y-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3 sm:p-4">
@@ -2317,6 +2379,11 @@ export function QuickBillPage() {
                 </div>
               )}
             </div>
+            {natureOfRepairBillingNote(natureOfRepair) ? (
+              <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                {natureOfRepairBillingNote(natureOfRepair)}
+              </p>
+            ) : null}
             {taxPreview ? (
               <div className="rounded-lg border border-zimson-200 bg-white p-3 text-sm text-stone-800">
                 <p className="font-semibold text-zimson-900">
@@ -2335,6 +2402,8 @@ export function QuickBillPage() {
                       customerType,
                       customerGstin: gst,
                       billingStateName: customerBillingState,
+                      addressText: address,
+                      cityText: city,
                       sellerStateCode: resolveSellerStateCode(
                         seedStoreToInvoiceProfile(billingStore)?.invoiceStoreGstin ||
                           serviceTaxSettings?.invoiceStoreGstin,
@@ -2403,20 +2472,22 @@ export function QuickBillPage() {
             )}
           </div>
           <div className="mt-4 space-y-1 text-right text-sm text-stone-900">
-            <p className="font-semibold">
-              {serviceTaxSettings?.pricesTaxInclusive ? "Total (incl. GST)" : "Subtotal (excl. GST)"}:{" "}
-              {total.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-            </p>
-            {taxPreview && taxPreview.totalTax > 0 && !serviceTaxSettings?.pricesTaxInclusive ? (
-              <p className="text-xs text-stone-600">
-                GST:{" "}
-                {taxPreview.totalTax.toLocaleString(undefined, { style: "currency", currency: "INR" })} · Payable:{" "}
-                {(total + taxPreview.totalTax).toLocaleString(undefined, {
-                  style: "currency",
-                  currency: "INR",
-                })}
-              </p>
+            {!serviceTaxSettings?.pricesTaxInclusive && taxPreview && taxPreview.totalTax > 0 ? (
+              <>
+                <p className="text-xs text-stone-600">
+                  Subtotal (excl. GST):{" "}
+                  {total.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                </p>
+                <p className="text-xs text-stone-600">
+                  GST:{" "}
+                  {taxPreview.totalTax.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                </p>
+              </>
             ) : null}
+            <p className="text-base font-bold text-zimson-900">
+              Amount to collect:{" "}
+              {payableTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+            </p>
           </div>
         </Card>
 
@@ -2444,7 +2515,7 @@ export function QuickBillPage() {
               <MultiPaymentFields
                 idPrefix="qb"
                 amountLabel="bill"
-                targetInr={total}
+                targetInr={payableTotal}
                 form={multiPaymentForm}
                 onChange={setMultiPaymentForm}
               />

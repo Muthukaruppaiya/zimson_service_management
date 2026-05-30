@@ -58,13 +58,13 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
   }, [api, value.countryId]);
 
   useEffect(() => {
-    if (!api || !value.countryId || !value.state.trim()) {
+    if (!api || !value.countryId || !String(value.state ?? "").trim()) {
       setDistricts([]);
       return;
     }
     let cancelled = false;
     void apiJson<{ districts: string[] }>(
-      `/api/geo/districts?countryId=${encodeURIComponent(value.countryId)}&state=${encodeURIComponent(value.state.trim())}`,
+      `/api/geo/districts?countryId=${encodeURIComponent(value.countryId)}&state=${encodeURIComponent(String(value.state ?? "").trim())}`,
     )
       .then((out) => {
         if (!cancelled && Array.isArray(out.districts)) setDistricts(out.districts);
@@ -91,7 +91,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
 
   const localityOptions = useMemo(() => {
     if (!pinOfficeCache || pinDigits !== pinOfficeCache.pin) return [];
-    const d = value.district.trim();
+    const d = String(value.district ?? "").trim();
     const src = d
       ? pinOfficeCache.offices.filter((o) => o.district.trim() === d)
       : pinOfficeCache.offices;
@@ -103,7 +103,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
 
   useEffect(() => {
     if (localityOptions.length === 0) return;
-    const c = value.city.trim();
+    const c = String(value.city ?? "").trim();
     if (c && localityOptions.includes(c)) return;
     patch({ city: localityOptions[0] ?? "" });
   }, [localityKey, value.city, patch, localityOptions.length]);
@@ -280,7 +280,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
       </div>
       <div>
         <label className="text-xs font-medium text-stone-600">District *</label>
-        {api && districts.length === 0 && value.state.trim() ? (
+        {api && districts.length === 0 && String(value.state ?? "").trim() ? (
           <input
             value={value.district}
             onChange={(e) => patch({ district: sanitizeTextInput(e.target.value, 80) })}
@@ -293,9 +293,11 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
             className={inputClass}
             value={value.district}
             onChange={(e) => patch({ district: e.target.value })}
-            disabled={disabled || !value.state.trim() || districts.length === 0}
+            disabled={disabled || !String(value.state ?? "").trim() || districts.length === 0}
           >
-            <option value="">{value.state.trim() ? "Select district" : "Select state first"}</option>
+            <option value="">
+              {String(value.state ?? "").trim() ? "Select district" : "Select state first"}
+            </option>
             {districts.map((d) => (
               <option key={d} value={d}>
                 {d}
@@ -317,7 +319,11 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         {isIndia && api && localityOptions.length > 0 ? (
           <select
             className={inputClass}
-            value={localityOptions.includes(value.city.trim()) ? value.city : localityOptions[0] ?? ""}
+            value={
+              localityOptions.includes(String(value.city ?? "").trim())
+                ? value.city
+                : localityOptions[0] ?? ""
+            }
             onChange={(e) => patch({ city: sanitizeTextInput(e.target.value, 80) })}
             disabled={disabled}
           >

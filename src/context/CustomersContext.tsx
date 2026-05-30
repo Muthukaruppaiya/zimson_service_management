@@ -84,9 +84,13 @@ function saveStoredCustomers(rows: CustomerRecord[]) {
   localStorage.setItem(STORAGE_CUSTOMERS, JSON.stringify(rows));
 }
 
+function optTrim(v: string | null | undefined): string {
+  return String(v ?? "").trim();
+}
+
 function buildDisplayName(input: CustomerRegistrationPayload): string {
   if (input.customerKind === "B2B") {
-    return (input.b2bTradeDisplayName ?? "").trim();
+    return optTrim(input.b2bTradeDisplayName);
   }
   return [input.salutation, input.firstName, input.lastName].filter(Boolean).join(" ").trim();
 }
@@ -336,7 +340,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
 
   const registerCustomer = useCallback(
     async (input: CustomerRegistrationPayload): Promise<CustomerRecord> => {
-      const regP10 = phoneLast10Local(input.phone.trim());
+      const regP10 = phoneLast10Local(optTrim(input.phone));
       if (regP10.length === 10 && customers.some((c) => phoneLast10Local(c.phone) === regP10)) {
         throw new Error(
           "This mobile number is already registered. Open Customer master to view or edit the existing profile.",
@@ -347,31 +351,31 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
           method: "POST",
           json: {
             sessionId: input.sessionId,
-            mobileOtp: input.mobileOtp.trim(),
-            emailOtp: input.emailOtp.trim(),
+            mobileOtp: optTrim(input.mobileOtp),
+            emailOtp: optTrim(input.emailOtp),
             customerKind: input.customerKind,
-            salutation: input.salutation.trim(),
-            firstName: input.firstName.trim(),
-            lastName: input.lastName.trim(),
-            phone: input.phone.trim(),
-            otpPhone: input.otpPhone.trim(),
-            alternatePhone: input.alternatePhone?.trim(),
-            telephone: input.telephone?.trim(),
-            email: input.email.trim(),
-            dob: input.dob?.trim() || null,
-            anniversaryDate: input.anniversaryDate?.trim() || null,
+            salutation: optTrim(input.salutation),
+            firstName: optTrim(input.firstName),
+            lastName: optTrim(input.lastName),
+            phone: optTrim(input.phone),
+            otpPhone: optTrim(input.otpPhone),
+            alternatePhone: optTrim(input.alternatePhone) || undefined,
+            telephone: optTrim(input.telephone) || undefined,
+            email: optTrim(input.email) || undefined,
+            dob: optTrim(input.dob) || null,
+            anniversaryDate: optTrim(input.anniversaryDate) || null,
             billingAddress: input.billingAddress,
             shippingAddress: input.shippingAddress,
             sameShippingAsBilling: input.sameShippingAsBilling,
             additionalAddresses: input.additionalAddresses,
-            b2bTradeDisplayName: input.b2bTradeDisplayName?.trim(),
+            b2bTradeDisplayName: optTrim(input.b2bTradeDisplayName) || undefined,
             taxPreference: input.taxPreference,
-            company: input.company?.trim(),
-            gst: input.gst?.trim(),
-            pan: input.pan?.trim(),
-            remarkAttention: input.remarkAttention?.trim(),
-            referenceName: input.referenceName?.trim(),
-            representativeName: input.representativeName?.trim(),
+            company: optTrim(input.company) || undefined,
+            gst: optTrim(input.gst) || undefined,
+            pan: optTrim(input.pan) || undefined,
+            remarkAttention: optTrim(input.remarkAttention) || undefined,
+            referenceName: optTrim(input.referenceName) || undefined,
+            representativeName: optTrim(input.representativeName) || undefined,
           },
         });
         setExtra((prev) => [...prev, data.customer]);
@@ -379,18 +383,25 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       }
 
       const w = localOtpSessionsRef.current.get(input.sessionId);
-      if (!w || !w.mobileVerified || !w.emailVerified || !w.emailNorm || w.emailCode == null) {
-        throw new Error("Complete mobile and email OTP verification (local demo).");
+      const emailNorm = optTrim(input.email).toLowerCase();
+      if (!w || !w.mobileVerified) {
+        throw new Error("Complete mobile OTP verification (local demo).");
       }
-      const p10Otp = phoneLast10Local(input.otpPhone.trim() ? input.otpPhone : input.phone);
+      if (emailNorm && (!w.emailVerified || !w.emailNorm || w.emailCode == null)) {
+        throw new Error("Complete email OTP verification when email is provided (local demo).");
+      }
+      const p10Otp = phoneLast10Local(optTrim(input.otpPhone) || optTrim(input.phone));
       if (w.phoneLast10 !== p10Otp) {
         throw new Error("Mobile for OTP does not match verification session (local demo).");
       }
-      if (w.emailNorm !== input.email.trim().toLowerCase()) {
+      if (emailNorm && w.emailNorm !== emailNorm) {
         throw new Error("Email does not match verification session (local demo).");
       }
-      if (w.mobileCode !== input.mobileOtp.trim() || w.emailCode !== input.emailOtp.trim()) {
-        throw new Error("Incorrect mobile or email OTP (local demo).");
+      if (w.mobileCode !== optTrim(input.mobileOtp)) {
+        throw new Error("Incorrect mobile OTP (local demo).");
+      }
+      if (emailNorm && w.emailCode !== optTrim(input.emailOtp)) {
+        throw new Error("Incorrect email OTP (local demo).");
       }
       localOtpSessionsRef.current.delete(input.sessionId);
 
@@ -399,30 +410,30 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         id: createId("cust"),
         customerCode: `CUST-L-${Date.now().toString(36).toUpperCase().slice(-8)}`,
         displayName: buildDisplayName(input),
-        salutation: input.salutation.trim() || undefined,
-        firstName: input.firstName.trim() || undefined,
-        lastName: input.lastName.trim() || undefined,
-        phone: input.phone.trim(),
-        otpPhone: input.otpPhone.trim() || null,
-        alternatePhone: input.alternatePhone?.trim() || undefined,
-        telephone: input.telephone?.trim() || null,
-        email: input.email.trim(),
-        dob: input.dob?.trim() || null,
-        anniversaryDate: input.anniversaryDate?.trim() || null,
+        salutation: optTrim(input.salutation) || undefined,
+        firstName: optTrim(input.firstName) || undefined,
+        lastName: optTrim(input.lastName) || undefined,
+        phone: optTrim(input.phone),
+        otpPhone: optTrim(input.otpPhone) || null,
+        alternatePhone: optTrim(input.alternatePhone) || undefined,
+        telephone: optTrim(input.telephone) || null,
+        email: optTrim(input.email),
+        dob: optTrim(input.dob) || null,
+        anniversaryDate: optTrim(input.anniversaryDate) || null,
         address: undefined,
-        city: `${input.billingAddress.city}, ${input.billingAddress.district}`.slice(0, 120),
+        city: `${optTrim(input.billingAddress.city)}, ${optTrim(input.billingAddress.district)}`.slice(0, 120),
         billingAddress: input.billingAddress,
         shippingAddress: input.sameShippingAsBilling ? input.billingAddress : input.shippingAddress,
         additionalAddresses: input.additionalAddresses?.length ? input.additionalAddresses : undefined,
         customerKind: input.customerKind,
-        company: input.company?.trim() || undefined,
-        gst: input.gst?.trim().toUpperCase() || undefined,
-        pan: input.pan?.trim().toUpperCase() || undefined,
+        company: optTrim(input.company) || undefined,
+        gst: optTrim(input.gst).toUpperCase() || undefined,
+        pan: optTrim(input.pan).toUpperCase() || undefined,
         taxPreference: input.customerKind === "B2B" ? input.taxPreference ?? "with_tax" : null,
-        b2bTradeDisplayName: input.customerKind === "B2B" ? input.b2bTradeDisplayName?.trim() ?? null : null,
-        remarkAttention: input.remarkAttention?.trim() || null,
-        referenceName: input.referenceName?.trim() || null,
-        representativeName: input.representativeName?.trim() || null,
+        b2bTradeDisplayName: input.customerKind === "B2B" ? optTrim(input.b2bTradeDisplayName) || null : null,
+        remarkAttention: optTrim(input.remarkAttention) || null,
+        referenceName: optTrim(input.referenceName) || null,
+        representativeName: optTrim(input.representativeName) || null,
         phoneVerifiedAt: now,
         emailVerifiedAt: now,
         customerDataSource: "registered",

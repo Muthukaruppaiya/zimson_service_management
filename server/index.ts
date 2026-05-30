@@ -3464,8 +3464,14 @@ app.post("/api/customers", async (req, res) => {
   const referenceName = body.referenceName?.trim() || null;
   const representativeName = body.representativeName?.trim() || null;
 
-  if (!sessionId || !mobileOtp || !emailOtp) {
-    res.status(400).json({ error: "Complete mobile and email OTP verification first." });
+  const emailProvided = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  if (!sessionId || !mobileOtp) {
+    res.status(400).json({ error: "Complete mobile OTP verification first." });
+    return;
+  }
+  if (emailProvided && !emailOtp) {
+    res.status(400).json({ error: "Complete email OTP verification when an email address is provided." });
     return;
   }
   const sess = customerRegisterOtpSessions.get(sessionId);
@@ -3477,24 +3483,35 @@ app.post("/api/customers", async (req, res) => {
     res.status(400).json({ error: "Valid 10-digit primary mobile is required." });
     return;
   }
-  if (!sess.mobileVerified || !sess.emailVerified || !sess.emailNorm || sess.emailCode == null) {
-    res.status(400).json({ error: "Complete mobile verification first, then email verification, before saving." });
+  if (!sess.mobileVerified) {
+    res.status(400).json({ error: "Complete mobile verification before saving." });
+    return;
+  }
+  if (
+    emailProvided &&
+    (!sess.emailVerified || !sess.emailNorm || sess.emailCode == null)
+  ) {
+    res.status(400).json({ error: "Complete email verification before saving." });
     return;
   }
   if (sess.phoneLast10 !== phoneLast10(otpPhoneRaw || phone)) {
     res.status(400).json({ error: "Mobile for OTP does not match verification session." });
     return;
   }
-  if (sess.emailNorm !== email) {
+  if (emailProvided && sess.emailNorm !== email) {
     res.status(400).json({ error: "Email does not match verification session." });
     return;
   }
-  if (mobileOtp !== sess.mobileCode || emailOtp !== sess.emailCode) {
-    res.status(400).json({ error: "Incorrect mobile or email OTP." });
+  if (mobileOtp !== sess.mobileCode) {
+    res.status(400).json({ error: "Incorrect mobile OTP." });
     return;
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    res.status(400).json({ error: "Valid email is required." });
+  if (emailProvided && emailOtp !== sess.emailCode) {
+    res.status(400).json({ error: "Incorrect email OTP." });
+    return;
+  }
+  if (email && !emailProvided) {
+    res.status(400).json({ error: "Enter a valid email or leave the field blank." });
     return;
   }
   if (customerKind === "B2C") {

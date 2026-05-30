@@ -13,6 +13,19 @@ import {
   STORE_SERVICE_CHARGE_MAX_INR,
 } from "../src/lib/serviceChargeLimits";
 import { validateCustomerB2bGstin } from "../src/lib/zimsonCompanyGst";
+import {
+  parseStateCodeFromText,
+  resolveCustomerSupplyStateCode,
+  resolveSellerStateCode,
+  stateCodeLabel,
+} from "../src/lib/gstSupply";
+import { computeServiceBillGst } from "../src/lib/serviceBillGst";
+import { customerPayableInr } from "../src/lib/quickBillPayable";
+import {
+  allowsZeroBillTotal,
+  billableLineAmount,
+  billableServiceChargeInr,
+} from "../src/lib/natureOfRepair";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
 import { finalizeQuickBillCaptureSession } from "./quickBillCaptureRoutes";
@@ -74,6 +87,7 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
             qb.pan,
             qb.address,
             qb.city,
+            qb.customer_billing_state AS "customerBillingState",
             qb.watch_brand AS "watchBrand",
             qb.watch_family AS "watchFamily",
             qb.watch_model AS "watchModel",
@@ -142,6 +156,7 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
     pan: head.pan ?? null,
     address: (head.address as string | null) ?? null,
     city: (head.city as string | null) ?? null,
+    customerBillingState: (head.customerBillingState as string | null) ?? null,
     watchBrand: head.watchBrand,
     watchFamily: (head.watchFamily as string | null) ?? "",
     watchModel: head.watchModel,
@@ -789,7 +804,7 @@ export function registerQuickBillRoutes(
         spareId,
         qty: spareId ? qty : 1,
       });
-      sum += amountInr;
+      sum += billableLineAmount(natureOfRepair, amountInr, spareId);
     }
 
     const serviceChargeInr = Number(req.body?.serviceChargeInr ?? 0);
@@ -803,9 +818,13 @@ export function registerQuickBillRoutes(
       });
       return;
     }
-    if (Number.isFinite(serviceChargeInr) && serviceChargeInr > 0) {
+    const serviceChargeBillable = billableServiceChargeInr(
+      natureOfRepair,
+      Number.isFinite(serviceChargeInr) ? serviceChargeInr : 0,
+    );
+    if (serviceChargeBillable > 0) {
       lineNo += 1;
-      const rounded = Math.round(serviceChargeInr * 100) / 100;
+      const rounded = Math.round(serviceChargeBillable * 100) / 100;
       lines.push({
         lineNo,
         description: "Service / repair charge",
@@ -816,11 +835,97 @@ export function registerQuickBillRoutes(
       sum += rounded;
     }
 
-    const totalInr = Math.round(sum * 100) / 100;
-    if (totalInr <= 0) {
+    const subtotalInr = Math.round(sum * 100) / 100;
+    if (subtotalInr <= 0 && !allowsZeroBillTotal(natureOfRepair)) {
       res.status(400).json({ error: "Total amount must be greater than zero." });
       return;
     }
+
+    const customerBillingStateRaw = String(req.body?.customerBillingState ?? "").trim() || null;
+    const parsedStateCode = parseStateCodeFromText(
+      customerBillingStateRaw,
+      address,
+      city,
+    );
+    const customerBillingState =
+      customerBillingStateRaw ||
+      (parsedStateCode ? stateCodeLabel(parsedStateCode) : null);
+
+    const taxRes = await pool.query<{
+      gst_rate_percent: string;
+      cgst_rate_percent: string;
+      sgst_rate_percent: string;
+      igst_rate_percent: string;
+      default_sac_hsn: string;
+      prices_tax_inclusive: boolean;
+      invoice_store_gstin: string;
+    }>(
+      `SELECT gst_rate_percent::text, cgst_rate_percent::text, sgst_rate_percent::text,
+              igst_rate_percent::text, default_sac_hsn, prices_tax_inclusive, invoice_store_gstin
+       FROM service_tax_settings WHERE id = 1`,
+    );
+    const taxRow = taxRes.rows[0];
+    const configuredGst = Number(taxRow?.gst_rate_percent ?? 18);
+    const defaultSacHsn = String(taxRow?.default_sac_hsn ?? "9987").trim() || "9987";
+    const pricesTaxInclusive = Boolean(taxRow?.prices_tax_inclusive);
+
+    let storeGstin = "";
+    if (storeId) {
+      const st = await pool.query<{ invoice_gstin: string | null }>(
+        `SELECT invoice_gstin FROM stores WHERE id = $1::text`,
+        [storeId],
+      );
+      storeGstin = String(st.rows[0]?.invoice_gstin ?? "").trim();
+    }
+    if (!storeGstin) storeGstin = String(taxRow?.invoice_store_gstin ?? "").trim();
+
+    const sellerStateCode = resolveSellerStateCode(storeGstin);
+    const customerStateCode = resolveCustomerSupplyStateCode({
+      customerType,
+      customerGstin: gst,
+      billingStateName: customerBillingState,
+      addressText: address,
+      cityText: city,
+      sellerStateCode,
+    });
+
+    const spareIds = [...new Set(lines.map((l) => l.spareId).filter(Boolean))] as string[];
+    const hsnBySpareId = new Map<string, string>();
+    if (spareIds.length > 0) {
+      const hsnRes = await pool.query<{ id: string; hsn: string | null }>(
+        `SELECT id::text, hsn FROM spares WHERE id = ANY($1::uuid[])`,
+        [spareIds],
+      );
+      for (const row of hsnRes.rows) {
+        const h = String(row.hsn ?? "").trim();
+        if (h) hsnBySpareId.set(row.id, h);
+      }
+    }
+
+    const gstResult = computeServiceBillGst({
+      lines: lines.map((ln) => ({
+        amountInr: billableLineAmount(natureOfRepair, ln.amountInr, ln.spareId),
+        spareId: ln.spareId,
+        hsnSac: ln.spareId ? hsnBySpareId.get(ln.spareId) ?? null : defaultSacHsn,
+      })),
+      defaultHsnSac: defaultSacHsn,
+      spareHsnLookup: (id) => hsnBySpareId.get(id) ?? null,
+      configuredGstPercent: configuredGst,
+      cgstRatePercent: Number(taxRow?.cgst_rate_percent ?? configuredGst / 2),
+      sgstRatePercent: Number(taxRow?.sgst_rate_percent ?? configuredGst / 2),
+      igstRatePercent: Number(taxRow?.igst_rate_percent ?? configuredGst),
+      pricesTaxInclusive,
+      natureOfRepair,
+      sellerStateCode,
+      customerStateCode,
+      billTotalInr: subtotalInr,
+    });
+
+    const totalInr = customerPayableInr(
+      subtotalInr,
+      gstResult.totalTax,
+      pricesTaxInclusive,
+    );
 
     const paymentNorm = normalizePaymentForTotal(
       totalInr,
@@ -860,12 +965,12 @@ export function registerQuickBillRoutes(
         `INSERT INTO quick_bills (
            bill_number, invoice_number, region_id, store_id, customer_type, customer_id, customer_code,
            customer_name, phone, email,
-           company, gst, pan, address, city, watch_brand, watch_family, watch_model, watch_ref, technician_id, technician_name,
+           company, gst, pan, address, city, customer_billing_state, watch_brand, watch_family, watch_model, watch_ref, technician_id, technician_name,
            payment_mode, notes, watch_remark, case_type, strap_chain_type, nature_of_repair, chain_count, customer_remarks,
            warranty_status, watch_document_path, watch_image_path,
            total_inr, payment_details, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34::jsonb, $35)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35::jsonb, $36)
          RETURNING id, created_at`,
         [
           billNumber,
@@ -883,6 +988,7 @@ export function registerQuickBillRoutes(
           pan,
           address,
           city,
+          customerBillingState,
           watchBrand,
           watchFamily,
           watchModel,

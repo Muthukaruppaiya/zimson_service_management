@@ -2,6 +2,7 @@ import { WatchCatalogSinglePicker } from "./WatchCatalogSinglePicker";
 import {
   NATURE_OF_REPAIR_OPTIONS,
   normalizeNatureOfRepair,
+  natureOfRepairBillingNote,
   natureOfRepairLabel,
 } from "../../lib/natureOfRepair";
 import { parseWatchCatalogMultiValue } from "../../lib/watchCatalogMulti";
@@ -75,6 +76,7 @@ export function WatchServiceDetailFields({
   const pairRow = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start";
   const taxNote =
     NATURE_OF_REPAIR_OPTIONS.find((o) => o.value === values.natureOfRepair)?.taxNote ?? "";
+  const billingNote = natureOfRepairBillingNote(values.natureOfRepair);
 
   return (
     <>
@@ -120,6 +122,9 @@ export function WatchServiceDetailFields({
               Invoice: {natureOfRepairLabel(values.natureOfRepair)}
               {taxNote ? ` · ${taxNote}` : ""}
             </p>
+          ) : null}
+          {billingNote ? (
+            <p className="mt-1 text-[10px] font-medium text-amber-800">{billingNote}</p>
           ) : null}
         </div>
         <div className="min-w-0">

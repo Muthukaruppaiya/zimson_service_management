@@ -44,24 +44,24 @@ export function trimCustomerAddress(b: CustomerAddressBlock): CustomerAddressBlo
   return {
     addressLine1: line1,
     addressLine2: line2,
-    city: b.city.trim(),
-    district: b.district.trim(),
-    state: b.state.trim(),
-    countryId: b.countryId.trim(),
-    pincode: b.pincode.trim(),
+    city: String(b.city ?? "").trim(),
+    district: String(b.district ?? "").trim(),
+    state: String(b.state ?? "").trim(),
+    countryId: String(b.countryId ?? "").trim(),
+    pincode: String(b.pincode ?? "").trim(),
   };
 }
 
 /** Line 1, city, district, state, country, and PIN are required; line 2 is optional. */
 export function isCustomerAddressComplete(b: CustomerAddressBlock): boolean {
-  const pin = b.pincode.trim();
+  const pin = String(b.pincode ?? "").trim();
   if (pin.length < 4 || pin.length > 12) return false;
   return !!(
     addressLine1(b) &&
-    b.city.trim() &&
-    b.district.trim() &&
-    b.state.trim() &&
-    b.countryId.trim()
+    String(b.city ?? "").trim() &&
+    String(b.district ?? "").trim() &&
+    String(b.state ?? "").trim() &&
+    String(b.countryId ?? "").trim()
   );
 }
 
@@ -74,11 +74,11 @@ export function customerAddressToStorageJson(b: CustomerAddressBlock): Record<st
     addressLine2: line2,
     doorNo: line1,
     street: line2,
-    city: b.city.trim(),
-    district: b.district.trim(),
-    state: b.state.trim(),
-    countryId: b.countryId.trim(),
-    pincode: b.pincode.trim(),
+    city: String(b.city ?? "").trim(),
+    district: String(b.district ?? "").trim(),
+    state: String(b.state ?? "").trim(),
+    countryId: String(b.countryId ?? "").trim(),
+    pincode: String(b.pincode ?? "").trim(),
   };
 }
 

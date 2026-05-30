@@ -64,9 +64,9 @@ export type CustomerRegistrationPayload = {
   mobileOtp: string;
   emailOtp?: string;
   customerKind: CustomerKind;
-  salutation: string;
-  firstName: string;
-  lastName: string;
+  salutation?: string;
+  firstName?: string;
+  lastName?: string;
   phone: string;
   otpPhone: string;
   alternatePhone?: string;
