@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { ApiError, apiJson } from "../lib/api";
 import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
 
 export function LoginPage() {
@@ -14,6 +15,9 @@ export function LoginPage() {
   const [storeId, setStoreId] = useState("");
   const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [alreadyLoggedIn, setAlreadyLoggedIn] = useState(false);
+  const [signOutAllBusy, setSignOutAllBusy] = useState(false);
+  const [signOutAllNote, setSignOutAllNote] = useState<string | null>(null);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -28,16 +32,46 @@ export function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSignOutAllNote(null);
     const result = await login(loginId, password, storeId || null);
     if (result.ok) {
+      setAlreadyLoggedIn(false);
       navigate(from === "/login" ? "/" : from, { replace: true });
-    } else if ("code" in result && result.code === "STORE_SELECTION_REQUIRED") {
+    } else if ("code" in result && result.code === "STORE_SELECTION_REQUIRED" && result.stores) {
       setStoreOptions(result.stores);
       setStoreId("");
       setError(result.message);
+      setAlreadyLoggedIn(false);
     } else {
       setStoreOptions([]);
       setError(result.message);
+      setAlreadyLoggedIn("code" in result && result.code === "ALREADY_LOGGED_IN");
+    }
+  }
+
+  async function handleSignOutAllDevices() {
+    if (!loginId.trim() || !password) {
+      setSignOutAllNote("Enter your employee ID and password first.");
+      return;
+    }
+    setSignOutAllBusy(true);
+    setSignOutAllNote(null);
+    try {
+      const data = await apiJson<{ ok: boolean; message: string }>("/api/auth/sign-out-all-devices", {
+        method: "POST",
+        json: {
+          loginId: loginId.trim(),
+          employeeCode: loginId.trim(),
+          password: password.trim(),
+        },
+      });
+      setAlreadyLoggedIn(false);
+      setError(null);
+      setSignOutAllNote(data.message || "All devices signed out. Click Sign in again.");
+    } catch (e) {
+      setSignOutAllNote(e instanceof ApiError ? e.message : "Could not sign out all devices.");
+    } finally {
+      setSignOutAllBusy(false);
     }
   }
 
@@ -46,23 +80,14 @@ export function LoginPage() {
 
   return (
     <div className="flex min-h-dvh flex-col" style={{ background: "linear-gradient(160deg, #0D1B5E 0%, #1B3A8F 50%, #102570 100%)" }}>
-
-      {/* top gold bar — thick and prominent */}
       <div className="h-[4px] w-full shrink-0" style={{ background: "linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F)" }} />
-
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
-
-        {/* ── Brand mark ──────────────────────────── */}
         <div className="mb-10 flex flex-col items-center gap-5 text-center">
           <div
             className="flex items-center justify-center px-6 py-4 shadow-[0_0_0_1px_rgba(201,162,39,0.35),0_12px_48px_rgba(0,0,0,0.6)]"
             style={{ background: "linear-gradient(135deg, #0D1B5E 0%, #1B3A8F 50%, #102570 100%)" }}
           >
-            <img
-              src="/zimson-logo.png"
-              alt="Zimson — The Watch Store Since 1948"
-              className="h-14 w-auto object-contain"
-            />
+            <img src="/zimson-logo.png" alt="Zimson" className="h-14 w-auto object-contain" />
           </div>
           <div>
             <div className="mx-auto h-[1.5px] w-24" style={{ background: "linear-gradient(90deg, transparent, #C9A227, transparent)" }} />
@@ -72,12 +97,7 @@ export function LoginPage() {
           </div>
         </div>
 
-        {/* ── Login card ──────────────────────────── */}
-        <div
-          className="w-full max-w-sm bg-white shadow-[0_32px_96px_-16px_rgba(0,0,0,0.6)]"
-          style={{ borderTop: "3px solid #C9A227" }}
-        >
-
+        <div className="w-full max-w-sm bg-white shadow-[0_32px_96px_-16px_rgba(0,0,0,0.6)]" style={{ borderTop: "3px solid #C9A227" }}>
           <div className="px-7 py-5" style={{ background: "#1B3A8F" }}>
             <h2 className="text-sm font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
               Sign in
@@ -94,7 +114,10 @@ export function LoginPage() {
                 type="text"
                 autoComplete="username"
                 value={loginId}
-                onChange={(e) => setLoginId(sanitizeLoginIdInput(e.target.value))}
+                onChange={(e) => {
+                  setLoginId(sanitizeLoginIdInput(e.target.value));
+                  setAlreadyLoggedIn(false);
+                }}
                 className={fieldCls}
               />
             </div>
@@ -140,15 +163,41 @@ export function LoginPage() {
                 type="password"
                 autoComplete="current-password"
                 value={password}
-                onChange={(e) => setPassword(sanitizePasswordInput(e.target.value))}
+                onChange={(e) => {
+                  setPassword(sanitizePasswordInput(e.target.value));
+                  setAlreadyLoggedIn(false);
+                }}
                 className={fieldCls}
                 placeholder="••••••••"
               />
             </div>
 
-            {error ? (
-              <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">
-                {error}
+            {alreadyLoggedIn ? (
+              <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-xs text-amber-950">
+                <p className="font-semibold">Account already in use</p>
+                <p className="leading-relaxed">
+                  {error ??
+                    "Someone is already signed in with this account. They must sign out, or you can end all sessions with your password below."}
+                </p>
+                <p className="text-[11px] text-amber-900/90">
+                  The signed-in user will see a popup that another person tried to log in.
+                </p>
+                <button
+                  type="button"
+                  disabled={signOutAllBusy}
+                  onClick={() => void handleSignOutAllDevices()}
+                  className="w-full rounded-lg border border-amber-600 bg-white py-2.5 text-[11px] font-bold uppercase tracking-wide text-amber-950 hover:bg-amber-100 disabled:opacity-60"
+                >
+                  {signOutAllBusy ? "Signing out all devices…" : "Sign out all devices & try again"}
+                </button>
+              </div>
+            ) : error ? (
+              <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">{error}</div>
+            ) : null}
+
+            {signOutAllNote ? (
+              <div className="border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
+                {signOutAllNote}
               </div>
             ) : null}
 

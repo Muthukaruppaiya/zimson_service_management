@@ -43,11 +43,12 @@ export function SessionLoginAlertModal() {
     >
       <div className="w-full max-w-md rounded-xl border border-amber-300 bg-white p-6 shadow-xl">
         <h2 id="session-alert-title" className="text-base font-semibold text-amber-950">
-          Sign-in attempt on your account
+          Someone else is trying to sign in
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-stone-700">{message}</p>
         <p className="mt-2 text-xs text-stone-500">
-          Another person cannot sign in with your credentials until you sign out here.
+          Only one active session is allowed per account. They cannot sign in until you sign out here (or use “Sign out
+          all devices” on the login page with your password).
         </p>
         <div className="mt-5 flex flex-wrap gap-2">
           <button

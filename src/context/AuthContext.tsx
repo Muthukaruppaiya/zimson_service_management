@@ -28,8 +28,7 @@ export type CreateUserInput = {
 
 type LoginResult =
   | { ok: true }
-  | { ok: false; message: string }
-  | { ok: false; message: string; code: "STORE_SELECTION_REQUIRED"; stores: { id: string; name: string }[] };
+  | { ok: false; message: string; code?: "ALREADY_LOGGED_IN" | "STORE_SELECTION_REQUIRED"; stores?: { id: string; name: string }[] };
 
 export type UserPatchInput = Partial<{
   displayName: string;
@@ -159,6 +158,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [api, refreshDirectory]);
 
+  useEffect(() => {
+    if (!api || !user) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const me = await apiJson<{ user: SessionUser | null }>("/api/auth/me");
+        if (!cancelled && !me.user) {
+          setUser(null);
+          setListUsers([]);
+          const path = window.location.pathname;
+          if (path !== "/login" && !path.startsWith("/login/") && !path.startsWith("/track")) {
+            window.location.assign("/login");
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    const id = window.setInterval(() => void tick(), 20_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [api, user?.id]);
+
   const adoptSession = useCallback(
     async (sessionUser: SessionUser) => {
       setUser(sessionUser);
@@ -202,6 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (body.code === "ALREADY_LOGGED_IN") {
               return {
                 ok: false,
+                code: "ALREADY_LOGGED_IN",
                 message:
                   typeof body.message === "string"
                     ? body.message

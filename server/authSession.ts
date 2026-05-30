@@ -33,6 +33,84 @@ export async function countActiveSessionsForUser(pool: Pool, userId: string): Pr
 const LOGIN_ATTEMPT_ALERT_MESSAGE =
   "Someone tried to sign in with your account on another device or browser. If this was not you, sign out and change your password.";
 
+export async function revokeAllSessionsForUser(pool: Pool, userId: string): Promise<number> {
+  const { rowCount } = await pool.query(
+    `UPDATE auth_sessions
+     SET revoked_at = now(),
+         login_alert_at = NULL,
+         login_alert_message = NULL
+     WHERE user_id = $1
+       AND revoked_at IS NULL
+       AND expires_at > now()`,
+    [userId],
+  );
+  return rowCount ?? 0;
+}
+
+export async function revokeSessionById(pool: Pool, sessionId: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE auth_sessions
+     SET revoked_at = now()
+     WHERE id = $1
+       AND revoked_at IS NULL
+       AND expires_at > now()`,
+    [sessionId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export type ActiveSessionRow = {
+  sessionId: string;
+  userId: string;
+  displayName: string;
+  email: string;
+  employeeCode: string | null;
+  role: string;
+  createdAt: string;
+  expiresAt: string;
+  hasLoginAlert: boolean;
+};
+
+export async function listActiveSessions(pool: Pool): Promise<ActiveSessionRow[]> {
+  const { rows } = await pool.query<{
+    session_id: string;
+    user_id: string;
+    display_name: string;
+    email: string;
+    employee_code: string | null;
+    role: string;
+    created_at: Date;
+    expires_at: Date;
+    has_login_alert: boolean;
+  }>(
+    `SELECT s.id AS session_id,
+            s.user_id,
+            u.display_name,
+            u.email,
+            u.employee_code,
+            u.role,
+            s.created_at,
+            s.expires_at,
+            (s.login_alert_at IS NOT NULL) AS has_login_alert
+     FROM auth_sessions s
+     JOIN app_users u ON u.id = s.user_id
+     WHERE s.revoked_at IS NULL
+       AND s.expires_at > now()
+     ORDER BY s.created_at DESC`,
+  );
+  return rows.map((r) => ({
+    sessionId: r.session_id,
+    userId: r.user_id,
+    displayName: r.display_name,
+    email: r.email,
+    employeeCode: r.employee_code,
+    role: r.role,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    expiresAt: r.expires_at instanceof Date ? r.expires_at.toISOString() : String(r.expires_at),
+    hasLoginAlert: Boolean(r.has_login_alert),
+  }));
+}
+
 export async function notifyActiveSessionsOfLoginAttempt(pool: Pool, userId: string): Promise<void> {
   await pool.query(
     `UPDATE auth_sessions

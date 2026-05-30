@@ -45,6 +45,7 @@ import { UsersPrivilegesPage } from "./pages/UsersPrivilegesPage";
 import { UsersListPage } from "./pages/UsersListPage";
 import { ServiceTaxSettingsPage } from "./pages/settings/ServiceTaxSettingsPage";
 import { MessagingSettingsPage } from "./pages/settings/MessagingSettingsPage";
+import { ActiveSessionsPage } from "./pages/settings/ActiveSessionsPage";
 import { DocumentTemplatesPage } from "./pages/settings/DocumentTemplatesPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
 import { InventoryPoInwardPage } from "./pages/inventory/InventoryPoInwardPage";
@@ -586,6 +587,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="settings">
                       <MessagingSettingsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/settings/active-sessions"
+                  element={
+                    <ModuleRoute module="settings">
+                      <ActiveSessionsPage />
                     </ModuleRoute>
                   }
                 />

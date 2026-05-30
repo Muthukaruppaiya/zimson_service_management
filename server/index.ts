@@ -50,6 +50,7 @@ import {
   notifyActiveSessionsOfLoginAttempt,
   SESSION_COOKIE,
 } from "./authSession";
+import { registerAuthSessionRoutes } from "./authSessionRoutes";
 import { registerPasswordResetRoutes } from "./passwordResetRoutes";
 import { startDevPublicTunnel } from "./devPublicTunnel";
 import { isS3StorageEnabled } from "./storage/config";
@@ -579,8 +580,9 @@ app.post("/api/auth/login", async (req, res) => {
     res.status(409).json({
       ok: false,
       code: "ALREADY_LOGGED_IN",
+      activeSessionCount: activeElsewhere,
       message:
-        "This account is already signed in elsewhere. The other person must sign out before you can use the same login.",
+        "This account is already signed in on another device or browser. Ask them to sign out, or use “Sign out all devices” below with your password.",
     });
     return;
   }
@@ -3821,6 +3823,18 @@ async function main() {
   registerMessagingRoutes(app, requireAuth);
   registerPasswordResetRoutes(app, dbPool, {
     onPasswordChanged: () => refreshUsersFromDb(),
+  });
+  registerAuthSessionRoutes(app, dbPool, {
+    requireAuth,
+    findUser,
+    getSessionUserId,
+    parseCookies,
+    resolveUserByLogin: (loginId, password) => {
+      const passwordHash = hashPassword(password);
+      return (
+        allUsers().find((u) => userMatchesLoginId(u, loginId) && u.password === passwordHash) ?? null
+      );
+    },
   });
 
   app.listen(PORT, HOST, () => {
