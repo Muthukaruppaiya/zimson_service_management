@@ -346,43 +346,53 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             <div className="inv-section-head" style={{ margin: "0 -10px 8px", borderTop: "none" }}>
               Tax Summary
             </div>
-            <table className="inv-tax-table">
-              <thead>
-                <tr>
-                  <th>Tax Description</th>
-                  <th style={{ textAlign: "right" }}>Taxable Amount</th>
-                  <th style={{ textAlign: "right" }}>CGST</th>
-                  <th style={{ textAlign: "right" }}>SGST</th>
-                  <th style={{ textAlign: "right" }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.taxBreakdownRows.map((r, idx) => (
-                  <tr key={`${r.description}-${idx}`}>
-                    <td>{r.description}</td>
-                    <td style={{ textAlign: "right" }}>{fmt(r.taxable)}</td>
-                    <td style={{ textAlign: "right" }}>{fmt(r.cgst)}</td>
-                    <td style={{ textAlign: "right" }}>{fmt(r.sgst)}</td>
-                    <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(r.total)}</td>
-                  </tr>
-                ))}
-                <tr style={{ fontWeight: 700, background: "#e8edf8" }}>
-                  <td>Total</td>
-                  <td style={{ textAlign: "right" }}>
-                    {fmt(data.taxBreakdownRows.reduce((s, r) => s + r.taxable, 0))}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {fmt(data.taxBreakdownRows.reduce((s, r) => s + r.cgst, 0))}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {fmt(data.taxBreakdownRows.reduce((s, r) => s + r.sgst, 0))}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {fmt(data.taxBreakdownRows.reduce((s, r) => s + r.total, 0))}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            {(() => {
+              const rows = data.taxBreakdownRows;
+              const showIgst = rows.some((r) => r.igst > 0);
+              const showCgstSgst = rows.some((r) => r.cgst > 0 || r.sgst > 0);
+              return (
+                <table className="inv-tax-table">
+                  <thead>
+                    <tr>
+                      <th>Tax Description</th>
+                      <th style={{ textAlign: "right" }}>Taxable Amount</th>
+                      {showCgstSgst ? <th style={{ textAlign: "right" }}>CGST</th> : null}
+                      {showCgstSgst ? <th style={{ textAlign: "right" }}>SGST</th> : null}
+                      {showIgst ? <th style={{ textAlign: "right" }}>IGST</th> : null}
+                      <th style={{ textAlign: "right" }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, idx) => (
+                      <tr key={`${r.description}-${idx}`}>
+                        <td>{r.description}</td>
+                        <td style={{ textAlign: "right" }}>{fmt(r.taxable)}</td>
+                        {showCgstSgst ? <td style={{ textAlign: "right" }}>{fmt(r.cgst)}</td> : null}
+                        {showCgstSgst ? <td style={{ textAlign: "right" }}>{fmt(r.sgst)}</td> : null}
+                        {showIgst ? <td style={{ textAlign: "right" }}>{fmt(r.igst)}</td> : null}
+                        <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(r.total)}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ fontWeight: 700, background: "#e8edf8" }}>
+                      <td>Total</td>
+                      <td style={{ textAlign: "right" }}>
+                        {fmt(rows.reduce((s, r) => s + r.taxable, 0))}
+                      </td>
+                      {showCgstSgst ? (
+                        <td style={{ textAlign: "right" }}>{fmt(rows.reduce((s, r) => s + r.cgst, 0))}</td>
+                      ) : null}
+                      {showCgstSgst ? (
+                        <td style={{ textAlign: "right" }}>{fmt(rows.reduce((s, r) => s + r.sgst, 0))}</td>
+                      ) : null}
+                      {showIgst ? (
+                        <td style={{ textAlign: "right" }}>{fmt(rows.reduce((s, r) => s + r.igst, 0))}</td>
+                      ) : null}
+                      <td style={{ textAlign: "right" }}>{fmt(rows.reduce((s, r) => s + r.total, 0))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              );
+            })()}
           </div>
         ) : null}
 

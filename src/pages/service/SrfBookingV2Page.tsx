@@ -41,6 +41,7 @@ import {
 } from "../../components/service/WatchServiceDetailFields";
 import { sanitizeDecimalInput } from "../../lib/inputSanitize";
 import { formatInr } from "../../lib/formatInr";
+import { natureOfRepairLabel } from "../../lib/natureOfRepair";
 import {
   SRF_REPAIR_ROUTE_OPTIONS,
   normalizeSrfRepairRoute,
@@ -1103,7 +1104,7 @@ export function SrfBookingV2Page() {
       chainCount: svcDetailPayload.chainCount,
       customerRemarks: svcDetailPayload.customerRemarks,
       natureOfRepair:
-        watchServiceDetails.natureOfRepair.trim() ||
+        natureOfRepairLabel(watchServiceDetails.natureOfRepair) ||
         (finalizedRepairRoute === "store_self" ? "Store repair" : "HO Service"),
       receptionistRemarks: estimateRemarks.trim() || obsAdditionalNotes.trim(),
       comments: srfComments || complaint,

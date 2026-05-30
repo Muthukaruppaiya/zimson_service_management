@@ -38,7 +38,15 @@ import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
-import type { QuickBillInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
+import type { QuickBillInvoice } from "../../types/quickBill";
+import { computeServiceBillGst } from "../../lib/serviceBillGst";
+import {
+  resolveCustomerSupplyStateCode,
+  resolveSellerStateCode,
+  stateCodeLabel,
+} from "../../lib/gstSupply";
+import { gstRateFromHsn, normalizeHsnCode } from "../../lib/hsnGst";
+import { isNatureOfRepairTaxable } from "../../lib/natureOfRepair";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
@@ -118,13 +126,21 @@ function composeAddress(row: LoadedCustomerRow): string {
     .join(", ");
 }
 
-type LineItem = { id: string; description: string; amount: string; spareId?: string; qty?: number };
+type LineItem = {
+  id: string;
+  description: string;
+  amount: string;
+  spareId?: string;
+  qty?: number;
+  hsn?: string | null;
+};
 
 type CompletionState = null | { mode: "demo"; ref: string } | { mode: "api"; invoice: QuickBillInvoice };
 type QuickBillSpareOption = {
   id: string;
   sku: string;
   name: string;
+  hsn: string | null;
   price: number;
   stockQty: number;
 };
@@ -243,7 +259,7 @@ export function QuickBillPage() {
   const [watchServiceDetails, setWatchServiceDetails] = useState<WatchServiceDetailValues>(
     emptyWatchServiceDetailValues,
   );
-  const [warrantyStatus, setWarrantyStatus] = useState<QuickBillWarrantyStatus>("unspecified");
+  const [customerBillingState, setCustomerBillingState] = useState("");
   const [watchDocumentPath, setWatchDocumentPath] = useState<string | null>(null);
   const [watchImagePath, setWatchImagePath] = useState<string | null>(null);
   const [captureSession, setCaptureSession] = useState<{
@@ -321,6 +337,7 @@ export function QuickBillPage() {
     setPan(data.pan ?? "");
     setAddress(composeAddress(data));
     setCity(data.city?.trim() || data.billingAddress?.city?.trim() || "");
+    setCustomerBillingState(data.billingAddress?.state?.trim() || "");
     setLoadedCustomerId(data.id?.trim() || null);
     setLoadedCustomerCode(data.customerCode?.trim() || null);
     setPhoneVerifiedAt(data.phoneVerifiedAt ?? null);
@@ -654,6 +671,7 @@ export function QuickBillPage() {
                 id: spare.id,
                 sku: spare.sku,
                 name: spare.name,
+                hsn: spare.hsn?.trim() || null,
                 price: matchedPrice.price,
                 stockQty,
               } satisfies QuickBillSpareOption;
@@ -678,6 +696,33 @@ export function QuickBillPage() {
       cancelled = true;
     };
   }, [spares, watchBrand, priceRegionQuery, stockQuerySuffix]);
+
+  useEffect(() => {
+    setLines((prev) => {
+      let changed = false;
+      const next = prev.map((l) => {
+        if (!l.spareId || l.hsn?.trim()) return l;
+        const h =
+          spareOptions.find((s) => s.id === l.spareId)?.hsn?.trim() ||
+          spares.find((s) => s.id === l.spareId)?.hsn?.trim() ||
+          null;
+        if (!h) return l;
+        changed = true;
+        return { ...l, hsn: h };
+      });
+      return changed ? next : prev;
+    });
+  }, [spareOptions, spares]);
+
+  function resolveSpareHsn(spareId: string): string | null {
+    const fromLine = lines.find((l) => l.spareId === spareId)?.hsn?.trim();
+    if (fromLine) return fromLine;
+    return (
+      spareOptions.find((s) => s.id === spareId)?.hsn?.trim() ||
+      spares.find((s) => s.id === spareId)?.hsn?.trim() ||
+      null
+    );
+  }
 
   function updateLine(id: string, patch: Partial<LineItem>) {
     setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -736,6 +781,10 @@ export function QuickBillPage() {
         setPartPick("");
         return;
       }
+      const hsn =
+        spare.hsn?.trim() ||
+        spares.find((s) => s.id === spare.id)?.hsn?.trim() ||
+        null;
       setLines((prev) => [
         ...prev,
         {
@@ -744,6 +793,7 @@ export function QuickBillPage() {
           amount: String(spare.price),
           spareId: spare.id,
           qty: 1,
+          hsn,
         },
       ]);
       setError(null);
@@ -1094,7 +1144,6 @@ export function QuickBillPage() {
             watchRef: watchRef.trim() || null,
             watchRemark: watchRemark.trim(),
             ...watchServiceDetailsToApiPayload(watchServiceDetails),
-            warrantyStatus,
             watchDocumentPath,
             watchImagePath,
             captureSessionId: captureSession?.sessionId ?? null,
@@ -1152,15 +1201,129 @@ export function QuickBillPage() {
       return Number.isFinite(n) && n > 0 ? n : 0;
     })();
 
+  const billingStore = useMemo(() => {
+    const sid = effectiveBillingStoreId || user?.storeId;
+    if (!sid) return currentUserStore;
+    for (const r of regions) {
+      const s = r.stores.find((x) => x.id === sid);
+      if (s) return s;
+    }
+    return currentUserStore;
+  }, [regions, effectiveBillingStoreId, user?.storeId, currentUserStore]);
+
+  const spareHsnLookup = useCallback(
+    (spareId: string) => resolveSpareHsn(spareId),
+    [lines, spareOptions, spares],
+  );
+
   const invoiceVmOptions = useMemo(
     () => ({
       defaultHsnSac: invoiceHsnSac,
       taxSettings: serviceTaxSettings,
-      storeInvoice: seedStoreToInvoiceProfile(currentUserStore),
+      storeInvoice: seedStoreToInvoiceProfile(billingStore),
+      customerBillingState: customerBillingState.trim() || null,
+      customerType,
+      customerGstin: gst.trim().toUpperCase() || null,
+      spareHsnLookup,
       generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
     }),
-    [invoiceHsnSac, serviceTaxSettings, currentUserStore, user?.displayName, user?.email, user?.id],
+    [
+      invoiceHsnSac,
+      serviceTaxSettings,
+      billingStore,
+      customerBillingState,
+      customerType,
+      gst,
+      spareHsnLookup,
+      user?.displayName,
+      user?.email,
+      user?.id,
+    ],
   );
+
+  const taxPreview = useMemo(() => {
+    const configured = serviceTaxSettings?.gstRatePercent ?? 18;
+    const storeGstin =
+      seedStoreToInvoiceProfile(billingStore)?.invoiceStoreGstin?.trim() ||
+      serviceTaxSettings?.invoiceStoreGstin?.trim() ||
+      "";
+    const sellerState = resolveSellerStateCode(storeGstin);
+    const customerState = resolveCustomerSupplyStateCode({
+      customerType,
+      customerGstin: gst,
+      billingStateName: customerBillingState,
+      sellerStateCode: sellerState,
+    });
+    const gstLines = lines
+      .map((l) => {
+        const n = Number.parseFloat(l.amount);
+        if (Number.isNaN(n) || n <= 0) return null;
+        return {
+          amountInr: n,
+          spareId: l.spareId,
+          hsnSac: l.hsn,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x != null);
+    const svc = Number.parseFloat(serviceChargeInr);
+    if (Number.isFinite(svc) && svc > 0) {
+      gstLines.push({ amountInr: svc, spareId: undefined, hsnSac: invoiceHsnSac });
+    }
+    if (gstLines.length === 0) return null;
+    return computeServiceBillGst({
+      lines: gstLines,
+      defaultHsnSac: invoiceHsnSac,
+      spareHsnLookup,
+      configuredGstPercent: configured,
+      cgstRatePercent: serviceTaxSettings?.cgstRatePercent ?? configured / 2,
+      sgstRatePercent: serviceTaxSettings?.sgstRatePercent ?? configured / 2,
+      igstRatePercent: serviceTaxSettings?.igstRatePercent ?? configured,
+      pricesTaxInclusive: Boolean(serviceTaxSettings?.pricesTaxInclusive),
+      natureOfRepair: watchServiceDetails.natureOfRepair,
+      sellerStateCode: sellerState,
+      customerStateCode: customerState,
+      billTotalInr: total,
+    });
+  }, [
+    lines,
+    serviceChargeInr,
+    invoiceHsnSac,
+    serviceTaxSettings,
+    billingStore,
+    customerType,
+    gst,
+    customerBillingState,
+    watchServiceDetails.natureOfRepair,
+    spareHsnLookup,
+    total,
+  ]);
+
+  const serviceSacHsn = invoiceHsnSac;
+  const serviceHsnGstRate = useMemo(
+    () => gstRateFromHsn(serviceSacHsn, serviceTaxSettings?.gstRatePercent ?? 18),
+    [serviceSacHsn, serviceTaxSettings?.gstRatePercent],
+  );
+
+  const spareLinesWithHsn = useMemo(
+    () =>
+      lines
+        .filter((l) => l.spareId)
+        .map((l) => ({
+          id: l.id,
+          description: l.description,
+          hsn: normalizeHsnCode(l.hsn) || resolveSpareHsn(l.spareId!) || "—",
+          rate: gstRateFromHsn(
+            l.hsn || resolveSpareHsn(l.spareId!),
+            serviceTaxSettings?.gstRatePercent ?? 18,
+          ),
+        })),
+    [lines, spareOptions, spares, serviceTaxSettings?.gstRatePercent],
+  );
+
+  const serviceChargeNum = useMemo(() => {
+    const n = Number.parseFloat(serviceChargeInr);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [serviceChargeInr]);
 
   function resetForm() {
     setBillSuccessModalOpen(false);
@@ -1182,7 +1345,7 @@ export function QuickBillPage() {
     setWatchRef("");
     setWatchRemark("");
     setWatchServiceDetails(emptyWatchServiceDetailValues());
-    setWarrantyStatus("unspecified");
+    setCustomerBillingState("");
     setWatchDocumentPath(null);
     setWatchImagePath(null);
     setLines([]);
@@ -1362,8 +1525,7 @@ export function QuickBillPage() {
         watchModel: watchModel.trim(),
         watchRef,
         watchRemark,
-        ...watchServiceDetails,
-        warrantyStatus,
+        ...watchServiceDetailsToApiPayload(watchServiceDetails),
         watchDocumentPath,
         watchImagePath,
         technicianName: techName,
@@ -1804,22 +1966,6 @@ export function QuickBillPage() {
                 placeholder="Condition notes, accessories, etc."
               />
             </div>
-            <div className={qbField}>
-              <label htmlFor="qb-warranty" className="text-xs font-medium text-stone-600">
-                Warranty
-              </label>
-              <select
-                id="qb-warranty"
-                value={warrantyStatus}
-                onChange={(e) => setWarrantyStatus(e.target.value as QuickBillWarrantyStatus)}
-                className={inputClass}
-              >
-                <option value="unspecified">Not specified</option>
-                <option value="none">No manufacturer warranty</option>
-                <option value="under_warranty">Under warranty (bill impact — to finalise)</option>
-                <option value="extended">Extended warranty (bill impact — to finalise)</option>
-              </select>
-            </div>
             <div className={`${qbField} min-w-0 rounded-xl border border-zimson-200 bg-zimson-50/50 p-3 sm:p-4`}>
               <p className="text-sm font-semibold text-zimson-900">Document &amp; watch image (customer link)</p>
               <p className="mt-1 text-xs leading-relaxed text-stone-600">
@@ -2014,51 +2160,80 @@ export function QuickBillPage() {
                 repair fees.
               </p>
             ) : (
-              lines.map((line, index) => (
-                <div
-                  key={line.id}
-                  className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[1fr_minmax(0,9rem)_auto] sm:items-end"
-                >
-                  <div className="min-w-0">
-                    <span className="text-xs font-medium text-stone-600">
-                      {line.spareId ? "Spare" : "Description"}
-                    </span>
-                    <input
-                      value={line.description}
-                      readOnly={Boolean(line.spareId)}
-                      onChange={
-                        line.spareId
-                          ? undefined
-                          : (e) => updateLine(line.id, { description: sanitizeTextInput(e.target.value, 200) })
-                      }
-                      className={line.spareId ? `${inputClass} cursor-not-allowed bg-stone-100` : inputClass}
-                      placeholder={`Line ${index + 1}`}
-                    />
-                  </div>
-                  <div className="min-w-0 w-full">
-                    <span className="text-xs font-medium text-stone-600">Amount (INR)</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={line.amount}
-                      readOnly={Boolean(line.spareId)}
-                      onChange={
-                        line.spareId ? undefined : (e) => handleManualLineAmount(line.id, e.target.value)
-                      }
-                      className={line.spareId ? `${inputClass} cursor-not-allowed bg-stone-100` : inputClass}
-                      placeholder="0"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeLine(line.id)}
-                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 sm:w-auto"
+              lines.map((line, index) => {
+                const lineHsn =
+                  line.spareId
+                    ? normalizeHsnCode(line.hsn) || resolveSpareHsn(line.spareId) || "—"
+                    : null;
+                const lineGstRate =
+                  line.spareId && lineHsn && lineHsn !== "—"
+                    ? gstRateFromHsn(lineHsn, serviceTaxSettings?.gstRatePercent ?? 18)
+                    : null;
+                return (
+                  <div
+                    key={line.id}
+                    className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[1fr_minmax(0,7rem)_minmax(0,9rem)_auto] sm:items-end"
                   >
-                    Remove
-                  </button>
-                </div>
-              ))
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium text-stone-600">
+                        {line.spareId ? "Spare" : "Description"}
+                      </span>
+                      <input
+                        value={line.description}
+                        readOnly={Boolean(line.spareId)}
+                        onChange={
+                          line.spareId
+                            ? undefined
+                            : (e) =>
+                                updateLine(line.id, {
+                                  description: sanitizeTextInput(e.target.value, 200),
+                                })
+                        }
+                        className={line.spareId ? `${inputClass} cursor-not-allowed bg-stone-100` : inputClass}
+                        placeholder={`Line ${index + 1}`}
+                      />
+                    </div>
+                    {line.spareId ? (
+                      <div className="min-w-0 w-full">
+                        <span className="text-xs font-medium text-stone-600">HSN (inventory)</span>
+                        <input
+                          value={lineHsn}
+                          readOnly
+                          className={`${inputClass} cursor-not-allowed bg-stone-100 font-mono text-xs`}
+                          aria-label={`HSN for ${line.description}`}
+                        />
+                        {lineGstRate != null ? (
+                          <p className="mt-0.5 text-[10px] text-stone-500">GST {lineGstRate}%</p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="hidden sm:block" aria-hidden />
+                    )}
+                    <div className="min-w-0 w-full">
+                      <span className="text-xs font-medium text-stone-600">Amount (INR)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={line.amount}
+                        readOnly={Boolean(line.spareId)}
+                        onChange={
+                          line.spareId ? undefined : (e) => handleManualLineAmount(line.id, e.target.value)
+                        }
+                        className={line.spareId ? `${inputClass} cursor-not-allowed bg-stone-100` : inputClass}
+                        placeholder="0"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeLine(line.id)}
+                      className="w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 sm:w-auto"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                );
+              })
             )}
             <div className="flex flex-wrap gap-2">
               <button
@@ -2086,9 +2261,163 @@ export function QuickBillPage() {
               />
             </div>
           </div>
-          <p className="mt-4 text-right text-sm font-semibold text-stone-900">
-            Total: {total.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-          </p>
+          <div className="mt-4 space-y-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3 sm:p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Tax details (GST)</p>
+            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className={qbField}>
+                <span className="text-xs font-medium text-stone-600">HSN / SAC (from inventory &amp; settings)</span>
+                {spareLinesWithHsn.length > 0 ? (
+                  <ul className="mt-1 space-y-1 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-800">
+                    {spareLinesWithHsn.map((row) => (
+                      <li key={row.id} className="font-mono">
+                        {row.description}: <strong>{row.hsn}</strong>
+                        {row.hsn !== "—" ? ` · GST ${row.rate}%` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 rounded-lg border border-dashed border-stone-200 bg-white px-3 py-2 text-xs text-stone-500">
+                    Spare HSN codes appear here when you add lines from the catalogue.
+                  </p>
+                )}
+                {serviceChargeNum > 0 ? (
+                  <p className="mt-2 text-xs text-stone-600">
+                    Service / repair charge SAC:{" "}
+                    <span className="font-mono font-semibold">{serviceSacHsn}</span> (GST {serviceHsnGstRate}%)
+                  </p>
+                ) : null}
+                <p className="mt-1 text-[11px] text-stone-500">
+                  HSN is read-only — set in Inventory → Spare catalogue or Tax settings (SAC for labour).
+                </p>
+              </div>
+              {customerType === "B2C" ? (
+                <div className={qbField}>
+                  <label htmlFor="qb-cust-state" className="text-xs font-medium text-stone-600">
+                    Customer state (place of supply)
+                  </label>
+                  <input
+                    id="qb-cust-state"
+                    value={customerBillingState}
+                    onChange={(e) => setCustomerBillingState(sanitizeTextInput(e.target.value, 48))}
+                    className={inputClass}
+                    placeholder="e.g. Tamil Nadu"
+                  />
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    Leave blank to use store state (walk-in at counter)
+                  </p>
+                </div>
+              ) : (
+                <div className={qbField}>
+                  <span className="text-xs font-medium text-stone-600">Place of supply</span>
+                  <p className="mt-1 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-800">
+                    {gst.trim()
+                      ? `From GSTIN (state ${gst.trim().slice(0, 2)})`
+                      : "Enter customer GSTIN for interstate IGST"}
+                  </p>
+                </div>
+              )}
+            </div>
+            {taxPreview ? (
+              <div className="rounded-lg border border-zimson-200 bg-white p-3 text-sm text-stone-800">
+                <p className="font-semibold text-zimson-900">
+                  {taxPreview.isInterstate
+                    ? "Interstate supply — IGST"
+                    : "Intrastate supply — CGST + SGST"}
+                </p>
+                <p className="mt-1 text-xs text-stone-600">
+                  Seller: {stateCodeLabel(resolveSellerStateCode(
+                    seedStoreToInvoiceProfile(billingStore)?.invoiceStoreGstin ||
+                      serviceTaxSettings?.invoiceStoreGstin,
+                  ))}{" "}
+                  · Customer:{" "}
+                  {stateCodeLabel(
+                    resolveCustomerSupplyStateCode({
+                      customerType,
+                      customerGstin: gst,
+                      billingStateName: customerBillingState,
+                      sellerStateCode: resolveSellerStateCode(
+                        seedStoreToInvoiceProfile(billingStore)?.invoiceStoreGstin ||
+                          serviceTaxSettings?.invoiceStoreGstin,
+                      ),
+                    }),
+                  )}
+                  {!isNatureOfRepairTaxable(watchServiceDetails.natureOfRepair)
+                    ? " · No tax (nature of repair)"
+                    : null}
+                </p>
+                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+                  <div>
+                    <dt className="text-stone-500">Taxable</dt>
+                    <dd className="font-semibold">
+                      {taxPreview.grossTaxable.toLocaleString(undefined, {
+                        style: "currency",
+                        currency: "INR",
+                      })}
+                    </dd>
+                  </div>
+                  {taxPreview.isInterstate ? (
+                    <div>
+                      <dt className="text-stone-500">IGST</dt>
+                      <dd className="font-semibold">
+                        {taxPreview.igst.toLocaleString(undefined, {
+                          style: "currency",
+                          currency: "INR",
+                        })}
+                      </dd>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <dt className="text-stone-500">CGST</dt>
+                        <dd className="font-semibold">
+                          {taxPreview.cgst.toLocaleString(undefined, {
+                            style: "currency",
+                            currency: "INR",
+                          })}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-stone-500">SGST</dt>
+                        <dd className="font-semibold">
+                          {taxPreview.sgst.toLocaleString(undefined, {
+                            style: "currency",
+                            currency: "INR",
+                          })}
+                        </dd>
+                      </div>
+                    </>
+                  )}
+                  <div>
+                    <dt className="text-stone-500">Total tax</dt>
+                    <dd className="font-semibold">
+                      {taxPreview.totalTax.toLocaleString(undefined, {
+                        style: "currency",
+                        currency: "INR",
+                      })}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            ) : (
+              <p className="text-xs text-stone-500">Add line items to see GST breakdown.</p>
+            )}
+          </div>
+          <div className="mt-4 space-y-1 text-right text-sm text-stone-900">
+            <p className="font-semibold">
+              {serviceTaxSettings?.pricesTaxInclusive ? "Total (incl. GST)" : "Subtotal (excl. GST)"}:{" "}
+              {total.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+            </p>
+            {taxPreview && taxPreview.totalTax > 0 && !serviceTaxSettings?.pricesTaxInclusive ? (
+              <p className="text-xs text-stone-600">
+                GST:{" "}
+                {taxPreview.totalTax.toLocaleString(undefined, { style: "currency", currency: "INR" })} · Payable:{" "}
+                {(total + taxPreview.totalTax).toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "INR",
+                })}
+              </p>
+            ) : null}
+          </div>
         </Card>
 
         <Card title="Assignment & payment">

@@ -2,7 +2,11 @@ import { SERVICE_INVOICE_BRANDING } from "../../config/serviceInvoiceBranding";
 import type { AdvancePaymentDetails, MultiPaymentDetails } from "../../lib/paymentModes";
 import { paymentSplitsFromDetails } from "../../lib/paymentModes";
 import { inrAmountToWords } from "../../lib/inrAmountToWords";
-import type { QuickBillInvoice, QuickBillLineInvoice, QuickBillWarrantyStatus } from "../../types/quickBill";
+import { natureOfRepairLabel } from "../../lib/natureOfRepair";
+import { resolveCustomerSupplyStateCode, resolveSellerStateCode } from "../../lib/gstSupply";
+import { gstRateFromHsn } from "../../lib/hsnGst";
+import { computeServiceBillGst } from "../../lib/serviceBillGst";
+import type { QuickBillInvoice, QuickBillLineInvoice } from "../../types/quickBill";
 import type { ServiceInvoiceLineView, ServiceInvoiceTaxRow, ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import type { StoreInvoicePrintProfile } from "../../types/storeInvoice";
@@ -24,6 +28,11 @@ export type ServiceInvoiceMappingOptions = {
    */
   invoiceNumber?: string | null;
   generatedBy?: string | null;
+  /** Customer billing state (name) for B2C place of supply when no GSTIN. */
+  customerBillingState?: string | null;
+  customerType?: "B2C" | "B2B";
+  customerGstin?: string | null;
+  spareHsnLookup?: (spareId: string) => string | null | undefined;
 };
 
 function resolvedHsnSac(options?: ServiceInvoiceMappingOptions): string {
@@ -41,24 +50,13 @@ function watchDetailMetaRows(source: {
   const rows: { label: string; value: string }[] = [];
   if (source.caseType?.trim()) rows.push({ label: "Case Type", value: source.caseType.trim() });
   if (source.strapChainType?.trim()) rows.push({ label: "Strap / Chain Type", value: source.strapChainType.trim() });
+  if (source.natureOfRepair?.trim()) {
+    rows.push({ label: "Nature of Repair", value: natureOfRepairLabel(source.natureOfRepair) });
+  }
   if (source.chainCount?.trim()) rows.push({ label: "Chain Count", value: source.chainCount.trim() });
   if (source.customerRemarks?.trim()) rows.push({ label: "Customer Remarks", value: source.customerRemarks.trim() });
   return rows;
 }
-
-function warrantyLabel(status: QuickBillWarrantyStatus | undefined): string {
-  switch (status) {
-    case "none":
-      return "No manufacturer warranty";
-    case "under_warranty":
-      return "Under warranty";
-    case "extended":
-      return "Extended warranty";
-    default:
-      return "Not specified";
-  }
-}
-
 
 function parseSpareCodeFromDescription(description: string): string | null {
   const m = description.trim().match(/\(([^)]+)\)\s*$/);
@@ -122,13 +120,14 @@ function mergeSellerFromSettings(
     ? termsRaw.split(/\r?\n/).map((t) => t.trim()).filter(Boolean)
     : [...b.footerTerms];
   const logoUrl = tax?.appLogoUrl?.trim() || null;
+  const stateCode = resolveSellerStateCode(gstin, b.sellerStateCode);
   return {
     legalName: name,
     addressLines,
     gstin,
     phone,
     email,
-    stateCode: b.sellerStateCode,
+    stateCode,
     tagline,
     logoUrl,
     legalFooter,
@@ -136,62 +135,110 @@ function mergeSellerFromSettings(
   };
 }
 
+function lineHsnForInvoice(
+  ln: QuickBillLineInvoice,
+  defaultHsnSac: string,
+  spareHsnLookup?: (spareId: string) => string | null | undefined,
+): string {
+  if (ln.spareId && spareHsnLookup) {
+    const h = spareHsnLookup(ln.spareId)?.trim();
+    if (h) return h;
+  }
+  return defaultHsnSac;
+}
+
 function buildGstLines(
   invLines: QuickBillLineInvoice[],
-  hsnSac: string,
-  gstRatePercent: number,
-  pricesTaxInclusive: boolean,
+  defaultHsnSac: string,
+  tax: ServiceTaxSettings | null | undefined,
   totalInr: number,
-): { lines: ServiceInvoiceLineView[]; taxRows: ServiceInvoiceTaxRow[]; gross: number; cgst: number; sgst: number; tax: number; net: number; totalQty: number } {
-  const g = Math.max(0, gstRatePercent) / 100;
+  natureOfRepair: string | null | undefined,
+  sellerStateCode: string,
+  customerStateCode: string,
+  spareHsnLookup?: (spareId: string) => string | null | undefined,
+): {
+  lines: ServiceInvoiceLineView[];
+  taxRows: ServiceInvoiceTaxRow[];
+  gross: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  tax: number;
+  net: number;
+  totalQty: number;
+  isInterstate: boolean;
+} {
+  const configured = tax?.gstRatePercent ?? 18;
+  const gstResult = computeServiceBillGst({
+    lines: invLines.map((ln) => ({
+      amountInr: ln.amountInr,
+      qty: ln.qty,
+      spareId: ln.spareId,
+      hsnSac: lineHsnForInvoice(ln, defaultHsnSac, spareHsnLookup),
+    })),
+    defaultHsnSac,
+    spareHsnLookup,
+    configuredGstPercent: configured,
+    cgstRatePercent: tax?.cgstRatePercent ?? configured / 2,
+    sgstRatePercent: tax?.sgstRatePercent ?? configured / 2,
+    igstRatePercent: tax?.igstRatePercent ?? configured,
+    pricesTaxInclusive: Boolean(tax?.pricesTaxInclusive),
+    natureOfRepair,
+    sellerStateCode,
+    customerStateCode,
+    billTotalInr: totalInr,
+  });
+
   const outLines: ServiceInvoiceLineView[] = [];
-  let sumTaxable = 0;
   let totalQty = 0;
   invLines.forEach((ln, i) => {
     const qty = Math.max(Number(ln.qty) || 1, 0.0001);
     const lineAmt = Number(ln.amountInr) || 0;
-    let taxableLine: number;
-    if (pricesTaxInclusive && g > 0) {
-      taxableLine = lineAmt / (1 + g);
-    } else {
-      taxableLine = lineAmt;
-    }
+    const hsn = lineHsnForInvoice(ln, defaultHsnSac, spareHsnLookup);
+    const rate = gstRateFromHsn(hsn, configured);
+    const g = rate / 100;
+    let taxableLine = lineAmt;
+    if (tax?.pricesTaxInclusive && g > 0) taxableLine = lineAmt / (1 + g);
     const unitTaxable = taxableLine / qty;
-    sumTaxable += taxableLine;
     totalQty += qty;
     outLines.push({
       slNo: ln.lineNo || i + 1,
       spareCode: parseSpareCodeFromDescription(ln.description),
       description: ln.description,
-      hsnSac,
+      hsnSac: hsn,
       unitPrice: Math.round(unitTaxable * 100) / 100,
       qty: Math.round(qty * 1000) / 1000,
       grossValue: Math.round(taxableLine * 100) / 100,
     });
   });
-  sumTaxable = Math.round(sumTaxable * 100) / 100;
-  let tax = g > 0 ? Math.round(sumTaxable * g * 100) / 100 : 0;
-  let net = Math.round((sumTaxable + tax) * 100) / 100;
-  const target = Math.round(totalInr * 100) / 100;
-  if (Math.abs(net - target) > 0.02) {
-    tax = Math.round((target - sumTaxable) * 100) / 100;
-    net = target;
-  }
-  const cgst = Math.round((tax / 2) * 100) / 100;
-  const sgst = Math.round((tax - cgst) * 100) / 100;
-  const taxRows: ServiceInvoiceTaxRow[] =
-    tax > 0
-      ? [
-          {
-            description: `${gstRatePercent}% (CGST+SGST)`,
-            taxable: sumTaxable,
-            cgst,
-            sgst,
-            total: tax,
-          },
-        ]
-      : [];
-  return { lines: outLines, taxRows, gross: sumTaxable, cgst, sgst, tax, net, totalQty };
+
+  return {
+    lines: outLines,
+    taxRows: gstResult.taxRows,
+    gross: gstResult.grossTaxable,
+    cgst: gstResult.cgst,
+    sgst: gstResult.sgst,
+    igst: gstResult.igst,
+    tax: gstResult.totalTax,
+    net: gstResult.netPayable,
+    totalQty,
+    isInterstate: gstResult.isInterstate,
+  };
+}
+
+function gstSupplyContext(
+  options: ServiceInvoiceMappingOptions | undefined,
+  sellerPack: ReturnType<typeof mergeSellerFromSettings>,
+  inv?: { customerType?: "B2C" | "B2B"; gst?: string | null },
+): { sellerStateCode: string; customerStateCode: string } {
+  const sellerStateCode = resolveSellerStateCode(sellerPack.gstin, sellerPack.stateCode ?? "33");
+  const customerStateCode = resolveCustomerSupplyStateCode({
+    customerType: options?.customerType ?? inv?.customerType ?? "B2C",
+    customerGstin: options?.customerGstin ?? inv?.gst ?? null,
+    billingStateName: options?.customerBillingState ?? null,
+    sellerStateCode,
+  });
+  return { sellerStateCode, customerStateCode };
 }
 
 export type DemoInvoiceInput = {
@@ -216,7 +263,6 @@ export type DemoInvoiceInput = {
   natureOfRepair?: string;
   chainCount?: string;
   customerRemarks?: string;
-  warrantyStatus?: QuickBillWarrantyStatus;
   watchDocumentPath?: string | null;
   watchImagePath?: string | null;
   technicianName: string | null;
@@ -246,8 +292,20 @@ export function buildDemoServiceInvoiceViewModel(
       spareId: null,
       qty: 1,
     }));
-  const gst = buildGstLines(qbLines, hsnSac, tax?.gstRatePercent ?? 18, Boolean(tax?.pricesTaxInclusive), input.total);
-  // Payment mode / technician / reference shown in payment section, not product block
+  const supply = gstSupplyContext(options, sellerPack, {
+    customerType: input.customerType,
+    gst: input.gst,
+  });
+  const gst = buildGstLines(
+    qbLines,
+    hsnSac,
+    tax,
+    input.total,
+    input.natureOfRepair,
+    supply.sellerStateCode,
+    supply.customerStateCode,
+    options?.spareHsnLookup,
+  );
   const serviceMeta = watchDetailMetaRows(input);
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
   // invoiceNumber = shared sequential store invoice number (common for QB + SRF)
@@ -290,7 +348,10 @@ export function buildDemoServiceInvoiceViewModel(
       brandName: input.watchBrand,
       brandModel: [input.watchFamily?.trim(), input.watchModel].filter(Boolean).join(" · ") || input.watchModel,
       modelOrSerial: input.watchRef.trim() || "—",
-      natureOfRepair: input.natureOfRepair?.trim() || warrantyLabel(input.warrantyStatus),
+      natureOfRepair:
+        natureOfRepairLabel(input.natureOfRepair) ||
+        input.natureOfRepair?.trim() ||
+        "—",
     },
     lines: gst.lines,
     totalAmount: input.total,
@@ -302,6 +363,7 @@ export function buildDemoServiceInvoiceViewModel(
     grossTaxableTotal: gst.gross,
     totalCgst: gst.cgst,
     totalSgst: gst.sgst,
+    totalIgst: gst.igst,
     totalTax: gst.tax,
     netPayable: gst.net,
     totalQty: gst.totalQty,
@@ -330,7 +392,17 @@ export function mapQuickBillInvoiceToViewModel(
   // shown in the dedicated payment section — not repeated in the product block.
   const serviceMeta = watchDetailMetaRows(inv);
 
-  const gst = buildGstLines(inv.lines, hsnSac, tax?.gstRatePercent ?? 18, Boolean(tax?.pricesTaxInclusive), inv.totalInr);
+  const supply = gstSupplyContext(options, sellerPack, inv);
+  const gst = buildGstLines(
+    inv.lines,
+    hsnSac,
+    tax,
+    inv.totalInr,
+    inv.natureOfRepair,
+    supply.sellerStateCode,
+    supply.customerStateCode,
+    options?.spareHsnLookup,
+  );
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
 
   function fmtDate(dateStr: string): string {
@@ -375,7 +447,10 @@ export function mapQuickBillInvoiceToViewModel(
       brandName: inv.watchBrand,
       brandModel: [inv.watchFamily?.trim(), inv.watchModel].filter(Boolean).join(" · ") || inv.watchModel,
       modelOrSerial: inv.watchRef?.trim() || "—",
-      natureOfRepair: inv.natureOfRepair?.trim() || warrantyLabel(inv.warrantyStatus),
+      natureOfRepair:
+        natureOfRepairLabel(inv.natureOfRepair) ||
+        inv.natureOfRepair?.trim() ||
+        "—",
     },
     lines: gst.lines,
     totalAmount: inv.totalInr,
@@ -391,6 +466,7 @@ export function mapQuickBillInvoiceToViewModel(
     grossTaxableTotal: gst.gross,
     totalCgst: gst.cgst,
     totalSgst: gst.sgst,
+    totalIgst: gst.igst,
     totalTax: gst.tax,
     netPayable: gst.net,
     totalQty: gst.totalQty,
@@ -462,7 +538,20 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
             qty: 1,
           },
         ];
-  const gst = buildGstLines(qbLines, hsnSac, tax?.gstRatePercent ?? 18, Boolean(tax?.pricesTaxInclusive), net);
+  const supply = gstSupplyContext(options, sellerPack, {
+    customerType: input.gst?.trim() ? "B2B" : "B2C",
+    gst: input.gst,
+  });
+  const gst = buildGstLines(
+    qbLines,
+    hsnSac,
+    tax,
+    net,
+    input.natureOfRepair,
+    supply.sellerStateCode,
+    supply.customerStateCode,
+    options?.spareHsnLookup,
+  );
   const serviceMeta: { label: string; value: string }[] = [];
   if (input.complaint.trim()) serviceMeta.push({ label: "Complaint", value: input.complaint.trim() });
   if (adv > 0) {
@@ -509,7 +598,8 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
       brandName: input.watchBrand,
       brandModel: input.watchModel,
       modelOrSerial: input.serial.trim() || "—",
-      natureOfRepair: input.natureOfRepair?.trim() || "Service completed",
+      natureOfRepair:
+        natureOfRepairLabel(input.natureOfRepair) || input.natureOfRepair?.trim() || "Service completed",
     },
     lines: gst.lines,
     totalAmount: net,
@@ -520,6 +610,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     grossTaxableTotal: gst.gross,
     totalCgst: gst.cgst,
     totalSgst: gst.sgst,
+    totalIgst: gst.igst,
     totalTax: gst.tax,
     netPayable: gst.net,
     totalQty: gst.totalQty,

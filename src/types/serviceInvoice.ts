@@ -18,6 +18,7 @@ export type ServiceInvoiceTaxRow = {
   taxable: number;
   cgst: number;
   sgst: number;
+  igst: number;
   total: number;
 };
 
@@ -74,6 +75,7 @@ export type ServiceInvoiceViewModel = {
   grossTaxableTotal?: number;
   totalCgst?: number;
   totalSgst?: number;
+  totalIgst?: number;
   totalTax?: number;
   netPayable?: number;
   totalQty?: number;

@@ -312,7 +312,7 @@ export function StoreBillingPage() {
             billLines,
             collectionAmountInr: finalAmount,
             collectionPaymentMode: collectionPaymentLabel,
-            natureOfRepair: job.repairRoute === "store_self" ? "Store self-repair completed" : "Service completed",
+            natureOfRepair: job.natureOfRepair?.trim() || undefined,
           },
           {
             taxSettings: serviceTaxSettings,

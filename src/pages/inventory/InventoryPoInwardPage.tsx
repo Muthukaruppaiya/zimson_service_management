@@ -24,24 +24,7 @@ const inputCls =
   "mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30 transition-colors";
 const labelCls = "block text-[11px] font-semibold uppercase tracking-widest text-stone-500";
 
-// ── HSN → default GST rate lookup ─────────────────────────────────────────────
-
-const HSN_GST: Record<string, number> = {
-  "9101": 18, "9102": 18, "9103": 18, "9104": 18, // Watches
-  "9108": 18, "9109": 18, "9110": 18, "9111": 18, "9112": 18, "9113": 18, "9114": 18, // Watch parts
-  "8506": 18, // Primary batteries
-  "8544": 18, // Cables/wires
-  "3402": 18, // Cleaning agents
-  "5911": 12, // Technical textile / cleaning cloths
-  "3824": 18, // Chemical preparations
-  "8481": 18, // Taps, cocks, valves
-};
-
-function gstRateFromHsn(hsn: string | null | undefined): number {
-  if (!hsn) return 18;
-  const h = hsn.replace(/\s/g, "");
-  return HSN_GST[h.slice(0, 6)] ?? HSN_GST[h.slice(0, 4)] ?? 18;
-}
+import { gstRateFromHsn } from "../../lib/hsnGst";
 
 // ── Tax computation ───────────────────────────────────────────────────────────
 
