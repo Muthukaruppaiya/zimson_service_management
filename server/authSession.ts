@@ -18,6 +18,33 @@ export function sessionCookieOptions() {
   };
 }
 
+export async function countActiveSessionsForUser(pool: Pool, userId: string): Promise<number> {
+  const { rows } = await pool.query<{ c: number }>(
+    `SELECT COUNT(*)::int AS c
+     FROM auth_sessions
+     WHERE user_id = $1
+       AND revoked_at IS NULL
+       AND expires_at > now()`,
+    [userId],
+  );
+  return rows[0]?.c ?? 0;
+}
+
+const LOGIN_ATTEMPT_ALERT_MESSAGE =
+  "Someone tried to sign in with your account on another device or browser. If this was not you, sign out and change your password.";
+
+export async function notifyActiveSessionsOfLoginAttempt(pool: Pool, userId: string): Promise<void> {
+  await pool.query(
+    `UPDATE auth_sessions
+     SET login_alert_at = now(),
+         login_alert_message = $2
+     WHERE user_id = $1
+       AND revoked_at IS NULL
+       AND expires_at > now()`,
+    [userId, LOGIN_ATTEMPT_ALERT_MESSAGE],
+  );
+}
+
 export async function createAuthSession(pool: Pool, res: Response, userId: string): Promise<void> {
   const sid = createId("sid");
   await pool.query(

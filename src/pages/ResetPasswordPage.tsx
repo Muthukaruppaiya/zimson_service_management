@@ -1,27 +1,13 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, apiJson } from "../lib/api";
 import { sanitizePasswordInput } from "../lib/inputSanitize";
-import type { SessionUser } from "../types/user";
 
 const fieldCls =
   "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-sm text-rlx-ink outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
 
-type ResetPasswordResponse = {
-  ok: boolean;
-  message: string;
-  signedIn?: boolean;
-  user?: SessionUser;
-  code?: string;
-  stores?: { id: string; name: string }[];
-  loginId?: string;
-};
-
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { adoptSession, login } = useAuth();
   const token = String(searchParams.get("token") ?? "").trim();
 
   const [password, setPassword] = useState("");
@@ -31,9 +17,6 @@ export function ResetPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
-  const [storeId, setStoreId] = useState("");
-  const [pendingLoginId, setPendingLoginId] = useState("");
 
   useEffect(() => {
     if (!token) {
@@ -59,11 +42,6 @@ export function ResetPasswordPage() {
     };
   }, [token]);
 
-  async function finishSignIn(sessionUser: SessionUser) {
-    await adoptSession(sessionUser);
-    navigate("/", { replace: true });
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -77,48 +55,18 @@ export function ResetPasswordPage() {
     }
     setBusy(true);
     try {
-      const data = await apiJson<ResetPasswordResponse>("/api/auth/reset-password", {
+      const data = await apiJson<{ ok: boolean; message: string }>("/api/auth/reset-password", {
         method: "POST",
-        json: { token, password, storeId: storeId || null },
+        json: { token, password },
       });
-      if (data.signedIn && data.user) {
-        setSuccess(data.message);
-        await finishSignIn(data.user);
-        return;
-      }
-      if (data.code === "STORE_SELECTION_REQUIRED" && Array.isArray(data.stores) && data.stores.length > 0) {
-        setStoreOptions(data.stores);
-        setPendingLoginId(String(data.loginId ?? "").trim());
-        setSuccess(data.message);
-        return;
-      }
-      setSuccess(data.message);
+      setSuccess(
+        data.message ||
+          "Your password has been reset successfully. Sign in on your usual device with your new password.",
+      );
+      setPassword("");
+      setConfirm("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reset password.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleStoreContinue(e: React.FormEvent) {
-    e.preventDefault();
-    if (!storeId) {
-      setError("Select a store to continue.");
-      return;
-    }
-    if (!pendingLoginId) {
-      setError("Could not complete sign-in. Use the sign-in page with your new password.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await login(pendingLoginId, password, storeId);
-      if (result.ok) {
-        navigate("/", { replace: true });
-        return;
-      }
-      setError(result.message);
     } finally {
       setBusy(false);
     }
@@ -135,7 +83,7 @@ export function ResetPasswordPage() {
         <div className="w-full max-w-sm bg-white shadow-[0_32px_96px_-16px_rgba(0,0,0,0.6)]" style={{ borderTop: "3px solid #C9A227" }}>
           <div className="px-7 py-5" style={{ background: "#1B3A8F" }}>
             <h2 className="text-sm font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
-              Choose new password
+              {success ? "Password updated" : "Choose new password"}
             </h2>
           </div>
 
@@ -151,42 +99,24 @@ export function ResetPasswordPage() {
                   Request new link
                 </Link>
               </div>
-            ) : storeOptions.length > 0 ? (
-              <form onSubmit={handleStoreContinue} className="space-y-4">
-                <p className="text-sm text-emerald-900">{success}</p>
-                <div>
-                  <label htmlFor="reset-store" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
-                    Select store
-                  </label>
-                  <select
-                    id="reset-store"
-                    value={storeId}
-                    onChange={(e) => setStoreId(e.target.value)}
-                    className={fieldCls}
-                    required
-                  >
-                    <option value="">Choose a store…</option>
-                    {storeOptions.map((store) => (
-                      <option key={store.id} value={store.id}>
-                        {store.name}
-                      </option>
-                    ))}
-                  </select>
+            ) : success ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  <p className="font-semibold">Password reset complete</p>
+                  <p className="mt-2 leading-relaxed">{success}</p>
                 </div>
-                {error ? (
-                  <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">{error}</div>
-                ) : null}
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="w-full py-3 text-xs font-bold uppercase tracking-[0.25em] transition disabled:opacity-60"
+                <p className="text-xs text-stone-600">
+                  This page will not sign you in automatically. Open the app on your computer or phone and use{" "}
+                  <strong>Sign in</strong> with your new password.
+                </p>
+                <Link
+                  to="/login"
+                  className="inline-block w-full py-3 text-center text-xs font-bold uppercase tracking-[0.25em] no-underline"
                   style={{ background: "linear-gradient(135deg, #A8850F, #C9A227)", color: "#003a22" }}
                 >
-                  {busy ? "Signing in…" : "Continue to app"}
-                </button>
-              </form>
-            ) : success ? (
-              <p className="text-sm text-emerald-900">{success}</p>
+                  Go to sign in
+                </Link>
+              </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
@@ -234,11 +164,13 @@ export function ResetPasswordPage() {
             )}
           </div>
 
-          <div className="border-t border-rlx-rule bg-rlx-bg px-7 py-3">
-            <Link to="/login" className="text-xs font-semibold text-rlx-green hover:underline">
-              ← Back to sign in
-            </Link>
-          </div>
+          {!success ? (
+            <div className="border-t border-rlx-rule bg-rlx-bg px-7 py-3">
+              <Link to="/login" className="text-xs font-semibold text-rlx-green hover:underline">
+                ← Back to sign in
+              </Link>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

@@ -197,23 +197,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await refreshDirectory(data.user);
           return { ok: true };
         } catch (e) {
-          if (
-            e instanceof ApiError &&
-            typeof e.body === "object" &&
-            e.body !== null &&
-            "code" in e.body
-          ) {
+          if (e instanceof ApiError && typeof e.body === "object" && e.body !== null && "code" in e.body) {
             const body = e.body as Record<string, unknown>;
-            if (body.code !== "STORE_SELECTION_REQUIRED" || !Array.isArray(body.stores)) {
-              const msg = e.message;
-              return { ok: false, message: msg };
+            if (body.code === "ALREADY_LOGGED_IN") {
+              return {
+                ok: false,
+                message:
+                  typeof body.message === "string"
+                    ? body.message
+                    : "This account is already signed in elsewhere. Ask them to sign out first.",
+              };
             }
-            return {
-              ok: false,
-              code: "STORE_SELECTION_REQUIRED",
-              message: typeof body.message === "string" ? body.message : "Select a store to continue login.",
-              stores: body.stores as { id: string; name: string }[],
-            };
+            if (body.code === "STORE_SELECTION_REQUIRED" && Array.isArray(body.stores)) {
+              return {
+                ok: false,
+                code: "STORE_SELECTION_REQUIRED",
+                message: typeof body.message === "string" ? body.message : "Select a store to continue login.",
+                stores: body.stores as { id: string; name: string }[],
+              };
+            }
           }
           const msg = e instanceof ApiError ? e.message : "Invalid employee number or password.";
           return { ok: false, message: msg };

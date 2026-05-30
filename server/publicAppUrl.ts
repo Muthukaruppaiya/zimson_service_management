@@ -136,7 +136,18 @@ export function normalizeEmailActionBaseUrl(base: string): string {
   return `${u.protocol}//${u.host}`;
 }
 
-export function buildPasswordResetUrl(req: Request, rawToken: string): string {
+/** SPA URL (copy/paste, in-app). */
+export function buildPasswordResetSpaUrl(req: Request | undefined, rawToken: string): string {
   const base = getEmailActionBaseUrl(req);
   return `${base}/login/reset-password?token=${encodeURIComponent(rawToken)}`;
+}
+
+/**
+ * Short click URL for email clients (path token, server 302 → SPA).
+ * More reliable than long query strings in Gmail/Outlook mobile.
+ */
+export function buildPasswordResetUrl(req: Request | undefined, rawToken: string): string {
+  const base = getEmailActionBaseUrl(req);
+  const token = encodeURIComponent(rawToken);
+  return `${base}/api/auth/reset-password/open/${token}`;
 }

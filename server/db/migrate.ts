@@ -1186,6 +1186,11 @@ export async function runMigrations(pool: Pool): Promise<void> {
   `);
 
   await pool.query(`
+    ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS login_alert_at TIMESTAMPTZ;
+    ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS login_alert_message TEXT;
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,

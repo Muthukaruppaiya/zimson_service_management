@@ -1,10 +1,12 @@
 import { Outlet } from "react-router-dom";
+import { SessionLoginAlertModal } from "../auth/SessionLoginAlertModal";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
 export function AppShell() {
   return (
     <div className="app-shell flex h-dvh min-h-0 bg-rlx-bg text-[0.75rem] leading-snug">
+      <SessionLoginAlertModal />
       <Sidebar />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar />

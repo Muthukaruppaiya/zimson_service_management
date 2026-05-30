@@ -1,11 +1,9 @@
 import crypto from "node:crypto";
-import type { Express, Request, Response } from "express";
+import type { Express, Request } from "express";
 import type { Pool } from "pg";
-import type { DemoUser } from "../src/types/user";
-import type { IssueSessionResult } from "./authSession";
 import { isEmailConfigured, shouldExposePasswordResetInUi } from "./messaging/config";
 import { sendPasswordResetEmail } from "./messaging/passwordResetEmail";
-import { buildPasswordResetUrl, getAppBaseUrl } from "./publicAppUrl";
+import { buildPasswordResetSpaUrl, buildPasswordResetUrl, getAppBaseUrl } from "./publicAppUrl";
 
 const RESET_TTL_MS = 60 * 60 * 1000;
 const GENERIC_OK_MESSAGE =
@@ -72,17 +70,36 @@ async function findUserForPasswordReset(pool: Pool, loginId: string): Promise<Re
 export function registerPasswordResetRoutes(
   app: Express,
   pool: Pool | null,
-  hooks?: {
-    onPasswordChanged?: () => void | Promise<void>;
-    issueSession?: (
-      req: Request,
-      res: Response,
-      user: DemoUser,
-      storeId: string | null,
-    ) => Promise<IssueSessionResult>;
-    findUserById?: (userId: string) => DemoUser | undefined;
-  },
+  hooks?: { onPasswordChanged?: () => void | Promise<void> },
 ): void {
+  /** Email-safe opener: 302 redirect to SPA (path token avoids broken query links in mobile mail). */
+  app.get("/api/auth/reset-password/open/:token", async (req, res) => {
+    const rawToken = String(req.params.token ?? "").trim();
+    if (!rawToken) {
+      res.redirect(302, `${getAppBaseUrl(req as Request)}/login/forgot-password`);
+      return;
+    }
+    try {
+      const dest = buildPasswordResetSpaUrl(req as Request, rawToken);
+      res.redirect(302, dest);
+    } catch {
+      res.redirect(302, `${getAppBaseUrl(req as Request)}/login/forgot-password`);
+    }
+  });
+
+  app.get("/api/auth/reset-password/open", async (req, res) => {
+    const rawToken = String(req.query.token ?? "").trim();
+    if (!rawToken) {
+      res.redirect(302, `${getAppBaseUrl(req as Request)}/login/forgot-password`);
+      return;
+    }
+    try {
+      res.redirect(302, buildPasswordResetSpaUrl(req as Request, rawToken));
+    } catch {
+      res.redirect(302, `${getAppBaseUrl(req as Request)}/login/forgot-password`);
+    }
+  });
+
   app.post("/api/auth/forgot-password", async (req, res) => {
     if (!pool) {
       res.status(503).json({ ok: false, message: "Database is not available." });
@@ -122,7 +139,7 @@ export function registerPasswordResetRoutes(
         try {
           resetUrl = buildPasswordResetUrl(req as Request, rawToken);
         } catch (urlErr) {
-          const localUrl = `${getAppBaseUrl(req as Request)}/login/reset-password?token=${encodeURIComponent(rawToken)}`;
+          const localUrl = buildPasswordResetSpaUrl(req as Request, rawToken);
           console.warn("[forgot-password] Public reset URL not configured:", urlErr);
           demoResetUrl = localUrl;
           resetUrl = localUrl;
@@ -198,7 +215,6 @@ export function registerPasswordResetRoutes(
     }
     const token = String(req.body?.token ?? "").trim();
     const password = String(req.body?.password ?? "");
-    const storeId = String(req.body?.storeId ?? "").trim() || null;
     if (!token) {
       res.status(400).json({ ok: false, message: "Reset link is invalid or expired." });
       return;
@@ -239,40 +255,11 @@ export function registerPasswordResetRoutes(
       ]);
       await hooks?.onPasswordChanged?.();
 
-      const found = hooks?.findUserById?.(row.user_id);
-      if (!found) {
-        res.json({ ok: true, message: "Password updated. Please sign in with your new password." });
-        return;
-      }
-
-      if (!hooks?.issueSession) {
-        res.json({ ok: true, message: "Password updated. Please sign in with your new password." });
-        return;
-      }
-
-      try {
-        const session = await hooks.issueSession(req as Request, res, found, storeId);
-        if (session.ok) {
-          res.json({
-            ok: true,
-            message: "Password updated. Redirecting you to the app…",
-            user: session.user,
-            signedIn: true,
-          });
-          return;
-        }
-        res.json({
-          ok: true,
-          message: session.message,
-          signedIn: false,
-          code: session.code,
-          stores: session.stores,
-          loginId: session.loginId,
-        });
-      } catch (sessionErr) {
-        const msg = sessionErr instanceof Error ? sessionErr.message : "Could not sign you in automatically.";
-        res.json({ ok: true, message: `Password updated. ${msg} Please sign in manually.` });
-      }
+      res.json({
+        ok: true,
+        message:
+          "Your password has been reset successfully. You can close this page and sign in on your usual device with your new password.",
+      });
     } catch (e) {
       console.error("[reset-password]", e);
       res.status(500).json({ ok: false, message: "Could not reset password. Try again." });

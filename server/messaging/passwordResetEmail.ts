@@ -28,9 +28,7 @@ export async function sendPasswordResetEmail(
 
 We received a request to reset the password for your Zimson Service Management account.
 
-Open this email in HTML view and click the "Reset your password" button (valid for 1 hour).
-
-If you cannot use the button, paste this link into your browser:
+Tap "Reset your password" in this email, or open this link in Safari/Chrome (valid for 1 hour):
 ${resetUrl}
 
 If you did not request this, ignore this email — your password will not change.

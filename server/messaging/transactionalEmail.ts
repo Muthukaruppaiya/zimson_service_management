@@ -10,9 +10,9 @@ export function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Encode URL for HTML href (keeps query string intact for email clients). */
-function escapeHref(href: string): string {
-  return href.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+/** Safe for double-quoted href — do not encode & in URLs (breaks some mobile mail clients). */
+function hrefAttr(url: string): string {
+  return url.replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /** Absolute https URL required — relative links are not clickable in most inboxes. */
@@ -26,28 +26,36 @@ export function normalizeEmailActionUrl(href: string): string {
   return u.toString();
 }
 
-/** Table-based CTA — works in Gmail/Outlook mobile (inline-block-only buttons often fail). */
+/** Table + MSO VML CTA — one primary href; plain URL line for copy/paste. */
 function renderEmailButton(href: string, label: string, showFullUrlLink: boolean): string {
   const url = normalizeEmailActionUrl(href);
-  const safeHref = escapeHref(url);
+  const attr = hrefAttr(url);
   const safeLabel = escapeHtml(label);
+  const safeUrl = escapeHtml(url);
   const parts = [
-    `<table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 16px;">
+    `<!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${attr}" style="height:50px;v-text-anchor:middle;width:300px;" arcsize="10%" strokecolor="#C9A227" fillcolor="#1B3A8F">
+<w:anchorlock/>
+<center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">${safeLabel}</center>
+</v:roundrect>
+<![endif]-->`,
+    `<!--[if !mso]><!-->
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:16px 0;">
   <tr>
-    <td align="center" bgcolor="#1B3A8F" style="border-radius:8px;border:2px solid #C9A227;mso-padding-alt:14px 28px;">
-      <a href="${safeHref}" target="_blank" rel="noopener noreferrer"
-         style="display:block;padding:14px 28px;font-size:16px;font-family:Arial,Helvetica,sans-serif;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:8px;line-height:1.25;">${safeLabel}</a>
+    <td align="center" bgcolor="#1B3A8F" style="border-radius:8px;border:2px solid #C9A227;">
+      <a href="${attr}" style="color:#ffffff;text-decoration:none;font-weight:bold;font-size:16px;font-family:Arial,Helvetica,sans-serif;display:inline-block;padding:14px 28px;line-height:1.25;">${safeLabel}</a>
     </td>
   </tr>
-</table>`,
-    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#27272a;">
-  <a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="color:#1B3A8F;font-weight:700;text-decoration:underline;">${safeLabel}</a>
+</table>
+<!--<![endif]-->`,
+    `<p style="margin:0 0 10px;font-size:15px;line-height:1.55;color:#27272a;">
+  <a href="${attr}" style="color:#1B3A8F;font-weight:700;text-decoration:underline;">${safeLabel}</a>
 </p>`,
   ];
   if (showFullUrlLink) {
-    parts.push(`<p style="margin:0 0 18px;font-size:13px;line-height:1.5;color:#52525b;">
-  If the button does not open, tap this link:<br>
-  <a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="word-break:break-all;color:#1B3A8F;text-decoration:underline;">${safeHref}</a>
+    parts.push(`<p style="margin:0 0 18px;font-size:13px;line-height:1.6;color:#52525b;">
+  Or copy this address into your browser:<br>
+  <a href="${attr}" style="word-break:break-all;color:#1B3A8F;text-decoration:underline;">${safeUrl}</a>
 </p>`);
   }
   return parts.join("\n");

@@ -44,7 +44,12 @@ import {
   registerMobileOtpResponse,
 } from "./messaging/deliverOtp";
 import { registerMessagingRoutes } from "./messagingRoutes";
-import { issueSessionForUser, SESSION_COOKIE } from "./authSession";
+import {
+  countActiveSessionsForUser,
+  issueSessionForUser,
+  notifyActiveSessionsOfLoginAttempt,
+  SESSION_COOKIE,
+} from "./authSession";
 import { registerPasswordResetRoutes } from "./passwordResetRoutes";
 import { startDevPublicTunnel } from "./devPublicTunnel";
 import { isS3StorageEnabled } from "./storage/config";
@@ -568,6 +573,17 @@ app.post("/api/auth/login", async (req, res) => {
     res.status(403).json({ ok: false, message: "This profile is directory-only and cannot sign in." });
     return;
   }
+  const activeElsewhere = await countActiveSessionsForUser(dbPool, found.id);
+  if (activeElsewhere > 0) {
+    await notifyActiveSessionsOfLoginAttempt(dbPool, found.id);
+    res.status(409).json({
+      ok: false,
+      code: "ALREADY_LOGGED_IN",
+      message:
+        "This account is already signed in elsewhere. The other person must sign out before you can use the same login.",
+    });
+    return;
+  }
   try {
     const session = await issueSessionForUser(dbPool, res, found, selectedStoreId);
     if (!session.ok) {
@@ -606,6 +622,44 @@ app.get("/api/auth/me", async (req, res) => {
   }
   const u = await findUser(uid);
   res.json({ user: u ? stripPassword(u) : null });
+});
+
+app.get("/api/auth/session-alert", async (req, res) => {
+  const sid = parseCookies(req.headers.cookie)[COOKIE];
+  if (!sid) {
+    res.json({ alert: null });
+    return;
+  }
+  try {
+    const { rows } = await dbPool.query<{ login_alert_at: Date; login_alert_message: string }>(
+      `SELECT login_alert_at, login_alert_message
+       FROM auth_sessions
+       WHERE id = $1
+         AND revoked_at IS NULL
+         AND expires_at > now()
+         AND login_alert_at IS NOT NULL
+         AND COALESCE(trim(login_alert_message), '') <> ''
+       LIMIT 1`,
+      [sid],
+    );
+    const row = rows[0];
+    if (!row) {
+      res.json({ alert: null });
+      return;
+    }
+    await dbPool.query(
+      `UPDATE auth_sessions SET login_alert_at = NULL, login_alert_message = NULL WHERE id = $1`,
+      [sid],
+    );
+    res.json({
+      alert: {
+        message: row.login_alert_message,
+        at: row.login_alert_at instanceof Date ? row.login_alert_at.toISOString() : String(row.login_alert_at),
+      },
+    });
+  } catch {
+    res.json({ alert: null });
+  }
 });
 
 app.get("/api/users", requireAuth, async (req, res) => {
@@ -3767,12 +3821,6 @@ async function main() {
   registerMessagingRoutes(app, requireAuth);
   registerPasswordResetRoutes(app, dbPool, {
     onPasswordChanged: () => refreshUsersFromDb(),
-    findUserById: (userId) => findUser(userId),
-    issueSession: async (req, res, user, storeId) => {
-      const result = await issueSessionForUser(dbPool, res, user, storeId);
-      if (result.ok) await refreshUsersFromDb();
-      return result;
-    },
   });
 
   app.listen(PORT, HOST, () => {
