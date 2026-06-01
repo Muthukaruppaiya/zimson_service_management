@@ -14,6 +14,7 @@ import {
 } from "../src/lib/serviceChargeLimits";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../src/lib/srfTraceLocations";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
+import { normalizeSrfPhotoKind } from "../src/lib/srfPhotoSlots";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { resolveCustomerEmail } from "./messaging/customerContact";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
@@ -462,13 +463,10 @@ function ensurePhotoTokenSession(row: {
   return null;
 }
 
-const SRF_WATCH_PHOTO_KINDS = new Set(["front", "back", "strap", "serial", "damage", "other"]);
-
-function normalizePhotoKind(input: string): "front" | "back" | "strap" | "serial" | "damage" | "other" | "document" {
-  const v = input.trim().toLowerCase();
-  if (v === "document") return "document";
-  if (SRF_WATCH_PHOTO_KINDS.has(v)) return v as "front" | "back" | "strap" | "serial" | "damage" | "other";
-  return "other";
+function readUploadPhotoKind(req: Request): string {
+  const fromBody = String(req.body?.photoKind ?? "").trim();
+  if (fromBody) return fromBody;
+  return String(req.query?.photoKind ?? "").trim();
 }
 
 async function unlinkSrfPhotoFile(filePath: string): Promise<void> {
@@ -5060,7 +5058,7 @@ export function registerSrfRoutes(
         mime: req.file.mimetype || "image/jpeg",
         fallbackExt: ".jpg",
       });
-      const photoKind = normalizePhotoKind(String(req.body?.photoKind ?? ""));
+      const photoKind = normalizeSrfPhotoKind(readUploadPhotoKind(req));
       if (photoKind === "document") {
         const { rows: docRows } = await pool.query<{ c: number }>(
           `SELECT COUNT(*)::int AS c FROM srf_job_photos WHERE srf_id = $1::uuid AND photo_kind = 'document'`,

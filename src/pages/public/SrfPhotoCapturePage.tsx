@@ -7,6 +7,7 @@ import {
   SRF_MAX_WATCH_PHOTOS,
   SRF_PHOTO_SLOT_LABELS,
   SRF_WATCH_PHOTO_KINDS,
+  srfPhotoKindUploadValue,
   type SrfWatchPhotoKind,
 } from "../../lib/srfPhotoSlots";
 
@@ -83,17 +84,35 @@ export function SrfPhotoCapturePage() {
   const watchPhotoCount = watchPhotos.length;
   const allWatchPhotosDone = watchPhotoCount >= SRF_MAX_WATCH_PHOTOS;
 
+  const pickWatchKind = useCallback((kind: SrfWatchPhotoKind) => {
+    setSelectedKind(kind);
+    pendingKindRef.current = kind;
+    setUploadError(null);
+  }, []);
+
   useEffect(() => {
-    if (!selectedKind && availableKinds.length > 0) {
-      setSelectedKind(availableKinds[0]);
-    } else if (
-      selectedKind &&
-      !availableKinds.includes(selectedKind) &&
-      !photoByKind.has(selectedKind)
-    ) {
-      setSelectedKind(availableKinds[0] ?? "");
+    if (selectedKind && photoByKind.has(selectedKind)) {
+      const next = availableKinds[0];
+      if (next) pickWatchKind(next);
+      else {
+        setSelectedKind("");
+        pendingKindRef.current = "";
+      }
+      return;
     }
-  }, [availableKinds, selectedKind, photoByKind]);
+    if (!selectedKind && availableKinds.length > 0) {
+      pickWatchKind(availableKinds[0]);
+      return;
+    }
+    if (selectedKind && !availableKinds.includes(selectedKind)) {
+      const next = availableKinds[0];
+      if (next) pickWatchKind(next);
+      else {
+        setSelectedKind("");
+        pendingKindRef.current = "";
+      }
+    }
+  }, [availableKinds, selectedKind, photoByKind, pickWatchKind]);
 
   const stopCameraStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -223,9 +242,19 @@ export function SrfPhotoCapturePage() {
     try {
       const form = new FormData();
       form.append("token", token);
-      form.append("photoKind", kind);
+      const storedKind =
+        kind === SRF_DOCUMENT_PHOTO_KIND
+          ? SRF_DOCUMENT_PHOTO_KIND
+          : isWatchPhotoKind(kind)
+            ? kind
+            : "other";
+      const kindParam = srfPhotoKindUploadValue(storedKind);
+      form.append("photoKind", kindParam);
       form.append("file", file);
-      const res = await fetch("/api/public/srf-photo/upload", { method: "POST", body: form });
+      const res = await fetch(
+        `/api/public/srf-photo/upload?photoKind=${encodeURIComponent(kindParam)}`,
+        { method: "POST", body: form },
+      );
       const text = await res.text();
       if (!res.ok) throw new Error(parseApiError(text));
       await refresh();
@@ -323,8 +352,7 @@ export function SrfPhotoCapturePage() {
   }
 
   function prepareRetakeWatch(kind: SrfWatchPhotoKind) {
-    setSelectedKind(kind);
-    setUploadError(null);
+    pickWatchKind(kind);
     void startCamera("watch", kind);
   }
 
@@ -441,7 +469,7 @@ export function SrfPhotoCapturePage() {
                   className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm"
                   value={selectedKind}
                   disabled={!canUpload || busy || availableKinds.length === 0}
-                  onChange={(e) => setSelectedKind(e.target.value as SrfWatchPhotoKind)}
+                  onChange={(e) => pickWatchKind(e.target.value as SrfWatchPhotoKind)}
                 >
                   {availableKinds.length === 0 ? (
                     <option value="">All categories used</option>
@@ -501,8 +529,7 @@ export function SrfPhotoCapturePage() {
                         type="button"
                         disabled={!canUpload || busy}
                         onClick={() => {
-                          setSelectedKind(kind);
-                          pendingKindRef.current = kind;
+                          pickWatchKind(kind);
                           openGalleryPicker();
                         }}
                         className="text-xs font-semibold text-zimson-800 underline disabled:opacity-50"
