@@ -1,4 +1,4 @@
-/** India Post public PIN API (browser — avoids server TLS issues with expired certs on Node). */
+import { ApiError, apiJson } from "./api";
 
 export type IndiaPinOffice = {
   name: string;
@@ -15,52 +15,39 @@ export type IndiaPinLookupResult = {
   citySuggestion: string;
 };
 
-type PinApiPostOffice = {
-  Name?: string;
-  District?: string;
-  State?: string;
-  Block?: string;
+type PinLookupApiResponse = {
+  state: string;
+  district: string;
+  districts: string[];
+  postOffices: IndiaPinOffice[];
+  citySuggestion: string;
 };
 
-type PinApiRoot = {
-  Status?: string;
-  Message?: string;
-  PostOffice?: PinApiPostOffice[] | null;
-};
-
+/**
+ * India PIN lookup via same-origin `/api/geo/pin-lookup-in`.
+ * The public api.postalpincode.in host often has TLS issues in browsers; the server proxies it safely.
+ */
 export async function fetchIndiaPinLookup(pincode: string): Promise<IndiaPinLookupResult> {
   const pin = pincode.replace(/\D/g, "").slice(0, 6);
   if (pin.length !== 6) {
     throw new Error("Enter a 6-digit Indian PIN code.");
   }
 
-  const res = await fetch(`https://api.postalpincode.in/pincode/${encodeURIComponent(pin)}`);
-  if (!res.ok) {
-    throw new Error("PIN lookup network error.");
+  try {
+    const out = await apiJson<PinLookupApiResponse>(
+      `/api/geo/pin-lookup-in?pincode=${encodeURIComponent(pin)}`,
+    );
+    return {
+      state: out.state ?? "",
+      district: out.district ?? "",
+      districts: Array.isArray(out.districts) ? out.districts : [],
+      postOffices: Array.isArray(out.postOffices) ? out.postOffices : [],
+      citySuggestion: out.citySuggestion ?? "",
+    };
+  } catch (e) {
+    if (e instanceof ApiError) {
+      throw new Error(e.message || "PIN lookup failed.");
+    }
+    throw new Error("PIN lookup failed. Check your connection and try again.");
   }
-
-  const raw: unknown = await res.json();
-  const root = (Array.isArray(raw) && raw.length > 0 ? raw[0] : raw) as PinApiRoot;
-
-  if (root?.Status !== "Success" || !Array.isArray(root.PostOffice) || root.PostOffice.length === 0) {
-    throw new Error(root?.Message ?? "PIN code not found.");
-  }
-
-  const postOffices: IndiaPinOffice[] = root.PostOffice.map((o) => ({
-    name: (o.Name ?? "").trim(),
-    district: (o.District ?? "").trim(),
-    state: (o.State ?? "").trim(),
-    block: (o.Block ?? "").trim(),
-  }));
-
-  const states = [...new Set(postOffices.map((o) => o.state).filter(Boolean))];
-  const districts = [...new Set(postOffices.map((o) => o.district).filter(Boolean))];
-
-  return {
-    state: states[0] ?? "",
-    district: districts[0] ?? "",
-    districts,
-    postOffices,
-    citySuggestion: postOffices[0]?.name ?? "",
-  };
 }

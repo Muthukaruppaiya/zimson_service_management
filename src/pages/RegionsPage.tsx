@@ -12,6 +12,7 @@ import {
 } from "../context/RegionsContext";
 import type { SeedRegion, SeedStore, SeedWarehouse } from "../data/seed";
 import { ApiError } from "../lib/api";
+import { fetchIndiaPinLookup } from "../lib/indiaPinLookup";
 import {
   sanitizeAlphanumericInput,
   sanitizeEmailInput,
@@ -114,28 +115,6 @@ function draftToRegionPayload(d: RegionDraft): RegionUpsertPayload {
   };
 }
 
-// India Post PIN lookup response shape
-type PinApiPostOffice = {
-  Name: string;
-  District: string;
-  State: string;
-  Country: string;
-  Block: string;
-  Region: string;
-};
-type PinApiResult = { Status: string; PostOffice: PinApiPostOffice[] | null };
-
-async function fetchPincodeData(pin: string): Promise<PinApiPostOffice[]> {
-  const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
-  if (!res.ok) throw new Error("Network error");
-  const data = (await res.json()) as PinApiResult[];
-  const result = data[0];
-  if (!result || result.Status !== "Success" || !result.PostOffice?.length) {
-    throw new Error("PIN code not found");
-  }
-  return result.PostOffice;
-}
-
 function RegionFormFields({
   draft,
   onChange,
@@ -152,14 +131,14 @@ function RegionFormFields({
     if (digits.length === 6) {
       setPinStatus("loading");
       setPinError("");
-      fetchPincodeData(digits)
-        .then((offices) => {
-          const po = offices[0];
+      fetchIndiaPinLookup(digits)
+        .then((out) => {
+          const po = out.postOffices[0];
           onChange({
-            addrCity: po.Block !== "NA" ? po.Block : po.Region,
-            addrDistrict: po.District,
-            addrState: po.State,
-            addrCountry: po.Country,
+            addrCity: po?.block && po.block !== "NA" ? po.block : out.citySuggestion,
+            addrDistrict: out.district || po?.district || "",
+            addrState: out.state || po?.state || "",
+            addrCountry: "India",
           });
           setPinStatus("ok");
         })

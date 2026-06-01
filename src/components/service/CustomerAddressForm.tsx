@@ -110,6 +110,10 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
 
   const applyIndiaPin = useCallback(async () => {
     setPinError(null);
+    if (!api) {
+      setPinError("PIN auto-fill requires the app API (contact your administrator).");
+      return;
+    }
     const pin = digitsPin(value.pincode, 8);
     if (pin.length !== 6) {
       setPinError("Enter a 6-digit PIN for India lookup.");
@@ -143,10 +147,10 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
     } finally {
       setPinBusy(false);
     }
-  }, [onChange, value]);
+  }, [api, onChange, value]);
 
   useEffect(() => {
-    if (disabled) return;
+    if (disabled || !api) return;
     if (pinDigits.length !== 6) {
       failedAutoPinRef.current = "";
       return;
