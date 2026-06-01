@@ -5,9 +5,9 @@ import { SRF_CUSTOMER_PHOTO_MAX_BYTES, srfCustomerPhotoMaxSizeLabel } from "../.
 import {
   SRF_DOCUMENT_PHOTO_KIND,
   SRF_MAX_WATCH_PHOTOS,
+  normalizeSrfPhotoKind,
   SRF_PHOTO_SLOT_LABELS,
   SRF_WATCH_PHOTO_KINDS,
-  srfPhotoKindUploadValue,
   type SrfWatchPhotoKind,
 } from "../../lib/srfPhotoSlots";
 
@@ -63,25 +63,30 @@ export function SrfPhotoCapturePage() {
   const photoByKind = useMemo(() => {
     const m = new Map<string, SessionPhoto>();
     for (const p of session?.photos ?? []) {
-      const k = (p.photoKind ?? "other").toLowerCase();
-      m.set(k, p);
+      const k = normalizeSrfPhotoKind(p.photoKind);
+      if (k) m.set(k, p);
     }
     return m;
   }, [session?.photos]);
 
-  const watchPhotos = useMemo(
-    () => SRF_WATCH_PHOTO_KINDS.map((kind) => ({ kind, shot: photoByKind.get(kind) })).filter((x) => x.shot),
-    [photoByKind],
-  );
-
   const documentPhoto = photoByKind.get(SRF_DOCUMENT_PHOTO_KIND);
 
+  /** Categories not uploaded yet — hidden from dropdown after each save. */
   const availableKinds = useMemo(
     () => SRF_WATCH_PHOTO_KINDS.filter((kind) => !photoByKind.has(kind)),
     [photoByKind],
   );
 
-  const watchPhotoCount = watchPhotos.length;
+  const uploadedWatchPhotos = useMemo(
+    () =>
+      SRF_WATCH_PHOTO_KINDS.map((kind) => {
+        const shot = photoByKind.get(kind);
+        return shot ? { kind, shot } : null;
+      }).filter((x): x is { kind: SrfWatchPhotoKind; shot: SessionPhoto } => x != null),
+    [photoByKind],
+  );
+
+  const watchPhotoCount = uploadedWatchPhotos.length;
   const allWatchPhotosDone = watchPhotoCount >= SRF_MAX_WATCH_PHOTOS;
 
   const pickWatchKind = useCallback((kind: SrfWatchPhotoKind) => {
@@ -89,6 +94,11 @@ export function SrfPhotoCapturePage() {
     pendingKindRef.current = kind;
     setUploadError(null);
   }, []);
+
+  const resolveActiveWatchKind = useCallback((): SrfWatchPhotoKind | null => {
+    const k = pendingKindRef.current || selectedKind;
+    return k && isWatchPhotoKind(k) ? k : null;
+  }, [selectedKind]);
 
   useEffect(() => {
     if (selectedKind && photoByKind.has(selectedKind)) {
@@ -162,7 +172,7 @@ export function SrfPhotoCapturePage() {
         photos: SessionPhoto[];
       }>(`/api/public/srf-photo/session?token=${encodeURIComponent(token)}`);
       setSession(data);
-      setStatus("Assign each photo to a category below. Up to 6 images and 1 document.");
+      setStatus("Pick a category, upload the photo — it is removed from the list. Repeat until all 6 are done.");
       setUploadError(null);
     } catch (e) {
       setSession(null);
@@ -176,12 +186,13 @@ export function SrfPhotoCapturePage() {
   }, [token]);
 
   function prepareWatchUpload(kindOverride?: SrfWatchPhotoKind): boolean {
-    const kind = kindOverride ?? selectedKind;
-    if (!kind || !isWatchPhotoKind(kind)) {
+    const kind = kindOverride ?? resolveActiveWatchKind();
+    if (!kind) {
       setUploadError("Select a photo category first.");
       return false;
     }
     pendingKindRef.current = kind;
+    setSelectedKind(kind);
     setUploadError(null);
     return true;
   }
@@ -240,21 +251,26 @@ export function SrfPhotoCapturePage() {
 
     setBusy(true);
     try {
-      const form = new FormData();
-      form.append("token", token);
       const storedKind =
         kind === SRF_DOCUMENT_PHOTO_KIND
           ? SRF_DOCUMENT_PHOTO_KIND
           : isWatchPhotoKind(kind)
             ? kind
-            : "other";
-      const kindParam = srfPhotoKindUploadValue(storedKind);
-      form.append("photoKind", kindParam);
+            : null;
+      if (!storedKind) {
+        setUploadError("Select a valid photo category.");
+        return;
+      }
+      const form = new FormData();
+      form.append("token", token);
+      form.append("kind", storedKind);
       form.append("file", file);
-      const res = await fetch(
-        `/api/public/srf-photo/upload?photoKind=${encodeURIComponent(kindParam)}`,
-        { method: "POST", body: form },
-      );
+      const uploadUrl = `/api/public/srf-photo/upload/${encodeURIComponent(storedKind)}?token=${encodeURIComponent(token)}`;
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        body: form,
+        headers: { "X-Srf-Photo-Kind": storedKind },
+      });
       const text = await res.text();
       if (!res.ok) throw new Error(parseApiError(text));
       await refresh();
@@ -272,8 +288,8 @@ export function SrfPhotoCapturePage() {
 
   async function onWatchFileSelected(files: FileList | null) {
     if (!files?.length) return;
-    const kind = pendingKindRef.current;
-    if (!kind || !isWatchPhotoKind(kind)) {
+    const kind = resolveActiveWatchKind();
+    if (!kind) {
       setUploadError("Select a photo category first.");
       return;
     }
@@ -321,8 +337,9 @@ export function SrfPhotoCapturePage() {
       setUploadError("No photo to upload. Capture again.");
       return;
     }
-    const kind = cameraTarget === "document" ? SRF_DOCUMENT_PHOTO_KIND : pendingKindRef.current;
-    if (cameraTarget === "watch" && (!kind || !isWatchPhotoKind(kind))) {
+    const kind =
+      cameraTarget === "document" ? SRF_DOCUMENT_PHOTO_KIND : resolveActiveWatchKind();
+    if (cameraTarget === "watch" && !kind) {
       setUploadError("Select a photo category first.");
       return;
     }
@@ -382,7 +399,7 @@ export function SrfPhotoCapturePage() {
   const documentIsPdf =
     documentPhoto?.mime?.includes("pdf") || documentPhoto?.filePath?.toLowerCase().endsWith(".pdf");
 
-  const watchUploadDisabled = !canUpload || busy || !selectedKind || availableKinds.length === 0;
+  const watchUploadDisabled = !canUpload || busy || !resolveActiveWatchKind();
 
   return (
     <div className="min-h-screen bg-stone-100 px-4 py-6 text-stone-900">
@@ -423,7 +440,7 @@ export function SrfPhotoCapturePage() {
           accept="image/jpeg,image/png,image/webp,image/heic,image/*"
           className="sr-only"
           tabIndex={-1}
-          disabled={!canUpload || busy || allWatchPhotosDone}
+          disabled={!canUpload || busy}
           onChange={(e) => void onWatchFileSelected(e.target.files)}
         />
         {/* Mobile fallback — native camera app */}
@@ -434,7 +451,7 @@ export function SrfPhotoCapturePage() {
           capture="environment"
           className="sr-only"
           tabIndex={-1}
-          disabled={!canUpload || busy || allWatchPhotosDone}
+          disabled={!canUpload || busy}
           onChange={(e) => void onWatchFileSelected(e.target.files)}
         />
         <input
@@ -458,8 +475,12 @@ export function SrfPhotoCapturePage() {
         />
 
         <section className="mt-5 rounded-lg border border-stone-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-zimson-900">Watch photos (max {SRF_MAX_WATCH_PHOTOS})</h2>
-          <p className="mt-1 text-xs text-stone-600">Choose a category, then take a photo or pick from gallery.</p>
+          <h2 className="text-sm font-semibold text-zimson-900">
+            Watch photos ({watchPhotoCount} / {SRF_MAX_WATCH_PHOTOS})
+          </h2>
+          <p className="mt-1 text-xs text-stone-600">
+            Select a category, add one photo — that category is removed from the dropdown.
+          </p>
 
           {!allWatchPhotosDone ? (
             <div className="mt-3 space-y-2">
@@ -472,7 +493,7 @@ export function SrfPhotoCapturePage() {
                   onChange={(e) => pickWatchKind(e.target.value as SrfWatchPhotoKind)}
                 >
                   {availableKinds.length === 0 ? (
-                    <option value="">All categories used</option>
+                    <option value="">All categories done</option>
                   ) : (
                     availableKinds.map((kind) => (
                       <option key={kind} value={kind}>
@@ -485,7 +506,7 @@ export function SrfPhotoCapturePage() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  disabled={watchUploadDisabled || cameraStarting}
+                  disabled={watchUploadDisabled || cameraStarting || availableKinds.length === 0}
                   onClick={() => void startCamera("watch")}
                   className="rounded-lg bg-zimson-800 px-3 py-3 text-sm font-semibold text-white disabled:opacity-50"
                 >
@@ -493,7 +514,7 @@ export function SrfPhotoCapturePage() {
                 </button>
                 <button
                   type="button"
-                  disabled={watchUploadDisabled}
+                  disabled={watchUploadDisabled || availableKinds.length === 0}
                   onClick={openGalleryPicker}
                   className="rounded-lg border-2 border-zimson-700 bg-white px-3 py-3 text-sm font-semibold text-zimson-900 disabled:opacity-50"
                 >
@@ -502,15 +523,17 @@ export function SrfPhotoCapturePage() {
               </div>
             </div>
           ) : (
-            <p className="mt-3 text-xs font-medium text-emerald-800">All 6 watch photo slots are filled.</p>
+            <p className="mt-3 text-xs font-medium text-emerald-800">
+              All 6 watch photos uploaded. You can retake or remove below if needed.
+            </p>
           )}
 
-          {watchPhotos.length > 0 ? (
+          {uploadedWatchPhotos.length > 0 ? (
             <ul className="mt-4 space-y-2">
-              {watchPhotos.map(({ kind, shot }) => (
+              {uploadedWatchPhotos.map(({ kind, shot }) => (
                 <li key={kind} className="flex items-center gap-3 rounded-lg border border-stone-200 p-2">
                   <img
-                    src={`/${shot!.filePath}`}
+                    src={`/${shot.filePath}`}
                     alt={SRF_PHOTO_SLOT_LABELS[kind]}
                     className="h-14 w-14 shrink-0 rounded object-cover"
                   />
@@ -539,7 +562,7 @@ export function SrfPhotoCapturePage() {
                       <button
                         type="button"
                         disabled={!canUpload || busy}
-                        onClick={() => void removePhoto(shot!.id)}
+                        onClick={() => void removePhoto(shot.id)}
                         className="text-xs font-semibold text-rose-700 underline disabled:opacity-50"
                       >
                         Remove

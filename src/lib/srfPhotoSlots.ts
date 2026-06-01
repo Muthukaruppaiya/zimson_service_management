@@ -30,9 +30,10 @@ export function srfPhotoKindUploadValue(kind: SrfPhotoKindStored): string {
   return `watch_${kind}`;
 }
 
-/** Normalize API / DB photo kind (accepts `watch_back` or legacy `back`). */
-export function normalizeSrfPhotoKind(input: string | null | undefined): SrfPhotoKindStored {
+/** Normalize API / DB photo kind (accepts `watch_back` or legacy `back`). Returns null if missing. */
+export function normalizeSrfPhotoKind(input: string | null | undefined): SrfPhotoKindStored | null {
   const v = String(input ?? "").trim().toLowerCase();
+  if (!v) return null;
   if (v === "document") return "document";
   if (v.startsWith("watch_")) {
     const slot = v.slice(6);

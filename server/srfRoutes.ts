@@ -464,9 +464,13 @@ function ensurePhotoTokenSession(row: {
 }
 
 function readUploadPhotoKind(req: Request): string {
-  const fromBody = String(req.body?.photoKind ?? "").trim();
+  const fromPath = String(req.params?.photoKind ?? "").trim();
+  if (fromPath) return fromPath;
+  const fromHeader = String(req.headers["x-srf-photo-kind"] ?? "").trim();
+  if (fromHeader) return fromHeader;
+  const fromBody = String(req.body?.kind ?? req.body?.photoKind ?? "").trim();
   if (fromBody) return fromBody;
-  return String(req.query?.photoKind ?? "").trim();
+  return String(req.query?.kind ?? req.query?.photoKind ?? "").trim();
 }
 
 async function unlinkSrfPhotoFile(filePath: string): Promise<void> {
@@ -1821,13 +1825,21 @@ export function registerSrfRoutes(
       }
       const repairRoute = repairRouteBody ?? normalizeSrfRepairRoute(locked[0].repair_route);
       const nextStatus = repairRoute === "store_self" ? "store_self_pending" : "at_store";
-      const { rows: photoCountRows } = await client.query<{ c: number }>(
-        `SELECT COUNT(*)::int AS c FROM srf_job_photos WHERE srf_id = $1::uuid`,
+      const { rows: watchKindRows } = await client.query<{ photo_kind: string }>(
+        `SELECT DISTINCT photo_kind
+         FROM srf_job_photos
+         WHERE srf_id = $1::uuid
+           AND photo_kind IN ('front', 'back', 'strap', 'serial', 'damage', 'other')`,
         [srfId],
       );
-      if ((photoCountRows[0]?.c ?? 0) <= 0) {
+      const watchKindsPresent = new Set(watchKindRows.map((r) => r.photo_kind));
+      const requiredWatchKinds = ["front", "back", "strap", "serial", "damage", "other"] as const;
+      const missingKinds = requiredWatchKinds.filter((k) => !watchKindsPresent.has(k));
+      if (missingKinds.length > 0) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Upload at least one photo before finalizing SRF." });
+        res.status(400).json({
+          error: `Upload one photo for each watch category before finalizing. Missing: ${missingKinds.join(", ")}.`,
+        });
         return;
       }
       await client.query(
@@ -5017,14 +5029,20 @@ export function registerSrfRoutes(
     }
   });
 
-  app.post("/api/public/srf-photo/upload", srfPublicPhotoUpload, async (req, res) => {
-    const token = String(req.body?.token ?? "").trim();
+  async function handlePublicSrfPhotoUpload(req: Request, res: Response) {
+    const token = String(req.body?.token ?? req.query?.token ?? "").trim();
     if (!token) {
       res.status(400).json({ error: "token is required." });
       return;
     }
     if (!req.file) {
       res.status(400).json({ error: "Upload image file under field name 'file'." });
+      return;
+    }
+    const rawKind = readUploadPhotoKind(req);
+    const photoKind = normalizeSrfPhotoKind(rawKind);
+    if (!photoKind) {
+      res.status(400).json({ error: "Photo category is required (front, back, strap, serial, damage, other, or document)." });
       return;
     }
     try {
@@ -5058,7 +5076,6 @@ export function registerSrfRoutes(
         mime: req.file.mimetype || "image/jpeg",
         fallbackExt: ".jpg",
       });
-      const photoKind = normalizeSrfPhotoKind(readUploadPhotoKind(req));
       if (photoKind === "document") {
         const { rows: docRows } = await pool.query<{ c: number }>(
           `SELECT COUNT(*)::int AS c FROM srf_job_photos WHERE srf_id = $1::uuid AND photo_kind = 'document'`,
@@ -5130,7 +5147,10 @@ export function registerSrfRoutes(
       console.error(e);
       res.status(500).json({ error: "Could not upload photo." });
     }
-  });
+  }
+
+  app.post("/api/public/srf-photo/upload/:photoKind", srfPublicPhotoUpload, handlePublicSrfPhotoUpload);
+  app.post("/api/public/srf-photo/upload", srfPublicPhotoUpload, handlePublicSrfPhotoUpload);
 
   app.delete("/api/public/srf-photo/:photoId", async (req, res) => {
     const token = String(req.query.token ?? "").trim();
