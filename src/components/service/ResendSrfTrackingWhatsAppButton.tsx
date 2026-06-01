@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { ApiError } from "../../lib/api";
 import {
   resendSrfTrackingWhatsApp,
@@ -6,6 +5,7 @@ import {
   type ResendSrfTrackingWhatsAppResult,
 } from "../../lib/resendSrfTrackingWhatsApp";
 import { isValidIndianMobile10 } from "../../lib/whatsappInvoiceUi";
+import { useWhatsAppSend } from "../messaging/WhatsAppSendProvider";
 
 type Props = {
   srfId: string;
@@ -28,7 +28,7 @@ export function ResendSrfTrackingWhatsAppButton({
   busyLabel = "Sending…",
   onResult,
 }: Props) {
-  const [busy, setBusy] = useState(false);
+  const { runWhatsAppSend, sending } = useWhatsAppSend();
 
   async function handleClick() {
     if (!srfId.trim()) return;
@@ -41,33 +41,41 @@ export function ResendSrfTrackingWhatsAppButton({
       });
       return;
     }
-    setBusy(true);
-    try {
-      const result = await resendSrfTrackingWhatsApp(srfId, customerEmail);
-      onResult?.(result);
-    } catch (e) {
-      onResult?.({
-        whatsappSent: false,
-        whatsappReason: e instanceof ApiError ? e.message : "Could not resend to customer.",
-        emailSent: false,
-        emailReason: null,
-      });
-    } finally {
-      setBusy(false);
-    }
+    await runWhatsAppSend(async () => {
+      try {
+        const result = await resendSrfTrackingWhatsApp(srfId, customerEmail);
+        onResult?.(result);
+        if (result.whatsappSent) {
+          return { ok: true, message: srfTrackingCustomerNotifyMessage(result) };
+        }
+        return {
+          ok: false,
+          message: result.whatsappReason || "WhatsApp was not sent. Check messaging settings.",
+        };
+      } catch (e) {
+        const fail: ResendSrfTrackingWhatsAppResult = {
+          whatsappSent: false,
+          whatsappReason: e instanceof ApiError ? e.message : "Could not resend to customer.",
+          emailSent: false,
+          emailReason: null,
+        };
+        onResult?.(fail);
+        return { ok: false, message: fail.whatsappReason ?? "Could not resend to customer." };
+      }
+    });
   }
 
   return (
     <button
       type="button"
-      disabled={disabled || busy || !srfId.trim()}
+      disabled={disabled || sending || !srfId.trim()}
       onClick={() => void handleClick()}
       className={
         className ??
         "rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
       }
     >
-      {busy ? busyLabel : label}
+      {sending ? busyLabel : label}
     </button>
   );
 }

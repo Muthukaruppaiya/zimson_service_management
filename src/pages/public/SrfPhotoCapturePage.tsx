@@ -3,6 +3,10 @@ import { useSearchParams } from "react-router-dom";
 import { apiJson } from "../../lib/api";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES, srfCustomerPhotoMaxSizeLabel } from "../../lib/srfPhotoLimits";
 import {
+  SRF_WATCH_PHOTO_ACCEPT,
+  validateSrfCustomerPhotoFile,
+} from "../../lib/srfCustomerPhotoUpload";
+import {
   SRF_DOCUMENT_PHOTO_KIND,
   SRF_MAX_WATCH_PHOTOS,
   normalizeSrfPhotoKind,
@@ -242,6 +246,11 @@ export function SrfPhotoCapturePage() {
   async function uploadFile(file: File, kind: string) {
     if (!token) return;
     setUploadError(null);
+    const formatErr = validateSrfCustomerPhotoFile(file);
+    if (formatErr) {
+      setUploadError(formatErr);
+      return;
+    }
     if (file.size > SRF_CUSTOMER_PHOTO_MAX_BYTES) {
       setUploadError(
         `File is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Max ${srfCustomerPhotoMaxSizeLabel()}.`,
@@ -439,7 +448,7 @@ export function SrfPhotoCapturePage() {
         <input
           ref={galleryInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/*"
+          accept={SRF_WATCH_PHOTO_ACCEPT}
           className="sr-only"
           tabIndex={-1}
           disabled={!canUpload || busy}
@@ -449,7 +458,7 @@ export function SrfPhotoCapturePage() {
         <input
           ref={cameraFallbackInputRef}
           type="file"
-          accept="image/*"
+          accept={SRF_WATCH_PHOTO_ACCEPT}
           capture="environment"
           className="sr-only"
           tabIndex={-1}
@@ -459,7 +468,7 @@ export function SrfPhotoCapturePage() {
         <input
           ref={documentGalleryInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,application/pdf,.pdf"
+          accept={SRF_WATCH_PHOTO_ACCEPT}
           className="sr-only"
           tabIndex={-1}
           disabled={!canUpload || busy}
@@ -468,7 +477,7 @@ export function SrfPhotoCapturePage() {
         <input
           ref={documentCameraFallbackInputRef}
           type="file"
-          accept="image/*"
+          accept={SRF_WATCH_PHOTO_ACCEPT}
           capture="environment"
           className="sr-only"
           tabIndex={-1}

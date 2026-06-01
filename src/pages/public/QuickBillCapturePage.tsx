@@ -4,6 +4,8 @@ import { apiJson } from "../../lib/api";
 import {
   validateQuickBillDocumentFile,
   validateQuickBillImageFile,
+  WATCH_DOCUMENT_ACCEPT,
+  WATCH_IMAGE_ACCEPT,
   watchAttachmentDisplayName,
   watchAttachmentMaxSizeLabel,
 } from "../../lib/watchAttachmentUpload";
@@ -145,7 +147,7 @@ export function QuickBillCapturePage() {
         <input
           ref={docInputRef}
           type="file"
-          accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept={WATCH_DOCUMENT_ACCEPT}
           className="sr-only"
           tabIndex={-1}
           disabled={!canUpload || busy !== null}
@@ -154,7 +156,7 @@ export function QuickBillCapturePage() {
         <input
           ref={docCameraRef}
           type="file"
-          accept="image/*,.pdf"
+          accept={WATCH_DOCUMENT_ACCEPT}
           capture="environment"
           className="sr-only"
           tabIndex={-1}
@@ -164,7 +166,7 @@ export function QuickBillCapturePage() {
         <input
           ref={imgInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/*"
+          accept={WATCH_IMAGE_ACCEPT}
           className="sr-only"
           tabIndex={-1}
           disabled={!canUpload || busy !== null}
@@ -173,7 +175,7 @@ export function QuickBillCapturePage() {
         <input
           ref={imgCameraRef}
           type="file"
-          accept="image/*"
+          accept={WATCH_IMAGE_ACCEPT}
           capture="environment"
           className="sr-only"
           tabIndex={-1}

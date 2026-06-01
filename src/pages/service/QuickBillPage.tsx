@@ -37,6 +37,8 @@ import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceT
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
+import { useWhatsAppSend } from "../../components/messaging/WhatsAppSendProvider";
+import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import type { QuickBillInvoice } from "../../types/quickBill";
 import { computeServiceBillGst } from "../../lib/serviceBillGst";
@@ -217,6 +219,7 @@ function QuickBillInvoicePanel({
 
 export function QuickBillPage() {
   const apiMode = useApiMode();
+  const { runWhatsAppSend, sending: whatsappSending } = useWhatsAppSend();
   const { user } = useAuth();
   const { getById, customers } = useCustomers();
   const navigate = useNavigate();
@@ -303,7 +306,6 @@ export function QuickBillPage() {
   const [completion, setCompletion] = useState<CompletionState>(null);
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
-  const [whatsappSending, setWhatsappSending] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
   const [isSavingBill, setIsSavingBill] = useState(false);
 
@@ -1431,7 +1433,6 @@ export function QuickBillPage() {
     setCustomerCheckMsg(null);
     lastAutoLookupPhoneRef.current = "";
     verifiedBillPhoneLast10Ref.current = "";
-    setWhatsappSending(false);
     setEmailSending(false);
   }
 
@@ -1442,26 +1443,32 @@ export function QuickBillPage() {
         setBillPostActionNote("Customer mobile (10 digits) is required for WhatsApp delivery.");
         return;
       }
-      setWhatsappSending(true);
       setBillPostActionNote(null);
-      try {
-        const wa = await sendInvoiceWhatsApp({
-          phone: p10,
-          customerName: (inv.customerName ?? customerName).trim() || "Customer",
-          invoiceNumber: inv.invoiceNumber || inv.billNumber,
-        });
-        setBillPostActionNote(
-          wa.dryRun
-            ? `Test mode: PDF on API server${wa.localViewUrl ? ` — open ${wa.localViewUrl}` : ""}. Set WHATSAPP_INVOICE_DRY_RUN=false to send real WhatsApp (uses Qikberry Work Drive if no public URL).`
-            : "Invoice sent on WhatsApp successfully.",
-        );
-      } catch (e) {
-        setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice on WhatsApp.");
-      } finally {
-        setWhatsappSending(false);
-      }
+      await runWhatsAppSend(async () => {
+        try {
+          const wa = await sendInvoiceWhatsApp({
+            phone: p10,
+            customerName: (inv.customerName ?? customerName).trim() || "Customer",
+            invoiceNumber: inv.invoiceNumber || inv.billNumber,
+          });
+          const msg = invoiceWhatsAppResultMessage(wa);
+          const ok = Boolean(wa.messageId) || Boolean(wa.dryRun);
+          if (ok) {
+            setBillPostActionNote(
+              wa.dryRun
+                ? `Test mode: PDF on API server${wa.localViewUrl ? ` — open ${wa.localViewUrl}` : ""}. Set WHATSAPP_INVOICE_DRY_RUN=false to send real WhatsApp (uses Qikberry Work Drive if no public URL).`
+                : "Invoice sent on WhatsApp successfully.",
+            );
+          }
+          return { ok, message: msg };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Could not send invoice on WhatsApp.";
+          setBillPostActionNote(msg);
+          return { ok: false, message: msg };
+        }
+      });
     },
-    [phone, customerName],
+    [phone, customerName, runWhatsAppSend],
   );
 
   const handleSendInvoiceEmail = useCallback(

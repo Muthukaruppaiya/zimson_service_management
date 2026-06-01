@@ -14,6 +14,7 @@ import {
 } from "../src/lib/serviceChargeLimits";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../src/lib/srfTraceLocations";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
+import { validateSrfCustomerPhotoUpload } from "../src/lib/srfCustomerPhotoUpload";
 import { normalizeSrfPhotoKind } from "../src/lib/srfPhotoSlots";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { resolveCustomerEmail } from "./messaging/customerContact";
@@ -5037,6 +5038,11 @@ export function registerSrfRoutes(
     }
     if (!req.file) {
       res.status(400).json({ error: "Upload image file under field name 'file'." });
+      return;
+    }
+    const photoFormatError = validateSrfCustomerPhotoUpload(req.file);
+    if (photoFormatError) {
+      res.status(400).json({ error: photoFormatError });
       return;
     }
     const rawKind = readUploadPhotoKind(req);

@@ -20,6 +20,8 @@ import { apiJson, ApiError } from "../../lib/api";
 import { phoneLast10 } from "../../lib/customerLookup";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
+import { useWhatsAppSend } from "../../components/messaging/WhatsAppSendProvider";
+import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import {
@@ -56,6 +58,7 @@ const billSuccessBtnOutline = `${billSuccessBtnBase} border border-stone-300 bg-
 
 export function StoreBillingPage() {
   const { user } = useAuth();
+  const { runWhatsAppSend, sending: whatsappSending } = useWhatsAppSend();
   const { regions } = useRegions();
   const { customers } = useCustomers();
   const { activeSpares } = useSpares();
@@ -64,7 +67,6 @@ export function StoreBillingPage() {
   const [billingInvoiceVm, setBillingInvoiceVm] = useState<ServiceInvoiceViewModel | null>(null);
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
-  const [whatsappSending, setWhatsappSending] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
   const [screenMode, setScreenMode] = useState<"select" | "invoice">("select");
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -354,25 +356,31 @@ export function StoreBillingPage() {
       setBillPostActionNote("Customer mobile (10 digits) is required for WhatsApp delivery.");
       return;
     }
-    setWhatsappSending(true);
     setBillPostActionNote(null);
-    try {
-      const wa = await sendInvoiceWhatsApp({
-        phone: p10,
-        customerName: billingInvoiceVm.billTo.name.trim() || "Customer",
-        invoiceNumber: billingInvoiceVm.invoiceNumber,
-      });
-      setBillPostActionNote(
-        wa.dryRun
-          ? `Test mode: PDF on API server${wa.localViewUrl ? ` — open ${wa.localViewUrl}` : ""}. Set WHATSAPP_INVOICE_DRY_RUN=false to send real WhatsApp.`
-          : "Invoice sent on WhatsApp successfully.",
-      );
-    } catch (e) {
-      setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice on WhatsApp.");
-    } finally {
-      setWhatsappSending(false);
-    }
-  }, [billingInvoiceVm]);
+    await runWhatsAppSend(async () => {
+      try {
+        const wa = await sendInvoiceWhatsApp({
+          phone: p10,
+          customerName: billingInvoiceVm.billTo.name.trim() || "Customer",
+          invoiceNumber: billingInvoiceVm.invoiceNumber,
+        });
+        const msg = invoiceWhatsAppResultMessage(wa);
+        const ok = Boolean(wa.messageId) || Boolean(wa.dryRun);
+        if (ok) {
+          setBillPostActionNote(
+            wa.dryRun
+              ? `Test mode: PDF on API server${wa.localViewUrl ? ` — open ${wa.localViewUrl}` : ""}. Set WHATSAPP_INVOICE_DRY_RUN=false to send real WhatsApp.`
+              : "Invoice sent on WhatsApp successfully.",
+          );
+        }
+        return { ok, message: msg };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Could not send invoice on WhatsApp.";
+        setBillPostActionNote(msg);
+        return { ok: false, message: msg };
+      }
+    });
+  }, [billingInvoiceVm, runWhatsAppSend]);
 
   const handleSendBillingInvoiceEmail = useCallback(async () => {
     if (!billingInvoiceVm) return;

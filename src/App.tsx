@@ -5,6 +5,7 @@ import { RequireAuth } from "./components/auth/RequireAuth";
 import { AppShell } from "./components/layout/AppShell";
 import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./components/ui/Toast";
+import { WhatsAppSendProvider } from "./components/messaging/WhatsAppSendProvider";
 import { BrandsProvider } from "./context/BrandsContext";
 import { CustomersProvider } from "./context/CustomersContext";
 import { RegionsProvider } from "./context/RegionsContext";
@@ -77,6 +78,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <ToastProvider>
+      <WhatsAppSendProvider>
       <AuthProvider>
         <RegionsProvider>
           <BrandsProvider>
@@ -616,6 +618,7 @@ export default function App() {
           </BrandsProvider>
         </RegionsProvider>
       </AuthProvider>
+      </WhatsAppSendProvider>
       </ToastProvider>
     </BrowserRouter>
   );

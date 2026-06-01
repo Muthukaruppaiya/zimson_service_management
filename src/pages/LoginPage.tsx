@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { ApiError, apiJson } from "../lib/api";
 import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
+import { AppBootLoader } from "../components/ui/AppBootLoader";
 
 export function LoginPage() {
   const { user, login, authReady } = useAuth();
@@ -22,11 +23,7 @@ export function LoginPage() {
   if (user) return <Navigate to="/" replace />;
 
   if (!authReady) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-rlx-bg text-sm text-rlx-ink-muted">
-        Checking session…
-      </div>
-    );
+    return <AppBootLoader message="Checking session…" />;
   }
 
   async function handleSubmit(e: React.FormEvent) {
