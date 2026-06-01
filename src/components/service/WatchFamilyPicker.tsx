@@ -110,15 +110,16 @@ export function WatchFamilyPicker({
 
   useEffect(() => {
     if (disableAutoSelect) return;
-    if (catalogFamilyKey === "__new__") return;
-    if (catalogFamilies.some((f) => f.family === catalogFamilyKey)) return;
+    /** Keep custom entry when user is typing a new family name. */
+    if (catalogFamilyKey === "__new__" && customFamilyText.trim()) return;
+    if (catalogFamilyKey && catalogFamilies.some((f) => f.family === catalogFamilyKey)) return;
     if (catalogFamilies.length === 0) {
       setCatalogFamilyKey("__new__");
       return;
     }
     setCatalogFamilyKey(catalogFamilies[0]!.family);
     setCustomFamilyText("");
-  }, [catalogFamilies, catalogFamilyKey, disableAutoSelect]);
+  }, [catalogFamilies, catalogFamilyKey, customFamilyText, disableAutoSelect]);
 
   useEffect(() => {
     if (disableAutoSelect) return;

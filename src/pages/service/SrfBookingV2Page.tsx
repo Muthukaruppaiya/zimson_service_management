@@ -1578,6 +1578,7 @@ export function SrfBookingV2Page() {
                   apiMode={apiMode}
                   family={watchFamily}
                   onFamilyChange={setWatchFamily}
+                  disableAutoSelect
                   inputClass={inputClass}
                   idPrefix="srf"
                 />
