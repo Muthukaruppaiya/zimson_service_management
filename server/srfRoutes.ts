@@ -8,14 +8,15 @@ import { createMemoryUpload } from "./storage/multerMemory";
 import type { Pool, PoolClient } from "pg";
 import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib/paymentModes";
 import { normalizeSrfRepairRoute } from "../src/lib/srfRepairRoute";
-import {
-  isUnlimitedServiceChargeRole,
-  STORE_SERVICE_CHARGE_MAX_INR,
-} from "../src/lib/serviceChargeLimits";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../src/lib/srfTraceLocations";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
 import { validateSrfCustomerPhotoUpload } from "../src/lib/srfCustomerPhotoUpload";
-import { normalizeSrfPhotoKind } from "../src/lib/srfPhotoSlots";
+import {
+  normalizeSrfPhotoKind,
+  SRF_MIN_WATCH_PHOTOS_REQUIRED,
+  SRF_WATCH_PHOTO_KINDS,
+  srfMinWatchPhotosFinalizeError,
+} from "../src/lib/srfPhotoSlots";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { resolveCustomerEmail } from "./messaging/customerContact";
 import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
@@ -1778,15 +1779,6 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "estimateTotalInr must be a valid non-negative number." });
       return;
     }
-    if (
-      estimateTotalInr > STORE_SERVICE_CHARGE_MAX_INR &&
-      !isUnlimitedServiceChargeRole(actor.role)
-    ) {
-      res.status(400).json({
-        error: `Estimate cannot exceed ₹${STORE_SERVICE_CHARGE_MAX_INR.toLocaleString("en-IN")} unless entered by an administrator.`,
-      });
-      return;
-    }
     const caseType = String(req.body?.caseType ?? "").trim();
     const strapChainType = String(req.body?.strapChainType ?? "").trim();
     const natureOfRepair = String(req.body?.natureOfRepair ?? "").trim();
@@ -1826,20 +1818,19 @@ export function registerSrfRoutes(
       }
       const repairRoute = repairRouteBody ?? normalizeSrfRepairRoute(locked[0].repair_route);
       const nextStatus = repairRoute === "store_self" ? "store_self_pending" : "at_store";
-      const { rows: watchKindRows } = await client.query<{ photo_kind: string }>(
-        `SELECT DISTINCT photo_kind
+      const watchKindIn = SRF_WATCH_PHOTO_KINDS.map((k) => `'${k}'`).join(", ");
+      const { rows: watchPhotoCountRows } = await client.query<{ c: number }>(
+        `SELECT COUNT(*)::int AS c
          FROM srf_job_photos
          WHERE srf_id = $1::uuid
-           AND photo_kind IN ('front', 'back', 'strap', 'serial', 'damage', 'other')`,
+           AND photo_kind IN (${watchKindIn})`,
         [srfId],
       );
-      const watchKindsPresent = new Set(watchKindRows.map((r) => r.photo_kind));
-      const requiredWatchKinds = ["front", "back", "strap", "serial", "damage", "other"] as const;
-      const missingKinds = requiredWatchKinds.filter((k) => !watchKindsPresent.has(k));
-      if (missingKinds.length > 0) {
+      const watchPhotoCount = watchPhotoCountRows[0]?.c ?? 0;
+      if (watchPhotoCount < SRF_MIN_WATCH_PHOTOS_REQUIRED) {
         await client.query("ROLLBACK");
         res.status(400).json({
-          error: `Upload one photo for each watch category before finalizing. Missing: ${missingKinds.join(", ")}.`,
+          error: srfMinWatchPhotosFinalizeError(watchPhotoCount),
         });
         return;
       }

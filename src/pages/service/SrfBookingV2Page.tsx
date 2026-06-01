@@ -21,6 +21,7 @@ import {
   validateMultiPaymentForm,
 } from "../../lib/paymentModes";
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
+import { SRF_MIN_WATCH_PHOTOS_REQUIRED, srfMinWatchPhotosFinalizeError } from "../../lib/srfPhotoSlots";
 import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
 import {
   isValidGstFormat,
@@ -569,8 +570,8 @@ export function SrfBookingV2Page() {
         if (!validateWatch()) return;
         await ensureDraft();
       }
-      if (step === 2 && photoCount <= 0) {
-        setError("Upload at least one photo to continue.");
+      if (step === 2 && photoCount < SRF_MIN_WATCH_PHOTOS_REQUIRED) {
+        setError(srfMinWatchPhotosFinalizeError(photoCount));
         return;
       }
       if (step === 3 && !validateEstimate()) return;
@@ -837,7 +838,7 @@ export function SrfBookingV2Page() {
         );
 
         const pc = job.photoCount ?? 0;
-        setStep(pc > 0 ? 3 : 2);
+        setStep(pc >= SRF_MIN_WATCH_PHOTOS_REQUIRED ? 3 : 2);
         /* Do not set srfRef here — it switches the whole page to the post-finalize success view. */
 
         await refreshJobs().catch(() => {});
@@ -1060,6 +1061,10 @@ export function SrfBookingV2Page() {
 
   async function finalizeAndPrint() {
     setError(null);
+    if (photoCount < SRF_MIN_WATCH_PHOTOS_REQUIRED) {
+      setError(srfMinWatchPhotosFinalizeError(photoCount));
+      return;
+    }
     try {
       const row = await ensureDraft();
       const advancePay =
@@ -1245,7 +1250,7 @@ export function SrfBookingV2Page() {
       <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
         <Card
           title="SRF completed successfully"
-          subtitle="Tracking link is sent to the customer by email (if on file) and WhatsApp when configured. Use resend if needed."
+          subtitle=""
           className="w-full max-w-2xl"
         >
           <p className="text-sm text-stone-700">
@@ -1300,12 +1305,12 @@ export function SrfBookingV2Page() {
               {resendingTrackingWhatsApp ? "Resending..." : "Resend to customer"}
             </button>
           </div>
-          {trackingUrl ? (
+          {/* {trackingUrl ? (
             <div className="mt-5 rounded-xl border border-zimson-200 bg-zimson-50/40 p-4">
               <p className="text-sm font-semibold text-zimson-900">Customer tracking link</p>
               <p className="mt-1 break-all font-mono text-xs text-stone-700">{trackingUrl}</p>
             </div>
-          ) : null}
+          ) : null} */}
         </Card>
       </div>
     );
@@ -1718,8 +1723,11 @@ export function SrfBookingV2Page() {
               <p className="mt-2 break-all text-xs text-stone-500">{captureUrl}</p>
             </div>
             <div className="space-y-3">
-              <p className="text-sm">Scan QR and upload images from camera page. Link auto-disables after SRF finalize.</p>
-              <p className="text-sm">Uploaded photos: <strong>{photoCount}</strong></p>
+              <p className="text-sm">Scan QR and upload images from the customer capture page. Link auto-disables after SRF finalize.</p>
+              <p className="text-sm">
+                Uploaded photos: <strong>{photoCount}</strong> (minimum{" "}
+                <strong>{SRF_MIN_WATCH_PHOTOS_REQUIRED}</strong> required — any categories, not all six)
+              </p>
               {photoMsg ? <p className="rounded-xl bg-zimson-50 px-3 py-2 text-sm">{photoMsg}</p> : null}
               {photoPreview.length > 0 && !draft ? (
                 <div className="rounded-xl border border-zimson-200 bg-white p-3">

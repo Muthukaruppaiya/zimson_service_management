@@ -13,6 +13,13 @@ export const SRF_DOCUMENT_PHOTO_KIND = "document" as const;
 
 export const SRF_MAX_WATCH_PHOTOS = 6;
 
+/** Minimum watch photos required to finalize an SRF (any categories; not all slots required). */
+export const SRF_MIN_WATCH_PHOTOS_REQUIRED = 3;
+
+export function srfMinWatchPhotosFinalizeError(uploadedCount: number): string {
+  return `Upload at least ${SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos before finalizing (you have ${uploadedCount}).`;
+}
+
 export const SRF_PHOTO_SLOT_LABELS: Record<SrfWatchPhotoKind, string> = {
   front: "Watch front",
   back: "Watch back",

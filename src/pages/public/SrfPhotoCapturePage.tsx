@@ -9,6 +9,7 @@ import {
 import {
   SRF_DOCUMENT_PHOTO_KIND,
   SRF_MAX_WATCH_PHOTOS,
+  SRF_MIN_WATCH_PHOTOS_REQUIRED,
   normalizeSrfPhotoKind,
   SRF_PHOTO_SLOT_LABELS,
   SRF_WATCH_PHOTO_KINDS,
@@ -176,7 +177,9 @@ export function SrfPhotoCapturePage() {
         photos: SessionPhoto[];
       }>(`/api/public/srf-photo/session?token=${encodeURIComponent(token)}`);
       setSession(data);
-      setStatus("Pick a category, upload the photo — it is removed from the list. Repeat until all 6 are done.");
+      setStatus(
+        `Add at least ${SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos (any categories). Up to ${SRF_MAX_WATCH_PHOTOS} types — one photo per type.`,
+      );
       setUploadError(null);
     } catch (e) {
       setSession(null);
@@ -490,7 +493,8 @@ export function SrfPhotoCapturePage() {
             Watch photos ({watchPhotoCount} / {SRF_MAX_WATCH_PHOTOS})
           </h2>
           <p className="mt-1 text-xs text-stone-600">
-            Select a category, add one photo — that category is removed from the dropdown.
+            Minimum {SRF_MIN_WATCH_PHOTOS_REQUIRED} photos required for the store to finalize the SRF. Pick any
+            categories (damage and other are optional). One photo per category, up to {SRF_MAX_WATCH_PHOTOS} types.
           </p>
 
           {!allWatchPhotosDone ? (
@@ -535,7 +539,7 @@ export function SrfPhotoCapturePage() {
             </div>
           ) : (
             <p className="mt-3 text-xs font-medium text-emerald-800">
-              All 6 watch photos uploaded. You can retake or remove below if needed.
+              All {SRF_MAX_WATCH_PHOTOS} watch photo slots are filled. You can retake or remove below if needed.
             </p>
           )}
 
