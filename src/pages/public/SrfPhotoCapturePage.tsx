@@ -264,8 +264,10 @@ export function SrfPhotoCapturePage() {
       const form = new FormData();
       form.append("token", token);
       form.append("kind", storedKind);
+      form.append("photoKind", storedKind);
       form.append("file", file);
-      const uploadUrl = `/api/public/srf-photo/upload/${encodeURIComponent(storedKind)}?token=${encodeURIComponent(token)}`;
+      const q = new URLSearchParams({ token, kind: storedKind, photoKind: storedKind });
+      const uploadUrl = `/api/public/srf-photo/upload?${q.toString()}`;
       const res = await fetch(uploadUrl, {
         method: "POST",
         body: form,
