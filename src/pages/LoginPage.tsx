@@ -1,12 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { ApiError, apiJson } from "../lib/api";
 import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
 import { AppBootLoader } from "../components/ui/AppBootLoader";
 
+const LOGIN_BOOT_MIN_MS = 700;
+
 export function LoginPage() {
   const { user, login, authReady } = useAuth();
+  const [bootMinElapsed, setBootMinElapsed] = useState(false);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setBootMinElapsed(true), LOGIN_BOOT_MIN_MS);
+    return () => window.clearTimeout(t);
+  }, []);
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "/";
@@ -22,7 +30,7 @@ export function LoginPage() {
 
   if (user) return <Navigate to="/" replace />;
 
-  if (!authReady) {
+  if (!authReady || !bootMinElapsed) {
     return <AppBootLoader message="Checking session…" />;
   }
 

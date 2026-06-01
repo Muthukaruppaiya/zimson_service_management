@@ -8,13 +8,49 @@ type Props = {
   ariaLabel?: string;
 };
 
+function lottiePublicUrl(path: string): string {
+  const base = import.meta.env.BASE_URL || "/";
+  const normalized = path.startsWith("/") ? path.slice(1) : path;
+  return `${base}${normalized}`.replace(/([^:]\/)\/+/g, "$1");
+}
+
+function LottieMounted({
+  animationData,
+  className,
+  loop,
+  ariaLabel,
+}: {
+  animationData: object;
+  className?: string;
+  loop: boolean;
+  ariaLabel?: string;
+}) {
+  const { View } = useLottie(
+    {
+      animationData,
+      loop,
+      autoplay: true,
+    },
+    { className: "h-full w-full" },
+  );
+
+  return (
+    <div role="img" aria-label={ariaLabel} className={className}>
+      {View}
+    </div>
+  );
+}
+
 export function LottieAnimation({ src, className, loop = true, ariaLabel }: Props) {
-  const [animationData, setAnimationData] = useState<object | undefined>(undefined);
+  const [animationData, setAnimationData] = useState<object | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setAnimationData(undefined);
-    void fetch(src)
+    setAnimationData(null);
+    setFailed(false);
+    const url = src.startsWith("http") || src.startsWith("/") ? lottiePublicUrl(src) : src;
+    void fetch(url)
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load animation (${r.status})`);
         return r.json() as Promise<object>;
@@ -23,36 +59,37 @@ export function LottieAnimation({ src, className, loop = true, ariaLabel }: Prop
         if (!cancelled) setAnimationData(data);
       })
       .catch(() => {
-        if (!cancelled) setAnimationData(undefined);
+        if (!cancelled) setFailed(true);
       });
     return () => {
       cancelled = true;
     };
   }, [src]);
 
-  const { View } = useLottie(
-    {
-      animationData,
-      loop,
-      autoplay: Boolean(animationData),
-    },
-    { className: "h-full w-full" },
-  );
-
-  if (!animationData) {
+  if (animationData) {
     return (
-      <div
+      <LottieMounted
+        key={src}
+        animationData={animationData}
         className={className}
-        role="status"
-        aria-label={ariaLabel ?? "Loading"}
-        aria-busy="true"
+        loop={loop}
+        ariaLabel={ariaLabel}
       />
     );
   }
 
   return (
-    <div role="img" aria-label={ariaLabel} className={className}>
-      {View}
+    <div
+      className={`flex items-center justify-center ${className ?? ""}`}
+      role="status"
+      aria-label={ariaLabel ?? "Loading"}
+      aria-busy="true"
+    >
+      <div
+        className={`h-10 w-10 shrink-0 rounded-full border-4 border-zimson-600 border-t-transparent ${
+          failed ? "" : "animate-spin"
+        }`}
+      />
     </div>
   );
 }

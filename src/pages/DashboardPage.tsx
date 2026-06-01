@@ -1,5 +1,6 @@
 import { Card } from "../components/ui/Card";
 import { GlobalSearch } from "../components/dashboard/GlobalSearch";
+import { DashboardQuickLinks } from "../components/dashboard/DashboardQuickLinks";
 import { useAuth } from "../context/AuthContext";
 
 const stats = [
@@ -32,6 +33,8 @@ export function DashboardPage() {
           <GlobalSearch autoFocus />
         </div>
       </section>
+
+      <DashboardQuickLinks />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((s) => (
