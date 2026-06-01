@@ -3470,10 +3470,6 @@ app.post("/api/customers", async (req, res) => {
     res.status(400).json({ error: "Complete mobile OTP verification first." });
     return;
   }
-  if (emailProvided && !emailOtp) {
-    res.status(400).json({ error: "Complete email OTP verification when an email address is provided." });
-    return;
-  }
   const sess = customerRegisterOtpSessions.get(sessionId);
   if (!sess || sess.expiresAt < Date.now()) {
     res.status(400).json({ error: "OTP session expired. Request new codes." });
@@ -3487,18 +3483,15 @@ app.post("/api/customers", async (req, res) => {
     res.status(400).json({ error: "Complete mobile verification before saving." });
     return;
   }
-  if (
-    emailProvided &&
-    (!sess.emailVerified || !sess.emailNorm || sess.emailCode == null)
-  ) {
-    res.status(400).json({ error: "Complete email verification before saving." });
+  if (emailProvided && emailOtp && (!sess.emailVerified || !sess.emailNorm || sess.emailCode == null)) {
+    res.status(400).json({ error: "Complete email OTP verification or clear the email field." });
     return;
   }
   if (sess.phoneLast10 !== phoneLast10(otpPhoneRaw || phone)) {
     res.status(400).json({ error: "Mobile for OTP does not match verification session." });
     return;
   }
-  if (emailProvided && sess.emailNorm !== email) {
+  if (emailProvided && emailOtp && sess.emailNorm !== email) {
     res.status(400).json({ error: "Email does not match verification session." });
     return;
   }
@@ -3506,7 +3499,7 @@ app.post("/api/customers", async (req, res) => {
     res.status(400).json({ error: "Incorrect mobile OTP." });
     return;
   }
-  if (emailProvided && emailOtp !== sess.emailCode) {
+  if (emailProvided && emailOtp && emailOtp !== sess.emailCode) {
     res.status(400).json({ error: "Incorrect email OTP." });
     return;
   }

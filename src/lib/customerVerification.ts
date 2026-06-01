@@ -1,7 +1,7 @@
-/** Customer is fully OTP-verified when both mobile and email OTP timestamps are set. */
-export function isFullyOtpVerified(phoneAt: string | null | undefined, emailAt: string | null | undefined): boolean {
-  return !!(phoneAt?.trim() && emailAt?.trim());
+/** Customer is verified for billing/handover when mobile OTP is completed (email optional). */
+export function isFullyOtpVerified(phoneAt: string | null | undefined, _emailAt?: string | null): boolean {
+  return Boolean(phoneAt?.trim());
 }
 
 export const UNVERIFIED_CUSTOMER_ALERT_MESSAGE =
-  "This customer is not verified. Complete mobile and email OTP in customer registration before handover or billing.";
+  "This customer is not verified. Complete mobile OTP in customer registration before handover or billing.";

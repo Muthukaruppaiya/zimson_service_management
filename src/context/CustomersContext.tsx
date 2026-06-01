@@ -387,20 +387,21 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       if (!w || !w.mobileVerified) {
         throw new Error("Complete mobile OTP verification (local demo).");
       }
-      if (emailNorm && (!w.emailVerified || !w.emailNorm || w.emailCode == null)) {
-        throw new Error("Complete email OTP verification when email is provided (local demo).");
+      const emailOtp = optTrim(input.emailOtp);
+      if (emailNorm && emailOtp && (!w.emailVerified || !w.emailNorm || w.emailCode == null)) {
+        throw new Error("Complete email OTP verification or clear the email field (local demo).");
       }
       const p10Otp = phoneLast10Local(optTrim(input.otpPhone) || optTrim(input.phone));
       if (w.phoneLast10 !== p10Otp) {
         throw new Error("Mobile for OTP does not match verification session (local demo).");
       }
-      if (emailNorm && w.emailNorm !== emailNorm) {
+      if (emailNorm && emailOtp && w.emailNorm !== emailNorm) {
         throw new Error("Email does not match verification session (local demo).");
       }
       if (w.mobileCode !== optTrim(input.mobileOtp)) {
         throw new Error("Incorrect mobile OTP (local demo).");
       }
-      if (emailNorm && w.emailCode !== optTrim(input.emailOtp)) {
+      if (emailNorm && emailOtp && w.emailCode !== emailOtp) {
         throw new Error("Incorrect email OTP (local demo).");
       }
       localOtpSessionsRef.current.delete(input.sessionId);

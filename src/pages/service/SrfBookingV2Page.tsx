@@ -28,7 +28,15 @@ import {
 } from "../../data/serviceSeed";
 import type { CustomerAddressBlock } from "../../types/customer";
 import type { SrfJob } from "../../types/srfJob";
-import { UNVERIFIED_CUSTOMER_ALERT_MESSAGE } from "../../lib/customerVerification";
+import {
+  isFullyOtpVerified,
+  UNVERIFIED_CUSTOMER_ALERT_MESSAGE,
+} from "../../lib/customerVerification";
+import {
+  clearPendingRegisterPhone,
+  isPhonePendingRegistration,
+  setPendingRegisterPhone,
+} from "../../lib/pendingRegisterPhone";
 import {
   WatchServiceDetailFields,
   emptyWatchServiceDetailValues,
@@ -92,15 +100,6 @@ function formFieldsFromBillingOrLegacy(
     country: "",
     pin: "",
   };
-}
-
-function isVerifiedTimestamp(iso: string | null): boolean {
-  return Boolean(iso && String(iso).trim());
-}
-
-/** Customer is treated as fully OTP-verified after registration flow (mobile + email). */
-function isFullyOtpVerified(phoneAt: string | null, emailAt: string | null): boolean {
-  return isVerifiedTimestamp(phoneAt) && isVerifiedTimestamp(emailAt);
 }
 
 const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
@@ -271,6 +270,8 @@ export function SrfBookingV2Page() {
   const [loadedCustomerCode, setLoadedCustomerCode] = useState<string | null>(null);
   /** Existing customer row from API / local lookup — master fields stay read-only. */
   const customerLockedFromDb = Boolean(loadedCustomerId && customerChecked);
+  const phoneLockedForNewRegistration =
+    !customerLockedFromDb && isPhonePendingRegistration(phone);
   const [walkInPending, setWalkInPending] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -289,6 +290,7 @@ export function SrfBookingV2Page() {
     setWalkInPending(false);
     lastAutoLookupPhoneRef.current = "";
     unverifiedAlertShownForRef.current = null;
+    clearPendingRegisterPhone();
   }, []);
 
   const effectiveOperatingRegionId = useMemo(
@@ -320,10 +322,22 @@ export function SrfBookingV2Page() {
   }, [regions, currentStoreId]);
   const redirectToCustomerRegister = useCallback(
     (phoneRaw: string) => {
+      const p = phoneRaw.trim();
+      if (p) setPendingRegisterPhone(p);
+      setCustomerName("");
+      setEmail("");
+      setAlternatePhone("");
+      setAddress("");
+      setCity("");
+      setStateName("");
+      setCountry("");
+      setPincode("");
+      setCompany("");
+      setGst("");
+      setPan("");
+      customerNameForNavRef.current = "";
       const q = new URLSearchParams();
-      if (phoneRaw.trim()) q.set("phone", phoneRaw.trim());
-      const name = customerNameForNavRef.current;
-      if (name) q.set("name", name);
+      if (p) q.set("phone", p);
       q.set("returnTo", "/service/srf");
       navigate(`/service/srf/new-customer?${q.toString()}`, { replace: true });
     },
@@ -639,6 +653,7 @@ export function SrfBookingV2Page() {
   };
 
   function applyLoadedCustomer(data: LoadedCustomer) {
+    clearPendingRegisterPhone();
     setCustomerExists(true);
     setCustomerChecked(true);
     setWalkInPending(false);
@@ -674,6 +689,7 @@ export function SrfBookingV2Page() {
     const rp = searchParams.get("restorePhone");
     if (!rp) return;
     setPhone(rp);
+    setPendingRegisterPhone(rp);
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 
@@ -895,6 +911,18 @@ export function SrfBookingV2Page() {
           setWalkInPending(false);
           setLoadedCustomerId(null);
           setLoadedCustomerCode(null);
+          setCustomerName("");
+          setEmail("");
+          setAlternatePhone("");
+          setAddress("");
+          setCity("");
+          setStateName("");
+          setCountry("");
+          setPincode("");
+          setCompany("");
+          setGst("");
+          setPan("");
+          customerNameForNavRef.current = "";
           setCustomerCheckMsg("New mobile — opening customer registration…");
           redirectToCustomerRegister(phone.trim());
           return;
@@ -940,6 +968,18 @@ export function SrfBookingV2Page() {
     setLoadedCustomerCode(null);
     setPhoneVerifiedAt(null);
     setEmailVerifiedAt(null);
+    setCustomerName("");
+    setEmail("");
+    setAlternatePhone("");
+    setAddress("");
+    setCity("");
+    setStateName("");
+    setCountry("");
+    setPincode("");
+    setCompany("");
+    setGst("");
+    setPan("");
+    customerNameForNavRef.current = "";
     if (autoLookupTimerRef.current) window.clearTimeout(autoLookupTimerRef.current);
     autoLookupTimerRef.current = window.setTimeout(() => {
       lastAutoLookupPhoneRef.current = normalized;
@@ -1383,11 +1423,24 @@ export function SrfBookingV2Page() {
             </label>
             <label className="text-sm md:col-span-2">
               Phone
+              {phoneLockedForNewRegistration ? (
+                <span className="mt-0.5 block text-xs font-normal text-stone-500">
+                  Mobile for new customer registration (cannot be changed on this screen).
+                </span>
+              ) : null}
               <input
-                className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                className={
+                  customerLockedFromDb || phoneLockedForNewRegistration
+                    ? readOnlyCustomerFieldClass
+                    : inputClass
+                }
                 value={phone}
-                readOnly={customerLockedFromDb}
-                onChange={customerLockedFromDb ? undefined : (e) => setPhone(e.target.value)}
+                readOnly={customerLockedFromDb || phoneLockedForNewRegistration}
+                onChange={
+                  customerLockedFromDb || phoneLockedForNewRegistration
+                    ? undefined
+                    : (e) => setPhone(e.target.value)
+                }
               />
             </label>
           </div>
@@ -1443,13 +1496,13 @@ export function SrfBookingV2Page() {
                   className="md:col-span-2 rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
                   role="alert"
                 >
-                  Alert: Customer not verified — complete mobile and email OTP before handover.
+                  Alert: Customer not verified — complete mobile OTP before handover.
                 </div>
               ) : null}
               {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
                 <div className="md:col-span-2 flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50/95 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs text-amber-950">
-                    Complete mobile and email OTP on customer registration to mark this customer verified.
+                    Complete mobile OTP on customer registration to mark this customer verified.
                   </p>
                   <button
                     type="button"

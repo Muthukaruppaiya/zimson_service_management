@@ -78,6 +78,10 @@ import {
   isFullyOtpVerified,
   UNVERIFIED_CUSTOMER_ALERT_MESSAGE,
 } from "../../lib/customerVerification";
+import {
+  clearPendingRegisterPhone,
+  setPendingRegisterPhone,
+} from "../../lib/pendingRegisterPhone";
 import { watchAttachmentDisplayName } from "../../lib/watchAttachmentUpload";
 import {
   storeServiceChargeMaxLabel,
@@ -240,10 +244,19 @@ export function QuickBillPage() {
 
   const redirectToCustomerRegister = useCallback(
     (phoneRaw: string) => {
+      const p = phoneRaw.trim();
+      if (p) setPendingRegisterPhone(p);
+      setCustomerName("");
+      setEmail("");
+      setCompany("");
+      setGst("");
+      setPan("");
+      setAddress("");
+      setCity("");
+      setCustomerBillingState("");
+      customerNameForNavRef.current = "";
       const q = new URLSearchParams();
-      if (phoneRaw.trim()) q.set("phone", phoneRaw.trim());
-      const name = customerNameForNavRef.current;
-      if (name) q.set("name", name);
+      if (p) q.set("phone", p);
       q.set("returnTo", "/service/quick-bill");
       navigate(`/service/quick-bill/new-customer?${q.toString()}`, { replace: true });
     },
@@ -321,6 +334,7 @@ export function QuickBillPage() {
     verifiedBillPhoneLast10Ref.current = "";
     lastAutoLookupPhoneRef.current = "";
     unverifiedAlertShownForRef.current = null;
+    clearPendingRegisterPhone();
   }, []);
   const [phoneVerifiedAt, setPhoneVerifiedAt] = useState<string | null>(null);
   const [emailVerifiedAt, setEmailVerifiedAt] = useState<string | null>(null);
@@ -336,6 +350,7 @@ export function QuickBillPage() {
   phoneInputRef.current = phone.trim();
 
   const applyLoadedCustomer = useCallback((data: LoadedCustomerRow) => {
+    clearPendingRegisterPhone();
     setCustomerType(data.customerKind);
     setCustomerName((data.displayName ?? "").trim());
     setPhone((data.phone ?? "").trim());
@@ -424,6 +439,15 @@ export function QuickBillPage() {
           setLoadedCustomerId(null);
           setLoadedCustomerCode(null);
           setHandoverVerified(false);
+          setCustomerName("");
+          setEmail("");
+          setCompany("");
+          setGst("");
+          setPan("");
+          setAddress("");
+          setCity("");
+          setCustomerBillingState("");
+          customerNameForNavRef.current = "";
           setCustomerCheckMsg("New mobile — opening customer registration…");
           redirectToCustomerRegister(rawPhone);
           return;
@@ -462,6 +486,7 @@ export function QuickBillPage() {
     const rp = searchParams.get("restorePhone");
     if (!rp) return;
     setPhone(rp);
+    setPendingRegisterPhone(rp);
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 
@@ -557,6 +582,15 @@ export function QuickBillPage() {
     setHandoverVerified(false);
     setLoadedCustomerId(null);
     setLoadedCustomerCode(null);
+    setCustomerName("");
+    setEmail("");
+    setCompany("");
+    setGst("");
+    setPan("");
+    setAddress("");
+    setCity("");
+    setCustomerBillingState("");
+    customerNameForNavRef.current = "";
     if (autoLookupTimerRef.current) window.clearTimeout(autoLookupTimerRef.current);
     autoLookupTimerRef.current = window.setTimeout(() => {
       lastAutoLookupPhoneRef.current = normalized;
@@ -1906,7 +1940,7 @@ export function QuickBillPage() {
                 className="md:col-span-2 rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
                 role="alert"
               >
-                Alert: Customer not verified — complete mobile and email OTP in customer registration.
+                Alert: Customer not verified — complete mobile OTP in customer registration.
                 <button
                   type="button"
                   onClick={() => redirectToCustomerRegister(phone.trim())}

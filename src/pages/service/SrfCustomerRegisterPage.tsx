@@ -27,6 +27,7 @@ import {
 } from "../../lib/customerAddress";
 import type { CustomerAddressBlock, CustomerKind, CustomerRecord } from "../../types/customer";
 import { inputClass } from "../../lib/uiForm";
+import { clearPendingRegisterPhone } from "../../lib/pendingRegisterPhone";
 
 const contactVerifyPill =
   "inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-900";
@@ -71,10 +72,12 @@ export function SrfCustomerRegisterPage() {
   } = useCustomers();
   const { showError: showOtpAlert, alertModal } = useMessageAlert();
   const forQuickBill = location.pathname.includes("/quick-bill/new-customer");
+  const forSrf = location.pathname.includes("/srf/new-customer");
 
   const initialPhone = searchParams.get("phone") ?? "";
-  const lockedQuickBillPhone = forQuickBill && digitsOnly(initialPhone, 10).length === 10;
-  const initialName = searchParams.get("name") ?? "";
+  const initialPhoneDigits = digitsOnly(initialPhone, 10);
+  const lockedRegisterPhone =
+    (forQuickBill || forSrf) && initialPhoneDigits.length === 10;
   const returnTo = searchParams.get("returnTo") ?? "";
 
   const [customerKind, setCustomerKind] = useState<CustomerKind>("B2C");
@@ -83,7 +86,7 @@ export function SrfCustomerRegisterPage() {
   const [lastName, setLastName] = useState("");
   const [b2bDisplayName, setB2bDisplayName] = useState("");
   const [phoneEditable, setPhoneEditable] = useState(() => digitsOnly(initialPhone, 10));
-  const phone = lockedQuickBillPhone ? digitsOnly(initialPhone, 10) : phoneEditable;
+  const phone = lockedRegisterPhone ? initialPhoneDigits : phoneEditable;
   const [alternatePhone, setAlternatePhone] = useState("");
   const [telephone, setTelephone] = useState("");
   const [email, setEmail] = useState("");
@@ -122,14 +125,37 @@ export function SrfCustomerRegisterPage() {
   } | null>(null);
 
   useEffect(() => {
-    const parts = initialName.trim().split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      setFirstName(parts[0] ?? "");
-      setLastName(parts.slice(1).join(" "));
-    } else if (parts.length === 1) {
-      setFirstName(parts[0] ?? "");
-    }
-  }, [initialName]);
+    if (!lockedRegisterPhone) return;
+    setCustomerKind("B2C");
+    setSalutation("Mr.");
+    setFirstName("");
+    setLastName("");
+    setB2bDisplayName("");
+    setAlternatePhone("");
+    setTelephone("");
+    setEmail("");
+    setDob("");
+    setAnniversaryDate("");
+    setBilling(emptyCustomerAddress());
+    setShipping(emptyCustomerAddress());
+    setAdditionalAddresses([]);
+    setSameShippingAsBilling(false);
+    setCompany("");
+    setGst("");
+    setPan("");
+    setRemarkAttention("");
+    setReferenceName("");
+    setRepresentativeName("");
+    setSessionId(null);
+    setDemoMobileOtp(null);
+    setDemoEmailOtp(null);
+    setMobileOtpInput("");
+    setEmailOtpInput("");
+    setMobileOtpVerified(false);
+    setEmailOtpVerified(false);
+    setEmailOtpAnchor(null);
+    setError(null);
+  }, [lockedRegisterPhone, initialPhoneDigits]);
 
   const phoneKey = useMemo(() => digitsOnly(phone, 12), [phone]);
   const emailKey = useMemo(() => email.trim().toLowerCase(), [email]);
@@ -482,6 +508,7 @@ export function SrfCustomerRegisterPage() {
 
   function afterSuccessNavigate() {
     if (!successInfo) return;
+    clearPendingRegisterPhone();
     const digits = successInfo.phoneDigits || digitsOnly(phone, 12);
     const q = new URLSearchParams({
       customerId: successInfo.id,
@@ -625,28 +652,30 @@ export function SrfCustomerRegisterPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Primary mobile *</label>
-              {lockedQuickBillPhone ? (
+              {lockedRegisterPhone ? (
                 <p className="mt-0.5 text-xs text-stone-500">
-                  Mobile from Quick Bill (cannot be changed on this screen).
+                  {forQuickBill
+                    ? "Mobile from Quick Bill (cannot be changed on this screen)."
+                    : "Mobile from SRF booking (cannot be changed on this screen)."}
                 </p>
               ) : null}
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <input
                   value={phone}
-                  readOnly={lockedQuickBillPhone}
+                  readOnly={lockedRegisterPhone}
                   onChange={
-                    lockedQuickBillPhone
+                    lockedRegisterPhone
                       ? undefined
                       : (e) => setPhoneEditable(digitsOnly(e.target.value, 10))
                   }
                   className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1${
-                    lockedQuickBillPhone ? " cursor-not-allowed bg-stone-100 text-stone-700" : ""
+                    lockedRegisterPhone ? " cursor-not-allowed bg-stone-100 text-stone-700" : ""
                   }`}
                   placeholder="10-digit mobile"
                   inputMode="numeric"
                   maxLength={10}
                   autoComplete="tel"
-                  aria-readonly={lockedQuickBillPhone}
+                  aria-readonly={lockedRegisterPhone}
                 />
                 <button
                   type="button"
@@ -771,7 +800,7 @@ export function SrfCustomerRegisterPage() {
                   <div className="mt-2 flex flex-wrap items-end gap-2">
                     <div className="min-w-0 flex-1">
                       <label className="text-xs font-medium text-stone-600" htmlFor="srf-reg-email-otp">
-                        Enter email OTP *
+                        Enter email OTP
                       </label>
                       <input
                         id="srf-reg-email-otp"
@@ -1030,7 +1059,7 @@ export function SrfCustomerRegisterPage() {
         <ProcessSuccessModal
           open
           title="Customer created successfully"
-          description="The customer master record is saved and verified for mobile and email."
+          description="The customer master record is saved. Mobile OTP verification is complete."
           actions={
             <>
               <button
@@ -1060,8 +1089,8 @@ export function SrfCustomerRegisterPage() {
             Internal ID: <span className="font-mono text-xs text-stone-600">{successInfo.id}</span>
           </p>
           <p className="mt-3 text-xs text-stone-500">
-            This profile is verified for both mobile and email. Migrated records from the old system would show as
-            unverified until staff complete OTP verification in a future update.
+            Email is optional; verify it later from customer master if needed. Older migrated records may still show
+            as unverified until mobile OTP is completed.
           </p>
         </ProcessSuccessModal>
       ) : null}
