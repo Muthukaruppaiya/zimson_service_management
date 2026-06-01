@@ -2,11 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
 import { LOTTIE_WHATSAPP_SENDING } from "../../lib/lottieAssets";
+import { prefetchLottieAnimation } from "../../lib/lottieCache";
 import { DeliveryAckModal } from "../ui/DeliveryAckModal";
 import { LottieAnimation } from "../ui/LottieAnimation";
 
@@ -43,6 +45,10 @@ const SENDING_COPY: Record<
 };
 
 export function WhatsAppSendProvider({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    prefetchLottieAnimation(LOTTIE_WHATSAPP_SENDING);
+  }, []);
+
   const [channel, setChannel] = useState<SendChannel | null>(null);
   const [successOpen, setSuccessOpen] = useState(false);
   const [successTitle, setSuccessTitle] = useState("");

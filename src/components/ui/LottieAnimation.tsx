@@ -1,5 +1,8 @@
 import { useLottie } from "lottie-react";
 import { useEffect, useState } from "react";
+import { fetchLottieAnimation, prefetchLottieAnimation } from "../../lib/lottieCache";
+
+export { prefetchLottieAnimation };
 
 type Props = {
   src: string;
@@ -7,12 +10,6 @@ type Props = {
   loop?: boolean;
   ariaLabel?: string;
 };
-
-function lottiePublicUrl(path: string): string {
-  const base = import.meta.env.BASE_URL || "/";
-  const normalized = path.startsWith("/") ? path.slice(1) : path;
-  return `${base}${normalized}`.replace(/([^:]\/)\/+/g, "$1");
-}
 
 function LottieMounted({
   animationData,
@@ -30,6 +27,7 @@ function LottieMounted({
       animationData,
       loop,
       autoplay: true,
+      renderer: "svg",
     },
     { className: "h-full w-full" },
   );
@@ -49,18 +47,15 @@ export function LottieAnimation({ src, className, loop = true, ariaLabel }: Prop
     let cancelled = false;
     setAnimationData(null);
     setFailed(false);
-    const url = src.startsWith("http") || src.startsWith("/") ? lottiePublicUrl(src) : src;
-    void fetch(url)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Failed to load animation (${r.status})`);
-        return r.json() as Promise<object>;
-      })
+
+    void fetchLottieAnimation(src)
       .then((data) => {
         if (!cancelled) setAnimationData(data);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
       });
+
     return () => {
       cancelled = true;
     };
@@ -85,11 +80,10 @@ export function LottieAnimation({ src, className, loop = true, ariaLabel }: Prop
       aria-label={ariaLabel ?? "Loading"}
       aria-busy="true"
     >
-      <div
-        className={`h-10 w-10 shrink-0 rounded-full border-4 border-zimson-600 border-t-transparent ${
-          failed ? "" : "animate-spin"
-        }`}
-      />
+      <div className="h-10 w-10 shrink-0 animate-spin rounded-full border-4 border-zimson-600 border-t-transparent" />
+      {failed ? (
+        <span className="sr-only">Animation could not be loaded; showing spinner instead.</span>
+      ) : null}
     </div>
   );
 }

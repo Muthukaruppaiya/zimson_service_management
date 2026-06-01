@@ -12,8 +12,8 @@ type WatchModelPickerProps = {
   onModelChange: (model: string) => void;
   inputClass: string;
   idPrefix?: string;
+  /** Current serial/ref — stored on the model row when saving a new catalog model. */
   serialHint?: string;
-  onSerialHintFromModel?: (ref: string) => void;
   disableAutoSelect?: boolean;
   onSelectionModeChange?: (isNewModel: boolean) => void;
 };
@@ -26,7 +26,6 @@ export function WatchModelPicker({
   inputClass,
   idPrefix = "wm",
   serialHint = "",
-  onSerialHintFromModel,
   disableAutoSelect = false,
   onSelectionModeChange,
 }: WatchModelPickerProps) {
@@ -127,9 +126,7 @@ export function WatchModelPicker({
     }
     setCatalogModelKey(catalogModels[0]!.model);
     setCustomModelText("");
-    const ref = catalogModels[0]?.refHint;
-    if (ref) onSerialHintFromModel?.(ref);
-  }, [catalogModels, catalogModelKey, disableAutoSelect, onSerialHintFromModel]);
+  }, [catalogModels, catalogModelKey, disableAutoSelect]);
 
   async function saveNewModel() {
     const name =
@@ -237,8 +234,6 @@ export function WatchModelPicker({
               }
               setCatalogModelKey(v);
               setCustomModelText("");
-              const m = catalogModels.find((x) => x.model === v);
-              if (m?.refHint) onSerialHintFromModel?.(m.refHint);
             }}
             inputClass={inputClass}
             placeholder="Search or select model…"

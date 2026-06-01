@@ -1648,7 +1648,6 @@ export function SrfBookingV2Page() {
                 inputClass={inputClass}
                 idPrefix="srf"
                 serialHint={serial}
-                onSerialHintFromModel={setSerial}
               />
             </div>
             <label className="text-sm">

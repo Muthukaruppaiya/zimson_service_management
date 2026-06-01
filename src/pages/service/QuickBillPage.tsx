@@ -2013,7 +2013,6 @@ export function QuickBillPage() {
                 inputClass={inputClass}
                 idPrefix="qb"
                 serialHint={watchRef}
-                onSerialHintFromModel={setWatchRef}
               />
             </div>
             <div className={qbField}>
