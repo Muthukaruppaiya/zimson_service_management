@@ -37,7 +37,7 @@ import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceT
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
-import { useWhatsAppSend } from "../../components/messaging/WhatsAppSendProvider";
+import { useMessagingSend } from "../../components/messaging/WhatsAppSendProvider";
 import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import type { QuickBillInvoice } from "../../types/quickBill";
@@ -219,7 +219,7 @@ function QuickBillInvoicePanel({
 
 export function QuickBillPage() {
   const apiMode = useApiMode();
-  const { runWhatsAppSend, sending: whatsappSending } = useWhatsAppSend();
+  const { runWhatsAppSend, runEmailSend, whatsappSending, emailSending } = useMessagingSend();
   const { user } = useAuth();
   const { getById, customers } = useCustomers();
   const navigate = useNavigate();
@@ -306,7 +306,6 @@ export function QuickBillPage() {
   const [completion, setCompletion] = useState<CompletionState>(null);
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
-  const [emailSending, setEmailSending] = useState(false);
   const [isSavingBill, setIsSavingBill] = useState(false);
 
   const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
@@ -1433,7 +1432,6 @@ export function QuickBillPage() {
     setCustomerCheckMsg(null);
     lastAutoLookupPhoneRef.current = "";
     verifiedBillPhoneLast10Ref.current = "";
-    setEmailSending(false);
   }
 
   const handleSendInvoiceWhatsApp = useCallback(
@@ -1478,23 +1476,26 @@ export function QuickBillPage() {
         setBillPostActionNote("Customer email is required to send the invoice.");
         return;
       }
-      setEmailSending(true);
       setBillPostActionNote(null);
-      try {
-        await sendInvoiceEmail({
-          email: to,
-          customerName: (inv.customerName ?? customerName).trim() || "Customer",
-          invoiceNumber: inv.invoiceNumber || inv.billNumber,
-          totalInr: inv.totalInr,
-        });
-        setBillPostActionNote("Invoice sent by email successfully (PDF attached).");
-      } catch (e) {
-        setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice by email.");
-      } finally {
-        setEmailSending(false);
-      }
+      await runEmailSend(async () => {
+        try {
+          await sendInvoiceEmail({
+            email: to,
+            customerName: (inv.customerName ?? customerName).trim() || "Customer",
+            invoiceNumber: inv.invoiceNumber || inv.billNumber,
+            totalInr: inv.totalInr,
+          });
+          const msg = "Invoice sent by email successfully (PDF attached).";
+          setBillPostActionNote(msg);
+          return { ok: true, message: msg };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Could not send invoice by email.";
+          setBillPostActionNote(msg);
+          return { ok: false, message: msg };
+        }
+      });
     },
-    [email, customerName],
+    [email, customerName, runEmailSend],
   );
 
   if (completion?.mode === "api") {
@@ -1632,18 +1633,24 @@ export function QuickBillPage() {
                   emailSending || !apiMode || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
                 }
                 onClick={() => {
-                  setEmailSending(true);
-                  void sendInvoiceEmail({
-                    email: email.trim(),
-                    customerName: customerName.trim() || "Customer",
-                    invoiceNumber: completion.ref,
-                    totalInr: payableTotal,
-                  })
-                    .then(() => setBillPostActionNote("Invoice sent by email successfully."))
-                    .catch((e) =>
-                      setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice by email."),
-                    )
-                    .finally(() => setEmailSending(false));
+                  void runEmailSend(async () => {
+                    try {
+                      await sendInvoiceEmail({
+                        email: email.trim(),
+                        customerName: customerName.trim() || "Customer",
+                        invoiceNumber: completion.ref,
+                        totalInr: payableTotal,
+                      });
+                      const msg = "Invoice sent by email successfully.";
+                      setBillPostActionNote(msg);
+                      return { ok: true, message: msg };
+                    } catch (e) {
+                      const msg =
+                        e instanceof Error ? e.message : "Could not send invoice by email.";
+                      setBillPostActionNote(msg);
+                      return { ok: false, message: msg };
+                    }
+                  });
                 }}
               >
                 {emailSending ? "Sending email…" : "Send invoice by email"}

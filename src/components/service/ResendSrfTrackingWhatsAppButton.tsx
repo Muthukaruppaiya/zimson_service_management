@@ -5,7 +5,7 @@ import {
   type ResendSrfTrackingWhatsAppResult,
 } from "../../lib/resendSrfTrackingWhatsApp";
 import { isValidIndianMobile10 } from "../../lib/whatsappInvoiceUi";
-import { useWhatsAppSend } from "../messaging/WhatsAppSendProvider";
+import { useMessagingSend } from "../messaging/WhatsAppSendProvider";
 
 type Props = {
   srfId: string;
@@ -28,7 +28,7 @@ export function ResendSrfTrackingWhatsAppButton({
   busyLabel = "Sending…",
   onResult,
 }: Props) {
-  const { runWhatsAppSend, sending } = useWhatsAppSend();
+  const { runWhatsAppSend, whatsappSending } = useMessagingSend();
 
   async function handleClick() {
     if (!srfId.trim()) return;
@@ -68,14 +68,14 @@ export function ResendSrfTrackingWhatsAppButton({
   return (
     <button
       type="button"
-      disabled={disabled || sending || !srfId.trim()}
+      disabled={disabled || whatsappSending || !srfId.trim()}
       onClick={() => void handleClick()}
       className={
         className ??
         "rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
       }
     >
-      {sending ? busyLabel : label}
+      {whatsappSending ? busyLabel : label}
     </button>
   );
 }

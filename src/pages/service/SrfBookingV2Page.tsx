@@ -1805,10 +1805,18 @@ export function SrfBookingV2Page() {
 
       {step === 3 ? (
         <Card title="Step 4 — Estimate + OTP">
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="text-sm md:col-span-2">Watch complaint<textarea className={inputClass} rows={3} value={complaint} onChange={(e) => setComplaint(e.target.value)} /></label>
-            <label className="text-sm">
-              Estimate amount (₹)
+          <div className="grid gap-4 md:grid-cols-2 md:items-start">
+            <label className="block min-w-0 text-sm md:col-span-2">
+              <span className="mb-1 block font-medium text-stone-700">Watch complaint</span>
+              <textarea
+                className={inputClass}
+                rows={3}
+                value={complaint}
+                onChange={(e) => setComplaint(e.target.value)}
+              />
+            </label>
+            <label className="block min-w-0 text-sm">
+              <span className="mb-1 block font-medium text-stone-700">Estimate amount (₹)</span>
               <input
                 className={inputClass}
                 value={estimateAmount}
@@ -1818,21 +1826,44 @@ export function SrfBookingV2Page() {
                 }}
               />
             </label>
-            <label className="text-sm">
-              Advance amount (₹)
-              <input className={inputClass} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="0.00" />
-            </label>
-            <label className="text-sm">Estimated service finish date<input type="date" className={inputClass} value={estimatedFinishDate} onChange={(e) => setEstimatedFinishDate(e.target.value)} /></label>
-            {advanceTotal > 0 ? (
-              <MultiPaymentFields
-                idPrefix="srf-advance"
-                amountLabel="advance"
-                targetInr={advanceTotal}
-                form={advancePaymentForm}
-                onChange={setAdvancePaymentForm}
+            <label className="block min-w-0 text-sm">
+              <span className="mb-1 block font-medium text-stone-700">Advance amount (₹)</span>
+              <input
+                className={inputClass}
+                value={advanceAmount}
+                onChange={(e) => setAdvanceAmount(e.target.value)}
+                placeholder="0.00"
               />
+            </label>
+            <label className="block min-w-0 text-sm md:col-span-2">
+              <span className="mb-1 block font-medium text-stone-700">Estimated service finish date</span>
+              <input
+                type="date"
+                className={`${inputClass} max-w-xs`}
+                value={estimatedFinishDate}
+                onChange={(e) => setEstimatedFinishDate(e.target.value)}
+              />
+            </label>
+            {advanceTotal > 0 ? (
+              <div className="min-w-0 md:col-span-2">
+                <MultiPaymentFields
+                  idPrefix="srf-advance"
+                  amountLabel="advance"
+                  targetInr={advanceTotal}
+                  form={advancePaymentForm}
+                  onChange={setAdvancePaymentForm}
+                />
+              </div>
             ) : null}
-            <label className="text-sm md:col-span-2">Remarks<input className={inputClass} value={estimateRemarks} onChange={(e) => setEstimateRemarks(e.target.value)} placeholder="Optional remarks" /></label>
+            <label className="block min-w-0 text-sm md:col-span-2">
+              <span className="mb-1 block font-medium text-stone-700">Remarks</span>
+              <input
+                className={inputClass}
+                value={estimateRemarks}
+                onChange={(e) => setEstimateRemarks(e.target.value)}
+                placeholder="Optional remarks"
+              />
+            </label>
             <div className="md:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
               <p className="text-sm font-semibold text-zimson-900">Watch condition / observation</p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">

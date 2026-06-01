@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
+import { useEmailSend } from "../messaging/WhatsAppSendProvider";
 
 type Props = {
   email: string;
@@ -29,7 +29,7 @@ export function SendInvoiceEmailButton({
   busyLabel = "Sending…",
   onResult,
 }: Props) {
-  const [busy, setBusy] = useState(false);
+  const { runEmailSend, emailSending } = useEmailSend();
 
   async function handleClick() {
     const to = email.trim();
@@ -41,25 +41,33 @@ export function SendInvoiceEmailButton({
       onResult?.("Invoice number is missing.", false);
       return;
     }
-    setBusy(true);
-    try {
-      await sendInvoiceEmail({
-        email: to,
-        customerName: customerName.trim() || "Customer",
-        invoiceNumber: invoiceNumber.trim(),
-        totalInr,
-      });
-      onResult?.("Invoice sent by email successfully.", true);
-    } catch (e) {
-      onResult?.(e instanceof Error ? e.message : "Could not send invoice by email.", false);
-    } finally {
-      setBusy(false);
-    }
+    await runEmailSend(async () => {
+      try {
+        await sendInvoiceEmail({
+          email: to,
+          customerName: customerName.trim() || "Customer",
+          invoiceNumber: invoiceNumber.trim(),
+          totalInr,
+        });
+        const msg = "Invoice sent by email successfully.";
+        onResult?.(msg, true);
+        return { ok: true, message: msg };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Could not send invoice by email.";
+        onResult?.(msg, false);
+        return { ok: false, message: msg };
+      }
+    });
   }
 
   return (
-    <button type="button" disabled={disabled || busy} onClick={() => void handleClick()} className={className}>
-      {busy ? busyLabel : label}
+    <button
+      type="button"
+      disabled={disabled || emailSending}
+      onClick={() => void handleClick()}
+      className={className}
+    >
+      {emailSending ? busyLabel : label}
     </button>
   );
 }

@@ -1,6 +1,6 @@
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import { invoiceWhatsAppResultMessage, isValidIndianMobile10 } from "../../lib/whatsappInvoiceUi";
-import { useWhatsAppSend } from "../messaging/WhatsAppSendProvider";
+import { useMessagingSend } from "../messaging/WhatsAppSendProvider";
 
 type Props = {
   phone: string;
@@ -23,7 +23,7 @@ export function SendInvoiceWhatsAppButton({
   busyLabel = "Sending…",
   onResult,
 }: Props) {
-  const { runWhatsAppSend, sending } = useWhatsAppSend();
+  const { runWhatsAppSend, whatsappSending } = useMessagingSend();
 
   async function handleClick() {
     const p10 = phone.replace(/\D/g, "").slice(-10);
@@ -57,11 +57,11 @@ export function SendInvoiceWhatsAppButton({
   return (
     <button
       type="button"
-      disabled={disabled || sending}
+      disabled={disabled || whatsappSending}
       onClick={() => void handleClick()}
       className={className}
     >
-      {sending ? busyLabel : label}
+      {whatsappSending ? busyLabel : label}
     </button>
   );
 }

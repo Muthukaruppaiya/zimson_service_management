@@ -20,7 +20,7 @@ import { apiJson, ApiError } from "../../lib/api";
 import { phoneLast10 } from "../../lib/customerLookup";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
-import { useWhatsAppSend } from "../../components/messaging/WhatsAppSendProvider";
+import { useMessagingSend } from "../../components/messaging/WhatsAppSendProvider";
 import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
@@ -58,7 +58,7 @@ const billSuccessBtnOutline = `${billSuccessBtnBase} border border-stone-300 bg-
 
 export function StoreBillingPage() {
   const { user } = useAuth();
-  const { runWhatsAppSend, sending: whatsappSending } = useWhatsAppSend();
+  const { runWhatsAppSend, runEmailSend, whatsappSending, emailSending } = useMessagingSend();
   const { regions } = useRegions();
   const { customers } = useCustomers();
   const { activeSpares } = useSpares();
@@ -67,7 +67,6 @@ export function StoreBillingPage() {
   const [billingInvoiceVm, setBillingInvoiceVm] = useState<ServiceInvoiceViewModel | null>(null);
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
-  const [emailSending, setEmailSending] = useState(false);
   const [screenMode, setScreenMode] = useState<"select" | "invoice">("select");
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [billingRefInput, setBillingRefInput] = useState("");
@@ -389,22 +388,25 @@ export function StoreBillingPage() {
       setBillPostActionNote("Customer email is required to send the invoice.");
       return;
     }
-    setEmailSending(true);
     setBillPostActionNote(null);
-    try {
-      await sendInvoiceEmail({
-        email: to,
-        customerName: billingInvoiceVm.billTo.name.trim() || "Customer",
-        invoiceNumber: billingInvoiceVm.invoiceNumber,
-        totalInr: billingInvoiceVm.netPayable ?? billingInvoiceVm.totalAmount,
-      });
-      setBillPostActionNote("Invoice sent by email successfully (PDF attached).");
-    } catch (e) {
-      setBillPostActionNote(e instanceof Error ? e.message : "Could not send invoice by email.");
-    } finally {
-      setEmailSending(false);
-    }
-  }, [billingInvoiceVm, billingCustomerEmail]);
+    await runEmailSend(async () => {
+      try {
+        await sendInvoiceEmail({
+          email: to,
+          customerName: billingInvoiceVm.billTo.name.trim() || "Customer",
+          invoiceNumber: billingInvoiceVm.invoiceNumber,
+          totalInr: billingInvoiceVm.netPayable ?? billingInvoiceVm.totalAmount,
+        });
+        const msg = "Invoice sent by email successfully (PDF attached).";
+        setBillPostActionNote(msg);
+        return { ok: true, message: msg };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Could not send invoice by email.";
+        setBillPostActionNote(msg);
+        return { ok: false, message: msg };
+      }
+    });
+  }, [billingInvoiceVm, billingCustomerEmail, runEmailSend]);
 
   if (!user) return null;
 

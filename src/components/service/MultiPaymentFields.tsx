@@ -57,7 +57,7 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
   }
 
   return (
-    <div className="min-w-0 space-y-3">
+    <div className="w-full min-w-0 space-y-3">
       <p className="text-xs font-medium text-stone-600">
         Payment methods <span className="font-normal text-stone-500">(select one or more)</span>
       </p>
@@ -84,10 +84,10 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
         const rowAmt = Number.isFinite(rowAmount) ? rowAmount : 0;
 
         return (
-          <div key={mode} className="rounded-xl border border-zimson-200/90 bg-zimson-50/40 p-3">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <label className="min-w-[140px] flex-1 text-xs font-semibold text-zimson-900">
-                {mode} amount (INR)
+          <div key={mode} className="w-full min-w-0 rounded-xl border border-zimson-200/90 bg-zimson-50/40 p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+              <label className="block min-w-0 flex-1 text-xs font-semibold text-zimson-900 sm:min-w-[12rem]">
+                <span className="mb-1 block">{mode} amount (INR)</span>
                 <input
                   className={inputClass}
                   inputMode="decimal"
@@ -112,10 +112,10 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
             {mode === "Cash" ? (
               <div className="mt-3 rounded-xl border border-zimson-200 bg-white p-3">
                 <p className="text-xs font-semibold text-zimson-900">Cash denomination</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                   {ADVANCE_CASH_DENOMS.map(({ key, label }) => (
-                    <label key={key} className="text-xs text-stone-600">
-                      {label}
+                    <label key={key} className="block min-w-0 text-xs text-stone-600">
+                      <span className="mb-1 block">{label}</span>
                       <input
                         className={inputClass}
                         inputMode="numeric"
@@ -130,8 +130,8 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
                       />
                     </label>
                   ))}
-                  <label className="text-xs text-stone-600 sm:col-span-2">
-                    Coins / loose (INR)
+                  <label className="col-span-2 block min-w-0 text-xs text-stone-600 sm:col-span-2 lg:col-span-2">
+                    <span className="mb-1 block">Coins / loose (INR)</span>
                     <input
                       className={inputClass}
                       inputMode="decimal"
@@ -160,8 +160,10 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
                 </p>
               </div>
             ) : (
-              <label className="mt-3 block text-xs text-stone-600">
-                {mode} reference {mode === "UPI" ? "(UTR / transaction id)" : "(optional)"}
+              <label className="mt-3 block min-w-0 text-xs text-stone-600">
+                <span className="mb-1 block">
+                  {mode} reference {mode === "UPI" ? "(UTR / transaction id)" : "(optional)"}
+                </span>
                 <input
                   id={`${idPrefix}-${mode}-ref`}
                   className={inputClass}
