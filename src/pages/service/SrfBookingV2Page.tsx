@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { WatchFamilyPicker } from "../../components/service/WatchFamilyPicker";
@@ -21,6 +21,8 @@ import {
   validateMultiPaymentForm,
 } from "../../lib/paymentModes";
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
+import { SrfBookingSuccessOverlay } from "../../components/service/SrfBookingSuccessOverlay";
+import type { ResendSrfTrackingWhatsAppResult } from "../../lib/resendSrfTrackingWhatsApp";
 import { SRF_MIN_WATCH_PHOTOS_REQUIRED, srfMinWatchPhotosFinalizeError } from "../../lib/srfPhotoSlots";
 import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
 import {
@@ -235,7 +237,6 @@ export function SrfBookingV2Page() {
     sent: boolean;
     reason: string | null;
   } | null>(null);
-  const [resendingTrackingWhatsApp, setResendingTrackingWhatsApp] = useState(false);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
   const [photoPreview, setPhotoPreview] = useState<SrfPhotoThumb[]>([]);
@@ -1204,40 +1205,16 @@ export function SrfBookingV2Page() {
     );
   }
 
-  async function resendTrackingWhatsApp() {
-    if (!apiMode || !finalizedSrfId) {
-      setTrackingWhatsAppState({ sent: false, reason: "SRF id missing for resend." });
-      return;
-    }
-    setResendingTrackingWhatsApp(true);
-    try {
-      const out = await apiJson<{
-        trackingUrl?: string;
-        whatsappSent?: boolean;
-        whatsappReason?: string | null;
-        emailSent?: boolean;
-        emailReason?: string | null;
-      }>(`/api/service/srf-jobs/${encodeURIComponent(finalizedSrfId)}/resend-tracking-whatsapp`, {
-        method: "POST",
-        json: email.trim() ? { customerEmail: email.trim() } : undefined,
-      });
-      if (out.trackingUrl) setTrackingUrl(out.trackingUrl);
-      setTrackingWhatsAppState({
-        sent: Boolean(out.whatsappSent),
-        reason: out.whatsappReason ?? null,
-      });
-      setTrackingEmailState({
-        sent: Boolean(out.emailSent),
-        reason: out.emailReason ?? null,
-      });
-    } catch (e) {
-      setTrackingWhatsAppState({
-        sent: false,
-        reason: e instanceof ApiError ? e.message : "Could not resend WhatsApp message.",
-      });
-    } finally {
-      setResendingTrackingWhatsApp(false);
-    }
+  function applyTrackingResendResult(result: ResendSrfTrackingWhatsAppResult) {
+    if (result.trackingUrl) setTrackingUrl(result.trackingUrl);
+    setTrackingWhatsAppState({
+      sent: result.whatsappSent,
+      reason: result.whatsappReason,
+    });
+    setTrackingEmailState({
+      sent: result.emailSent,
+      reason: result.emailReason,
+    });
   }
 
   const captureUrl = useMemo(() => {
@@ -1245,74 +1222,26 @@ export function SrfBookingV2Page() {
     return new URL(draft.captureUrl, window.location.origin).toString();
   }, [draft]);
 
-  if (srfRef) {
+  if (srfRef && finalizedSrfId) {
     return (
-      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-        <Card
-          title="SRF completed successfully"
-          subtitle=""
-          className="w-full max-w-2xl"
-        >
-          <p className="text-sm text-stone-700">
-            SRF reference <span className="font-mono font-bold text-zimson-900">{srfRef}</span>
-          </p>
-          <p className="mt-2 text-sm text-stone-600">
-            {finalizedRepairRoute === "store_self"
-              ? "Status: Pending store assign."
-              : "Status: At store. Move to dispatch when ready."}
-          </p>
-          <div
-            className={`mt-3 rounded-xl border px-3 py-2 text-sm ${
-              trackingEmailState?.sent
-                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                : "border-amber-200 bg-amber-50 text-amber-900"
-            }`}
-          >
-            {trackingEmailState?.sent
-              ? "Tracking link emailed to customer (includes SRF reference and online status link)."
-              : `Email not sent${trackingEmailState?.reason ? `: ${trackingEmailState.reason}` : "."}`}
-          </div>
-          <div
-            className={`mt-2 rounded-xl border px-3 py-2 text-sm ${
-              trackingWhatsAppState?.sent
-                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                : "border-amber-200 bg-amber-50 text-amber-900"
-            }`}
-          >
-            {trackingWhatsAppState?.sent
-              ? "Tracking WhatsApp sent to customer mobile."
-              : `Tracking WhatsApp not confirmed${
-                  trackingWhatsAppState?.reason ? `: ${trackingWhatsAppState.reason}` : "."
-                }`}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Link to="/" className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">
-              Home
-            </Link>
-            <button
-              type="button"
-              onClick={reprintSrfAndEstimate}
-              className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white"
-            >
-              SRF print
-            </button>
-            <button
-              type="button"
-              onClick={() => void resendTrackingWhatsApp()}
-              disabled={resendingTrackingWhatsApp}
-              className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900 disabled:opacity-60"
-            >
-              {resendingTrackingWhatsApp ? "Resending..." : "Resend to customer"}
-            </button>
-          </div>
-          {/* {trackingUrl ? (
-            <div className="mt-5 rounded-xl border border-zimson-200 bg-zimson-50/40 p-4">
-              <p className="text-sm font-semibold text-zimson-900">Customer tracking link</p>
-              <p className="mt-1 break-all font-mono text-xs text-stone-700">{trackingUrl}</p>
-            </div>
-          ) : null} */}
-        </Card>
-      </div>
+      <SrfBookingSuccessOverlay
+        srfReference={srfRef}
+        srfId={finalizedSrfId}
+        statusTitle={finalizedRepairRoute === "store_self" ? "Pending store assign" : "At store"}
+        statusHint={
+          finalizedRepairRoute === "store_self"
+            ? "Assign technician when ready."
+            : "Move to dispatch when ready."
+        }
+        customerName={customerName}
+        phone={phone}
+        customerEmail={email}
+        trackingUrl={trackingUrl}
+        emailState={trackingEmailState}
+        whatsappState={trackingWhatsAppState}
+        onPrint={reprintSrfAndEstimate}
+        onNotifyUpdate={applyTrackingResendResult}
+      />
     );
   }
 
