@@ -48,6 +48,7 @@ import {
   watchServiceDetailsToApiPayload,
   type WatchServiceDetailValues,
 } from "../../components/service/WatchServiceDetailFields";
+import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
 import { sanitizeDecimalInput } from "../../lib/inputSanitize";
 import { formatInr } from "../../lib/formatInr";
 import { natureOfRepairLabel } from "../../lib/natureOfRepair";
@@ -275,6 +276,23 @@ export function SrfBookingV2Page() {
   const [loadedCustomerCode, setLoadedCustomerCode] = useState<string | null>(null);
   /** Existing customer row from API / local lookup — master fields stay read-only. */
   const customerLockedFromDb = Boolean(loadedCustomerId && customerChecked);
+
+  const [b2bModalOpen, setB2bModalOpen] = useState(false);
+
+  const trySetCustomerType = useCallback(
+    (next: "B2B" | "B2C") => {
+      if (next === "B2B" && customerLockedFromDb) {
+        const missingAny = !company.trim() || !gst.trim() || !pan.trim();
+        if (missingAny) {
+          setB2bModalOpen(true);
+          return;
+        }
+      }
+      setCustomerType(next);
+      setError(null);
+    },
+    [company, customerLockedFromDb, gst, pan],
+  );
   const phoneLockedForNewRegistration =
     !customerLockedFromDb && isPhonePendingRegistration(phone);
   const [walkInPending, setWalkInPending] = useState(false);
@@ -1318,24 +1336,22 @@ export function SrfBookingV2Page() {
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex gap-4">
               <label
-                className={`flex items-center gap-2 text-sm ${customerLockedFromDb ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                className="flex cursor-pointer items-center gap-2 text-sm"
               >
                 <input
                   type="radio"
                   checked={customerType === "B2C"}
-                  disabled={customerLockedFromDb}
-                  onChange={() => setCustomerType("B2C")}
+                  onChange={() => trySetCustomerType("B2C")}
                 />{" "}
                 B2C
               </label>
               <label
-                className={`flex items-center gap-2 text-sm ${customerLockedFromDb ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                className="flex cursor-pointer items-center gap-2 text-sm"
               >
                 <input
                   type="radio"
                   checked={customerType === "B2B"}
-                  disabled={customerLockedFromDb}
-                  onChange={() => setCustomerType("B2B")}
+                  onChange={() => trySetCustomerType("B2B")}
                 />{" "}
                 B2B
               </label>
@@ -2004,6 +2020,27 @@ export function SrfBookingV2Page() {
       ) : null}
       {alertModal}
       {otpSentModal}
+
+      {b2bModalOpen && loadedCustomerId ? (
+        <B2bDetailsModal
+          customerId={loadedCustomerId}
+          customerName={customerName}
+          phone={phone}
+          email={email}
+          initialCompany={company}
+          initialGst={gst}
+          initialPan={pan}
+          onSaved={(savedCompany, savedGst, savedPan) => {
+            setCompany(savedCompany);
+            setGst(savedGst);
+            setPan(savedPan);
+            setB2bModalOpen(false);
+            setCustomerType("B2B");
+            setError(null);
+          }}
+          onCancel={() => setB2bModalOpen(false)}
+        />
+      ) : null}
     </FormPageShell>
   );
 }
