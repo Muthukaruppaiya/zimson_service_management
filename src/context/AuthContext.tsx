@@ -9,6 +9,7 @@ import {
 } from "react";
 import { SEED_USERS } from "../data/seed";
 import { ApiError, apiJson, useApiMode } from "../lib/api";
+import { userMatchesLoginId } from "../lib/authLoginMatch";
 import { createId } from "../lib/id";
 import { STORAGE_EXTRA_USERS, STORAGE_SESSION_USER_ID } from "../lib/storageKeys";
 import type { DemoUser, ModuleKey, SessionUser, UserRole } from "../types/user";
@@ -48,7 +49,7 @@ type AuthContextValue = {
   /** Hydration / API session restore */
   authReady: boolean;
   listUsers: SessionUser[];
-  login: (employeeCode: string, password: string, storeId?: string | null) => Promise<LoginResult>;
+  login: (loginId: string, password: string, storeId?: string | null) => Promise<LoginResult>;
   /** Apply server session after password reset (cookie already set). */
   adoptSession: (user: SessionUser) => Promise<void>;
   logout: () => Promise<void>;
@@ -192,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const login = useCallback(
-    async (employeeCode: string, password: string, storeId?: string | null): Promise<LoginResult> => {
+    async (loginId: string, password: string, storeId?: string | null): Promise<LoginResult> => {
       if (api) {
         try {
           const data = await apiJson<{ ok: boolean; user?: SessionUser; message?: string; code?: string; stores?: { id: string; name: string }[] }>(
@@ -200,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             {
               method: "POST",
               json: {
-                employeeCode: normalizeLoginEmployeeCode(employeeCode),
+                loginId: loginId.trim(),
                 password: password.trim(),
                 storeId: storeId ?? null,
               },
@@ -242,17 +243,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               };
             }
           }
-          const msg = e instanceof ApiError ? e.message : "Invalid employee number or password.";
+          const msg = e instanceof ApiError ? e.message : "Invalid email, employee name, or password.";
           return { ok: false, message: msg };
         }
       }
 
-      const normalized = normalizeLoginEmployeeCode(employeeCode);
       const pwd = password.trim();
-      const found = allWithPassword.find(
-        (u) => userEmployeeCode(u) === normalized && u.password === pwd,
-      );
-      if (!found) return { ok: false, message: "Invalid employee number or password." };
+      const loginMatches = allWithPassword.filter((u) => userMatchesLoginId(u, loginId));
+      if (loginMatches.length > 1) {
+        return {
+          ok: false,
+          message: "More than one account matches this name. Sign in with your work email instead.",
+        };
+      }
+      const found = loginMatches.find((u) => u.password === pwd);
+      if (!found) return { ok: false, message: "Invalid email, employee name, or password." };
       if (found.canLogin === false) {
         return { ok: false, message: "This profile is directory-only and cannot sign in." };
       }

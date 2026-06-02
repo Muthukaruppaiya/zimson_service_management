@@ -1,5 +1,5 @@
-import crypto from "node:crypto";
 import type nodemailer from "nodemailer";
+import { buildDeliverabilityMailOptions } from "./emailDeliverability";
 import { getTransporter } from "./smtpTransport";
 
 export function escapeHtml(s: string): string {
@@ -164,19 +164,14 @@ export async function sendTransactionalEmail(input: SendTransactionalEmailInput)
   const from = parseFromAddress(input.from);
   const html = buildTransactionalHtml(input.subject, input.preheader, input.blocks);
 
-  const mail: nodemailer.SendMailOptions = {
-    from: from.formatted,
+  const mail = buildDeliverabilityMailOptions({
+    fromFormatted: from.formatted,
     to: input.to,
-    replyTo: input.replyTo ?? from.email,
     subject: input.subject,
     text: input.text,
     html,
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      "X-Entity-Ref-ID": crypto.randomUUID(),
-    },
-  };
+    replyTo: input.replyTo,
+  });
 
   await getTransporter().sendMail(mail);
 }

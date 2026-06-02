@@ -186,6 +186,10 @@ If email fails or is not configured, the **email OTP can appear on screen** whil
 ### Email
 
 - [ ] Gmail / SMTP app password correct (no spaces)  
+- [ ] `SMTP_USER` and **From** address use the **same domain**  
+- [ ] SPF + DKIM + DMARC configured on that domain (see [EMAIL_DELIVERABILITY.md](./EMAIL_DELIVERABILITY.md))  
+- [ ] Test: `node scripts/diagnose-smtp.mjs you@example.com`  
+- [ ] For `@zimson.net`: IT allowlist + check quarantine if not in inbox  
 - [ ] Test registration with a real email address  
 
 ---

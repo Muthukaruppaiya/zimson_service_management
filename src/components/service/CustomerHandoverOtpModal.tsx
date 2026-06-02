@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DemoOtpGate } from "./DemoOtpGate";
 import { useCustomers } from "../../context/CustomersContext";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
+import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
 import { sanitizeEmailInput, sanitizePhoneDigits } from "../../lib/inputSanitize";
+import { formatOtpSentSubtitle, type OtpSentTarget } from "../../lib/otpSentMessage";
 import { inputClass } from "../../lib/uiForm";
 
 function phoneLast10(v: string): string {
@@ -16,14 +18,6 @@ function isValidEmail(v: string): boolean {
 }
 
 export type HandoverOtpMode = "primary" | "custom";
-
-type SentTarget = { type: "mobile" | "email"; label: string };
-
-function formatSentToList(targets: SentTarget[]): string {
-  return targets
-    .map((t) => (t.type === "mobile" ? `SMS ${t.label}` : `email ${t.label}`))
-    .join(" and ");
-}
 
 type CustomerHandoverOtpModalProps = {
   open: boolean;
@@ -44,12 +38,13 @@ export function CustomerHandoverOtpModal({
 }: CustomerHandoverOtpModalProps) {
   const { startHandoverOtpBoth, confirmHandoverOtp } = useCustomers();
   const { showError, alertModal } = useMessageAlert();
+  const { showOtpSent, otpSentModal } = useOtpSentSuccess();
   const [phase, setPhase] = useState<"custom-entry" | "verify">("verify");
   const [customPhone, setCustomPhone] = useState("");
   const [customEmail, setCustomEmail] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [demoOtp, setDemoOtp] = useState<string | null>(null);
-  const [sentTo, setSentTo] = useState<SentTarget[]>([]);
+  const [sentTo, setSentTo] = useState<OtpSentTarget[]>([]);
   const [otpInput, setOtpInput] = useState("");
   const [sendFailed, setSendFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -89,6 +84,7 @@ export function CustomerHandoverOtpModal({
         setSentTo(out.sentTo);
         setPhase("verify");
         setOtpInput("");
+        showOtpSent(formatOtpSentSubtitle(out.sentTo));
       } catch (e) {
         setSendFailed(true);
         showError(e instanceof Error ? e.message : "Could not send OTP.", "OTP");
@@ -96,7 +92,7 @@ export function CustomerHandoverOtpModal({
         setBusy(false);
       }
     },
-    [startHandoverOtpBoth, showError],
+    [startHandoverOtpBoth, showError, showOtpSent],
   );
 
   useEffect(() => {
@@ -224,8 +220,8 @@ export function CustomerHandoverOtpModal({
                 <p className="rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">Sending OTP…</p>
               ) : null}
               {sentTo.length > 0 ? (
-                <p className="rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-800">
-                  Same OTP sent to {formatSentToList(sentTo)}.
+                <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  OTP sent — enter the code below.
                 </p>
               ) : null}
               {sessionId ? (
@@ -261,6 +257,7 @@ export function CustomerHandoverOtpModal({
         </div>
       </div>
       {alertModal}
+      {otpSentModal}
     </>
   );
 }

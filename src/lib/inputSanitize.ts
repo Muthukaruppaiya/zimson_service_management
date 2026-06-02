@@ -32,9 +32,12 @@ export function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
-/** Login username: employee ID (letters/digits) or email (@ . _ - + only). */
+/** Login: work email or employee display name (letters, digits, spaces, @ . _ - + '). */
 export function sanitizeLoginIdInput(value: string, maxLen = 240): string {
-  return value.replace(/[^a-zA-Z0-9@._+\-]/g, "").slice(0, maxLen);
+  return value
+    .replace(/[^a-zA-Z0-9@._+\-' ]/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, maxLen);
 }
 
 /** Mobile / PIN: digits only. */

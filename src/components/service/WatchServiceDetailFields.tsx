@@ -144,7 +144,7 @@ export function WatchServiceDetailFields({
       </div>
       <div className="min-w-0">
         <label htmlFor={`${idPrefix}-cust-remarks`} className="text-xs font-medium text-stone-600">
-          Customer remarks
+          Customer Remarks
         </label>
         <textarea
           id={`${idPrefix}-cust-remarks`}

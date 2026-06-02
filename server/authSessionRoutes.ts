@@ -92,12 +92,12 @@ export function registerAuthSessionRoutes(app: Express, pool: Pool, deps: AuthSe
     const loginId = String(req.body?.loginId ?? req.body?.employeeCode ?? "").trim();
     const password = String(req.body?.password ?? "").trim();
     if (!loginId || !password) {
-      res.status(400).json({ ok: false, message: "Enter your employee ID and password." });
+      res.status(400).json({ ok: false, message: "Enter your work email or employee name and password." });
       return;
     }
     const found = deps.resolveUserByLogin(loginId, password);
     if (!found) {
-      res.status(401).json({ ok: false, message: "Invalid employee ID, email, or password." });
+      res.status(401).json({ ok: false, message: "Invalid email, employee name, or password." });
       return;
     }
     if (found.canLogin === false) {

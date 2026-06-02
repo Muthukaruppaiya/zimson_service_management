@@ -7,6 +7,8 @@ import { CustomerDetailsModal } from "../../components/service/CustomerDetailsMo
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useCustomers } from "../../context/CustomersContext";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
+import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
+import { formatOtpSentSubtitlePhoneEmail } from "../../lib/otpSentMessage";
 import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../data/serviceSeed";
 import {
   validateCustomerB2bGstin,
@@ -71,6 +73,7 @@ export function SrfCustomerRegisterPage() {
     confirmRegistrationEmailOtp,
   } = useCustomers();
   const { showError: showOtpAlert, alertModal } = useMessageAlert();
+  const { showOtpSent, otpSentModal } = useOtpSentSuccess();
   const forQuickBill = location.pathname.includes("/quick-bill/new-customer");
   const forSrf = location.pathname.includes("/srf/new-customer");
 
@@ -304,6 +307,7 @@ export function SrfCustomerRegisterPage() {
       });
       setSessionId(out.sessionId);
       setDemoMobileOtp(out.demoMobileOtp ?? null);
+      showOtpSent(formatOtpSentSubtitlePhoneEmail(phone, undefined));
     } catch (e) {
       showOtpAlert(e instanceof Error ? e.message : "Could not send mobile OTP.", "OTP");
     } finally {
@@ -352,6 +356,7 @@ export function SrfCustomerRegisterPage() {
       if (out.demoEmailOtp) {
         setEmailOtpInput("");
       }
+      showOtpSent(formatOtpSentSubtitlePhoneEmail(undefined, email.trim()));
     } catch (e) {
       showOtpAlert(e instanceof Error ? e.message : "Could not send email OTP.", "OTP");
       setEmailOtpAnchor(null);
@@ -1095,6 +1100,7 @@ export function SrfCustomerRegisterPage() {
         </ProcessSuccessModal>
       ) : null}
       {alertModal}
+      {otpSentModal}
       <CustomerDetailsModal
         customerId={existingCustomer?.id ?? null}
         open={detailsOpen}

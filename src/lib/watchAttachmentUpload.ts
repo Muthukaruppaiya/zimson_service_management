@@ -52,6 +52,25 @@ export function validateQuickBillImageFile(file: File): string | null {
 }
 
 /** Server-side check using multer file metadata. */
+const IMAGE_MIME_PREFIX = "image/";
+
+function isLikelyImageUpload(file: { mimetype?: string; originalname?: string }): boolean {
+  const mime = (file.mimetype || "").toLowerCase();
+  const ext = fileExt(file.originalname || "");
+  return mime.startsWith(IMAGE_MIME_PREFIX) || IMAGE_EXTENSIONS.has(ext);
+}
+
+/** Quick Bill customer capture — document slot: PDF/Word files or photo (camera). Watch slots: images only. */
+export function validateQuickBillCaptureUpload(
+  file: { size: number; mimetype?: string; originalname?: string },
+  slot: "document" | "watch",
+): string | null {
+  if (slot === "document" && !isLikelyImageUpload(file)) {
+    return validateQuickBillAttachmentFile(file, "doc");
+  }
+  return validateQuickBillAttachmentFile(file, "img");
+}
+
 export function validateQuickBillAttachmentFile(
   file: { size: number; mimetype?: string; originalname?: string },
   kind: "doc" | "img",

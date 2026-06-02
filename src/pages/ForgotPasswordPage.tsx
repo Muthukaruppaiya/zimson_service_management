@@ -59,7 +59,7 @@ export function ForgotPasswordPage() {
               Forgot password
             </h2>
             <p className="mt-1 text-xs text-white/70">
-              Enter the email or employee ID on your account. When SMTP is configured, we email a reset link;
+              Enter the work email or employee name on your account. When SMTP is configured, we email a reset link;
               until then the link is shown on this page for testing.
             </p>
           </div>
@@ -67,7 +67,7 @@ export function ForgotPasswordPage() {
           <form onSubmit={handleSubmit} className="space-y-4 px-7 py-6">
             <div>
               <label htmlFor="forgot-login" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
-                Employee ID or email
+                Work email or employee name
               </label>
               <input
                 id="forgot-login"
@@ -76,6 +76,7 @@ export function ForgotPasswordPage() {
                 value={loginId}
                 onChange={(e) => setLoginId(sanitizeLoginIdInput(e.target.value))}
                 className={fieldCls}
+                placeholder="you@zimson.net or full name"
                 required
               />
             </div>

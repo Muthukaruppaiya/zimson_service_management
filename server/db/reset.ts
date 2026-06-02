@@ -49,6 +49,8 @@ TRUNCATE TABLE
   delivery_challan_lines,
   delivery_challans,
   srf_jobs,
+  quick_bill_capture_photos,
+  quick_bill_capture_sessions,
   quick_bill_lines,
   quick_bills,
   customer_tracking_tokens,

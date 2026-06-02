@@ -111,7 +111,22 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
 
             {mode === "Cash" ? (
               <div className="mt-3 rounded-xl border border-zimson-200 bg-white p-3">
-                <p className="text-xs font-semibold text-zimson-900">Cash denomination</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-zimson-900">Cash denomination</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange(
+                        patchRow(form, mode, {
+                          cashStrings: emptyCashDenomStrings(),
+                        }),
+                      )
+                    }
+                    className="rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-900"
+                  >
+                    Clear
+                  </button>
+                </div>
                 <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                   {ADVANCE_CASH_DENOMS.map(({ key, label }) => (
                     <label key={key} className="block min-w-0 text-xs text-stone-600">

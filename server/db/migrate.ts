@@ -1184,6 +1184,20 @@ export async function runMigrations(pool: Pool): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_qb_capture_sessions_store ON quick_bill_capture_sessions (store_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_qb_capture_sessions_expiry ON quick_bill_capture_sessions (expires_at);
+
+    CREATE TABLE IF NOT EXISTS quick_bill_capture_photos (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_id UUID NOT NULL REFERENCES quick_bill_capture_sessions(id) ON DELETE CASCADE,
+      photo_kind VARCHAR(24) NOT NULL DEFAULT 'other',
+      file_path TEXT NOT NULL,
+      mime VARCHAR(120) NOT NULL,
+      bytes INTEGER NOT NULL CHECK (bytes > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_qb_capture_photos_session_kind
+      ON quick_bill_capture_photos (session_id, photo_kind);
+    CREATE INDEX IF NOT EXISTS idx_qb_capture_photos_session
+      ON quick_bill_capture_photos (session_id, created_at DESC);
   `);
 
   await pool.query(`

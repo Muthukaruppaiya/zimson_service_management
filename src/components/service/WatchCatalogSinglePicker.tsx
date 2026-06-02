@@ -43,7 +43,8 @@ export function WatchCatalogSinglePicker({
 }: Props) {
   const apiMode = useApiMode();
   const [rows, setRows] = useState<WatchCatalogRow[]>([]);
-  const [newName, setNewName] = useState("");
+  const [catalogKey, setCatalogKey] = useState("");
+  const [customText, setCustomText] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,23 +88,55 @@ export function WatchCatalogSinglePicker({
       if (!key || byName.has(key)) continue;
       byName.set(key, r);
     }
-    const list = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
-    return list.map((r) => ({ value: r.name, label: r.name }));
+    return [...byName.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((r) => ({ value: r.name, label: r.name }));
   }, [rows]);
 
-  const selectedValue = useMemo(() => {
+  const resolvedName = useMemo(() => {
+    if (catalogKey === "__new__") return customText.trim();
+    return catalogKey.trim();
+  }, [catalogKey, customText]);
+
+  useEffect(() => {
+    const next = resolvedName;
+    const current = value.trim();
+    const parts = parseWatchCatalogMultiValue(value);
+    const normalizedCurrent = (parts[0] ?? current).trim();
+    if (next !== normalizedCurrent) onChange(next);
+  }, [resolvedName, onChange, value]);
+
+  useEffect(() => {
     const v = value.trim();
-    if (!v) return "";
-    const parts = parseWatchCatalogMultiValue(v);
-    return parts[0] ?? v;
-  }, [value]);
+    const parts = parseWatchCatalogMultiValue(value);
+    const single = (parts[0] ?? v).trim();
+    if (!single) {
+      setCatalogKey("");
+      setCustomText("");
+      return;
+    }
+    const match = options.find((o) => o.value.trim().toLowerCase() === single.toLowerCase());
+    if (match) {
+      setCatalogKey(match.value);
+      setCustomText("");
+      return;
+    }
+    setCatalogKey("__new__");
+    setCustomText(single);
+  }, [value, options]);
 
   async function saveNew() {
-    const name = newName.trim();
+    const name =
+      catalogKey === "__new__"
+        ? customText.trim()
+        : options.length === 0
+          ? customText.trim()
+          : "";
     if (!name) return;
     if (!apiMode) {
       onChange(name);
-      setNewName("");
+      setCatalogKey(name);
+      setCustomText("");
       setSaveMsg("Added locally (API mode off).");
       window.setTimeout(() => setSaveMsg(null), 3000);
       return;
@@ -114,8 +147,9 @@ export function WatchCatalogSinglePicker({
     try {
       await apiJson<{ ok: boolean }>(endpoint, { method: "POST", json: { name } });
       await reload();
+      setCatalogKey(name);
+      setCustomText("");
       onChange(name);
-      setNewName("");
       setSaveMsg("Saved to catalog.");
       window.setTimeout(() => setSaveMsg(null), 3000);
     } catch (e) {
@@ -125,52 +159,97 @@ export function WatchCatalogSinglePicker({
     }
   }
 
+  const comboboxDisabled = disabled || loading;
+  const placeholder = loading ? "Loading…" : `Search or select ${label.toLowerCase()}…`;
+
+  if (options.length === 0 && !loading) {
+    return (
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchableCombobox
+            id={`${idPrefix}-${kind}`}
+            label={label}
+            freeText
+            freeTextValue={customText}
+            onFreeTextChange={(t) => {
+              setCustomText(sanitizeTextInput(t, 200));
+              setCatalogKey("__new__");
+              setSaveMsg(null);
+            }}
+            value="__new__"
+            options={[]}
+            onChange={() => {}}
+            inputClass={inputClass}
+            disabled={comboboxDisabled}
+            placeholder={`Enter ${label.toLowerCase()}…`}
+          />
+          {apiMode ? (
+            <button
+              type="button"
+              disabled={!customText.trim() || saving || comboboxDisabled}
+              onClick={() => void saveNew()}
+              className="mt-6 shrink-0 border border-rlx-gold/60 bg-white px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
+            >
+              {saving ? "…" : "Save"}
+            </button>
+          ) : null}
+        </div>
+        {saveMsg ? <p className="mt-1.5 text-xs font-medium text-emerald-800">{saveMsg}</p> : null}
+        {error ? <p className="mt-1.5 text-xs text-red-800">{error}</p> : null}
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0">
-      <SearchableCombobox
-        id={`${idPrefix}-${kind}`}
-        label={label}
-        value={selectedValue}
-        options={options}
-        onChange={onChange}
-        inputClass={inputClass}
-        disabled={disabled || loading}
-        placeholder={loading ? "Loading…" : `Select ${label.toLowerCase()}…`}
-        actionOption={{ value: "__add_new__", label: `+ Add new ${label.toLowerCase()}` }}
-        onActionSelect={() => {
-          const el = document.getElementById(`${idPrefix}-${kind}-new`) as HTMLInputElement | null;
-          el?.focus();
-        }}
-      />
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <input
-          id={`${idPrefix}-${kind}-new`}
-          className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1 basis-[min(100%,12rem)]`}
-          placeholder={`Add new ${label.toLowerCase()}…`}
-          value={newName}
-          disabled={disabled || saving}
-          onChange={(e) => {
-            setNewName(sanitizeTextInput(e.target.value, 200));
-            setSaveMsg(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void saveNew();
-            }
-          }}
-        />
-        <button
-          type="button"
-          disabled={disabled || saving || !newName.trim()}
-          onClick={() => void saveNew()}
-          className="shrink-0 border border-rlx-gold/60 bg-white px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
-        >
-          {saving ? "…" : "Add"}
-        </button>
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <SearchableCombobox
+            id={`${idPrefix}-${kind}`}
+            label={label}
+            value={catalogKey === "__new__" ? "" : catalogKey}
+            options={options}
+            onChange={(v) => {
+              setSaveMsg(null);
+              if (!v) {
+                setCatalogKey("");
+                setCustomText("");
+                return;
+              }
+              setCatalogKey(v);
+              setCustomText("");
+            }}
+            inputClass={inputClass}
+            disabled={comboboxDisabled}
+            placeholder={placeholder}
+            actionOption={{ value: "__new__", label: `+ Add new ${label.toLowerCase()}…` }}
+            onActionSelect={() => {
+              setCatalogKey("__new__");
+              setCustomText("");
+            }}
+            freeText={catalogKey === "__new__"}
+            freeTextValue={customText}
+            onFreeTextChange={(t) => {
+              setCustomText(sanitizeTextInput(t, 200));
+              setCatalogKey("__new__");
+              setSaveMsg(null);
+            }}
+          />
+        </div>
+        {catalogKey === "__new__" && apiMode ? (
+          <button
+            type="button"
+            disabled={!customText.trim() || saving || comboboxDisabled}
+            title={`Save new ${label.toLowerCase()} to catalog`}
+            onClick={() => void saveNew()}
+            className="mt-6 shrink-0 border border-rlx-gold/60 bg-white px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
+          >
+            {saving ? "…" : "Save"}
+          </button>
+        ) : null}
       </div>
-      {saveMsg ? <p className="mt-1 text-[10px] font-medium text-emerald-800">{saveMsg}</p> : null}
-      {error ? <p className="mt-1 text-[10px] text-red-800">{error}</p> : null}
+      {saveMsg ? <p className="mt-1.5 text-xs font-medium text-emerald-800">{saveMsg}</p> : null}
+      {error ? <p className="mt-1.5 text-xs text-red-800">{error}</p> : null}
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
+import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
+import { formatOtpSentSubtitlePhoneEmail } from "../../lib/otpSentMessage";
 import { WatchFamilyPicker } from "../../components/service/WatchFamilyPicker";
 import { WatchModelPicker } from "../../components/service/WatchModelPicker";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
@@ -169,6 +171,7 @@ export function SrfBookingV2Page() {
   const { brands: catalogBrands } = useBrands();
   const { getById, customers } = useCustomers();
   const { showError: showOtpError, alertModal } = useMessageAlert();
+  const { showOtpSent, otpSentModal } = useOtpSentSuccess();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { createDraftJob, refreshPhotoSession, finalizeJob, cancelDraftSrf, patchStoreDraftSrf, refreshJobs } = useSrfJobs();
@@ -1012,6 +1015,7 @@ export function SrfBookingV2Page() {
       const demo = String(Math.floor(100000 + Math.random() * 900000));
       setIssuedOtp(demo);
       setOtpGateOpen(true);
+      showOtpSent(formatOtpSentSubtitlePhoneEmail(phone10(phone), undefined));
       setOtpBusy(false);
       return;
     }
@@ -1023,6 +1027,7 @@ export function SrfBookingV2Page() {
       setOtpSessionId(out.sessionId);
       setIssuedOtp(out.demoOtp ?? null);
       setOtpGateOpen(true);
+      showOtpSent(formatOtpSentSubtitlePhoneEmail(phone10(phone), undefined));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not send OTP.");
     } finally {
@@ -1998,6 +2003,7 @@ export function SrfBookingV2Page() {
         </div>
       ) : null}
       {alertModal}
+      {otpSentModal}
     </FormPageShell>
   );
 }

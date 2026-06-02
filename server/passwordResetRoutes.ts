@@ -4,10 +4,15 @@ import type { Pool } from "pg";
 import { isEmailConfigured, shouldExposePasswordResetInUi } from "./messaging/config";
 import { sendPasswordResetEmail } from "./messaging/passwordResetEmail";
 import { buildPasswordResetSpaUrl, buildPasswordResetUrl, getAppBaseUrl } from "./publicAppUrl";
+import {
+  isLoginEmailIdentifier,
+  normalizeLoginDisplayName,
+  normalizeLoginEmail,
+} from "../src/lib/authLoginMatch";
 
 const RESET_TTL_MS = 60 * 60 * 1000;
 const GENERIC_OK_MESSAGE =
-  "If an account exists for that email or employee ID, we sent password reset instructions. Check your inbox and spam folder.";
+  "If an account exists for that email or employee name, we sent password reset instructions. Check your inbox and spam folder.";
 
 const DEMO_OK_MESSAGE =
   "SMTP is not configured (or email failed). Use the reset link shown below to test — configure Settings → SMS, email & WhatsApp when ready.";
@@ -44,26 +49,27 @@ type ResetUserRow = {
 async function findUserForPasswordReset(pool: Pool, loginId: string): Promise<ResetUserRow | null> {
   const raw = String(loginId).trim();
   if (!raw) return null;
-  if (raw.includes("@")) {
-    const email = normalizeEmail(raw);
+  if (isLoginEmailIdentifier(raw)) {
+    const email = normalizeLoginEmail(raw);
     if (!isValidEmail(email)) return null;
     const { rows } = await pool.query<ResetUserRow>(
       `SELECT id, email, display_name, can_login
        FROM app_users
        WHERE LOWER(email) = $1
-       LIMIT 1`,
+       LIMIT 2`,
       [email],
     );
     return rows[0] ?? null;
   }
-  const emp = normalizeEmployeeCode(raw);
+  const nameNorm = normalizeLoginDisplayName(raw);
   const { rows } = await pool.query<ResetUserRow>(
     `SELECT id, email, display_name, can_login
      FROM app_users
-     WHERE employee_code = $1 OR id = $1
-     LIMIT 1`,
-    [emp],
+     WHERE LOWER(REGEXP_REPLACE(BTRIM(display_name), '\\s+', ' ', 'g')) = $1
+     LIMIT 2`,
+    [nameNorm],
   );
+  if (rows.length > 1) return null;
   return rows[0] ?? null;
 }
 
@@ -107,7 +113,7 @@ export function registerPasswordResetRoutes(
     }
     const loginId = String(req.body?.loginId ?? req.body?.email ?? "").trim();
     if (!loginId) {
-      res.status(400).json({ ok: false, message: "Enter your employee ID or email address." });
+      res.status(400).json({ ok: false, message: "Enter your work email or employee name." });
       return;
     }
     const demoUi = shouldExposePasswordResetInUi();

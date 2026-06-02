@@ -1,4 +1,5 @@
 import { getMessagingConfig, isEmailConfigured } from "./config";
+import { buildDeliverabilityMailOptions } from "./emailDeliverability";
 import { escapeHtml, parseFromAddress } from "./transactionalEmail";
 import { getTransporter } from "./smtpTransport";
 
@@ -64,10 +65,9 @@ Thank you for choosing Zimson Watch Care.
 
   const filename = input.pdfFilename.trim() || `Zimson-Invoice-${inv.replace(/[^\w.-]+/g, "_")}.pdf`;
 
-  await getTransporter().sendMail({
-    from: from.formatted,
+  const mail = buildDeliverabilityMailOptions({
+    fromFormatted: from.formatted,
     to,
-    replyTo: from.email,
     subject,
     text,
     html,
@@ -79,6 +79,8 @@ Thank you for choosing Zimson Watch Care.
       },
     ],
   });
+
+  await getTransporter().sendMail(mail);
 
   console.log("[smtp] Invoice email sent to", to, "|", inv);
 }

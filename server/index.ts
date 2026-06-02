@@ -25,6 +25,7 @@ import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { appendStockHistory } from "./db/stockHistory";
 import { SEED_USERS, type SeedRegion, type SeedStore } from "../src/data/seed";
+import { userMatchesLoginId } from "../src/lib/authLoginMatch";
 import { createId } from "../src/lib/id";
 import type { CustomerKind, CustomerRecord } from "../src/types/customer";
 import type { AppNotification } from "../src/types/notification";
@@ -251,15 +252,6 @@ function isValidEmail(value: string): boolean {
   const s = normalizeEmail(value);
   if (!s || s.length > 240) return false;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
-
-function userMatchesLoginId(user: DemoUser, loginId: string): boolean {
-  const raw = String(loginId).trim();
-  if (!raw) return false;
-  if (raw.includes("@")) {
-    return normalizeEmail(user.email) === normalizeEmail(raw);
-  }
-  return normalizeEmployeeCode(String(user.employeeCode ?? user.id)) === normalizeEmployeeCode(raw);
 }
 
 const MODULE_KEY_ALLOWLIST: ModuleKey[] = [
@@ -560,14 +552,23 @@ app.post("/api/auth/login", async (req, res) => {
   const password = String(req.body?.password ?? "").trim();
   const selectedStoreId = String(req.body?.storeId ?? "").trim() || null;
   if (!loginId) {
-    res.status(400).json({ ok: false, message: "Enter your employee ID or email address." });
+    res.status(400).json({ ok: false, message: "Enter your work email or employee name." });
     return;
   }
   const users = await allUsers();
   const passwordHash = hashPassword(password);
-  const found = users.find((u) => userMatchesLoginId(u, loginId) && u.password === passwordHash);
+  const loginMatches = users.filter((u) => userMatchesLoginId(u, loginId));
+  if (loginMatches.length > 1) {
+    res.status(401).json({
+      ok: false,
+      message:
+        "More than one account matches this name. Sign in with your work email address instead.",
+    });
+    return;
+  }
+  const found = loginMatches.find((u) => u.password === passwordHash) ?? null;
   if (!found) {
-    res.status(401).json({ ok: false, message: "Invalid employee ID, email, or password." });
+    res.status(401).json({ ok: false, message: "Invalid email, employee name, or password." });
     return;
   }
   if (found.canLogin === false) {
@@ -3841,9 +3842,9 @@ async function main() {
     parseCookies,
     resolveUserByLogin: (loginId, password) => {
       const passwordHash = hashPassword(password);
-      return (
-        allUsers().find((u) => userMatchesLoginId(u, loginId) && u.password === passwordHash) ?? null
-      );
+      const matches = allUsers().filter((u) => userMatchesLoginId(u, loginId));
+      if (matches.length > 1) return null;
+      return matches.find((u) => u.password === passwordHash) ?? null;
     },
   });
 

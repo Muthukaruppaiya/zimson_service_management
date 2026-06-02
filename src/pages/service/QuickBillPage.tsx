@@ -84,7 +84,27 @@ import {
   clearPendingRegisterPhone,
   setPendingRegisterPhone,
 } from "../../lib/pendingRegisterPhone";
+import {
+  normalizeSrfPhotoKind,
+  SRF_DOCUMENT_PHOTO_KIND,
+  SRF_MAX_WATCH_PHOTOS,
+  SRF_PHOTO_SLOT_LABELS,
+} from "../../lib/srfPhotoSlots";
 import { watchAttachmentDisplayName } from "../../lib/watchAttachmentUpload";
+
+type QbCapturePhoto = { id: string; photoKind?: string; filePath: string; mime?: string };
+
+function capturePhotoLabel(photo: QbCapturePhoto): string {
+  const kind = normalizeSrfPhotoKind(photo.photoKind);
+  if (kind === SRF_DOCUMENT_PHOTO_KIND) return "Document";
+  if (kind && kind in SRF_PHOTO_SLOT_LABELS) return SRF_PHOTO_SLOT_LABELS[kind as keyof typeof SRF_PHOTO_SLOT_LABELS];
+  return "Photo";
+}
+
+function capturePhotoSrc(filePath: string): string {
+  const p = filePath.trim();
+  return p.startsWith("/") ? p : `/${p}`;
+}
 import {
   storeServiceChargeMaxLabel,
   validateQuickBillServiceChargeInr,
@@ -286,6 +306,7 @@ export function QuickBillPage() {
   const [customerBillingState, setCustomerBillingState] = useState("");
   const [watchDocumentPath, setWatchDocumentPath] = useState<string | null>(null);
   const [watchImagePath, setWatchImagePath] = useState<string | null>(null);
+  const [capturePhotos, setCapturePhotos] = useState<QbCapturePhoto[]>([]);
   const [captureSession, setCaptureSession] = useState<{
     sessionId: string;
     token: string;
@@ -873,23 +894,44 @@ export function QuickBillPage() {
     return new URL(captureSession.captureUrl, window.location.origin).toString();
   }, [captureSession?.captureUrl]);
 
+  const applyCapturePayload = useCallback(
+    (data: {
+      documentPath?: string | null;
+      imagePath?: string | null;
+      photos?: QbCapturePhoto[];
+      watchPhotoCount?: number;
+    }) => {
+      setWatchDocumentPath(data.documentPath ?? null);
+      setWatchImagePath(data.imagePath ?? null);
+      setCapturePhotos(data.photos ?? []);
+      const watchCount =
+        data.watchPhotoCount ??
+        (data.photos ?? []).filter((p) => normalizeSrfPhotoKind(p.photoKind) !== SRF_DOCUMENT_PHOTO_KIND).length;
+      const hasDoc = Boolean(data.documentPath) || (data.photos ?? []).some(
+        (p) => normalizeSrfPhotoKind(p.photoKind) === SRF_DOCUMENT_PHOTO_KIND,
+      );
+      const parts: string[] = [];
+      if (hasDoc) parts.push("document");
+      if (watchCount > 0) parts.push(`${watchCount} watch photo${watchCount === 1 ? "" : "s"}`);
+      setCaptureMsg(parts.length > 0 ? `Customer uploaded: ${parts.join(", ")}.` : "Waiting for customer uploads…");
+    },
+    [],
+  );
+
   const refreshCaptureSession = useCallback(async () => {
     if (!captureSession?.sessionId || !apiMode) return;
     try {
       const data = await apiJson<{
         documentPath: string | null;
         imagePath: string | null;
+        photos?: QbCapturePhoto[];
+        watchPhotoCount?: number;
       }>(`/api/service/quick-bill/capture-session/${encodeURIComponent(captureSession.sessionId)}`);
-      if (data.documentPath) setWatchDocumentPath(data.documentPath);
-      if (data.imagePath) setWatchImagePath(data.imagePath);
-      const parts: string[] = [];
-      if (data.documentPath) parts.push("document");
-      if (data.imagePath) parts.push("image");
-      setCaptureMsg(parts.length > 0 ? `Customer uploaded: ${parts.join(" & ")}.` : "Waiting for customer uploads…");
+      applyCapturePayload(data);
     } catch {
       /* ignore poll errors */
     }
-  }, [apiMode, captureSession?.sessionId]);
+  }, [apiMode, applyCapturePayload, captureSession?.sessionId]);
 
   useEffect(() => {
     if (!captureSession?.sessionId || !apiMode) return;
@@ -932,6 +974,9 @@ export function QuickBillPage() {
         },
       });
       setCaptureSession(data);
+      setCapturePhotos([]);
+      setWatchDocumentPath(null);
+      setWatchImagePath(null);
       setCaptureMsg("Share the QR or link with the customer.");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not create upload link.");
@@ -950,12 +995,13 @@ export function QuickBillPage() {
         captureUrl: string;
         documentPath: string | null;
         imagePath: string | null;
+        photos?: QbCapturePhoto[];
+        watchPhotoCount?: number;
       }>(`/api/service/quick-bill/capture-session/${encodeURIComponent(captureSession.sessionId)}/refresh`, {
         method: "POST",
       });
       setCaptureSession({ sessionId: data.sessionId, token: data.token, captureUrl: data.captureUrl });
-      if (data.documentPath) setWatchDocumentPath(data.documentPath);
-      if (data.imagePath) setWatchImagePath(data.imagePath);
+      applyCapturePayload(data);
       setCaptureMsg("New upload link generated.");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not refresh link.");
@@ -964,29 +1010,41 @@ export function QuickBillPage() {
     }
   }
 
-  async function removeCaptureAttachment(kind: "doc" | "img") {
+  async function removeCaptureAttachment(kind: string) {
     if (captureSession?.sessionId && apiMode) {
       try {
-        await apiJson(
-          `/api/service/quick-bill/capture-session/${encodeURIComponent(captureSession.sessionId)}/attachment?kind=${kind}`,
+        const data = await apiJson<{
+          documentPath: string | null;
+          imagePath: string | null;
+          photos?: QbCapturePhoto[];
+          watchPhotoCount?: number;
+        }>(
+          `/api/service/quick-bill/capture-session/${encodeURIComponent(captureSession.sessionId)}/attachment?kind=${encodeURIComponent(kind)}`,
           { method: "DELETE" },
         );
+        applyCapturePayload(data);
+        return;
       } catch {
         /* still clear local */
       }
     }
-    if (kind === "doc") setWatchDocumentPath(null);
-    else setWatchImagePath(null);
+    const normalized = normalizeSrfPhotoKind(kind) ?? (kind === "doc" ? SRF_DOCUMENT_PHOTO_KIND : kind === "img" ? "front" : null);
+    setCapturePhotos((prev) =>
+      prev.filter((p) => normalizeSrfPhotoKind(p.photoKind) !== normalized),
+    );
+    if (normalized === SRF_DOCUMENT_PHOTO_KIND) setWatchDocumentPath(null);
+    if (normalized && normalized !== SRF_DOCUMENT_PHOTO_KIND && watchImagePath) {
+      const front = normalizeSrfPhotoKind("front");
+      if (normalized === front) setWatchImagePath(null);
+    }
   }
 
-  function clearWatchDocumentUpload() {
-    if (!window.confirm("Remove the uploaded document? The customer can upload again from the capture link.")) return;
-    void removeCaptureAttachment("doc");
-  }
-
-  function clearWatchImageUpload() {
-    if (!window.confirm("Remove the uploaded image? The customer can upload again from the capture link.")) return;
-    void removeCaptureAttachment("img");
+  function clearCapturePhoto(photo: QbCapturePhoto) {
+    const kind = normalizeSrfPhotoKind(photo.photoKind);
+    const label = capturePhotoLabel(photo);
+    if (!kind) return;
+    if (!window.confirm(`Remove ${label}? The customer can upload again from the capture link.`)) return;
+    void removeCaptureAttachment(kind);
   }
 
   function validateBeforeOtp(opts?: { skipHandoverCheck?: boolean }): boolean {
@@ -2048,10 +2106,13 @@ export function QuickBillPage() {
               />
             </div>
             <div className={`${qbField} min-w-0 rounded-xl border border-zimson-200 bg-zimson-50/50 p-3 sm:p-4`}>
-              <p className="text-sm font-semibold text-zimson-900">Document &amp; watch image (customer link)</p>
-              <p className="mt-1 text-xs leading-relaxed text-stone-600">
+              <p className="text-sm font-semibold text-zimson-900">Documents &amp; watch photos (customer link)</p>
+              {/* <p className="mt-1 text-xs text-stone-600">
+                Same as SRF: up to {SRF_MAX_WATCH_PHOTOS} watch photo types plus one document (PDF/Word or photo).
+              </p> */}
+              {/* <p className="mt-1 text-xs leading-relaxed text-stone-600">
                 Like SRF booking: generate a QR/link for the customer to upload document and watch photo from their phone. Store staff do not upload files here.
-              </p>
+              </p> */}
               <div className="mt-3 flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
                 <div className="mx-auto w-full max-w-[200px] shrink-0 lg:mx-0">
                   {captureUrl ? (
@@ -2118,68 +2179,60 @@ export function QuickBillPage() {
                   </div>
                 </div>
               </div>
-              {(watchDocumentPath || watchImagePath) ? (
+              {capturePhotos.length > 0 ? (
                 <div className="mt-4 rounded-lg border border-zimson-200 bg-white p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Uploaded from customer link</p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {watchDocumentPath ? (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
-                        <p className="text-xs font-semibold text-emerald-900">Document</p>
-                        <p className="mt-1 truncate text-xs text-emerald-800">
-                          {watchAttachmentDisplayName(watchDocumentPath)}
-                        </p>
-                        {watchDocumentPath.startsWith("/") ? (
-                          <a
-                            href={watchDocumentPath}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-2 inline-block text-xs font-semibold text-zimson-700 underline"
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {capturePhotos.map((photo) => {
+                      const kind = normalizeSrfPhotoKind(photo.photoKind);
+                      const label = capturePhotoLabel(photo);
+                      const src = capturePhotoSrc(photo.filePath);
+                      const isDoc = kind === SRF_DOCUMENT_PHOTO_KIND;
+                      const isPdf =
+                        photo.mime?.includes("pdf") || photo.filePath.toLowerCase().includes(".pdf");
+                      return (
+                        <div
+                          key={photo.id}
+                          className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3"
+                        >
+                          <p className="text-xs font-semibold text-emerald-900">{label}</p>
+                          {isDoc && isPdf ? (
+                            <p className="mt-2 text-xs text-emerald-800">
+                              {watchAttachmentDisplayName(photo.filePath)}
+                            </p>
+                          ) : (
+                            <img
+                              src={src}
+                              alt={label}
+                              className="mt-2 max-h-32 w-full rounded-md border border-stone-200 object-contain bg-white"
+                            />
+                          )}
+                          {isDoc ? (
+                            <a
+                              href={src}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-2 inline-block text-xs font-semibold text-zimson-700 underline"
+                            >
+                              {isPdf ? "Open document" : "Open"}
+                            </a>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => clearCapturePhoto(photo)}
+                            className="mt-2 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-50"
                           >
-                            Open document
-                          </a>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={clearWatchDocumentUpload}
-                          className="mt-2 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-50"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-stone-200 p-3 text-xs text-stone-500">
-                        No document yet
-                      </div>
-                    )}
-                    {watchImagePath ? (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
-                        <p className="text-xs font-semibold text-emerald-900">Watch image</p>
-                        {watchImagePath.startsWith("/") ? (
-                          <img
-                            src={watchImagePath}
-                            alt="Watch from customer"
-                            className="mt-2 max-h-40 w-full rounded-md border border-stone-200 object-contain bg-white"
-                          />
-                        ) : (
-                          <p className="mt-1 text-xs text-emerald-800">{watchAttachmentDisplayName(watchImagePath)}</p>
-                        )}
-                        <button
-                          type="button"
-                          onClick={clearWatchImageUpload}
-                          className="mt-2 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-50"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-stone-200 p-3 text-xs text-stone-500">
-                        No watch image yet
-                      </div>
-                    )}
+                            Remove
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ) : captureSession ? (
-                <p className="mt-4 text-xs text-stone-500">Waiting for customer to upload document and/or watch image…</p>
+                <p className="mt-4 text-xs text-stone-500">
+                  Waiting for customer to upload watch photos and/or document…
+                </p>
               ) : null}
             </div>
           </div>

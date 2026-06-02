@@ -147,7 +147,7 @@ export function UserCreationPanel() {
     if (canLogin && (!employeeCode.trim() || password.length < 4)) {
       setFormMessage({
         type: "err",
-        text: "Login-enabled users need an employee number and password (min 4 chars). They can sign in with employee ID or email.",
+        text: "Login-enabled users need an employee number (internal reference), password (min 4 chars). They sign in with work email or display name.",
       });
       return;
     }
@@ -424,7 +424,7 @@ export function UserCreationPanel() {
                     autoComplete="off"
                     placeholder="EMP001"
                   />
-                  <p className="mt-1 text-[11px] text-stone-400">Sign in with employee ID or email.</p>
+                  <p className="mt-1 text-[11px] text-stone-400">Sign in with work email or employee name (not employee number).</p>
                 </div>
                 <div>
                   <label htmlFor="uc-password" className={labelCls}>Initial Password *</label>
@@ -442,7 +442,7 @@ export function UserCreationPanel() {
               </>
             ) : (
               <div className="ui-span-full border border-dashed border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-500">
-                Directory-only profile — no employee number or password yet. Enable login later to allow sign-in with employee ID or email.
+                Directory-only profile — no employee number or password yet. Enable login later to allow sign-in with work email or employee name.
               </div>
             )}
           </div>

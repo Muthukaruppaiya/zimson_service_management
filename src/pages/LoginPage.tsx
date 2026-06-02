@@ -56,7 +56,7 @@ export function LoginPage() {
 
   async function handleSignOutAllDevices() {
     if (!loginId.trim() || !password) {
-      setSignOutAllNote("Enter your employee ID and password first.");
+      setSignOutAllNote("Enter your email or employee name and password first.");
       return;
     }
     setSignOutAllBusy(true);
@@ -66,7 +66,6 @@ export function LoginPage() {
         method: "POST",
         json: {
           loginId: loginId.trim(),
-          employeeCode: loginId.trim(),
           password: password.trim(),
         },
       });
@@ -112,7 +111,7 @@ export function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4 px-7 py-6">
             <div>
               <label htmlFor="login-emp" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
-                Employee ID
+                employee name
               </label>
               <input
                 id="login-emp"
@@ -124,6 +123,7 @@ export function LoginPage() {
                   setAlreadyLoggedIn(false);
                 }}
                 className={fieldCls}
+               // placeholder="you@zimson.net or full name as in HR"
               />
             </div>
 
