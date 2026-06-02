@@ -32,6 +32,11 @@ function parseApiError(text: string): string {
   return t || "Something went wrong.";
 }
 
+function isLegacyQuickBillKindError(message: string): boolean {
+  const m = message.trim().toLowerCase();
+  return m.includes("kind must be doc or img");
+}
+
 function isWatchPhotoKind(k: string): k is SrfWatchPhotoKind {
   return (SRF_WATCH_PHOTO_KINDS as readonly string[]).includes(k);
 }
@@ -285,12 +290,29 @@ export function QuickBillCapturePage() {
       form.append("kind", storedKind);
       form.append("photoKind", storedKind);
       form.append("file", file);
-      const res = await fetch("/api/public/quick-bill-capture/upload", {
+      let res = await fetch("/api/public/quick-bill-capture/upload", {
         method: "POST",
         body: form,
         headers: { "X-Qb-Photo-Kind": storedKind },
       });
-      const text = await res.text();
+      let text = await res.text();
+
+      // Backward compatibility for old API deployments still expecting only `doc|img`.
+      if (!res.ok) {
+        const firstError = parseApiError(text);
+        if (isLegacyQuickBillKindError(firstError)) {
+          const legacyForm = new FormData();
+          legacyForm.append("token", token);
+          legacyForm.append("kind", storedKind === SRF_DOCUMENT_PHOTO_KIND ? "doc" : "img");
+          legacyForm.append("file", file);
+          res = await fetch("/api/public/quick-bill-capture/upload", {
+            method: "POST",
+            body: legacyForm,
+          });
+          text = await res.text();
+        }
+      }
+
       if (!res.ok) throw new Error(parseApiError(text));
       const data = JSON.parse(text) as CaptureSession;
       setSession(data);
