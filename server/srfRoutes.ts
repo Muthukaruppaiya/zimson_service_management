@@ -633,6 +633,7 @@ export function registerSrfRoutes(
                 j.spares_slip_submitted_by AS "sparesSlipSubmittedBy",
                 j.ho_spares_bill_ref AS "hoSparesBillRef",
                 j.store_bill_ref AS "storeBillRef",
+                j.store_billing_snapshot AS "storeBillingSnapshot",
                 j.invoice_number AS "invoiceNumber",
                 j.completed_at_sc AS "completedAtSc",
                 j.ready_for_outward_at AS "readyForOutwardAt",
@@ -837,6 +838,7 @@ export function registerSrfRoutes(
                 j.outward_dc_number AS "outwardDcNumber",
                 j.ho_spares_bill_ref AS "hoSparesBillRef",
                 j.store_bill_ref AS "storeBillRef",
+                j.store_billing_snapshot AS "storeBillingSnapshot",
                 j.transfer_source_reference AS "transferSourceReference",
                 j.transfer_source_region_id AS "transferSourceRegionId",
                 j.transfer_target_region_id AS "transferTargetRegionId",
@@ -1788,6 +1790,10 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "advanceInr must be a valid non-negative number." });
       return;
     }
+    if (advanceInr > estimateTotalInr) {
+      res.status(400).json({ error: "Advance amount cannot be greater than the estimate amount." });
+      return;
+    }
     let advancePaymentMode: string | null = null;
     let advancePaymentDetails: AdvancePaymentDetails = {};
     if (advanceInr > 0) {
@@ -1992,12 +1998,19 @@ export function registerSrfRoutes(
         refRow.phone ?? "",
         String(req.body?.customerEmail ?? req.body?.email ?? "").trim() || null,
       );
+      const channel = String(req.body?.channel ?? "all")
+        .trim()
+        .toLowerCase();
       const sent = await sendTrackingLink({
         phone: refRow.phone ?? "",
         email: customerEmail ?? undefined,
         name: refRow.customer_name ?? "Customer",
         trackingUrl,
         srfReference: refRow.reference ?? "",
+        channels: {
+          whatsapp: channel === "all" || channel === "whatsapp",
+          email: channel === "all" || channel === "email",
+        },
       }).catch(() => ({
         sent: false,
         reason: "Could not resend WhatsApp message.",
@@ -2764,6 +2777,113 @@ export function registerSrfRoutes(
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not mark store self-repair complete." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/store-self/reestimate", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Only store roles can request re-estimate for repair-by-self SRFs." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const amount = Number(req.body?.estimateTotalInr);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status(400).json({ error: "Valid re-estimate amount is required." });
+      return;
+    }
+    if (!note) {
+      res.status(400).json({ error: "Re-estimate remark is required." });
+      return;
+    }
+    try {
+      const prior = await pool.query<{ status: string; store_id: string; region_id: string; repair_route: string }>(
+        `SELECT status, store_id, region_id, repair_route FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const row = prior.rows[0];
+      if (!row) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (normalizeSrfRepairRoute(row.repair_route) !== "store_self") {
+        res.status(400).json({ error: "Re-estimate is only for repair-by-self SRFs." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
+        if (STORE_ROLES.has(actor.role) && actor.storeId !== row.store_id) {
+          res.status(403).json({ error: "You can re-estimate only SRFs at your store." });
+          return;
+        }
+        if (actor.regionId && actor.regionId !== row.region_id) {
+          res.status(403).json({ error: "Region mismatch." });
+          return;
+        }
+      }
+      const wasRejected = row.status === "customer_rejected";
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'reestimate_required',
+             reestimate_requested_inr = $4,
+             reestimate_requested_note = $3,
+             reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND repair_route = 'store_self'
+           AND status IN ('store_self_working', 'store_self_assigned', 'customer_rejected')`,
+        [srfId, actor.id, note, amount],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({
+          error: "Only store self-repair SRFs in working/assigned (or customer-rejected) can be marked re-estimate.",
+        });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        if (wasRejected) {
+          await recordSupervisorFollowup(client, srfId, {
+            followup: "negotiate",
+            note,
+            actor,
+          });
+          await appendActionLog(client, srfId, {
+            action: "store_negotiate_after_rejection",
+            description: `Store negotiated after customer rejection and sent revised estimate INR ${amount.toFixed(2)}.`,
+            amountInr: amount,
+            actor,
+            details: { remark: note },
+          });
+        }
+        await appendStatusHistory(client, srfId, "reestimate_required", actor.id, `Re-estimate INR ${amount.toFixed(2)}: ${note}`);
+        const attempt = await startReestimateAttempt(client, srfId, {
+          amountInr: amount,
+          remark: note,
+          raisedBy: actor,
+        });
+        await appendActionLog(client, srfId, {
+          action: "store_request_reestimate",
+          description: `Store raised re-estimate attempt #${attempt.attemptNo} for INR ${amount.toFixed(2)}: ${note}`,
+          amountInr: amount,
+          actor,
+          details: { attemptNo: attempt.attemptNo, remark: note },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+        throw new Error("reestimate_tx_failed");
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not mark re-estimate." });
     }
   });
 
@@ -4540,6 +4660,12 @@ export function registerSrfRoutes(
     const hoSparesBillRef = String(req.body?.hoSparesBillRef ?? "").trim();
     const storeBillRef = String(req.body?.storeBillRef ?? "").trim();
     const noBillingHandover = Boolean(req.body?.noBillingHandover);
+    const storeBillingSnapshot =
+      req.body?.storeBillingSnapshot != null &&
+      typeof req.body.storeBillingSnapshot === "object" &&
+      !Array.isArray(req.body.storeBillingSnapshot)
+        ? req.body.storeBillingSnapshot
+        : null;
     const actorStoreId = String(actor.storeId ?? "").trim();
     const isAdmin = actor.role === "super_admin" || actor.role === "admin";
     const client = await pool.connect();
@@ -4604,11 +4730,22 @@ export function registerSrfRoutes(
          SET status = 'closed',
              ho_spares_bill_ref = NULLIF($3::text, ''),
              store_bill_ref = NULLIF($4::text, ''),
+             store_billing_snapshot = CASE
+               WHEN $6::boolean THEN COALESCE($5::jsonb, '{}'::jsonb)
+               ELSE store_billing_snapshot
+             END,
              closed_at = now(),
              updated_at = now(),
              modified_by = $2::text
          WHERE id = $1::uuid`,
-        [srfId, actor.id, hoSparesBillRef, storeBillRef],
+        [
+          srfId,
+          actor.id,
+          hoSparesBillRef,
+          storeBillRef,
+          storeBillingSnapshot ? JSON.stringify(storeBillingSnapshot) : null,
+          Boolean(storeBillingSnapshot && !noBillingHandover),
+        ],
       );
       await appendStatusHistory(
         client,
@@ -4626,7 +4763,13 @@ export function registerSrfRoutes(
           : `Customer invoice raised and SRF closed. Invoice ${invoiceNumber ?? "-"}; HO ref: ${hoSparesBillRef || "-"}; Store ref: ${storeBillRef || "-"}.`,
         actor,
         referenceDoc: storeBillRef || hoSparesBillRef || invoiceNumber || null,
-        details: { hoSparesBillRef, storeBillRef, noBillingHandover, invoiceNumber },
+        details: {
+          hoSparesBillRef,
+          storeBillRef,
+          noBillingHandover,
+          invoiceNumber,
+          storeBillingSnapshot: storeBillingSnapshot ?? undefined,
+        },
       });
       await maybeDisableTrackingToken(client, row.phone ?? "");
       await client.query("COMMIT");
@@ -4831,9 +4974,10 @@ export function registerSrfRoutes(
         reference: string;
         customer_name: string;
         region_id: string;
+        repair_route: string;
         reestimate_requested_inr: number | null;
       }>(
-        `SELECT id, status, phone, reference, customer_name, region_id, reestimate_requested_inr::float8
+        `SELECT id, status, phone, reference, customer_name, region_id, repair_route, reestimate_requested_inr::float8
          FROM srf_jobs
          WHERE id = $1::uuid
          FOR UPDATE`,
@@ -4850,6 +4994,8 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Re-estimate response is not allowed for this SRF status." });
         return;
       }
+      const storeSelfRepair = normalizeSrfRepairRoute(srf.repair_route) === "store_self";
+      const statusAfterAccept = storeSelfRepair ? "store_self_working" : "assigned";
       const customerActor = {
         id: null as string | null,
         role: "customer",
@@ -4858,15 +5004,15 @@ export function registerSrfRoutes(
       if (accepted) {
         await client.query(
           `UPDATE srf_jobs
-           SET status = 'assigned',
+           SET status = $3,
                customer_reestimate_response = 'accepted',
                customer_reestimate_responded_at = now(),
                estimate_total_inr = COALESCE($2::numeric, estimate_total_inr),
                updated_at = now()
            WHERE id = $1::uuid`,
-          [srfId, srf.reestimate_requested_inr],
+          [srfId, srf.reestimate_requested_inr, statusAfterAccept],
         );
-        await appendStatusHistory(client, srfId, "assigned", null, note || "Customer accepted re-estimate.");
+        await appendStatusHistory(client, srfId, statusAfterAccept, null, note || "Customer accepted re-estimate.");
         await recordReestimateCustomerResponse(client, srfId, { response: "accepted", note });
         await appendActionLog(client, srfId, {
           action: "customer_accept_reestimate",

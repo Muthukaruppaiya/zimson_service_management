@@ -8,7 +8,17 @@ import { captureInvoicePdfFromViewModel } from "./renderInvoiceForPdf";
 
 export function quickBillInvoicePdfFilename(inv: QuickBillInvoice): string {
   const base = (inv.invoiceNumber || inv.billNumber).replace(/[^\w.-]+/g, "_") || "invoice";
-  return `${base}.pdf`;
+  return `Zimson-Invoice-${base}.pdf`;
+}
+
+/** PDF for WhatsApp/email — does not rely on visible DOM (same as store billing). */
+export async function captureQuickBillInvoicePdf(
+  inv: QuickBillInvoice,
+  options: ServiceInvoiceMappingOptions,
+): Promise<Blob> {
+  const vm = mapQuickBillInvoiceToViewModel(inv, options);
+  const idPrefix = `qb-${inv.id.replace(/-/g, "").slice(0, 12)}`;
+  return captureInvoicePdfFromViewModel(vm, idPrefix);
 }
 
 /**

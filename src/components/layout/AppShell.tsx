@@ -1,12 +1,23 @@
 import { Outlet } from "react-router-dom";
+import { NavLayoutProvider, useNavLayout } from "../../context/NavLayoutContext";
 import { SessionLoginAlertModal } from "../auth/SessionLoginAlertModal";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
-export function AppShell() {
+function AppShellInner() {
+  const { navOpen, closeNav } = useNavLayout();
+
   return (
     <div className="app-shell flex h-dvh min-h-0 bg-rlx-bg text-[0.75rem] leading-snug">
       <SessionLoginAlertModal />
+      {navOpen ? (
+        <button
+          type="button"
+          aria-label="Close menu"
+          className="fixed inset-0 z-40 bg-stone-900/50 print:hidden"
+          onClick={closeNav}
+        />
+      ) : null}
       <Sidebar />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar />
@@ -17,5 +28,13 @@ export function AppShell() {
         </main>
       </div>
     </div>
+  );
+}
+
+export function AppShell() {
+  return (
+    <NavLayoutProvider>
+      <AppShellInner />
+    </NavLayoutProvider>
   );
 }

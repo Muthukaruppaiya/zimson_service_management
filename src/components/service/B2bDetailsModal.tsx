@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ApiError, apiJson } from "../../lib/api";
 import {
   sanitizeGstPanInput,
-  sanitizeTextInput,
 } from "../../lib/inputSanitize";
 import {
   isValidGstFormat,
@@ -10,7 +9,13 @@ import {
   panFromGstin,
 } from "../../data/serviceSeed";
 import { validateCustomerB2bGstin, ZIMSON_OWN_GSTIN_FIELD_HINT } from "../../lib/zimsonCompanyGst";
-import { inputClass } from "../../lib/uiForm";
+import { inputClass, inputClassReadOnly } from "../../lib/uiForm";
+import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../lib/gstLookupClient";
+
+export type B2bDetailsSavedExtras = {
+  address?: string;
+  city?: string;
+};
 
 type Props = {
   /** Customer id in the master — used for PUT /api/customers/:id */
@@ -22,7 +27,7 @@ type Props = {
   initialCompany: string;
   initialGst: string;
   initialPan: string;
-  onSaved: (company: string, gst: string, pan: string) => void;
+  onSaved: (company: string, gst: string, pan: string, extras?: B2bDetailsSavedExtras) => void;
   onCancel: () => void;
 };
 
@@ -41,14 +46,52 @@ export function B2bDetailsModal({
   const [gst, setGst]         = useState(initialGst);
   const [pan, setPan]         = useState(initialPan);
   const [busy, setBusy]       = useState(false);
+  const [gstFetchBusy, setGstFetchBusy] = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const [fetchedAddress, setFetchedAddress] = useState<string | undefined>();
+  const [fetchedCity, setFetchedCity] = useState<string | undefined>();
+  /** After successful GST lookup, GSTIN / company / PAN are read-only. */
+  const [gstLookupLocked, setGstLookupLocked] = useState(false);
 
   // Auto-fill PAN from GSTIN
   const resolvedPan = pan.trim() || panFromGstin(gst) || "";
+  const fieldLocked = gstLookupLocked;
+
+  async function fetchCompanyFromGst() {
+    if (!isValidGstFormat(gst)) {
+      setError("Enter a valid 15-character GSTIN before lookup.");
+      return;
+    }
+    const zimsonErr = validateCustomerB2bGstin(gst);
+    if (zimsonErr) {
+      setError(zimsonErr);
+      return;
+    }
+    setGstFetchBusy(true);
+    setError(null);
+    try {
+      const out = await lookupCompanyByGstin(gst);
+      const name = companyNameFromGstLookup(out);
+      if (name) setCompany(name);
+      const derivedPan = panFromGstin(gst);
+      if (derivedPan) setPan(derivedPan);
+      if (out.address?.trim()) setFetchedAddress(out.address.trim());
+      if (out.city?.trim()) setFetchedCity(out.city.trim());
+      setGstLookupLocked(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not fetch company from GSTIN.");
+    } finally {
+      setGstFetchBusy(false);
+    }
+  }
 
   async function handleSave() {
     setError(null);
 
+    if (!gstLookupLocked) {
+      setError("Fetch company from GST before saving.");
+      return;
+    }
     if (!company.trim()) {
       setError("Company / legal name is required.");
       return;
@@ -81,14 +124,21 @@ export function B2bDetailsModal({
             company: company.trim(),
             gst: gst.trim().toUpperCase(),
             pan: resolvedPan.trim().toUpperCase(),
+            ...(fetchedAddress ? { address: fetchedAddress } : {}),
+            ...(fetchedCity ? { city: fetchedCity } : {}),
           },
         },
       );
       const saved = resp.customer;
+      const extras: B2bDetailsSavedExtras | undefined =
+        fetchedAddress || fetchedCity
+          ? { address: fetchedAddress, city: fetchedCity }
+          : undefined;
       onSaved(
         saved.company ?? company.trim(),
         saved.gst    ?? gst.trim().toUpperCase(),
         saved.pan    ?? resolvedPan.trim().toUpperCase(),
+        extras,
       );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not save B2B details. Check connection.");
@@ -127,68 +177,76 @@ export function B2bDetailsModal({
             </div>
           ) : null}
 
-          {/* Company */}
+          {/* GSTIN — only editable field until lookup succeeds */}
+          <div>
+            <label htmlFor="b2b-gst" className="text-xs font-medium text-stone-700">
+              GSTIN *
+            </label>
+            <div className="mt-0.5 flex flex-wrap items-end gap-2">
+              <input
+                id="b2b-gst"
+                className={`${fieldLocked ? inputClassReadOnly : inputClass} min-w-[200px] flex-1`}
+                value={gst}
+                onChange={(e) => {
+                  const val = sanitizeGstPanInput(e.target.value, 15);
+                  setGst(val);
+                  if (!fieldLocked) {
+                    setCompany("");
+                    const derived = panFromGstin(val);
+                    setPan(derived || "");
+                  }
+                }}
+                placeholder="15-character GSTIN"
+                maxLength={15}
+                disabled={busy || gstFetchBusy}
+                readOnly={fieldLocked}
+                autoFocus={!fieldLocked}
+              />
+              <button
+                type="button"
+                onClick={() => void fetchCompanyFromGst()}
+                disabled={busy || gstFetchBusy || fieldLocked}
+                className="rounded-xl border border-zimson-500 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50 disabled:opacity-60"
+              >
+                {gstFetchBusy ? "…" : fieldLocked ? "Fetched from GST" : "Fetch company from GST"}
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-amber-900/90">
+              {ZIMSON_OWN_GSTIN_FIELD_HINT}
+            </p>
+          </div>
+
+          {/* Company — filled from GST lookup only */}
           <div>
             <label htmlFor="b2b-company" className="text-xs font-medium text-stone-700">
               Company / legal name *
             </label>
             <input
               id="b2b-company"
-              className={inputClass}
+              className={inputClassReadOnly}
               value={company}
-              onChange={(e) => setCompany(sanitizeTextInput(e.target.value, 240))}
-              placeholder="Registered business name"
-              disabled={busy}
-              autoFocus
+              placeholder="Fetched from GST lookup"
+              readOnly
+              tabIndex={-1}
             />
           </div>
 
-          {/* GSTIN */}
-          <div>
-            <label htmlFor="b2b-gst" className="text-xs font-medium text-stone-700">
-              GSTIN *
-            </label>
-            <input
-              id="b2b-gst"
-              className={inputClass}
-              value={gst}
-              onChange={(e) => {
-                const val = sanitizeGstPanInput(e.target.value, 15);
-                setGst(val);
-                // auto-fill PAN if not manually entered
-                if (!pan.trim()) {
-                  const derived = panFromGstin(val);
-                  if (derived) setPan(derived);
-                }
-              }}
-              placeholder="15-character GSTIN"
-              maxLength={15}
-              disabled={busy}
-            />
-            <p className="mt-1 text-[11px] leading-snug text-amber-900/90">
-              {ZIMSON_OWN_GSTIN_FIELD_HINT}
-            </p>
-          </div>
-
-          {/* PAN */}
+          {/* PAN — derived from GST lookup / GSTIN only */}
           <div>
             <label htmlFor="b2b-pan" className="text-xs font-medium text-stone-700">
               PAN *
             </label>
             <input
               id="b2b-pan"
-              className={inputClass}
-              value={pan}
-              onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
-              placeholder="ABCDE1234F"
-              maxLength={10}
-              disabled={busy}
+              className={inputClassReadOnly}
+              value={resolvedPan}
+              placeholder="Filled after GST lookup"
+              readOnly
+              tabIndex={-1}
             />
-            {resolvedPan && resolvedPan !== pan.trim() ? (
-              <p className="mt-0.5 text-[11px] text-stone-500">
-                Auto-filled from GSTIN: {resolvedPan}
-              </p>
-            ) : null}
+            <p className="mt-1 text-[11px] text-stone-500">
+              Taken from the GST registry or characters 3–12 of the GSTIN.
+            </p>
           </div>
         </div>
 

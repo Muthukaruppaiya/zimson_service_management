@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
 import { useAuth } from "../../context/AuthContext";
+import { useNavLayout } from "../../context/NavLayoutContext";
 import { apiJson } from "../../lib/api";
 import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } from "../../lib/appBranding";
 import { mainNav } from "../../navigation";
@@ -25,6 +26,14 @@ function roleLabel(role: string) {
   return map[role] ?? role;
 }
 
+function MenuIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
+
 function BellIcon() {
   return (
     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
@@ -35,6 +44,7 @@ function BellIcon() {
 
 export function TopBar() {
   const { user, logout } = useAuth();
+  const { toggleNav } = useNavLayout();
   const navigate = useNavigate();
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -93,6 +103,15 @@ export function TopBar() {
       <div className="h-[2.5px] w-full" style={{ background: "linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F)" }} />
 
       <div className="flex h-13 items-center justify-between gap-4 px-4 md:px-6" style={{ height: "52px" }}>
+
+        <button
+          type="button"
+          onClick={toggleNav}
+          aria-label="Open navigation menu"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-rlx-rule bg-white text-rlx-ink transition hover:border-rlx-green hover:text-rlx-green"
+        >
+          <MenuIcon />
+        </button>
 
         {/* ── Mobile logo ─────────────── */}
         <div className="flex min-w-0 items-center gap-2.5 md:hidden">

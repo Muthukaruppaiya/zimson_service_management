@@ -10,18 +10,6 @@ function fmt(n: number): string {
   return n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** Payment mode label → amount label (e.g. "Cash" → "Cash Amount") */
-function paymentAmountLabel(mode: string | undefined): string {
-  if (!mode) return "Amount Paid";
-  const m = mode.trim().toLowerCase();
-  if (m === "cash") return "Cash Amount";
-  if (m === "upi") return "UPI Amount";
-  if (m === "card") return "Card Amount";
-  if (m.includes("cheque") || m.includes("check")) return "Cheque Amount";
-  if (m.includes("neft") || m.includes("rtgs") || m.includes("bank")) return "Transfer Amount";
-  return `${mode} Amount`;
-}
-
 /** Strip leading "1." / "1)" so <ol> does not show "1. 1." */
 function normalizeTermLine(text: string): string {
   return text.replace(/^\s*\d+[\).\]:-]+\s*/, "").trim();
@@ -276,35 +264,44 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             </div>
             <table className="inv-pay-table">
               <tbody>
-                <tr>
-                  <td className="inv-pay-label">Advance Amount</td>
-                  <td className="inv-pay-value">{fmt(data.advanceAmount ?? 0)}</td>
-                </tr>
+                {(data.advanceAmount ?? 0) > 0 ? (
+                  <tr>
+                    <td className="inv-pay-label">Advance Amount</td>
+                    <td className="inv-pay-value">{fmt(data.advanceAmount ?? 0)}</td>
+                  </tr>
+                ) : null}
             {data.paymentSplits && data.paymentSplits.length > 0
               ? data.paymentSplits.map((split) => (
                       <tr key={split.mode}>
-                        <td className="inv-pay-label">{split.mode}</td>
+                        <td className="inv-pay-label">
+                          {(data.advanceAmount ?? 0) > 0 ? `Balance — ${split.mode}` : split.mode}
+                        </td>
                         <td className="inv-pay-value">
                           {fmt(split.amountInr)}
                           {split.reference?.trim() ? ` (${split.reference.trim()})` : ""}
                         </td>
                       </tr>
                 ))
-              : data.paymentMode
+              : (data.balanceCollectedInr ?? 0) > 0 &&
+                  ((data.advanceAmount ?? 0) > 0 || data.paymentMode)
                 ? (
                         <tr>
-                          <td className="inv-pay-label">{data.paymentMode} Payment</td>
-                          <td className="inv-pay-value">
-                            {fmt((data.amountPaid ?? data.totalAmount) - (data.advanceAmount ?? 0))}
+                          <td className="inv-pay-label">
+                            {(data.advanceAmount ?? 0) > 0
+                              ? data.paymentMode
+                                ? `Balance — ${data.paymentMode}`
+                                : "Balance collected"
+                              : data.paymentMode
+                                ? `${data.paymentMode} Payment`
+                                : "Amount paid"}
                           </td>
+                          <td className="inv-pay-value">{fmt(data.balanceCollectedInr ?? 0)}</td>
                         </tr>
                   )
                 : null}
                 <tr>
-                  <td className="inv-pay-label">
-                    {data.paymentSplits?.length ? "Total paid" : paymentAmountLabel(data.paymentMode)}
-                  </td>
-                  <td className="inv-pay-value">{fmt(data.amountPaid ?? data.totalAmount)}</td>
+                  <td className="inv-pay-label">Invoice total (incl. GST)</td>
+                  <td className="inv-pay-value">{fmt(data.netPayable ?? data.amountPaid ?? data.totalAmount)}</td>
                 </tr>
               </tbody>
             </table>

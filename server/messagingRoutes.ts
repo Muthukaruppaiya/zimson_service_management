@@ -14,8 +14,11 @@ import {
   getWhatsAppInvoiceSendMode,
   sendInvoiceWhatsApp,
 } from "./messaging/qikchatWhatsApp";
-import { shouldUseWorkDriveForInvoicePdf, uploadInvoicePdfToWorkDrive } from "./messaging/qikberryWorkDrive";
-import { ensureDevPublicTunnel, verifyTunnelBaseUrl } from "./devPublicTunnel";
+import {
+  publicInvoicePdfApiPath,
+  resolveInvoicePdfFilePath,
+} from "./messaging/invoicePdfPublicUrl";
+import { resolveWhatsAppInvoiceDocumentUrl } from "./messaging/invoicePdfDelivery";
 
 const INVOICE_PDF_DIR = path.join(process.cwd(), "uploads", "invoice-pdf");
 
@@ -36,9 +39,11 @@ const invoicePdfUpload = multer({
   }),
   limits: { fileSize: 12 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
+    const name = (file.originalname ?? "").toLowerCase();
     const ok =
       file.mimetype === "application/pdf" ||
-      file.originalname?.toLowerCase().endsWith(".pdf");
+      file.mimetype === "application/octet-stream" ||
+      name.endsWith(".pdf");
     if (ok) cb(null, true);
     else cb(new Error("Only PDF files are allowed."));
   },
@@ -49,41 +54,12 @@ function phoneLast10(v: string): string {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
-/** When API is reached via ngrok/cloudflare tunnel, build HTTPS base from proxy headers. */
-function getPublicBaseFromRequest(req: Request): string | null {
-  const proto = req.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
-  const host = req.get("x-forwarded-host")?.split(",")[0]?.trim();
-  if (proto === "https" && host) {
-    return `https://${host}`;
-  }
-  return null;
-}
-
-async function resolvePublicBaseForInvoice(req: Request): Promise<string> {
-  const port = Number(process.env.PORT) || 4000;
-  let base = getMessagingPublicBaseUrl() || getPublicBaseFromRequest(req) || "";
-
-  if (base && (await verifyTunnelBaseUrl(base))) {
-    return base.replace(/\/$/, "");
-  }
-
-  const tunneled = await ensureDevPublicTunnel(port);
-  if (tunneled) return tunneled.replace(/\/$/, "");
-
-  base = getMessagingPublicBaseUrl() || getPublicBaseFromRequest(req) || "";
-  if (base) return base.replace(/\/$/, "");
-
-  return "";
-}
-
-function resolvePublicDocumentUrl(relativePath: string, base: string): string {
-  const rel = relativePath.startsWith("/") ? relativePath : `/${relativePath}`;
-  if (!base) {
+function assertPdfFileBuffer(buf: Buffer): void {
+  if (buf.length < 5 || buf.subarray(0, 4).toString("ascii") !== "%PDF") {
     throw new Error(
-      "MESSAGING_PUBLIC_BASE_URL is not set. For local testing set WHATSAPP_INVOICE_DRY_RUN=true (PDF only, no WhatsApp), or run: ngrok http 4000 and add the https URL to .env.",
+      "Uploaded file is not a valid PDF. Regenerate the invoice and send again (do not use an HTML page URL for WhatsApp).",
     );
   }
-  return `${base.replace(/\/$/, "")}${rel}`;
 }
 
 export function registerMessagingRoutes(
@@ -93,6 +69,23 @@ export function registerMessagingRoutes(
   /** No auth — used by cloudflared/WhatsApp to verify the tunnel reaches this API. */
   app.get("/api/messaging/public-ping", (_req, res) => {
     res.json({ ok: true, service: "zimson-api" });
+  });
+
+  /**
+   * Public tax-invoice PDF for Qikchat/WhatsApp (must return application/pdf, not SPA HTML).
+   * URL shape: {MESSAGING_PUBLIC_BASE_URL}/api/messaging/public-invoice-pdf/inv-….pdf
+   */
+  app.get("/api/messaging/public-invoice-pdf/:filename", (req, res) => {
+    const filePath = resolveInvoicePdfFilePath(INVOICE_PDF_DIR, String(req.params.filename ?? ""));
+    if (!filePath) {
+      res.status(404).type("text/plain").send("Invoice PDF not found.");
+      return;
+    }
+    const name = path.basename(filePath);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${name}"`);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(filePath);
   });
 
   app.get("/api/messaging/email/status", requireAuth, (_req, res) => {
@@ -145,31 +138,36 @@ export function registerMessagingRoutes(
         let documentFilename = String(body.documentFilename ?? "").trim();
 
         const file = req.file;
-        let savedRelativePath: string | null = null;
+        let savedApiPdfPath: string | null = null;
         if (file) {
-          savedRelativePath = `/uploads/invoice-pdf/${file.filename}`;
+          savedApiPdfPath = publicInvoicePdfApiPath(file.filename);
           if (!documentFilename) {
             documentFilename = file.originalname || `Zimson-Invoice-${invoiceNumber}.pdf`;
           }
         }
 
-        if (!documentUrl && !savedRelativePath) {
+        if (!documentUrl && !savedApiPdfPath) {
           res.status(400).json({
             error: "Upload the invoice PDF (document field) or provide documentUrl.",
           });
           return;
         }
 
+        if (file?.path) {
+          assertPdfFileBuffer(fs.readFileSync(file.path));
+        }
+
+        const port = Number(process.env.PORT) || 4000;
+
         if (isWhatsAppInvoiceDryRun()) {
-          const port = Number(process.env.PORT) || 4000;
-          const localViewUrl = savedRelativePath
-            ? `http://127.0.0.1:${port}${savedRelativePath}`
+          const localViewUrl = file?.filename
+            ? `http://127.0.0.1:${port}${publicInvoicePdfApiPath(file.filename)}`
             : null;
           res.json({
             ok: true,
             dryRun: true,
             messageId: null,
-            savedPdfPath: savedRelativePath,
+            savedPdfPath: file ? `/uploads/invoice-pdf/${file.filename}` : null,
             localViewUrl,
             message:
               "Dry run: PDF saved on this PC’s API server (uploads/invoice-pdf). WhatsApp was not called. Set WHATSAPP_INVOICE_DRY_RUN=false to send for real (Work Drive or MESSAGING_PUBLIC_BASE_URL).",
@@ -177,24 +175,14 @@ export function registerMessagingRoutes(
           return;
         }
 
-        if (!documentUrl && savedRelativePath) {
-          const publicBase = await resolvePublicBaseForInvoice(req);
-          if (publicBase) {
-            documentUrl = resolvePublicDocumentUrl(savedRelativePath, publicBase);
-          } else if (shouldUseWorkDriveForInvoicePdf() && file?.path) {
-            documentUrl = await uploadInvoicePdfToWorkDrive(
-              file.path,
-              documentFilename || `Zimson-Invoice-${invoiceNumber}.pdf`,
-            );
-          } else {
-            const devHint =
-              process.env.NODE_ENV !== "production"
-                ? " For local dev add MESSAGING_AUTO_TUNNEL=true to .env and install cloudflared (winget install Cloudflare.cloudflared), or run: ngrok http 4000 and paste the https URL in Settings → Public PDF base URL."
-                : "";
-            throw new Error(
-              `Set MESSAGING_PUBLIC_BASE_URL to a public HTTPS base (ngrok → port 4000, or your production API URL). Qikchat must download the PDF from that link.${devHint} See https://qikchat.gitbook.io/apidocs/reference/api-reference/media-messages`,
-            );
-          }
+        if (!documentUrl && file?.path && file.filename) {
+          assertPdfFileBuffer(fs.readFileSync(file.path));
+          documentUrl = await resolveWhatsAppInvoiceDocumentUrl(
+            req,
+            file.path,
+            file.filename,
+            documentFilename || `Zimson-Invoice-${invoiceNumber}.pdf`,
+          );
         }
 
         const messageId = await sendInvoiceWhatsApp({
@@ -258,6 +246,7 @@ export function registerMessagingRoutes(
         }
 
         const pdfBuffer = fs.readFileSync(file.path);
+        assertPdfFileBuffer(pdfBuffer);
         const documentFilename =
           String(body.documentFilename ?? "").trim() ||
           file.originalname ||

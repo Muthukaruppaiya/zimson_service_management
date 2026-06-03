@@ -3,7 +3,7 @@ import type { SessionUser, UserRole } from "../types/user";
 
 /** Service centre supervisor: inventory module limited to Stock & prices (read-only). */
 export function isInventoryStockPricesViewOnlyRole(role: UserRole | string | undefined): boolean {
-  return role === "service_centre_supervisor";
+  return role === "service_centre_supervisor" || role === "store_user";
 }
 
 export function isInventoryStockPricesViewOnly(user: SessionUser | null | undefined): boolean {
@@ -14,5 +14,5 @@ export function isInventoryStockPricesViewOnly(user: SessionUser | null | undefi
 export function canAccessInventoryPath(user: SessionUser, pathname: string): boolean {
   if (!canAccessModule(user, "inventory")) return false;
   if (!isInventoryStockPricesViewOnly(user)) return true;
-  return pathname === "/inventory/stock-prices";
+  return pathname === "/inventory/stock-prices" || pathname.startsWith("/inventory/stock-prices/");
 }

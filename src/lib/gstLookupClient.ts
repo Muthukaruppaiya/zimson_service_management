@@ -1,0 +1,22 @@
+import { apiJson } from "./api";
+
+/** Response from POST /api/gst/lookup (Masters India / Sandbox / other providers). */
+export type GstLookupResult = {
+  tradeName?: string;
+  legalName?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+};
+
+export function companyNameFromGstLookup(out: GstLookupResult): string {
+  return (out.tradeName ?? out.legalName ?? "").trim();
+}
+
+export async function lookupCompanyByGstin(gstin: string): Promise<GstLookupResult> {
+  return apiJson<GstLookupResult>("/api/gst/lookup", {
+    method: "POST",
+    json: { gst: gstin.trim().toUpperCase() },
+  });
+}

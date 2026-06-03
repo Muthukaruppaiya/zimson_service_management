@@ -11,6 +11,8 @@ type Props = {
   label?: string;
   busyLabel?: string;
   onResult?: (message: string, ok: boolean) => void;
+  /** When set, uses this PDF instead of capturing `.service-invoice-print-root` on the page. */
+  resolvePdfBlob?: () => Promise<Blob>;
 };
 
 function isValidEmail(value: string): boolean {
@@ -28,6 +30,7 @@ export function SendInvoiceEmailButton({
   label = "Send by email",
   busyLabel = "Sending…",
   onResult,
+  resolvePdfBlob,
 }: Props) {
   const { runEmailSend, emailSending } = useEmailSend();
 
@@ -48,6 +51,7 @@ export function SendInvoiceEmailButton({
           customerName: customerName.trim() || "Customer",
           invoiceNumber: invoiceNumber.trim(),
           totalInr,
+          pdfBlob: resolvePdfBlob ? await resolvePdfBlob() : undefined,
         });
         const msg = "Invoice sent by email successfully.";
         onResult?.(msg, true);

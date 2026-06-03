@@ -22,6 +22,8 @@ import type { SrfJob } from "../../types/srfJob";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { TechnicianProfile } from "../../types/technician";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
+import { formatInr } from "../../lib/formatInr";
+import { inputClassReadOnly } from "../../lib/uiForm";
 
 type InterHoSpareOrder = {
   id: string;
@@ -95,6 +97,7 @@ export function ScSupervisorPage() {
   const [pickTech, setPickTech] = useState<Record<string, string>>({});
   const [historyByJob, setHistoryByJob] = useState<Record<string, Array<{ id: string; status: string; note: string; changedAt: string }>>>({});
   const [reestimatePopupJobId, setReestimatePopupJobId] = useState<string | null>(null);
+  const [reestimatePreviousInr, setReestimatePreviousInr] = useState(0);
   const [reestimateAmountInput, setReestimateAmountInput] = useState("");
   const [reestimateRemarkInput, setReestimateRemarkInput] = useState("");
   const [transferPopupJobId, setTransferPopupJobId] = useState<string | null>(null);
@@ -349,12 +352,14 @@ export function ScSupervisorPage() {
   function openReestimatePopup(jobId: string) {
     const job = jobs.find((x) => x.id === jobId);
     setReestimatePopupJobId(jobId);
-    setReestimateAmountInput(job ? String(Number(job.estimateTotalInr ?? 0).toFixed(2)) : "");
+    setReestimatePreviousInr(Number(job?.estimateTotalInr ?? 0));
+    setReestimateAmountInput("");
     setReestimateRemarkInput("");
   }
 
   function closeReestimatePopup() {
     setReestimatePopupJobId(null);
+    setReestimatePreviousInr(0);
     setReestimateAmountInput("");
     setReestimateRemarkInput("");
   }
@@ -1770,11 +1775,22 @@ export function ScSupervisorPage() {
             <p className="mt-1 text-sm text-stone-600">Enter revised estimate amount and remarks for customer approval.</p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
-                Re-estimate amount (INR)
+                Previous estimate (INR)
                 <input
-                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  className={`${inputClassReadOnly} mt-1 w-full rounded-xl border border-zimson-200 px-3 py-2 text-sm`}
+                  value={reestimatePreviousInr > 0 ? formatInr(reestimatePreviousInr) : "—"}
+                  readOnly
+                  tabIndex={-1}
+                />
+              </label>
+              <label className="text-sm">
+                New re-estimate amount (INR) *
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
                   value={reestimateAmountInput}
                   onChange={(e) => setReestimateAmountInput(e.target.value)}
+                  placeholder="Enter revised amount"
+                  autoFocus
                 />
               </label>
               <label className="text-sm">

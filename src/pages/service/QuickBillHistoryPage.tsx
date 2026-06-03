@@ -9,7 +9,10 @@ import { useRegions } from "../../context/RegionsContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { SendInvoiceWhatsAppButton } from "../../components/service/SendInvoiceWhatsAppButton";
 import { SendInvoiceEmailButton } from "../../components/service/SendInvoiceEmailButton";
-import { downloadQuickBillInvoicePdf } from "../../lib/quickBillInvoiceDownload";
+import {
+  captureQuickBillInvoicePdf,
+  downloadQuickBillInvoicePdf,
+} from "../../lib/quickBillInvoiceDownload";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { APP_PAYMENT_MODES, ADVANCE_CASH_DENOMS, sumAdvanceCashDenominations } from "../../lib/paymentModes";
 import type { AppPaymentMode } from "../../lib/paymentModes";
@@ -229,6 +232,11 @@ export function QuickBillHistoryPage() {
   );
 
   const invoicePrintIdPrefix = detailInvoice ? `qbh-${detailInvoice.id.replace(/-/g, "").slice(0, 12)}` : "qbh";
+
+  const resolveDetailInvoicePdfBlob = useCallback(async () => {
+    if (!detailInvoice) throw new Error("Invoice is not loaded.");
+    return captureQuickBillInvoicePdf(detailInvoice, invoiceVmOptionsFor(detailInvoice));
+  }, [detailInvoice, invoiceVmOptionsFor]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -607,6 +615,7 @@ export function QuickBillHistoryPage() {
                       busyLabel="Sending…"
                       className="flex-1 border border-sky-300/80 bg-sky-700 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-sky-800 disabled:opacity-50 sm:flex-none sm:px-5"
                       onResult={(msg) => setWhatsappNote(msg)}
+                      resolvePdfBlob={resolveDetailInvoicePdfBlob}
                     />
                     <SendInvoiceWhatsAppButton
                       phone={detailInvoice.phone ?? ""}
@@ -621,6 +630,7 @@ export function QuickBillHistoryPage() {
                       busyLabel="Sending…"
                       className="flex-1 border border-emerald-300/80 bg-emerald-600 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-50 sm:flex-none sm:px-5"
                       onResult={(msg) => setWhatsappNote(msg)}
+                      resolvePdfBlob={resolveDetailInvoicePdfBlob}
                     />
                   </>
                 ) : null}

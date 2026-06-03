@@ -4,12 +4,12 @@ export const SRF_REPAIR_ROUTE_OPTIONS: Array<{ value: SrfRepairRoute; label: str
   {
     value: "send_to_ho",
     label: "Send to HO",
-    hint: "Standard flow — dispatch to service centre after booking.",
+    hint: "",
   },
   {
     value: "store_self",
     label: "Repair by self",
-    hint: "Store repairs on-site — assign at store, then bill (no dispatch to HO).",
+    hint: "",
   },
 ];
 

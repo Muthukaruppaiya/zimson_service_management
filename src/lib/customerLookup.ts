@@ -9,6 +9,19 @@ export function phoneLast10(phone: string): string {
   return d.slice(-10);
 }
 
+/** Billing address for tax invoice Bill To block. */
+export function formatCustomerBillingAddress(c: CustomerRecord | null | undefined): string {
+  if (!c) return "";
+  const b = c.billingAddress;
+  if (b) {
+    return [b.addressLine1, b.addressLine2, b.city, b.district, b.state, b.pincode]
+      .map((p) => (p ?? "").trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+  return [c.address, c.city].map((p) => (p ?? "").trim()).filter(Boolean).join(", ");
+}
+
 /** Loose name match: same first token, substring, or either contains the other. */
 export function nameLooseMatch(inputName: string, recordName: string): boolean {
   const a = inputName.trim().toLowerCase().replace(/\s+/g, " ");

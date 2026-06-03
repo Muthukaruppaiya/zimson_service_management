@@ -10,7 +10,9 @@ import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError } from "../../lib/api";
 import { printAssignmentSlip } from "../../lib/serviceDocuments";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
+import { formatInr } from "../../lib/formatInr";
 import { repairRouteLabel } from "../../lib/srfRepairRoute";
+import { inputClassReadOnly } from "../../lib/uiForm";
 import type { SrfJob } from "../../types/srfJob";
 
 type TechnicianProfile = {
@@ -38,7 +40,8 @@ function statusDisplay(status: string): string {
 export function StoreAssignPage() {
   const { user } = useAuth();
   const { activeSpares } = useSpares();
-  const { jobs, storeSelfAssignTechnician, storeSelfSubmitSparesSlip, storeSelfMarkRepairComplete } = useSrfJobs();
+  const { jobs, storeSelfAssignTechnician, storeSelfSubmitSparesSlip, storeSelfMarkRepairComplete, storeSelfRequestReestimate } =
+    useSrfJobs();
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [techByJob, setTechByJob] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -64,6 +67,11 @@ export function StoreAssignPage() {
     watchLabel: string;
   } | null>(null);
 
+  const [reestimatePopupJobId, setReestimatePopupJobId] = useState<string | null>(null);
+  const [reestimatePreviousInr, setReestimatePreviousInr] = useState(0);
+  const [reestimateAmountInput, setReestimateAmountInput] = useState("");
+  const [reestimateRemarkInput, setReestimateRemarkInput] = useState("");
+
   useEffect(() => {
     void apiJson<{ rows: TechnicianProfile[] }>("/api/service/technicians?activeOnly=1")
       .then((out) => setTechnicians(out.rows))
@@ -80,6 +88,27 @@ export function StoreAssignPage() {
   const working = useMemo(() => {
     if (!user) return [];
     return jobs.filter((j) => isStoreSelfWorking(j) && jobVisibleToStoreUser(j, user));
+  }, [jobs, user]);
+
+  const awaitingReestimate = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter(
+      (j) =>
+        j.repairRoute === "store_self" &&
+        j.status === "reestimate_required" &&
+        !j.customerReestimateResponse &&
+        jobVisibleToStoreUser(j, user),
+    );
+  }, [jobs, user]);
+
+  const rejectedReestimate = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter(
+      (j) =>
+        j.repairRoute === "store_self" &&
+        j.status === "customer_rejected" &&
+        jobVisibleToStoreUser(j, user),
+    );
   }, [jobs, user]);
 
   function techName(id: string | null | undefined): string {
@@ -126,6 +155,49 @@ export function StoreAssignPage() {
       });
     } catch (e) {
       setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not assign." });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function openReestimatePopup(jobId: string) {
+    const job = jobs.find((j) => j.id === jobId);
+    setReestimatePopupJobId(jobId);
+    setReestimatePreviousInr(Number(job?.estimateTotalInr ?? 0));
+    setReestimateAmountInput("");
+    setReestimateRemarkInput("");
+  }
+
+  function closeReestimatePopup() {
+    setReestimatePopupJobId(null);
+    setReestimatePreviousInr(0);
+    setReestimateAmountInput("");
+    setReestimateRemarkInput("");
+  }
+
+  async function confirmReestimateRequest() {
+    if (!reestimatePopupJobId) return;
+    const amount = Number(reestimateAmountInput);
+    const note = reestimateRemarkInput.trim();
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setMessage({ type: "err", text: "Enter a valid re-estimate amount." });
+      return;
+    }
+    if (!note) {
+      setMessage({ type: "err", text: "Enter re-estimate remark." });
+      return;
+    }
+    setBusyId(reestimatePopupJobId);
+    setMessage(null);
+    try {
+      await storeSelfRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
+      setMessage({ type: "ok", text: "Re-estimate sent to customer for approval." });
+      closeReestimatePopup();
+    } catch (e) {
+      setMessage({
+        type: "err",
+        text: e instanceof ApiError ? e.message : "Could not send re-estimate.",
+      });
     } finally {
       setBusyId(null);
     }
@@ -269,15 +341,27 @@ export function StoreAssignPage() {
                     </>
                   }
                 >
-                  <button
-                    type="button"
-                    disabled={busyId === job.id}
-                    onClick={() => openRepairPopup(job.id)}
-                    className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    Watch repair complete
-                  </button>
-                  <p className="mt-1 text-[11px] text-stone-500">You will enter used spares, then confirm SRF completion.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busyId === job.id}
+                      onClick={() => openRepairPopup(job.id)}
+                      className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      Watch repair complete
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === job.id}
+                      onClick={() => openReestimatePopup(job.id)}
+                      className="rounded-xl border border-amber-500 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 disabled:opacity-50"
+                    >
+                      Need re-estimate
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    Complete repair with spares, or send a revised estimate to the customer for approval.
+                  </p>
                 </JobRow>
               ))}
             </div>
@@ -290,6 +374,89 @@ export function StoreAssignPage() {
           </p>
         </Card>
       </div>
+
+      {(awaitingReestimate.length > 0 || rejectedReestimate.length > 0) ? (
+        <div className="mt-6">
+          <Card
+            title={`Re-estimate · ${awaitingReestimate.length + rejectedReestimate.length}`}
+            subtitle="Customer must approve from the tracking link before repair can continue."
+          >
+            <div className="space-y-3">
+              {awaitingReestimate.map((job) => (
+                <JobRow key={job.id} job={job} statusLabel="Awaiting customer">
+                  <p className="text-xs text-amber-900">
+                    Revised amount: INR {Number(job.reestimateRequestedInr ?? 0).toLocaleString()}
+                    {job.reestimateRequestedNote ? ` · ${job.reestimateRequestedNote}` : ""}
+                  </p>
+                </JobRow>
+              ))}
+              {rejectedReestimate.map((job) => (
+                <JobRow key={job.id} job={job} statusLabel="Customer rejected">
+                  <button
+                    type="button"
+                    disabled={busyId === job.id}
+                    onClick={() => openReestimatePopup(job.id)}
+                    className="rounded-xl border border-amber-600 bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Negotiate &amp; send re-estimate
+                  </button>
+                </JobRow>
+              ))}
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {reestimatePopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Request re-estimate approval</h3>
+            <p className="mt-1 text-sm text-stone-600">Enter revised estimate amount and remarks for customer approval.</p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Previous estimate (INR)
+                <input
+                  className={`${inputClassReadOnly} mt-1 w-full rounded-xl border border-zimson-200 px-3 py-2 text-sm`}
+                  value={reestimatePreviousInr > 0 ? formatInr(reestimatePreviousInr) : "—"}
+                  readOnly
+                  tabIndex={-1}
+                />
+              </label>
+              <label className="text-sm">
+                New re-estimate amount (INR) *
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
+                  value={reestimateAmountInput}
+                  onChange={(e) => setReestimateAmountInput(e.target.value)}
+                  placeholder="Enter revised amount"
+                  autoFocus
+                />
+              </label>
+              <label className="text-sm">
+                Remarks
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={3}
+                  value={reestimateRemarkInput}
+                  onChange={(e) => setReestimateRemarkInput(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={closeReestimatePopup} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmReestimateRequest()}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Send to customer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {repairPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

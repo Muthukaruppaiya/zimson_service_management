@@ -252,9 +252,9 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
           </button>
         </div>
         {pinError ? <p className="mt-1 text-xs text-red-700">{pinError}</p> : null}
-        <p className="mt-1 text-xs text-stone-500">
+        {/* <p className="mt-1 text-xs text-stone-500">
           For India, enter 6 digits — state, district, and locality fill automatically (or use the button).
-        </p>
+        </p> */}
       </div>
       <div>
         <label className="text-xs font-medium text-stone-600">State *</label>

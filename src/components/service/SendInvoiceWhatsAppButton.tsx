@@ -11,6 +11,8 @@ type Props = {
   label?: string;
   busyLabel?: string;
   onResult?: (message: string, ok: boolean) => void;
+  /** When set, uses this PDF instead of capturing `.service-invoice-print-root` on the page. */
+  resolvePdfBlob?: () => Promise<Blob>;
 };
 
 export function SendInvoiceWhatsAppButton({
@@ -22,6 +24,7 @@ export function SendInvoiceWhatsAppButton({
   label = "Resend WhatsApp",
   busyLabel = "Sending…",
   onResult,
+  resolvePdfBlob,
 }: Props) {
   const { runWhatsAppSend, whatsappSending } = useMessagingSend();
 
@@ -41,6 +44,7 @@ export function SendInvoiceWhatsAppButton({
           phone: p10,
           customerName: customerName.trim() || "Customer",
           invoiceNumber: invoiceNumber.trim(),
+          pdfBlob: resolvePdfBlob ? await resolvePdfBlob() : undefined,
         });
         const msg = invoiceWhatsAppResultMessage(wa);
         const ok = Boolean(wa.messageId) || Boolean(wa.dryRun);

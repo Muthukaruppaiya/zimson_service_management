@@ -1232,6 +1232,10 @@ export async function runMigrations(pool: Pool): Promise<void> {
       AND pr.status IN ('APPROVED', 'PARTIAL', 'FULFILLED')
   `);
 
+  await pool.query(`
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_billing_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
+  `);
+
   const { seedWatchCatalogTables } = await import("../watchCatalogRoutes");
   await seedWatchCatalogTables(pool);
 }

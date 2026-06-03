@@ -1,5 +1,5 @@
 import { apiJson } from "./api";
-import { captureInvoicePdfFromPage } from "./captureInvoicePdf";
+import { captureInvoicePdfFromPage, ensureApplicationPdfBlob } from "./captureInvoicePdf";
 
 export type SendInvoiceEmailParams = {
   email: string;
@@ -15,7 +15,8 @@ export type SendInvoiceEmailResult = {
 };
 
 export async function sendInvoiceEmail(params: SendInvoiceEmailParams): Promise<SendInvoiceEmailResult> {
-  const blob = params.pdfBlob ?? (await captureInvoicePdfFromPage());
+  const rawBlob = params.pdfBlob ?? (await captureInvoicePdfFromPage());
+  const blob = ensureApplicationPdfBlob(rawBlob);
   const filename =
     params.pdfFilename?.trim() ||
     `Zimson-Invoice-${params.invoiceNumber.replace(/[^\w.-]+/g, "_")}.pdf`;

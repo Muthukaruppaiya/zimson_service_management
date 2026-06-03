@@ -267,7 +267,7 @@ export function StoreLogisticsHistoryPage() {
       <ServiceBreadcrumb current="Inward & outward history" />
       <PageHeader
         title="Store inward & outward history"
-        description="Track internal transfers you sent to the service centre and watches returned from HO."
+        description=""
         actions={
           <Link
             to="/service/store-dispatch"

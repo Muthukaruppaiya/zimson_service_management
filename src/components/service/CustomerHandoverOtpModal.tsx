@@ -6,6 +6,7 @@ import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
 import { sanitizeEmailInput, sanitizePhoneDigits } from "../../lib/inputSanitize";
 import { formatOtpSentSubtitle, type OtpSentTarget } from "../../lib/otpSentMessage";
 import { inputClass } from "../../lib/uiForm";
+import { OtpSendingIndicator } from "../ui/OtpSendingIndicator";
 
 function phoneLast10(v: string): string {
   const digits = v.replace(/\D/g, "");
@@ -216,9 +217,7 @@ export function CustomerHandoverOtpModal({
             </div>
           ) : (
             <div className="space-y-3">
-              {busy && !sessionId ? (
-                <p className="rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">Sending OTP…</p>
-              ) : null}
+              {busy && !sessionId ? <OtpSendingIndicator /> : null}
               {sentTo.length > 0 ? (
                 <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                   OTP sent — enter the code below.

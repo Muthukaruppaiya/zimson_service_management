@@ -1,5 +1,5 @@
 import { apiJson } from "./api";
-import { captureInvoicePdfFromPage } from "./captureInvoicePdf";
+import { captureInvoicePdfFromPage, ensureApplicationPdfBlob } from "./captureInvoicePdf";
 
 export type SendInvoiceWhatsAppParams = {
   phone: string;
@@ -21,7 +21,8 @@ export type SendInvoiceWhatsAppResult = {
 export async function sendInvoiceWhatsApp(
   params: SendInvoiceWhatsAppParams,
 ): Promise<SendInvoiceWhatsAppResult> {
-  const blob = params.pdfBlob ?? (await captureInvoicePdfFromPage());
+  const rawBlob = params.pdfBlob ?? (await captureInvoicePdfFromPage());
+  const blob = ensureApplicationPdfBlob(rawBlob);
 
   const filename =
     params.pdfFilename?.trim() ||

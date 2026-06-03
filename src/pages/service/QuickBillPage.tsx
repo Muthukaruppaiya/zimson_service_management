@@ -36,6 +36,10 @@ import {
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
+import {
+  captureQuickBillInvoicePdf,
+  quickBillInvoicePdfFilename,
+} from "../../lib/quickBillInvoiceDownload";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import { useMessagingSend } from "../../components/messaging/WhatsAppSendProvider";
 import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
@@ -1520,10 +1524,13 @@ export function QuickBillPage() {
       setBillPostActionNote(null);
       await runWhatsAppSend(async () => {
         try {
+          const pdfBlob = await captureQuickBillInvoicePdf(inv, invoiceVmOptions);
           const wa = await sendInvoiceWhatsApp({
             phone: p10,
             customerName: (inv.customerName ?? customerName).trim() || "Customer",
             invoiceNumber: inv.invoiceNumber || inv.billNumber,
+            pdfBlob,
+            pdfFilename: quickBillInvoicePdfFilename(inv),
           });
           const msg = invoiceWhatsAppResultMessage(wa);
           const ok = Boolean(wa.messageId) || Boolean(wa.dryRun);
@@ -1542,7 +1549,7 @@ export function QuickBillPage() {
         }
       });
     },
-    [phone, customerName, runWhatsAppSend],
+    [phone, customerName, runWhatsAppSend, invoiceVmOptions],
   );
 
   const handleSendInvoiceEmail = useCallback(
@@ -1555,11 +1562,13 @@ export function QuickBillPage() {
       setBillPostActionNote(null);
       await runEmailSend(async () => {
         try {
+          const pdfBlob = await captureQuickBillInvoicePdf(inv, invoiceVmOptions);
           await sendInvoiceEmail({
             email: to,
             customerName: (inv.customerName ?? customerName).trim() || "Customer",
             invoiceNumber: inv.invoiceNumber || inv.billNumber,
             totalInr: inv.totalInr,
+            pdfBlob,
           });
           const msg = "Invoice sent by email successfully (PDF attached).";
           setBillPostActionNote(msg);
@@ -1571,7 +1580,7 @@ export function QuickBillPage() {
         }
       });
     },
-    [email, customerName, runEmailSend],
+    [email, customerName, runEmailSend, invoiceVmOptions],
   );
 
   if (completion?.mode === "api") {
@@ -2709,10 +2718,12 @@ export function QuickBillPage() {
           initialCompany={company}
           initialGst={gst}
           initialPan={pan}
-          onSaved={(savedCompany, savedGst, savedPan) => {
+          onSaved={(savedCompany, savedGst, savedPan, extras) => {
             setCompany(savedCompany);
             setGst(savedGst);
             setPan(savedPan);
+            if (extras?.address?.trim()) setAddress(extras.address.trim());
+            if (extras?.city?.trim()) setCity(extras.city.trim());
             setB2bModalOpen(false);
             setCustomerType("B2B");
             setError(null);

@@ -13,6 +13,7 @@ import {
   isWhatsAppConfigured,
 } from "./config";
 import { qikchatApiHeaders, type QikchatSendMessageResponse } from "./qikchatApi";
+import { verifyPublicInvoicePdfUrl } from "./invoicePdfPublicUrl";
 
 export type SendInvoiceWhatsAppInput = {
   phone10: string;
@@ -97,6 +98,7 @@ export async function sendQikchatDocumentMessage(input: {
   const cfg = getMessagingConfig().whatsapp;
   const to = formatIndiaMobileE164(input.phone10);
   const link = resolvePublicHttpsDocumentUrl(input.documentUrl);
+  await verifyPublicInvoicePdfUrl(link);
 
   const payload = {
     to_contact: to,
@@ -127,6 +129,7 @@ export async function sendInvoiceWhatsAppTemplate(input: SendInvoiceWhatsAppInpu
   if (!invoiceNumber) throw new Error("Invoice number is required.");
 
   const documentUrl = resolvePublicHttpsDocumentUrl(input.documentUrl);
+  await verifyPublicInvoicePdfUrl(documentUrl);
   const filename = sanitizeFilename(input.documentFilename ?? `Zimson-Invoice-${invoiceNumber}`);
 
   const payload = {

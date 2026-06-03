@@ -129,6 +129,17 @@ async function startLocaltunnel(port: number): Promise<string | null> {
   }
 }
 
+/** Dev tunnel hosts (not production marketing site). */
+export function isLikelyDevTunnelBaseUrl(baseUrl: string): boolean {
+  const u = baseUrl.toLowerCase();
+  return (
+    u.includes("trycloudflare.com") ||
+    u.includes("ngrok") ||
+    u.includes("loca.lt") ||
+    u.includes("localhost.run")
+  );
+}
+
 /** Confirms tunnel forwards to this API (no auth). */
 export async function verifyTunnelBaseUrl(baseUrl: string): Promise<boolean> {
   const base = baseUrl.replace(/\/$/, "");
@@ -221,15 +232,25 @@ export async function startDevPublicTunnel(port: number): Promise<string | null>
   if (process.env.MESSAGING_AUTO_TUNNEL !== "true") return null;
   if (process.env.NODE_ENV === "production") return null;
 
+  if (activeTunnelUrl && (await verifyTunnelBaseUrl(activeTunnelUrl))) {
+    patchMessagingPublicBaseUrl(activeTunnelUrl);
+    console.log(`[dev-tunnel] Using tunnel: ${activeTunnelUrl}`);
+    return activeTunnelUrl;
+  }
+
   const existing = getMessagingPublicBaseUrl();
-  if (existing) {
-    if (await verifyTunnelBaseUrl(existing)) {
-      console.log(`[dev-tunnel] Using public base URL: ${existing}`);
-      activeTunnelUrl = existing;
-      patchMessagingPublicBaseUrl(existing);
-      return existing;
-    }
-    console.warn(`[dev-tunnel] Saved public URL not reachable (${existing}), starting a new tunnel…`);
+  if (existing && isLikelyDevTunnelBaseUrl(existing) && (await verifyTunnelBaseUrl(existing))) {
+    console.log(`[dev-tunnel] Using tunnel URL: ${existing}`);
+    activeTunnelUrl = existing;
+    return existing;
+  }
+  if (existing && !isLikelyDevTunnelBaseUrl(existing)) {
+    console.warn(
+      `[dev-tunnel] Ignoring MESSAGING_PUBLIC_BASE_URL=${existing} on localhost — starting cloudflared (production site does not serve local invoice PDFs).`,
+    );
+    patchMessagingPublicBaseUrl("");
+  } else if (existing) {
+    console.warn(`[dev-tunnel] Saved URL not reachable (${existing}), starting cloudflared…`);
     patchMessagingPublicBaseUrl("");
   }
 
@@ -241,11 +262,6 @@ export async function ensureDevPublicTunnel(port: number): Promise<string | null
   if (process.env.NODE_ENV === "production") return getMessagingPublicBaseUrl() || null;
   if (process.env.MESSAGING_AUTO_TUNNEL !== "true") return getMessagingPublicBaseUrl() || null;
 
-  const current = getMessagingPublicBaseUrl();
-  if (current && (await verifyTunnelBaseUrl(current))) {
-    return current;
-  }
-
   if (activeTunnelUrl && (await verifyTunnelBaseUrl(activeTunnelUrl))) {
     patchMessagingPublicBaseUrl(activeTunnelUrl);
     return activeTunnelUrl;
@@ -256,7 +272,12 @@ export async function ensureDevPublicTunnel(port: number): Promise<string | null
       tunnelStartPromise = null;
     });
   }
-  return tunnelStartPromise;
+  const tun = await tunnelStartPromise;
+  if (tun) return tun;
+
+  const current = getMessagingPublicBaseUrl();
+  if (current && (await verifyTunnelBaseUrl(current))) return current;
+  return null;
 }
 
 export function stopDevPublicTunnel(): void {

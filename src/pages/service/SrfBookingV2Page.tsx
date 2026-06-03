@@ -24,7 +24,6 @@ import {
 } from "../../lib/paymentModes";
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
 import { SrfBookingSuccessOverlay } from "../../components/service/SrfBookingSuccessOverlay";
-import type { ResendSrfTrackingWhatsAppResult } from "../../lib/resendSrfTrackingWhatsApp";
 import { SRF_MIN_WATCH_PHOTOS_REQUIRED, srfMinWatchPhotosFinalizeError } from "../../lib/srfPhotoSlots";
 import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
 import {
@@ -232,15 +231,6 @@ export function SrfBookingV2Page() {
   const [srfRef, setSrfRef] = useState<string | null>(null);
   const [finalizedSrfId, setFinalizedSrfId] = useState<string | null>(null);
   const [finalizedRepairRoute, setFinalizedRepairRoute] = useState<SrfRepairRoute>("send_to_ho");
-  const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
-  const [trackingWhatsAppState, setTrackingWhatsAppState] = useState<{
-    sent: boolean;
-    reason: string | null;
-  } | null>(null);
-  const [trackingEmailState, setTrackingEmailState] = useState<{
-    sent: boolean;
-    reason: string | null;
-  } | null>(null);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
   const [photoPreview, setPhotoPreview] = useState<SrfPhotoThumb[]>([]);
@@ -460,6 +450,10 @@ export function SrfBookingV2Page() {
     }
     if (advanceAmount.trim() && (!Number.isFinite(advanceTotal) || advanceTotal < 0)) {
       setError("Advance amount must be a valid non-negative number.");
+      return false;
+    }
+    if (advanceTotal > estimateTotal) {
+      setError("Advance amount cannot be greater than the estimate amount.");
       return false;
     }
     if (advanceTotal > 0) {
@@ -1112,15 +1106,6 @@ export function SrfBookingV2Page() {
       setSrfRef(row.reference);
       setFinalizedSrfId(row.srfId);
       setFinalizedRepairRoute(repairRoute);
-      setTrackingUrl(out.trackingUrl ?? null);
-      setTrackingWhatsAppState({
-        sent: Boolean(out.whatsappSent),
-        reason: out.whatsappReason ?? null,
-      });
-      setTrackingEmailState({
-        sent: Boolean(out.emailSent),
-        reason: out.emailReason ?? null,
-      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create SRF.");
     }
@@ -1228,18 +1213,6 @@ export function SrfBookingV2Page() {
     );
   }
 
-  function applyTrackingResendResult(result: ResendSrfTrackingWhatsAppResult) {
-    if (result.trackingUrl) setTrackingUrl(result.trackingUrl);
-    setTrackingWhatsAppState({
-      sent: result.whatsappSent,
-      reason: result.whatsappReason,
-    });
-    setTrackingEmailState({
-      sent: result.emailSent,
-      reason: result.emailReason,
-    });
-  }
-
   const captureUrl = useMemo(() => {
     if (!draft) return "";
     return new URL(draft.captureUrl, window.location.origin).toString();
@@ -1250,20 +1223,7 @@ export function SrfBookingV2Page() {
       <SrfBookingSuccessOverlay
         srfReference={srfRef}
         srfId={finalizedSrfId}
-        statusTitle={finalizedRepairRoute === "store_self" ? "Pending store assign" : "At store"}
-        statusHint={
-          finalizedRepairRoute === "store_self"
-            ? "Assign technician when ready."
-            : "Move to dispatch when ready."
-        }
-        customerName={customerName}
-        phone={phone}
         customerEmail={email}
-        trackingUrl={trackingUrl}
-        emailState={trackingEmailState}
-        whatsappState={trackingWhatsAppState}
-        onPrint={reprintSrfAndEstimate}
-        onNotifyUpdate={applyTrackingResendResult}
       />
     );
   }
@@ -1788,9 +1748,23 @@ export function SrfBookingV2Page() {
               <input
                 className={inputClass}
                 value={advanceAmount}
-                onChange={(e) => setAdvanceAmount(e.target.value)}
+                onChange={(e) => {
+                  setError(null);
+                  const raw = sanitizeDecimalInput(e.target.value);
+                  const adv = Number.parseFloat(raw) || 0;
+                  if (estimateTotal > 0 && adv > estimateTotal) {
+                    setAdvanceAmount(String(estimateTotal));
+                    setError("Advance cannot exceed estimate amount.");
+                    return;
+                  }
+                  setAdvanceAmount(raw);
+                }}
                 placeholder="0.00"
+                max={estimateTotal > 0 ? estimateTotal : undefined}
               />
+              {estimateTotal > 0 ? (
+                <p className="mt-1 text-[11px] text-stone-500">Maximum advance: {formatInr(estimateTotal)}</p>
+              ) : null}
             </label>
             <label className="block min-w-0 text-sm md:col-span-2">
               <span className="mb-1 block font-medium text-stone-700">Estimated service finish date</span>
@@ -2030,10 +2004,12 @@ export function SrfBookingV2Page() {
           initialCompany={company}
           initialGst={gst}
           initialPan={pan}
-          onSaved={(savedCompany, savedGst, savedPan) => {
+          onSaved={(savedCompany, savedGst, savedPan, extras) => {
             setCompany(savedCompany);
             setGst(savedGst);
             setPan(savedPan);
+            if (extras?.address?.trim()) setAddress(extras.address.trim());
+            if (extras?.city?.trim()) setCity(extras.city.trim());
             setB2bModalOpen(false);
             setCustomerType("B2B");
             setError(null);

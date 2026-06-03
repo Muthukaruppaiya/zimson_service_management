@@ -7,7 +7,9 @@ import express from "express";
 import type { Pool } from "pg";
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
+import path from "node:path";
 import { join } from "node:path";
+import { resolveInvoicePdfFilePath } from "./messaging/invoicePdfPublicUrl";
 import { fileURLToPath } from "node:url";
 import { registerCatalogRoutes } from "./catalogRoutes";
 import { registerGeoRoutes } from "./geoRoutes";
@@ -493,11 +495,27 @@ app.use(
     setHeaders(res, filePath) {
       if (filePath.toLowerCase().endsWith(".pdf")) {
         res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", "inline");
         res.setHeader("Cache-Control", "public, max-age=86400");
       }
     },
   }),
 );
+
+/** WhatsApp / Qikchat — registered before SPA fallback so production serves PDF, not index.html. */
+app.get("/api/messaging/public-invoice-pdf/:filename", (req, res) => {
+  const invoicePdfDir = join(process.cwd(), "uploads", "invoice-pdf");
+  const filePath = resolveInvoicePdfFilePath(invoicePdfDir, String(req.params.filename ?? ""));
+  if (!filePath) {
+    res.status(404).type("text/plain").send("Invoice PDF not found.");
+    return;
+  }
+  const name = path.basename(filePath);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${name}"`);
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.sendFile(filePath);
+});
 
 async function ensureSeedUsers(): Promise<void> {
   for (const user of SEED_USERS) {

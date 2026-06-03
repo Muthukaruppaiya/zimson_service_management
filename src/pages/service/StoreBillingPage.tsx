@@ -3,7 +3,6 @@ import {
   CustomerHandoverOtpModal,
   type HandoverOtpMode,
 } from "../../components/service/CustomerHandoverOtpModal";
-import { mapSrfPreviewToServiceInvoiceViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
@@ -24,16 +23,41 @@ import { useMessagingSend } from "../../components/messaging/WhatsAppSendProvide
 import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
+import { computeServiceBillGst } from "../../lib/serviceBillGst";
 import {
+  resolveCustomerSupplyStateCode,
+  resolveSellerStateCode,
+} from "../../lib/gstSupply";
+import { sanitizeDecimalInput } from "../../lib/inputSanitize";
+import { formatInr } from "../../lib/formatInr";
+import { customerPayableInr } from "../../lib/quickBillPayable";
+import { billableServiceChargeInr } from "../../lib/natureOfRepair";
+import {
+  editorLinesBillableSubtotal,
+  editorLinesToGstLines,
+  editorLinesToInvoiceBillLines,
+  usedSparesToEditorLines,
+  type ServiceBillEditorLine,
+} from "../../lib/serviceBillEditorLines";
+import { ServiceBillLinesCard } from "../../components/service/ServiceBillLinesCard";
+import {
+  buildStoreBillingGstLines,
+  type StoreBillingAdditionalCharge,
+} from "../../lib/storeBillingGstPreview";
+import {
+  buildStoreBillingInvoiceFromClosedJob,
+  buildStoreBillingSnapshot,
   buildStoreBillingInvoiceLines,
+  resolveCustomerServiceBaseInr,
   resolveStoreBillingAmounts,
   sumUsedSparesInr,
 } from "../../lib/storeBillingAmounts";
+import { captureInvoicePdfFromViewModel } from "../../lib/renderInvoiceForPdf";
+import type { CustomerRecord } from "../../types/customer";
 import {
   ADVANCE_CASH_DENOMS,
   buildMultiPaymentPayload,
   emptyMultiPaymentForm,
-  formatPaymentSummary,
   validateMultiPaymentForm,
   type AdvancePaymentDetails,
 } from "../../lib/paymentModes";
@@ -55,6 +79,18 @@ const billSuccessBtnBase =
 const billSuccessBtnPrimary = `${billSuccessBtnBase} bg-zimson-600 text-white hover:bg-zimson-700`;
 const billSuccessBtnSecondary = `${billSuccessBtnBase} border border-zimson-400 bg-white text-zimson-900 hover:bg-zimson-50`;
 const billSuccessBtnOutline = `${billSuccessBtnBase} border border-stone-300 bg-white text-stone-800 hover:bg-stone-50`;
+
+function customerAddressText(c: CustomerRecord | null): string {
+  if (!c) return "";
+  const b = c.billingAddress;
+  if (b) {
+    return [b.addressLine1, b.addressLine2, b.city, b.district, b.state, b.pincode]
+      .map((p) => (p ?? "").trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+  return [c.address, c.city].map((p) => (p ?? "").trim()).filter(Boolean).join(", ");
+}
 
 export function StoreBillingPage() {
   const { user } = useAuth();
@@ -83,6 +119,9 @@ export function StoreBillingPage() {
   const [additionalChargeLines, setAdditionalChargeLines] = useState<AdditionalChargeLine[]>([
     { id: `${Date.now()}-charge`, lineType: "charge", description: "", spareId: "", qty: "1", amount: "" },
   ]);
+  const [billLines, setBillLines] = useState<ServiceBillEditorLine[]>([]);
+  const [serviceChargeInr, setServiceChargeInr] = useState("");
+  const [billingStateInput, setBillingStateInput] = useState("");
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
 
   const currentUserStore = useMemo(() => {
@@ -137,12 +176,69 @@ export function StoreBillingPage() {
     return customers.find((c) => phoneLast10(c.phone) === p10) ?? null;
   }, [billingJob?.phone, customers]);
   const billingCustomerEmail = billingCustomer?.email?.trim() ?? "";
+  const billingCustomerKind = billingCustomer?.customerKind ?? "B2C";
+  const billingCustomerGst = billingCustomer?.gst?.trim().toUpperCase() ?? "";
+  const billingCustomerState =
+    billingCustomer?.billingAddress?.state?.trim() ||
+    billingCustomer?.city?.trim() ||
+    "";
+  const billingCustomerAddress = customerAddressText(billingCustomer);
+  const invoiceSacHsn = serviceTaxSettings?.defaultSacHsn?.trim() || "9987";
+
+  const spareHsnLookup = useCallback(
+    (spareId: string) => {
+      const sp = activeSpares.find((s) => s.id === spareId);
+      return sp?.hsn?.trim() || null;
+    },
+    [activeSpares],
+  );
+
   const billingAmounts = useMemo(
     () => (billingJob ? resolveStoreBillingAmounts(billingJob) : null),
     [billingJob],
   );
   const isBrandRepairFlow = billingAmounts?.isBrandRepair ?? false;
   const isInterHoReturnFlow = billingAmounts?.isInterHoReturn ?? false;
+  const useQuickBillStyleLines = Boolean(billingJob && !isBrandRepairFlow && !isInterHoReturnFlow && !isRejectedNoRepairFlow);
+
+  const spareOptions = useMemo(
+    () =>
+      activeSpares.map((s) => ({
+        id: s.id,
+        sku: s.sku,
+        name: s.name,
+        hsn: s.hsn?.trim() || null,
+        price: Number(s.sellingPriceInr ?? s.mrpInr ?? 0),
+      })),
+    [activeSpares],
+  );
+
+  useEffect(() => {
+    if (!billingJob || !useQuickBillStyleLines) {
+      setBillLines([]);
+      setServiceChargeInr("");
+      setBillingStateInput("");
+      return;
+    }
+    setBillLines(
+      usedSparesToEditorLines(billingJob, (spareId) => {
+        if (!spareId) return null;
+        return activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null;
+      }),
+    );
+    setServiceChargeInr("");
+    setBillingStateInput(billingCustomerState);
+  }, [billingJob?.id, useQuickBillStyleLines, billingCustomerState, activeSpares]);
+
+  const serviceChargeBillable = useMemo(() => {
+    const n = Number.parseFloat(serviceChargeInr);
+    return billableServiceChargeInr(
+      billingJob?.natureOfRepair,
+      Number.isFinite(n) && n > 0 ? n : 0,
+    );
+  }, [serviceChargeInr, billingJob?.natureOfRepair]);
+
+  const effectiveCustomerState = useQuickBillStyleLines ? billingStateInput : billingCustomerState;
   function getSpareUnitPrice(spareId: string): number {
     const spare = activeSpares.find((s) => s.id === spareId);
     return Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
@@ -160,24 +256,131 @@ export function StoreBillingPage() {
     return Number.isFinite(amt) && amt > 0 ? amt : 0;
   }
 
-  const additionalChargesTotal = additionalChargeLines.reduce((sum, line) => sum + getLineAmount(line), 0);
-  const usedSparesAmount = billingJob ? sumUsedSparesInr(billingJob) : 0;
+  const previewAdditionalCharges = useMemo((): StoreBillingAdditionalCharge[] => {
+    return additionalChargeLines
+      .map((line) => {
+        if (line.lineType === "spare") {
+          const spare = activeSpares.find((s) => s.id === line.spareId);
+          const qty = Number.parseFloat(line.qty);
+          const amt = getLineAmount(line);
+          if (!spare || amt <= 0) return null;
+          return {
+            description: `Spare: ${spare.sku} - ${spare.name} x ${Number.isFinite(qty) && qty > 0 ? qty : 0}`,
+            amountInr: amt,
+            spareId: line.spareId,
+          };
+        }
+        const desc = line.description.trim();
+        const amt = getLineAmount(line);
+        if (!desc || amt <= 0) return null;
+        return { description: desc, amountInr: amt };
+      })
+      .filter((x): x is StoreBillingAdditionalCharge => x != null);
+  }, [additionalChargeLines, activeSpares]);
+
+  const additionalChargesTotal = previewAdditionalCharges.reduce((sum, line) => sum + line.amountInr, 0);
+  const usedSparesAmountRaw = billingJob ? sumUsedSparesInr(billingJob) : 0;
+  const sparesBillableAmount = billingAmounts?.usedSparesAmount ?? 0;
   const brandInvoiceAmount = isBrandRepairFlow ? Number(billingJob?.brandInvoiceAmountInr ?? 0) : 0;
-  const repairBaseAmount = billingAmounts?.billableBaseAmount ?? 0;
+  const repairBaseAmount = isBrandRepairFlow
+    ? (billingAmounts?.billableBaseAmount ?? 0)
+    : isInterHoReturnFlow
+      ? (billingAmounts?.billableBaseAmount ?? 0)
+      : sparesBillableAmount;
   const advanceAmount = Number(billingJob?.advanceInr ?? 0);
-  const standardBillingTotal = Math.max(repairBaseAmount + additionalChargesTotal - advanceAmount, 0);
+  const estimatedAmtInr = billingJob ? resolveCustomerServiceBaseInr(billingJob) : 0;
+  const billSubtotalBeforeAdvance = useQuickBillStyleLines
+    ? editorLinesBillableSubtotal(billLines, billingJob?.natureOfRepair, serviceChargeInr)
+    : repairBaseAmount + additionalChargesTotal;
+
+  const taxPreview = useMemo(() => {
+    if (!billingJob || !billingAmounts || isRejectedNoRepairFlow) return null;
+    const configured = serviceTaxSettings?.gstRatePercent ?? 18;
+    const storeGstin =
+      storeInvoiceForPrint?.invoiceStoreGstin?.trim() ||
+      serviceTaxSettings?.invoiceStoreGstin?.trim() ||
+      "";
+    const sellerState = resolveSellerStateCode(storeGstin);
+    const customerState = resolveCustomerSupplyStateCode({
+      customerType: billingCustomerKind,
+      customerGstin: billingCustomerGst,
+      billingStateName: effectiveCustomerState,
+      addressText: billingCustomerAddress,
+      cityText: billingCustomer?.city ?? null,
+      sellerStateCode: sellerState,
+    });
+    const gstLines = useQuickBillStyleLines
+      ? editorLinesToGstLines(
+          billLines,
+          billingJob.natureOfRepair,
+          serviceChargeBillable,
+          invoiceSacHsn,
+        )
+      : buildStoreBillingGstLines(billingJob, billingAmounts, previewAdditionalCharges, invoiceSacHsn);
+    if (gstLines.length === 0) return null;
+    return computeServiceBillGst({
+      lines: gstLines,
+      defaultHsnSac: invoiceSacHsn,
+      spareHsnLookup,
+      configuredGstPercent: configured,
+      cgstRatePercent: serviceTaxSettings?.cgstRatePercent ?? configured / 2,
+      sgstRatePercent: serviceTaxSettings?.sgstRatePercent ?? configured / 2,
+      igstRatePercent: serviceTaxSettings?.igstRatePercent ?? configured,
+      pricesTaxInclusive: Boolean(serviceTaxSettings?.pricesTaxInclusive),
+      natureOfRepair: billingJob.natureOfRepair,
+      sellerStateCode: sellerState,
+      customerStateCode: customerState,
+      billTotalInr: billSubtotalBeforeAdvance,
+    });
+  }, [
+    billingJob,
+    billingAmounts,
+    isRejectedNoRepairFlow,
+    useQuickBillStyleLines,
+    billLines,
+    serviceChargeBillable,
+    previewAdditionalCharges,
+    invoiceSacHsn,
+    serviceTaxSettings,
+    storeInvoiceForPrint,
+    billingCustomerKind,
+    billingCustomerGst,
+    effectiveCustomerState,
+    billingCustomerAddress,
+    billingCustomer?.city,
+    spareHsnLookup,
+    billSubtotalBeforeAdvance,
+  ]);
+
+  const invoiceTotalInr = useMemo(() => {
+    const payable = customerPayableInr(
+      billSubtotalBeforeAdvance,
+      taxPreview?.totalTax ?? 0,
+      Boolean(serviceTaxSettings?.pricesTaxInclusive),
+    );
+    return Number.isFinite(payable) ? payable : billSubtotalBeforeAdvance;
+  }, [billSubtotalBeforeAdvance, taxPreview?.totalTax, serviceTaxSettings?.pricesTaxInclusive]);
+
+  const standardBillingTotal = useMemo(() => {
+    const due = invoiceTotalInr - advanceAmount;
+    return Number.isFinite(due) ? Math.max(Math.round(due * 100) / 100, 0) : 0;
+  }, [invoiceTotalInr, advanceAmount]);
 
   useEffect(() => {
     if (!billingJob) return;
     setHoSparesBillRef((billingJob.hoSparesBillRef ?? "").trim());
   }, [billingJob?.id, billingJob?.hoSparesBillRef]);
+
+  useEffect(() => {
+    setPaidAmountInput("");
+    setMultiPaymentForm(emptyMultiPaymentForm());
+  }, [billingJob?.id]);
+
   const finalBillingAmount = useMemo(() => {
     const raw = paidAmountInput.trim();
-    if (raw) {
-      const n = Number(raw);
-      return Number.isFinite(n) && n >= 0 ? n : standardBillingTotal;
-    }
-    return standardBillingTotal;
+    if (!raw) return standardBillingTotal;
+    const n = Number.parseFloat(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : standardBillingTotal;
   }, [paidAmountInput, standardBillingTotal]);
   useEffect(() => {
     setHandoverVerified(false);
@@ -185,6 +388,10 @@ export function StoreBillingPage() {
   }, [billingJob?.id]);
 
   function validateBeforeHandoverOtp(): boolean {
+    if (!Number.isFinite(finalBillingAmount) || finalBillingAmount < 0) {
+      setMessage({ type: "err", text: "Enter a valid final billing amount." });
+      return false;
+    }
     const payErr = validateMultiPaymentForm(multiPaymentForm, finalBillingAmount);
     if (payErr) {
       setMessage({ type: "err", text: payErr });
@@ -241,8 +448,11 @@ export function StoreBillingPage() {
     setMessage({ type: "ok", text: `SRF ${hit.reference} selected from barcode scan.` });
   }
 
-  async function closeJob(jobId: string) {
-    return closeWithInvoice(jobId, { hoSparesBillRef, storeBillRef });
+  async function closeJob(
+    jobId: string,
+    storeBillingSnapshot?: import("../../lib/storeBillingSnapshot").StoreBillingSnapshot,
+  ) {
+    return closeWithInvoice(jobId, { hoSparesBillRef, storeBillRef, storeBillingSnapshot });
   }
 
   async function closeRejectedNoBilling(jobId: string) {
@@ -255,13 +465,9 @@ export function StoreBillingPage() {
       setMessage({ type: "err", text: "SRF not found in store inventory." });
       return;
     }
-    const jobAmounts = resolveStoreBillingAmounts(job);
-    const jobRepairBase = jobAmounts.billableBaseAmount;
-    const advanceAmount = Number(job.advanceInr ?? 0);
-    const computedTotal = Math.max(jobRepairBase + additionalChargesTotal - advanceAmount, 0);
-    const finalAmount = paidAmountInput.trim() ? Number(paidAmountInput) : computedTotal;
+    const finalAmount = finalBillingAmount;
     if (!Number.isFinite(finalAmount) || finalAmount < 0) {
-      setMessage({ type: "err", text: "Enter valid final billing amount." });
+      setMessage({ type: "err", text: "Enter a valid final billing amount." });
       return;
     }
     const payPayload = buildMultiPaymentPayload(multiPaymentForm, finalAmount);
@@ -277,52 +483,38 @@ export function StoreBillingPage() {
     setClosingAfterOtp(true);
     setMessage(null);
     try {
-      const closeOut = await closeJob(jobId);
-      const collectionPaymentLabel = formatPaymentSummary(payPayload.paymentMode, payPayload.paymentDetails);
-      const additionalCharges = additionalChargeLines
-        .map((line) => {
-          if (line.lineType === "spare") {
-            const spare = activeSpares.find((s) => s.id === line.spareId);
-            const qty = Number.parseFloat(line.qty);
-            return {
-              description: spare
-                ? `Spare: ${spare.sku} - ${spare.name} x ${Number.isFinite(qty) && qty > 0 ? qty : 0}`
-                : "",
-              amountInr: getLineAmount(line),
-            };
-          }
-          return { description: line.description.trim(), amountInr: getLineAmount(line) };
-        })
-        .filter((line) => line.description && Number.isFinite(line.amountInr) && line.amountInr > 0);
-      const billTotal = jobRepairBase + additionalChargesTotal;
-      const billLines = buildStoreBillingInvoiceLines(job, jobAmounts, additionalCharges);
+      const snapshot = buildStoreBillingSnapshot({
+        job,
+        useQuickBillStyleLines,
+        billLines,
+        serviceChargeBillable,
+        additionalCharges: previewAdditionalCharges,
+        defaultSacHsn: invoiceSacHsn,
+        billSubtotalInr: billSubtotalBeforeAdvance,
+        collectionAmountInr: finalAmount,
+        collectionPaymentMode: payPayload.paymentMode,
+        paymentDetails: payPayload.paymentDetails,
+      });
+      const closeOut = await closeJob(jobId, snapshot);
+      const cust = customers.find((c) => phoneLast10(c.phone) === phoneLast10(job.phone));
+      const closedJob = {
+        ...job,
+        invoiceNumber: closeOut.invoiceNumber ?? job.invoiceNumber ?? null,
+        storeBillingSnapshot: snapshot,
+      };
       setBillingInvoiceVm(
-        mapSrfPreviewToServiceInvoiceViewModel(
-          {
-            reference: job.reference,
-            invoiceNumber: closeOut.invoiceNumber ?? undefined,
-            customerName: job.customerName,
-            phone: job.phone,
-            watchBrand: job.watchBrand,
-            watchModel: job.watchModel,
-            serial: job.serial,
-            complaint: job.complaint || "",
-            estimateTotalInr: billTotal,
-            advanceInr: advanceAmount,
-            advancePaymentMode: job.advancePaymentMode,
-            billLines,
-            collectionAmountInr: finalAmount,
-            collectionPaymentMode: collectionPaymentLabel,
-            natureOfRepair: job.natureOfRepair?.trim() || undefined,
-          },
-          {
-            taxSettings: serviceTaxSettings,
-            defaultHsnSac: serviceTaxSettings?.defaultSacHsn,
-            storeInvoice: storeInvoiceForPrint,
-            invoiceKind: "service_bill",
-            generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
-          },
-        ),
+        buildStoreBillingInvoiceFromClosedJob(closedJob, {
+          taxSettings: serviceTaxSettings,
+          defaultHsnSac: invoiceSacHsn,
+          storeInvoice: storeInvoiceForPrint,
+          customer: cust ?? null,
+          storeBillingSnapshot: snapshot,
+          collectionAmountInr: finalAmount,
+          collectionPaymentMode: payPayload.paymentMode,
+          collectionPaymentDetails: payPayload.paymentDetails,
+          spareHsnLookup,
+          generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
+        }),
       );
       setBillPostActionNote(null);
       setBillSuccessModalOpen(true);
@@ -337,6 +529,8 @@ export function StoreBillingPage() {
       setBillingRefInput("");
       setPaidAmountInput("");
       setMultiPaymentForm(emptyMultiPaymentForm());
+      setBillLines([]);
+      setServiceChargeInr("");
       setAdditionalChargeLines([
         { id: `${Date.now()}-charge`, lineType: "charge", description: "", spareId: "", qty: "1", amount: "" },
       ]);
@@ -348,6 +542,11 @@ export function StoreBillingPage() {
     }
   }
 
+  const resolveBillingInvoicePdfBlob = useCallback(async () => {
+    if (!billingInvoiceVm) throw new Error("Invoice is not ready.");
+    return captureInvoicePdfFromViewModel(billingInvoiceVm, "srf-store-bill");
+  }, [billingInvoiceVm]);
+
   const handleSendBillingInvoiceWhatsApp = useCallback(async () => {
     if (!billingInvoiceVm) return;
     const p10 = phoneLast10(billingInvoiceVm.billTo.phone ?? "");
@@ -358,10 +557,12 @@ export function StoreBillingPage() {
     setBillPostActionNote(null);
     await runWhatsAppSend(async () => {
       try {
+        const pdfBlob = await resolveBillingInvoicePdfBlob();
         const wa = await sendInvoiceWhatsApp({
           phone: p10,
           customerName: billingInvoiceVm.billTo.name.trim() || "Customer",
           invoiceNumber: billingInvoiceVm.invoiceNumber,
+          pdfBlob,
         });
         const msg = invoiceWhatsAppResultMessage(wa);
         const ok = Boolean(wa.messageId) || Boolean(wa.dryRun);
@@ -379,7 +580,7 @@ export function StoreBillingPage() {
         return { ok: false, message: msg };
       }
     });
-  }, [billingInvoiceVm, runWhatsAppSend]);
+  }, [billingInvoiceVm, resolveBillingInvoicePdfBlob, runWhatsAppSend]);
 
   const handleSendBillingInvoiceEmail = useCallback(async () => {
     if (!billingInvoiceVm) return;
@@ -391,11 +592,13 @@ export function StoreBillingPage() {
     setBillPostActionNote(null);
     await runEmailSend(async () => {
       try {
+        const pdfBlob = await resolveBillingInvoicePdfBlob();
         await sendInvoiceEmail({
           email: to,
           customerName: billingInvoiceVm.billTo.name.trim() || "Customer",
           invoiceNumber: billingInvoiceVm.invoiceNumber,
           totalInr: billingInvoiceVm.netPayable ?? billingInvoiceVm.totalAmount,
+          pdfBlob,
         });
         const msg = "Invoice sent by email successfully (PDF attached).";
         setBillPostActionNote(msg);
@@ -406,7 +609,7 @@ export function StoreBillingPage() {
         return { ok: false, message: msg };
       }
     });
-  }, [billingInvoiceVm, billingCustomerEmail, runEmailSend]);
+  }, [billingInvoiceVm, billingCustomerEmail, resolveBillingInvoicePdfBlob, runEmailSend]);
 
   if (!user) return null;
 
@@ -596,6 +799,40 @@ export function StoreBillingPage() {
                 ) : null}
               </div>
             ) : null}
+            {useQuickBillStyleLines && billingJob ? (
+              <ServiceBillLinesCard
+                watchBrand={billingJob.watchBrand}
+                spareOptions={spareOptions}
+                lines={billLines}
+                onLinesChange={setBillLines}
+                serviceChargeInr={serviceChargeInr}
+                onServiceChargeInrChange={setServiceChargeInr}
+                customerBillingState={billingStateInput}
+                onCustomerBillingStateChange={setBillingStateInput}
+                customerType={billingCustomerKind}
+                customerGst={billingCustomerGst}
+                customerAddress={billingCustomerAddress}
+                customerCity={billingCustomer?.city}
+                serviceSacHsn={invoiceSacHsn}
+                serviceTaxSettings={serviceTaxSettings}
+                storeGstin={
+                  storeInvoiceForPrint?.invoiceStoreGstin?.trim() ||
+                  serviceTaxSettings?.invoiceStoreGstin?.trim()
+                }
+                natureOfRepair={billingJob.natureOfRepair}
+                taxPreview={taxPreview}
+                billSubtotalInr={billSubtotalBeforeAdvance}
+                advanceInr={advanceAmount}
+                standardTotalInr={standardBillingTotal}
+                userRole={user?.role}
+                labourChargesOnly={user?.role === "store_user"}
+                onValidationError={(msg) => {
+                  if (msg) setMessage({ type: "err", text: msg });
+                  else if (message?.type === "err") setMessage(null);
+                }}
+              />
+            ) : null}
+            {!useQuickBillStyleLines ? (
             <div className="rounded-xl bg-zimson-50 p-3 text-sm text-stone-700">
               <p className="font-semibold text-zimson-900">
                 {isBrandRepairFlow
@@ -652,7 +889,8 @@ export function StoreBillingPage() {
                 <p className="mt-1 text-xs text-amber-700">No spares slip submitted yet.</p>
               )}
             </div>
-            {!isRejectedNoRepairFlow ? (
+            ) : null}
+            {!isRejectedNoRepairFlow && !useQuickBillStyleLines ? (
               <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-sm font-semibold text-zimson-900">Additional line items (labour / service charges)</p>
@@ -743,7 +981,7 @@ export function StoreBillingPage() {
                 </div>
               </div>
             ) : null}
-            {!isRejectedNoRepairFlow ? (
+            {!isRejectedNoRepairFlow && !useQuickBillStyleLines ? (
             <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
               <table className="min-w-full text-left text-sm">
                 <tbody>
@@ -759,12 +997,16 @@ export function StoreBillingPage() {
                       INR {repairBaseAmount.toFixed(2)}
                     </td>
                   </tr>
-                  {isInterHoReturnFlow && usedSparesAmount > 0 ? (
+                  {isInterHoReturnFlow && usedSparesAmountRaw > 0 ? (
                     <tr className="border-b border-zimson-100">
                       <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Repair HO spares (line items)</th>
-                      <td className="px-3 py-2 text-stone-800">INR {usedSparesAmount.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-stone-800">INR {usedSparesAmountRaw.toFixed(2)}</td>
                     </tr>
                   ) : null}
+                  <tr className="border-b border-zimson-100">
+                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimated amt</th>
+                    <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(estimatedAmtInr)}</td>
+                  </tr>
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance received</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
@@ -811,18 +1053,15 @@ export function StoreBillingPage() {
                     </td>
                   </tr>
                   <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Standard billing total</th>
+                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Standard billing total (incl. GST − advance)</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
-                      INR {standardBillingTotal.toFixed(2)}
+                      {formatInr(standardBillingTotal)}
                     </td>
                   </tr>
                   <tr>
                     <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Final our billing amount</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
-                      INR {(paidAmountInput.trim()
-                        ? Number(paidAmountInput)
-                        : standardBillingTotal
-                      ).toFixed(2)}
+                      {formatInr(finalBillingAmount)}
                     </td>
                   </tr>
                 </tbody>
@@ -831,6 +1070,26 @@ export function StoreBillingPage() {
             ) : null}
             {!isRejectedNoRepairFlow ? (
               <>
+            {useQuickBillStyleLines ? (
+              <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+                <table className="min-w-full text-left text-sm">
+                  <tbody>
+                    <tr className="border-b border-zimson-100">
+                      <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimated amt</th>
+                      <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(estimatedAmtInr)}</td>
+                    </tr>
+                    <tr className="border-b border-zimson-100">
+                      <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance received</th>
+                      <td className="px-3 py-2 font-semibold text-zimson-900">INR {advanceAmount.toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Final our billing amount</th>
+                      <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(finalBillingAmount)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
             <div className="grid gap-3 md:grid-cols-2">
               <label className="text-sm">
                 HO bill reference
@@ -856,9 +1115,17 @@ export function StoreBillingPage() {
               <input
                 className="mt-1 w-full max-w-xs rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                 value={paidAmountInput}
-                onChange={(e) => setPaidAmountInput(e.target.value)}
-                placeholder={String(standardBillingTotal)}
+                onChange={(e) => {
+                  setMessage(null);
+                  setPaidAmountInput(sanitizeDecimalInput(e.target.value));
+                }}
+                placeholder={
+                  Number.isFinite(standardBillingTotal) ? String(standardBillingTotal) : "0"
+                }
               />
+              <p className="mt-1 text-xs text-stone-500">
+                Leave blank to use balance due {formatInr(standardBillingTotal)} (after GST and advance).
+              </p>
             </label>
             <MultiPaymentFields
               idPrefix="store-bill"

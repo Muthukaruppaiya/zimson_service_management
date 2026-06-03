@@ -87,6 +87,12 @@ export function findInvoicePrintRoot(): HTMLElement | null {
   return el instanceof HTMLElement ? el : null;
 }
 
+/** Ensures upload/messaging APIs receive a PDF blob (html2pdf may omit MIME type). */
+export function ensureApplicationPdfBlob(blob: Blob): Blob {
+  if (blob.type === "application/pdf") return blob;
+  return new Blob([blob], { type: "application/pdf" });
+}
+
 export function triggerBlobDownload(blob: Blob, filename: string): void {
   const name = filename.trim().toLowerCase().endsWith(".pdf") ? filename.trim() : `${filename.trim()}.pdf`;
   const url = URL.createObjectURL(blob);

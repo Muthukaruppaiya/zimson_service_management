@@ -3,7 +3,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
 
-/** Redirects SC supervisors to Stock & prices — their only inventory screen. */
+/** Redirects view-only inventory roles (SC supervisor, store user) to Stock & prices. */
 export function InventorySupervisorGuard({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   if (isInventoryStockPricesViewOnly(user)) {

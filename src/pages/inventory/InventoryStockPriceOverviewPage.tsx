@@ -50,6 +50,7 @@ export function InventoryStockPriceOverviewPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
   const viewOnly = isInventoryStockPricesViewOnly(user);
+  const isStoreUser = user?.role === "store_user";
   const showRegionFilter = user?.role === "super_admin";
   const [rows, setRows] = useState<OverviewRow[]>([]);
   const [filterRegion, setFilterRegion] = useState("");
@@ -171,11 +172,13 @@ export function InventoryStockPriceOverviewPage() {
     <div>
       <InventoryBreadcrumb current="Stock & prices" />
       <PageHeader
-        title="Stock control desk"
+        title={isStoreUser ? "Store stock" : "Stock control desk"}
         description={
-          viewOnly
-            ? "View-only access to HO stock levels and spare prices for your region."
-            : "Scalable list for high-volume spares with drill-down stock, prices, and timeline history."
+          isStoreUser
+            ? "View spare stock and prices for your assigned store only (read-only)."
+            : viewOnly
+              ? "View-only access to HO stock levels and spare prices for your region."
+              : "Scalable list for high-volume spares with drill-down stock, prices, and timeline history."
         }
         actions={
           viewOnly ? null : (
@@ -191,7 +194,9 @@ export function InventoryStockPriceOverviewPage() {
 
       {viewOnly ? (
         <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
-          View-only: you can browse stock and prices but cannot change inventory records.
+          {isStoreUser
+            ? "View-only: stock shown is limited to your store. You cannot add or adjust inventory from here."
+            : "View-only: you can browse stock and prices but cannot change inventory records."}
         </p>
       ) : null}
 

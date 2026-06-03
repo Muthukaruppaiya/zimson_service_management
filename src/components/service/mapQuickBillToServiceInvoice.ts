@@ -11,7 +11,12 @@ import {
 import { gstRateFromHsn } from "../../lib/hsnGst";
 import { computeServiceBillGst } from "../../lib/serviceBillGst";
 import type { QuickBillInvoice, QuickBillLineInvoice } from "../../types/quickBill";
-import type { ServiceInvoiceLineView, ServiceInvoiceTaxRow, ServiceInvoiceViewModel } from "../../types/serviceInvoice";
+import type {
+  PaymentSplit,
+  ServiceInvoiceLineView,
+  ServiceInvoiceTaxRow,
+  ServiceInvoiceViewModel,
+} from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import type { StoreInvoicePrintProfile } from "../../types/storeInvoice";
 
@@ -140,10 +145,12 @@ function mergeSellerFromSettings(
 }
 
 function lineHsnForInvoice(
-  ln: QuickBillLineInvoice,
+  ln: QuickBillLineInvoice & { hsnSac?: string },
   defaultHsnSac: string,
   spareHsnLookup?: (spareId: string) => string | null | undefined,
 ): string {
+  const preset = ln.hsnSac?.trim();
+  if (preset) return preset;
   if (ln.spareId && spareHsnLookup) {
     const h = spareHsnLookup(ln.spareId)?.trim();
     if (h) return h;
@@ -403,6 +410,44 @@ export function buildDemoServiceInvoiceViewModel(
   };
 }
 
+/** Quick Bill–style payment block: advance, balance collection, invoice total (incl. GST). */
+export function buildServiceInvoicePaymentSection(input: {
+  advanceInr?: number;
+  balanceCollectedInr: number;
+  invoiceNetPayable: number;
+  paymentMode?: string | null;
+  paymentDetails?: AdvancePaymentDetails | MultiPaymentDetails | null;
+}): {
+  paymentMode?: string;
+  paymentSplits?: PaymentSplit[];
+  advanceAmount?: number;
+  balanceCollectedInr?: number;
+  amountPaid: number;
+  netPayable: number;
+  totalAmount: number;
+  amountInWords: string;
+} {
+  const adv = Math.max(Number(input.advanceInr ?? 0), 0);
+  const invoiceNet = input.invoiceNetPayable;
+  const balance = Math.max(Number(input.balanceCollectedInr ?? 0), 0);
+  const payMode = input.paymentMode?.trim() || undefined;
+  const splitTotal = adv > 0 ? balance : invoiceNet;
+  const splits = paymentSplitsFromDetails(payMode ?? "Cash", input.paymentDetails ?? undefined, splitTotal);
+  const paymentSplits =
+    splits.length > 0 && splits.some((s) => s.amountInr > 0) ? splits : undefined;
+
+  return {
+    paymentMode: payMode,
+    paymentSplits,
+    advanceAmount: adv > 0 ? adv : undefined,
+    balanceCollectedInr: adv > 0 ? balance : invoiceNet,
+    amountPaid: invoiceNet,
+    netPayable: invoiceNet,
+    totalAmount: invoiceNet,
+    amountInWords: inrAmountToWords(invoiceNet),
+  };
+}
+
 export function mapQuickBillInvoiceToViewModel(
   inv: QuickBillInvoice,
   options?: ServiceInvoiceMappingOptions,
@@ -481,13 +526,13 @@ export function mapQuickBillInvoiceToViewModel(
         "—",
     },
     lines: gst.lines,
-    totalAmount: gst.net,
-    amountInWords: inrAmountToWords(gst.net),
-    paymentMode: inv.paymentMode,
-    paymentSplits: (() => {
-      const splits = paymentSplitsFromDetails(inv.paymentMode, inv.paymentDetails ?? undefined, gst.net);
-      return splits.length > 0 && splits.some((s) => s.amountInr > 0) ? splits : undefined;
-    })(),
+    ...buildServiceInvoicePaymentSection({
+      advanceInr: 0,
+      balanceCollectedInr: gst.net,
+      invoiceNetPayable: gst.net,
+      paymentMode: inv.paymentMode,
+      paymentDetails: inv.paymentDetails ?? undefined,
+    }),
     bankDetailsLines: [],
     notes: inv.notes?.trim() || undefined,
     footerTerms: sellerPack.footerTerms,
@@ -496,10 +541,7 @@ export function mapQuickBillInvoiceToViewModel(
     totalSgst: gst.sgst,
     totalIgst: gst.igst,
     totalTax: gst.tax,
-    netPayable: gst.net,
     totalQty: gst.totalQty,
-    advanceAmount: 0,
-    amountPaid: gst.net,
     paymentRemarks: inv.notes?.trim() || undefined,
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
@@ -525,11 +567,19 @@ export type SrfServiceBillPreviewInput = {
   advanceInr?: number;
   advancePaymentMode?: string | null;
   /** Line items for the tax invoice (same layout as quick bill). */
-  billLines?: { description: string; amountInr: number }[];
+  billLines?: {
+    description: string;
+    amountInr: number;
+    spareId?: string | null;
+    hsnSac?: string | null;
+  }[];
   /** Amount collected at store billing (balance due). */
   collectionAmountInr?: number;
+  /** Raw payment mode at collection (UPI, Cash, …). */
   collectionPaymentMode?: string | null;
+  collectionPaymentDetails?: MultiPaymentDetails | AdvancePaymentDetails | null;
   natureOfRepair?: string;
+  customerCode?: string;
 };
 
 export function mapSrfPreviewToServiceInvoiceViewModel(
@@ -551,8 +601,9 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
           lineNo: idx + 1,
           description: l.description.trim(),
           amountInr: l.amountInr,
-          spareId: null,
+          spareId: l.spareId ?? null,
           qty: 1,
+          hsnSac: l.hsnSac?.trim() || undefined,
         }))
       : [
           {
@@ -590,7 +641,14 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
       value: `INR ${adv.toFixed(2)} (${input.advancePaymentMode ?? "-"})`,
     });
   }
-  const payMode = input.collectionPaymentMode?.trim() || input.advancePaymentMode?.trim() || undefined;
+  const payMode = input.collectionPaymentMode?.trim() || undefined;
+  const paymentFields = buildServiceInvoicePaymentSection({
+    advanceInr: adv,
+    balanceCollectedInr: net,
+    invoiceNetPayable: gst.net,
+    paymentMode: payMode,
+    paymentDetails: input.collectionPaymentDetails ?? undefined,
+  });
 
   const srfNow = new Date();
   const srfDate = `${srfNow.getDate().toString().padStart(2, "0")}/${(srfNow.getMonth() + 1).toString().padStart(2, "0")}/${srfNow.getFullYear()}`;
@@ -622,6 +680,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
       pan: input.pan?.trim()?.toUpperCase() || null,
       phone: input.phone.trim() || null,
       email: input.email?.trim() || null,
+      customerCode: input.customerCode?.trim() || null,
     },
     serviceMeta,
     productBlock: {
@@ -632,9 +691,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
         natureOfRepairLabel(input.natureOfRepair) || input.natureOfRepair?.trim() || "Service completed",
     },
     lines: gst.lines,
-    totalAmount: net,
-    amountInWords: inrAmountToWords(net),
-    paymentMode: payMode,
+    ...paymentFields,
     bankDetailsLines: [...SERVICE_INVOICE_BRANDING.bankDetailsLines],
     footerTerms: sellerPack.footerTerms,
     grossTaxableTotal: gst.gross,
@@ -642,10 +699,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     totalSgst: gst.sgst,
     totalIgst: gst.igst,
     totalTax: gst.tax,
-    netPayable: gst.net,
     totalQty: gst.totalQty,
-    advanceAmount: adv,
-    amountPaid: net,
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
     invoiceLegalFooter: sellerPack.legalFooter,

@@ -83,7 +83,8 @@ Hello {{1}}, please find your invoice {{2}} from Zimson. Thank you for your busi
 
 The PDF file must be reachable at a **direct public HTTPS link** ending in `.pdf`. Qikchat downloads the file from:
 
-`{Public PDF base URL}/uploads/invoice-pdf/{filename}.pdf`
+`{Public PDF base URL}/api/messaging/public-invoice-pdf/{filename}.pdf`  
+(Nginx must proxy `/api` to the Node server — not the React app HTML page.)
 
 **Do not use** `localhost` or unstable free tunnels for production.
 

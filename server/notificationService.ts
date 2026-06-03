@@ -14,6 +14,8 @@ type TrackingLinkPayload = {
   name: string;
   trackingUrl: string;
   srfReference: string;
+  /** Default: send both channels when configured. */
+  channels?: { whatsapp?: boolean; email?: boolean };
 };
 type TrackingLinkSendResult = {
   /** WhatsApp template sent */
@@ -46,9 +48,14 @@ export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<Tr
     return { sent: false, reason: "Missing SRF number or tracking URL.", emailSent: false };
   }
 
+  const sendEmail = payload.channels?.email !== false;
+  const sendWhatsapp = payload.channels?.whatsapp !== false;
+
   let emailSent = false;
   let emailReason: string | undefined;
-  if (email && isEmailConfigured()) {
+  if (!sendEmail) {
+    emailReason = "Skipped.";
+  } else if (email && isEmailConfigured()) {
     try {
       await sendCustomerTrackingLinkEmail(email, customerName, srfNumber, trackingUrl);
       emailSent = true;
@@ -61,6 +68,10 @@ export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<Tr
     console.log("[TRACKING LINK] Email on file but SMTP not configured — skipped email send.");
   } else {
     emailReason = "No customer email on file.";
+  }
+
+  if (!sendWhatsapp) {
+    return { sent: false, reason: "Skipped.", emailSent, emailReason };
   }
 
   if (!isWhatsAppConfigured()) {

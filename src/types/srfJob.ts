@@ -132,6 +132,8 @@ export type SrfJob = {
   storeBillRef?: string | null;
   /** Store tax invoice number allocated at customer billing close. */
   invoiceNumber?: string | null;
+  /** Line items + labour captured when the store closed billing (for PDF resend). */
+  storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot | null;
   /** Repair finished at SC; waiting SC outward (ODC). */
   completedAtSc: string | null;
   readyForOutwardAt: string | null;

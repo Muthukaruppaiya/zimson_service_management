@@ -418,8 +418,10 @@ export function MessagingSettingsPage() {
                     onChange={(e) => setMessagingPublicBaseUrl(e.target.value)}
                   />
                   <p className="mt-1 text-xs text-stone-500">
-                    Qikchat downloads invoice PDFs from this URL. For local dev you can use{" "}
-                    <code>MESSAGING_AUTO_TUNNEL=true</code> in .env (infrastructure only).
+                    Must be your public site/API host where <code>/api</code> reaches Node (e.g.{" "}
+                    <code>https://zimsonwatchcare.com</code>). PDFs are served at{" "}
+                    <code>/api/messaging/public-invoice-pdf/…</code> — not the React HTML page. Test:{" "}
+                    <code>/api/messaging/public-ping</code>. Local dev: <code>MESSAGING_AUTO_TUNNEL=true</code>.
                   </p>
                 </div>
                 <div className="sm:col-span-2">

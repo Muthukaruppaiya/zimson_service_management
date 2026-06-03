@@ -5,10 +5,62 @@ import {
   billableUsedSparesInr,
 } from "./natureOfRepairBilling";
 import { normalizeNatureOfRepair } from "./natureOfRepair";
+import { customerPayableInr } from "./quickBillPayable";
+import { resolveCustomerSupplyStateCode, resolveSellerStateCode } from "./gstSupply";
+import { computeServiceBillGst } from "./serviceBillGst";
+import { buildStoreBillingGstLines } from "./storeBillingGstPreview";
+import type { CustomerRecord } from "../types/customer";
+import { formatCustomerBillingAddress } from "./customerLookup";
 import type { ServiceInvoiceViewModel } from "../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../types/serviceTaxSettings";
 import type { StoreInvoicePrintProfile } from "../types/storeInvoice";
 import type { SrfJob } from "../types/srfJob";
+import type { InvoiceBillLine } from "./serviceBillEditorLines";
+import { editorLinesToInvoiceBillLines } from "./serviceBillEditorLines";
+import type { ServiceBillEditorLine } from "./serviceBillEditorLines";
+import {
+  normalizeStoreBillingSnapshot,
+  snapshotInvoiceBillLines,
+  type StoreBillingSnapshot,
+  type StoreBillingSnapshotLine,
+} from "./storeBillingSnapshot";
+
+export type { StoreBillingSnapshot, StoreBillingSnapshotLine };
+
+export function buildStoreBillingSnapshot(params: {
+  job: SrfJob;
+  useQuickBillStyleLines: boolean;
+  billLines: ServiceBillEditorLine[];
+  serviceChargeBillable: number;
+  additionalCharges: { description: string; amountInr: number; spareId?: string | null }[];
+  defaultSacHsn: string;
+  billSubtotalInr: number;
+  collectionAmountInr: number;
+  collectionPaymentMode: string;
+  paymentDetails?: import("./paymentModes").MultiPaymentDetails;
+}): StoreBillingSnapshot {
+  const invoiceLines: InvoiceBillLine[] = params.useQuickBillStyleLines
+    ? editorLinesToInvoiceBillLines(
+        params.billLines,
+        params.job.natureOfRepair,
+        params.serviceChargeBillable,
+        params.defaultSacHsn,
+      )
+    : buildStoreBillingInvoiceLines(
+        params.job,
+        resolveStoreBillingAmounts(params.job),
+        params.additionalCharges,
+      ).map((l) => ({ ...l, spareId: null, hsnSac: params.defaultSacHsn }));
+  return {
+    billLines: invoiceLines,
+    serviceChargeInr: params.serviceChargeBillable > 0 ? params.serviceChargeBillable : undefined,
+    billSubtotalInr: params.billSubtotalInr,
+    collectionAmountInr: params.collectionAmountInr,
+    collectionPaymentMode: params.collectionPaymentMode,
+    paymentDetails: params.paymentDetails,
+    closedAt: new Date().toISOString(),
+  };
+}
 
 export function sumUsedSparesInr(job: SrfJob): number {
   return Number(
@@ -53,7 +105,11 @@ export function resolveStoreBillingAmounts(job: SrfJob): StoreBillingAmounts {
   const isBrandRepair = Boolean(job.brandInvoiceAmountInr && job.brandInvoiceAmountInr > 0);
   const isInterHoReturn = !isBrandRepair && isInterHoReturnJob(job);
   const brandAmount = isBrandRepair ? Number(job.brandInvoiceAmountInr ?? 0) : 0;
-  const serviceBaseRaw = isInterHoReturn ? resolveCustomerServiceBaseInr(job) : usedSparesAmountRaw;
+  const customerEstimateInr = resolveCustomerServiceBaseInr(job);
+  /** Inter-HO: bill from customer estimate; store billing: labour is entered as additional line items only. */
+  const serviceBaseRaw = isInterHoReturn
+    ? customerEstimateInr
+    : 0;
   const serviceBaseAmount = billableServiceBaseInr(job, serviceBaseRaw);
   let billableBaseAmount = isBrandRepair
     ? brandAmount
@@ -88,7 +144,7 @@ export function buildStoreBillingInvoiceLines(
     return lines;
   }
 
-  if (amounts.isInterHoReturn) {
+  if (!amounts.isBrandRepair) {
     for (const spare of job.usedSpares ?? []) {
       const lineTotal = Number(spare.lineTotalInr ?? NaN);
       const qty = Number(spare.qty ?? 0);
@@ -104,20 +160,24 @@ export function buildStoreBillingInvoiceLines(
         });
       }
     }
-    const remainder = Math.max(amounts.serviceBaseAmount - amounts.usedSparesAmount, 0);
-    if (remainder > 0.02) {
+    const labourAmount = amounts.isInterHoReturn
+      ? Math.max(amounts.serviceBaseAmount - amounts.usedSparesAmount, 0)
+      : 0;
+    if (labourAmount > 0.02) {
       lines.push({
         description: "Service / repair labour (per estimate)",
-        amountInr: remainder,
+        amountInr: labourAmount,
       });
     }
     lines.push(...additionalCharges);
-    return lines;
+    if (lines.length > 0) return lines;
   }
 
   if (amounts.billableBaseAmount > 0) {
     lines.push({
-      description: "Service repair / spares charges",
+      description: amounts.isBrandRepair
+        ? "Brand repair invoice charges"
+        : "Service repair / spares charges",
       amountInr: amounts.billableBaseAmount,
     });
   }
@@ -125,42 +185,228 @@ export function buildStoreBillingInvoiceLines(
   return lines;
 }
 
+export type StoreBillingInvoiceBuildOptions = {
+  taxSettings?: ServiceTaxSettings | null;
+  storeInvoice?: StoreInvoicePrintProfile | null;
+  generatedBy?: string | null;
+  /** Customer master row (email, GST, address, code). */
+  customer?: CustomerRecord | null;
+  defaultHsnSac?: string;
+  spareHsnLookup?: (spareId: string) => string | null | undefined;
+  additionalCharges?: { description: string; amountInr: number }[];
+  /** Balance collected at billing (overrides computed standard total). */
+  collectionAmountInr?: number;
+  collectionPaymentMode?: string | null;
+  /** Saved when the store closed billing (includes labour / service charge lines). */
+  storeBillingSnapshot?: StoreBillingSnapshot | null;
+};
+
+function resolveBillingCustomerFields(
+  job: SrfJob,
+  customer: CustomerRecord | null | undefined,
+): {
+  customerName: string;
+  email?: string;
+  gst?: string;
+  pan?: string;
+  address?: string;
+  customerKind: "B2C" | "B2B";
+  customerGstin: string | null;
+  customerBillingState: string | null;
+  customerCode: string | null;
+} {
+  const kind = customer?.customerKind ?? job.customerKind ?? "B2C";
+  const name =
+    kind === "B2B"
+      ? (customer?.company?.trim() || job.company?.trim() || job.customerName)
+      : job.customerName;
+  return {
+    customerName: name.trim() || "Customer",
+    email: customer?.email?.trim() || undefined,
+    gst: customer?.gst?.trim() || undefined,
+    pan: customer?.pan?.trim() || undefined,
+    address: formatCustomerBillingAddress(customer ?? null) || undefined,
+    customerKind: kind,
+    customerGstin: customer?.gst?.trim().toUpperCase() || null,
+    customerBillingState:
+      customer?.billingAddress?.state?.trim() || customer?.city?.trim() || null,
+    customerCode: customer?.customerCode?.trim() || null,
+  };
+}
+
 /** Rebuild tax invoice view model for a closed SRF (history reprint / resend). */
 export function buildStoreBillingInvoiceFromClosedJob(
   job: SrfJob,
-  options: {
-    taxSettings?: ServiceTaxSettings | null;
-    storeInvoice?: StoreInvoicePrintProfile | null;
-    generatedBy?: string | null;
-  },
+  options: StoreBillingInvoiceBuildOptions = {},
 ): ServiceInvoiceViewModel {
-  const amounts = resolveStoreBillingAmounts(job);
   const advance = Number(job.advanceInr ?? 0);
-  const collectionAmount = Math.max(amounts.billableBaseAmount - advance, 0);
-  const billLines = buildStoreBillingInvoiceLines(job, amounts, []);
+  const snapshot =
+    options.storeBillingSnapshot ??
+    normalizeStoreBillingSnapshot(job.storeBillingSnapshot) ??
+    null;
+
+  if (snapshot) {
+    const invoiceLines = snapshotInvoiceBillLines(snapshot);
+    const billSubtotal =
+      snapshot.billSubtotalInr ??
+      invoiceLines.reduce((s, l) => s + l.amountInr, 0);
+    const hsnSac = options.defaultHsnSac?.trim() || options.taxSettings?.defaultSacHsn?.trim() || "9987";
+    const gstLines = invoiceLines.map((l) => ({
+      amountInr: l.amountInr,
+      spareId: l.spareId ?? null,
+      hsnSac: l.hsnSac?.trim() || hsnSac,
+    }));
+    const taxPreview = computeStoreBillingTaxPreview(job, options, gstLines, billSubtotal);
+    const pricesTaxInclusive = Boolean(options.taxSettings?.pricesTaxInclusive);
+    const invoiceTotalInr = customerPayableInr(
+      billSubtotal,
+      taxPreview?.totalTax ?? 0,
+      pricesTaxInclusive,
+    );
+    const standardDue = Math.max(Math.round((invoiceTotalInr - advance) * 100) / 100, 0);
+    const collectionAmount =
+      snapshot.collectionAmountInr != null && Number.isFinite(snapshot.collectionAmountInr)
+        ? Math.max(snapshot.collectionAmountInr, 0)
+        : options.collectionAmountInr != null && Number.isFinite(options.collectionAmountInr)
+          ? Math.max(options.collectionAmountInr, 0)
+          : standardDue;
+    const cust = resolveBillingCustomerFields(job, options.customer);
+    return mapSrfPreviewToServiceInvoiceViewModel(
+      {
+        reference: job.reference,
+        invoiceNumber: job.invoiceNumber ?? undefined,
+        customerName: cust.customerName,
+        phone: job.phone,
+        email: cust.email,
+        gst: cust.gst,
+        pan: cust.pan,
+        address: cust.address,
+        customerCode: cust.customerCode ?? undefined,
+        watchBrand: job.watchBrand,
+        watchModel: job.watchModel,
+        serial: job.serial,
+        complaint: job.complaint || "",
+        estimateTotalInr: billSubtotal,
+        advanceInr: advance,
+        advancePaymentMode: job.advancePaymentMode,
+        billLines: invoiceLines,
+        collectionAmountInr: collectionAmount,
+        collectionPaymentMode: snapshot.collectionPaymentMode?.trim() || undefined,
+        collectionPaymentDetails:
+          (snapshot.paymentDetails as import("./paymentModes").MultiPaymentDetails | undefined) ??
+          undefined,
+        natureOfRepair: job.natureOfRepair?.trim() || "Service completed",
+      },
+      {
+        taxSettings: options.taxSettings,
+        defaultHsnSac: hsnSac,
+        storeInvoice: options.storeInvoice,
+        invoiceKind: "service_bill",
+        customerType: cust.customerKind,
+        customerGstin: cust.customerGstin,
+        customerBillingState: cust.customerBillingState,
+        spareHsnLookup: options.spareHsnLookup,
+        generatedBy: options.generatedBy,
+      },
+    );
+  }
+
+  const amounts = resolveStoreBillingAmounts(job);
+  const additionalCharges = options.additionalCharges ?? [];
+  const billLines = buildStoreBillingInvoiceLines(job, amounts, additionalCharges);
+  const billSubtotal =
+    amounts.billableBaseAmount +
+    additionalCharges.reduce((s, c) => s + (Number.isFinite(c.amountInr) ? c.amountInr : 0), 0);
+  const hsnSac = options.defaultHsnSac?.trim() || options.taxSettings?.defaultSacHsn?.trim() || "9987";
+  const gstLines = buildStoreBillingGstLines(job, amounts, additionalCharges, hsnSac);
+  const taxPreview =
+    gstLines.length > 0
+      ? computeStoreBillingTaxPreview(job, options, gstLines, billSubtotal)
+      : null;
+  const pricesTaxInclusive = Boolean(options.taxSettings?.pricesTaxInclusive);
+  const invoiceTotalInr = customerPayableInr(
+    billSubtotal,
+    taxPreview?.totalTax ?? 0,
+    pricesTaxInclusive,
+  );
+  const standardDue = Math.max(Math.round((invoiceTotalInr - advance) * 100) / 100, 0);
+  const collectionAmount =
+    options.collectionAmountInr != null && Number.isFinite(options.collectionAmountInr)
+      ? Math.max(options.collectionAmountInr, 0)
+      : standardDue;
+  const cust = resolveBillingCustomerFields(job, options.customer);
+
   return mapSrfPreviewToServiceInvoiceViewModel(
     {
       reference: job.reference,
       invoiceNumber: job.invoiceNumber ?? undefined,
-      customerName: job.customerName,
+      customerName: cust.customerName,
       phone: job.phone,
+      email: cust.email,
+      gst: cust.gst,
+      pan: cust.pan,
+      address: cust.address,
+      customerCode: cust.customerCode ?? undefined,
       watchBrand: job.watchBrand,
       watchModel: job.watchModel,
       serial: job.serial,
       complaint: job.complaint || "",
-      estimateTotalInr: amounts.billableBaseAmount,
+      estimateTotalInr: billSubtotal,
       advanceInr: advance,
       advancePaymentMode: job.advancePaymentMode,
       billLines,
       collectionAmountInr: collectionAmount,
-      collectionPaymentMode: job.advancePaymentMode,
+      collectionPaymentMode: options.collectionPaymentMode?.trim() || undefined,
       natureOfRepair: job.natureOfRepair?.trim() || "Service completed",
     },
     {
       taxSettings: options.taxSettings,
+      defaultHsnSac: hsnSac,
       storeInvoice: options.storeInvoice,
       invoiceKind: "service_bill",
+      customerType: cust.customerKind,
+      customerGstin: cust.customerGstin,
+      customerBillingState: cust.customerBillingState,
+      spareHsnLookup: options.spareHsnLookup,
       generatedBy: options.generatedBy,
     },
   );
+}
+
+function computeStoreBillingTaxPreview(
+  job: SrfJob,
+  options: StoreBillingInvoiceBuildOptions,
+  gstLines: ReturnType<typeof buildStoreBillingGstLines>,
+  billSubtotal: number,
+) {
+  const tax = options.taxSettings;
+  const configured = tax?.gstRatePercent ?? 18;
+  const storeGstin =
+    options.storeInvoice?.invoiceStoreGstin?.trim() ||
+    tax?.invoiceStoreGstin?.trim() ||
+    "";
+  const sellerState = resolveSellerStateCode(storeGstin);
+  const cust = resolveBillingCustomerFields(job, options.customer);
+  const customerState = resolveCustomerSupplyStateCode({
+    customerType: cust.customerKind,
+    customerGstin: cust.customerGstin,
+    billingStateName: cust.customerBillingState,
+    addressText: cust.address ?? null,
+    cityText: options.customer?.city ?? null,
+    sellerStateCode: sellerState,
+  });
+  return computeServiceBillGst({
+    lines: gstLines,
+    defaultHsnSac: options.defaultHsnSac?.trim() || tax?.defaultSacHsn?.trim() || "9987",
+    spareHsnLookup: options.spareHsnLookup,
+    configuredGstPercent: configured,
+    cgstRatePercent: tax?.cgstRatePercent ?? configured / 2,
+    sgstRatePercent: tax?.sgstRatePercent ?? configured / 2,
+    igstRatePercent: tax?.igstRatePercent ?? configured,
+    pricesTaxInclusive: Boolean(tax?.pricesTaxInclusive),
+    natureOfRepair: job.natureOfRepair,
+    sellerStateCode: sellerState,
+    customerStateCode: customerState,
+    billTotalInr: billSubtotal,
+  });
 }

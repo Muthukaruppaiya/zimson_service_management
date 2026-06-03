@@ -595,9 +595,9 @@ export function StoreDispatchPage() {
           }
         >
           <p className="text-sm text-stone-700">
-            Hand over the physical watch(es) with the printed internal transfer document. Store → HO movement
+            {/* Hand over the physical watch(es) with the printed internal transfer document. Store → HO movement
             uses a transfer document (not a GST delivery challan). Your regional HO inward desk will select this
-            batch from their pending list.
+            batch from their pending list. */}
           </p>
           <div className="mt-4 rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">
             <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">Transfer number (TD)</p>

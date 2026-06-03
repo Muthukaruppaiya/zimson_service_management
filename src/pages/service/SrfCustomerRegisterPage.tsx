@@ -15,6 +15,7 @@ import {
   ZIMSON_OWN_GSTIN_FIELD_HINT,
 } from "../../lib/zimsonCompanyGst";
 import { apiJson, useApiMode } from "../../lib/api";
+import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../lib/gstLookupClient";
 import {
   sanitizeEmailInput,
   sanitizeGstPanInput,
@@ -28,7 +29,7 @@ import {
   validateCustomerAnniversary,
 } from "../../lib/customerAddress";
 import type { CustomerAddressBlock, CustomerKind, CustomerRecord } from "../../types/customer";
-import { inputClass } from "../../lib/uiForm";
+import { inputClass, inputClassReadOnly } from "../../lib/uiForm";
 import { clearPendingRegisterPhone } from "../../lib/pendingRegisterPhone";
 
 const contactVerifyPill =
@@ -106,6 +107,7 @@ export function SrfCustomerRegisterPage() {
   const [referenceName, setReferenceName] = useState("");
   const [representativeName, setRepresentativeName] = useState("");
   const [gstFetchBusy, setGstFetchBusy] = useState(false);
+  const [gstLookupLocked, setGstLookupLocked] = useState(false);
 
   const [countries, setCountries] = useState<CountryRow[]>(FALLBACK_COUNTRIES);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -146,6 +148,7 @@ export function SrfCustomerRegisterPage() {
     setCompany("");
     setGst("");
     setPan("");
+    setGstLookupLocked(false);
     setRemarkAttention("");
     setReferenceName("");
     setRepresentativeName("");
@@ -242,10 +245,14 @@ export function SrfCustomerRegisterPage() {
   }, [sameShippingAsBilling, billing]);
 
   useEffect(() => {
-    if (customerKind !== "B2B" || !isValidGstFormat(gst)) return;
-    const derived = panFromGstin(gst);
-    if (derived) setPan((prev) => (prev.trim() ? prev : derived));
-  }, [gst, customerKind]);
+    if (customerKind !== "B2B") {
+      setGstLookupLocked(false);
+      return;
+    }
+    if (gstLookupLocked) return;
+    const derived = isValidGstFormat(gst) ? panFromGstin(gst) : "";
+    setPan(derived || "");
+  }, [gst, customerKind, gstLookupLocked]);
 
   const shipEffective = useMemo(
     () => (sameShippingAsBilling ? billing : shipping),
@@ -265,14 +272,21 @@ export function SrfCustomerRegisterPage() {
     setGstFetchBusy(true);
     setError(null);
     try {
-      const out = await apiJson<{ tradeName?: string; legalName?: string }>("/api/gst/lookup", {
-        method: "POST",
-        json: { gst: gst.trim().toUpperCase() },
-      });
-      const name = (out.tradeName ?? out.legalName ?? "").trim();
+      const out = await lookupCompanyByGstin(gst);
+      const name = companyNameFromGstLookup(out);
       if (name) setCompany(name);
       const derivedPan = panFromGstin(gst);
       if (derivedPan) setPan(derivedPan);
+      if (out.address || out.city || out.state || out.pincode) {
+        setBilling((prev) => ({
+          ...prev,
+          addressLine1: prev.addressLine1.trim() || out.address?.trim() || prev.addressLine1,
+          city: prev.city.trim() || out.city?.trim() || prev.city,
+          state: prev.state.trim() || out.state?.trim() || prev.state,
+          pincode: prev.pincode.trim() || out.pincode?.trim() || prev.pincode,
+        }));
+      }
+      setGstLookupLocked(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not fetch company from GSTIN.");
     } finally {
@@ -428,6 +442,10 @@ export function SrfCustomerRegisterPage() {
     } else {
       if (!b2bDisplayName.trim()) {
         setError("B2B display name is required.");
+        return false;
+      }
+      if (!gstLookupLocked) {
+        setError("Fetch company from GST before registering.");
         return false;
       }
       if (!company.trim()) {
@@ -657,13 +675,13 @@ export function SrfCustomerRegisterPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Primary mobile *</label>
-              {lockedRegisterPhone ? (
+              {/* {lockedRegisterPhone ? (
                 <p className="mt-0.5 text-xs text-stone-500">
                   {forQuickBill
                     ? "Mobile from Quick Bill (cannot be changed on this screen)."
                     : "Mobile from SRF booking (cannot be changed on this screen)."}
                 </p>
-              ) : null}
+              ) : null} */}
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <input
                   value={phone}
@@ -757,8 +775,8 @@ export function SrfCustomerRegisterPage() {
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-stone-600">Email (optional)</label>
               <p className="mt-1 text-xs text-stone-500">
-                You can enter email anytime. Use Verify after mobile OTP is confirmed (or save with verification
-                pending).
+                {/* You can enter email anytime. Use Verify after mobile OTP is confirmed (or save with verification
+                pending). */}
               </p>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <input
@@ -844,7 +862,6 @@ export function SrfCustomerRegisterPage() {
                 min={dob || undefined}
               />
               <p className="mt-1 text-[11px] text-stone-500">
-                If entered, must be at least 18 years after date of birth.
               </p>
               {dob && anniversaryDate && validateCustomerAnniversary(dob, anniversaryDate) ? (
                 <p className="mt-1 text-xs text-red-700">{validateCustomerAnniversary(dob, anniversaryDate)}</p>
@@ -997,18 +1014,23 @@ export function SrfCustomerRegisterPage() {
                   <label className="text-xs font-medium text-stone-600">GSTIN *</label>
                   <input
                     value={gst}
-                    onChange={(e) => setGst(sanitizeGstPanInput(e.target.value, 15))}
-                    className={inputClass}
+                    onChange={(e) => {
+                      const val = sanitizeGstPanInput(e.target.value, 15);
+                      setGst(val);
+                      if (!gstLookupLocked) setCompany("");
+                    }}
+                    className={gstLookupLocked ? inputClassReadOnly : inputClass}
                     maxLength={15}
+                    readOnly={gstLookupLocked}
                   />
                 </div>
                 <button
                   type="button"
                   onClick={() => void fetchCompanyFromGst()}
-                  disabled={gstFetchBusy}
+                  disabled={gstFetchBusy || gstLookupLocked}
                   className="rounded-xl border border-zimson-500 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50 disabled:opacity-60"
                 >
-                  {gstFetchBusy ? "…" : "Fetch company from GST"}
+                  {gstFetchBusy ? "…" : gstLookupLocked ? "Fetched from GST" : "Fetch company from GST"}
                 </button>
               </div>
               <p className="sm:col-span-2 text-[11px] text-amber-900/90">{ZIMSON_OWN_GSTIN_FIELD_HINT}</p>
@@ -1016,21 +1038,23 @@ export function SrfCustomerRegisterPage() {
                 <label className="text-xs font-medium text-stone-600">Company / legal name *</label>
                 <input
                   value={company}
-                  onChange={(e) => setCompany(sanitizeTextInput(e.target.value, 240))}
-                  className={inputClass}
+                  className={inputClassReadOnly}
+                  placeholder="Fetched from GST lookup"
+                  readOnly
+                  tabIndex={-1}
                 />
               </div>
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium text-stone-600">PAN *</label>
                 <input
-                  value={pan}
-                  onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
-                  className={inputClass}
-                  maxLength={10}
-                  placeholder="Filled from GSTIN after lookup if not returned by API"
+                  value={pan.trim() || panFromGstin(gst) || ""}
+                  className={inputClassReadOnly}
+                  readOnly
+                  tabIndex={-1}
+                  placeholder="Filled after GST lookup"
                 />
                 <p className="mt-1 text-[11px] text-stone-500">
-                  When GST lookup does not return PAN, it is taken from characters 3–12 of the GSTIN.
+                  Taken from the GST registry or characters 3–12 of the GSTIN.
                 </p>
               </div>
             </div>

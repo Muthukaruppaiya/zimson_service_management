@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../context/AuthContext";
+import { useCustomers } from "../../context/CustomersContext";
+import { useRegions } from "../../context/RegionsContext";
+import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs, type SrfTrace, type SrfTraceActionRow, type SrfTraceReestimateAttempt, type SrfTraceStatusRow } from "../../context/SrfJobsContext";
+import { apiJson } from "../../lib/api";
+import { phoneLast10 } from "../../lib/customerLookup";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../../lib/srfTraceLocations";
+import { canResendSrfTrackingWhatsApp } from "../../lib/resendSrfTrackingWhatsApp";
 import {
   ResendSrfTrackingWhatsAppButton,
   srfTrackingWhatsAppResultMessage,
 } from "./ResendSrfTrackingWhatsAppButton";
-import { canResendSrfTrackingWhatsApp } from "../../lib/resendSrfTrackingWhatsApp";
+import {
+  ResendClosedSrfInvoiceActions,
+  canResendClosedSrfInvoice,
+} from "./ResendClosedSrfInvoiceActions";
+import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
+import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
 
 type Props = {
   srfId: string;
@@ -27,6 +39,8 @@ const ACTION_LABELS: Record<string, string> = {
   technician_repair_complete: "Technician marked repair complete",
   supervisor_repair_complete: "Supervisor marked repair complete",
   supervisor_request_reestimate: "Supervisor sent re-estimate to customer",
+  store_request_reestimate: "Store sent re-estimate to customer",
+  store_negotiate_after_rejection: "Store negotiated after customer rejection",
   supervisor_negotiate_after_rejection: "Supervisor negotiated after rejection",
   supervisor_move_to_odc: "Supervisor moved to ODC (no repair)",
   supervisor_transfer_other_ho: "Queued transfer to other HO",
@@ -78,11 +92,58 @@ function timelineLocationBlock(row: { watchLocation?: string; locationMove?: str
 }
 
 export function SrfTraceModal({ srfId, onClose }: Props) {
-  const { getSrfTrace } = useSrfJobs();
+  const { user } = useAuth();
+  const { regions } = useRegions();
+  const { customers } = useCustomers();
+  const { activeSpares } = useSpares();
+  const { getSrfTrace, jobs } = useSrfJobs();
   const [trace, setTrace] = useState<SrfTrace | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [whatsappNote, setWhatsappNote] = useState<string | null>(null);
+  const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
+
+  const closedJobForResend = useMemo(() => jobs.find((j) => j.id === srfId) ?? null, [jobs, srfId]);
+
+  const currentUserStore = useMemo(() => {
+    const sid = user?.storeId ?? "";
+    if (!sid) return undefined;
+    for (const r of regions) {
+      const s = r.stores.find((x) => x.id === sid);
+      if (s) return s;
+    }
+    return undefined;
+  }, [regions, user?.storeId]);
+
+  const storeInvoiceForPrint = useMemo(
+    () => seedStoreToInvoiceProfile(currentUserStore),
+    [currentUserStore],
+  );
+
+  const resendCustomer = useMemo(() => {
+    if (!closedJobForResend) return null;
+    return customers.find((c) => phoneLast10(c.phone) === phoneLast10(closedJobForResend.phone)) ?? null;
+  }, [closedJobForResend, customers]);
+
+  const spareHsnLookup = useMemo(
+    () => (spareId: string) => activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null,
+    [activeSpares],
+  );
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax")
+      .then((d) => {
+        if (!cancelled) setServiceTaxSettings(d.settings);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceTaxSettings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,15 +262,32 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
               </p>
             ) : null}
           </div>
-          <div className="flex items-center gap-2">
-            {enrichedTrace && canResendSrfTrackingWhatsApp(enrichedTrace.job.status) ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {closedJobForResend && canResendClosedSrfInvoice(closedJobForResend) ? (
+              <ResendClosedSrfInvoiceActions
+                layout="inline"
+                job={closedJobForResend}
+                customer={resendCustomer}
+                customerEmail={resendCustomer?.email?.trim() ?? ""}
+                taxSettings={serviceTaxSettings}
+                storeInvoice={storeInvoiceForPrint}
+                generatedBy={user?.displayName?.trim() || user?.email?.trim() || user?.id || null}
+                spareHsnLookup={spareHsnLookup}
+                onResult={setWhatsappNote}
+              />
+            ) : enrichedTrace && canResendSrfTrackingWhatsApp(enrichedTrace.job.status) ? (
               <ResendSrfTrackingWhatsAppButton
                 srfId={srfId}
                 phone={enrichedTrace.job.phone}
-                label="Resend WhatsApp"
+                label="Resend tracking link"
                 className="rounded-lg border border-emerald-400 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 onResult={(r) => setWhatsappNote(srfTrackingWhatsAppResultMessage(r))}
               />
+            ) : null}
+            {whatsappNote ? (
+              <p className="w-full rounded-lg bg-emerald-50 px-2 py-1 text-[11px] text-emerald-950 ring-1 ring-emerald-200/80">
+                {whatsappNote}
+              </p>
             ) : null}
             {enrichedTrace ? (
               <button

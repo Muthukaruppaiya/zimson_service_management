@@ -128,6 +128,7 @@ type SrfJobsContextValue = {
   storeSelfAssignTechnician: (jobId: string, technicianId: string) => Promise<void>;
   storeSelfSubmitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   storeSelfMarkRepairComplete: (jobId: string, note?: string) => Promise<void>;
+  storeSelfRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{
     dcNumber: string;
     moved: number;
@@ -178,7 +179,12 @@ type SrfJobsContextValue = {
   receiveOutwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
   closeWithInvoice: (
     srfId: string,
-    payload?: { hoSparesBillRef?: string; storeBillRef?: string; noBillingHandover?: boolean },
+    payload?: {
+      hoSparesBillRef?: string;
+      storeBillRef?: string;
+      noBillingHandover?: boolean;
+      storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
+    },
   ) => Promise<{ ok: boolean; invoiceNumber?: string | null }>;
   getStatusHistory: (srfId: string) => Promise<Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }>>;
   getSrfTrace: (srfId: string) => Promise<SrfTrace>;
@@ -289,6 +295,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/repair-complete`, {
       method: "POST",
       json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const storeSelfRequestReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr: number; note: string }) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/reestimate`, {
+      method: "POST",
+      json: payload,
     });
     await refreshJobs();
   }, [refreshJobs]);
@@ -512,7 +526,12 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
 
   const closeWithInvoice = useCallback(async (
     srfId: string,
-    payload?: { hoSparesBillRef?: string; storeBillRef?: string; noBillingHandover?: boolean },
+    payload?: {
+      hoSparesBillRef?: string;
+      storeBillRef?: string;
+      noBillingHandover?: boolean;
+      storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
+    },
   ) => {
     const out = await apiJson<{ ok: boolean; invoiceNumber?: string | null }>(
       `/api/service/srf-jobs/${encodeURIComponent(srfId)}/close`,
@@ -607,6 +626,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       storeSelfAssignTechnician,
       storeSelfSubmitSparesSlip,
       storeSelfMarkRepairComplete,
+      storeSelfRequestReestimate,
     }),
     [
       jobs,
@@ -617,6 +637,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       storeSelfAssignTechnician,
       storeSelfSubmitSparesSlip,
       storeSelfMarkRepairComplete,
+      storeSelfRequestReestimate,
       dispatchToServiceCentre,
       confirmInwardByDc,
       assignTechnician,

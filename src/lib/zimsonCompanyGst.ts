@@ -45,7 +45,7 @@ export const CUSTOMER_B2B_ZIMSON_GST_ERROR =
 
 /** Short UI hint under B2B GSTIN fields. */
 export const ZIMSON_OWN_GSTIN_FIELD_HINT =
-  "Cannot use Zimson branch GSTINs: 33AAACZ0566D1ZN (TN), 29AAACZ0566D1ZC (KA), 32AAACZ0566D2ZO (KL), 34AAACZ0566D1ZL (PY).";
+  "";
 
 export function normalizeGstin(value: string): string {
   return String(value ?? "")

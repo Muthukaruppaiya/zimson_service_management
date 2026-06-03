@@ -8,10 +8,15 @@ export type ResendSrfTrackingWhatsAppResult = {
   emailReason: string | null;
 };
 
+export type SrfTrackingResendChannel = "all" | "whatsapp" | "email";
+
 export async function resendSrfTrackingWhatsApp(
   srfId: string,
   customerEmail?: string | null,
+  channel: SrfTrackingResendChannel = "all",
 ): Promise<ResendSrfTrackingWhatsAppResult> {
+  const body: { customerEmail?: string; channel?: SrfTrackingResendChannel } = { channel };
+  if (customerEmail?.trim()) body.customerEmail = customerEmail.trim();
   const out = await apiJson<{
     trackingUrl?: string;
     whatsappSent?: boolean;
@@ -20,7 +25,7 @@ export async function resendSrfTrackingWhatsApp(
     emailReason?: string | null;
   }>(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/resend-tracking-whatsapp`, {
     method: "POST",
-    json: customerEmail?.trim() ? { customerEmail: customerEmail.trim() } : undefined,
+    json: body,
   });
   return {
     trackingUrl: out.trackingUrl,

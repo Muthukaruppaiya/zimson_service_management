@@ -3,6 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
 import { isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
 import { useAuth } from "../../context/AuthContext";
+import { useNavLayout } from "../../context/NavLayoutContext";
 import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } from "../../lib/appBranding";
 import type { UserRole } from "../../types/user";
 
@@ -95,8 +96,14 @@ function matchItem(itemTo: string, pathname: string, search: string): boolean {
   return true;
 }
 
+function sidebarItemLabel(item: SidebarItem, role: string): string {
+  if (role === "store_user" && item.to === "/inventory/stock-prices") return "Store stock";
+  return item.label;
+}
+
 export function Sidebar() {
   const { user } = useAuth();
+  const { navOpen, closeNav } = useNavLayout();
   const location = useLocation();
   const [logoUrl, setLogoUrl] = useState(getAppLogoUrl());
   const [openSection, setOpenSection] = useState<string | null>(null);
@@ -231,8 +238,13 @@ export function Sidebar() {
   const initials = initialsOf(user?.displayName ?? "");
 
   return (
-    <aside className="print:hidden relative hidden h-dvh max-h-dvh w-64 shrink-0 flex-col overflow-hidden md:flex"
-      style={{ background: "linear-gradient(180deg, #1B3A8F 0%, #102570 100%)" }}>
+    <aside
+      className={`print:hidden fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh w-64 shrink-0 flex-col overflow-hidden shadow-2xl transition-transform duration-200 ease-out ${
+        navOpen ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none"
+      }`}
+      style={{ background: "linear-gradient(180deg, #1B3A8F 0%, #102570 100%)" }}
+      aria-hidden={!navOpen}
+    >
 
       {/* subtle texture overlay */}
       <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.03]"
@@ -260,6 +272,7 @@ export function Sidebar() {
         <NavLink
           to="/"
           end
+          onClick={closeNav}
           className={({ isActive }) =>
             `group flex items-center gap-2.5 px-2.5 py-2 text-[11px] font-semibold transition-all duration-150 ${
               isActive
@@ -330,13 +343,14 @@ export function Sidebar() {
                             key={item.to}
                             to={item.to}
                             end={item.to === "/service/srf" || item.to === "/service/quick-bill" || item.to === "/service/billing"}
+                            onClick={closeNav}
                             className={`relative block px-3 py-1.5 text-[12.5px] font-medium transition-all duration-150 ${
                               active
                                 ? "bg-white/15 text-white font-semibold before:absolute before:-left-3 before:top-1/2 before:h-1.5 before:w-1.5 before:-translate-y-1/2 before:rounded-full before:bg-rlx-gold before:content-['']"
                                 : "text-white/60 hover:bg-white/8 hover:text-white/90"
                             }`}
                           >
-                            {item.label}
+                            {sidebarItemLabel(item, user?.role ?? "")}
                           </NavLink>
                         );
                       })}

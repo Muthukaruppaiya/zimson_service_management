@@ -80,6 +80,8 @@ export type ServiceInvoiceViewModel = {
   netPayable?: number;
   totalQty?: number;
   advanceAmount?: number;
+  /** Balance collected at billing (after advance), e.g. UPI ₹4,440. */
+  balanceCollectedInr?: number;
   amountPaid?: number;
   paymentRemarks?: string;
   taxBreakdownRows?: ServiceInvoiceTaxRow[];

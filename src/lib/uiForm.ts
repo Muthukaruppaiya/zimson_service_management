@@ -5,6 +5,9 @@
 /** Standard text/select/textarea (includes top margin for label stacks). */
 export const inputClass = "ui-field mt-1 min-w-0 max-w-full";
 
+/** Read-only fields filled from GST registry lookup. */
+export const inputClassReadOnly = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
+
 /** Field without default top margin (inline toolbars). */
 export const inputClassFlat = "ui-field min-w-0 max-w-full";
 
