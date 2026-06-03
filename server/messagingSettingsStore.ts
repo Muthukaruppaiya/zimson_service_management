@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import type { MessagingConfig } from "./messaging/types";
 import { resetSmtpTransporter } from "./messaging/smtpTransport";
 import { envFirst } from "./messaging/env";
+import { normalizeMessagingPublicBaseUrl } from "./messaging/publicHttpsUrl";
 
 /** Stored in `messaging_settings.config` (JSONB). Secrets are plain text in DB — super-admin only API. */
 export type MessagingSettingsDb = {
@@ -297,11 +298,11 @@ function resolveMerged(db: MessagingSettingsDb): {
     process.env.NODE_ENV === "production"
       ? pickDbOrEnv(undefined, ["APP_BASE_URL", "PUBLIC_APP_URL"])
       : { value: "", fromDb: false };
-  const publicBase = (
+  const publicBaseRaw =
     process.env.MESSAGING_PUBLIC_BASE_URL?.trim() ||
     track(publicBasePick) ||
-    track(prodAppPick)
-  ).replace(/\/$/, "");
+    track(prodAppPick);
+  const publicBase = publicBaseRaw.trim() ? normalizeMessagingPublicBaseUrl(publicBaseRaw) : "";
 
   let dryRun = db.whatsappInvoiceDryRun;
   if (dryRun === undefined) dryRun = process.env.WHATSAPP_INVOICE_DRY_RUN === "true";
@@ -476,7 +477,7 @@ export function getMessagingFlags(): MessagingFlags {
 
 /** Dev tunnel or manual override — keeps process.env and in-memory flags in sync. */
 export function patchMessagingPublicBaseUrl(url: string): void {
-  const clean = url.trim().replace(/\/$/, "");
+  const clean = url.trim() ? normalizeMessagingPublicBaseUrl(url) : "";
   if (clean) {
     process.env.MESSAGING_PUBLIC_BASE_URL = clean;
   } else {

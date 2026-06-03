@@ -14,6 +14,7 @@ import {
 } from "./config";
 import { qikchatApiHeaders, type QikchatSendMessageResponse } from "./qikchatApi";
 import { verifyPublicInvoicePdfUrl } from "./invoicePdfPublicUrl";
+import { resolvePublicHttpsDocumentUrl as resolveHttpsDocUrl } from "./publicHttpsUrl";
 
 export type SendInvoiceWhatsAppInput = {
   phone10: string;
@@ -37,23 +38,7 @@ function sanitizeFilename(name: string): string {
 
 /** Qikchat downloads the file from this URL — must be public HTTPS (see Media Messages API). */
 export function resolvePublicHttpsDocumentUrl(documentUrl: string): string {
-  let url = documentUrl.trim();
-  if (url.startsWith("/")) {
-    const base = getMessagingPublicBaseUrl();
-    if (!base) {
-      throw new Error(
-        "Public PDF base URL is not set. Configure it in Settings → SMS, email & WhatsApp, or enable MESSAGING_AUTO_TUNNEL=true in .env for local dev.",
-      );
-    }
-    url = `${base.replace(/\/$/, "")}${url}`;
-  }
-
-  if (!/^https:\/\//i.test(url)) {
-    throw new Error(
-      "Invoice PDF must be a direct public HTTPS link (https://.../*.pdf). Qikchat fetches the file from this URL — localhost will not work.",
-    );
-  }
-  return url;
+  return resolveHttpsDocUrl(documentUrl, getMessagingPublicBaseUrl());
 }
 
 async function postQikchatMessage(apiKey: string, body: Record<string, unknown>): Promise<string | undefined> {

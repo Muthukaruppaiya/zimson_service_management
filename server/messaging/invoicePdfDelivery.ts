@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import type { Request } from "express";
 import { getMessagingPublicBaseUrl } from "./config";
+import { normalizeMessagingPublicBaseUrl } from "./publicHttpsUrl";
 import { publicInvoicePdfApiPath, verifyPublicInvoicePdfUrl } from "./invoicePdfPublicUrl";
 import { uploadInvoicePdfToWorkDrive, shouldUseWorkDriveForInvoicePdf } from "./qikberryWorkDrive";
 import { ensureDevPublicTunnel, verifyTunnelBaseUrl } from "../devPublicTunnel";
@@ -15,7 +16,7 @@ function getPublicBaseFromRequest(req: Request): string | null {
 }
 
 function buildPublicInvoicePdfUrl(publicBase: string, filename: string): string {
-  return `${publicBase.replace(/\/$/, "")}${publicInvoicePdfApiPath(filename)}`;
+  return `${normalizeMessagingPublicBaseUrl(publicBase)}${publicInvoicePdfApiPath(filename)}`;
 }
 
 async function tryPresignedS3InvoiceUrl(filePath: string, filename: string): Promise<string | null> {
@@ -40,11 +41,11 @@ async function tryPublicApiInvoiceUrl(
 ): Promise<string | null> {
   const bases: string[] = [];
   const tunneled = await ensureDevPublicTunnel(port);
-  if (tunneled) bases.push(tunneled.replace(/\/$/, ""));
+  if (tunneled) bases.push(normalizeMessagingPublicBaseUrl(tunneled));
   const fromReq = getPublicBaseFromRequest(req);
-  if (fromReq) bases.push(fromReq.replace(/\/$/, ""));
+  if (fromReq) bases.push(normalizeMessagingPublicBaseUrl(fromReq));
   const configured = getMessagingPublicBaseUrl();
-  if (configured) bases.push(configured.replace(/\/$/, ""));
+  if (configured) bases.push(configured);
 
   const seen = new Set<string>();
   for (const base of bases) {
@@ -75,9 +76,9 @@ async function tryMediaApiInvoiceUrl(
 
   const bases: string[] = [];
   const configured = getMessagingPublicBaseUrl();
-  if (configured) bases.push(configured.replace(/\/$/, ""));
+  if (configured) bases.push(configured);
   const fromReq = getPublicBaseFromRequest(req);
-  if (fromReq) bases.push(fromReq.replace(/\/$/, ""));
+  if (fromReq) bases.push(normalizeMessagingPublicBaseUrl(fromReq));
 
   const seen = new Set<string>();
   for (const base of bases) {
