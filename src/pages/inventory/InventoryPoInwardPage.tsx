@@ -15,7 +15,6 @@ import type { SparePart } from "../../types/spare";
 type LineState = {
   qty: string;
   costPrice: string;
-  gstRate: string; // % e.g. "18"
 };
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
@@ -24,7 +23,7 @@ const inputCls =
   "mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30 transition-colors";
 const labelCls = "block text-[11px] font-semibold uppercase tracking-widest text-stone-500";
 
-import { gstRateFromHsn } from "../../lib/hsnGst";
+import { DEFAULT_LINE_GST_PERCENT } from "../../lib/serviceBillGst";
 
 // ── Tax computation ───────────────────────────────────────────────────────────
 
@@ -132,6 +131,11 @@ export function InventoryPoInwardPage() {
 
   useEffect(() => { if (isHo) void loadData(); }, [isHo, loadData]);
 
+  function spareGstRate(spareId: string): number {
+    const pct = spareById.get(spareId)?.gstPercent;
+    return pct != null && Number.isFinite(pct) ? pct : DEFAULT_LINE_GST_PERCENT;
+  }
+
   // Initialise line states when PO changes
   useEffect(() => {
     if (!selectedPo) { setLineState({}); return; }
@@ -142,7 +146,6 @@ export function InventoryPoInwardPage() {
       next[i.id] = {
         qty: pending > 0 ? String(pending) : "0",
         costPrice: spare?.costPriceInr ? String(spare.costPriceInr) : "0",
-        gstRate: String(gstRateFromHsn(spare?.hsn)),
       };
     }
     setLineState(next);
@@ -161,7 +164,7 @@ export function InventoryPoInwardPage() {
       if (!ls) continue;
       const qty = Number(ls.qty) || 0;
       if (qty <= 0) continue;
-      const t = computeTax(Number(ls.costPrice) || 0, qty, Number(ls.gstRate) || 18, isInterstate);
+      const t = computeTax(Number(ls.costPrice) || 0, qty, spareGstRate(i.spareId), isInterstate);
       subtotal += t.taxable;
       totalTax += t.taxAmount;
       totalCgst += t.cgst;
@@ -180,7 +183,7 @@ export function InventoryPoInwardPage() {
         const ls = lineState[i.id];
         const qty = Number(ls?.qty ?? "0");
         const costPrice = Number(ls?.costPrice ?? "0");
-        const gstRate = Number(ls?.gstRate ?? "18");
+        const gstRate = spareGstRate(i.spareId);
         const pending = Math.max(0, i.qtyOrdered - i.receivedQty);
         const t = computeTax(costPrice, qty, gstRate, isInterstate);
         return { poItemId: i.id, spareId: i.spareId, qtyReceived: qty, costPrice, gstRate, taxAmount: t.taxAmount, pending };
@@ -367,11 +370,12 @@ export function InventoryPoInwardPage() {
                   </thead>
                   <tbody>
                     {selectedPo.items.map((i) => {
-                      const ls = lineState[i.id] ?? { qty: "0", costPrice: "0", gstRate: "18" };
+                      const ls = lineState[i.id] ?? { qty: "0", costPrice: "0" };
                       const pending = Math.max(0, i.qtyOrdered - i.receivedQty);
                       const qty = Number(ls.qty) || 0;
                       const spare = spareById.get(i.spareId);
-                      const t = computeTax(Number(ls.costPrice) || 0, qty, Number(ls.gstRate) || 18, isInterstate);
+                      const gstRate = spareGstRate(i.spareId);
+                      const t = computeTax(Number(ls.costPrice) || 0, qty, gstRate, isInterstate);
                       return (
                         <tr key={i.id} className="border-b border-rlx-rule last:border-0 hover:bg-stone-50/30">
                           <td className="px-4 py-3">
@@ -394,19 +398,13 @@ export function InventoryPoInwardPage() {
                               onChange={(e) => setLine(i.id, { costPrice: e.target.value })} />
                           </td>
                           <td className="px-4 py-3 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <input type="number" min={0} max={100} step={0.5}
-                                className="w-16 border border-rlx-rule px-2 py-1.5 text-sm text-center outline-none focus:border-rlx-green"
-                                value={ls.gstRate}
-                                onChange={(e) => setLine(i.id, { gstRate: e.target.value })} />
-                              <span className="text-stone-400 text-xs">%</span>
-                            </div>
+                            <p className="font-semibold text-stone-800">{gstRate}%</p>
                             {!isInterstate ? (
                               <p className="text-[10px] text-stone-400 mt-0.5">
-                                CGST {Number(ls.gstRate) / 2}% + SGST {Number(ls.gstRate) / 2}%
+                                CGST {gstRate / 2}% + SGST {gstRate / 2}%
                               </p>
                             ) : (
-                              <p className="text-[10px] text-stone-400 mt-0.5">IGST {ls.gstRate}%</p>
+                              <p className="text-[10px] text-stone-400 mt-0.5">IGST {gstRate}%</p>
                             )}
                           </td>
                           <td className="px-4 py-3 text-right text-stone-700">

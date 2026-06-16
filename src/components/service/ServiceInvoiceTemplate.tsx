@@ -54,6 +54,14 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
                     <td className="inv-meta-label">Invoice Date</td>
                     <td className="inv-meta-value">: {data.invoiceDate}</td>
                   </tr>
+                  {data.irn ? (
+                    <tr>
+                      <td className="inv-meta-label">IRN</td>
+                      <td className="inv-meta-value mono" style={{ fontSize: "0.65rem", wordBreak: "break-all" }}>
+                        : {data.irn}
+                      </td>
+                    </tr>
+                  ) : null}
                   {data.serviceReference ? (
                     <tr>
                       <td className="inv-meta-label">

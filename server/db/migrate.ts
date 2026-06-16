@@ -119,6 +119,8 @@ ALTER TABLE spares ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''
 ALTER TABLE spares ADD COLUMN IF NOT EXISTS mrp_inr NUMERIC(14, 2);
 ALTER TABLE spares ADD COLUMN IF NOT EXISTS cost_price_inr NUMERIC(14, 2);
 ALTER TABLE spares ADD COLUMN IF NOT EXISTS selling_price_inr NUMERIC(14, 2);
+ALTER TABLE spares ADD COLUMN IF NOT EXISTS gst_percent NUMERIC(5, 2)
+  CHECK (gst_percent IS NULL OR (gst_percent >= 0 AND gst_percent <= 100));
 
 CREATE TABLE IF NOT EXISTS spare_prices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1234,6 +1236,35 @@ export async function runMigrations(pool: Pool): Promise<void> {
 
   await pool.query(`
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_billing_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
+  `);
+
+  await pool.query(`
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_irn VARCHAR(128);
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_ack_no VARCHAR(64);
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_ack_date VARCHAR(48);
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_status VARCHAR(24);
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_error TEXT;
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_generated_at TIMESTAMPTZ;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_irn VARCHAR(128);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_ack_no VARCHAR(64);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_ack_date VARCHAR(48);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_status VARCHAR(24);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_error TEXT;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_generated_at TIMESTAMPTZ;
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_eway_bill_no VARCHAR(32);
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_eway_valid_upto VARCHAR(48);
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_status VARCHAR(24);
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_error TEXT;
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_generated_at TIMESTAMPTZ;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS hsn_gst_rates (
+      hsn_prefix VARCHAR(8) PRIMARY KEY,
+      gst_percent NUMERIC(5, 2) NOT NULL CHECK (gst_percent >= 0 AND gst_percent <= 100),
+      description TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 
   const { seedWatchCatalogTables } = await import("../watchCatalogRoutes");

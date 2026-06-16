@@ -8,8 +8,7 @@ import {
   resolveCustomerSupplyStateCode,
   resolveSellerStateCode,
 } from "../../lib/gstSupply";
-import { gstRateFromHsn } from "../../lib/hsnGst";
-import { computeServiceBillGst } from "../../lib/serviceBillGst";
+import { computeServiceBillGst, resolveLineGstPercent } from "../../lib/serviceBillGst";
 import type { QuickBillInvoice, QuickBillLineInvoice } from "../../types/quickBill";
 import type {
   PaymentSplit,
@@ -42,6 +41,7 @@ export type ServiceInvoiceMappingOptions = {
   customerType?: "B2C" | "B2B";
   customerGstin?: string | null;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
+  spareGstLookup?: (spareId: string) => number | null | undefined;
 };
 
 function resolvedHsnSac(options?: ServiceInvoiceMappingOptions): string {
@@ -167,6 +167,7 @@ function buildGstLines(
   sellerStateCode: string,
   customerStateCode: string,
   spareHsnLookup?: (spareId: string) => string | null | undefined,
+  spareGstLookup?: (spareId: string) => number | null | undefined,
 ): {
   lines: ServiceInvoiceLineView[];
   taxRows: ServiceInvoiceTaxRow[];
@@ -179,7 +180,7 @@ function buildGstLines(
   totalQty: number;
   isInterstate: boolean;
 } {
-  const configured = tax?.gstRatePercent ?? 18;
+  const defaultSacGstPercent = tax?.gstRatePercent ?? 18;
   const gstResult = computeServiceBillGst({
     lines: invLines.map((ln) => ({
       amountInr: billableLineAmount(natureOfRepair, ln.amountInr, ln.spareId),
@@ -189,10 +190,8 @@ function buildGstLines(
     })),
     defaultHsnSac,
     spareHsnLookup,
-    configuredGstPercent: configured,
-    cgstRatePercent: tax?.cgstRatePercent ?? configured / 2,
-    sgstRatePercent: tax?.sgstRatePercent ?? configured / 2,
-    igstRatePercent: tax?.igstRatePercent ?? configured,
+    spareGstLookup,
+    defaultSacGstPercent,
     pricesTaxInclusive: Boolean(tax?.pricesTaxInclusive),
     natureOfRepair,
     sellerStateCode,
@@ -209,7 +208,11 @@ function buildGstLines(
     const qty = Math.max(Number(ln.qty) || 1, 0.0001);
     const lineAmt = billableLineAmount(natureOfRepair, Number(ln.amountInr) || 0, ln.spareId);
     const hsn = lineHsnForInvoice(ln, defaultHsnSac, spareHsnLookup);
-    const rate = gstRateFromHsn(hsn, configured);
+    const rate = resolveLineGstPercent({
+      spareId: ln.spareId,
+      defaultSacGstPercent,
+      spareGstLookup,
+    });
     const g = rate / 100;
     let taxableLine = lineAmt;
     if (tax?.pricesTaxInclusive && g > 0) taxableLine = lineAmt / (1 + g);
@@ -339,6 +342,7 @@ export function buildDemoServiceInvoiceViewModel(
     supply.sellerStateCode,
     supply.customerStateCode,
     options?.spareHsnLookup,
+    options?.spareGstLookup,
   );
   const serviceMeta = watchDetailMetaRows(input);
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
@@ -475,6 +479,7 @@ export function mapQuickBillInvoiceToViewModel(
     supply.sellerStateCode,
     supply.customerStateCode,
     options?.spareHsnLookup,
+    options?.spareGstLookup,
   );
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
 
@@ -546,6 +551,8 @@ export function mapQuickBillInvoiceToViewModel(
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
     invoiceLegalFooter: sellerPack.legalFooter,
+    irn: inv.edocIrn?.trim() || null,
+    ackNo: inv.edocAckNo?.trim() || null,
   };
 }
 
@@ -632,6 +639,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     supply.sellerStateCode,
     supply.customerStateCode,
     options?.spareHsnLookup,
+    options?.spareGstLookup,
   );
   const serviceMeta: { label: string; value: string }[] = [];
   if (input.complaint.trim()) serviceMeta.push({ label: "Complaint", value: input.complaint.trim() });

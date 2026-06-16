@@ -88,4 +88,19 @@ export type QuickBillInvoice = {
   notes: string;
   totalInr: number;
   lines: QuickBillLineInvoice[];
+  /** GST e-invoice IRN when generated via Masters India. */
+  edocIrn?: string | null;
+  edocAckNo?: string | null;
+  edocStatus?: string | null;
+  edocError?: string | null;
+};
+
+/** API response from POST /api/service/quick-bills */
+export type QuickBillEdocInfo = {
+  ok: boolean;
+  skipped?: boolean;
+  skipReason?: string;
+  irn?: string | null;
+  ackNo?: string | null;
+  error?: string | null;
 };

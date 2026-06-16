@@ -44,15 +44,15 @@ import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import { useMessagingSend } from "../../components/messaging/WhatsAppSendProvider";
 import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
-import type { QuickBillInvoice } from "../../types/quickBill";
-import { computeServiceBillGst } from "../../lib/serviceBillGst";
+import type { QuickBillEdocInfo, QuickBillInvoice } from "../../types/quickBill";
 import {
   parseStateCodeFromText,
   resolveCustomerSupplyStateCode,
   resolveSellerStateCode,
   stateCodeLabel,
 } from "../../lib/gstSupply";
-import { gstRateFromHsn, normalizeHsnCode } from "../../lib/hsnGst";
+import { normalizeHsnCode } from "../../lib/hsnGst";
+import { computeServiceBillGst, resolveLineGstPercent } from "../../lib/serviceBillGst";
 import {
   allowsZeroBillTotal,
   billableLineAmount,
@@ -174,12 +174,16 @@ type LineItem = {
   hsn?: string | null;
 };
 
-type CompletionState = null | { mode: "demo"; ref: string } | { mode: "api"; invoice: QuickBillInvoice };
+type CompletionState =
+  | null
+  | { mode: "demo"; ref: string }
+  | { mode: "api"; invoice: QuickBillInvoice; edoc?: QuickBillEdocInfo | null };
 type QuickBillSpareOption = {
   id: string;
   sku: string;
   name: string;
   hsn: string | null;
+  gstPercent: number | null;
   price: number;
   stockQty: number;
 };
@@ -650,7 +654,9 @@ export function QuickBillPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const data = await apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax");
+        const data = await apiJson<{ settings: ServiceTaxSettings }>(
+          "/api/settings/tax",
+        );
         if (cancelled) return;
         const s = data.settings;
         setInvoiceHsnSac(s.defaultSacHsn.trim() || "9987");
@@ -764,6 +770,7 @@ export function QuickBillPage() {
                 sku: spare.sku,
                 name: spare.name,
                 hsn: spare.hsn?.trim() || null,
+                gstPercent: spare.gstPercent ?? null,
                 price: matchedPrice.price,
                 stockQty,
               } satisfies QuickBillSpareOption;
@@ -805,6 +812,13 @@ export function QuickBillPage() {
       return changed ? next : prev;
     });
   }, [spareOptions, spares]);
+
+  function resolveSpareGst(spareId: string): number | null {
+    const fromSpare = spares.find((s) => s.id === spareId)?.gstPercent;
+    if (fromSpare != null && Number.isFinite(fromSpare)) return fromSpare;
+    const fromOption = spareOptions.find((s) => s.id === spareId)?.gstPercent;
+    return fromOption ?? null;
+  }
 
   function resolveSpareHsn(spareId: string): string | null {
     const fromLine = lines.find((l) => l.spareId === spareId)?.hsn?.trim();
@@ -1097,25 +1111,33 @@ export function QuickBillPage() {
         setError("B2B: enter a valid PAN or GSTIN that contains a valid PAN.");
         return false;
       }
-      if (!customerName.trim() || !phone.trim()) {
-        setError("B2B: contact person name and phone are required for the customer record.");
+      if (!customerName.trim()) {
+        setError("B2B: contact person name is required for the customer record.");
         return false;
       }
     }
-    const phoneDigits = phoneLast10(phone.trim());
-    if (phoneDigits.length === 10) {
-      if (!opts?.skipHandoverCheck && !handoverVerified) {
-        setError(
-          "Verify handover with OTP (primary or other mobile/email) before generating the invoice.",
-        );
-        return false;
-      }
-      const inCustomersList = customers.some((c) => phoneLast10(c.phone) === phoneDigits);
-      if (!customerChecked && !inCustomersList && !walkInPending) {
-        setError("Wait for customer lookup to finish.");
-        return false;
-      }
-      if (!customerChecked && inCustomersList) {
+    const rawPhone = phone.trim();
+    const phoneDigits = phoneLast10(rawPhone);
+    if (!rawPhone) {
+      setError("Customer mobile number is required.");
+      return false;
+    }
+    if (phoneDigits.length !== 10) {
+      setError("Enter a valid 10-digit mobile number.");
+      return false;
+    }
+    if (!opts?.skipHandoverCheck && !handoverVerified) {
+      setError(
+        "Verify handover with OTP (primary or other mobile/email) before generating the invoice.",
+      );
+      return false;
+    }
+    const inCustomersList = customers.some((c) => phoneLast10(c.phone) === phoneDigits);
+    if (!customerChecked && !inCustomersList && !walkInPending) {
+      setError("Enter customer mobile and wait for lookup — select or register the customer first.");
+      return false;
+    }
+    if (!customerChecked && inCustomersList) {
         const hit = customers.find((c) => phoneLast10(c.phone) === phoneDigits);
         if (hit) {
           applyLoadedCustomer({
@@ -1137,7 +1159,6 @@ export function QuickBillPage() {
           });
         }
       }
-    }
     if (!watchBrand || !watchFamily.trim() || !watchModel.trim()) {
       setError("Choose watch brand, family, and model (pick from list or use + add new).");
       return false;
@@ -1244,7 +1265,10 @@ export function QuickBillPage() {
       }
       setIsSavingBill(true);
       try {
-        const { invoice } = await apiJson<{ invoice: QuickBillInvoice }>("/api/service/quick-bills", {
+        const { invoice, edoc } = await apiJson<{
+          invoice: QuickBillInvoice;
+          edoc?: QuickBillEdocInfo | null;
+        }>("/api/service/quick-bills", {
           method: "POST",
           json: {
             regionId,
@@ -1289,7 +1313,14 @@ export function QuickBillPage() {
             })),
           },
         });
-        setCompletion({ mode: "api", invoice });
+        const mergedInvoice: QuickBillInvoice = {
+          ...invoice,
+          edocIrn: edoc?.irn ?? invoice.edocIrn,
+          edocAckNo: edoc?.ackNo ?? invoice.edocAckNo,
+          edocStatus: edoc?.ok ? "SUCCESS" : edoc?.skipped ? "SKIPPED" : edoc ? "FAILED" : invoice.edocStatus,
+          edocError: edoc?.error ?? edoc?.skipReason ?? invoice.edocError,
+        };
+        setCompletion({ mode: "api", invoice: mergedInvoice, edoc: edoc ?? null });
         setBillPostActionNote(null);
         setBillSuccessModalOpen(true);
       } catch (e) {
@@ -1340,6 +1371,11 @@ export function QuickBillPage() {
     return currentUserStore;
   }, [regions, effectiveBillingStoreId, user?.storeId, currentUserStore]);
 
+  const spareGstLookup = useCallback(
+    (spareId: string) => resolveSpareGst(spareId),
+    [lines, spareOptions, spares],
+  );
+
   const spareHsnLookup = useCallback(
     (spareId: string) => resolveSpareHsn(spareId),
     [lines, spareOptions, spares],
@@ -1354,6 +1390,7 @@ export function QuickBillPage() {
       customerType,
       customerGstin: gst.trim().toUpperCase() || null,
       spareHsnLookup,
+      spareGstLookup,
       generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
     }),
     [
@@ -1370,8 +1407,9 @@ export function QuickBillPage() {
     ],
   );
 
+  const labourGstPercent = serviceTaxSettings?.gstRatePercent ?? 18;
+
   const taxPreview = useMemo(() => {
-    const configured = serviceTaxSettings?.gstRatePercent ?? 18;
     const storeGstin =
       seedStoreToInvoiceProfile(billingStore)?.invoiceStoreGstin?.trim() ||
       serviceTaxSettings?.invoiceStoreGstin?.trim() ||
@@ -1410,10 +1448,8 @@ export function QuickBillPage() {
       lines: gstLines,
       defaultHsnSac: invoiceHsnSac,
       spareHsnLookup,
-      configuredGstPercent: configured,
-      cgstRatePercent: serviceTaxSettings?.cgstRatePercent ?? configured / 2,
-      sgstRatePercent: serviceTaxSettings?.sgstRatePercent ?? configured / 2,
-      igstRatePercent: serviceTaxSettings?.igstRatePercent ?? configured,
+      spareGstLookup,
+      defaultSacGstPercent: labourGstPercent,
       pricesTaxInclusive: Boolean(serviceTaxSettings?.pricesTaxInclusive),
       natureOfRepair,
       sellerStateCode: sellerState,
@@ -1434,6 +1470,7 @@ export function QuickBillPage() {
     natureOfRepair,
     serviceChargeBillable,
     spareHsnLookup,
+    spareGstLookup,
     total,
   ]);
 
@@ -1448,10 +1485,7 @@ export function QuickBillPage() {
   );
 
   const serviceSacHsn = invoiceHsnSac;
-  const serviceHsnGstRate = useMemo(
-    () => gstRateFromHsn(serviceSacHsn, serviceTaxSettings?.gstRatePercent ?? 18),
-    [serviceSacHsn, serviceTaxSettings?.gstRatePercent],
-  );
+  const serviceHsnGstRate = labourGstPercent;
 
   const spareLinesWithHsn = useMemo(
     () =>
@@ -1461,12 +1495,13 @@ export function QuickBillPage() {
           id: l.id,
           description: l.description,
           hsn: normalizeHsnCode(l.hsn) || resolveSpareHsn(l.spareId!) || "—",
-          rate: gstRateFromHsn(
-            l.hsn || resolveSpareHsn(l.spareId!),
-            serviceTaxSettings?.gstRatePercent ?? 18,
-          ),
+          rate: resolveLineGstPercent({
+            spareId: l.spareId,
+            defaultSacGstPercent: labourGstPercent,
+            spareGstLookup: resolveSpareGst,
+          }),
         })),
-    [lines, spareOptions, spares, serviceTaxSettings?.gstRatePercent],
+    [lines, spareOptions, spares, labourGstPercent],
   );
 
   const serviceChargeNum = useMemo(() => {
@@ -1884,7 +1919,12 @@ export function QuickBillPage() {
               Create / attach a <strong>business customer</strong>: company, GSTIN, PAN, and primary
               contact are required before completing the bill.
             </p>
-          ) : null}
+          ) : (
+            <p className="mb-4 rounded-xl border border-zimson-200 bg-zimson-50/80 px-3 py-2 text-xs text-stone-700">
+              Enter the customer&apos;s <strong>10-digit mobile</strong> — lookup runs automatically. New
+              numbers open registration; you cannot complete the bill without a customer on file.
+            </p>
+          )}
 
           <div className={qbGrid2}>
             <div className={qbField}>
@@ -1901,11 +1941,12 @@ export function QuickBillPage() {
             </div>
             <div className={qbField}>
               <label htmlFor="qb-phone" className="text-xs font-medium text-stone-600">
-                {customerType === "B2B" ? "Contact phone *" : "Phone (optional)"}
+                Mobile number *
               </label>
               <input
                 id="qb-phone"
                 value={phone}
+                required
                 readOnly={customerLockedFromDb}
                 onChange={
                   customerLockedFromDb
@@ -2320,7 +2361,11 @@ export function QuickBillPage() {
                     : null;
                 const lineGstRate =
                   line.spareId && lineHsn && lineHsn !== "—"
-                    ? gstRateFromHsn(lineHsn, serviceTaxSettings?.gstRatePercent ?? 18)
+                    ? resolveLineGstPercent({
+                        spareId: line.spareId,
+                        defaultSacGstPercent: labourGstPercent,
+                        spareGstLookup: resolveSpareGst,
+                      })
                     : null;
                 return (
                   <div
@@ -2468,7 +2513,7 @@ export function QuickBillPage() {
                   </p>
                 ) : null}
                 <p className="mt-1 text-[11px] text-stone-500">
-                  HSN is read-only — set in Inventory → Spare catalogue or Tax settings (SAC for labour).
+                  HSN and GST % are read-only here — set per spare in Inventory → Spare catalogue. Labour uses GST % from Tax settings (SAC).
                 </p>
               </div>
               {customerType === "B2C" ? (
@@ -2682,7 +2727,7 @@ export function QuickBillPage() {
             <button
               type="button"
               onClick={() => openHandoverOtp("custom")}
-              disabled={handoverVerified || isSavingBill}
+              disabled={handoverVerified || isSavingBill || phoneLast10(phone).length !== 10}
               className="w-full rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2.5 text-center text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-5"
             >
               Send OTP to other number / email

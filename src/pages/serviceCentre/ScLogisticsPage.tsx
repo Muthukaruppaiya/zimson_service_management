@@ -137,6 +137,10 @@ export function ScLogisticsPage() {
 
   const [selectedDc, setSelectedDc] = useState("");
   const [scanInwardDcInput, setScanInwardDcInput] = useState("");
+  const [inwardReviewOpen, setInwardReviewOpen] = useState(false);
+  const [inwardReviewDc, setInwardReviewDc] = useState("");
+  const [inwardAccepted, setInwardAccepted] = useState<Record<string, boolean>>({});
+  const [inwardSaving, setInwardSaving] = useState(false);
   const [inwardMsg, setInwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [inwardAck, setInwardAck] = useState<{
     inwardNumber: string;
@@ -238,6 +242,36 @@ export function ScLogisticsPage() {
     }
   }, [pendingDcOptions, selectedDc]);
 
+  function watchesOnTransfer(dcNumber: string): SrfJob[] {
+    if (!dcNumber.trim()) return [];
+    return inTransit.filter((j) => j.dcNumber === dcNumber);
+  }
+
+  const inwardReviewRows = useMemo(
+    () => watchesOnTransfer(inwardReviewDc),
+    [inwardReviewDc, inTransit],
+  );
+
+  function openInwardReview(dcNumber: string) {
+    const rows = watchesOnTransfer(dcNumber);
+    if (rows.length === 0) {
+      setInwardMsg({ type: "err", text: `No watches pending on transfer ${dcNumber}.` });
+      return;
+    }
+    setInwardMsg(null);
+    setSelectedDc(dcNumber);
+    setInwardReviewDc(dcNumber);
+    setInwardAccepted(Object.fromEntries(rows.map((r) => [r.id, true])));
+    setInwardReviewOpen(true);
+  }
+
+  function closeInwardReview() {
+    setInwardReviewOpen(false);
+    setInwardReviewDc("");
+    setInwardAccepted({});
+    setInwardSaving(false);
+  }
+
   const readyOutward = useMemo(() => {
     if (!user) return [];
     return jobs.filter((j) => j.status === "ready_for_outward" && jobVisibleToServiceCentre(j, user));
@@ -282,40 +316,48 @@ export function ScLogisticsPage() {
     }
   }, [user, canPostDcInward, canCreateOdc, tab, setSearchParams]);
 
-  async function handleInward(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canPostDcInward) return;
-    setInwardMsg(null);
-    const dcNumber = selectedDc.trim();
-    if (!dcNumber) {
-      setInwardMsg({ type: "err", text: "Choose a pending DC from the list for this HO." });
+  async function confirmInwardSelected() {
+    if (!canPostDcInward || !inwardReviewDc.trim() || inwardSaving) return;
+    const dcNumber = inwardReviewDc.trim();
+    const selectedIds = inwardReviewRows.filter((j) => inwardAccepted[j.id]).map((j) => j.id);
+    if (selectedIds.length === 0) {
+      setInwardMsg({ type: "err", text: "Tick at least one watch in working condition to inward." });
       return;
     }
+    setInwardSaving(true);
+    setInwardMsg(null);
     const dcMeta = pendingDcOptions.find((o) => o.dcNumber === dcNumber);
-    const jobsOnDc = inTransit.filter((j) => j.dcNumber === dcNumber);
     try {
-      const result = await confirmInwardByDc(dcNumber);
+      const result = await confirmInwardByDc(dcNumber, selectedIds);
       const receivedAt = new Date();
+      const inwardedJobs = inwardReviewRows.filter((j) => selectedIds.includes(j.id));
       const documentKind =
         result.documentKind ??
-        (jobsOnDc[0] ? scInwardDocumentKindFromJob(jobsOnDc[0]) : "store_transfer");
+        (inwardedJobs[0] ? scInwardDocumentKindFromJob(inwardedJobs[0]) : "store_transfer");
       const numberLabel = scInwardNumberLabel(documentKind);
+      closeInwardReview();
+      setSelectedDc("");
       setInwardAck({
         inwardNumber: result.dcNumber ?? dcNumber,
         documentKind,
         updated: result.updated,
         hoLabel: dcMeta?.hoLabel ?? user?.regionId ?? "—",
         storeLabel: dcMeta?.storeLabel ?? "—",
-        jobs: jobsOnDc,
+        jobs: inwardedJobs,
         receivedAt,
       });
-      setInwardMsg({
-        type: "ok",
-        text: `Inward recorded for ${result.updated} watch(es). ${numberLabel}: ${result.dcNumber ?? dcNumber}.`,
-      });
-      setSelectedDc("");
+      const skipped = inwardReviewRows.length - selectedIds.length;
+      let okText = `Inward recorded for ${result.updated} watch(es). ${numberLabel}: ${result.dcNumber ?? dcNumber}.`;
+      if (skipped > 0) {
+        okText += ` ${skipped} not accepted — still on transfer (return to store flow coming next).`;
+      } else if ((result.pendingOnTransfer ?? 0) > 0) {
+        okText += ` ${result.pendingOnTransfer} still pending on this transfer.`;
+      }
+      setInwardMsg({ type: "ok", text: okText });
     } catch (err) {
       setInwardMsg({ type: "err", text: err instanceof Error ? err.message : "Could not inward DC." });
+    } finally {
+      setInwardSaving(false);
     }
   }
 
@@ -328,7 +370,8 @@ export function ScLogisticsPage() {
       return;
     }
     setSelectedDc(hit.dcNumber);
-    setInwardMsg({ type: "ok", text: `DC ${hit.dcNumber} selected from barcode scan.` });
+    setInwardMsg({ type: "ok", text: `Transfer ${hit.dcNumber} selected from barcode scan.` });
+    openInwardReview(hit.dcNumber);
   }
 
   function destinationFor(jobId: string, originatingStoreId: string) {
@@ -595,7 +638,13 @@ export function ScLogisticsPage() {
           <Card
             title="Internal inward from store"
           >
-            <form onSubmit={(e) => void handleInward(e)} className="max-w-2xl space-y-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (selectedDc) openInwardReview(selectedDc);
+              }}
+              className="max-w-2xl space-y-4"
+            >
               <div>
                 <label htmlFor="dc-pending" className="text-xs font-medium text-stone-600">
                   Select pending internal transfer
@@ -603,7 +652,11 @@ export function ScLogisticsPage() {
                 <select
                   id="dc-pending"
                   value={selectedDc}
-                  onChange={(e) => setSelectedDc(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSelectedDc(next);
+                    if (next) openInwardReview(next);
+                  }}
                   className={selectClass}
                 >
                   <option value="">— Choose a pending internal transfer —</option>
@@ -636,7 +689,7 @@ export function ScLogisticsPage() {
                 disabled={!canPostDcInward || !selectedDc || pendingDcOptions.length === 0}
                 className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Confirm inward
+                Review watches &amp; inward
               </button>
               {!canPostDcInward ? (
                 <p className="text-xs text-amber-800">You can view transit lists but cannot post inward for this HO.</p>
@@ -654,6 +707,91 @@ export function ScLogisticsPage() {
               </p>
             ) : null}
           </Card>
+
+          {inwardReviewOpen ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+                <h3 className="text-lg font-semibold text-zimson-900">Inward watches — {inwardReviewDc}</h3>
+                <p className="mt-1 text-sm text-stone-600">
+                  {inwardReviewRows.length} watch{inwardReviewRows.length === 1 ? "" : "es"} sent on this transfer.
+                  Tick each watch that arrived in working condition, then inward.
+                </p>
+                <div className="mt-4 overflow-x-auto rounded-xl border border-zimson-200">
+                  <table className="w-full min-w-[640px] text-left text-sm">
+                    <thead>
+                      <tr className="bg-zimson-50 text-xs uppercase tracking-wide text-stone-600">
+                        <th className="px-3 py-2">OK</th>
+                        <th className="px-3 py-2">SRF</th>
+                        <th className="px-3 py-2">Customer</th>
+                        <th className="px-3 py-2">Watch</th>
+                        <th className="px-3 py-2">From store</th>
+                        <th className="px-3 py-2">Estimate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inwardReviewRows.map((j) => {
+                        const loc = storeById.get(j.storeId);
+                        return (
+                          <tr key={j.id} className="border-t border-zimson-100">
+                            <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(inwardAccepted[j.id])}
+                                disabled={inwardSaving}
+                                onChange={(e) =>
+                                  setInwardAccepted((prev) => ({ ...prev, [j.id]: e.target.checked }))
+                                }
+                                aria-label={`Accept ${j.reference} in working condition`}
+                                className="h-4 w-4 rounded border-zimson-400"
+                              />
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                            <td className="px-3 py-2 text-stone-800">
+                              {j.customerName}
+                              <span className="block text-xs text-stone-500">{j.phone}</span>
+                            </td>
+                            <td className="px-3 py-2 text-stone-700">
+                              {j.watchBrand} {j.watchModel}
+                            </td>
+                            <td className="px-3 py-2 text-stone-700">{loc?.storeName ?? j.storeId}</td>
+                            <td className="px-3 py-2 tabular-nums text-stone-800">
+                              {j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {inwardReviewRows.some((j) => !inwardAccepted[j.id]) ? (
+                  <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                    Unticked watch(es) will stay on this transfer and can be sent back to the store (return flow — next
+                    step).
+                  </p>
+                ) : null}
+                <div className="mt-5 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closeInwardReview}
+                    disabled={inwardSaving}
+                    className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void confirmInwardSelected()}
+                    disabled={inwardSaving || !inwardReviewRows.some((j) => inwardAccepted[j.id])}
+                    className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {inwardSaving
+                      ? "Saving…"
+                      : `Inward selected (${inwardReviewRows.filter((j) => inwardAccepted[j.id]).length})`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
         </>
       ) : (

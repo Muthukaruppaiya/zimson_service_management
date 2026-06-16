@@ -4,6 +4,7 @@ import type { BrandRow } from "../src/types/brand";
 import type { CreateSpareInput, SparePart } from "../src/types/spare";
 import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
+import { clearSpareGstCache } from "./hsnGstRates";
 
 function isHoAdminRole(role: string): boolean {
   return role === "super_admin" || role === "admin" || role === "admin";
@@ -48,6 +49,7 @@ function rowToSpare(r: {
   description: string;
   category: string;
   hsn: string | null;
+  gst_percent: number | string | null;
   mrp_inr: number | null;
   cost_price_inr: number | null;
   selling_price_inr: number | null;
@@ -56,6 +58,13 @@ function rowToSpare(r: {
 }): SparePart {
   const createdAt =
     r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString();
+  const gstRaw = r.gst_percent;
+  const gstPercent =
+    gstRaw == null || gstRaw === ""
+      ? null
+      : Number.isFinite(Number(gstRaw))
+        ? Number(gstRaw)
+        : null;
   return {
     id: r.id,
     sku: r.sku,
@@ -63,6 +72,7 @@ function rowToSpare(r: {
     description: r.description,
     category: r.category,
     hsn: r.hsn,
+    gstPercent,
     costPriceInr: r.cost_price_inr == null ? null : Number(r.cost_price_inr),
     sellingPriceInr: r.selling_price_inr == null ? (r.mrp_inr == null ? null : Number(r.mrp_inr)) : Number(r.selling_price_inr),
     mrpInr: r.mrp_inr == null ? null : Number(r.mrp_inr),
@@ -70,6 +80,8 @@ function rowToSpare(r: {
     createdAt,
   };
 }
+
+const SPARE_SELECT = `id, sku, name, description, category, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at`;
 
 export function registerCatalogRoutes(
   app: Express,
@@ -80,7 +92,7 @@ export function registerCatalogRoutes(
   app.get("/api/spares", requireAuth, async (_req, res) => {
     try {
       const { rows } = await pool.query(
-        `SELECT id, sku, name, description, category, hsn, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at
+        `SELECT ${SPARE_SELECT}
          FROM spares
          ORDER BY created_at DESC`,
       );
@@ -104,21 +116,27 @@ export function registerCatalogRoutes(
     const description = input.description.trim();
     const category = input.category.trim();
     const isActive = input.isActive ?? true;
+    const gstPercent = input.gstPercent;
+    if (gstPercent != null && (Number.isNaN(gstPercent) || gstPercent < 0 || gstPercent > 100)) {
+      res.status(400).json({ error: "gstPercent must be between 0 and 100." });
+      return;
+    }
     if (!sku || !name || !description || !category) {
       res.status(400).json({ error: "sku, name, description and category are required." });
       return;
     }
     try {
       const ins = await pool.query(
-        `INSERT INTO spares (sku, name, description, category, hsn, mrp_inr, cost_price_inr, selling_price_inr, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING id, sku, name, description, category, hsn, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at`,
+        `INSERT INTO spares (sku, name, description, category, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING ${SPARE_SELECT}`,
         [
           sku,
           name,
           description,
           category,
           input.hsn?.trim() || null,
+          gstPercent ?? null,
           input.sellingPriceInr ?? input.mrpInr ?? null,
           input.costPriceInr ?? null,
           input.sellingPriceInr ?? input.mrpInr ?? null,
@@ -126,6 +144,7 @@ export function registerCatalogRoutes(
         ],
       );
       const row = ins.rows[0] as Parameters<typeof rowToSpare>[0];
+      clearSpareGstCache();
       await appendStockHistory(pool, {
         spareId: row.id,
         eventType: "SPARE_CREATED",
@@ -142,6 +161,55 @@ export function registerCatalogRoutes(
       }
       console.error(e);
       res.status(500).json({ error: "Could not create spare." });
+    }
+  });
+
+  app.patch("/api/spares/:spareId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || (actor.role !== "super_admin" && actor.role !== "admin")) {
+      res.status(403).json({ error: "Only admin users can update spare master rows." });
+      return;
+    }
+    const spareId = req.params.spareId;
+    const hsn = req.body?.hsn != null ? String(req.body.hsn).trim() || null : undefined;
+    const gstPercentRaw = req.body?.gstPercent;
+    const gstPercent =
+      gstPercentRaw === undefined || gstPercentRaw === null || gstPercentRaw === ""
+        ? undefined
+        : Number(gstPercentRaw);
+    if (gstPercent !== undefined && (Number.isNaN(gstPercent) || gstPercent < 0 || gstPercent > 100)) {
+      res.status(400).json({ error: "gstPercent must be between 0 and 100." });
+      return;
+    }
+    if (hsn === undefined && gstPercent === undefined) {
+      res.status(400).json({ error: "Nothing to update." });
+      return;
+    }
+    try {
+      const sets: string[] = ["updated_at = now()"];
+      const vals: unknown[] = [];
+      let i = 1;
+      if (hsn !== undefined) {
+        sets.push(`hsn = $${i++}`);
+        vals.push(hsn);
+      }
+      if (gstPercent !== undefined) {
+        sets.push(`gst_percent = $${i++}`);
+        vals.push(gstPercent);
+      }
+      vals.push(spareId);
+      const upd = await pool.query(
+        `UPDATE spares SET ${sets.join(", ")} WHERE id = $${i}::uuid RETURNING ${SPARE_SELECT}`,
+        vals,
+      );
+      if (!upd.rows[0]) {
+        res.status(404).json({ error: "Spare not found." });
+        return;
+      }
+      clearSpareGstCache();
+      res.json({ spare: rowToSpare(upd.rows[0] as Parameters<typeof rowToSpare>[0]) });
+    } catch {
+      res.status(400).json({ error: "Could not update spare." });
     }
   });
 

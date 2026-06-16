@@ -143,7 +143,9 @@ export function StoreBillingPage() {
     let cancelled = false;
     void apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax")
       .then((d) => {
-        if (!cancelled) setServiceTaxSettings(d.settings);
+        if (!cancelled) {
+          setServiceTaxSettings(d.settings);
+        }
       })
       .catch(() => {
         if (!cancelled) setServiceTaxSettings(null);
@@ -185,6 +187,14 @@ export function StoreBillingPage() {
   const billingCustomerAddress = customerAddressText(billingCustomer);
   const invoiceSacHsn = serviceTaxSettings?.defaultSacHsn?.trim() || "9987";
 
+  const spareGstLookup = useCallback(
+    (spareId: string) => {
+      const sp = activeSpares.find((s) => s.id === spareId);
+      return sp?.gstPercent ?? null;
+    },
+    [activeSpares],
+  );
+
   const spareHsnLookup = useCallback(
     (spareId: string) => {
       const sp = activeSpares.find((s) => s.id === spareId);
@@ -208,6 +218,7 @@ export function StoreBillingPage() {
         sku: s.sku,
         name: s.name,
         hsn: s.hsn?.trim() || null,
+        gstPercent: s.gstPercent ?? null,
         price: Number(s.sellingPriceInr ?? s.mrpInr ?? 0),
       })),
     [activeSpares],
@@ -295,7 +306,7 @@ export function StoreBillingPage() {
 
   const taxPreview = useMemo(() => {
     if (!billingJob || !billingAmounts || isRejectedNoRepairFlow) return null;
-    const configured = serviceTaxSettings?.gstRatePercent ?? 18;
+    const labourGstPercent = serviceTaxSettings?.gstRatePercent ?? 18;
     const storeGstin =
       storeInvoiceForPrint?.invoiceStoreGstin?.trim() ||
       serviceTaxSettings?.invoiceStoreGstin?.trim() ||
@@ -322,10 +333,8 @@ export function StoreBillingPage() {
       lines: gstLines,
       defaultHsnSac: invoiceSacHsn,
       spareHsnLookup,
-      configuredGstPercent: configured,
-      cgstRatePercent: serviceTaxSettings?.cgstRatePercent ?? configured / 2,
-      sgstRatePercent: serviceTaxSettings?.sgstRatePercent ?? configured / 2,
-      igstRatePercent: serviceTaxSettings?.igstRatePercent ?? configured,
+      spareGstLookup,
+      defaultSacGstPercent: labourGstPercent,
       pricesTaxInclusive: Boolean(serviceTaxSettings?.pricesTaxInclusive),
       natureOfRepair: billingJob.natureOfRepair,
       sellerStateCode: sellerState,
@@ -349,6 +358,7 @@ export function StoreBillingPage() {
     billingCustomerAddress,
     billingCustomer?.city,
     spareHsnLookup,
+    spareGstLookup,
     billSubtotalBeforeAdvance,
   ]);
 
@@ -513,6 +523,7 @@ export function StoreBillingPage() {
           collectionPaymentMode: payPayload.paymentMode,
           collectionPaymentDetails: payPayload.paymentDetails,
           spareHsnLookup,
+          spareGstLookup,
           generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
         }),
       );
@@ -784,7 +795,8 @@ export function StoreBillingPage() {
             </div>
             {isRejectedNoRepairFlow ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Customer rejected re-estimate. This watch can be handed over without billing after store inward.
+                Customer rejected re-estimate and the watch is being returned without repair. Use handover
+                without billing when the customer collects the watch.
               </div>
             ) : null}
             {isInterHoReturnFlow ? (

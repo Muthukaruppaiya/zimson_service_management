@@ -34,6 +34,10 @@ type SparesContextValue = {
   spares: SparePart[];
   activeSpares: SparePart[];
   addSpare: (input: CreateSpareInput) => Promise<{ ok: SparePart } | { error: string }>;
+  updateSpare: (
+    id: string,
+    patch: { hsn?: string | null; gstPercent?: number | null },
+  ) => Promise<{ ok: SparePart } | { error: string }>;
 };
 
 const SparesContext = createContext<SparesContextValue | null>(null);
@@ -103,6 +107,7 @@ export function SparesProvider({ children }: { children: ReactNode }) {
         description,
         category,
         hsn: input.hsn?.trim() || null,
+        gstPercent: input.gstPercent ?? null,
         costPriceInr: input.costPriceInr ?? null,
         sellingPriceInr: input.sellingPriceInr ?? input.mrpInr ?? null,
         mrpInr: input.sellingPriceInr ?? input.mrpInr ?? null,
@@ -117,6 +122,42 @@ export function SparesProvider({ children }: { children: ReactNode }) {
     [spares, api],
   );
 
+  const updateSpare = useCallback(
+    async (
+      id: string,
+      patch: { hsn?: string | null; gstPercent?: number | null },
+    ): Promise<{ ok: SparePart } | { error: string }> => {
+      if (patch.gstPercent != null && (patch.gstPercent < 0 || patch.gstPercent > 100)) {
+        return { error: "GST % must be between 0 and 100." };
+      }
+      if (api) {
+        try {
+          const data = await apiJson<{ spare: SparePart }>(`/api/spares/${encodeURIComponent(id)}`, {
+            method: "PATCH",
+            json: patch,
+          });
+          setSpares((prev) => prev.map((s) => (s.id === id ? data.spare : s)));
+          return { ok: data.spare };
+        } catch (e) {
+          const msg = e instanceof ApiError ? e.message : "Could not update spare.";
+          return { error: msg };
+        }
+      }
+      const existing = spares.find((s) => s.id === id);
+      if (!existing) return { error: "Spare not found." };
+      const nextRow: SparePart = {
+        ...existing,
+        hsn: patch.hsn !== undefined ? patch.hsn?.trim() || null : existing.hsn,
+        gstPercent: patch.gstPercent !== undefined ? patch.gstPercent : existing.gstPercent,
+      };
+      const next = spares.map((s) => (s.id === id ? nextRow : s));
+      setSpares(next);
+      saveSparesLocal(next);
+      return { ok: nextRow };
+    },
+    [spares, api],
+  );
+
   const activeSpares = useMemo(
     () => spares.filter((s) => s.isActive).sort((a, b) => a.sku.localeCompare(b.sku)),
     [spares],
@@ -127,8 +168,9 @@ export function SparesProvider({ children }: { children: ReactNode }) {
       spares: [...spares].sort((a, b) => a.sku.localeCompare(b.sku)),
       activeSpares,
       addSpare,
+      updateSpare,
     }),
-    [spares, activeSpares, addSpare],
+    [spares, activeSpares, addSpare, updateSpare],
   );
 
   return <SparesContext.Provider value={value}>{children}</SparesContext.Provider>;

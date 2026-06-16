@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -113,6 +112,7 @@ export function ScSupervisorPage() {
     reference: string;
     customerName: string;
     watchLabel: string;
+    spareSummary: string;
   } | null>(null);
   const [assignSuccessAck, setAssignSuccessAck] = useState<{
     reference: string;
@@ -878,6 +878,7 @@ export function ScSupervisorPage() {
           reference: job.reference,
           customerName: job.customerName,
           watchLabel: `${job.watchBrand} ${job.watchModel}`.trim(),
+          spareSummary: lines.map((x) => `${x.name} ×${x.qty}`).join(", "),
         });
       }
     } catch (e) {
@@ -1404,17 +1405,8 @@ export function ScSupervisorPage() {
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {j.status === "reestimate_required" ? (
-                    <div className="w-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                    <div className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                       <p className="font-semibold">Waiting for customer approval from tracking link.</p>
-                      {j.trackingUrl ? (
-                        <>
-                          <p className="mt-2 text-[11px]">Share this link with customer (SMS / WhatsApp / QR):</p>
-                          <p className="mt-1 break-all rounded bg-white/80 px-2 py-1 font-mono text-[11px] text-stone-700">{j.trackingUrl}</p>
-                          <CustomerLinkQr url={j.trackingUrl} size={220} mode="qr" caption="Customer scans QR to open customer review" className="mt-2" />
-                        </>
-                      ) : (
-                        <p className="mt-1 text-[11px]">Tracking link is not available.</p>
-                      )}
                     </div>
                   ) : null}
                   {j.status === "customer_rejected" ? (
@@ -2424,8 +2416,8 @@ export function ScSupervisorPage() {
       {repairSuccessMonitor ? (
         <ProcessSuccessModal
           open
-          title="Watch repaired successfully"
-          description="Sent to front desk for outward processing."
+          title="Spares saved — watch sent to outward"
+          description="Used spares recorded. Repair marked complete."
           onBackdropClick={() => setRepairSuccessMonitor(null)}
           actions={
             <button
@@ -2446,8 +2438,11 @@ export function ScSupervisorPage() {
             {" · "}
             {repairSuccessMonitor.watchLabel}
           </p>
-          <p className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-sm font-medium text-emerald-900">
-            The watch is in the outward queue. Front desk / logistics will dispatch when ready.
+          <p className="mt-3 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm text-emerald-950">
+            <span className="font-semibold">Data saved.</span> Used spares: {repairSuccessMonitor.spareSummary}
+          </p>
+          <p className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-sm font-medium text-emerald-900">
+            Watch moved to the outward queue. Front desk / logistics will dispatch when ready.
           </p>
         </ProcessSuccessModal>
       ) : null}

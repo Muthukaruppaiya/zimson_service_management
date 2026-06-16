@@ -22,6 +22,7 @@ import { initMessagingSettings } from "./messagingSettingsStore";
 import { registerMessagingSettingsRoutes } from "./messagingSettingsRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
+import { registerEdocRoutes } from "./edocRoutes";
 import { registerTechnicianRoutes } from "./technicianRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
@@ -3844,6 +3845,7 @@ async function main() {
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerQuickBillCaptureRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerEdocRoutes(app, dbPool, requireAuth);
   await initMessagingSettings(dbPool);
   registerMessagingSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

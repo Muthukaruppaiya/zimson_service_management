@@ -193,6 +193,7 @@ export type StoreBillingInvoiceBuildOptions = {
   customer?: CustomerRecord | null;
   defaultHsnSac?: string;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
+  spareGstLookup?: (spareId: string) => number | null | undefined;
   additionalCharges?: { description: string; amountInr: number }[];
   /** Balance collected at billing (overrides computed standard total). */
   collectionAmountInr?: number;
@@ -306,6 +307,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
         customerGstin: cust.customerGstin,
         customerBillingState: cust.customerBillingState,
         spareHsnLookup: options.spareHsnLookup,
+        spareGstLookup: options.spareGstLookup,
         generatedBy: options.generatedBy,
       },
     );
@@ -368,6 +370,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
       customerGstin: cust.customerGstin,
       customerBillingState: cust.customerBillingState,
       spareHsnLookup: options.spareHsnLookup,
+      spareGstLookup: options.spareGstLookup,
       generatedBy: options.generatedBy,
     },
   );
@@ -380,7 +383,6 @@ function computeStoreBillingTaxPreview(
   billSubtotal: number,
 ) {
   const tax = options.taxSettings;
-  const configured = tax?.gstRatePercent ?? 18;
   const storeGstin =
     options.storeInvoice?.invoiceStoreGstin?.trim() ||
     tax?.invoiceStoreGstin?.trim() ||
@@ -399,10 +401,8 @@ function computeStoreBillingTaxPreview(
     lines: gstLines,
     defaultHsnSac: options.defaultHsnSac?.trim() || tax?.defaultSacHsn?.trim() || "9987",
     spareHsnLookup: options.spareHsnLookup,
-    configuredGstPercent: configured,
-    cgstRatePercent: tax?.cgstRatePercent ?? configured / 2,
-    sgstRatePercent: tax?.sgstRatePercent ?? configured / 2,
-    igstRatePercent: tax?.igstRatePercent ?? configured,
+    spareGstLookup: options.spareGstLookup,
+    defaultSacGstPercent: tax?.gstRatePercent ?? 18,
     pricesTaxInclusive: Boolean(tax?.pricesTaxInclusive),
     natureOfRepair: job.natureOfRepair,
     sellerStateCode: sellerState,

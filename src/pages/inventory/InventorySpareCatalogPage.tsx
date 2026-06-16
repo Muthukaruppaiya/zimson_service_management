@@ -38,7 +38,7 @@ type SpareHistoryRow = {
 
 export function InventorySpareCatalogPage() {
   const apiMode = useApiMode();
-  const { spares, addSpare } = useSpares();
+  const { spares, addSpare, updateSpare } = useSpares();
   const { user } = useAuth();
   const hideStockLogsButton =
     user?.role === "ho_purchase" || user?.role === "ho_manager" || user?.role === "admin" || user?.role === "ho_manager";
@@ -47,6 +47,10 @@ export function InventorySpareCatalogPage() {
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("Other");
   const [hsn, setHsn] = useState("");
+  const [gstPercent, setGstPercent] = useState("18");
+  const [editHsn, setEditHsn] = useState("");
+  const [editGstPercent, setEditGstPercent] = useState("");
+  const [taxEditMsg, setTaxEditMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [costPriceInr, setCostPriceInr] = useState("");
   const [sellingPriceInr, setSellingPriceInr] = useState("");
   const [isActive, setIsActive] = useState(true);
@@ -114,6 +118,13 @@ export function InventorySpareCatalogPage() {
     [spares, selectedId],
   );
   const barcodeRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    if (!selectedSpare) return;
+    setEditHsn(selectedSpare.hsn ?? "");
+    setEditGstPercent(selectedSpare.gstPercent != null ? String(selectedSpare.gstPercent) : "");
+    setTaxEditMsg(null);
+  }, [selectedSpare?.id, selectedSpare?.hsn, selectedSpare?.gstPercent]);
 
   async function loadPrices(spareId: string) {
     try {
@@ -212,12 +223,18 @@ export function InventorySpareCatalogPage() {
       setMsg({ type: "err", text: "Selling price must be a non-negative number." });
       return;
     }
+    const gstValue = gstPercent.trim() === "" ? null : Number(gstPercent);
+    if (gstValue != null && (Number.isNaN(gstValue) || gstValue < 0 || gstValue > 100)) {
+      setMsg({ type: "err", text: "GST % must be between 0 and 100." });
+      return;
+    }
     const r = await addSpare({
       sku,
       name,
       description,
       category,
       hsn: hsn.trim() || null,
+      gstPercent: gstValue,
       costPriceInr: costValue,
       sellingPriceInr: sellingValue,
       mrpInr: sellingValue,
@@ -233,6 +250,7 @@ export function InventorySpareCatalogPage() {
     setDescription("");
     setCategory("Other");
     setHsn("");
+    setGstPercent("18");
     setCostPriceInr("");
     setSellingPriceInr("");
     setIsActive(true);
@@ -265,6 +283,26 @@ export function InventorySpareCatalogPage() {
   function openDetails(spareId: string) {
     setSelectedId(spareId);
     setDetailsOpen(true);
+  }
+
+  async function saveSpareTaxDetails(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedSpare) return;
+    setTaxEditMsg(null);
+    const gstValue = editGstPercent.trim() === "" ? null : Number(editGstPercent);
+    if (gstValue != null && (Number.isNaN(gstValue) || gstValue < 0 || gstValue > 100)) {
+      setTaxEditMsg({ type: "err", text: "GST % must be between 0 and 100." });
+      return;
+    }
+    const r = await updateSpare(selectedSpare.id, {
+      hsn: editHsn.trim() || null,
+      gstPercent: gstValue,
+    });
+    if ("error" in r) {
+      setTaxEditMsg({ type: "err", text: r.error });
+      return;
+    }
+    setTaxEditMsg({ type: "ok", text: "HSN and GST % saved." });
   }
 
   function openLogs(spareId: string) {
@@ -441,6 +479,7 @@ export function InventorySpareCatalogPage() {
                   <th className="px-3 py-2">Description</th>
                   <th className="px-3 py-2">Category</th>
                   <th className="px-3 py-2">HSN</th>
+                  <th className="px-3 py-2">GST %</th>
                   <th className="px-3 py-2">Cost price</th>
                   <th className="px-3 py-2">Active</th>
                   <th className="px-3 py-2 text-right">Actions</th>
@@ -457,6 +496,7 @@ export function InventorySpareCatalogPage() {
                     <td className="max-w-[260px] truncate px-3 py-2 text-stone-700" title={s.description}>{s.description}</td>
                     <td className="px-3 py-2 text-stone-600">{s.category}</td>
                     <td className="px-3 py-2 font-mono text-xs text-stone-600">{s.hsn ?? "-"}</td>
+                    <td className="px-3 py-2 text-stone-700">{s.gstPercent != null ? `${s.gstPercent}%` : "—"}</td>
                     <td className="px-3 py-2 text-stone-700">
                       {s.costPriceInr == null ? "-" : s.costPriceInr}
                     </td>
@@ -583,6 +623,22 @@ export function InventorySpareCatalogPage() {
                     value={hsn}
                     onChange={(e) => setHsn(sanitizeAlphanumericInput(e.target.value, 16))}
                     className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sp-gst" className="text-xs font-medium text-stone-600">
+                    GST % *
+                  </label>
+                  <input
+                    id="sp-gst"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.01}
+                    value={gstPercent}
+                    onChange={(e) => setGstPercent(sanitizeDecimalInput(e.target.value))}
+                    className={inputClass}
+                    required
                   />
                 </div>
                 <div>
@@ -757,6 +813,44 @@ export function InventorySpareCatalogPage() {
                 Print barcode
               </button>
             </div>
+            <Card title="HSN & GST (billing)" subtitle="Used on Quick Bill, store billing, and GRN">
+              <form onSubmit={(e) => void saveSpareTaxDetails(e)} className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-stone-600">HSN / SAC</label>
+                  <input
+                    value={editHsn}
+                    onChange={(e) => setEditHsn(sanitizeAlphanumericInput(e.target.value, 16))}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-stone-600">GST %</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.01}
+                    value={editGstPercent}
+                    onChange={(e) => setEditGstPercent(sanitizeDecimalInput(e.target.value))}
+                    className={inputClass}
+                    required
+                  />
+                </div>
+                <div className="sm:col-span-2 flex items-center gap-3">
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-700"
+                  >
+                    Save HSN & GST
+                  </button>
+                  {taxEditMsg ? (
+                    <p className={`text-sm ${taxEditMsg.type === "ok" ? "text-emerald-800" : "text-red-800"}`}>
+                      {taxEditMsg.text}
+                    </p>
+                  ) : null}
+                </div>
+              </form>
+            </Card>
             <Card title="Master prices" subtitle="Spare master values">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-lg border border-zimson-200 bg-zimson-50/40 px-3 py-2">

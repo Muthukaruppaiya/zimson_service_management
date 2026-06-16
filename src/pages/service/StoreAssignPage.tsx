@@ -40,7 +40,7 @@ function statusDisplay(status: string): string {
 export function StoreAssignPage() {
   const { user } = useAuth();
   const { activeSpares } = useSpares();
-  const { jobs, storeSelfAssignTechnician, storeSelfSubmitSparesSlip, storeSelfMarkRepairComplete, storeSelfRequestReestimate } =
+  const { jobs, storeSelfAssignTechnician, storeSelfSubmitSparesSlip, storeSelfMarkRepairComplete, storeSelfRequestReestimate, storeSelfReturnWithoutRepair, storeSelfSendToHo } =
     useSrfJobs();
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [techByJob, setTechByJob] = useState<Record<string, string>>({});
@@ -71,6 +71,22 @@ export function StoreAssignPage() {
   const [reestimatePreviousInr, setReestimatePreviousInr] = useState(0);
   const [reestimateAmountInput, setReestimateAmountInput] = useState("");
   const [reestimateRemarkInput, setReestimateRemarkInput] = useState("");
+
+  const [returnWithoutRepairJobId, setReturnWithoutRepairJobId] = useState<string | null>(null);
+  const [returnWithoutRepairNote, setReturnWithoutRepairNote] = useState("");
+  const [returnAck, setReturnAck] = useState<{
+    reference: string;
+    customerName: string;
+    watchLabel: string;
+  } | null>(null);
+
+  const [sendToHoJobId, setSendToHoJobId] = useState<string | null>(null);
+  const [sendToHoNote, setSendToHoNote] = useState("");
+  const [sendToHoAck, setSendToHoAck] = useState<{
+    reference: string;
+    customerName: string;
+    watchLabel: string;
+  } | null>(null);
 
   useEffect(() => {
     void apiJson<{ rows: TechnicianProfile[] }>("/api/service/technicians?activeOnly=1")
@@ -197,6 +213,68 @@ export function StoreAssignPage() {
       setMessage({
         type: "err",
         text: e instanceof ApiError ? e.message : "Could not send re-estimate.",
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function confirmReturnWithoutRepair() {
+    if (!returnWithoutRepairJobId) return;
+    const job = jobs.find((j) => j.id === returnWithoutRepairJobId);
+    setBusyId(returnWithoutRepairJobId);
+    setMessage(null);
+    try {
+      await storeSelfReturnWithoutRepair(returnWithoutRepairJobId, returnWithoutRepairNote.trim());
+      setReturnWithoutRepairJobId(null);
+      setReturnWithoutRepairNote("");
+      if (job) {
+        setReturnAck({
+          reference: job.reference,
+          customerName: job.customerName,
+          watchLabel: `${job.watchBrand} ${job.watchModel}`.trim(),
+        });
+      } else {
+        setMessage({
+          type: "ok",
+          text: "Watch marked for return without repair — continue in store billing.",
+        });
+      }
+    } catch (e) {
+      setMessage({
+        type: "err",
+        text: e instanceof ApiError ? e.message : "Could not return watch without repair.",
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function confirmSendToHo() {
+    if (!sendToHoJobId) return;
+    const job = jobs.find((j) => j.id === sendToHoJobId);
+    setBusyId(sendToHoJobId);
+    setMessage(null);
+    try {
+      await storeSelfSendToHo(sendToHoJobId, sendToHoNote.trim());
+      setSendToHoJobId(null);
+      setSendToHoNote("");
+      if (job) {
+        setSendToHoAck({
+          reference: job.reference,
+          customerName: job.customerName,
+          watchLabel: `${job.watchBrand} ${job.watchModel}`.trim(),
+        });
+      } else {
+        setMessage({
+          type: "ok",
+          text: "SRF moved to store dispatch — create outward transfer to HO.",
+        });
+      }
+    } catch (e) {
+      setMessage({
+        type: "err",
+        text: e instanceof ApiError ? e.message : "Could not send SRF to HO.",
       });
     } finally {
       setBusyId(null);
@@ -358,9 +436,21 @@ export function StoreAssignPage() {
                     >
                       Need re-estimate
                     </button>
+                    <button
+                      type="button"
+                      disabled={busyId === job.id}
+                      onClick={() => {
+                        setSendToHoJobId(job.id);
+                        setSendToHoNote("");
+                      }}
+                      className="rounded-xl border border-zimson-600 bg-white px-4 py-2 text-sm font-semibold text-zimson-800 hover:bg-zimson-50 disabled:opacity-50"
+                    >
+                      Send to HO
+                    </button>
                   </div>
                   <p className="mt-1 text-[11px] text-stone-500">
-                    Complete repair with spares, or send a revised estimate to the customer for approval.
+                    Complete repair with spares, send a revised estimate, or dispatch the watch to HO via{" "}
+                    <strong>Store dispatch</strong> if it cannot be repaired at your store.
                   </p>
                 </JobRow>
               ))}
@@ -392,18 +482,117 @@ export function StoreAssignPage() {
               ))}
               {rejectedReestimate.map((job) => (
                 <JobRow key={job.id} job={job} statusLabel="Customer rejected">
-                  <button
-                    type="button"
-                    disabled={busyId === job.id}
-                    onClick={() => openReestimatePopup(job.id)}
-                    className="rounded-xl border border-amber-600 bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    Negotiate &amp; send re-estimate
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busyId === job.id}
+                      onClick={() => openReestimatePopup(job.id)}
+                      className="rounded-xl border border-amber-600 bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      Negotiate &amp; send re-estimate
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === job.id}
+                      onClick={() => {
+                        setReturnWithoutRepairJobId(job.id);
+                        setReturnWithoutRepairNote("");
+                      }}
+                      className="rounded-xl border border-rose-600 bg-white px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
+                    >
+                      Return to customer without repair
+                    </button>
+                  </div>
+                  <p className="mt-2 text-[11px] text-stone-500">
+                    If negotiation fails, return the watch — the SRF moves to{" "}
+                    <strong>Store billing</strong> for handover without invoice.
+                  </p>
                 </JobRow>
               ))}
             </div>
           </Card>
+        </div>
+      ) : null}
+
+      {sendToHoJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Send watch to HO</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              The watch cannot be repaired at your store. It will move to the{" "}
+              <strong>Store dispatch</strong> outward queue so you can create a transfer to the service centre.
+            </p>
+            <label className="mt-4 block text-sm">
+              Remarks (optional)
+              <textarea
+                className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                rows={3}
+                value={sendToHoNote}
+                onChange={(e) => setSendToHoNote(e.target.value)}
+                placeholder="e.g. Movement issue — requires HO workshop"
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSendToHoJobId(null);
+                  setSendToHoNote("");
+                }}
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmSendToHo()}
+                className="rounded-xl bg-zimson-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Send to dispatch
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {returnWithoutRepairJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-rose-900">Return watch without repair</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Customer and store could not agree on re-estimate. The watch will be sent to store billing for
+              handover to the customer — no tax invoice.
+            </p>
+            <label className="mt-4 block text-sm">
+              Remarks (optional)
+              <textarea
+                className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                rows={3}
+                value={returnWithoutRepairNote}
+                onChange={(e) => setReturnWithoutRepairNote(e.target.value)}
+                placeholder="e.g. Customer declined revised estimate; watch returned as-is"
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setReturnWithoutRepairJobId(null);
+                  setReturnWithoutRepairNote("");
+                }}
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmReturnWithoutRepair()}
+                className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Send to billing
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -592,6 +781,86 @@ export function StoreAssignPage() {
           <p className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
             Status is now <strong>Working</strong>. When repair is finished, use <strong>Watch repair complete</strong> to
             record spares and close the SRF for billing.
+          </p>
+        </ProcessSuccessModal>
+      ) : null}
+
+      {sendToHoAck ? (
+        <ProcessSuccessModal
+          open
+          title="Ready for store dispatch"
+          description="Create outward transfer to send the watch to HO."
+          onBackdropClick={() => setSendToHoAck(null)}
+          actions={
+            <>
+              <Link
+                to="/service/store-dispatch"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-zimson-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-800 sm:w-auto"
+                onClick={() => setSendToHoAck(null)}
+              >
+                Go to store dispatch
+              </Link>
+              <button
+                type="button"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 sm:w-auto"
+                onClick={() => setSendToHoAck(null)}
+              >
+                Done
+              </button>
+            </>
+          }
+        >
+          <div className="rounded-xl border-2 border-zimson-200 bg-zimson-50/80 px-4 py-3 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zimson-800">SRF reference</p>
+            <p className="mt-1 font-mono text-2xl font-bold text-zimson-950">{sendToHoAck.reference}</p>
+          </div>
+          <p className="mt-3 text-sm text-stone-700">
+            <span className="font-semibold text-stone-900">{sendToHoAck.customerName}</span>
+            {" · "}
+            {sendToHoAck.watchLabel}
+          </p>
+          <p className="mt-3 rounded-lg border border-zimson-100 bg-zimson-50/50 px-3 py-2 text-sm font-medium text-zimson-900">
+            Select this SRF in <strong>Outward SRF</strong> and create an internal transfer to the service centre.
+          </p>
+        </ProcessSuccessModal>
+      ) : null}
+
+      {returnAck ? (
+        <ProcessSuccessModal
+          open
+          title="Ready for customer handover"
+          description="No repair — complete handover in store billing."
+          onBackdropClick={() => setReturnAck(null)}
+          actions={
+            <>
+              <Link
+                to="/service/store-billing"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-800 sm:w-auto"
+                onClick={() => setReturnAck(null)}
+              >
+                Go to store billing
+              </Link>
+              <button
+                type="button"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 sm:w-auto"
+                onClick={() => setReturnAck(null)}
+              >
+                Done
+              </button>
+            </>
+          }
+        >
+          <div className="rounded-xl border-2 border-rose-200 bg-rose-50/80 px-4 py-3 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-rose-800">SRF reference</p>
+            <p className="mt-1 font-mono text-2xl font-bold text-rose-950">{returnAck.reference}</p>
+          </div>
+          <p className="mt-3 text-sm text-stone-700">
+            <span className="font-semibold text-stone-900">{returnAck.customerName}</span>
+            {" · "}
+            {returnAck.watchLabel}
+          </p>
+          <p className="mt-3 rounded-lg border border-rose-100 bg-rose-50/50 px-3 py-2 text-sm font-medium text-rose-900">
+            Select this SRF in store billing and use <strong>Handover to customer without billing</strong> after OTP.
           </p>
         </ProcessSuccessModal>
       ) : null}

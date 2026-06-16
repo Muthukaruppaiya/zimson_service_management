@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { Card } from "../ui/Card";
 import { GstSummaryBlock } from "./GstSummaryBlock";
 import { sanitizeDecimalInput, sanitizeTextInput } from "../../lib/inputSanitize";
-import { gstRateFromHsn, normalizeHsnCode } from "../../lib/hsnGst";
+import { normalizeHsnCode } from "../../lib/hsnGst";
+import { computeServiceBillGst, resolveLineGstPercent } from "../../lib/serviceBillGst";
 import {
   formatPlaceOfSupplyLabel,
   resolveCustomerSupplyStateCode,
@@ -12,7 +13,6 @@ import {
 import { isNatureOfRepairTaxable, natureOfRepairBillingNote } from "../../lib/natureOfRepair";
 import type { ServiceBillEditorLine } from "../../lib/serviceBillEditorLines";
 import { editorLineAmountInr } from "../../lib/serviceBillEditorLines";
-import type { computeServiceBillGst } from "../../lib/serviceBillGst";
 import {
   storeServiceChargeMaxLabel,
   validateStoreServiceAmountInr,
@@ -25,6 +25,7 @@ export type ServiceBillSpareOption = {
   sku: string;
   name: string;
   hsn: string | null;
+  gstPercent: number | null;
   price: number;
 };
 
@@ -87,7 +88,16 @@ export function ServiceBillLinesCard({
   const [barcodeSku, setBarcodeSku] = useState("");
   const [partPick, setPartPick] = useState("");
 
-  const serviceHsnGstRate = gstRateFromHsn(serviceSacHsn, serviceTaxSettings?.gstRatePercent ?? 18);
+  const labourGstPercent = serviceTaxSettings?.gstRatePercent ?? 18;
+
+  const resolveSpareGst = (spareId: string): number | null => {
+    const spare = spareOptions.find((s) => s.id === spareId);
+    if (spare?.gstPercent != null && Number.isFinite(spare.gstPercent)) return spare.gstPercent;
+    const fromCatalog = spareOptions.find((s) => s.id === spareId);
+    return fromCatalog?.gstPercent ?? null;
+  };
+
+  const serviceHsnGstRate = labourGstPercent;
   const serviceChargeNum = Number.parseFloat(serviceChargeInr);
   const hasServiceCharge = Number.isFinite(serviceChargeNum) && serviceChargeNum > 0;
 
@@ -247,7 +257,11 @@ export function ServiceBillLinesCard({
             const lineHsn = line.spareId ? normalizeHsnCode(line.hsn) || "—" : null;
             const lineGstRate =
               line.spareId && lineHsn && lineHsn !== "—"
-                ? gstRateFromHsn(lineHsn, serviceTaxSettings?.gstRatePercent ?? 18)
+                ? resolveLineGstPercent({
+                    spareId: line.spareId,
+                    defaultSacGstPercent: labourGstPercent,
+                    spareGstLookup: resolveSpareGst,
+                  })
                 : null;
             const readOnly = labourChargesOnly || Boolean(line.spareId) || Boolean(line.locked);
             return (

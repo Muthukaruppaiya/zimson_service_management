@@ -234,88 +234,40 @@ export function ServiceTaxSettingsPage() {
           <p className="text-sm text-stone-600">Loading…</p>
         ) : (
           <form onSubmit={handleSave} className="space-y-5">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-zimson-200 bg-zimson-50/60 px-4 py-3 text-sm text-stone-700">
+              <p className="font-semibold text-zimson-900">GST from Inventory &amp; Tax settings</p>
+              <p className="mt-1 text-xs text-stone-600">
+                Spare lines use HSN + GST % from Inventory → Spare catalogue. Labour / service charge uses the GST %
+                and SAC below. No seeded HSN master — you maintain rates in inventory.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="tax-gst" className="text-xs font-medium text-stone-600">
-                  Combined GST % (reference)
+                  GST % (labour / default SAC)
                 </label>
                 <input
                   id="tax-gst"
                   type="number"
                   min={0}
                   max={100}
-                  step="0.001"
+                  step={0.01}
                   value={gstRatePercent}
-                  onChange={(e) => setGstRatePercent(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setGstRatePercent(v);
+                    const n = Number.parseFloat(v);
+                    if (Number.isFinite(n)) {
+                      const split = applyIntraStateSplitFromGst(n);
+                      setCgstRatePercent(String(split.cgstRatePercent));
+                      setSgstRatePercent(String(split.sgstRatePercent));
+                      setIgstRatePercent(String(split.igstRatePercent));
+                    }
+                  }}
                   className={inputClass}
                 />
               </div>
-              <div>
-                <label htmlFor="tax-cgst" className="text-xs font-medium text-stone-600">
-                  CGST %
-                </label>
-                <input
-                  id="tax-cgst"
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.001"
-                  value={cgstRatePercent}
-                  onChange={(e) => setCgstRatePercent(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label htmlFor="tax-sgst" className="text-xs font-medium text-stone-600">
-                  SGST / UTGST %
-                </label>
-                <input
-                  id="tax-sgst"
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.001"
-                  value={sgstRatePercent}
-                  onChange={(e) => setSgstRatePercent(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label htmlFor="tax-igst" className="text-xs font-medium text-stone-600">
-                  IGST % (interstate)
-                </label>
-                <input
-                  id="tax-igst"
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.001"
-                  value={igstRatePercent}
-                  onChange={(e) => setIgstRatePercent(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-            </div>
-            <p className="text-xs text-stone-500">
-              Billing uses the combined GST % for arithmetic; CGST/SGST here are stored for reference and future
-              interstate / split displays.{" "}
-              <button
-                type="button"
-                className="font-semibold text-zimson-800 underline"
-                onClick={() => {
-                  const g = Number.parseFloat(gstRatePercent);
-                  if (!Number.isFinite(g)) return;
-                  const split = applyIntraStateSplitFromGst(g);
-                  setCgstRatePercent(String(split.cgstRatePercent));
-                  setSgstRatePercent(String(split.sgstRatePercent));
-                  setIgstRatePercent(String(split.igstRatePercent));
-                }}
-              >
-                Set CGST/SGST to half of combined GST and IGST to full
-              </button>
-            </p>
-
-            <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="tax-sac" className="text-xs font-medium text-stone-600">
                   Default SAC / HSN (service lines)

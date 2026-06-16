@@ -23,6 +23,12 @@ import { sendReestimateDecisionNotification, sendTrackingLink } from "./notifica
 import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
+import {
+  edocEnabled,
+  edocEwayAutoEnabled,
+  tryGenerateEinvoiceForSrfClose,
+  tryGenerateEwayForChallan,
+} from "./mastersIndiaEdoc";
 import { buildHoOutwardPrintMeta, buildStoreToHoPrintMeta } from "./transferDocMeta";
 
 type Authed = Request & { userId: string };
@@ -2306,7 +2312,11 @@ export function registerSrfRoutes(
       }
       const printMeta = await buildStoreToHoPrintMeta(client, storeId, regionId, dcNumber);
       await client.query("COMMIT");
-      res.json({ dcNumber, moved, printMeta });
+      let edoc = null;
+      if (edocEwayAutoEnabled() && dcId) {
+        edoc = await tryGenerateEwayForChallan(pool, dcId, printMeta, moved);
+      }
+      res.json({ dcNumber, moved, printMeta, edoc });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -2327,6 +2337,10 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "dcNumber is required." });
       return;
     }
+    const body = req.body as { srfIds?: unknown };
+    const requestedIds = Array.isArray(body?.srfIds)
+      ? body.srfIds.map((id) => String(id ?? "").trim()).filter(Boolean)
+      : null;
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -2349,9 +2363,36 @@ export function registerSrfRoutes(
         `SELECT srf_id FROM delivery_challan_lines WHERE dc_id = $1::uuid`,
         [dc.id],
       );
+      const lineIds = new Set(rows.map((l) => l.srf_id));
+      if (requestedIds) {
+        const invalid = requestedIds.filter((id) => !lineIds.has(id));
+        if (invalid.length > 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "One or more watches are not on this transfer document." });
+          return;
+        }
+        if (requestedIds.length === 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Select at least one watch to inward." });
+          return;
+        }
+      }
       let updated = 0;
+      let skipped = 0;
       let documentKind: InwardDocumentKind = "store_transfer";
       for (const line of rows) {
+        const accept = requestedIds ? requestedIds.includes(line.srf_id) : true;
+        if (!accept) {
+          skipped += 1;
+          await appendStatusHistory(
+            client,
+            line.srf_id,
+            "in_transit_sc",
+            actor.id,
+            `Not accepted at HO inward (${dcNumber}) — still on transfer.`,
+          );
+          continue;
+        }
         const current = await client.query<{
           id: string;
           status: string;
@@ -2452,14 +2493,30 @@ export function registerSrfRoutes(
           }
         }
       }
-      await client.query(
-        `UPDATE delivery_challans
-         SET status = 'INWARDED', updated_at = now(), modified_by = $2
-         WHERE id = $1::uuid`,
-        [dc.id, actor.id],
+      if (updated === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "No watches could be inwarded on this transfer." });
+        return;
+      }
+      const { rows: pendingRows } = await client.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n
+         FROM delivery_challan_lines l
+         JOIN srf_jobs j ON j.id = l.srf_id
+         WHERE l.dc_id = $1::uuid
+           AND j.status = 'in_transit_sc'`,
+        [dc.id],
       );
+      const pendingOnTransfer = Number(pendingRows[0]?.n ?? 0);
+      if (pendingOnTransfer === 0) {
+        await client.query(
+          `UPDATE delivery_challans
+           SET status = 'INWARDED', updated_at = now(), modified_by = $2
+           WHERE id = $1::uuid`,
+          [dc.id, actor.id],
+        );
+      }
       await client.query("COMMIT");
-      res.json({ updated, dcNumber, documentKind });
+      res.json({ updated, skipped, pendingOnTransfer, dcNumber, documentKind });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -2884,6 +2941,158 @@ export function registerSrfRoutes(
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not mark re-estimate." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/store-self/return-without-repair", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Only store roles can return a repair-by-self SRF without repair." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    try {
+      const prior = await pool.query<{ status: string; store_id: string; region_id: string; repair_route: string }>(
+        `SELECT status, store_id, region_id, repair_route FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const row = prior.rows[0];
+      if (!row) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (normalizeSrfRepairRoute(row.repair_route) !== "store_self") {
+        res.status(400).json({ error: "Return without repair is only for repair-by-self SRFs." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
+        if (STORE_ROLES.has(actor.role) && actor.storeId !== row.store_id) {
+          res.status(403).json({ error: "You can return only SRFs at your store." });
+          return;
+        }
+        if (actor.regionId && actor.regionId !== row.region_id) {
+          res.status(403).json({ error: "Region mismatch." });
+          return;
+        }
+      }
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'received_at_store',
+             received_back_at_store_at = now(),
+             customer_reestimate_response = COALESCE(customer_reestimate_response, 'rejected'),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND repair_route = 'store_self'
+           AND status = 'customer_rejected'`,
+        [srfId, actor.id],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({
+          error: "Only customer-rejected repair-by-self SRFs can be returned without repair.",
+        });
+        return;
+      }
+      const client = await pool.connect();
+      const histNote =
+        note ||
+        "Store returning watch to customer without repair (re-estimate not agreed). Ready for billing handover.";
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(client, srfId, "received_at_store", actor.id, histNote);
+        await appendActionLog(client, srfId, {
+          action: "store_self_return_without_repair",
+          description: histNote,
+          actor,
+          details: { note: note || null },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not return SRF without repair." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/store-self/send-to-ho", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Only store roles can send a repair-by-self SRF to HO." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    try {
+      const prior = await pool.query<{ status: string; store_id: string; region_id: string; repair_route: string }>(
+        `SELECT status, store_id, region_id, repair_route FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const row = prior.rows[0];
+      if (!row) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (normalizeSrfRepairRoute(row.repair_route) !== "store_self") {
+        res.status(400).json({ error: "Send to HO is only for repair-by-self SRFs." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin") {
+        if (STORE_ROLES.has(actor.role) && actor.storeId !== row.store_id) {
+          res.status(403).json({ error: "You can send only SRFs at your store." });
+          return;
+        }
+        if (actor.regionId && actor.regionId !== row.region_id) {
+          res.status(403).json({ error: "Region mismatch." });
+          return;
+        }
+      }
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'at_store',
+             repair_route = 'send_to_ho',
+             assigned_technician_id = NULL,
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND repair_route = 'store_self'
+           AND status IN ('store_self_pending', 'store_self_assigned', 'store_self_working')`,
+        [srfId, actor.id],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({
+          error: "Only pending or in-progress repair-by-self SRFs can be sent to HO.",
+        });
+        return;
+      }
+      const client = await pool.connect();
+      const histNote =
+        note ||
+        "Store cannot complete repair locally — SRF moved to send-to-HO queue for store dispatch.";
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(client, srfId, "at_store", actor.id, histNote);
+        await appendActionLog(client, srfId, {
+          action: "store_self_send_to_ho",
+          description: histNote,
+          actor,
+          details: { note: note || null, priorStatus: row.status },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not send SRF to HO." });
     }
   });
 
@@ -4567,11 +4776,16 @@ export function registerSrfRoutes(
         isReturnLeg: isReturnToSenderBatch,
       });
       await client.query("COMMIT");
+      let edoc = null;
+      if (edocEwayAutoEnabled() && dcId) {
+        edoc = await tryGenerateEwayForChallan(pool, dcId, printMeta, moved);
+      }
       res.json({
         odcNumber: dcNumber,
         moved,
         documentKind: isInterHoBatch ? ("DC" as const) : ("TD" as const),
         printMeta,
+        edoc,
       });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
@@ -4589,6 +4803,10 @@ export function registerSrfRoutes(
       return;
     }
     const dcNumber = String(req.params.dcNumber ?? "").trim();
+    const body = req.body as { srfIds?: unknown };
+    const requestedIds = Array.isArray(body?.srfIds)
+      ? body.srfIds.map((id) => String(id ?? "").trim()).filter(Boolean)
+      : null;
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -4606,8 +4824,35 @@ export function registerSrfRoutes(
         `SELECT srf_id FROM delivery_challan_lines WHERE dc_id = $1::uuid`,
         [dc.id],
       );
+      const lineIds = new Set(lines.map((l) => l.srf_id));
+      if (requestedIds) {
+        const invalid = requestedIds.filter((id) => !lineIds.has(id));
+        if (invalid.length > 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "One or more watches are not on this transfer document." });
+          return;
+        }
+        if (requestedIds.length === 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Select at least one watch to inward." });
+          return;
+        }
+      }
       let updated = 0;
+      let skipped = 0;
       for (const line of lines) {
+        const accept = requestedIds ? requestedIds.includes(line.srf_id) : true;
+        if (!accept) {
+          skipped += 1;
+          await appendStatusHistory(
+            client,
+            line.srf_id,
+            "dispatched_to_store",
+            actor.id,
+            `Not accepted at store inward (${dcNumber}) — pending return to HO.`,
+          );
+          continue;
+        }
         const upd = await client.query(
           `UPDATE srf_jobs
            SET status = 'received_at_store',
@@ -4630,14 +4875,31 @@ export function registerSrfRoutes(
           updated += 1;
         }
       }
-      await client.query(
-        `UPDATE delivery_challans
-         SET status = 'RECEIVED', updated_at = now(), modified_by = $2
-         WHERE id = $1::uuid`,
-        [dc.id, actor.id],
+      if (updated === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "No watches could be inwarded on this transfer." });
+        return;
+      }
+      const { rows: pendingRows } = await client.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n
+         FROM delivery_challan_lines l
+         JOIN srf_jobs j ON j.id = l.srf_id
+         WHERE l.dc_id = $1::uuid
+           AND j.status = 'dispatched_to_store'
+           AND j.destination_store_id = $2::text`,
+        [dc.id, actor.storeId],
       );
+      const pendingOnTransfer = Number(pendingRows[0]?.n ?? 0);
+      if (pendingOnTransfer === 0) {
+        await client.query(
+          `UPDATE delivery_challans
+           SET status = 'RECEIVED', updated_at = now(), modified_by = $2
+           WHERE id = $1::uuid`,
+          [dc.id, actor.id],
+        );
+      }
       await client.query("COMMIT");
-      res.json({ updated });
+      res.json({ updated, skipped, pendingOnTransfer });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -4773,7 +5035,11 @@ export function registerSrfRoutes(
       });
       await maybeDisableTrackingToken(client, row.phone ?? "");
       await client.query("COMMIT");
-      res.json({ ok: true, invoiceNumber });
+      let edoc = null;
+      if (edocEnabled() && !noBillingHandover && invoiceNumber) {
+        edoc = await tryGenerateEinvoiceForSrfClose(pool, srfId);
+      }
+      res.json({ ok: true, invoiceNumber, edoc });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);

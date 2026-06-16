@@ -129,6 +129,8 @@ type SrfJobsContextValue = {
   storeSelfSubmitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   storeSelfMarkRepairComplete: (jobId: string, note?: string) => Promise<void>;
   storeSelfRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
+  storeSelfReturnWithoutRepair: (jobId: string, note?: string) => Promise<void>;
+  storeSelfSendToHo: (jobId: string, note?: string) => Promise<void>;
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{
     dcNumber: string;
     moved: number;
@@ -136,7 +138,14 @@ type SrfJobsContextValue = {
   }>;
   confirmInwardByDc: (
     dcNumber: string,
-  ) => Promise<{ updated: number; dcNumber?: string; documentKind?: "store_transfer" | "inter_ho_dc" | "inter_ho_return" }>;
+    srfIds?: string[],
+  ) => Promise<{
+    updated: number;
+    skipped?: number;
+    pendingOnTransfer?: number;
+    dcNumber?: string;
+    documentKind?: "store_transfer" | "inter_ho_dc" | "inter_ho_return";
+  }>;
   assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
   convertTransferredSrfToLocal: (jobId: string) => Promise<{ reference: string; newSrfId: string }>;
   supervisorRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
@@ -176,7 +185,7 @@ type SrfJobsContextValue = {
     documentKind?: "DC" | "ODC" | "TD";
     printMeta?: import("../lib/serviceDocuments").TransferPrintMeta;
   }>;
-  receiveOutwardByDc: (dcNumber: string) => Promise<{ updated: number }>;
+  receiveOutwardByDc: (dcNumber: string, srfIds?: string[]) => Promise<{ updated: number; skipped?: number; pendingOnTransfer?: number }>;
   closeWithInvoice: (
     srfId: string,
     payload?: {
@@ -307,6 +316,22 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const storeSelfReturnWithoutRepair = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/return-without-repair`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const storeSelfSendToHo = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/send-to-ho`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
   const dispatchToServiceCentre = useCallback(async (jobIds: string[]) => {
     const out = await apiJson<{
       dcNumber: string;
@@ -320,13 +345,17 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     return out;
   }, [refreshJobs]);
 
-  const confirmInwardByDc = useCallback(async (dcNumber: string) => {
+  const confirmInwardByDc = useCallback(async (dcNumber: string, srfIds?: string[]) => {
     const out = await apiJson<{
       updated: number;
+      skipped?: number;
+      pendingOnTransfer?: number;
       dcNumber?: string;
       documentKind?: "store_transfer" | "inter_ho_dc" | "inter_ho_return";
     }>(`/api/service/dcs/${encodeURIComponent(dcNumber)}/inward`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(srfIds?.length ? { srfIds } : {}),
     });
     await refreshJobs();
     return out;
@@ -516,10 +545,15 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     return out;
   }, [refreshJobs]);
 
-  const receiveOutwardByDc = useCallback(async (dcNumber: string) => {
-    const out = await apiJson<{ updated: number }>(`/api/service/odcs/${encodeURIComponent(dcNumber)}/receive`, {
-      method: "POST",
-    });
+  const receiveOutwardByDc = useCallback(async (dcNumber: string, srfIds?: string[]) => {
+    const out = await apiJson<{ updated: number; skipped?: number; pendingOnTransfer?: number }>(
+      `/api/service/odcs/${encodeURIComponent(dcNumber)}/receive`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(srfIds?.length ? { srfIds } : {}),
+      },
+    );
     await refreshJobs();
     return out;
   }, [refreshJobs]);
@@ -627,6 +661,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       storeSelfSubmitSparesSlip,
       storeSelfMarkRepairComplete,
       storeSelfRequestReestimate,
+      storeSelfReturnWithoutRepair,
+      storeSelfSendToHo,
     }),
     [
       jobs,
@@ -638,6 +674,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       storeSelfSubmitSparesSlip,
       storeSelfMarkRepairComplete,
       storeSelfRequestReestimate,
+      storeSelfReturnWithoutRepair,
+      storeSelfSendToHo,
       dispatchToServiceCentre,
       confirmInwardByDc,
       assignTechnician,

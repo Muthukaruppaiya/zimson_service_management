@@ -91,4 +91,7 @@ export type ServiceInvoiceViewModel = {
   invoiceLegalFooter?: string;
   /** Logo URL from settings (optional) */
   sellerLogoUrl?: string | null;
+  /** GST e-invoice IRN (NIC / Masters India). */
+  irn?: string | null;
+  ackNo?: string | null;
 };

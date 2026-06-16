@@ -129,6 +129,10 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
     () => (spareId: string) => activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null,
     [activeSpares],
   );
+  const spareGstLookup = useMemo(
+    () => (spareId: string) => activeSpares.find((s) => s.id === spareId)?.gstPercent ?? null,
+    [activeSpares],
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -273,6 +277,7 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
                 storeInvoice={storeInvoiceForPrint}
                 generatedBy={user?.displayName?.trim() || user?.email?.trim() || user?.id || null}
                 spareHsnLookup={spareHsnLookup}
+                spareGstLookup={spareGstLookup}
                 onResult={setWhatsappNote}
               />
             ) : enrichedTrace && canResendSrfTrackingWhatsApp(enrichedTrace.job.status) ? (

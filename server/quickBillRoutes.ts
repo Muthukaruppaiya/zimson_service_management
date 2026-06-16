@@ -28,8 +28,11 @@ import {
 } from "../src/lib/natureOfRepair";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
+import { loadSpareGstById } from "./hsnGstRates";
+import { phoneLast10 } from "./messaging/customerContact";
 import { finalizeQuickBillCaptureSession } from "./quickBillCaptureRoutes";
 import { registerWatchCatalogRoutes } from "./watchCatalogRoutes";
+import { edocEnabled, tryGenerateEinvoiceForQuickBill } from "./mastersIndiaEdoc";
 
 type Authed = Request & { userId: string };
 
@@ -106,7 +109,11 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
             qb.payment_mode AS "paymentMode",
             qb.notes,
             qb.total_inr::float8 AS "totalInr",
-            qb.payment_details AS "paymentDetails"
+            qb.payment_details AS "paymentDetails",
+            qb.edoc_irn AS "edocIrn",
+            qb.edoc_ack_no AS "edocAckNo",
+            qb.edoc_status AS "edocStatus",
+            qb.edoc_error AS "edocError"
      FROM quick_bills qb
      LEFT JOIN regions r ON r.id = qb.region_id
      LEFT JOIN stores s ON s.id = qb.store_id
@@ -183,6 +190,10 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
       spareId: (r.spareId as string | null) ?? null,
       qty: Number(r.qty),
     })),
+    edocIrn: (head.edocIrn as string | null) ?? null,
+    edocAckNo: (head.edocAckNo as string | null) ?? null,
+    edocStatus: (head.edocStatus as string | null) ?? null,
+    edocError: (head.edocError as string | null) ?? null,
   };
 }
 
@@ -690,6 +701,12 @@ export function registerQuickBillRoutes(
       }
     }
 
+    const customerPhoneLast10 = phoneLast10(phone ?? "");
+    if (customerPhoneLast10.length !== 10) {
+      res.status(400).json({ error: "Valid 10-digit customer mobile number is required." });
+      return;
+    }
+
     const watchBrand = String(req.body?.watchBrand ?? "").trim();
     const watchFamily = String(req.body?.watchFamily ?? "").trim();
     const watchModel = String(req.body?.watchModel ?? "").trim();
@@ -891,6 +908,7 @@ export function registerQuickBillRoutes(
 
     const spareIds = [...new Set(lines.map((l) => l.spareId).filter(Boolean))] as string[];
     const hsnBySpareId = new Map<string, string>();
+    const gstBySpareId = await loadSpareGstById(pool);
     if (spareIds.length > 0) {
       const hsnRes = await pool.query<{ id: string; hsn: string | null }>(
         `SELECT id::text, hsn FROM spares WHERE id = ANY($1::uuid[])`,
@@ -910,10 +928,8 @@ export function registerQuickBillRoutes(
       })),
       defaultHsnSac: defaultSacHsn,
       spareHsnLookup: (id) => hsnBySpareId.get(id) ?? null,
-      configuredGstPercent: configuredGst,
-      cgstRatePercent: Number(taxRow?.cgst_rate_percent ?? configuredGst / 2),
-      sgstRatePercent: Number(taxRow?.sgst_rate_percent ?? configuredGst / 2),
-      igstRatePercent: Number(taxRow?.igst_rate_percent ?? configuredGst),
+      spareGstLookup: (id) => gstBySpareId.get(id) ?? null,
+      defaultSacGstPercent: configuredGst,
       pricesTaxInclusive,
       natureOfRepair,
       sellerStateCode,
@@ -1114,7 +1130,11 @@ export function registerQuickBillRoutes(
         res.status(500).json({ error: "Could not load saved quick bill." });
         return;
       }
-      res.json({ invoice });
+      let edoc = null;
+      if (edocEnabled() && customerType === "B2B") {
+        edoc = await tryGenerateEinvoiceForQuickBill(pool, billId);
+      }
+      res.json({ invoice, edoc });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);

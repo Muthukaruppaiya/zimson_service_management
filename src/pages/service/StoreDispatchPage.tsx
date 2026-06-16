@@ -64,6 +64,10 @@ export function StoreDispatchPage() {
   const [scanInwardDcInput, setScanInwardDcInput] = useState("");
   const [outwardAck, setOutwardAck] = useState<StoreOutwardAck | null>(null);
   const [storeInwardAck, setStoreInwardAck] = useState<StoreInwardAck | null>(null);
+  const [inwardReviewOpen, setInwardReviewOpen] = useState(false);
+  const [inwardReviewDc, setInwardReviewDc] = useState("");
+  const [inwardAccepted, setInwardAccepted] = useState<Record<string, boolean>>({});
+  const [inwardSaving, setInwardSaving] = useState(false);
 
   const atStore = useMemo(() => {
     if (!user) return [];
@@ -105,46 +109,7 @@ export function StoreDispatchPage() {
     }
     setOutwardDcInput(hit);
     setMessage({ type: "ok", text: `Transfer ${hit} selected from barcode scan.` });
-  }
-
-  async function handleReceiveOutward() {
-    setMessage(null);
-    const dcNumber = outwardDcInput.trim();
-    if (!dcNumber || !user) return;
-    const rows = jobs.filter(
-      (j) =>
-        j.outwardDcNumber === dcNumber &&
-        j.status === "dispatched_to_store" &&
-        jobVisibleToStoreUser(j, user),
-    );
-    try {
-      const out = await receiveOutwardByDc(dcNumber);
-      const store = regions.flatMap((r) => r.stores).find((s) => s.id === user.storeId);
-      const region = regions.find((r) => r.id === user.regionId);
-      const storeLabel = store?.invoiceDisplayName?.trim() || store?.name || user.storeId || "Store";
-      const fromHoLabel = region?.name ?? "Service centre";
-      let partyFrom: TransferPartyBlock | undefined;
-      let partyTo: TransferPartyBlock | undefined;
-      if (store && region) {
-        const r = resolveHoToStorePrint(region, store, region);
-        partyFrom = r.from;
-        partyTo = r.to;
-      }
-      setStoreInwardAck({
-        inwardNumber: dcNumber,
-        rows,
-        updated: out.updated,
-        receivedAt: new Date(),
-        storeLabel,
-        fromHoLabel,
-        partyFrom,
-        partyTo,
-      });
-      setMessage({ type: "ok", text: `Received ${out.updated} watch(es) against internal transfer ${dcNumber}.` });
-      setOutwardDcInput("");
-    } catch (e) {
-      setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not receive internal transfer." });
-    }
+    openInwardReview(hit);
   }
 
   const pendingOdcOptions = useMemo(() => {
@@ -157,6 +122,91 @@ export function StoreDispatchPage() {
     }
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [jobs, user]);
+
+  function watchesPendingOnTransfer(dcNumber: string): SrfJob[] {
+    if (!user || !dcNumber.trim()) return [];
+    return jobs.filter(
+      (j) =>
+        j.outwardDcNumber === dcNumber &&
+        j.status === "dispatched_to_store" &&
+        jobVisibleToStoreUser(j, user),
+    );
+  }
+
+  const inwardReviewRows = useMemo(
+    () => watchesPendingOnTransfer(inwardReviewDc),
+    [inwardReviewDc, jobs, user],
+  );
+
+  function openInwardReview(dcNumber: string) {
+    const rows = watchesPendingOnTransfer(dcNumber);
+    if (rows.length === 0) {
+      setMessage({ type: "err", text: `No watches pending on transfer ${dcNumber}.` });
+      return;
+    }
+    setMessage(null);
+    setInwardReviewDc(dcNumber);
+    setInwardAccepted(Object.fromEntries(rows.map((r) => [r.id, true])));
+    setInwardReviewOpen(true);
+  }
+
+  function closeInwardReview() {
+    setInwardReviewOpen(false);
+    setInwardReviewDc("");
+    setInwardAccepted({});
+    setInwardSaving(false);
+  }
+
+  async function confirmInwardSelected() {
+    if (!user || !inwardReviewDc.trim() || inwardSaving) return;
+    const dcNumber = inwardReviewDc.trim();
+    const selectedIds = inwardReviewRows.filter((j) => inwardAccepted[j.id]).map((j) => j.id);
+    if (selectedIds.length === 0) {
+      setMessage({ type: "err", text: "Tick at least one watch in working condition to inward." });
+      return;
+    }
+    setInwardSaving(true);
+    setMessage(null);
+    try {
+      const out = await receiveOutwardByDc(dcNumber, selectedIds);
+      const rows = inwardReviewRows.filter((j) => selectedIds.includes(j.id));
+      const store = regions.flatMap((r) => r.stores).find((s) => s.id === user.storeId);
+      const region = regions.find((r) => r.id === user.regionId);
+      const storeLabel = store?.invoiceDisplayName?.trim() || store?.name || user.storeId || "Store";
+      const fromHoLabel = region?.name ?? "Service centre";
+      let partyFrom: TransferPartyBlock | undefined;
+      let partyTo: TransferPartyBlock | undefined;
+      if (store && region) {
+        const r = resolveHoToStorePrint(region, store, region);
+        partyFrom = r.from;
+        partyTo = r.to;
+      }
+      closeInwardReview();
+      setOutwardDcInput("");
+      setStoreInwardAck({
+        inwardNumber: dcNumber,
+        rows,
+        updated: out.updated,
+        receivedAt: new Date(),
+        storeLabel,
+        fromHoLabel,
+        partyFrom,
+        partyTo,
+      });
+      const skipped = inwardReviewRows.length - selectedIds.length;
+      let okText = `Inwarded ${out.updated} watch(es) on ${dcNumber}.`;
+      if (skipped > 0) {
+        okText += ` ${skipped} not accepted — still on transfer (return to HO flow coming next).`;
+      } else if ((out.pendingOnTransfer ?? 0) > 0) {
+        okText += ` ${out.pendingOnTransfer} still pending on this transfer.`;
+      }
+      setMessage({ type: "ok", text: okText });
+    } catch (e) {
+      setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not receive internal transfer." });
+    } finally {
+      setInwardSaving(false);
+    }
+  }
 
   function toggleAll(checked: boolean) {
     const next: Record<string, boolean> = {};
@@ -405,7 +455,11 @@ export function StoreDispatchPage() {
                 <select
                   className="mt-1 min-w-[280px] rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                   value={outwardDcInput}
-                  onChange={(e) => setOutwardDcInput(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setOutwardDcInput(next);
+                    if (next) openInwardReview(next);
+                  }}
                 >
                   <option value="">Select pending transfer…</option>
                   {pendingOdcOptions.map((dc) => (
@@ -432,11 +486,11 @@ export function StoreDispatchPage() {
               </label>
               <button
                 type="button"
-                onClick={() => void handleReceiveOutward()}
+                onClick={() => outwardDcInput && openInwardReview(outwardDcInput)}
                 disabled={!outwardDcInput}
-                className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white"
+                className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Confirm store receive
+                Review watches &amp; inward
               </button>
             </div>
           </Card>
@@ -482,6 +536,85 @@ export function StoreDispatchPage() {
           </Card>
         </>
       )}
+      {inwardReviewOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Inward watches — {inwardReviewDc}</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              {inwardReviewRows.length} watch{inwardReviewRows.length === 1 ? "" : "es"} sent on this transfer.
+              Tick each watch that arrived in working condition, then inward.
+            </p>
+            <div className="mt-4 overflow-x-auto rounded-xl border border-zimson-200">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead>
+                  <tr className="bg-zimson-50 text-xs uppercase tracking-wide text-stone-600">
+                    <th className="px-3 py-2">OK</th>
+                    <th className="px-3 py-2">SRF</th>
+                    <th className="px-3 py-2">Customer</th>
+                    <th className="px-3 py-2">Watch</th>
+                    <th className="px-3 py-2">Estimate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inwardReviewRows.map((j) => (
+                    <tr key={j.id} className="border-t border-zimson-100">
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(inwardAccepted[j.id])}
+                          disabled={inwardSaving}
+                          onChange={(e) =>
+                            setInwardAccepted((prev) => ({ ...prev, [j.id]: e.target.checked }))
+                          }
+                          aria-label={`Accept ${j.reference} in working condition`}
+                          className="h-4 w-4 rounded border-zimson-400"
+                        />
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                      <td className="px-3 py-2 text-stone-800">
+                        {j.customerName}
+                        <span className="block text-xs text-stone-500">{j.phone}</span>
+                      </td>
+                      <td className="px-3 py-2 text-stone-700">
+                        {j.watchBrand} {j.watchModel}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums text-stone-800">
+                        {j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {inwardReviewRows.some((j) => !inwardAccepted[j.id]) ? (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                Unticked watch(es) will stay on this transfer and can be sent back to HO (return flow — next step).
+              </p>
+            ) : null}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeInwardReview}
+                disabled={inwardSaving}
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmInwardSelected()}
+                disabled={inwardSaving || !inwardReviewRows.some((j) => inwardAccepted[j.id])}
+                className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {inwardSaving
+                  ? "Saving…"
+                  : `Inward selected (${inwardReviewRows.filter((j) => inwardAccepted[j.id]).length})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {message ? (
         <p
           className={

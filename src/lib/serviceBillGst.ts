@@ -1,7 +1,9 @@
-import { effectiveGstRatePercent } from "./natureOfRepair";
-import { gstRateFromHsn, normalizeHsnCode } from "./hsnGst";
+import { isNatureOfRepairTaxable } from "./natureOfRepair";
+import { normalizeHsnCode } from "./hsnGst";
 import { isInterstateSupply, splitGstAmount } from "./gstSupply";
 import type { ServiceInvoiceTaxRow } from "../types/serviceInvoice";
+
+export const DEFAULT_LINE_GST_PERCENT = 18;
 
 export type ServiceBillGstLine = {
   amountInr: number;
@@ -39,14 +41,37 @@ function lineHsn(
   return normalizeHsnCode(defaultHsnSac) || "9987";
 }
 
+/** GST % for a billing line — spare catalogue first, else labour SAC default. */
+export function resolveLineGstPercent(params: {
+  spareId?: string | null;
+  defaultSacGstPercent: number;
+  spareGstLookup?: (spareId: string) => number | null | undefined;
+}): number {
+  const { spareId, defaultSacGstPercent, spareGstLookup } = params;
+  if (spareId && spareGstLookup) {
+    const spareRate = spareGstLookup(spareId);
+    if (spareRate != null && Number.isFinite(spareRate)) return spareRate;
+  }
+  return defaultSacGstPercent;
+}
+
 export function computeServiceBillGst(params: {
   lines: ServiceBillGstLine[];
   defaultHsnSac: string;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
-  configuredGstPercent: number;
-  cgstRatePercent: number;
-  sgstRatePercent: number;
-  igstRatePercent: number;
+  spareGstLookup?: (spareId: string) => number | null | undefined;
+  /** GST % for labour / service charge (default SAC). */
+  defaultSacGstPercent?: number;
+  /** @deprecated Ignored — use defaultSacGstPercent + spareGstLookup. */
+  configuredGstPercent?: number;
+  /** @deprecated Ignored */
+  cgstRatePercent?: number;
+  /** @deprecated Ignored */
+  sgstRatePercent?: number;
+  /** @deprecated Ignored */
+  igstRatePercent?: number;
+  /** @deprecated Ignored */
+  hsnRateTable?: Record<string, number>;
   pricesTaxInclusive: boolean;
   natureOfRepair?: string | null;
   sellerStateCode: string;
@@ -57,10 +82,8 @@ export function computeServiceBillGst(params: {
     lines,
     defaultHsnSac,
     spareHsnLookup,
-    configuredGstPercent,
-    cgstRatePercent,
-    sgstRatePercent,
-    igstRatePercent,
+    spareGstLookup,
+    defaultSacGstPercent,
     pricesTaxInclusive,
     natureOfRepair,
     sellerStateCode,
@@ -68,8 +91,9 @@ export function computeServiceBillGst(params: {
     billTotalInr,
   } = params;
 
+  const labourGstPercent = defaultSacGstPercent ?? DEFAULT_LINE_GST_PERCENT;
   const interstate = isInterstateSupply(sellerStateCode, customerStateCode);
-  const baseRate = effectiveGstRatePercent(natureOfRepair, configuredGstPercent);
+  const taxableJob = isNatureOfRepairTaxable(natureOfRepair);
 
   type Bucket = { hsnSac: string; ratePercent: number; taxable: number };
   const buckets = new Map<string, Bucket>();
@@ -78,8 +102,12 @@ export function computeServiceBillGst(params: {
     const amt = Number(ln.amountInr) || 0;
     if (amt <= 0) continue;
     const hsn = lineHsn(ln, defaultHsnSac, spareHsnLookup);
-    const rateFromHsn = gstRateFromHsn(hsn, configuredGstPercent);
-    const effectiveRate = baseRate <= 0 ? 0 : rateFromHsn;
+    const rateFromSource = resolveLineGstPercent({
+      spareId: ln.spareId,
+      defaultSacGstPercent: labourGstPercent,
+      spareGstLookup,
+    });
+    const effectiveRate = taxableJob ? rateFromSource : 0;
     const key = `${hsn}|${effectiveRate}`;
     const g = effectiveRate / 100;
     let taxable = amt;
@@ -101,8 +129,8 @@ export function computeServiceBillGst(params: {
     const split = splitGstAmount(
       taxable,
       b.ratePercent,
-      cgstRatePercent,
-      sgstRatePercent,
+      0,
+      0,
       interstate,
     );
     const cgst = split.cgst;

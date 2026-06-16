@@ -18,6 +18,7 @@ type Props = {
   storeInvoice: StoreInvoicePrintProfile | null;
   generatedBy?: string | null;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
+  spareGstLookup?: (spareId: string) => number | null | undefined;
   onResult?: (message: string) => void;
   /** Compact buttons for trace modal header */
   layout?: "modal" | "inline";
@@ -31,6 +32,7 @@ export function ResendClosedSrfInvoiceActions({
   storeInvoice,
   generatedBy,
   spareHsnLookup,
+  spareGstLookup,
   onResult,
   layout = "modal",
 }: Props) {
@@ -44,8 +46,9 @@ export function ResendClosedSrfInvoiceActions({
         customer: customer ?? null,
         defaultHsnSac: taxSettings?.defaultSacHsn?.trim() || "9987",
         spareHsnLookup,
+        spareGstLookup,
       }),
-    [job, taxSettings, storeInvoice, generatedBy, customer, spareHsnLookup],
+    [job, taxSettings, storeInvoice, generatedBy, customer, spareHsnLookup, spareGstLookup],
   );
 
   const idPrefix = `resend-inv-${job.id}`;

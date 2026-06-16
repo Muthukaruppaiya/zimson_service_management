@@ -78,6 +78,7 @@ export function StoreBillingMasterPage() {
       customer: cust,
       defaultHsnSac: serviceTaxSettings?.defaultSacHsn?.trim() || "9987",
       spareHsnLookup: (spareId) => activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null,
+      spareGstLookup: (spareId) => activeSpares.find((s) => s.id === spareId)?.gstPercent ?? null,
     });
   }
 
@@ -102,6 +103,10 @@ export function StoreBillingMasterPage() {
 
   const spareHsnLookup = useMemo(
     () => (spareId: string) => activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null,
+    [activeSpares],
+  );
+  const spareGstLookup = useMemo(
+    () => (spareId: string) => activeSpares.find((s) => s.id === spareId)?.gstPercent ?? null,
     [activeSpares],
   );
 
@@ -283,6 +288,7 @@ export function StoreBillingMasterPage() {
                 storeInvoice={storeInvoiceForPrint}
                 generatedBy={user?.displayName?.trim() || user?.email?.trim() || user?.id || null}
                 spareHsnLookup={spareHsnLookup}
+                spareGstLookup={spareGstLookup}
                 onResult={setResendNote}
               />
               <button

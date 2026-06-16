@@ -5,6 +5,8 @@ export type SparePart = {
   description: string;
   category: string;
   hsn: string | null;
+  /** GST % for billing — set per spare in Inventory catalogue. */
+  gstPercent: number | null;
   costPriceInr?: number | null;
   sellingPriceInr?: number | null;
   mrpInr: number | null;
@@ -18,6 +20,7 @@ export type CreateSpareInput = {
   description: string;
   category: string;
   hsn?: string | null;
+  gstPercent?: number | null;
   costPriceInr?: number | null;
   sellingPriceInr?: number | null;
   mrpInr?: number | null;
