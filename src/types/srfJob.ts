@@ -16,6 +16,8 @@ export type SrfJobStatus =
   | "estimate_ok"
   | "reestimate_required"
   | "customer_rejected"
+  | "inter_ho_reestimate_pending_sender"
+  | "inter_ho_reestimate_customer_accepted"
   | "sent_to_brand"
   | "brand_estimate_pending"
   | "brand_approved"
@@ -88,6 +90,14 @@ export type SrfJob = {
   transferSourceRegionId?: string | null;
   transferSourceStoreId?: string | null;
   transferSourceReference?: string | null;
+  /** Inter-HO re-estimate handshake phase (receiver ↔ sender ↔ customer). */
+  interHoReestimatePhase?:
+    | "pending_sender"
+    | "customer_pending"
+    | "customer_accepted"
+    | "customer_rejected"
+    | null;
+  interHoReestimateReceiverSrfId?: string | null;
   brandSentAt?: string | null;
   brandDispatchRef?: string | null;
   brandDispatchNote?: string | null;

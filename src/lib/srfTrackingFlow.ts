@@ -52,7 +52,9 @@ export function trackingFlowIndexHo(status: string): number {
     status === "brand_credit_note_active" ||
     status === "store_self_pending" ||
     status === "store_self_assigned" ||
-    status === "store_self_working"
+    status === "store_self_working" ||
+    status === "inter_ho_reestimate_pending_sender" ||
+    status === "inter_ho_reestimate_customer_accepted"
   ) {
     return 2;
   }
@@ -112,6 +114,8 @@ export function customerTrackingStatusLabel(
   if (status === "received_from_brand") return "Returned from brand";
   if (status === "brand_credit_note_pending" || status === "brand_credit_note_active") return "Brand credit issued";
   if (status === "customer_rejected") return "Awaiting confirmation";
+  if (status === "inter_ho_reestimate_pending_sender") return "Re-estimate under review";
+  if (status === "inter_ho_reestimate_customer_accepted") return "Estimate accepted — confirming with service centre";
   if (status === "ready_for_outward" || status === "dispatched_to_store") return "Ready for return";
   if (status === "received_at_store") return "Ready for pickup";
   if (status === "closed") return "Delivered";

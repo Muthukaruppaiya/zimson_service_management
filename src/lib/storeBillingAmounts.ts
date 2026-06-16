@@ -106,15 +106,13 @@ export function resolveStoreBillingAmounts(job: SrfJob): StoreBillingAmounts {
   const isInterHoReturn = !isBrandRepair && isInterHoReturnJob(job);
   const brandAmount = isBrandRepair ? Number(job.brandInvoiceAmountInr ?? 0) : 0;
   const customerEstimateInr = resolveCustomerServiceBaseInr(job);
-  /** Inter-HO: bill from customer estimate; store billing: labour is entered as additional line items only. */
-  const serviceBaseRaw = isInterHoReturn
-    ? customerEstimateInr
-    : 0;
+  /** Inter-HO return: estimate is reference only — bill repair-HO spares + entered labour/charges. */
+  const serviceBaseRaw = isInterHoReturn ? customerEstimateInr : 0;
   const serviceBaseAmount = billableServiceBaseInr(job, serviceBaseRaw);
   let billableBaseAmount = isBrandRepair
     ? brandAmount
     : isInterHoReturn
-      ? Math.max(serviceBaseAmount, usedSparesAmount)
+      ? usedSparesAmount
       : usedSparesAmount;
   if (normalizeNatureOfRepair(job.natureOfRepair) === "warranty_non_chargeable" && !isBrandRepair) {
     billableBaseAmount = 0;
@@ -159,15 +157,6 @@ export function buildStoreBillingInvoiceLines(
           amountInr: amt,
         });
       }
-    }
-    const labourAmount = amounts.isInterHoReturn
-      ? Math.max(amounts.serviceBaseAmount - amounts.usedSparesAmount, 0)
-      : 0;
-    if (labourAmount > 0.02) {
-      lines.push({
-        description: "Service / repair labour (per estimate)",
-        amountInr: labourAmount,
-      });
     }
     lines.push(...additionalCharges);
     if (lines.length > 0) return lines;

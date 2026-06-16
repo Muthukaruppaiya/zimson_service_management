@@ -13,6 +13,7 @@ import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { formatInr } from "../../lib/formatInr";
 import { repairRouteLabel } from "../../lib/srfRepairRoute";
 import { inputClassReadOnly } from "../../lib/uiForm";
+import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { SrfJob } from "../../types/srfJob";
 
 type TechnicianProfile = {
@@ -58,8 +59,14 @@ export function StoreAssignPage() {
   const [repairPopupJobId, setRepairPopupJobId] = useState<string | null>(null);
   const [repairLines, setRepairLines] = useState<SpareLineDraft[]>([{ spareId: "", qty: "1" }]);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
+  const [storeStockBySpareId, setStoreStockBySpareId] = useState<Record<string, number>>({});
   const [repairPopupError, setRepairPopupError] = useState("");
   const [repairSaving, setRepairSaving] = useState(false);
+
+  const repairPopupJob = useMemo(
+    () => (repairPopupJobId ? jobs.find((j) => j.id === repairPopupJobId) ?? null : null),
+    [repairPopupJobId, jobs],
+  );
 
   const [completeAck, setCompleteAck] = useState<{
     reference: string;
@@ -132,19 +139,78 @@ export function StoreAssignPage() {
     return technicians.find((t) => t.id === id)?.fullName ?? id;
   }
 
-  async function ensureSparePrice(spareId: string) {
-    if (!spareId || unitPriceBySpareId[spareId] != null) return;
+  function resolveSpareUnitPrice(spareId: string, watchBrand: string): number {
+    if (!spareId) return 0;
+    const cached = unitPriceBySpareId[spareId];
+    if (cached != null) return cached;
+    const spare = activeSpares.find((s) => s.id === spareId);
+    return Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
+  }
+
+  async function ensureSparePrice(spareId: string, watchBrand: string): Promise<number> {
+    if (!spareId) return 0;
+    if (unitPriceBySpareId[spareId] != null) return unitPriceBySpareId[spareId]!;
+    const spare = activeSpares.find((s) => s.id === spareId);
+    const fromMaster = Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
+    let price = fromMaster > 0 ? fromMaster : 0;
     try {
       const q = user?.regionId ? `?regionId=${encodeURIComponent(user.regionId)}` : "";
-      const out = await apiJson<{ prices: Array<{ price: number }> }>(
+      const out = await apiJson<{ prices: SparePriceLine[] }>(
         `/api/catalog/spares/${encodeURIComponent(spareId)}/prices${q}`,
       );
-      const price = Number(out.prices?.[0]?.price ?? 0);
-      setUnitPriceBySpareId((prev) => ({ ...prev, [spareId]: price }));
+      const matched = out.prices.find(
+        (p) => p.brand.trim().toLowerCase() === watchBrand.trim().toLowerCase(),
+      );
+      price = matched ? Number(matched.price) : fromMaster > 0 ? fromMaster : 0;
     } catch {
-      setUnitPriceBySpareId((prev) => ({ ...prev, [spareId]: 0 }));
+      price = fromMaster > 0 ? fromMaster : 0;
+    }
+    setUnitPriceBySpareId((prev) => ({ ...prev, [spareId]: price }));
+    return price;
+  }
+
+  async function fetchStoreStockQty(spareId: string): Promise<number> {
+    if (!spareId) return 0;
+    if (storeStockBySpareId[spareId] != null) return storeStockBySpareId[spareId]!;
+    try {
+      const out = await apiJson<{ stock: SpareStockRow[] }>(
+        `/api/catalog/spares/${encodeURIComponent(spareId)}/stock`,
+      );
+      const qty = out.stock.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
+      setStoreStockBySpareId((prev) => ({ ...prev, [spareId]: qty }));
+      return qty;
+    } catch {
+      setStoreStockBySpareId((prev) => ({ ...prev, [spareId]: 0 }));
+      return 0;
     }
   }
+
+  async function validateRepairStock(): Promise<string | null> {
+    const usage = new Map<string, { qty: number; name: string }>();
+    for (const line of repairLines) {
+      const spareId = line.spareId.trim();
+      const qty = Number(line.qty);
+      if (!spareId || !Number.isFinite(qty) || qty <= 0) continue;
+      const spare = activeSpares.find((s) => s.id === spareId);
+      const prev = usage.get(spareId) ?? { qty: 0, name: spare?.name ?? spareId };
+      usage.set(spareId, { qty: prev.qty + qty, name: prev.name });
+    }
+    for (const [spareId, entry] of usage.entries()) {
+      const available = await fetchStoreStockQty(spareId);
+      if (available <= 0) {
+        return `${entry.name} is out of stock at your store.`;
+      }
+      if (available < entry.qty) {
+        return `Insufficient store stock for ${entry.name}. Available ${available}, required ${entry.qty}.`;
+      }
+    }
+    return null;
+  }
+
+  useEffect(() => {
+    if (!repairPopupJobId) return;
+    void Promise.all(activeSpares.map((s) => fetchStoreStockQty(s.id))).catch(() => {});
+  }, [repairPopupJobId, activeSpares]);
 
   async function assign(job: SrfJob) {
     const technicianId = techByJob[job.id]?.trim();
@@ -285,15 +351,19 @@ export function StoreAssignPage() {
     const job = jobs.find((j) => j.id === jobId);
     setRepairPopupJobId(jobId);
     setRepairPopupError("");
-    if (job?.usedSpares && job.usedSpares.length > 0) {
-      setRepairLines(
-        job.usedSpares.map((u) => ({
-          spareId: u.spareId ?? "",
-          qty: String(u.qty ?? 1),
-        })),
-      );
-    } else {
-      setRepairLines([{ spareId: "", qty: "1" }]);
+    const initialLines =
+      job?.usedSpares && job.usedSpares.length > 0
+        ? job.usedSpares.map((u) => ({
+            spareId: u.spareId ?? "",
+            qty: String(u.qty ?? 1),
+          }))
+        : [{ spareId: "", qty: "1" }];
+    setRepairLines(initialLines);
+    const watchBrand = job?.watchBrand ?? "";
+    for (const line of initialLines) {
+      if (!line.spareId) continue;
+      void ensureSparePrice(line.spareId, watchBrand);
+      void fetchStoreStockQty(line.spareId);
     }
   }
 
@@ -301,28 +371,45 @@ export function StoreAssignPage() {
     setRepairPopupJobId(null);
     setRepairLines([{ spareId: "", qty: "1" }]);
     setRepairPopupError("");
+    setStoreStockBySpareId({});
   }
 
   async function confirmRepairWithSpares() {
     if (!repairPopupJobId || repairSaving) return;
     const jobId = repairPopupJobId;
     const job = jobs.find((j) => j.id === jobId);
-    const lines = repairLines
-      .map((x) => ({ spareId: x.spareId, qty: Number(x.qty) }))
-      .filter((x) => x.spareId && Number.isFinite(x.qty) && x.qty > 0)
-      .map((x) => {
-        const spare = activeSpares.find((s) => s.id === x.spareId);
-        const unitPriceInr = Number(unitPriceBySpareId[x.spareId] ?? spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
-        return {
-          spareId: x.spareId,
-          name: spare?.name ?? x.spareId,
-          qty: x.qty,
-          unitPriceInr,
-          lineTotalInr: unitPriceInr * x.qty,
-        };
+    const watchBrand = job?.watchBrand ?? "";
+    const lines = [];
+    for (const x of repairLines) {
+      const spareId = x.spareId.trim();
+      const qty = Number(x.qty);
+      if (!spareId || !Number.isFinite(qty) || qty <= 0) continue;
+      const spare = activeSpares.find((s) => s.id === spareId);
+      const unitPriceInr = await ensureSparePrice(spareId, watchBrand);
+      lines.push({
+        spareId,
+        name: spare?.name ?? spareId,
+        sku: spare?.sku ?? "",
+        qty,
+        unitPriceInr,
+        lineTotalInr: unitPriceInr * qty,
       });
+    }
     if (lines.length === 0) {
       setRepairPopupError("Add at least one used spare from inventory.");
+      return;
+    }
+    const noPrice = lines.find((x) => Number(x.unitPriceInr ?? 0) <= 0);
+    if (noPrice) {
+      const label = noPrice.sku ? `${noPrice.name} (${noPrice.sku})` : noPrice.name;
+      setRepairPopupError(
+        `Selling price not assigned for ${label}${watchBrand ? ` — add ${watchBrand} price under Inventory → Spare catalogue` : ""}.`,
+      );
+      return;
+    }
+    const stockErr = await validateRepairStock();
+    if (stockErr) {
+      setRepairPopupError(stockErr);
       return;
     }
     setRepairSaving(true);
@@ -661,9 +748,14 @@ export function StoreAssignPage() {
             ) : null}
             <div className="mt-4 space-y-3">
               {repairLines.map((line, idx) => {
-                const spare = activeSpares.find((s) => s.id === line.spareId);
-                const unit = Number(unitPriceBySpareId[line.spareId] ?? spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
+                const watchBrand = repairPopupJob?.watchBrand ?? "";
+                const unit = resolveSpareUnitPrice(line.spareId, watchBrand);
                 const qty = Number(line.qty || 0);
+                const storeStock = line.spareId ? storeStockBySpareId[line.spareId] : undefined;
+                const lineShort =
+                  line.spareId && storeStock != null && Number.isFinite(qty) && qty > 0 && qty > storeStock;
+                const outOfStock = line.spareId && storeStock != null && storeStock <= 0;
+                const noPrice = line.spareId && unit <= 0;
                 return (
                   <div key={idx} className="grid grid-cols-12 gap-2">
                     <select
@@ -671,18 +763,47 @@ export function StoreAssignPage() {
                       onChange={(e) => {
                         const nextId = e.target.value;
                         setRepairPopupError("");
+                        if (nextId) {
+                          void (async () => {
+                            const stock = await fetchStoreStockQty(nextId);
+                            if (stock <= 0) {
+                              const picked = activeSpares.find((s) => s.id === nextId);
+                              setRepairPopupError(
+                                `${picked?.name ?? "Spare"} (${picked?.sku ?? nextId}) is out of stock at your store.`,
+                              );
+                              return;
+                            }
+                            const price = await ensureSparePrice(nextId, watchBrand);
+                            if (price <= 0) {
+                              const picked = activeSpares.find((s) => s.id === nextId);
+                              setRepairPopupError(
+                                `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? nextId})${watchBrand ? ` — add ${watchBrand} price in Inventory` : ""}.`,
+                              );
+                              return;
+                            }
+                            setRepairLines((prev) =>
+                              prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)),
+                            );
+                          })();
+                          return;
+                        }
                         setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
-                        void ensureSparePrice(nextId);
                       }}
                       disabled={repairSaving}
                       className="col-span-8 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"
                     >
                       <option value="">Select spare…</option>
-                      {activeSpares.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.sku} — {s.name}
-                        </option>
-                      ))}
+                      {activeSpares.map((s) => {
+                        const stock = storeStockBySpareId[s.id];
+                        const stockHint =
+                          stock != null ? (stock <= 0 ? " · Out of stock" : ` · Stock ${stock}`) : "";
+                        return (
+                          <option key={s.id} value={s.id}>
+                            {s.sku} — {s.name}
+                            {stockHint}
+                          </option>
+                        );
+                      })}
                     </select>
                     <input
                       value={line.qty}
@@ -691,7 +812,9 @@ export function StoreAssignPage() {
                         setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, qty: e.target.value } : x)));
                       }}
                       disabled={repairSaving}
-                      className="col-span-3 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"
+                      className={`col-span-3 rounded-xl border bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60 ${
+                        lineShort ? "border-rose-400" : "border-zimson-300"
+                      }`}
                       placeholder="Qty"
                     />
                     <button
@@ -703,7 +826,21 @@ export function StoreAssignPage() {
                       ×
                     </button>
                     <div className="col-span-12 text-xs text-stone-600">
-                      Line amount: INR {(unit * (Number.isFinite(qty) ? qty : 0)).toFixed(2)}
+                      Line amount: {unit > 0 ? formatInr(unit * (Number.isFinite(qty) ? qty : 0)) : "—"}
+                      {line.spareId ? (
+                        <span
+                          className={
+                            lineShort || outOfStock || noPrice
+                              ? " ml-2 font-semibold text-rose-700"
+                              : " ml-2 text-stone-500"
+                          }
+                        >
+                          · Store stock: {storeStock != null ? storeStock : "…"}
+                          {outOfStock ? " (out of stock)" : ""}
+                          {lineShort && !outOfStock ? ` (need ${qty}, only ${storeStock} available)` : ""}
+                          {noPrice ? " · Selling price not assigned" : ""}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 );

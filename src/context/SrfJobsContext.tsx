@@ -149,6 +149,12 @@ type SrfJobsContextValue = {
   assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
   convertTransferredSrfToLocal: (jobId: string) => Promise<{ reference: string; newSrfId: string }>;
   supervisorRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
+  interHoRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
+  interHoForwardReestimateToCustomer: (
+    jobId: string,
+    payload: { estimateTotalInr?: number; note?: string },
+  ) => Promise<void>;
+  interHoApproveReestimateForReceiver: (jobId: string, note?: string) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
@@ -382,6 +388,33 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate`, {
       method: "POST",
       json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const interHoRequestReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr: number; note: string }) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/reestimate-request`, {
+      method: "POST",
+      json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const interHoForwardReestimateToCustomer = useCallback(
+    async (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => {
+      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/reestimate-forward-customer`, {
+        method: "POST",
+        json: payload,
+      });
+      await refreshJobs();
+    },
+    [refreshJobs],
+  );
+
+  const interHoApproveReestimateForReceiver = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/reestimate-approve-receiver`, {
+      method: "POST",
+      json: { note: note ?? "" },
     });
     await refreshJobs();
   }, [refreshJobs]);
@@ -635,6 +668,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       assignTechnician,
       convertTransferredSrfToLocal,
       supervisorRequestReestimate,
+      interHoRequestReestimate,
+      interHoForwardReestimateToCustomer,
+      interHoApproveReestimateForReceiver,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
@@ -681,6 +717,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       assignTechnician,
       convertTransferredSrfToLocal,
       supervisorRequestReestimate,
+      interHoRequestReestimate,
+      interHoForwardReestimateToCustomer,
+      interHoApproveReestimateForReceiver,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,

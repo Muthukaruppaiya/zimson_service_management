@@ -343,6 +343,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service-centre/supervisor/reestimate-sender"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <ScSupervisorPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service-centre/supervisor/srf/:srfId"
                   element={
                     <ModuleRoute module="service_centre">

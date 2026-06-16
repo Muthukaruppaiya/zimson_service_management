@@ -281,9 +281,9 @@ export function StoreBillingPage() {
             spareId: line.spareId,
           };
         }
-        const desc = line.description.trim();
         const amt = getLineAmount(line);
-        if (!desc || amt <= 0) return null;
+        if (amt <= 0) return null;
+        const desc = line.description.trim() || "Service / labour charge";
         return { description: desc, amountInr: amt };
       })
       .filter((x): x is StoreBillingAdditionalCharge => x != null);
@@ -296,7 +296,7 @@ export function StoreBillingPage() {
   const repairBaseAmount = isBrandRepairFlow
     ? (billingAmounts?.billableBaseAmount ?? 0)
     : isInterHoReturnFlow
-      ? (billingAmounts?.billableBaseAmount ?? 0)
+      ? sparesBillableAmount
       : sparesBillableAmount;
   const advanceAmount = Number(billingJob?.advanceInr ?? 0);
   const estimatedAmtInr = billingJob ? resolveCustomerServiceBaseInr(billingJob) : 0;
@@ -801,8 +801,8 @@ export function StoreBillingPage() {
             ) : null}
             {isInterHoReturnFlow ? (
               <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-950">
-                Inter-HO return: bill the customer from the service estimate (spare lines match repair HO invoice).
-                Booking advance is deducted from that total — not from spares only.
+                Inter-HO return: bill repair HO spares (from repair invoice) plus any labour/service charges you enter below.
+                GST is applied on spares + charges; booking advance is deducted from the final total.
                 {(billingJob.hoSparesBillRef ?? "").trim() ? (
                   <span className="mt-1 block text-xs">
                     Repair HO invoice ref:{" "}
@@ -1002,23 +1002,25 @@ export function StoreBillingPage() {
                       {isBrandRepairFlow
                         ? "Brand invoice amount"
                         : isInterHoReturnFlow
-                          ? "Service estimate (billable)"
+                          ? "Repair HO spares (taxable)"
                           : "Spares amount (actual)"}
                     </th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
                       INR {repairBaseAmount.toFixed(2)}
                     </td>
                   </tr>
-                  {isInterHoReturnFlow && usedSparesAmountRaw > 0 ? (
+                  {isInterHoReturnFlow ? (
                     <tr className="border-b border-zimson-100">
-                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Repair HO spares (line items)</th>
-                      <td className="px-3 py-2 text-stone-800">INR {usedSparesAmountRaw.toFixed(2)}</td>
+                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Service estimate (reference only)</th>
+                      <td className="px-3 py-2 text-stone-600">{formatInr(estimatedAmtInr)}</td>
                     </tr>
                   ) : null}
+                  {!isInterHoReturnFlow ? (
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimated amt</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(estimatedAmtInr)}</td>
                   </tr>
+                  ) : null}
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance received</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
@@ -1064,6 +1066,30 @@ export function StoreBillingPage() {
                       INR {additionalChargesTotal.toFixed(2)}
                     </td>
                   </tr>
+                  {isInterHoReturnFlow ? (
+                    <tr className="border-b border-zimson-100">
+                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Taxable subtotal (spares + charges)</th>
+                      <td className="px-3 py-2 font-semibold text-zimson-900">
+                        INR {billSubtotalBeforeAdvance.toFixed(2)}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {taxPreview ? (
+                    <tr className="border-b border-zimson-100">
+                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">GST</th>
+                      <td className="px-3 py-2 font-semibold text-zimson-900">
+                        INR {(taxPreview.totalTax ?? 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {isInterHoReturnFlow ? (
+                    <tr className="border-b border-zimson-100">
+                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Invoice total (incl. GST)</th>
+                      <td className="px-3 py-2 font-semibold text-zimson-900">
+                        {formatInr(invoiceTotalInr)}
+                      </td>
+                    </tr>
+                  ) : null}
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Standard billing total (incl. GST − advance)</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">

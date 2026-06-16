@@ -621,6 +621,8 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_target_store_id TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_source_region_id TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_source_store_id TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS transfer_source_reference VARCHAR(64);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS inter_ho_reestimate_phase VARCHAR(32);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS inter_ho_reestimate_receiver_srf_id UUID;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_sent_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_ref VARCHAR(120);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_note TEXT;

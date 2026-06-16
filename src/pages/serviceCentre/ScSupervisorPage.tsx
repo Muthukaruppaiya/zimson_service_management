@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -11,10 +11,13 @@ import { useSrfJobs } from "../../context/SrfJobsContext";
 import { ApiError, apiJson } from "../../lib/api";
 import {
   findLocalRepairSrfForRoot,
+  interHoMainAndReceiverRefs,
   isArchivedSrfJob,
+  isInterHoReceiverLocal,
   jobVisibleToServiceCentre,
   rootSrfBookingReference,
   shouldShowInSupervisorSrfList,
+  isInterHoSenderReestimateRow,
 } from "../../lib/srfAccess";
 import { printAssignmentSlip, printBrandDispatchDocument, printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
 import type { SrfJob } from "../../types/srfJob";
@@ -70,7 +73,9 @@ function sparesAmountInr(job: { usedSpares?: Array<{ qty: number; unitPriceInr?:
 
 export function ScSupervisorPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { srfId } = useParams<{ srfId?: string }>();
+  const senderApprovalOnlyView = location.pathname === "/service-centre/supervisor/reestimate-sender";
   const { user } = useAuth();
   const { regions } = useRegions();
   const { activeSpares } = useSpares();
@@ -79,6 +84,9 @@ export function ScSupervisorPage() {
     assignTechnician,
     convertTransferredSrfToLocal,
     supervisorRequestReestimate,
+    interHoRequestReestimate,
+    interHoForwardReestimateToCustomer,
+    interHoApproveReestimateForReceiver,
     technicianSendToBrand,
     supervisorTransferToOtherHo,
     submitSparesSlip,
@@ -99,6 +107,10 @@ export function ScSupervisorPage() {
   const [reestimatePreviousInr, setReestimatePreviousInr] = useState(0);
   const [reestimateAmountInput, setReestimateAmountInput] = useState("");
   const [reestimateRemarkInput, setReestimateRemarkInput] = useState("");
+  const [reestimateInterHoMode, setReestimateInterHoMode] = useState(false);
+  const [senderForwardPopupJobId, setSenderForwardPopupJobId] = useState<string | null>(null);
+  const [senderForwardAmountInput, setSenderForwardAmountInput] = useState("");
+  const [senderForwardRemarkInput, setSenderForwardRemarkInput] = useState("");
   const [transferPopupJobId, setTransferPopupJobId] = useState<string | null>(null);
   const [transferTargetRegionId, setTransferTargetRegionId] = useState("");
   const [transferNoteInput, setTransferNoteInput] = useState("");
@@ -177,8 +189,20 @@ export function ScSupervisorPage() {
         (j.status === "assigned" ||
           j.status === "estimate_ok" ||
           j.status === "reestimate_required" ||
-          j.status === "customer_rejected") &&
-        jobVisibleToServiceCentre(j, user),
+          j.status === "customer_rejected" ||
+          j.status === "inter_ho_reestimate_pending_sender" ||
+          j.status === "inter_ho_reestimate_customer_accepted") &&
+        jobVisibleToServiceCentre(j, user) &&
+        !(
+          isInterHoReceiverLocal(j) &&
+          !!j.interHoReestimatePhase &&
+          (j.interHoReestimatePhase === "pending_sender" ||
+            j.interHoReestimatePhase === "customer_pending" ||
+            j.interHoReestimatePhase === "customer_accepted" ||
+            j.interHoReestimatePhase === "customer_rejected") &&
+          !!user.regionId &&
+          user.regionId === j.transferSourceRegionId
+        ),
     );
   }, [jobs, user]);
   const decisionView = useMemo(
@@ -211,7 +235,7 @@ export function ScSupervisorPage() {
     return jobs.filter(
       (j) =>
         j.status === "ready_for_outward" &&
-        !!j.transferTargetRegionId &&
+        (!!j.transferSourceRegionId || !!j.transferTargetRegionId) &&
         !j.requiresLocalConversion &&
         !(j.hoSparesBillRef ?? "").trim() &&
         jobVisibleToServiceCentre(j, user),
@@ -226,21 +250,75 @@ export function ScSupervisorPage() {
         shouldShowInSupervisorSrfList(j, jobs),
     );
   }, [jobs, user]);
+  const interHoSenderReestimateQueue = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter((j) => isInterHoSenderReestimateRow(j, user, jobs));
+  }, [jobs, user]);
+  const interHoSenderActionQueue = useMemo(() => {
+    if (!user) return [];
+    return interHoSenderReestimateQueue.filter(
+      (j) =>
+        j.interHoReestimatePhase === "pending_sender" ||
+        j.interHoReestimatePhase === "customer_pending" ||
+        j.interHoReestimatePhase === "customer_accepted" ||
+        j.interHoReestimatePhase === "customer_rejected" ||
+        ((j.status === "reestimate_required" || j.status === "customer_rejected") &&
+          (!!j.transferSourceRegionId || !!j.transferTargetRegionId || !!j.transferSourceReference)) ||
+        j.status === "inter_ho_reestimate_pending_sender" ||
+        j.status === "inter_ho_reestimate_customer_accepted",
+    );
+  }, [interHoSenderReestimateQueue, user]);
+  const interHoSenderFallbackQueue = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter((j) => {
+      if (!jobVisibleToServiceCentre(j, user)) return false;
+      if (isInterHoReceiverLocal(j)) return false;
+      const interHoLinked =
+        !!(j.transferSourceRegionId ?? "").trim() ||
+        !!(j.transferTargetRegionId ?? "").trim() ||
+        !!(j.transferSourceReference ?? "").trim() ||
+        !!j.interHoReestimatePhase;
+      if (!interHoLinked) return false;
+      return (
+        j.status === "inter_ho_reestimate_pending_sender" ||
+        j.status === "inter_ho_reestimate_customer_accepted" ||
+        j.status === "reestimate_required" ||
+        j.status === "customer_rejected" ||
+        j.status === "sent_to_other_ho"
+      );
+    });
+  }, [jobs, user]);
+  const interHoSenderReestimateView = useMemo(() => {
+    const base = senderApprovalOnlyView
+      ? interHoSenderFallbackQueue
+      : interHoSenderActionQueue;
+    return srfId ? base.filter((j) => j.id === srfId) : base;
+  }, [interHoSenderActionQueue, interHoSenderFallbackQueue, senderApprovalOnlyView, srfId]);
   const transferredView = useMemo(
     () => (srfId ? transferredQueue.filter((j) => j.id === srfId) : transferredQueue),
     [transferredQueue, srfId],
   );
   const supervisorListRows = useMemo(() => {
+    if (senderApprovalOnlyView) {
+      return interHoSenderFallbackQueue;
+    }
     const seen = new Set<string>();
     const rows: SrfJob[] = [];
-    for (const j of [...received, ...decisionQueue, ...brandDeskQueue, ...repairHoInvoiceQueue, ...transferredQueue]) {
+    for (const j of [
+      ...received,
+      ...decisionQueue,
+      ...brandDeskQueue,
+      ...repairHoInvoiceQueue,
+      ...interHoSenderReestimateQueue,
+      ...transferredQueue,
+    ]) {
       if (seen.has(j.id)) continue;
       if (!shouldShowInSupervisorSrfList(j, jobs)) continue;
       seen.add(j.id);
       rows.push(j);
     }
     return rows;
-  }, [received, decisionQueue, brandDeskQueue, repairHoInvoiceQueue, transferredQueue, jobs]);
+  }, [senderApprovalOnlyView, interHoSenderFallbackQueue, received, decisionQueue, brandDeskQueue, repairHoInvoiceQueue, interHoSenderReestimateQueue, transferredQueue, jobs]);
 
   const listDetailJob = useMemo(
     () => (listDetailJobId ? jobs.find((j) => j.id === listDetailJobId) ?? null : null),
@@ -248,6 +326,7 @@ export function ScSupervisorPage() {
   );
   const listDetailMeta = useMemo(() => {
     if (!listDetailJob || !user) return null;
+    const { mainRef, receiverRef } = interHoMainAndReceiverRefs(listDetailJob, jobs);
     const rootRef = rootSrfBookingReference(listDetailJob);
     const needsConvert =
       listDetailJob.status === "received_at_sc" && !!listDetailJob.requiresLocalConversion;
@@ -255,7 +334,16 @@ export function ScSupervisorPage() {
       listDetailJob.status === "sent_to_other_ho"
         ? findLocalRepairSrfForRoot(rootRef, jobs, user)
         : undefined;
-    return { rootRef, needsConvert, localRepair };
+    const senderReestimate = isInterHoSenderReestimateRow(listDetailJob, user, jobs);
+    const showReestimateDetails =
+      Number(listDetailJob.reestimateRequestedInr ?? 0) > 0 ||
+      Boolean(listDetailJob.reestimateRequestedNote?.trim()) ||
+      Boolean(listDetailJob.interHoReestimatePhase) ||
+      listDetailJob.status === "reestimate_required" ||
+      listDetailJob.status === "customer_rejected" ||
+      listDetailJob.status === "inter_ho_reestimate_pending_sender" ||
+      listDetailJob.status === "inter_ho_reestimate_customer_accepted";
+    return { mainRef, receiverRef, rootRef, needsConvert, localRepair, senderReestimate, showReestimateDetails };
   }, [listDetailJob, jobs, user]);
 
   /** Archived / superseded sender rows → open the live local repair SRF when possible. */
@@ -352,6 +440,7 @@ export function ScSupervisorPage() {
   function openReestimatePopup(jobId: string) {
     const job = jobs.find((x) => x.id === jobId);
     setReestimatePopupJobId(jobId);
+    setReestimateInterHoMode(isInterHoReceiverLocal(job ?? { reference: "", transferSourceReference: null, requiresLocalConversion: false, status: "" }));
     setReestimatePreviousInr(Number(job?.estimateTotalInr ?? 0));
     setReestimateAmountInput("");
     setReestimateRemarkInput("");
@@ -359,9 +448,80 @@ export function ScSupervisorPage() {
 
   function closeReestimatePopup() {
     setReestimatePopupJobId(null);
+    setReestimateInterHoMode(false);
     setReestimatePreviousInr(0);
     setReestimateAmountInput("");
     setReestimateRemarkInput("");
+  }
+
+  function openSenderForwardPopup(jobId: string) {
+    const row = jobs.find((j) => j.id === jobId);
+    if (!row) return;
+    let receiver = row.status !== "sent_to_other_ho" ? row : undefined;
+    let arch = row.status === "sent_to_other_ho" ? row : undefined;
+    if (!receiver && arch?.interHoReestimateReceiverSrfId) {
+      receiver = jobs.find((j) => j.id === arch!.interHoReestimateReceiverSrfId);
+    }
+    if (!arch && receiver && user) {
+      const root = rootSrfBookingReference(receiver);
+      arch = jobs.find(
+        (j) =>
+          j.status === "sent_to_other_ho" &&
+          (j.interHoReestimateReceiverSrfId === receiver!.id || rootSrfBookingReference(j) === root),
+      );
+    }
+    const amountSource = receiver ?? arch ?? row;
+    setSenderForwardPopupJobId(jobId);
+    setSenderForwardAmountInput(String(amountSource?.reestimateRequestedInr ?? ""));
+    setSenderForwardRemarkInput(String(amountSource?.reestimateRequestedNote ?? ""));
+  }
+
+  function closeSenderForwardPopup() {
+    setSenderForwardPopupJobId(null);
+    setSenderForwardAmountInput("");
+    setSenderForwardRemarkInput("");
+  }
+
+  async function confirmSenderForwardToCustomer() {
+    if (!senderForwardPopupJobId) return;
+    const amount = Number(senderForwardAmountInput);
+    const note = senderForwardRemarkInput.trim();
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFeedback((f) => ({ ...f, [senderForwardPopupJobId]: "Enter valid amount to send to customer." }));
+      return;
+    }
+    if (!note) {
+      setFeedback((f) => ({ ...f, [senderForwardPopupJobId]: "Enter remark for customer." }));
+      return;
+    }
+    try {
+      await interHoForwardReestimateToCustomer(senderForwardPopupJobId, { estimateTotalInr: amount, note });
+      setFeedback((f) => ({
+        ...f,
+        [senderForwardPopupJobId]: "Re-estimate sent to customer on the existing tracking link.",
+      }));
+      closeSenderForwardPopup();
+    } catch (e) {
+      setFeedback((f) => ({
+        ...f,
+        [senderForwardPopupJobId]: e instanceof Error ? e.message : "Could not forward to customer.",
+      }));
+    }
+  }
+
+  async function approveInterHoForReceiver(archivedJobId: string) {
+    try {
+      await interHoApproveReestimateForReceiver(archivedJobId);
+      setFeedback((f) => ({
+        ...f,
+        [archivedJobId]: "Customer-approved re-estimate released to repair HO — repair can continue.",
+      }));
+    } catch (e) {
+      setFeedback((f) => ({
+        ...f,
+        [archivedJobId]: e instanceof Error ? e.message : "Could not approve for repair HO.",
+      }));
+    }
   }
 
   async function confirmReestimateRequest() {
@@ -377,8 +537,16 @@ export function ScSupervisorPage() {
       return;
     }
     try {
-      await supervisorRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
-      setFeedback((f) => ({ ...f, [reestimatePopupJobId]: "Re-estimate sent to customer for approval." }));
+      if (reestimateInterHoMode) {
+        await interHoRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
+        setFeedback((f) => ({
+          ...f,
+          [reestimatePopupJobId]: "Re-estimate sent to sender HO — they will forward to the customer.",
+        }));
+      } else {
+        await supervisorRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
+        setFeedback((f) => ({ ...f, [reestimatePopupJobId]: "Re-estimate sent to customer for approval." }));
+      }
       closeReestimatePopup();
     } catch (e) {
       setFeedback((f) => ({
@@ -873,6 +1041,15 @@ export function ScSupervisorPage() {
       await submitSparesSlip(jobId, lines);
       await supervisorMarkRepairComplete(jobId);
       closeRepairPopup();
+      const isInterHoReturnRepair =
+        !!(job?.transferSourceRegionId ?? "").trim() &&
+        !job?.requiresLocalConversion;
+      if (isInterHoReturnRepair) {
+        navigate(
+          `/service-centre/inter-ho-invoice?srfId=${encodeURIComponent(jobId)}&invoiceFor=sender-ho`,
+        );
+        return;
+      }
       if (job) {
         setRepairSuccessMonitor({
           reference: job.reference,
@@ -910,13 +1087,59 @@ export function ScSupervisorPage() {
     );
   }
 
+  function interHoReestimatePhaseLabel(phase: string | null | undefined): string {
+    switch (phase) {
+      case "pending_sender":
+        return "Awaiting sender HO — forward to customer";
+      case "customer_pending":
+        return "With customer on tracking link";
+      case "customer_accepted":
+        return "Customer accepted — sender HO to approve repair";
+      case "customer_rejected":
+        return "Customer rejected — negotiate";
+      default:
+        return "—";
+    }
+  }
+
+  function supervisorListStatusLabel(job: SrfJob): string {
+    if (job.interHoReestimatePhase === "pending_sender" || job.status === "inter_ho_reestimate_pending_sender") {
+      return "inter ho re-estimate pending sender";
+    }
+    if (job.interHoReestimatePhase === "customer_pending") {
+      return "re-estimate sent to customer";
+    }
+    if (job.interHoReestimatePhase === "customer_rejected" || job.status === "customer_rejected") {
+      return "customer rejected - negotiate";
+    }
+    if (job.interHoReestimatePhase === "customer_accepted" || job.status === "inter_ho_reestimate_customer_accepted") {
+      return "customer accepted - awaiting sender approval";
+    }
+    return job.status.replace(/_/g, " ");
+  }
+
   return (
     <div>
       <PageHeader
-        title="Supervisor — assign technicians"
+        title={senderApprovalOnlyView ? "Sender HO — re-estimate approvals" : "Supervisor — assign technicians"}
         description=""
         actions={
           <div className="flex flex-wrap gap-2">
+            {!senderApprovalOnlyView ? (
+              <Link
+                to="/service-centre/supervisor/reestimate-sender"
+                className="inline-flex rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100"
+              >
+                Sender re-estimate approvals
+              </Link>
+            ) : (
+              <Link
+                to="/service-centre/supervisor"
+                className="inline-flex rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100"
+              >
+                Back to supervisor
+              </Link>
+            )}
             {srfId ? (
               <Link
                 to="/service-centre/supervisor"
@@ -964,34 +1187,40 @@ export function ScSupervisorPage() {
               </thead>
               <tbody>
                 {supervisorListRows.map((j) => {
-                  const rootRef = rootSrfBookingReference(j);
-                  const isInterHoLocal =
-                    !!j.transferSourceReference &&
-                    j.transferSourceReference !== j.reference &&
-                    !j.requiresLocalConversion;
+                  const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
+                  const senderReestimate = user ? isInterHoSenderReestimateRow(j, user, jobs) : false;
+                  const isInterHoLocal = isInterHoReceiverLocal(j);
+                  const localRootRef = (j.transferSourceReference ?? "").trim();
+                  const displayMainRef = isInterHoLocal ? j.reference : mainRef;
                   const needsConvert = j.status === "received_at_sc" && !!j.requiresLocalConversion;
-                  const localRepair =
-                    user && j.status === "sent_to_other_ho"
-                      ? findLocalRepairSrfForRoot(rootRef, jobs, user)
-                      : undefined;
                   return (
                   <tr key={j.id} className="border-b border-zimson-100 last:border-0">
                     <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">
-                      {j.reference}
+                      {displayMainRef}
+                      {senderReestimate ? (
+                        <span className="mt-0.5 block text-[10px] font-semibold text-indigo-700">
+                          Inter-HO re-estimate (sender action)
+                        </span>
+                      ) : null}
                       {isInterHoLocal ? (
                         <span className="mt-0.5 block text-[10px] font-semibold text-emerald-700">
                           Local repair SRF
                         </span>
                       ) : null}
-                      {rootRef && rootRef !== j.reference ? (
+                      {isInterHoLocal && localRootRef ? (
                         <span className="mt-0.5 block text-[10px] font-normal text-stone-500">
-                          Sender / root: <span className="font-mono">{rootRef}</span>
+                          Root SRF: <span className="font-mono">{localRootRef}</span>
+                        </span>
+                      ) : null}
+                      {!isInterHoLocal && receiverRef && receiverRef !== mainRef ? (
+                        <span className="mt-0.5 block text-[10px] font-normal text-stone-500">
+                          Receiver SRF (converted): <span className="font-mono">{receiverRef}</span>
                         </span>
                       ) : null}
                     </td>
                     <td className="px-3 py-2">{j.customerName}</td>
                     <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
-                    <td className="px-3 py-2 text-xs text-stone-700">{j.status.replace(/_/g, " ")}</td>
+                    <td className="px-3 py-2 text-xs text-stone-700">{supervisorListStatusLabel(j)}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1.5">
                         <button
@@ -1010,27 +1239,38 @@ export function ScSupervisorPage() {
                             Convert to local SRF
                           </button>
                         ) : null}
-                        {localRepair ? (
+                        {senderReestimate &&
+                        (j.interHoReestimatePhase === "pending_sender" ||
+                          j.interHoReestimatePhase === "customer_rejected" ||
+                          j.status === "inter_ho_reestimate_pending_sender") ? (
                           <button
                             type="button"
-                            onClick={() =>
-                              navigate(
-                                `/service-centre/supervisor/srf/${encodeURIComponent(localRepair.id)}`,
-                              )
-                            }
-                            className="rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                            onClick={() => openSenderForwardPopup(j.id)}
+                            className="rounded-lg border border-amber-500 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
                           >
-                            Open local SRF ({localRepair.reference})
+                            {j.interHoReestimatePhase === "customer_rejected"
+                              ? "Negotiate & forward to customer"
+                              : "Forward to customer"}
                           </button>
-                        ) : (
+                        ) : null}
+                        {senderReestimate &&
+                        (j.interHoReestimatePhase === "customer_accepted" ||
+                          j.status === "inter_ho_reestimate_customer_accepted") ? (
                           <button
                             type="button"
-                            onClick={() => navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)}
-                            className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                            onClick={() => void approveInterHoForReceiver(j.id)}
+                            className="rounded-lg border border-emerald-600 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
                           >
-                            Open SRF
+                            Approve repair HO
                           </button>
-                        )}
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)}
+                          className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                        >
+                          Open SRF
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1047,20 +1287,17 @@ export function ScSupervisorPage() {
       {receivedView.length > 0 ? (
         <Card title="Assignment" subtitle="Assign technician for this SRF" className="mb-6">
           {receivedView.map((j) => {
-            const rootRef = rootSrfBookingReference(j);
-            const isInterHoLocal =
-              !!j.transferSourceReference &&
-              j.transferSourceReference !== j.reference &&
-              !j.requiresLocalConversion;
+            const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
+            const isInterHoLocal = isInterHoReceiverLocal(j);
             return (
             <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
-              <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+              <p className="font-mono text-sm font-bold text-zimson-900">{mainRef}</p>
               {isInterHoLocal ? (
                 <p className="text-[11px] font-semibold text-emerald-700">Local repair SRF (inter-HO)</p>
               ) : null}
-              {rootRef && rootRef !== j.reference ? (
+              {receiverRef && receiverRef !== mainRef ? (
                 <p className="text-[11px] text-stone-500">
-                  Sender / root: <span className="font-mono font-semibold">{rootRef}</span>
+                  Receiver SRF (converted): <span className="font-mono font-semibold">{receiverRef}</span>
                 </p>
               ) : null}
               <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
@@ -1129,6 +1366,88 @@ export function ScSupervisorPage() {
               </div>
             </div>
           ))}
+        </Card>
+      ) : null}
+      {interHoSenderReestimateView.length > 0 ? (
+        <Card
+          title={`Inter-HO re-estimate (sender) · ${interHoSenderReestimateView.length}`}
+          subtitle="Repair HO proposed a revised estimate — forward to the customer on the existing tracking link."
+          className="mb-6"
+        >
+          <div className="space-y-4">
+            {interHoSenderReestimateView.map((j) => {
+              const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
+              return (
+                <div
+                  key={j.id}
+                  className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/40 p-4 shadow-sm"
+                >
+                  <p className="font-mono text-sm font-bold text-zimson-900">{mainRef}</p>
+                  {receiverRef && receiverRef !== mainRef ? (
+                    <p className="text-[11px] text-stone-500">
+                      Receiver SRF (converted): <span className="font-mono">{receiverRef}</span>
+                    </p>
+                  ) : null}
+                  <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
+                  <p className="mt-1 text-sm text-stone-600">
+                    {j.watchBrand} {j.watchModel} · {j.serial}
+                  </p>
+                  {j.interHoReestimatePhase === "pending_sender" ? (
+                    <p className="mt-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-900">
+                      Repair HO proposed INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}
+                      {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
+                    </p>
+                  ) : null}
+                  {j.interHoReestimatePhase === "customer_pending" ? (
+                    <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                      Waiting for customer approval on tracking link (INR{" "}
+                      {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}).
+                    </p>
+                  ) : null}
+                  {j.interHoReestimatePhase === "customer_accepted" ? (
+                    <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
+                      Customer accepted INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()} — release repair HO.
+                    </p>
+                  ) : null}
+                  {j.interHoReestimatePhase === "customer_rejected" ? (
+                    <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900">
+                      Customer rejected — negotiate and send a revised amount via tracking link.
+                    </p>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {j.interHoReestimatePhase === "pending_sender" || j.interHoReestimatePhase === "customer_rejected" ? (
+                      <button
+                        type="button"
+                        onClick={() => openSenderForwardPopup(j.id)}
+                        className="rounded-xl border border-amber-500 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100"
+                      >
+                        {j.interHoReestimatePhase === "customer_rejected"
+                          ? "Negotiate & forward to customer"
+                          : "Update price & forward to customer"}
+                      </button>
+                    ) : null}
+                    {j.interHoReestimatePhase === "customer_accepted" ? (
+                      <button
+                        type="button"
+                        onClick={() => void approveInterHoForReceiver(j.id)}
+                        className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                      >
+                        Approve for repair HO
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setTraceJobId(j.id)}
+                      className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                    >
+                      View trace
+                    </button>
+                  </div>
+                  {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
+                </div>
+              );
+            })}
+          </div>
         </Card>
       ) : null}
       {brandDeskView.length > 0 ? (
@@ -1278,16 +1597,16 @@ export function ScSupervisorPage() {
         <Card title="Transferred to Other HO" subtitle="These SRFs are currently at another HO for repair. Original reference is preserved for tracking." className="mt-8">
           <div className="space-y-4">
             {transferredView.map((j) => {
-              const rootRef = rootSrfBookingReference(j);
-              const localRepair = user ? findLocalRepairSrfForRoot(rootRef, jobs, user) : undefined;
+              const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
+              const localRepair = user ? findLocalRepairSrfForRoot(mainRef, jobs, user) : undefined;
               return (
               <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
-                    {rootRef && rootRef !== j.reference ? (
+                    <p className="font-mono text-sm font-bold text-zimson-900">{mainRef}</p>
+                    {receiverRef && receiverRef !== mainRef ? (
                       <p className="text-[11px] text-stone-500">
-                        Sender / root: <span className="font-mono font-semibold">{rootRef}</span>
+                        Receiver SRF (converted): <span className="font-mono font-semibold">{receiverRef}</span>
                       </p>
                     ) : null}
                     <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
@@ -1300,8 +1619,49 @@ export function ScSupervisorPage() {
                         Active repair at this HO: {localRepair.reference} — use Open local SRF for assignment and repair.
                       </p>
                     ) : null}
+                    {j.interHoReestimatePhase === "pending_sender" ? (
+                      <p className="mt-2 text-xs font-semibold text-indigo-800">
+                        Repair HO proposed re-estimate INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}
+                        {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
+                      </p>
+                    ) : null}
+                    {j.interHoReestimatePhase === "customer_pending" ? (
+                      <p className="mt-2 text-xs font-semibold text-amber-800">
+                        Re-estimate forwarded to customer — awaiting tracking link approval.
+                      </p>
+                    ) : null}
+                    {j.interHoReestimatePhase === "customer_accepted" ? (
+                      <p className="mt-2 text-xs font-semibold text-emerald-800">
+                        Customer accepted INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()} — release repair HO to continue.
+                      </p>
+                    ) : null}
+                    {j.interHoReestimatePhase === "customer_rejected" ? (
+                      <p className="mt-2 text-xs font-semibold text-rose-800">
+                        Customer rejected — negotiate and send a revised amount via tracking link.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    {j.interHoReestimatePhase === "pending_sender" || j.interHoReestimatePhase === "customer_rejected" ? (
+                      <button
+                        type="button"
+                        onClick={() => openSenderForwardPopup(j.id)}
+                        className="rounded-xl border border-amber-500 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100"
+                      >
+                        {j.interHoReestimatePhase === "customer_rejected"
+                          ? "Negotiate & forward to customer"
+                          : "Update price & forward to customer"}
+                      </button>
+                    ) : null}
+                    {j.interHoReestimatePhase === "customer_accepted" ? (
+                      <button
+                        type="button"
+                        onClick={() => void approveInterHoForReceiver(j.id)}
+                        className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                      >
+                        Approve for repair HO
+                      </button>
+                    ) : null}
                     {localRepair ? (
                       <button
                         type="button"
@@ -1360,17 +1720,42 @@ export function ScSupervisorPage() {
         ) : (
           <div className="space-y-4">
             {decisionView.map((j) => {
+              const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
               const spareFlow = spareFlowBySrfId.get(j.id) ?? null;
               const hasSpareFlow = !!spareFlow;
               const spareFlowInwardDone = Boolean(spareFlow?.inwardReceivedAt);
               const hasTransferFlow = Boolean(j.transferTargetRegionId || j.transferSourceRegionId || j.requiresLocalConversion);
-              const lockToRepairOnly = hasTransferFlow || hasSpareFlow;
-              const canOpenRepair = j.status !== "reestimate_required" && j.status !== "customer_rejected";
+              const interHoReceiverLocal = isInterHoReceiverLocal(j);
+              const reestimateJourneyActive =
+                j.status === "reestimate_required" ||
+                j.status === "customer_rejected" ||
+                j.status === "inter_ho_reestimate_pending_sender" ||
+                j.status === "inter_ho_reestimate_customer_accepted" ||
+                j.interHoReestimatePhase === "pending_sender" ||
+                j.interHoReestimatePhase === "customer_pending" ||
+                j.interHoReestimatePhase === "customer_rejected" ||
+                j.interHoReestimatePhase === "customer_accepted";
+              const lockTransferBrandSpares = hasSpareFlow || (hasTransferFlow && !interHoReceiverLocal);
+              const disableReestimate =
+                hasSpareFlow ||
+                j.status === "inter_ho_reestimate_pending_sender" ||
+                (hasTransferFlow && !interHoReceiverLocal);
+              const canOpenRepair =
+                !reestimateJourneyActive &&
+                j.status !== "reestimate_required" &&
+                j.status !== "customer_rejected" &&
+                j.status !== "inter_ho_reestimate_pending_sender" &&
+                j.status !== "inter_ho_reestimate_customer_accepted";
               return (
               <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+                    <p className="font-mono text-sm font-bold text-zimson-900">{mainRef}</p>
+                    {receiverRef && receiverRef !== mainRef ? (
+                      <p className="text-[11px] text-stone-500">
+                        Receiver SRF (converted): <span className="font-mono font-semibold">{receiverRef}</span>
+                      </p>
+                    ) : null}
                     <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
                     <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
                     <p className="mt-1 text-xs text-stone-500">Status: {j.status.replace(/_/g, " ")}</p>
@@ -1406,7 +1791,24 @@ export function ScSupervisorPage() {
                 <div className="mt-4 flex flex-wrap gap-2">
                   {j.status === "reestimate_required" ? (
                     <div className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                      <p className="font-semibold">Waiting for customer approval from tracking link.</p>
+                      <p className="font-semibold">
+                        {j.interHoReestimatePhase === "customer_pending"
+                          ? "Waiting for customer approval (sender HO forwarded via tracking link)."
+                          : "Waiting for customer approval from tracking link."}
+                      </p>
+                    </div>
+                  ) : null}
+                  {j.status === "inter_ho_reestimate_pending_sender" ? (
+                    <div className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                      <p className="font-semibold">
+                        Re-estimate sent to sender HO (INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}) — awaiting
+                        customer forwarding.
+                      </p>
+                    </div>
+                  ) : null}
+                  {j.status === "inter_ho_reestimate_customer_accepted" ? (
+                    <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                      <p className="font-semibold">Customer accepted — awaiting sender HO to release repair.</p>
                     </div>
                   ) : null}
                   {j.status === "customer_rejected" ? (
@@ -1440,10 +1842,21 @@ export function ScSupervisorPage() {
                   <button
                     type="button"
                     onClick={() => openReestimatePopup(j.id)}
-                    disabled={j.status === "reestimate_required" || lockToRepairOnly}
+                    disabled={
+                      j.status === "reestimate_required" ||
+                      j.status === "inter_ho_reestimate_pending_sender" ||
+                      j.status === "inter_ho_reestimate_customer_accepted" ||
+                      disableReestimate
+                    }
                     className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {j.status === "customer_rejected" ? "Negotiate & send re-estimate" : "Need re-estimate"}
+                    {j.status === "customer_rejected"
+                      ? interHoReceiverLocal
+                        ? "Negotiate & resend to sender HO"
+                        : "Negotiate & send re-estimate"
+                      : interHoReceiverLocal
+                        ? "Need re-estimate (sender HO)"
+                        : "Need re-estimate"}
                   </button>
                   {j.status === "customer_rejected" ? (
                     <button
@@ -1454,7 +1867,7 @@ export function ScSupervisorPage() {
                       Move to internal outward (no repair)
                     </button>
                   ) : null}
-                  {(j.status === "assigned" || j.status === "estimate_ok") && !lockToRepairOnly ? (
+                  {(j.status === "assigned" || j.status === "estimate_ok") && !lockTransferBrandSpares && !interHoReceiverLocal && !reestimateJourneyActive ? (
                     <button
                       type="button"
                       onClick={() => openTransferPopup(j.id)}
@@ -1463,7 +1876,12 @@ export function ScSupervisorPage() {
                       Send to other HO
                     </button>
                   ) : null}
-                  {(j.status === "assigned" || j.status === "estimate_ok" || j.status === "reestimate_required" || j.status === "customer_rejected") && !lockToRepairOnly ? (
+                  {(j.status === "assigned" ||
+                    j.status === "estimate_ok" ||
+                    j.status === "reestimate_required" ||
+                    j.status === "customer_rejected") &&
+                  !lockTransferBrandSpares &&
+                  !reestimateJourneyActive ? (
                     <button
                       type="button"
                       onClick={() => openSendToBrandPopup(j.id)}
@@ -1472,7 +1890,7 @@ export function ScSupervisorPage() {
                       Send to brand
                     </button>
                   ) : null}
-                  {(j.status === "assigned" || j.status === "estimate_ok") && !lockToRepairOnly ? (
+                  {(j.status === "assigned" || j.status === "estimate_ok") && !lockTransferBrandSpares && !reestimateJourneyActive ? (
                     <button
                       type="button"
                       onClick={() => openRequestSparesPopup(j.id)}
@@ -1533,6 +1951,49 @@ export function ScSupervisorPage() {
         )}
       </Card>
       </>
+      ) : null}
+      {senderForwardPopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Forward re-estimate to customer</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Update the price if needed, then send to the customer on the same tracking link used at booking.
+            </p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Amount for customer (INR) *
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
+                  value={senderForwardAmountInput}
+                  onChange={(e) => setSenderForwardAmountInput(e.target.value)}
+                  placeholder="Revised estimate"
+                  autoFocus
+                />
+              </label>
+              <label className="text-sm">
+                Remarks for customer
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={3}
+                  value={senderForwardRemarkInput}
+                  onChange={(e) => setSenderForwardRemarkInput(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={closeSenderForwardPopup} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmSenderForwardToCustomer()}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Send to customer
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
       {repairPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1763,8 +2224,14 @@ export function ScSupervisorPage() {
       {reestimatePopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Request re-estimate approval</h3>
-            <p className="mt-1 text-sm text-stone-600">Enter revised estimate amount and remarks for customer approval.</p>
+            <h3 className="text-lg font-semibold text-zimson-900">
+              {reestimateInterHoMode ? "Request re-estimate via sender HO" : "Request re-estimate approval"}
+            </h3>
+            <p className="mt-1 text-sm text-stone-600">
+              {reestimateInterHoMode
+                ? "Repair HO proposes a revised amount. Sender HO will forward it to the customer on the existing tracking link."
+                : "Enter revised estimate amount and remarks for customer approval."}
+            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Previous estimate (INR)
@@ -1804,7 +2271,7 @@ export function ScSupervisorPage() {
                 onClick={() => void confirmReestimateRequest()}
                 className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
               >
-                Send to customer
+                {reestimateInterHoMode ? "Send to sender HO" : "Send to customer"}
               </button>
             </div>
           </div>
@@ -2123,10 +2590,13 @@ export function ScSupervisorPage() {
             <div className="flex flex-shrink-0 flex-wrap items-start justify-between gap-3 border-b border-zimson-200 bg-zimson-50/60 px-5 py-4">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-widest text-stone-500">SRF details</p>
-                <h3 className="mt-0.5 font-mono text-lg font-bold text-zimson-900">{listDetailJob.reference}</h3>
-                {listDetailMeta?.rootRef && listDetailMeta.rootRef !== listDetailJob.reference ? (
+                <h3 className="mt-0.5 font-mono text-lg font-bold text-zimson-900">
+                  {listDetailMeta?.mainRef ?? listDetailJob.reference}
+                </h3>
+                {listDetailMeta?.receiverRef && listDetailMeta.receiverRef !== listDetailMeta.mainRef ? (
                   <p className="text-[11px] text-stone-500">
-                    Sender / root: <span className="font-mono font-semibold">{listDetailMeta.rootRef}</span>
+                    Receiver SRF (converted):{" "}
+                    <span className="font-mono font-semibold">{listDetailMeta.receiverRef}</span>
                   </p>
                 ) : null}
                 <p className="mt-0.5 text-sm text-stone-600">
@@ -2273,6 +2743,114 @@ export function ScSupervisorPage() {
                     </tbody>
                   </table>
                 </section>
+                {listDetailMeta?.showReestimateDetails ? (
+                  <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 sm:col-span-2">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-900">
+                      Re-estimate details
+                    </p>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        <tr>
+                          <td className="py-0.5 pr-3 font-medium text-stone-600">Original estimate</td>
+                          <td className="py-0.5">
+                            {formatInr(Number(listDetailJob.estimateTotalInr ?? 0))}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="py-0.5 pr-3 font-medium text-stone-600">Proposed re-estimate</td>
+                          <td className="py-0.5 font-semibold text-amber-950">
+                            {Number(listDetailJob.reestimateRequestedInr ?? 0) > 0
+                              ? formatInr(Number(listDetailJob.reestimateRequestedInr))
+                              : "—"}
+                          </td>
+                        </tr>
+                        {Number(listDetailJob.reestimateRequestedInr ?? 0) > 0 &&
+                        Number(listDetailJob.estimateTotalInr ?? 0) > 0 ? (
+                          <tr>
+                            <td className="py-0.5 pr-3 font-medium text-stone-600">Difference</td>
+                            <td className="py-0.5 font-medium text-stone-800">
+                              {formatInr(
+                                Number(listDetailJob.reestimateRequestedInr) -
+                                  Number(listDetailJob.estimateTotalInr),
+                              )}
+                            </td>
+                          </tr>
+                        ) : null}
+                        <tr>
+                          <td className="py-0.5 pr-3 font-medium text-stone-600 align-top">Remarks</td>
+                          <td className="py-0.5">{listDetailJob.reestimateRequestedNote?.trim() || "—"}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-0.5 pr-3 font-medium text-stone-600">Requested at</td>
+                          <td className="py-0.5">
+                            {listDetailJob.reestimateRequestedAt
+                              ? new Date(listDetailJob.reestimateRequestedAt).toLocaleString()
+                              : "—"}
+                          </td>
+                        </tr>
+                        {listDetailJob.interHoReestimatePhase ? (
+                          <tr>
+                            <td className="py-0.5 pr-3 font-medium text-stone-600">Inter-HO step</td>
+                            <td className="py-0.5 font-medium text-indigo-900">
+                              {interHoReestimatePhaseLabel(listDetailJob.interHoReestimatePhase)}
+                            </td>
+                          </tr>
+                        ) : null}
+                        {listDetailJob.customerReestimateResponse ? (
+                          <tr>
+                            <td className="py-0.5 pr-3 font-medium text-stone-600">Customer response</td>
+                            <td
+                              className={`py-0.5 font-semibold ${
+                                listDetailJob.customerReestimateResponse === "accepted"
+                                  ? "text-emerald-800"
+                                  : "text-rose-800"
+                              }`}
+                            >
+                              {listDetailJob.customerReestimateResponse === "accepted"
+                                ? "Accepted"
+                                : "Rejected"}
+                              {listDetailJob.customerReestimateRespondedAt
+                                ? ` · ${new Date(listDetailJob.customerReestimateRespondedAt).toLocaleString()}`
+                                : ""}
+                            </td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                    {listDetailMeta.senderReestimate &&
+                    (listDetailJob.interHoReestimatePhase === "pending_sender" ||
+                      listDetailJob.interHoReestimatePhase === "customer_rejected" ||
+                      listDetailJob.status === "inter_ho_reestimate_pending_sender") ? (
+                      <div className="mt-3 flex flex-wrap gap-2 border-t border-amber-200/80 pt-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openSenderForwardPopup(listDetailJob.id);
+                            setListDetailJobId(null);
+                          }}
+                          className="rounded-lg border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-200"
+                        >
+                          Update price &amp; forward to customer
+                        </button>
+                      </div>
+                    ) : null}
+                    {listDetailMeta.senderReestimate &&
+                    (listDetailJob.interHoReestimatePhase === "customer_accepted" ||
+                      listDetailJob.status === "inter_ho_reestimate_customer_accepted") ? (
+                      <div className="mt-3 flex flex-wrap gap-2 border-t border-amber-200/80 pt-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void approveInterHoForReceiver(listDetailJob.id);
+                          }}
+                          className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800"
+                        >
+                          Approve for repair HO
+                        </button>
+                      </div>
+                    ) : null}
+                  </section>
+                ) : null}
               </div>
               {listDetailJob.photos && listDetailJob.photos.length > 0 ? (
                 <section className="mt-4">

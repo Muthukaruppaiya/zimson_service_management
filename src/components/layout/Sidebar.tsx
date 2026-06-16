@@ -170,7 +170,10 @@ export function Sidebar() {
       },
       {
         title: "Supervision", icon: "supervisor",
-        items: [{ to: "/service-centre/supervisor", label: "Assigning", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] }],
+        items: [
+          { to: "/service-centre/supervisor", label: "Assigning", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
+          { to: "/service-centre/supervisor/reestimate-sender", label: "Sender re-estimate approvals", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
+        ],
       },
       {
         title: "Master Data", icon: "master",

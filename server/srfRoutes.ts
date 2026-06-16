@@ -173,11 +173,34 @@ function visibleWhere(actor: DemoUser, idxStart = 1): { sql: string; params: unk
   if (actor.role === "super_admin") {
     return { sql: "1=1", params: [], nextIdx: i };
   }
+  const interHoSenderScope = (regionParam: string) =>
+    `(j.region_id = ${regionParam}
+      OR (j.transfer_source_region_id = ${regionParam} AND j.status = 'sent_to_other_ho')
+      OR (j.transfer_source_region_id = ${regionParam} AND j.inter_ho_reestimate_phase IS NOT NULL)
+      OR (j.transfer_source_region_id = ${regionParam} AND j.status IN (
+        'inter_ho_reestimate_pending_sender',
+        'inter_ho_reestimate_customer_accepted',
+        'reestimate_required',
+        'customer_rejected'
+      ))
+      OR (
+        j.transfer_source_reference IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM srf_jobs src
+          WHERE src.reference = j.transfer_source_reference
+            AND src.region_id = ${regionParam}
+        )
+      ))`;
   if (actor.role === "admin") {
     if (!actor.regionId) {
       return { sql: "1=0", params: [], nextIdx: i };
     }
-    return { sql: "j.region_id = $" + i + "::text", params: [actor.regionId], nextIdx: i + 1 };
+    return {
+      sql: interHoSenderScope(`$${i}::text`),
+      params: [actor.regionId],
+      nextIdx: i + 1,
+    };
   }
   if (STORE_ROLES.has(actor.role)) {
     return {
@@ -186,7 +209,107 @@ function visibleWhere(actor: DemoUser, idxStart = 1): { sql: string; params: unk
       nextIdx: i,
     };
   }
-  return { sql: "j.region_id = $" + i + "::text", params: [actor.regionId], nextIdx: i + 1 };
+  if (!actor.regionId) {
+    return { sql: "1=0", params: [], nextIdx: i };
+  }
+  return {
+    sql: interHoSenderScope(`$${i}::text`),
+    params: [actor.regionId],
+    nextIdx: i + 1,
+  };
+}
+
+type InterHoSrfLink = {
+  id: string;
+  status: string;
+  reference: string;
+  transfer_source_reference: string | null;
+  transfer_source_region_id: string | null;
+  region_id: string;
+  inter_ho_reestimate_phase: string | null;
+};
+
+function isInterHoReceiverLocalRow(row: {
+  reference: string;
+  transfer_source_reference: string | null;
+  requires_local_conversion?: boolean | null;
+  status: string;
+}): boolean {
+  const root = String(row.transfer_source_reference ?? "").trim();
+  return (
+    !!root &&
+    root !== String(row.reference ?? "").trim() &&
+    !row.requires_local_conversion &&
+    row.status !== "sent_to_other_ho"
+  );
+}
+
+async function findInterHoArchivedSenderRow(
+  client: PoolClient,
+  receiverSrfId: string,
+): Promise<InterHoSrfLink | null> {
+  const { rows } = await client.query<InterHoSrfLink>(
+    `SELECT arch.id, arch.status, arch.reference, arch.transfer_source_reference,
+            arch.transfer_source_region_id, arch.region_id, arch.inter_ho_reestimate_phase
+     FROM srf_jobs recv
+     JOIN srf_jobs arch ON arch.status = 'sent_to_other_ho'
+       AND arch.inter_ho_reestimate_receiver_srf_id = recv.id
+     WHERE recv.id = $1::uuid
+     LIMIT 1`,
+    [receiverSrfId],
+  );
+  if (rows[0]) return rows[0];
+  const fallback = await client.query<InterHoSrfLink>(
+    `SELECT arch.id, arch.status, arch.reference, arch.transfer_source_reference,
+            arch.transfer_source_region_id, arch.region_id, arch.inter_ho_reestimate_phase
+     FROM srf_jobs recv
+     JOIN srf_jobs arch ON arch.status = 'sent_to_other_ho'
+       AND NULLIF(TRIM(recv.transfer_source_reference), '') IS NOT NULL
+       AND (
+         arch.transfer_source_reference = recv.transfer_source_reference
+         OR arch.reference LIKE recv.transfer_source_reference || '-ARCH-%'
+         OR regexp_replace(arch.reference, '-ARCH-.*$', '') = recv.transfer_source_reference
+       )
+       AND (
+         arch.transfer_source_region_id = recv.transfer_source_region_id
+         OR arch.transfer_source_region_id IS NULL
+       )
+     WHERE recv.id = $1::uuid
+     ORDER BY arch.updated_at DESC
+     LIMIT 1`,
+    [receiverSrfId],
+  );
+  return fallback.rows[0] ?? null;
+}
+
+async function findInterHoReceiverRow(
+  client: PoolClient,
+  archivedSenderSrfId: string,
+): Promise<InterHoSrfLink | null> {
+  const { rows } = await client.query<InterHoSrfLink>(
+    `SELECT recv.id, recv.status, recv.reference, recv.transfer_source_reference,
+            recv.transfer_source_region_id, recv.region_id, recv.inter_ho_reestimate_phase
+     FROM srf_jobs arch
+     JOIN srf_jobs recv ON recv.id = arch.inter_ho_reestimate_receiver_srf_id
+     WHERE arch.id = $1::uuid
+     LIMIT 1`,
+    [archivedSenderSrfId],
+  );
+  if (rows[0]) return rows[0];
+  const fallback = await client.query<InterHoSrfLink>(
+    `SELECT recv.id, recv.status, recv.reference, recv.transfer_source_reference,
+            recv.transfer_source_region_id, recv.region_id, recv.inter_ho_reestimate_phase
+     FROM srf_jobs arch
+     JOIN srf_jobs recv ON recv.status NOT IN ('closed', 'cancelled', 'sent_to_other_ho')
+       AND NULLIF(TRIM(recv.transfer_source_reference), '') IS NOT NULL
+       AND recv.transfer_source_reference = COALESCE(NULLIF(TRIM(arch.transfer_source_reference), ''), regexp_replace(arch.reference, '-ARCH-.*$', ''))
+       AND recv.transfer_source_region_id = arch.transfer_source_region_id
+     WHERE arch.id = $1::uuid
+     ORDER BY recv.updated_at DESC
+     LIMIT 1`,
+    [archivedSenderSrfId],
+  );
+  return fallback.rows[0] ?? null;
 }
 
 async function getSeriesPrefixSuffix(
@@ -656,6 +779,8 @@ export function registerSrfRoutes(
                 j.transfer_source_region_id AS "transferSourceRegionId",
                 j.transfer_source_store_id AS "transferSourceStoreId",
                 j.transfer_source_reference AS "transferSourceReference",
+                j.inter_ho_reestimate_phase AS "interHoReestimatePhase",
+                j.inter_ho_reestimate_receiver_srf_id AS "interHoReestimateReceiverSrfId",
                 j.brand_sent_at AS "brandSentAt",
                 j.brand_dispatch_ref AS "brandDispatchRef",
                 j.brand_dispatch_note AS "brandDispatchNote",
@@ -848,6 +973,8 @@ export function registerSrfRoutes(
                 j.transfer_source_reference AS "transferSourceReference",
                 j.transfer_source_region_id AS "transferSourceRegionId",
                 j.transfer_target_region_id AS "transferTargetRegionId",
+                j.inter_ho_reestimate_phase AS "interHoReestimatePhase",
+                j.inter_ho_reestimate_receiver_srf_id AS "interHoReestimateReceiverSrfId",
                 j.brand_sent_at AS "brandSentAt",
                 j.brand_dispatch_ref AS "brandDispatchRef",
                 j.brand_dispatch_note AS "brandDispatchNote",
@@ -2704,8 +2831,13 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const jobRes = await client.query<{ store_id: string; region_id: string; status: string }>(
-        `SELECT store_id, region_id, status FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+      const jobRes = await client.query<{
+        store_id: string;
+        region_id: string;
+        status: string;
+        reference: string;
+      }>(
+        `SELECT store_id, region_id, status, reference FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
       const job = jobRes.rows[0];
@@ -2738,6 +2870,70 @@ export function registerSrfRoutes(
           ? l.lineTotalInr
           : (Number.isFinite(l.unitPriceInr) ? l.unitPriceInr : 0) * l.qty,
       }));
+      const missingPrice = normalized.find((l) => l.unitPriceInr <= 0);
+      if (missingPrice) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: `Selling price not assigned for ${missingPrice.name}. Set brand/region price in spare catalogue.`,
+        });
+        return;
+      }
+      const locationKey = `STORE:${job.region_id}:${job.store_id}`;
+      const usage = new Map<string, { qty: number; name: string }>();
+      for (const l of normalized) {
+        const prev = usage.get(l.spareId) ?? { qty: 0, name: l.name };
+        usage.set(l.spareId, { qty: prev.qty + Number(l.qty), name: prev.name || l.name });
+      }
+      for (const [spareId, entry] of usage.entries()) {
+        const stock = await client.query<{ quantity: number }>(
+          `SELECT quantity::float8 AS quantity
+           FROM spare_stock
+           WHERE spare_id = $1::uuid AND location_key = $2
+           FOR UPDATE`,
+          [spareId, locationKey],
+        );
+        const available = Number(stock.rows[0]?.quantity ?? 0);
+        if (available <= 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: `${entry.name} is out of stock at your store.` });
+          return;
+        }
+        if (available < entry.qty) {
+          await client.query("ROLLBACK");
+          res.status(400).json({
+            error: `Insufficient store stock for ${entry.name}. Available ${available}, required ${entry.qty}.`,
+          });
+          return;
+        }
+      }
+      for (const [spareId, entry] of usage.entries()) {
+        await client.query(
+          `UPDATE spare_stock
+           SET quantity = quantity - $3, updated_at = now()
+           WHERE spare_id = $1::uuid AND location_key = $2`,
+          [spareId, locationKey, entry.qty],
+        );
+        const bal = await client.query<{ quantity: number }>(
+          `SELECT quantity::float8 AS quantity
+           FROM spare_stock
+           WHERE spare_id = $1::uuid AND location_key = $2`,
+          [spareId, locationKey],
+        );
+        await appendStockHistory(client, {
+          spareId,
+          eventType: "TRANSFER_OUT",
+          locationKey,
+          locationType: "STORE",
+          regionId: job.region_id,
+          storeId: job.store_id,
+          quantityChange: -entry.qty,
+          balanceAfter: Number(bal.rows[0]?.quantity ?? 0),
+          referenceType: "MANUAL",
+          referenceNumber: job.reference,
+          note: `Store self-repair spare usage for ${job.reference}.`,
+          createdBy: actor.id,
+        });
+      }
       await client.query(
         `UPDATE srf_jobs
          SET used_spares = $2::jsonb,
@@ -3190,6 +3386,426 @@ export function registerSrfRoutes(
     res.status(400).json({
       error: "Manual re-estimate approval is disabled. Customer must approve from tracking link to restart repair.",
     });
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/inter-ho/reestimate-request", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can request inter-HO re-estimate." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const amount = Number(req.body?.estimateTotalInr);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status(400).json({ error: "Valid re-estimate amount is required." });
+      return;
+    }
+    if (!note) {
+      res.status(400).json({ error: "Re-estimate remark is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const recvRes = await client.query<{
+        status: string;
+        reference: string;
+        transfer_source_reference: string | null;
+        requires_local_conversion: boolean;
+        region_id: string;
+      }>(
+        `SELECT status, reference, transfer_source_reference, requires_local_conversion, region_id
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const recv = recvRes.rows[0];
+      if (!recv || !isInterHoReceiverLocalRow(recv)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Inter-HO re-estimate is only for receiver HO local repair SRFs." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== recv.region_id) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only the repair HO can request inter-HO re-estimate." });
+        return;
+      }
+      if (!["assigned", "estimate_ok", "customer_rejected"].includes(recv.status)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "SRF must be assigned, estimate-ok, or customer-rejected." });
+        return;
+      }
+      const arch = await findInterHoArchivedSenderRow(client, srfId);
+      if (!arch) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Could not find sender HO archived row for this inter-HO SRF." });
+        return;
+      }
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'inter_ho_reestimate_pending_sender',
+             reestimate_requested_inr = $2,
+             reestimate_requested_note = $3,
+             reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
+             inter_ho_reestimate_phase = 'pending_sender',
+             updated_at = now(),
+             modified_by = $4
+         WHERE id = $1::uuid`,
+        [srfId, amount, note, actor.id],
+      );
+      await client.query(
+        `UPDATE srf_jobs
+         SET reestimate_requested_inr = $2,
+             reestimate_requested_note = $3,
+             reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
+             inter_ho_reestimate_phase = 'pending_sender',
+             inter_ho_reestimate_receiver_srf_id = $4::uuid,
+             updated_at = now(),
+             modified_by = $5
+         WHERE id = $1::uuid`,
+        [arch.id, amount, note, srfId, actor.id],
+      );
+      await appendStatusHistory(
+        client,
+        srfId,
+        "inter_ho_reestimate_pending_sender",
+        actor.id,
+        `Repair HO proposed re-estimate INR ${amount.toFixed(2)} to sender HO: ${note}`,
+      );
+      await appendActionLog(client, srfId, {
+        action: "inter_ho_reestimate_request_receiver",
+        description: `Repair HO sent re-estimate INR ${amount.toFixed(2)} to sender HO for customer approval.`,
+        amountInr: amount,
+        actor,
+        details: { remark: note, senderArchivedSrfId: arch.id },
+      });
+      await appendActionLog(client, arch.id, {
+        action: "inter_ho_reestimate_pending_sender",
+        description: `Awaiting sender HO to forward re-estimate INR ${amount.toFixed(2)} to customer.`,
+        amountInr: amount,
+        actor,
+        details: { receiverSrfId: srfId, remark: note },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not request inter-HO re-estimate." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/inter-ho/reestimate-forward-customer", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can forward inter-HO re-estimate to customer." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const amountRaw = req.body?.estimateTotalInr;
+    const amountBody = amountRaw == null || amountRaw === "" ? null : Number(amountRaw);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      let arch = await client.query<{
+        id: string;
+        status: string;
+        transfer_source_region_id: string | null;
+        inter_ho_reestimate_phase: string | null;
+        phone: string;
+        reference: string;
+        customer_name: string;
+      }>(
+        `SELECT id, status, transfer_source_region_id, inter_ho_reestimate_phase, phone, reference, customer_name
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      let archRow = arch.rows[0];
+      let receiverId = srfId;
+      if (!archRow || archRow.status !== "sent_to_other_ho") {
+        const recvLink = await findInterHoArchivedSenderRow(client, srfId);
+        if (!recvLink) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Inter-HO sender archived SRF not found." });
+          return;
+        }
+        arch = await client.query<{
+          id: string;
+          status: string;
+          transfer_source_region_id: string | null;
+          inter_ho_reestimate_phase: string | null;
+          phone: string;
+          reference: string;
+          customer_name: string;
+        }>(
+          `SELECT id, status, transfer_source_region_id, inter_ho_reestimate_phase, phone, reference, customer_name
+           FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+          [recvLink.id],
+        );
+        archRow = arch.rows[0];
+        receiverId = srfId;
+      } else {
+        const recv = await findInterHoReceiverRow(client, srfId);
+        if (!recv) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Linked receiver HO SRF not found." });
+          return;
+        }
+        receiverId = recv.id;
+      }
+      if (!archRow || archRow.status !== "sent_to_other_ho") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        return;
+      }
+      const senderRegion = archRow.transfer_source_region_id ?? "";
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only sender HO can forward re-estimate to the customer." });
+        return;
+      }
+      const phase = archRow.inter_ho_reestimate_phase ?? "";
+      if (!["pending_sender", "customer_rejected"].includes(phase)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "No pending inter-HO re-estimate to forward to customer." });
+        return;
+      }
+      const recvMeta = await client.query<{
+        reestimate_requested_inr: number;
+        reestimate_requested_note: string | null;
+      }>(
+        `SELECT reestimate_requested_inr::float8, reestimate_requested_note
+         FROM srf_jobs WHERE id = $1::uuid`,
+        [receiverId],
+      );
+      const amount =
+        amountBody != null && Number.isFinite(amountBody) && amountBody > 0
+          ? amountBody
+          : Number(recvMeta.rows[0]?.reestimate_requested_inr ?? 0);
+      const remark = note || String(recvMeta.rows[0]?.reestimate_requested_note ?? "").trim();
+      if (!Number.isFinite(amount) || amount <= 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Valid re-estimate amount is required." });
+        return;
+      }
+      if (!remark) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Re-estimate remark is required." });
+        return;
+      }
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'reestimate_required',
+             reestimate_requested_inr = $2,
+             reestimate_requested_note = $3,
+             reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
+             inter_ho_reestimate_phase = 'customer_pending',
+             updated_at = now(),
+             modified_by = $4
+         WHERE id = $1::uuid`,
+        [receiverId, amount, remark, actor.id],
+      );
+      await client.query(
+        `UPDATE srf_jobs
+         SET reestimate_requested_inr = $2,
+             reestimate_requested_note = $3,
+             reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
+             inter_ho_reestimate_phase = 'customer_pending',
+             inter_ho_reestimate_receiver_srf_id = $4::uuid,
+             updated_at = now(),
+             modified_by = $5
+         WHERE id = $1::uuid`,
+        [archRow.id, amount, remark, receiverId, actor.id],
+      );
+      await appendStatusHistory(
+        client,
+        receiverId,
+        "reestimate_required",
+        actor.id,
+        `Sender HO forwarded inter-HO re-estimate INR ${amount.toFixed(2)} to customer: ${remark}`,
+      );
+      const attempt = await startReestimateAttempt(client, receiverId, {
+        amountInr: amount,
+        remark,
+        raisedBy: actor,
+      });
+      await appendActionLog(client, receiverId, {
+        action: "inter_ho_reestimate_forward_customer",
+        description: `Sender HO forwarded re-estimate attempt #${attempt.attemptNo} (INR ${amount.toFixed(2)}) to customer via tracking link.`,
+        amountInr: amount,
+        actor,
+        details: { attemptNo: attempt.attemptNo, remark },
+      });
+      await appendActionLog(client, archRow.id, {
+        action: "inter_ho_reestimate_forward_customer",
+        description: `Forwarded re-estimate INR ${amount.toFixed(2)} to customer for approval.`,
+        amountInr: amount,
+        actor,
+        details: { receiverSrfId: receiverId, remark },
+      });
+      await client.query("COMMIT");
+      try {
+        const recvMeta = await pool.query<{ transfer_source_reference: string | null; reference: string }>(
+          `SELECT transfer_source_reference, reference FROM srf_jobs WHERE id = $1::uuid`,
+          [receiverId],
+        );
+        const rootRef =
+          String(recvMeta.rows[0]?.transfer_source_reference ?? "").trim() ||
+          String(recvMeta.rows[0]?.reference ?? archRow.reference).trim();
+        const trackingToken = await getOrCreateTrackingToken(pool, archRow.phone);
+        const trackingUrl = `${resolvePublicAppBaseUrl(req)}/track?t=${encodeURIComponent(trackingToken)}`;
+        void sendTrackingLink({
+          phone: archRow.phone,
+          name: archRow.customer_name,
+          srfReference: rootRef,
+          trackingUrl,
+        }).catch(() => {});
+      } catch {
+        /* optional notify */
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not forward inter-HO re-estimate to customer." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/inter-ho/reestimate-approve-receiver", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can approve inter-HO re-estimate for repair HO." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      let arch = await client.query<{
+        id: string;
+        status: string;
+        transfer_source_region_id: string | null;
+        inter_ho_reestimate_phase: string | null;
+      }>(
+        `SELECT id, status, transfer_source_region_id, inter_ho_reestimate_phase
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      let archRow = arch.rows[0];
+      let receiverId = srfId;
+      if (!archRow || archRow.status !== "sent_to_other_ho") {
+        const recvRes = await client.query<{ status: string; inter_ho_reestimate_phase: string | null }>(
+          `SELECT status, inter_ho_reestimate_phase FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+          [srfId],
+        );
+        const recv = recvRes.rows[0];
+        if (!recv || recv.status !== "inter_ho_reestimate_customer_accepted") {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Customer must accept re-estimate before sender HO can release repair." });
+          return;
+        }
+        const archLink = await findInterHoArchivedSenderRow(client, srfId);
+        if (!archLink) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Sender HO archived row not found." });
+          return;
+        }
+        receiverId = srfId;
+        arch = await client.query<{
+          id: string;
+          status: string;
+          transfer_source_region_id: string | null;
+          inter_ho_reestimate_phase: string | null;
+        }>(
+          `SELECT id, status, transfer_source_region_id, inter_ho_reestimate_phase
+           FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+          [archLink.id],
+        );
+        archRow = arch.rows[0];
+      } else {
+        const recv = await findInterHoReceiverRow(client, srfId);
+        if (!recv || recv.status !== "inter_ho_reestimate_customer_accepted") {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Customer must accept re-estimate before sender HO can release repair." });
+          return;
+        }
+        receiverId = recv.id;
+      }
+      if (!archRow) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        return;
+      }
+      const senderRegion = archRow.transfer_source_region_id ?? "";
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only sender HO can approve re-estimate for repair HO." });
+        return;
+      }
+      const recvAmt = await client.query<{ reestimate_requested_inr: number }>(
+        `SELECT reestimate_requested_inr::float8 FROM srf_jobs WHERE id = $1::uuid`,
+        [receiverId],
+      );
+      const amount = Number(recvAmt.rows[0]?.reestimate_requested_inr ?? 0);
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'assigned',
+             estimate_total_inr = COALESCE($2::numeric, estimate_total_inr),
+             inter_ho_reestimate_phase = NULL,
+             reestimate_approved_at = now(),
+             reestimate_approved_note = $3,
+             updated_at = now(),
+             modified_by = $4
+         WHERE id = $1::uuid`,
+        [receiverId, amount > 0 ? amount : null, note || "Sender HO approved customer re-estimate for repair HO.", actor.id],
+      );
+      await client.query(
+        `UPDATE srf_jobs
+         SET inter_ho_reestimate_phase = NULL,
+             reestimate_approved_at = now(),
+             reestimate_approved_note = $2,
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid`,
+        [archRow.id, note || "Sender HO released repair HO to continue.", actor.id],
+      );
+      await appendStatusHistory(
+        client,
+        receiverId,
+        "assigned",
+        actor.id,
+        note || `Sender HO approved customer re-estimate (INR ${amount.toFixed(2)}). Repair can continue.`,
+      );
+      await appendActionLog(client, receiverId, {
+        action: "inter_ho_reestimate_approve_receiver",
+        description: `Sender HO approved customer re-estimate — repair HO may continue at INR ${amount.toFixed(2)}.`,
+        amountInr: amount,
+        actor,
+        details: { note: note || null },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not approve inter-HO re-estimate for repair HO." });
+    } finally {
+      client.release();
+    }
   });
 
   app.post("/api/service/srf-jobs/:srfId/supervisor/repair-complete", requireAuth, async (req, res) => {
@@ -5242,8 +5858,11 @@ export function registerSrfRoutes(
         region_id: string;
         repair_route: string;
         reestimate_requested_inr: number | null;
+        inter_ho_reestimate_phase: string | null;
+        transfer_source_reference: string | null;
       }>(
-        `SELECT id, status, phone, reference, customer_name, region_id, repair_route, reestimate_requested_inr::float8
+        `SELECT id, status, phone, reference, customer_name, region_id, repair_route,
+                reestimate_requested_inr::float8, inter_ho_reestimate_phase, transfer_source_reference
          FROM srf_jobs
          WHERE id = $1::uuid
          FOR UPDATE`,
@@ -5260,8 +5879,14 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Re-estimate response is not allowed for this SRF status." });
         return;
       }
+      const interHoCustomerPending = srf.inter_ho_reestimate_phase === "customer_pending";
+      const archRow = interHoCustomerPending ? await findInterHoArchivedSenderRow(client, srfId) : null;
       const storeSelfRepair = normalizeSrfRepairRoute(srf.repair_route) === "store_self";
-      const statusAfterAccept = storeSelfRepair ? "store_self_working" : "assigned";
+      const statusAfterAccept = interHoCustomerPending
+        ? "inter_ho_reestimate_customer_accepted"
+        : storeSelfRepair
+          ? "store_self_working"
+          : "assigned";
       const customerActor = {
         id: null as string | null,
         role: "customer",
@@ -5274,11 +5899,38 @@ export function registerSrfRoutes(
                customer_reestimate_response = 'accepted',
                customer_reestimate_responded_at = now(),
                estimate_total_inr = COALESCE($2::numeric, estimate_total_inr),
+               inter_ho_reestimate_phase = $4,
                updated_at = now()
            WHERE id = $1::uuid`,
-          [srfId, srf.reestimate_requested_inr, statusAfterAccept],
+          [
+            srfId,
+            srf.reestimate_requested_inr,
+            statusAfterAccept,
+            interHoCustomerPending ? "customer_accepted" : null,
+          ],
         );
-        await appendStatusHistory(client, srfId, statusAfterAccept, null, note || "Customer accepted re-estimate.");
+        if (archRow) {
+          await client.query(
+            `UPDATE srf_jobs
+             SET customer_reestimate_response = 'accepted',
+                 customer_reestimate_responded_at = now(),
+                 inter_ho_reestimate_phase = 'customer_accepted',
+                 reestimate_requested_inr = $2,
+                 updated_at = now()
+             WHERE id = $1::uuid`,
+            [archRow.id, srf.reestimate_requested_inr],
+          );
+        }
+        await appendStatusHistory(
+          client,
+          srfId,
+          statusAfterAccept,
+          null,
+          note ||
+            (interHoCustomerPending
+              ? "Customer accepted re-estimate — awaiting sender HO approval for repair HO."
+              : "Customer accepted re-estimate."),
+        );
         await recordReestimateCustomerResponse(client, srfId, { response: "accepted", note });
         await appendActionLog(client, srfId, {
           action: "customer_accept_reestimate",
@@ -5299,10 +5951,22 @@ export function registerSrfRoutes(
            SET status = 'customer_rejected',
                customer_reestimate_response = 'rejected',
                customer_reestimate_responded_at = now(),
+               inter_ho_reestimate_phase = $2,
                updated_at = now()
            WHERE id = $1::uuid`,
-          [srfId],
+          [srfId, interHoCustomerPending ? "customer_rejected" : null],
         );
+        if (archRow) {
+          await client.query(
+            `UPDATE srf_jobs
+             SET customer_reestimate_response = 'rejected',
+                 customer_reestimate_responded_at = now(),
+                 inter_ho_reestimate_phase = 'customer_rejected',
+                 updated_at = now()
+             WHERE id = $1::uuid`,
+            [archRow.id],
+          );
+        }
         await appendStatusHistory(
           client,
           srfId,
@@ -5325,7 +5989,7 @@ export function registerSrfRoutes(
         });
       }
       await client.query("COMMIT");
-      if (!accepted && pushInApp && srf.region_id) {
+      if (!accepted && pushInApp && srf.region_id && !interHoCustomerPending) {
         const { rows: notifyRows } = await pool.query<{ id: string }>(
           `SELECT id FROM app_users
            WHERE region_id = $1::text

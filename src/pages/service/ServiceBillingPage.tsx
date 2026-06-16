@@ -726,13 +726,15 @@ export function ServiceBillingPage() {
               title="Line items"
               subtitle="Quantity × rate"
               action={
-                <button
-                  type="button"
-                  onClick={addLine}
-                  className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
-                >
-                  Add line
-                </button>
+                isInterHoSrfInvoiceFlow ? null : (
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
+                  >
+                    Add line
+                  </button>
+                )
               }
             >
               <div className="space-y-3">
@@ -746,6 +748,7 @@ export function ServiceBillingPage() {
                       <input
                         value={line.description}
                         onChange={(e) => updateLine(line.id, { description: e.target.value })}
+                        readOnly={isInterHoSrfInvoiceFlow}
                         className={inputClass}
                         placeholder="Service / part"
                       />
@@ -758,6 +761,7 @@ export function ServiceBillingPage() {
                         step={0.01}
                         value={line.qty}
                         onChange={(e) => updateLine(line.id, { qty: e.target.value })}
+                        readOnly={isInterHoSrfInvoiceFlow}
                         className={inputClass}
                       />
                     </div>
@@ -769,103 +773,173 @@ export function ServiceBillingPage() {
                         step={0.01}
                         value={line.rate}
                         onChange={(e) => updateLine(line.id, { rate: e.target.value })}
+                        readOnly={isInterHoSrfInvoiceFlow}
                         className={inputClass}
                       />
                     </div>
                     <div className="sm:col-span-2 flex sm:justify-end">
-                      <button
-                        type="button"
-                        onClick={() => removeLine(line.id)}
-                        disabled={lines.length <= 1}
-                        className="rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 disabled:opacity-40"
-                      >
-                        Remove
-                      </button>
+                      {isInterHoSrfInvoiceFlow ? (
+                        <span className="px-3 py-2 text-xs font-medium text-stone-400">Locked</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => removeLine(line.id)}
+                          disabled={lines.length <= 1}
+                          className="rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 disabled:opacity-40"
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs font-medium text-stone-600">Tax % (GST on taxable value)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={taxPercent}
-                      onChange={(e) => setTaxPercent(e.target.value)}
-                      className={inputClass}
-                    />
-                    {apiMode ? (
-                      <p className="mt-1 text-xs text-stone-500">
-                        Default loaded from organisation settings. Default SAC/HSN for invoices:{" "}
-                        <span className="font-mono font-medium text-stone-700">{defaultSacHsn}</span>
-                        {canOpenTaxSettings ? (
-                          <>
-                            {" "}
-                            ·{" "}
-                            <Link to="/settings/tax" className="font-medium text-zimson-800 underline">
-                              Edit in Tax &amp; billing
-                            </Link>
-                          </>
-                        ) : null}
+              {isInterHoSrfInvoiceFlow ? (
+                <div className="mt-4 space-y-3">
+                  <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_220px]">
+                    <div>
+                      <label className="text-xs font-medium text-stone-600">Tax % (GST)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={taxPercent}
+                        onChange={(e) => setTaxPercent(e.target.value)}
+                        readOnly={isInterHoSrfInvoiceFlow}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3 text-sm">
+                      <p className="flex items-center justify-between text-stone-600">
+                        <span>Subtotal (excl GST)</span>
+                        <span className="font-semibold text-stone-900">₹{taxableValue.toFixed(2)}</span>
                       </p>
-                    ) : null}
+                      <p className="mt-1 flex items-center justify-between text-stone-600">
+                        <span>CGST</span>
+                        <span className="font-semibold text-stone-900">₹{cgstAmt.toFixed(2)}</span>
+                      </p>
+                      <p className="mt-1 flex items-center justify-between text-stone-600">
+                        <span>SGST</span>
+                        <span className="font-semibold text-stone-900">₹{sgstAmt.toFixed(2)}</span>
+                      </p>
+                      <p className="mt-1 border-t border-zimson-200 pt-1.5 flex items-center justify-between font-bold text-zimson-900">
+                        <span>Total</span>
+                        <span>₹{grandTotal.toFixed(2)}</span>
+                      </p>
+                    </div>
                   </div>
-                  {pricesTaxInclusive ? (
-                    <p className="rounded-lg bg-zimson-50 px-3 py-2 text-xs text-stone-700 ring-1 ring-zimson-200/80">
-                      <strong>Tax-inclusive rates</strong> are on (from settings when API is on). Line totals include
-                      GST; taxable value is backed out using the % above.
-                    </p>
-                  ) : (
-                    <p className="text-xs text-stone-500">
-                      Line rates are <strong>tax-exclusive</strong> unless changed in Tax &amp; billing settings.
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-col justify-end text-right text-sm">
-                  <p className="text-stone-600">
-                    {pricesTaxInclusive ? "Gross from lines (incl. GST)" : "Subtotal (excl. GST)"}{" "}
-                    <span className="font-semibold text-stone-900">
-                      {lineTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                    </span>
+                  <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-zimson-50/70 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Taxable amount</th>
+                          <th className="px-3 py-2 text-left">CGST</th>
+                          <th className="px-3 py-2 text-left">SGST</th>
+                          <th className="px-3 py-2 text-left">Total tax</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-t border-zimson-100">
+                          <td className="px-3 py-2 font-semibold text-zimson-900">₹{taxableValue.toFixed(2)}</td>
+                          <td className="px-3 py-2">₹{cgstAmt.toFixed(2)}</td>
+                          <td className="px-3 py-2">₹{sgstAmt.toFixed(2)}</td>
+                          <td className="px-3 py-2">₹{taxAmt.toFixed(2)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-stone-500">
+                    Default tax loaded from settings. SAC/HSN: <span className="font-mono">{defaultSacHsn}</span>
+                    {canOpenTaxSettings ? (
+                      <>
+                        {" "}· <Link to="/settings/tax" className="font-medium text-zimson-800 underline">Edit in Tax &amp; billing</Link>
+                      </>
+                    ) : null}
                   </p>
-                  {pricesTaxInclusive ? (
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs font-medium text-stone-600">Tax % (GST on taxable value)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={taxPercent}
+                        onChange={(e) => setTaxPercent(e.target.value)}
+                        className={inputClass}
+                      />
+                      {apiMode ? (
+                        <p className="mt-1 text-xs text-stone-500">
+                          Default loaded from organisation settings. Default SAC/HSN for invoices:{" "}
+                          <span className="font-mono font-medium text-stone-700">{defaultSacHsn}</span>
+                          {canOpenTaxSettings ? (
+                            <>
+                              {" "}
+                              ·{" "}
+                              <Link to="/settings/tax" className="font-medium text-zimson-800 underline">
+                                Edit in Tax &amp; billing
+                              </Link>
+                            </>
+                          ) : null}
+                        </p>
+                      ) : null}
+                    </div>
+                    {pricesTaxInclusive ? (
+                      <p className="rounded-lg bg-zimson-50 px-3 py-2 text-xs text-stone-700 ring-1 ring-zimson-200/80">
+                        <strong>Tax-inclusive rates</strong> are on (from settings when API is on). Line totals include
+                        GST; taxable value is backed out using the % above.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-stone-500">
+                        Line rates are <strong>tax-exclusive</strong> unless changed in Tax &amp; billing settings.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col justify-end text-right text-sm">
                     <p className="text-stone-600">
-                      Taxable (backed out):{" "}
+                      {pricesTaxInclusive ? "Gross from lines (incl. GST)" : "Subtotal (excl. GST)"}{" "}
                       <span className="font-semibold text-stone-900">
-                        {taxableValue.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        {lineTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
                       </span>
                     </p>
-                  ) : null}
-                  {taxPct > 0 ? (
-                    <>
+                    {pricesTaxInclusive ? (
                       <p className="text-stone-600">
-                        CGST (½ of GST):{" "}
+                        Taxable (backed out):{" "}
                         <span className="font-semibold text-stone-900">
-                          {cgstAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                          {taxableValue.toLocaleString(undefined, { style: "currency", currency: "INR" })}
                         </span>
                       </p>
-                      <p className="text-stone-600">
-                        SGST (½ of GST):{" "}
-                        <span className="font-semibold text-stone-900">
-                          {sgstAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                        </span>
-                      </p>
-                    </>
-                  ) : null}
-                  <p className="text-stone-600">
-                    Total GST:{" "}
-                    <span className="font-semibold text-stone-900">
-                      {taxAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                    </span>
-                  </p>
-                  <p className="mt-1 text-base font-bold text-zimson-900">
-                    Total: {grandTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                  </p>
+                    ) : null}
+                    {taxPct > 0 ? (
+                      <>
+                        <p className="text-stone-600">
+                          CGST (½ of GST):{" "}
+                          <span className="font-semibold text-stone-900">
+                            {cgstAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                          </span>
+                        </p>
+                        <p className="text-stone-600">
+                          SGST (½ of GST):{" "}
+                          <span className="font-semibold text-stone-900">
+                            {sgstAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                          </span>
+                        </p>
+                      </>
+                    ) : null}
+                    <p className="text-stone-600">
+                      Total GST:{" "}
+                      <span className="font-semibold text-stone-900">
+                        {taxAmt.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-base font-bold text-zimson-900">
+                      Total: {grandTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </Card>
 
             {error ? (

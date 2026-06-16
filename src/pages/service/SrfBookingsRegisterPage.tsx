@@ -50,6 +50,8 @@ const statusCls: Record<string, string> = {
   estimate_ok: "bg-amber-100 text-amber-700",
   reestimate_required: "bg-rose-100 text-rose-700",
   customer_rejected: "bg-rose-200 text-rose-900",
+  inter_ho_reestimate_pending_sender: "bg-indigo-100 text-indigo-900",
+  inter_ho_reestimate_customer_accepted: "bg-emerald-100 text-emerald-900",
   sent_to_brand: "bg-violet-100 text-violet-700",
   brand_estimate_pending: "bg-violet-100 text-violet-700",
   brand_approved: "bg-indigo-100 text-indigo-700",

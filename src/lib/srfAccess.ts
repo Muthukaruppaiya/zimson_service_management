@@ -23,6 +23,19 @@ export function rootSrfBookingReference(job: Pick<SrfJob, "reference" | "transfe
   return job.reference.trim();
 }
 
+/** Receiver HO local repair SRF created after inter-HO convert-local. */
+export function isInterHoReceiverLocal(
+  job: Pick<SrfJob, "reference" | "transferSourceReference" | "requiresLocalConversion" | "status">,
+): boolean {
+  const root = (job.transferSourceReference ?? "").trim();
+  return (
+    !!root &&
+    root !== job.reference.trim() &&
+    !job.requiresLocalConversion &&
+    job.status !== "sent_to_other_ho"
+  );
+}
+
 function hasActiveJourneyForRoot(rootRef: string, job: SrfJob, allJobs: Iterable<SrfJob>): boolean {
   if (!rootRef) return false;
   for (const other of allJobs) {
@@ -47,14 +60,123 @@ export function shouldShowInSrfBookingRegister(job: SrfJob, allJobs: Iterable<Sr
   return !hasActiveJourneyForRoot(rootRef, job, allJobs);
 }
 
-/** Supervisor list / transferred panel — hide ARCH rows and superseded sent_to_other_ho parents. */
+/** Supervisor list / transferred panel — hide ARCH rows; keep sender inter-HO rows visible during repair. */
 export function shouldShowInSupervisorSrfList(job: SrfJob, allJobs: Iterable<SrfJob>): boolean {
   if (isArchivedSrfJob(job)) return false;
   if (job.status === "sent_to_other_ho") {
+    if (job.interHoReestimatePhase) return true;
+    if ((job.transferSourceRegionId ?? "").trim()) return true;
+    if ((job.transferTargetRegionId ?? "").trim()) return true;
     const rootRef = rootSrfBookingReference(job);
     return !hasActiveJourneyForRoot(rootRef, job, allJobs);
   }
   return true;
+}
+
+/** Active inter-HO re-estimate — sender HO negotiates with customer; receiver row is passive. */
+export function isInterHoReestimateHandshakeActive(
+  job: Pick<SrfJob, "status" | "interHoReestimatePhase">,
+): boolean {
+  const phase = job.interHoReestimatePhase;
+  if (phase && ["pending_sender", "customer_pending", "customer_accepted", "customer_rejected"].includes(phase)) {
+    return true;
+  }
+  return (
+    job.status === "inter_ho_reestimate_pending_sender" ||
+    job.status === "inter_ho_reestimate_customer_accepted" ||
+    (job.status === "reestimate_required" && phase === "customer_pending") ||
+    (job.status === "customer_rejected" && phase === "customer_rejected")
+  );
+}
+
+/** Hide receiver-local SRF from supervisor decision queue while sender HO owns the handshake. */
+export function shouldExcludeFromSupervisorDecisionQueue(job: SrfJob): boolean {
+  return isInterHoReceiverLocal(job) && isInterHoReestimateHandshakeActive(job);
+}
+
+/** Main booking ref (sender) and converted receiver-local ref for inter-HO chains. */
+export function interHoMainAndReceiverRefs(
+  job: SrfJob,
+  allJobs?: Iterable<SrfJob>,
+): { mainRef: string; receiverRef?: string } {
+  if (isInterHoReceiverLocal(job)) {
+    const mainRef = (job.transferSourceReference ?? "").trim() || job.reference.trim();
+    return { mainRef, receiverRef: job.reference.trim() };
+  }
+  const mainRef = rootSrfBookingReference(job);
+  if (job.interHoReestimateReceiverSrfId && allJobs) {
+    for (const other of allJobs) {
+      if (other.id === job.interHoReestimateReceiverSrfId) {
+        return { mainRef, receiverRef: other.reference.trim() };
+      }
+    }
+  }
+  if (allJobs) {
+    for (const other of allJobs) {
+      if (!isInterHoReceiverLocal(other)) continue;
+      const src = (other.transferSourceReference ?? "").trim();
+      if (src === mainRef) {
+        return { mainRef, receiverRef: other.reference.trim() };
+      }
+    }
+  }
+  return { mainRef };
+}
+
+/** Sender HO rows with an active inter-HO re-estimate handshake. */
+export function isInterHoSenderReestimateRow(
+  job: SrfJob,
+  user: SessionUser,
+  allJobs: Iterable<SrfJob> = [],
+): boolean {
+  if (isInterHoReceiverLocal(job)) return false;
+  const sourceRef = (job.transferSourceReference ?? "").trim();
+  let sourceRefBelongsToUserRegion = false;
+  if (sourceRef && user.regionId) {
+    for (const x of allJobs) {
+      if (x.reference.trim() === sourceRef && x.regionId === user.regionId) {
+        sourceRefBelongsToUserRegion = true;
+        break;
+      }
+    }
+  }
+  if (user.role !== "super_admin" && user.role !== "admin") {
+    const sourceRegion = (job.transferSourceRegionId ?? "").trim();
+    const ownRegion = (job.regionId ?? "").trim();
+    if (
+      !user.regionId ||
+      (user.regionId !== sourceRegion && user.regionId !== ownRegion && !sourceRefBelongsToUserRegion)
+    ) {
+      return false;
+    }
+  }
+  if (job.interHoReestimatePhase) return true;
+  if (
+    job.status === "inter_ho_reestimate_pending_sender" ||
+    job.status === "inter_ho_reestimate_customer_accepted"
+  ) {
+    return true;
+  }
+  if (job.status === "reestimate_required" && job.interHoReestimatePhase === "customer_pending") {
+    return true;
+  }
+  if (job.status === "customer_rejected" && job.interHoReestimatePhase === "customer_rejected") {
+    return true;
+  }
+  if (
+    (job.status === "reestimate_required" || job.status === "customer_rejected") &&
+    (
+      !!(job.transferSourceRegionId ?? "").trim() ||
+      !!(job.transferTargetRegionId ?? "").trim() ||
+      !!(job.transferSourceReference ?? "").trim()
+    )
+  ) {
+    return true;
+  }
+  if (job.status === "sent_to_other_ho" && Number(job.reestimateRequestedInr ?? 0) > 0) {
+    return true;
+  }
+  return false;
 }
 
 /** Find live local repair SRF created from inter-HO convert (same root booking ref). */
