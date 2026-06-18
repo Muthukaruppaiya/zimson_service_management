@@ -9,10 +9,15 @@ import { phoneLast10 } from "../../lib/customerLookup";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../../lib/srfTraceLocations";
 import { canResendSrfTrackingWhatsApp } from "../../lib/resendSrfTrackingWhatsApp";
+import { canResendSrfApprovalWhatsApp } from "../../lib/srfApprovalWhatsApp";
 import {
   ResendSrfTrackingWhatsAppButton,
   srfTrackingWhatsAppResultMessage,
 } from "./ResendSrfTrackingWhatsAppButton";
+import {
+  ResendSrfApprovalWhatsAppButton,
+  srfApprovalWhatsAppMessage,
+} from "./ResendSrfApprovalWhatsAppButton";
 import {
   ResendClosedSrfInvoiceActions,
   canResendClosedSrfInvoice,
@@ -279,6 +284,17 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
                 spareHsnLookup={spareHsnLookup}
                 spareGstLookup={spareGstLookup}
                 onResult={setWhatsappNote}
+              />
+            ) : enrichedTrace && canResendSrfApprovalWhatsApp(
+              enrichedTrace.job.status,
+              enrichedTrace.job.customerReestimateResponse,
+            ) ? (
+              <ResendSrfApprovalWhatsAppButton
+                srfId={srfId}
+                phone={enrichedTrace.job.phone}
+                label="Resend approval WhatsApp"
+                className="rounded-lg border border-amber-400 bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                onResult={(r) => setWhatsappNote(srfApprovalWhatsAppMessage(r))}
               />
             ) : enrichedTrace && canResendSrfTrackingWhatsApp(enrichedTrace.job.status) ? (
               <ResendSrfTrackingWhatsAppButton

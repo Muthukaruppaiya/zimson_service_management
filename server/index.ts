@@ -10,6 +10,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { join } from "node:path";
 import { resolveInvoicePdfFilePath } from "./messaging/invoicePdfPublicUrl";
+import { resolveSrfPdfFilePath } from "./messaging/srfPdfPublicUrl";
 import { fileURLToPath } from "node:url";
 import { registerCatalogRoutes } from "./catalogRoutes";
 import { registerGeoRoutes } from "./geoRoutes";
@@ -19,10 +20,12 @@ import { registerQuickBillCaptureRoutes } from "./quickBillCaptureRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { getMessagingPublicBaseUrl, isWhatsAppInvoiceDryRun } from "./messaging/config";
 import { initMessagingSettings } from "./messagingSettingsStore";
+import { initEdocSettings } from "./edocSettingsStore";
 import { registerMessagingSettingsRoutes } from "./messagingSettingsRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
 import { registerEdocRoutes } from "./edocRoutes";
+import { registerEdocSettingsRoutes } from "./edocSettingsRoutes";
 import { registerTechnicianRoutes } from "./technicianRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
@@ -509,6 +512,20 @@ app.get("/api/messaging/public-invoice-pdf/:filename", (req, res) => {
   const filePath = resolveInvoicePdfFilePath(invoicePdfDir, String(req.params.filename ?? ""));
   if (!filePath) {
     res.status(404).type("text/plain").send("Invoice PDF not found.");
+    return;
+  }
+  const name = path.basename(filePath);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${name}"`);
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.sendFile(filePath);
+});
+
+app.get("/api/messaging/public-srf-pdf/:filename", (req, res) => {
+  const srfPdfDir = join(process.cwd(), "uploads", "srf-pdf");
+  const filePath = resolveSrfPdfFilePath(srfPdfDir, String(req.params.filename ?? ""));
+  if (!filePath) {
+    res.status(404).type("text/plain").send("SRF PDF not found.");
     return;
   }
   const name = path.basename(filePath);
@@ -3846,6 +3863,8 @@ async function main() {
   registerQuickBillCaptureRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerEdocRoutes(app, dbPool, requireAuth);
+  await initEdocSettings(dbPool);
+  registerEdocSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   await initMessagingSettings(dbPool);
   registerMessagingSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

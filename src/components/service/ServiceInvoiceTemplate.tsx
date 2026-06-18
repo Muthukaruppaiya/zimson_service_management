@@ -1,4 +1,5 @@
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
+import { EinvoiceSignedQr } from "./EinvoiceSignedQr";
 import { InvoiceNumberScanCodes } from "./InvoiceNumberScanCodes";
 
 type Props = {
@@ -29,8 +30,9 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
     <div
       id={rootId}
       className="service-invoice-print-root inv-doc"
+      data-expect-einvoice-qr={data.irn || data.einvoiceQr ? "1" : undefined}
     >
-      <div className="inv-sheet">
+      <div className="inv-sheet inv-page-main">
         {/* Document banner */}
         <div className="inv-banner">
           <div className="inv-banner-title">{data.documentLabel?.trim() || "TAX INVOICE"}</div>
@@ -40,7 +42,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </div>
         </div>
 
-        {/* Header: meta | barcode | logo */}
+        {/* Header: meta | logo + barcode | e-invoice QR */}
         <div className="inv-top-row">
           <div className="inv-top-cell" style={{ width: "32%" }}>
             <div className="inv-meta-box">
@@ -54,12 +56,18 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
                     <td className="inv-meta-label">Invoice Date</td>
                     <td className="inv-meta-value">: {data.invoiceDate}</td>
                   </tr>
-                  {data.irn ? (
+          {data.irn ? (
                     <tr>
                       <td className="inv-meta-label">IRN</td>
                       <td className="inv-meta-value mono" style={{ fontSize: "0.65rem", wordBreak: "break-all" }}>
                         : {data.irn}
                       </td>
+                    </tr>
+                  ) : null}
+                  {data.ackNo ? (
+                    <tr>
+                      <td className="inv-meta-label">Ack No</td>
+                      <td className="inv-meta-value mono">: {data.ackNo}</td>
                     </tr>
                   ) : null}
                   {data.serviceReference ? (
@@ -81,17 +89,26 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             </div>
           </div>
           <div className="inv-top-cell inv-barcode-wrap" style={{ width: "36%" }}>
-            <InvoiceNumberScanCodes invoiceNumber={scanInvoiceNumber} className="mt-0 shrink-0" />
+            <div className="inv-logo-above-barcode">
+              <img
+                src={logoSrc}
+                alt="Zimson"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).onerror = null;
+                  (e.currentTarget as HTMLImageElement).src = FALLBACK_LOGO;
+                }}
+              />
+            </div>
+            <InvoiceNumberScanCodes invoiceNumber={scanInvoiceNumber} className="mt-1 shrink-0" />
           </div>
-          <div className="inv-top-cell inv-logo-wrap" style={{ width: "32%" }}>
-            <img
-              src={logoSrc}
-              alt="Zimson"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).onerror = null;
-                (e.currentTarget as HTMLImageElement).src = FALLBACK_LOGO;
-              }}
-            />
+          <div className="inv-top-cell inv-qr-wrap" style={{ width: "32%" }}>
+            {data.irn || data.einvoiceQr ? (
+              <EinvoiceSignedQr
+                signedPayload={data.einvoiceQr}
+                irn={data.irn}
+                className="mt-0"
+              />
+            ) : null}
           </div>
         </div>
 
@@ -401,19 +418,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </div>
         ) : null}
 
-        {/* Terms */}
-        {data.footerTerms && data.footerTerms.length > 0 ? (
-          <div className="inv-terms">
-            <div className="inv-terms-title">Terms and Conditions</div>
-            <ol>
-              {data.footerTerms.map((t, i) => (
-                <li key={i}>{normalizeTermLine(t)}</li>
-              ))}
-            </ol>
-          </div>
-        ) : null}
-
-        {/* Footer */}
+        {/* Footer — page 1 */}
         <div className="inv-footer">
           <div className="inv-footer-left">
             {data.generatedBy ? (
@@ -437,6 +442,26 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           policy. Subject to jurisdiction at Chennai, Tamil Nadu, E. &amp; O.E.
         </div>
       </div>
+
+      {/* Terms — always on page 2 (print / PDF) */}
+      {data.footerTerms && data.footerTerms.length > 0 ? (
+        <div className="inv-sheet inv-page-terms">
+          <div className="inv-terms-page-head">
+            <span className="inv-terms-page-title">Terms and Conditions</span>
+            <span className="inv-terms-page-ref mono">
+              {data.invoiceNumber}
+              {data.invoiceDate ? ` · ${data.invoiceDate}` : ""}
+            </span>
+          </div>
+          <div className="inv-terms">
+            <ol>
+              {data.footerTerms.map((t, i) => (
+                <li key={i}>{normalizeTermLine(t)}</li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -23,7 +23,7 @@ import {
   resolveEdocEwayUserGstin,
   resolveEdocSellerGstin,
 } from "./config";
-import { gstinStateCode, parsePincode, stateNameFromCode } from "./gstState";
+import { defaultPincodeForState, gstinStateCode, parsePincode, stateNameFromCode } from "./gstState";
 import { saveDeliveryChallanEdoc, saveQuickBillEdoc, saveSrfEdoc } from "./persist";
 import type { EdocLine, EdocParty, EdocResult, EdocValueTotals } from "./types";
 
@@ -67,7 +67,7 @@ function buildPartyFromBillFields(args: {
     address1: parts[0] ?? addr.slice(0, 90),
     address2: parts.slice(1).join(", ").slice(0, 90),
     location: args.city?.trim() || parts[parts.length - 1] || stateNameFromCode(stateCode),
-    pincode: parsePincode(addr),
+    pincode: parsePincode(addr, defaultPincodeForState(stateCode)),
     stateCode,
     phone: args.phone ?? undefined,
     email: args.email ?? undefined,
@@ -92,18 +92,27 @@ function linesFromGstResult(
   gstResult: ReturnType<typeof computeServiceBillGst>,
   descriptions: string[],
 ): EdocLine[] {
-  return gstResult.lines.map((ln, i) => ({
-    slNo: i + 1,
-    description: descriptions[i] ?? `Line ${i + 1}`,
-    hsnSac: ln.hsnSac,
-    qty: 1,
-    unitPrice: ln.taxable,
-    taxable: ln.taxable,
-    cgst: ln.tax / (gstResult.isInterstate ? 1 : 2),
-    sgst: gstResult.isInterstate ? 0 : ln.tax / 2,
-    igst: gstResult.isInterstate ? ln.tax : 0,
-    total: ln.taxable + ln.tax,
-  }));
+  return gstResult.lines.map((ln, i) => {
+    const tax = round2(ln.tax);
+    const interstate = gstResult.isInterstate;
+    return {
+      slNo: i + 1,
+      description: descriptions[i] ?? `Line ${i + 1}`,
+      hsnSac: ln.hsnSac,
+      qty: 1,
+      unitPrice: ln.taxable,
+      taxable: ln.taxable,
+      cgst: interstate ? 0 : round2(tax / 2),
+      sgst: interstate ? 0 : round2(tax - round2(tax / 2)),
+      igst: interstate ? tax : 0,
+      total: ln.taxable + ln.tax,
+      gstRatePercent: ln.ratePercent,
+    };
+  });
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 export async function tryGenerateEinvoiceForQuickBill(
@@ -179,7 +188,8 @@ export async function tryGenerateEinvoiceForQuickBill(
   const pricesTaxInclusive = Boolean(taxRow?.prices_tax_inclusive);
   const natureOfRepair = bill.nature_of_repair ?? "";
 
-  const sellerStateCode = resolveSellerStateCode(storeGstin || sellerGstin);
+  /** Tax split must match the GSTIN on the e-invoice payload (may differ from store display GSTIN in sandbox). */
+  const sellerStateCode = resolveSellerStateCode(sellerGstin);
   const customerStateCode = resolveCustomerSupplyStateCode({
     customerType: "B2B",
     customerGstin: buyerGst,
@@ -348,7 +358,7 @@ export async function tryGenerateEinvoiceForSrfClose(
   const pricesTaxInclusive = Boolean(taxRow?.prices_tax_inclusive);
   const natureOfRepair = job.nature_of_repair ?? "";
 
-  const sellerStateCode = resolveSellerStateCode(storeGstin || sellerGstin);
+  const sellerStateCode = resolveSellerStateCode(sellerGstin);
   const billingState =
     customer?.billing_address && typeof customer.billing_address === "object"
       ? String((customer.billing_address as { state?: string }).state ?? "")

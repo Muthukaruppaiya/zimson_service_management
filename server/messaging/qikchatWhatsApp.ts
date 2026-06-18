@@ -42,7 +42,9 @@ export function resolvePublicHttpsDocumentUrl(documentUrl: string): string {
 }
 
 async function postQikchatMessage(apiKey: string, body: Record<string, unknown>): Promise<string | undefined> {
-  const res = await fetch(getQikchatMessagesUrl(), {
+  const url = getQikchatMessagesUrl();
+  console.log("[qikchat] POST", url);
+  const res = await fetch(url, {
     method: "POST",
     headers: qikchatApiHeaders(apiKey),
     body: JSON.stringify(body),
@@ -164,4 +166,179 @@ export async function sendInvoiceWhatsApp(input: SendInvoiceWhatsAppInput): Prom
   }
 
   return sendInvoiceWhatsAppTemplate(input);
+}
+
+export type SendTrackingLinkWhatsAppInput = {
+  phone10: string;
+  customerName: string;
+  srfNumber: string;
+  trackingUrl: string;
+  documentUrl: string;
+  documentFilename?: string;
+};
+
+/**
+ * Template message with document header — `customer_link` (SRF booking + tracking).
+ * Body: Hi {{1}}, your service request {{2}} has been registered… Track: {{3}}
+ */
+export async function sendTrackingLinkWhatsAppTemplate(
+  input: SendTrackingLinkWhatsAppInput,
+): Promise<string | undefined> {
+  if (!isWhatsAppConfigured()) {
+    throw new Error("WhatsApp not configured. Set Qikchat API key in Settings → SMS, email & WhatsApp.");
+  }
+
+  const cfg = getMessagingConfig().whatsapp;
+  const to = formatIndiaMobileE164(input.phone10);
+  const customerName = input.customerName.trim() || "Customer";
+  const srfNumber = input.srfNumber.trim();
+  const trackingUrl = input.trackingUrl.trim();
+  if (!srfNumber || !trackingUrl) throw new Error("SRF number and tracking URL are required.");
+
+  const templateName = process.env.QIKCHAT_TRACKING_TEMPLATE_NAME?.trim() || "customer_link";
+  const language = cfg.templateLanguage?.trim() || "en";
+
+  const documentUrl = resolvePublicHttpsDocumentUrl(input.documentUrl);
+  await verifyPublicInvoicePdfUrl(documentUrl);
+  const filename = sanitizeFilename(input.documentFilename ?? `Zimson-SRF-${srfNumber}`);
+
+  const payload = {
+    to_contact: to,
+    type: "template",
+    template: {
+      name: templateName,
+      language,
+      components: [
+        {
+          type: "header",
+          parameters: [
+            {
+              type: "document",
+              document: { link: documentUrl, filename },
+            },
+          ],
+        },
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: customerName },
+            { type: "text", text: srfNumber },
+            { type: "text", text: trackingUrl },
+          ],
+        },
+      ],
+    },
+  };
+
+  console.log("[qikchat] template", templateName, "| to=", to, "| srf doc=", documentUrl);
+  return postQikchatMessage(cfg.apiKey, payload);
+}
+
+export type SendTrackingLinkBodyOnlyInput = {
+  phone10: string;
+  customerName: string;
+  srfNumber: string;
+  trackingUrl: string;
+};
+
+/**
+ * Tracking link without document header — use when PDF publish fails.
+ * Template must be approved without a header (set QIKCHAT_TRACKING_TEXT_TEMPLATE_NAME).
+ */
+export async function sendTrackingLinkWhatsAppBodyOnly(
+  input: SendTrackingLinkBodyOnlyInput,
+): Promise<string | undefined> {
+  if (!isWhatsAppConfigured()) {
+    throw new Error("WhatsApp not configured. Set Qikchat API key in Settings → SMS, email & WhatsApp.");
+  }
+
+  const cfg = getMessagingConfig().whatsapp;
+  const to = formatIndiaMobileE164(input.phone10);
+  const customerName = input.customerName.trim() || "Customer";
+  const srfNumber = input.srfNumber.trim();
+  const trackingUrl = input.trackingUrl.trim();
+  if (!srfNumber || !trackingUrl) throw new Error("SRF number and tracking URL are required.");
+
+  const templateName =
+    process.env.QIKCHAT_TRACKING_TEXT_TEMPLATE_NAME?.trim() ||
+    process.env.QIKCHAT_TRACKING_TEMPLATE_NAME?.trim() ||
+    "customer_link";
+  const language = cfg.templateLanguage?.trim() || "en";
+
+  const payload = {
+    to_contact: to,
+    type: "template",
+    template: {
+      name: templateName,
+      language,
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: customerName },
+            { type: "text", text: srfNumber },
+            { type: "text", text: trackingUrl },
+          ],
+        },
+      ],
+    },
+  };
+
+  console.log("[qikchat] template (body only)", templateName, "| to=", to, "| srf=", srfNumber);
+  return postQikchatMessage(cfg.apiKey, payload);
+}
+
+export type SendSiteVisitApprovalWhatsAppInput = {
+  phone10: string;
+  customerName: string;
+  srfNumber: string;
+  approvalReason: string;
+  trackingUrl: string;
+};
+
+/**
+ * Text-only template — `site_visit_approval` (customer must approve re-estimate / site visit via tracking link).
+ * Body: Hi {{1}}, your service request {{2}} needs your approval for a site visit by our technician.
+ * Reason: {{3}}. Please review and respond here: {{4}} Thank you for choosing Zimson.
+ */
+export async function sendSiteVisitApprovalWhatsAppTemplate(
+  input: SendSiteVisitApprovalWhatsAppInput,
+): Promise<string | undefined> {
+  if (!isWhatsAppConfigured()) {
+    throw new Error("WhatsApp not configured. Set Qikchat API key in Settings → SMS, email & WhatsApp.");
+  }
+
+  const cfg = getMessagingConfig().whatsapp;
+  const to = formatIndiaMobileE164(input.phone10);
+  const customerName = input.customerName.trim() || "Customer";
+  const srfNumber = input.srfNumber.trim();
+  const approvalReason = input.approvalReason.trim().slice(0, 500) || "Approval required for next service step.";
+  const trackingUrl = input.trackingUrl.trim();
+  if (!srfNumber || !trackingUrl) throw new Error("SRF number and tracking URL are required.");
+
+  const templateName = process.env.QIKCHAT_APPROVAL_TEMPLATE_NAME?.trim() || "site_visit_approval";
+  const language = cfg.templateLanguage?.trim() || "en";
+
+  const payload = {
+    to_contact: to,
+    type: "template",
+    template: {
+      name: templateName,
+      language,
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: customerName },
+            { type: "text", text: srfNumber },
+            { type: "text", text: approvalReason },
+            { type: "text", text: trackingUrl },
+          ],
+        },
+      ],
+    },
+  };
+
+  console.log("[qikchat] template", templateName, "| to=", to, "| approval srf=", srfNumber);
+  return postQikchatMessage(cfg.apiKey, payload);
 }

@@ -8,7 +8,7 @@ import {
   storagePathForKey,
   type StorageCategory,
 } from "./config";
-import { s3DeleteObject, s3PutObject } from "./s3Client";
+import { s3DeleteObject, s3PutObject, s3GetObjectBuffer } from "./s3Client";
 
 const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
 
@@ -59,4 +59,27 @@ export function absoluteLocalPath(storagePath: string): string | null {
   const localRel = localPathFromStorage(fp) ?? (fp.startsWith("uploads/") ? fp.replace(/^\//, "") : null);
   if (!localRel) return null;
   return path.isAbsolute(fp) ? fp : path.join(process.cwd(), localRel);
+}
+
+/** Read bytes from local uploads/ path or S3 api/media/ path. */
+export async function readStoredFileBuffer(storagePath: string): Promise<Buffer | null> {
+  const fp = String(storagePath ?? "").replace(/\\/g, "/").trim();
+  if (!fp) return null;
+
+  const s3Key = keyFromStoragePath(fp);
+  if (s3Key && isS3StorageEnabled()) {
+    try {
+      return await s3GetObjectBuffer(s3Key);
+    } catch {
+      return null;
+    }
+  }
+
+  const abs = absoluteLocalPath(fp);
+  if (!abs) return null;
+  try {
+    return await fs.readFile(abs);
+  } catch {
+    return null;
+  }
 }

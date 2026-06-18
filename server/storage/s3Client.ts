@@ -90,3 +90,14 @@ export async function s3GetObjectStream(relativeKey: string) {
   );
   return out;
 }
+
+export async function s3GetObjectBuffer(relativeKey: string): Promise<Buffer> {
+  const out = await s3GetObjectStream(relativeKey);
+  const body = out.Body;
+  if (!body) return Buffer.alloc(0);
+  const chunks: Buffer[] = [];
+  for await (const chunk of body as AsyncIterable<Buffer>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}

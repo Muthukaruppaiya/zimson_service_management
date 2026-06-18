@@ -12,7 +12,9 @@ import {
   ResendSrfTrackingWhatsAppButton,
   srfTrackingWhatsAppResultMessage,
 } from "../../components/service/ResendSrfTrackingWhatsAppButton";
+import { ResendSrfApprovalWhatsAppButton } from "../../components/service/ResendSrfApprovalWhatsAppButton";
 import { canResendSrfTrackingWhatsApp } from "../../lib/resendSrfTrackingWhatsApp";
+import { canResendSrfApprovalWhatsApp } from "../../lib/srfApprovalWhatsApp";
 import {
   jobVisibleToServiceCentre,
   jobVisibleToStoreUser,
@@ -347,7 +349,17 @@ export function SrfBookingsRegisterPage() {
                                 Continue
                               </Link>
                             ) : null}
-                            {canResendSrfTrackingWhatsApp(j.status) ? (
+                            {canResendSrfApprovalWhatsApp(j.status, j.customerReestimateResponse) ? (
+                              <span onClick={(e) => e.stopPropagation()} role="presentation">
+                                <ResendSrfApprovalWhatsAppButton
+                                  srfId={j.id}
+                                  phone={j.phone}
+                                  label="Resend approval"
+                                  busyLabel="…"
+                                  className={btnActionWa}
+                                />
+                              </span>
+                            ) : canResendSrfTrackingWhatsApp(j.status) ? (
                               <span onClick={(e) => e.stopPropagation()} role="presentation">
                                 <ResendSrfTrackingWhatsAppButton
                                   srfId={j.id}
@@ -453,7 +465,15 @@ export function SrfBookingsRegisterPage() {
                 >
                   Print estimate
                 </button>
-                {canResendSrfTrackingWhatsApp(detail.status) ? (
+                {canResendSrfApprovalWhatsApp(detail.status, detail.customerReestimateResponse) ? (
+                  <ResendSrfApprovalWhatsAppButton
+                    srfId={detail.id}
+                    phone={detail.phone}
+                    label="Resend approval"
+                    busyLabel="…"
+                    className="flex-1 border border-amber-300/80 bg-amber-600 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-amber-700 disabled:opacity-50 sm:flex-none"
+                  />
+                ) : canResendSrfTrackingWhatsApp(detail.status) ? (
                   <ResendSrfTrackingWhatsAppButton
                     srfId={detail.id}
                     phone={detail.phone}

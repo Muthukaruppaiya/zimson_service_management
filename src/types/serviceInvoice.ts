@@ -94,4 +94,6 @@ export type ServiceInvoiceViewModel = {
   /** GST e-invoice IRN (NIC / Masters India). */
   irn?: string | null;
   ackNo?: string | null;
+  /** SignedQRCode JWT from IRP — rendered as e-invoice QR on print/PDF. */
+  einvoiceQr?: string | null;
 };

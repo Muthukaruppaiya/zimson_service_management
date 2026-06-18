@@ -16,6 +16,42 @@
   border: 2px solid #1b3a8f;
 }
 
+.service-invoice-print-root.inv-doc .inv-page-terms {
+  margin-top: 12px;
+  page-break-before: always;
+  break-before: page;
+}
+
+.service-invoice-print-root.inv-doc .inv-terms-page-head {
+  display: table;
+  width: 100%;
+  background: #1b3a8f;
+  color: #ffffff;
+  padding: 8px 12px;
+  border-bottom: 1px solid #102570;
+}
+
+.service-invoice-print-root.inv-doc .inv-terms-page-title {
+  display: table-cell;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.service-invoice-print-root.inv-doc .inv-terms-page-ref {
+  display: table-cell;
+  font-size: 9px;
+  text-align: right;
+  vertical-align: middle;
+  opacity: 0.92;
+}
+
+.service-invoice-print-root.inv-doc .inv-terms-page-ref.mono {
+  font-family: "Consolas", "Courier New", monospace;
+}
+
 /* Table layout — html2canvas renders flex/table-cell poorly in PDF capture */
 .service-invoice-print-root.inv-doc .inv-banner {
   display: table;
@@ -103,6 +139,35 @@
 .service-invoice-print-root.inv-doc .inv-barcode-wrap {
   text-align: center;
   vertical-align: middle;
+}
+
+.service-invoice-print-root.inv-doc .inv-logo-above-barcode {
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.service-invoice-print-root.inv-doc .inv-logo-above-barcode img {
+  display: inline-block;
+  max-height: 52px;
+  max-width: 160px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.service-invoice-print-root.inv-doc .inv-qr-wrap {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.service-invoice-print-root.inv-doc .inv-einvoice-qr-img {
+  width: 150px;
+  height: 150px;
+}
+
+.service-invoice-print-root.inv-doc .inv-einvoice-qr-irn {
+  max-width: 200px;
+  word-break: break-all;
 }
 
 .service-invoice-print-root.inv-doc .inv-section-head {
@@ -332,8 +397,7 @@
 }
 
 .service-invoice-print-root.inv-doc .inv-terms {
-  padding: 8px 10px;
-  border-bottom: 1px solid #d8dff0;
+  padding: 10px 12px 12px;
   font-size: 9px;
   color: #4a5568;
 }
@@ -396,31 +460,77 @@
   width: 210mm;
 }
 
-.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-terms {
-  column-count: 2;
-  column-gap: 4mm;
+.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-page-main .inv-party-grid,
+.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-page-main .inv-bottom-grid {
+  page-break-inside: avoid;
 }
 
-.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-sheet,
-.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-party-grid,
-.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-bottom-grid {
-  page-break-inside: avoid;
+.service-invoice-print-root.inv-doc.inv-pdf-capture .inv-page-terms .inv-terms {
+  column-count: 2;
+  column-gap: 5mm;
 }
 
 @media print {
   .service-invoice-print-root.inv-doc {
     box-shadow: none;
     max-width: none;
-    font-size: 9.5pt;
+    font-size: 9pt;
   }
 
-  .service-invoice-print-root.inv-doc .inv-logo-wrap img {
-    height: 48px;
+  .service-invoice-print-root.inv-doc .inv-page-main {
+    page-break-after: avoid;
   }
 
-  .service-invoice-print-root.inv-doc .inv-terms {
+  .service-invoice-print-root.inv-doc .inv-page-terms {
+    margin-top: 0;
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-top-cell {
+    padding: 6px 8px;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-party-body {
+    padding: 6px 8px 8px;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-product-panel {
+    padding: 6px 8px;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-items-table th,
+  .service-invoice-print-root.inv-doc .inv-items-table td {
+    padding: 4px 6px;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-bottom-col {
+    padding: 8px;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-sign-line {
+    margin-top: 20px;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-logo-wrap img,
+  .service-invoice-print-root.inv-doc .inv-logo-above-barcode img {
+    height: 44px;
+    max-height: 44px;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-einvoice-qr-img {
+    width: 120px;
+    height: 120px;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-einvoice-qr-irn {
+    font-size: 6pt;
+  }
+
+  .service-invoice-print-root.inv-doc .inv-page-terms .inv-terms {
     break-inside: avoid;
     column-count: 2;
-    column-gap: 4mm;
+    column-gap: 5mm;
+    font-size: 8pt;
   }
 }

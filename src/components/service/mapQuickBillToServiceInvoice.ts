@@ -553,6 +553,7 @@ export function mapQuickBillInvoiceToViewModel(
     invoiceLegalFooter: sellerPack.legalFooter,
     irn: inv.edocIrn?.trim() || null,
     ackNo: inv.edocAckNo?.trim() || null,
+    einvoiceQr: inv.edocQr?.trim() || null,
   };
 }
 

@@ -488,11 +488,17 @@
     -webkit-print-color-adjust: exact;
   }
 
-  .service-invoice-print-root .inv-terms {
+  .service-invoice-print-root .inv-page-terms {
+    page-break-before: always;
+    break-before: page;
+    margin-top: 0;
+  }
+
+  .service-invoice-print-root .inv-page-terms .inv-terms {
     break-inside: avoid;
-    max-height: 48mm;
-    overflow: hidden;
+    max-height: none;
+    overflow: visible;
     column-count: 2;
-    column-gap: 4mm;
+    column-gap: 5mm;
   }
 }

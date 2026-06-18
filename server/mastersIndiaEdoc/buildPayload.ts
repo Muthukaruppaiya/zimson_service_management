@@ -1,11 +1,23 @@
 import type { TransferPartyBlock } from "../transferDocMeta";
-import { formatDocumentDate, gstinStateCode, parsePincode, stateNameFromCode } from "./gstState";
+import {
+  defaultPincodeForState,
+  formatDocumentDate,
+  gstinStateCode,
+  parsePincode,
+  stateNameFromCode,
+} from "./gstState";
 import type {
   EdocParty,
   EdocValueTotals,
   EinvoicingBuildInput,
   EwayBuildInput,
 } from "./types";
+import {
+  isInterstateEdocSupply,
+  normalizeEdocLinesForSupply,
+  normalizeEdocTotalsForSupply,
+  normGstStateCode,
+} from "./taxSplit";
 
 function partyToApi(p: EdocParty): Record<string, unknown> {
   return {
@@ -16,7 +28,7 @@ function partyToApi(p: EdocParty): Record<string, unknown> {
     address2: p.address2 ?? "",
     location: p.location,
     pincode: p.pincode,
-    state_code: stateNameFromCode(p.stateCode),
+    state_code: p.stateCode.replace(/\D/g, "").padStart(2, "0").slice(0, 2),
     phone_number: p.phone ?? "",
     email: p.email ?? "",
   };
@@ -37,7 +49,7 @@ export function partyFromTransferBlock(block: TransferPartyBlock, gstinFallback:
     address1: parts[0] ?? addr.slice(0, 90),
     address2: parts.slice(1).join(", ").slice(0, 90) || "",
     location: parts[parts.length - 1] ?? stateNameFromCode(stateCode),
-    pincode: parsePincode(addr),
+    pincode: parsePincode(addr, defaultPincodeForState(stateCode)),
     stateCode,
     phone: block.phone !== "—" ? block.phone : undefined,
     email: block.email !== "—" ? block.email : undefined,
@@ -45,21 +57,35 @@ export function partyFromTransferBlock(block: TransferPartyBlock, gstinFallback:
 }
 
 export function buildEinvoicePayload(input: EinvoicingBuildInput): Record<string, unknown> {
-  const igstOnIntra = input.totals.isInterstate ? "Y" : "N";
-  const itemList = input.lines.map((ln) => ({
-    item_serial_number: String(ln.slNo),
-    product_description: ln.description.slice(0, 300),
-    is_service: "Y",
-    hsn_code: ln.hsnSac.replace(/\D/g, "").slice(0, 8) || "9987",
-    quantity: ln.qty,
-    unit_price: round2(ln.unitPrice),
-    total_amount: round2(ln.total),
-    assessable_value: round2(ln.taxable),
-    gst_rate: ln.taxable > 0 ? round2(((ln.cgst + ln.sgst + ln.igst) / ln.taxable) * 100) : 18,
-    cgst_amount: round2(ln.cgst),
-    sgst_amount: round2(ln.sgst),
-    igst_amount: round2(ln.igst),
-  }));
+  /** Standard B2B outward supply — not IGST-on-intra (SEZ / special cases). */
+  const igstOnIntra = "N";
+  const placeOfSupply = normGstStateCode(input.placeOfSupplyStateCode);
+  const interstate = isInterstateEdocSupply(input.seller.stateCode, placeOfSupply);
+  const lines = normalizeEdocLinesForSupply(input.lines, interstate);
+  const totals = normalizeEdocTotalsForSupply(input.totals, interstate);
+
+  const itemList = lines.map((ln) => {
+    const totAmt = round2(ln.unitPrice * ln.qty);
+    const discount = 0;
+    const assAmt = round2(totAmt - discount);
+    const taxAmt = round2(ln.cgst + ln.sgst + ln.igst);
+    return {
+      item_serial_number: String(ln.slNo),
+      product_description: ln.description.slice(0, 300),
+      is_service: "Y",
+      hsn_code: ln.hsnSac.replace(/\D/g, "").slice(0, 8) || "9987",
+      quantity: ln.qty,
+      unit_price: round2(ln.unitPrice),
+      total_amount: totAmt,
+      discount,
+      assessable_value: assAmt,
+      gst_rate: ln.gstRatePercent ?? (assAmt > 0 ? round2((taxAmt / assAmt) * 100) : 18),
+      cgst_amount: round2(ln.cgst),
+      sgst_amount: round2(ln.sgst),
+      igst_amount: round2(ln.igst),
+      total_item_value: round2(assAmt + taxAmt),
+    };
+  });
 
   return {
     user_gstin: input.userGstin,
@@ -78,15 +104,15 @@ export function buildEinvoicePayload(input: EinvoicingBuildInput): Record<string
     seller_details: partyToApi(input.seller),
     buyer_details: {
       ...partyToApi(input.buyer),
-      place_of_supply: input.placeOfSupplyStateCode,
+      place_of_supply: placeOfSupply,
     },
     item_list: itemList,
     value_details: {
-      total_assessable_value: round2(input.totals.taxable),
-      total_cgst_value: round2(input.totals.cgst),
-      total_sgst_value: round2(input.totals.sgst),
-      total_igst_value: round2(input.totals.igst),
-      total_invoice_value: round2(input.totals.total),
+      total_assessable_value: round2(totals.taxable),
+      total_cgst_value: round2(totals.cgst),
+      total_sgst_value: round2(totals.sgst),
+      total_igst_value: round2(totals.igst),
+      total_invoice_value: round2(totals.total),
       total_cess_value: 0,
       total_discount: 0,
       round_off_amount: 0,

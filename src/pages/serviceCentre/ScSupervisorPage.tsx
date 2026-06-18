@@ -9,6 +9,7 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { srfReestimateNotifyMessage } from "../../lib/srfApprovalWhatsApp";
 import {
   findLocalRepairSrfForRoot,
   interHoMainAndReceiverRefs,
@@ -495,10 +496,13 @@ export function ScSupervisorPage() {
       return;
     }
     try {
-      await interHoForwardReestimateToCustomer(senderForwardPopupJobId, { estimateTotalInr: amount, note });
+      const notify = await interHoForwardReestimateToCustomer(senderForwardPopupJobId, { estimateTotalInr: amount, note });
       setFeedback((f) => ({
         ...f,
-        [senderForwardPopupJobId]: "Re-estimate sent to customer on the existing tracking link.",
+        [senderForwardPopupJobId]: srfReestimateNotifyMessage(
+          "Re-estimate sent to customer on the existing tracking link.",
+          notify,
+        ),
       }));
       closeSenderForwardPopup();
     } catch (e) {
@@ -544,8 +548,11 @@ export function ScSupervisorPage() {
           [reestimatePopupJobId]: "Re-estimate sent to sender HO — they will forward to the customer.",
         }));
       } else {
-        await supervisorRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
-        setFeedback((f) => ({ ...f, [reestimatePopupJobId]: "Re-estimate sent to customer for approval." }));
+        const notify = await supervisorRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
+        setFeedback((f) => ({
+          ...f,
+          [reestimatePopupJobId]: srfReestimateNotifyMessage("Re-estimate sent to customer for approval.", notify),
+        }));
       }
       closeReestimatePopup();
     } catch (e) {

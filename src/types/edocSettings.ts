@@ -1,0 +1,20 @@
+export type EdocSettings = {
+  enabled: boolean;
+  failOpen: boolean;
+  apiBase: string;
+  ewayApiBase: string;
+  tokenUrl: string;
+  einvoicePath: string;
+  ewayPath: string;
+  sellerGstinOverride: string;
+  ewayUserGstin: string;
+  ewayNominalValueInr: number;
+  ewayAutoEnabled: boolean;
+  username: string;
+  hasPassword: boolean;
+  configured: boolean;
+  configuredFromDatabase: boolean;
+  envFallbackActive: boolean;
+  updatedAt: string;
+  updatedBy: string | null;
+};

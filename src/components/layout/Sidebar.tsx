@@ -191,6 +191,7 @@ export function Sidebar() {
         items: [
           { to: "/regions", label: "Regions & stores", module: "regions" },
           { to: "/settings/tax", label: "Tax & billing", module: "settings" },
+          { to: "/settings/edoc", label: "E-invoice & e-way", module: "settings", roles: ["super_admin"] },
           { to: "/settings/messaging", label: "SMS, email & WhatsApp", module: "settings", roles: ["super_admin"] },
           { to: "/settings/active-sessions", label: "Logged-in users", module: "settings", roles: ["super_admin"] },
           { to: "/settings/document-templates", label: "Document templates", module: "settings" },

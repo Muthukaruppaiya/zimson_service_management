@@ -112,6 +112,7 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
             qb.payment_details AS "paymentDetails",
             qb.edoc_irn AS "edocIrn",
             qb.edoc_ack_no AS "edocAckNo",
+            qb.edoc_qr AS "edocQr",
             qb.edoc_status AS "edocStatus",
             qb.edoc_error AS "edocError"
      FROM quick_bills qb
@@ -192,6 +193,7 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
     })),
     edocIrn: (head.edocIrn as string | null) ?? null,
     edocAckNo: (head.edocAckNo as string | null) ?? null,
+    edocQr: (head.edocQr as string | null) ?? null,
     edocStatus: (head.edocStatus as string | null) ?? null,
     edocError: (head.edocError as string | null) ?? null,
   };

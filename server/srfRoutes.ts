@@ -10,7 +10,7 @@ import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib
 import { normalizeSrfRepairRoute } from "../src/lib/srfRepairRoute";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../src/lib/srfTraceLocations";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
-import { validateSrfCustomerPhotoUpload } from "../src/lib/srfCustomerPhotoUpload";
+import { validateSrfCustomerPhotoUpload, validateSrfDocumentUpload } from "../src/lib/srfCustomerPhotoUpload";
 import {
   normalizeSrfPhotoKind,
   SRF_MIN_WATCH_PHOTOS_REQUIRED,
@@ -19,7 +19,8 @@ import {
 } from "../src/lib/srfPhotoSlots";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { resolveCustomerEmail } from "./messaging/customerContact";
-import { sendReestimateDecisionNotification, sendTrackingLink } from "./notificationService";
+import { sendReestimateDecisionNotification, sendSiteVisitApprovalLink, sendTrackingLink } from "./notificationService";
+import { publishSrfDocumentForWhatsApp } from "./messaging/publishSrfDocumentForWhatsApp";
 import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
@@ -667,6 +668,89 @@ async function nextSpareOrderNumber(client: PoolClient): Promise<string> {
   return `SPO${Date.now()}`;
 }
 
+async function notifyCustomerTrackingLink(
+  req: Request,
+  pool: Pool,
+  srfId: string,
+  payload: {
+    phone: string;
+    email?: string;
+    name: string;
+    trackingUrl: string;
+    srfReference: string;
+    channels?: { whatsapp?: boolean; email?: boolean };
+  },
+) {
+  let documentUrl: string | undefined;
+  let documentFilename: string | undefined;
+  try {
+    const doc = await publishSrfDocumentForWhatsApp(req, pool, srfId);
+    documentUrl = doc.documentUrl;
+    documentFilename = doc.documentFilename;
+  } catch (e) {
+    console.error("[TRACKING LINK] SRF PDF publish failed", e);
+  }
+  return sendTrackingLink({
+    ...payload,
+    documentUrl,
+    documentFilename,
+  }).catch(() => ({
+    sent: false,
+    reason: "Could not send WhatsApp message.",
+    emailSent: false,
+    emailReason: "Could not send customer notifications.",
+  }));
+}
+
+async function resolveCustomerTrackingUrl(req: Request, client: Pool | PoolClient, phone: string): Promise<string> {
+  const trackingToken = await getOrCreateTrackingToken(client, phone);
+  let trackingBase: string;
+  try {
+    trackingBase = getEmailActionBaseUrl(req);
+  } catch {
+    trackingBase = getAppBaseUrl(req);
+  }
+  return `${trackingBase}/track?t=${encodeURIComponent(trackingToken)}`;
+}
+
+function formatApprovalReason(amountInr: number, note: string): string {
+  const remark = note.trim();
+  const amount = Number.isFinite(amountInr) && amountInr > 0 ? `INR ${amountInr.toFixed(2)}` : "";
+  if (amount && remark) return `Revised estimate ${amount}: ${remark}`;
+  if (remark) return remark;
+  if (amount) return `Revised estimate ${amount} requires your approval.`;
+  return "Site visit / service approval required.";
+}
+
+async function notifyCustomerSiteVisitApproval(
+  req: Request,
+  pool: Pool,
+  srfId: string,
+  params: { approvalReason: string; srfReference?: string },
+) {
+  const { rows } = await pool.query<{ reference: string; customer_name: string; phone: string }>(
+    `SELECT reference, customer_name, phone FROM srf_jobs WHERE id = $1::uuid`,
+    [srfId],
+  );
+  const row = rows[0];
+  if (!row?.phone?.trim()) {
+    return { sent: false, reason: "No customer phone on file." };
+  }
+  try {
+    const trackingUrl = await resolveCustomerTrackingUrl(req, pool, row.phone);
+    return sendSiteVisitApprovalLink({
+      phone: row.phone,
+      name: row.customer_name ?? "Customer",
+      srfReference: params.srfReference?.trim() || row.reference,
+      approvalReason: params.approvalReason,
+      trackingUrl,
+    });
+  } catch (e) {
+    console.error("[APPROVAL LINK] notify failed", e);
+    return { sent: false, reason: "Could not send approval WhatsApp." };
+  }
+}
+
 export function registerSrfRoutes(
   app: Express,
   pool: Pool,
@@ -937,6 +1021,7 @@ export function registerSrfRoutes(
         brandCouponReceivedAt: string | null;
         brandCouponValidUntil: string | null;
         customerCouponNotifiedAt: string | null;
+        customerReestimateResponse: string | null;
         createdAt: string;
       }>(
         `SELECT j.id, j.reference, j.status,
@@ -992,6 +1077,7 @@ export function registerSrfRoutes(
                 j.brand_coupon_received_at AS "brandCouponReceivedAt",
                 j.brand_coupon_valid_until AS "brandCouponValidUntil",
                 j.customer_coupon_notified_at AS "customerCouponNotifiedAt",
+                j.customer_reestimate_response AS "customerReestimateResponse",
                 j.created_at AS "createdAt"
          FROM srf_jobs j
          LEFT JOIN regions r ON r.id = j.region_id
@@ -2060,18 +2146,13 @@ export function registerSrfRoutes(
         refRow?.phone ?? "",
         String(req.body?.customerEmail ?? req.body?.email ?? "").trim() || null,
       );
-      const sent = await sendTrackingLink({
+      const sent = await notifyCustomerTrackingLink(req, pool, srfId, {
         phone: refRow?.phone ?? "",
         email: customerEmail ?? undefined,
         name: refRow?.customer_name ?? "Customer",
         trackingUrl,
         srfReference: refRow?.reference ?? "",
-      }).catch(() => ({
-        sent: false,
-        reason: "Could not send WhatsApp message.",
-        emailSent: false,
-        emailReason: "Could not send customer notifications.",
-      }));
+      });
       res.json({
         ok: true,
         trackingUrl,
@@ -2134,7 +2215,7 @@ export function registerSrfRoutes(
       const channel = String(req.body?.channel ?? "all")
         .trim()
         .toLowerCase();
-      const sent = await sendTrackingLink({
+      const sent = await notifyCustomerTrackingLink(req, pool, srfId, {
         phone: refRow.phone ?? "",
         email: customerEmail ?? undefined,
         name: refRow.customer_name ?? "Customer",
@@ -2144,12 +2225,7 @@ export function registerSrfRoutes(
           whatsapp: channel === "all" || channel === "whatsapp",
           email: channel === "all" || channel === "email",
         },
-      }).catch(() => ({
-        sent: false,
-        reason: "Could not resend WhatsApp message.",
-        emailSent: false,
-        emailReason: "Could not resend customer notifications.",
-      }));
+      });
       res.json({
         ok: true,
         trackingUrl,
@@ -2164,6 +2240,54 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "Could not resend tracking link to customer." });
     } finally {
       client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/resend-approval-whatsapp", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    if (!srfId) {
+      res.status(400).json({ error: "SRF id is required." });
+      return;
+    }
+    try {
+      const rowRes = await pool.query<{
+        status: string;
+        customer_reestimate_response: string | null;
+        reestimate_requested_inr: string | null;
+        reestimate_requested_note: string | null;
+      }>(
+        `SELECT status, customer_reestimate_response,
+                reestimate_requested_inr::text, reestimate_requested_note
+         FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const row = rowRes.rows[0];
+      if (!row) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (row.status !== "reestimate_required" || row.customer_reestimate_response) {
+        res.status(400).json({ error: "Re-estimate approval WhatsApp can only be resent while awaiting customer response." });
+        return;
+      }
+      const amount = Number(row.reestimate_requested_inr ?? 0);
+      const note = String(row.reestimate_requested_note ?? "").trim() || "Re-estimate approval required.";
+      const approvalNotify = await notifyCustomerSiteVisitApproval(req, pool, srfId, {
+        approvalReason: formatApprovalReason(amount, note),
+      });
+      res.json({
+        ok: true,
+        whatsappSent: approvalNotify.sent,
+        whatsappReason: approvalNotify.reason ?? null,
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not resend re-estimate approval WhatsApp." });
     }
   });
 
@@ -3133,7 +3257,14 @@ export function registerSrfRoutes(
       } finally {
         client.release();
       }
-      res.json({ ok: true });
+      const approvalNotify = await notifyCustomerSiteVisitApproval(req, pool, srfId, {
+        approvalReason: formatApprovalReason(amount, note),
+      });
+      res.json({
+        ok: true,
+        whatsappSent: approvalNotify.sent,
+        whatsappReason: approvalNotify.reason ?? null,
+      });
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not mark re-estimate." });
@@ -3370,7 +3501,14 @@ export function registerSrfRoutes(
       } finally {
         client.release();
       }
-      res.json({ ok: true });
+      const approvalNotify = await notifyCustomerSiteVisitApproval(req, pool, srfId, {
+        approvalReason: formatApprovalReason(amount, note),
+      });
+      res.json({
+        ok: true,
+        whatsappSent: approvalNotify.sent,
+        whatsappReason: approvalNotify.reason ?? null,
+      });
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not mark re-estimate." });
@@ -3655,6 +3793,7 @@ export function registerSrfRoutes(
         details: { receiverSrfId: receiverId, remark },
       });
       await client.query("COMMIT");
+      let approvalNotify = { sent: false, reason: "Notification skipped." };
       try {
         const recvMeta = await pool.query<{ transfer_source_reference: string | null; reference: string }>(
           `SELECT transfer_source_reference, reference FROM srf_jobs WHERE id = $1::uuid`,
@@ -3663,18 +3802,18 @@ export function registerSrfRoutes(
         const rootRef =
           String(recvMeta.rows[0]?.transfer_source_reference ?? "").trim() ||
           String(recvMeta.rows[0]?.reference ?? archRow.reference).trim();
-        const trackingToken = await getOrCreateTrackingToken(pool, archRow.phone);
-        const trackingUrl = `${resolvePublicAppBaseUrl(req)}/track?t=${encodeURIComponent(trackingToken)}`;
-        void sendTrackingLink({
-          phone: archRow.phone,
-          name: archRow.customer_name,
+        approvalNotify = await notifyCustomerSiteVisitApproval(req, pool, archRow.id, {
           srfReference: rootRef,
-          trackingUrl,
-        }).catch(() => {});
-      } catch {
-        /* optional notify */
+          approvalReason: formatApprovalReason(amount, remark),
+        });
+      } catch (e) {
+        console.error("[APPROVAL LINK] inter-HO forward notify failed", e);
       }
-      res.json({ ok: true });
+      res.json({
+        ok: true,
+        whatsappSent: approvalNotify.sent,
+        whatsappReason: approvalNotify.reason ?? null,
+      });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -4300,6 +4439,7 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Only assigned jobs in assigned state can be marked for re-estimate." });
         return;
       }
+      let baseAmount = 0;
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -4308,7 +4448,7 @@ export function registerSrfRoutes(
           `SELECT estimate_total_inr::float8 AS amt FROM srf_jobs WHERE id = $1::uuid`,
           [srfId],
         );
-        const baseAmount = Number(baseRow.rows[0]?.amt ?? 0);
+        baseAmount = Number(baseRow.rows[0]?.amt ?? 0);
         const attempt = await startReestimateAttempt(client, srfId, {
           amountInr: baseAmount,
           remark: note || "Technician requested re-estimate.",
@@ -4327,7 +4467,14 @@ export function registerSrfRoutes(
       } finally {
         client.release();
       }
-      res.json({ ok: true });
+      const approvalNotify = await notifyCustomerSiteVisitApproval(req, pool, srfId, {
+        approvalReason: formatApprovalReason(baseAmount, note || "Technician requested re-estimate."),
+      });
+      res.json({
+        ok: true,
+        whatsappSent: approvalNotify.sent,
+        whatsappReason: approvalNotify.reason ?? null,
+      });
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not set re-estimate required." });
@@ -6107,15 +6254,18 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "Upload image file under field name 'file'." });
       return;
     }
-    const photoFormatError = validateSrfCustomerPhotoUpload(req.file);
-    if (photoFormatError) {
-      res.status(400).json({ error: photoFormatError });
-      return;
-    }
     const rawKind = readUploadPhotoKind(req);
     const photoKind = normalizeSrfPhotoKind(rawKind);
     if (!photoKind) {
       res.status(400).json({ error: "Photo category is required (front, back, strap, serial, damage, other, or document)." });
+      return;
+    }
+    const photoFormatError =
+      photoKind === "document"
+        ? validateSrfDocumentUpload(req.file)
+        : validateSrfCustomerPhotoUpload(req.file);
+    if (photoFormatError) {
+      res.status(400).json({ error: photoFormatError });
       return;
     }
     try {
@@ -6145,9 +6295,9 @@ export function registerSrfRoutes(
       const relPath = await persistUploadedFile({
         category: "srf",
         buffer: req.file.buffer,
-        originalName: req.file.originalname || "photo.jpg",
-        mime: req.file.mimetype || "image/jpeg",
-        fallbackExt: ".jpg",
+        originalName: req.file.originalname || (photoKind === "document" ? "document.pdf" : "photo.jpg"),
+        mime: req.file.mimetype || (photoKind === "document" ? "application/pdf" : "image/jpeg"),
+        fallbackExt: photoKind === "document" ? ".pdf" : ".jpg",
       });
       if (photoKind === "document") {
         const { rows: docRows } = await pool.query<{ c: number }>(

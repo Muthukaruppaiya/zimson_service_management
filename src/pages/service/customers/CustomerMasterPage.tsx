@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../../components/service/ServiceBreadcrumb";
 import { Card } from "../../../components/ui/Card";
 import { PageHeader } from "../../../components/ui/PageHeader";
-import { isValidGstFormat, isValidPanFormat } from "../../../data/serviceSeed";
-import { validateCustomerB2bGstin } from "../../../lib/zimsonCompanyGst";
+import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../../data/serviceSeed";
+import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../../lib/gstLookupClient";
+import { validateCustomerB2bGstin, ZIMSON_OWN_GSTIN_FIELD_HINT } from "../../../lib/zimsonCompanyGst";
 import { apiJson } from "../../../lib/api";
 import type { CustomerKind, CustomerRecord } from "../../../types/customer";
 
@@ -47,6 +48,7 @@ export function CustomerMasterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [gstFetchBusy, setGstFetchBusy] = useState(false);
   const [edit, setEdit] = useState<EditableCustomer | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -84,6 +86,40 @@ export function CustomerMasterPage() {
     const start = (currentPage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
   }, [filtered, currentPage]);
+
+  async function fetchGstDetails() {
+    if (!edit) return;
+    if (!isValidGstFormat(edit.gst)) {
+      setError("Enter a valid 15-character GSTIN before lookup.");
+      return;
+    }
+    const zimsonGstErr = validateCustomerB2bGstin(edit.gst);
+    if (zimsonGstErr) {
+      setError(zimsonGstErr);
+      return;
+    }
+    setGstFetchBusy(true);
+    setError(null);
+    try {
+      const out = await lookupCompanyByGstin(edit.gst);
+      const name = companyNameFromGstLookup(out);
+      const derivedPan = panFromGstin(edit.gst);
+      setEdit((p) => {
+        if (!p) return p;
+        return {
+          ...p,
+          company: name || p.company,
+          pan: derivedPan || p.pan,
+          address: p.address.trim() || out.address?.trim() || p.address,
+          city: p.city.trim() || out.city?.trim() || p.city,
+        };
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not fetch GST details.");
+    } finally {
+      setGstFetchBusy(false);
+    }
+  }
 
   async function saveEdit() {
     if (!edit) return;
@@ -294,7 +330,35 @@ export function CustomerMasterPage() {
             {edit.customerKind === "B2B" ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="text-sm sm:col-span-2">Company<input className={inputClass} value={edit.company} onChange={(e) => setEdit((p) => (p ? { ...p, company: e.target.value } : p))} /></label>
-                <label className="text-sm">GSTIN<input className={inputClass} value={edit.gst} onChange={(e) => setEdit((p) => (p ? { ...p, gst: e.target.value.toUpperCase() } : p))} /></label>
+                <div className="text-sm sm:col-span-2">
+                  <span className="block">GSTIN</span>
+                  <div className="mt-1 flex flex-wrap items-end gap-2">
+                    <input
+                      className={`${inputClass} mt-0 min-w-[200px] flex-1`}
+                      value={edit.gst}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase().slice(0, 15);
+                        setEdit((p) => {
+                          if (!p) return p;
+                          const derivedPan = isValidGstFormat(val) ? panFromGstin(val) : "";
+                          return { ...p, gst: val, pan: derivedPan || p.pan };
+                        });
+                      }}
+                      placeholder="15-character GSTIN"
+                      maxLength={15}
+                      disabled={gstFetchBusy || saving}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void fetchGstDetails()}
+                      disabled={gstFetchBusy || saving}
+                      className="rounded-xl border border-zimson-500 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50 disabled:opacity-60"
+                    >
+                      {gstFetchBusy ? "Fetching…" : "Get GST details"}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-snug text-amber-900/90">{ZIMSON_OWN_GSTIN_FIELD_HINT}</p>
+                </div>
                 <label className="text-sm">PAN<input className={inputClass} value={edit.pan} onChange={(e) => setEdit((p) => (p ? { ...p, pan: e.target.value.toUpperCase() } : p))} /></label>
               </div>
             ) : null}

@@ -39,6 +39,8 @@ export type EdocLine = {
   sgst: number;
   igst: number;
   total: number;
+  /** Notified GST % for the line (avoids IRP rate mismatch from rounding). */
+  gstRatePercent?: number;
 };
 
 export type EdocValueTotals = {
@@ -76,4 +78,29 @@ export type EwayBuildInput = {
   hsnSac: string;
   qty: number;
   transportationDistanceKm?: string;
+};
+
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+export function isValidGstin(gstin: string | null | undefined): boolean {
+  const g = String(gstin ?? "")
+    .trim()
+    .toUpperCase();
+  return GSTIN_RE.test(g);
+}
+
+export type MastersIndiaEdocConfig = {
+  enabled: boolean;
+  failOpen: boolean;
+  username: string;
+  password: string;
+  apiBase: string;
+  ewayApiBase: string;
+  tokenUrl: string;
+  einvoicePath: string;
+  ewayPath: string;
+  sellerGstinOverride: string | null;
+  ewayUserGstin: string | null;
+  ewayNominalValueInr: number;
+  ewayAutoEnabled: boolean;
 };

@@ -29,6 +29,32 @@ export function validateSrfCustomerPhotoFile(file: File): string | null {
   return "Only image files (JPEG, PNG, GIF, WebP, etc.) are allowed.";
 }
 
+export const SRF_DOCUMENT_ACCEPT =
+  "application/pdf,.pdf,image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif";
+
+/** Optional SRF document slot — PDF preferred; images allowed for store capture. */
+export function validateSrfDocumentFile(file: File): string | null {
+  if (file.size > SRF_CUSTOMER_PHOTO_MAX_BYTES) return tooLargeMessage(file);
+  const ext = fileExt(file.name);
+  const mime = (file.type || "").toLowerCase();
+  if (mime === "application/pdf" || ext === ".pdf") return null;
+  return validateSrfCustomerPhotoFile(file);
+}
+
+/** Optional SRF document slot — PDF preferred; images allowed for store capture. */
+export function validateSrfDocumentUpload(
+  file: { size: number; mimetype?: string; originalname?: string },
+): string | null {
+  if (file.size > SRF_CUSTOMER_PHOTO_MAX_BYTES) {
+    const mb = (file.size / (1024 * 1024)).toFixed(1);
+    return `File is too large (${mb} MB). Maximum size is ${srfCustomerPhotoMaxSizeLabel()}.`;
+  }
+  const ext = fileExt(file.originalname || "");
+  const mime = (file.mimetype || "").toLowerCase();
+  if (mime === "application/pdf" || ext === ".pdf") return null;
+  return validateSrfCustomerPhotoUpload(file);
+}
+
 export function validateSrfCustomerPhotoUpload(
   file: { size: number; mimetype?: string; originalname?: string },
 ): string | null {

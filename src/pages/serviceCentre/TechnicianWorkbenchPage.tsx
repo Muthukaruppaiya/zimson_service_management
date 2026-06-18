@@ -6,6 +6,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { technicianCanActOnJob } from "../../lib/srfAccess";
 import { apiJson } from "../../lib/api";
+import { srfReestimateNotifyMessage } from "../../lib/srfApprovalWhatsApp";
 import type { TechnicianProfile } from "../../types/technician";
 
 export function TechnicianWorkbenchPage() {
@@ -91,8 +92,8 @@ export function TechnicianWorkbenchPage() {
     setNote(null);
     if (!user?.technicianProfileId) return;
     try {
-      await technicianRequestReestimate(jobId, user.technicianProfileId, "Technician requested re-estimate.");
-      setNote("Marked as re-estimate required.");
+      const notify = await technicianRequestReestimate(jobId, user.technicianProfileId, "Technician requested re-estimate.");
+      setNote(srfReestimateNotifyMessage("Marked as re-estimate required.", notify));
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Could not request re-estimate.");
     }

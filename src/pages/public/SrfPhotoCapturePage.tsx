@@ -3,8 +3,10 @@ import { useSearchParams } from "react-router-dom";
 import { apiJson } from "../../lib/api";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES, srfCustomerPhotoMaxSizeLabel } from "../../lib/srfPhotoLimits";
 import {
+  SRF_DOCUMENT_ACCEPT,
   SRF_WATCH_PHOTO_ACCEPT,
   validateSrfCustomerPhotoFile,
+  validateSrfDocumentFile,
 } from "../../lib/srfCustomerPhotoUpload";
 import {
   SRF_DOCUMENT_PHOTO_KIND,
@@ -249,7 +251,10 @@ export function SrfPhotoCapturePage() {
   async function uploadFile(file: File, kind: string) {
     if (!token) return;
     setUploadError(null);
-    const formatErr = validateSrfCustomerPhotoFile(file);
+    const formatErr =
+      kind === SRF_DOCUMENT_PHOTO_KIND
+        ? validateSrfDocumentFile(file)
+        : validateSrfCustomerPhotoFile(file);
     if (formatErr) {
       setUploadError(formatErr);
       return;
@@ -471,7 +476,7 @@ export function SrfPhotoCapturePage() {
         <input
           ref={documentGalleryInputRef}
           type="file"
-          accept={SRF_WATCH_PHOTO_ACCEPT}
+          accept={SRF_DOCUMENT_ACCEPT}
           className="sr-only"
           tabIndex={-1}
           disabled={!canUpload || busy}
@@ -480,7 +485,7 @@ export function SrfPhotoCapturePage() {
         <input
           ref={documentCameraFallbackInputRef}
           type="file"
-          accept={SRF_WATCH_PHOTO_ACCEPT}
+          accept={SRF_DOCUMENT_ACCEPT}
           capture="environment"
           className="sr-only"
           tabIndex={-1}

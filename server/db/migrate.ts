@@ -998,6 +998,16 @@ export async function runMigrations(pool: Pool): Promise<void> {
   );
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS edoc_settings (
+      id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by VARCHAR(200)
+    );
+  `);
+  await pool.query(`INSERT INTO edoc_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+
+  await pool.query(`
     ALTER TABLE quick_bills DROP CONSTRAINT IF EXISTS quick_bills_payment_mode_check;
     ALTER TABLE quick_bills ALTER COLUMN payment_mode TYPE VARCHAR(200);
     ALTER TABLE srf_jobs ALTER COLUMN advance_payment_mode TYPE VARCHAR(200);
@@ -1247,12 +1257,14 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_status VARCHAR(24);
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_error TEXT;
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_generated_at TIMESTAMPTZ;
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_qr TEXT;
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_irn VARCHAR(128);
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_ack_no VARCHAR(64);
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_ack_date VARCHAR(48);
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_status VARCHAR(24);
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_error TEXT;
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_generated_at TIMESTAMPTZ;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_qr TEXT;
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_eway_bill_no VARCHAR(32);
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_eway_valid_upto VARCHAR(48);
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_status VARCHAR(24);

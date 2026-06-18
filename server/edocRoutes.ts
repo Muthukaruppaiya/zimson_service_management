@@ -1,12 +1,12 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Pool } from "pg";
 import {
-  edocEnabled,
   getMastersIndiaEdocConfig,
   testEdocConnection,
   tryGenerateEinvoiceForQuickBill,
   tryGenerateEinvoiceForSrfClose,
 } from "./mastersIndiaEdoc";
+import { toPublicEdocSettings, refreshEdocSettingsCache } from "./edocSettingsStore";
 
 type Authed = Request & { userId: string };
 
@@ -16,21 +16,24 @@ export function registerEdocRoutes(
   requireAuth: (req: Request, res: Response, next: NextFunction) => void,
 ): void {
   app.get("/api/edoc/status", requireAuth, (_req, res) => {
-    const cfg = getMastersIndiaEdocConfig();
+    const publicSettings = toPublicEdocSettings();
     res.json({
-      configured: Boolean(cfg),
-      enabled: edocEnabled(),
-      apiBase: cfg?.apiBase ?? null,
-      ewayApiBase: cfg?.ewayApiBase ?? null,
-      sellerGstinOverride: cfg?.sellerGstinOverride ?? null,
-      ewayUserGstin: cfg?.ewayUserGstin ?? null,
+      configured: publicSettings.configured,
+      enabled: publicSettings.enabled,
+      failOpen: publicSettings.failOpen,
+      apiBase: publicSettings.apiBase,
+      ewayApiBase: publicSettings.ewayApiBase,
+      sellerGstinOverride: publicSettings.sellerGstinOverride || null,
+      ewayUserGstin: publicSettings.ewayUserGstin || null,
+      envFallbackActive: publicSettings.envFallbackActive,
     });
   });
 
   app.post("/api/edoc/test-token", requireAuth, async (_req, res) => {
+    await refreshEdocSettingsCache();
     const cfg = getMastersIndiaEdocConfig();
     if (!cfg) {
-      res.status(400).json({ error: "Set MASTERS_INDIA_EDOC_USERNAME and MASTERS_INDIA_EDOC_PASSWORD (or MASTERS_INDIA_USERNAME/PASSWORD)." });
+      res.status(400).json({ error: "Set Masters India e-doc username and password in Settings → E-invoice & e-way." });
       return;
     }
     const result = await testEdocConnection(cfg);

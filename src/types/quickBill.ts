@@ -91,6 +91,7 @@ export type QuickBillInvoice = {
   /** GST e-invoice IRN when generated via Masters India. */
   edocIrn?: string | null;
   edocAckNo?: string | null;
+  edocQr?: string | null;
   edocStatus?: string | null;
   edocError?: string | null;
 };
@@ -102,5 +103,7 @@ export type QuickBillEdocInfo = {
   skipReason?: string;
   irn?: string | null;
   ackNo?: string | null;
+  ackDate?: string | null;
+  qrUrl?: string | null;
   error?: string | null;
 };

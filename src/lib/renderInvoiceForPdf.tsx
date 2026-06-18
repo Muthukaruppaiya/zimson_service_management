@@ -4,6 +4,15 @@ import type { ServiceInvoiceViewModel } from "../types/serviceInvoice";
 import { captureInvoicePdfBlob } from "./captureInvoicePdf";
 
 async function waitForInvoiceLayout(root: HTMLElement): Promise<void> {
+  const expectQr = root.querySelector("[data-expect-einvoice-qr='1']") != null;
+  const deadline = Date.now() + 4000;
+  while (Date.now() < deadline) {
+    const imgs = Array.from(root.querySelectorAll("img"));
+    const pending = imgs.some((img) => !img.complete);
+    const qrReady = !expectQr || root.querySelector("[data-einvoice-qr-ready='true']") != null;
+    if (!pending && qrReady) break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
+  }
   const imgs = Array.from(root.querySelectorAll("img"));
   await Promise.all(
     imgs.map(

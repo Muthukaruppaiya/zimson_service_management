@@ -18,9 +18,11 @@ import {
   publicInvoicePdfApiPath,
   resolveInvoicePdfFilePath,
 } from "./messaging/invoicePdfPublicUrl";
+import { resolveSrfPdfFilePath } from "./messaging/srfPdfPublicUrl";
 import { resolveWhatsAppInvoiceDocumentUrl } from "./messaging/invoicePdfDelivery";
 
 const INVOICE_PDF_DIR = path.join(process.cwd(), "uploads", "invoice-pdf");
+const SRF_PDF_DIR = path.join(process.cwd(), "uploads", "srf-pdf");
 
 const invoicePdfUpload = multer({
   storage: multer.diskStorage({
@@ -79,6 +81,23 @@ export function registerMessagingRoutes(
     const filePath = resolveInvoicePdfFilePath(INVOICE_PDF_DIR, String(req.params.filename ?? ""));
     if (!filePath) {
       res.status(404).type("text/plain").send("Invoice PDF not found.");
+      return;
+    }
+    const name = path.basename(filePath);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${name}"`);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(filePath);
+  });
+
+  /**
+   * Public SRF acknowledgment PDF for Qikchat/WhatsApp (customer_link template document header).
+   * URL shape: {MESSAGING_PUBLIC_BASE_URL}/api/messaging/public-srf-pdf/srf-….pdf
+   */
+  app.get("/api/messaging/public-srf-pdf/:filename", (req, res) => {
+    const filePath = resolveSrfPdfFilePath(SRF_PDF_DIR, String(req.params.filename ?? ""));
+    if (!filePath) {
+      res.status(404).type("text/plain").send("SRF PDF not found.");
       return;
     }
     const name = path.basename(filePath);

@@ -63,42 +63,90 @@ function parseEinvoiceResponse(json: unknown): EdocResult {
       status?: string;
       code?: number;
       requestId?: string;
-      message?: {
-        Irn?: string;
-        AckNo?: number | string;
-        AckDt?: string;
-        SignedQRCode?: string;
-        EinvoicePdf?: string;
-        SignedInvoice?: string;
-        error?: boolean | string;
-        Status?: string;
-      };
+      errorMessage?: string;
+      InfoDtls?: string;
+      message?:
+        | string
+        | {
+            Irn?: string;
+            AckNo?: number | string;
+            AckDt?: string;
+            SignedQRCode?: string;
+            EinvoicePdf?: string;
+            SignedInvoice?: string;
+            error?: boolean | string;
+            Status?: string;
+          };
     };
     errorMessage?: string;
   };
 
-  const msg = root.results?.message;
-  if (!msg) {
+  const results = root.results;
+  const resultsError =
+    typeof results?.errorMessage === "string" ? results.errorMessage.trim() : "";
+  const rootError = typeof root.errorMessage === "string" ? root.errorMessage.trim() : "";
+  const combinedError = resultsError || rootError;
+
+  if (!results) {
     return {
       ok: false,
-      error: root.errorMessage ?? "Unexpected e-invoice response",
-      rawStatus: root.results?.status ?? null,
+      error: combinedError || "Unexpected e-invoice response (no results object)",
     };
   }
+
+  const rawMsg = results.message;
+  const failedStatus = String(results.status ?? "").toLowerCase() === "failed";
+
+  // Masters India error responses use message: "" and errorMessage: "2150: …"
+  if (typeof rawMsg === "string") {
+    const dupIrn = tryParseDuplicateIrnFromInfo(results.InfoDtls, combinedError || rawMsg);
+    if (dupIrn) return dupIrn;
+    return {
+      ok: false,
+      error: combinedError || rawMsg.trim() || "E-invoice rejected by IRP",
+      rawStatus: results.status ?? null,
+      requestId: results.requestId ?? null,
+    };
+  }
+
+  if (!rawMsg || typeof rawMsg !== "object") {
+    const dupIrn = tryParseDuplicateIrnFromInfo(results.InfoDtls, combinedError);
+    if (dupIrn) return dupIrn;
+    return {
+      ok: false,
+      error: combinedError || "Unexpected e-invoice response",
+      rawStatus: results.status ?? null,
+      requestId: results.requestId ?? null,
+    };
+  }
+
+  const msg = rawMsg;
   if (msg.error === true || (typeof msg.error === "string" && msg.error)) {
     return {
       ok: false,
-      error: typeof msg.error === "string" ? msg.error : root.errorMessage ?? "E-invoice rejected",
-      rawStatus: root.results?.status ?? null,
+      error: typeof msg.error === "string" ? msg.error : combinedError || "E-invoice rejected",
+      rawStatus: results.status ?? null,
+      requestId: results.requestId ?? null,
     };
   }
 
   const irn = typeof msg.Irn === "string" ? msg.Irn : null;
   if (!irn) {
+    if (failedStatus || combinedError) {
+      const dupIrn = tryParseDuplicateIrnFromInfo(results.InfoDtls, combinedError);
+      if (dupIrn) return dupIrn;
+      return {
+        ok: false,
+        error: combinedError || "E-invoice response had no IRN",
+        rawStatus: results.status ?? null,
+        requestId: results.requestId ?? null,
+      };
+    }
     return {
       ok: false,
-      error: root.errorMessage ?? "E-invoice response had no IRN",
-      rawStatus: root.results?.status ?? null,
+      error: combinedError || "E-invoice response had no IRN",
+      rawStatus: results.status ?? null,
+      requestId: results.requestId ?? null,
     };
   }
 
@@ -109,9 +157,39 @@ function parseEinvoiceResponse(json: unknown): EdocResult {
     ackDate: msg.AckDt ?? null,
     qrUrl: typeof msg.SignedQRCode === "string" ? msg.SignedQRCode : null,
     pdfUrl: typeof msg.EinvoicePdf === "string" ? msg.EinvoicePdf : null,
-    requestId: root.results?.requestId ?? null,
-    rawStatus: msg.Status ?? root.results?.status ?? null,
+    requestId: results.requestId ?? null,
+    rawStatus: msg.Status ?? results.status ?? null,
   };
+}
+
+/** IRP duplicate invoice — InfoDtls may contain the existing IRN (treat as success for re-print). */
+function tryParseDuplicateIrnFromInfo(infoDtls: string | undefined, errorHint: string): EdocResult | null {
+  const hint = errorHint.toLowerCase();
+  if (!hint.includes("dupl") && !hint.includes("2150")) return null;
+  const raw = String(infoDtls ?? "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    for (const row of rows) {
+      if (!row || typeof row !== "object") continue;
+      const desc = (row as { Desc?: { Irn?: string; AckNo?: string | number; AckDt?: string } }).Desc;
+      const irn = desc?.Irn?.trim();
+      if (irn) {
+        return {
+          ok: true,
+          irn,
+          ackNo: desc.AckNo != null ? String(desc.AckNo) : null,
+          ackDate: desc.AckDt ?? null,
+          rawStatus: "DUPLICATE_IRN",
+          skipReason: "IRN already registered for this invoice (duplicate).",
+        };
+      }
+    }
+  } catch {
+    /* ignore malformed InfoDtls */
+  }
+  return null;
 }
 
 function parseEwayResponse(json: unknown): EdocResult {
@@ -164,7 +242,14 @@ export async function generateEinvoice(
 ): Promise<EdocResult> {
   try {
     const json = await postEdoc(cfg, cfg.apiBase, cfg.einvoicePath, payload);
-    return parseEinvoiceResponse(json);
+    const result = parseEinvoiceResponse(json);
+    if (!result.ok && !result.irn) {
+      console.warn(
+        "[edoc/einvoice] IRP response:",
+        JSON.stringify(json).slice(0, 2400),
+      );
+    }
+    return result;
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "E-invoice request failed" };
   }

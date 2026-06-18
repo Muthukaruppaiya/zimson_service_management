@@ -1,4 +1,4 @@
-import type { MastersIndiaEdocConfig } from "./config";
+import type { MastersIndiaEdocConfig } from "./types";
 
 let tokenCache: { token: string; expMs: number } | null = null;
 
@@ -29,15 +29,16 @@ export async function getEdocAccessToken(cfg: MastersIndiaEdocConfig): Promise<s
     expires_in?: number;
     detail?: string;
     message?: string;
-    non_field_errors?: string[];
+    error?: string;
   };
 
   const token = json.access ?? json.access_token ?? json.token;
   if (!res.ok || !token) {
+    const errField = typeof json.error === "string" ? json.error : null;
     const msg =
+      errField ??
       json.detail ??
       json.message ??
-      (Array.isArray(json.non_field_errors) ? json.non_field_errors.join("; ") : null) ??
       res.statusText ??
       "Masters India e-doc token request failed";
     throw new Error(msg);

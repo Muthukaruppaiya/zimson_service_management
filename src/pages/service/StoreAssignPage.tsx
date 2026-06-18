@@ -11,6 +11,7 @@ import { apiJson, ApiError } from "../../lib/api";
 import { printAssignmentSlip } from "../../lib/serviceDocuments";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { formatInr } from "../../lib/formatInr";
+import { srfReestimateNotifyMessage } from "../../lib/srfApprovalWhatsApp";
 import { repairRouteLabel } from "../../lib/srfRepairRoute";
 import { inputClassReadOnly } from "../../lib/uiForm";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
@@ -272,8 +273,11 @@ export function StoreAssignPage() {
     setBusyId(reestimatePopupJobId);
     setMessage(null);
     try {
-      await storeSelfRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
-      setMessage({ type: "ok", text: "Re-estimate sent to customer for approval." });
+      const notify = await storeSelfRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
+      setMessage({
+        type: "ok",
+        text: srfReestimateNotifyMessage("Re-estimate sent to customer for approval.", notify),
+      });
       closeReestimatePopup();
     } catch (e) {
       setMessage({

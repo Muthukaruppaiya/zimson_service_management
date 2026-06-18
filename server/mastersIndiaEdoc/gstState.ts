@@ -55,8 +55,53 @@ export function formatDocumentDate(d: Date): string {
   return `${day}/${month}/${year}`;
 }
 
-export function parsePincode(text: string, fallback = 600001): number {
+/** Representative pincode per GST state when address has none (IRP validates pin vs state). */
+const STATE_DEFAULT_PIN: Record<string, number> = {
+  "01": 190001,
+  "02": 171001,
+  "03": 141001,
+  "04": 160017,
+  "05": 248001,
+  "06": 122001,
+  "07": 110001,
+  "08": 302001,
+  "09": 226010,
+  "10": 800001,
+  "11": 737101,
+  "12": 791111,
+  "13": 797001,
+  "14": 795001,
+  "15": 796001,
+  "16": 799001,
+  "17": 793001,
+  "18": 781001,
+  "19": 700001,
+  "20": 834001,
+  "21": 751001,
+  "22": 492001,
+  "23": 462001,
+  "24": 380001,
+  "26": 396210,
+  "27": 400001,
+  "29": 560001,
+  "30": 403001,
+  "31": 682001,
+  "32": 695001,
+  "33": 600001,
+  "34": 605001,
+  "35": 744101,
+  "36": 500001,
+  "37": 522001,
+  "38": 194101,
+};
+
+export function defaultPincodeForState(stateCode: string): number {
+  const c = stateCode.replace(/\D/g, "").padStart(2, "0").slice(0, 2);
+  return STATE_DEFAULT_PIN[c] ?? 600001;
+}
+
+export function parsePincode(text: string, fallback?: number): number {
   const m = text.match(/\b(\d{6})\b/);
   if (m) return Number(m[1]);
-  return fallback;
+  return fallback ?? 600001;
 }

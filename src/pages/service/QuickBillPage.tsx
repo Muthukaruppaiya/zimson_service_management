@@ -1317,6 +1317,7 @@ export function QuickBillPage() {
           ...invoice,
           edocIrn: edoc?.irn ?? invoice.edocIrn,
           edocAckNo: edoc?.ackNo ?? invoice.edocAckNo,
+          edocQr: edoc?.qrUrl ?? invoice.edocQr,
           edocStatus: edoc?.ok ? "SUCCESS" : edoc?.skipped ? "SKIPPED" : edoc ? "FAILED" : invoice.edocStatus,
           edocError: edoc?.error ?? edoc?.skipReason ?? invoice.edocError,
         };
@@ -1620,6 +1621,7 @@ export function QuickBillPage() {
 
   if (completion?.mode === "api") {
     const inv = completion.invoice;
+    const edoc = completion.edoc;
     const qbVm = mapQuickBillInvoiceToViewModel(inv, invoiceVmOptions);
     const totalFmt = inv.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR" });
 
@@ -1660,6 +1662,33 @@ export function QuickBillPage() {
             </>
           }
         >
+          {inv.customerType === "B2B" && edoc ? (
+            <div
+              className={`mt-3 rounded-lg px-3 py-2 text-xs ring-1 ${
+                edoc.ok
+                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
+                  : edoc.skipped
+                    ? "bg-stone-50 text-stone-700 ring-stone-200"
+                    : "bg-amber-50 text-amber-950 ring-amber-200"
+              }`}
+            >
+              {edoc.ok ? (
+                <>
+                  <strong>E-invoice registered.</strong> IRN: <span className="font-mono break-all">{edoc.irn}</span>
+                  {edoc.ackNo ? <> · Ack: {edoc.ackNo}</> : null}
+                </>
+              ) : edoc.skipped ? (
+                <>
+                  <strong>E-invoice skipped:</strong> {edoc.skipReason ?? "Not applicable."}
+                </>
+              ) : (
+                <>
+                  <strong>E-invoice not generated:</strong> {edoc.error ?? edoc.skipReason ?? "IRP error."} Bill is saved;
+                  you can retry from quick bill history.
+                </>
+              )}
+            </div>
+          ) : null}
           {billPostActionNote ? (
             <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
               {billPostActionNote}

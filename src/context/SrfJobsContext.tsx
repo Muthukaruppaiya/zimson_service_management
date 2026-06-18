@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiJson } from "../lib/api";
+import type { SrfReestimateNotifyResult } from "../lib/srfApprovalWhatsApp";
 import type { CreateSrfJobInput, SrfJob, UsedSpareLine } from "../types/srfJob";
 import { useAuth } from "./AuthContext";
 
@@ -95,6 +96,7 @@ export type SrfTrace = {
     brandCouponReceivedAt?: string | null;
     brandCouponValidUntil?: string | null;
     customerCouponNotifiedAt?: string | null;
+    customerReestimateResponse?: "accepted" | "rejected" | null;
     createdAt: string;
   };
   statusHistory: SrfTraceStatusRow[];
@@ -128,7 +130,7 @@ type SrfJobsContextValue = {
   storeSelfAssignTechnician: (jobId: string, technicianId: string) => Promise<void>;
   storeSelfSubmitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   storeSelfMarkRepairComplete: (jobId: string, note?: string) => Promise<void>;
-  storeSelfRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
+  storeSelfRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<SrfReestimateNotifyResult>;
   storeSelfReturnWithoutRepair: (jobId: string, note?: string) => Promise<void>;
   storeSelfSendToHo: (jobId: string, note?: string) => Promise<void>;
   dispatchToServiceCentre: (jobIds: string[]) => Promise<{
@@ -148,19 +150,19 @@ type SrfJobsContextValue = {
   }>;
   assignTechnician: (jobId: string, technicianId: string) => Promise<void>;
   convertTransferredSrfToLocal: (jobId: string) => Promise<{ reference: string; newSrfId: string }>;
-  supervisorRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
+  supervisorRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<SrfReestimateNotifyResult>;
   interHoRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<void>;
   interHoForwardReestimateToCustomer: (
     jobId: string,
     payload: { estimateTotalInr?: number; note?: string },
-  ) => Promise<void>;
+  ) => Promise<SrfReestimateNotifyResult>;
   interHoApproveReestimateForReceiver: (jobId: string, note?: string) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
   supervisorMoveRejectedToOdc: (jobId: string, note?: string) => Promise<void>;
   technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
-  technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<void>;
+  technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<SrfReestimateNotifyResult>;
   technicianSendToBrand: (jobId: string, payload: { dispatchRef?: string; note?: string; dispatchDocPath?: string }) => Promise<void>;
   submitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   technicianMarkRepairComplete: (jobId: string, technicianProfileId: string) => Promise<void>;
@@ -315,11 +317,18 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   }, [refreshJobs]);
 
   const storeSelfRequestReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr: number; note: string }) => {
-    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/reestimate`, {
-      method: "POST",
-      json: payload,
-    });
+    const out = await apiJson<{ whatsappSent?: boolean; whatsappReason?: string | null }>(
+      `/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/reestimate`,
+      {
+        method: "POST",
+        json: payload,
+      },
+    );
     await refreshJobs();
+    return {
+      whatsappSent: Boolean(out.whatsappSent),
+      whatsappReason: out.whatsappReason ?? null,
+    };
   }, [refreshJobs]);
 
   const storeSelfReturnWithoutRepair = useCallback(async (jobId: string, note?: string) => {
@@ -385,11 +394,18 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   }, [refreshJobs]);
 
   const supervisorRequestReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr: number; note: string }) => {
-    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate`, {
-      method: "POST",
-      json: payload,
-    });
+    const out = await apiJson<{ whatsappSent?: boolean; whatsappReason?: string | null }>(
+      `/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate`,
+      {
+        method: "POST",
+        json: payload,
+      },
+    );
     await refreshJobs();
+    return {
+      whatsappSent: Boolean(out.whatsappSent),
+      whatsappReason: out.whatsappReason ?? null,
+    };
   }, [refreshJobs]);
 
   const interHoRequestReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr: number; note: string }) => {
@@ -402,11 +418,18 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
 
   const interHoForwardReestimateToCustomer = useCallback(
     async (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => {
-      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/reestimate-forward-customer`, {
-        method: "POST",
-        json: payload,
-      });
+      const out = await apiJson<{ whatsappSent?: boolean; whatsappReason?: string | null }>(
+        `/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/reestimate-forward-customer`,
+        {
+          method: "POST",
+          json: payload,
+        },
+      );
       await refreshJobs();
+      return {
+        whatsappSent: Boolean(out.whatsappSent),
+        whatsappReason: out.whatsappReason ?? null,
+      };
     },
     [refreshJobs],
   );
@@ -460,11 +483,18 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   }, [refreshJobs]);
 
   const technicianRequestReestimate = useCallback(async (jobId: string, technicianProfileId: string, note: string) => {
-    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/reestimate`, {
-      method: "POST",
-      json: { technicianProfileId, note },
-    });
+    const out = await apiJson<{ whatsappSent?: boolean; whatsappReason?: string | null }>(
+      `/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/reestimate`,
+      {
+        method: "POST",
+        json: { technicianProfileId, note },
+      },
+    );
     await refreshJobs();
+    return {
+      whatsappSent: Boolean(out.whatsappSent),
+      whatsappReason: out.whatsappReason ?? null,
+    };
   }, [refreshJobs]);
 
   const technicianSendToBrand = useCallback(async (

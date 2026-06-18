@@ -106,6 +106,26 @@ Thank you for choosing Zimson.
 
 If your template name is different, set `QIKCHAT_TRACKING_TEMPLATE_NAME` in server `.env`.
 
+### Re-estimate / site visit approval template (`site_visit_approval`)
+
+Sent when a **re-estimate** is raised (store, supervisor, technician, or inter-HO sender forwarding to customer).  
+Template name: `site_visit_approval` (override with `QIKCHAT_APPROVAL_TEMPLATE_NAME` in server `.env`).
+
+| Variable | Content |
+|----------|---------|
+| `{{1}}` | Customer name |
+| `{{2}}` | SRF number |
+| `{{3}}` | Approval reason (revised amount + remark) |
+| `{{4}}` | Customer tracking URL (approve/reject on tracking page) |
+
+Approved body text:
+
+```text
+Hi {{1}}, your service request {{2}} needs your approval for a site visit by our technician. Reason: {{3}}. Please review and respond here: {{4}} Thank you for choosing Zimson.
+```
+
+Staff can **resend** this message from SRF trace / bookings while status is `reestimate_required` and the customer has not responded yet.
+
 ### Invoice send modes
 
 | Mode | When to use |
