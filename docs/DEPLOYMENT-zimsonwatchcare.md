@@ -4,7 +4,7 @@
 
 | Item | Value |
 |------|--------|
-| **EC2 public IP** | `18.61.69.104` |
+| **EC2 public IP** | `40.192.16.186` |
 | **Domain** | `zimsonwatchcare.com` (and `www`) |
 | **RDS host** | `zimson-dev-db.cta2eesy8zfj.ap-south-2.rds.amazonaws.com` |
 | **RDS port** | `5432` |
@@ -17,8 +17,8 @@
 
 Point A records to the server:
 
-- `zimsonwatchcare.com` → `18.61.69.104`
-- `www.zimsonwatchcare.com` → `18.61.69.104`
+- `zimsonwatchcare.com` → `40.192.16.186`
+- `www.zimsonwatchcare.com` → `40.192.16.186`
 
 ## 2. RDS — first-time database
 
@@ -127,7 +127,22 @@ Check binaries exist:
 
 ```bash
 ls node_modules/.bin/concurrently node_modules/.bin/tsx node_modules/.bin/vite
+ls node_modules/qrcode/package.json
 ```
+
+### Build error: `failed to resolve import "qrcode"`
+
+E-invoice QR on printed invoices needs the `qrcode` npm package (listed in `package.json`). This happens when `node_modules` is stale or was copied from another machine.
+
+```bash
+cd ~/zimson_service_management
+git pull
+rm -rf node_modules
+npm ci
+npm run build
+```
+
+`npm run build` runs `scripts/verify-build-deps.mjs` first — if `qrcode` is still missing, it prints the same fix.
 
 ### Production run (use this on the server — not `npm run dev`)
 

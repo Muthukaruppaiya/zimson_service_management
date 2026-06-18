@@ -16,7 +16,7 @@ You do **not** upload CSR or `cname` to the server (keep them for your records).
 On your **PC** (PowerShell), from the folder where the SSL files are:
 
 ```powershell
-scp "CRT" "CA Bundle" "zimsonwatchcare.pfx" ubuntu@18.61.69.104:/tmp/ssl/
+scp "CRT" "CA Bundle" "zimsonwatchcare.pfx" ubuntu@40.192.16.186:/tmp/ssl/
 ```
 
 Rename on PC first if names have spaces, e.g.:
@@ -26,7 +26,7 @@ Rename on PC first if names have spaces, e.g.:
 - The `.pfx` file (Personal Information icon) → `zimsonwatchcare.pfx`
 
 ```powershell
-scp zimsonwatchcare.crt zimsonwatchcare-ca-bundle.crt zimsonwatchcare.pfx ubuntu@18.61.69.104:/tmp/ssl/
+scp zimsonwatchcare.crt zimsonwatchcare-ca-bundle.crt zimsonwatchcare.pfx ubuntu@40.192.16.186:/tmp/ssl/
 ```
 
 ---
@@ -148,7 +148,7 @@ bash scripts/diagnose-ssl-files.sh
 4. Re-upload with binary mode:
 
 ```powershell
-scp -r "C:\path\to\ssl\zimsonwatchcare.pfx" ubuntu@18.61.69.104:/tmp/ssl/zimsonwatchcare.pfx
+scp -r "C:\path\to\ssl\zimsonwatchcare.pfx" ubuntu@40.192.16.186:/tmp/ssl/zimsonwatchcare.pfx
 ```
 
 5. Use the **exact** password from the `PFX Password` file (not the placeholder `your-actual-password`):

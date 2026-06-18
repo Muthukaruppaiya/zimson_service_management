@@ -1,4 +1,4 @@
-import QRCode from "qrcode";
+import QRCode from "qrcode/lib/browser.js";
 import { useEffect, useState } from "react";
 import {
   EINVOICE_QR_OPTIONS,

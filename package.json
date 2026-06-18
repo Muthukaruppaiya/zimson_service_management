@@ -10,7 +10,7 @@
     "dev": "concurrently -k \"npm run dev:api\" \"npm run dev:web\"",
     "dev:web": "vite",
     "dev:api": "tsx watch --tsconfig server/tsconfig.json server/index.ts",
-    "build": "vite build",
+    "build": "node scripts/verify-build-deps.mjs && vite build",
     "build:check": "tsc && vite build",
     "preview": "vite preview",
     "start": "cross-env NODE_ENV=production tsx --tsconfig server/tsconfig.json server/index.ts",
