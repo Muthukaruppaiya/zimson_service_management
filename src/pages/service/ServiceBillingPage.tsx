@@ -1,18 +1,41 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useCustomers } from "../../context/CustomersContext";
+import { useRegions } from "../../context/RegionsContext";
+import { useSpares } from "../../context/SparesContext";
 import { canAccessModule } from "../../config/moduleAccess";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
+import { downloadServiceInvoicePdfFromPage, triggerBlobDownload } from "../../lib/captureInvoicePdf";
 import { phoneLast10 } from "../../lib/customerLookup";
+import {
+  buildInterHoRepairInvoiceViewModel,
+  interHoInvoicePdfFilename,
+} from "../../lib/interHoBillingInvoice";
+import { resolveSellerStateCode } from "../../lib/gstSupply";
+import { printServiceInvoice } from "../../lib/printServiceInvoice";
+import { captureInvoicePdfFromViewModel } from "../../lib/renderInvoiceForPdf";
+import { computeServiceBillGst } from "../../lib/serviceBillGst";
 import type { CustomerRecord } from "../../types/customer";
+import type { QuickBillEdocInfo } from "../../types/quickBill";
+import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 
 type Phase = "name" | "phone" | "match" | "bill" | "done";
 
-type LineItem = { id: string; description: string; qty: string; rate: string; spareId?: string; orderLineId?: string };
+type LineItem = {
+  id: string;
+  description: string;
+  qty: string;
+  rate: string;
+  spareId?: string;
+  orderLineId?: string;
+  gstPercent?: string;
+  hsn?: string;
+};
 type OnlineOrderPrefill = {
   id: string;
   orderNumber: string;
@@ -48,9 +71,12 @@ type InterHoSrfInvoicePrefill = {
   toRegionName: string;
   status: string;
   usedSpares: Array<{
+    spareId?: string | null;
     name: string;
     qty: number;
     unitPriceInr?: number | null;
+    gstPercent?: number | null;
+    hsn?: string | null;
   }>;
 };
 
@@ -78,6 +104,8 @@ export function ServiceBillingPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { lookup, getById } = useCustomers();
+  const { regions } = useRegions();
+  const { spares } = useSpares();
 
   const [phase, setPhase] = useState<Phase>("name");
   const [draftName, setDraftName] = useState("");
@@ -90,9 +118,13 @@ export function ServiceBillingPage() {
   const [taxPercent, setTaxPercent] = useState("18");
   const [pricesTaxInclusive, setPricesTaxInclusive] = useState(false);
   const [defaultSacHsn, setDefaultSacHsn] = useState("9987");
+  const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
   const [billRef, setBillRef] = useState<string | null>(null);
   const [onlineOrder, setOnlineOrder] = useState<OnlineOrderPrefill | null>(null);
   const [interHoSrfInvoice, setInterHoSrfInvoice] = useState<InterHoSrfInvoicePrefill | null>(null);
+  const [interHoInvoicePreviewOpen, setInterHoInvoicePreviewOpen] = useState(false);
+  const [interHoInvoicePdfBusy, setInterHoInvoicePdfBusy] = useState(false);
+  const [interHoEdoc, setInterHoEdoc] = useState<QuickBillEdocInfo | null>(null);
 
   const customerIdParam = searchParams.get("customerId");
   const onlineOrderIdParam = searchParams.get("onlineOrderId");
@@ -179,9 +211,12 @@ export function ServiceBillingPage() {
         });
         const prefillLines = (out.usedSpares ?? []).map((l) => ({
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          spareId: l.spareId?.trim() || undefined,
           description: l.name,
           qty: String(Number(l.qty || 0)),
           rate: String(Number(l.unitPriceInr || 0)),
+          gstPercent: l.gstPercent != null && Number.isFinite(Number(l.gstPercent)) ? String(l.gstPercent) : undefined,
+          hsn: l.hsn?.trim() || undefined,
         }));
         setLines(prefillLines.length > 0 ? prefillLines : [emptyLine()]);
         setPhase("bill");
@@ -201,14 +236,9 @@ export function ServiceBillingPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const data = await apiJson<{
-          settings: {
-            gstRatePercent: number;
-            pricesTaxInclusive: boolean;
-            defaultSacHsn: string;
-          };
-        }>("/api/settings/tax");
+        const data = await apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax");
         if (cancelled) return;
+        setServiceTaxSettings(data.settings);
         setTaxPercent(String(data.settings.gstRatePercent));
         setPricesTaxInclusive(data.settings.pricesTaxInclusive);
         setDefaultSacHsn(data.settings.defaultSacHsn.trim() || "9987");
@@ -301,6 +331,7 @@ export function ServiceBillingPage() {
     setError(null);
     setLines([emptyLine()]);
     setBillRef(null);
+    setInterHoInvoicePreviewOpen(false);
     setSearchParams({});
   }
 
@@ -321,11 +352,69 @@ export function ServiceBillingPage() {
     const r = Number.parseFloat(l.rate) || 0;
     return sum + q * r;
   }, 0);
+
+  const interHoGst = useMemo(() => {
+    if (!isInterHoSrfInvoiceFlow || !interHoSrfInvoice) return null;
+    const billLines = lines
+      .map((l) => {
+        const q = Number.parseFloat(l.qty) || 0;
+        const r = Number.parseFloat(l.rate) || 0;
+        return {
+          amountInr: q * r,
+          spareId: l.spareId,
+          hsnSac: l.hsn,
+        };
+      })
+      .filter((l) => l.amountInr > 0);
+    if (billLines.length === 0) return null;
+
+    const repairRegion = regions.find((r) => r.id === interHoSrfInvoice.fromRegionId);
+    const senderRegion = regions.find((r) => r.id === interHoSrfInvoice.toRegionId);
+    const sellerState = resolveSellerStateCode(repairRegion?.gst);
+    const customerState = resolveSellerStateCode(senderRegion?.gst, sellerState);
+
+    return computeServiceBillGst({
+      lines: billLines,
+      defaultHsnSac: defaultSacHsn,
+      spareGstLookup: (spareId) => {
+        const line = lines.find((l) => l.spareId === spareId);
+        if (line?.gstPercent?.trim()) {
+          const n = Number.parseFloat(line.gstPercent);
+          if (Number.isFinite(n)) return n;
+        }
+        const spare = spares.find((s) => s.id === spareId);
+        return spare?.gstPercent ?? null;
+      },
+      defaultSacGstPercent: Number.parseFloat(taxPercent) || 18,
+      pricesTaxInclusive: false,
+      sellerStateCode: sellerState,
+      customerStateCode: customerState,
+      billTotalInr: billLines.reduce((sum, l) => sum + l.amountInr, 0),
+    });
+  }, [
+    isInterHoSrfInvoiceFlow,
+    interHoSrfInvoice,
+    lines,
+    regions,
+    spares,
+    defaultSacHsn,
+    taxPercent,
+  ]);
+
   const taxPct = Number.parseFloat(taxPercent) || 0;
   let taxableValue: number;
   let taxAmt: number;
   let grandTotal: number;
-  if (pricesTaxInclusive) {
+  let cgstAmt: number;
+  let sgstAmt: number;
+
+  if (interHoGst) {
+    taxableValue = interHoGst.grossTaxable;
+    taxAmt = interHoGst.totalTax;
+    grandTotal = interHoGst.netPayable;
+    cgstAmt = interHoGst.cgst;
+    sgstAmt = interHoGst.sgst;
+  } else if (pricesTaxInclusive) {
     const divisor = 1 + taxPct / 100;
     taxableValue = divisor > 0 ? lineTotal / divisor : lineTotal;
     taxAmt = Math.max(0, lineTotal - taxableValue);
@@ -334,10 +423,82 @@ export function ServiceBillingPage() {
     taxableValue = lineTotal;
     taxAmt = (taxableValue * taxPct) / 100;
     grandTotal = lineTotal + taxAmt;
+    cgstAmt = taxPct > 0 ? taxAmt / 2 : 0;
+    sgstAmt = taxPct > 0 ? taxAmt - cgstAmt : 0;
   }
-  const cgstAmt = taxPct > 0 ? taxAmt / 2 : 0;
-  const sgstAmt = taxPct > 0 ? taxAmt - cgstAmt : 0;
   const canOpenTaxSettings = user ? canAccessModule(user, "settings") : false;
+
+  const interHoInvoicePrintIdPrefix = useMemo(
+    () => `inter-ho-${(billRef ?? "draft").replace(/[^\w]/g, "").slice(0, 16)}`,
+    [billRef],
+  );
+
+  const recordedInterHoInvoiceVm = useMemo(() => {
+    if (!interHoSrfInvoice || !billRef || !selectedCustomer) return null;
+    const repairRegion = regions.find((r) => r.id === interHoSrfInvoice.fromRegionId);
+    const senderRegion = regions.find((r) => r.id === interHoSrfInvoice.toRegionId);
+    return buildInterHoRepairInvoiceViewModel({
+      billRef,
+      interHo: interHoSrfInvoice,
+      lines,
+      billToName: selectedCustomer.displayName,
+      repairRegion,
+      senderRegion,
+      taxSettings: serviceTaxSettings,
+      defaultSacHsn,
+      spareGstFallback: (spareId) => {
+        const spare = spares.find((s) => s.id === spareId);
+        return spare?.gstPercent ?? null;
+      },
+      generatedBy: user?.displayName ?? null,
+      grandTotal,
+      edocIrn: interHoEdoc?.irn,
+      edocAckNo: interHoEdoc?.ackNo,
+      edocQr: interHoEdoc?.qrUrl,
+    });
+  }, [
+    interHoSrfInvoice,
+    billRef,
+    selectedCustomer,
+    regions,
+    lines,
+    serviceTaxSettings,
+    defaultSacHsn,
+    spares,
+    user?.displayName,
+    grandTotal,
+    interHoEdoc,
+  ]);
+
+  const gstNoteLabel = interHoGst
+    ? "GST per spare (catalogue rates)"
+    : pricesTaxInclusive
+      ? "rates tax-inclusive"
+      : `${taxPct}% GST on taxable value`;
+
+  const downloadInterHoInvoicePdf = useCallback(
+    async (fromPreview = false) => {
+      if (!recordedInterHoInvoiceVm || !billRef) return;
+      setInterHoInvoicePdfBusy(true);
+      try {
+        const filename = interHoInvoicePdfFilename(billRef);
+        if (fromPreview) {
+          await downloadServiceInvoicePdfFromPage(filename);
+          return;
+        }
+        const blob = await captureInvoicePdfFromViewModel(
+          recordedInterHoInvoiceVm,
+          interHoInvoicePrintIdPrefix,
+        );
+        triggerBlobDownload(blob, filename);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not download invoice PDF.");
+      } finally {
+        setInterHoInvoicePdfBusy(false);
+      }
+    },
+    [recordedInterHoInvoiceVm, billRef, interHoInvoicePrintIdPrefix],
+  );
 
   async function recordBill(e: React.FormEvent) {
     e.preventDefault();
@@ -379,13 +540,27 @@ export function ServiceBillingPage() {
         });
       }
       if (interHoSrfInvoice && srfIdParam && invoiceForParam === "sender-ho") {
-        await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfIdParam)}/inter-ho-invoice`, {
-          method: "POST",
-          json: {
-            invoiceRef: generatedRef,
-            note: "Repair HO invoice created against sender HO.",
+        const interHoOut = await apiJson<{ ok: boolean; edoc?: QuickBillEdocInfo | null }>(
+          `/api/service/srf-jobs/${encodeURIComponent(srfIdParam)}/inter-ho-invoice`,
+          {
+            method: "POST",
+            json: {
+              invoiceRef: generatedRef,
+              note: "Repair HO invoice created against sender HO.",
+              totalInr: grandTotal,
+              taxJson: interHoGst
+                ? {
+                    grossTaxable: interHoGst.grossTaxable,
+                    totalTax: interHoGst.totalTax,
+                    cgst: interHoGst.cgst,
+                    sgst: interHoGst.sgst,
+                    igst: interHoGst.igst,
+                  }
+                : undefined,
+            },
           },
-        });
+        );
+        setInterHoEdoc(interHoOut.edoc ?? null);
       }
       setBillRef(generatedRef);
       setPhase("done");
@@ -397,6 +572,7 @@ export function ServiceBillingPage() {
   if (phase === "done" && billRef && selectedCustomer) {
     return (
       <div>
+        <div className={recordedInterHoInvoiceVm ? "print:hidden" : undefined}>
         <ServiceBreadcrumb current="Billing" />
         <Card title="Bill recorded" subtitle="Billing completed successfully">
           <p className="text-sm text-stone-600">
@@ -415,6 +591,38 @@ export function ServiceBillingPage() {
               Inter-HO repair invoice recorded for SRF {interHoSrfInvoice.reference}. Logistics can now dispatch return to sender HO.
             </p>
           ) : null}
+          {interHoSrfInvoice && interHoEdoc ? (
+            <div
+              className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
+                interHoEdoc.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : interHoEdoc.skipped
+                    ? "border-stone-200 bg-stone-50 text-stone-800"
+                    : "border-amber-200 bg-amber-50 text-amber-950"
+              }`}
+            >
+              {interHoEdoc.ok ? (
+                <p>
+                  <strong>GST e-invoice registered.</strong> IRN:{" "}
+                  <span className="font-mono break-all">{interHoEdoc.irn}</span>
+                  {interHoEdoc.ackNo ? <> · Ack: {interHoEdoc.ackNo}</> : null}
+                </p>
+              ) : interHoEdoc.skipped ? (
+                <p>
+                  <strong>E-invoice skipped:</strong> {interHoEdoc.skipReason ?? "Not applicable."}
+                </p>
+              ) : (
+                <p>
+                  <strong>E-invoice not generated:</strong>{" "}
+                  {interHoEdoc.error ?? interHoEdoc.skipReason ?? "IRP error."} Invoice is saved — generate IRN from{" "}
+                  <Link to="/accounts/invoice-history" className="font-semibold underline">
+                    Invoice history
+                  </Link>{" "}
+                  before payment.
+                </p>
+              )}
+            </div>
+          ) : null}
           <p className="mt-2 text-sm text-stone-600">
             Taxable value:{" "}
             <span className="font-semibold text-stone-900">
@@ -430,11 +638,35 @@ export function ServiceBillingPage() {
           </p>
           <p className="mt-2 text-lg font-semibold text-stone-900">
             Total: {grandTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}{" "}
-            <span className="text-sm font-normal text-stone-500">
-              ({pricesTaxInclusive ? "rates tax-inclusive" : `${taxPct}% GST on taxable value`})
-            </span>
+            <span className="text-sm font-normal text-stone-500">({gstNoteLabel})</span>
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
+            {recordedInterHoInvoiceVm ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setInterHoInvoicePreviewOpen(true)}
+                  className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+                >
+                  Preview invoice
+                </button>
+                <button
+                  type="button"
+                  onClick={() => printServiceInvoice()}
+                  className="rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+                >
+                  Print invoice
+                </button>
+                <button
+                  type="button"
+                  disabled={interHoInvoicePdfBusy}
+                  onClick={() => void downloadInterHoInvoicePdf(false)}
+                  className="rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:opacity-50"
+                >
+                  {interHoInvoicePdfBusy ? "Preparing PDF…" : "Download PDF"}
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               onClick={restartLookup}
@@ -466,6 +698,60 @@ export function ServiceBillingPage() {
             ) : null}
           </div>
         </Card>
+        </div>
+
+        {recordedInterHoInvoiceVm && !interHoInvoicePreviewOpen ? (
+          <div className="hidden print:block" aria-hidden>
+            <ServiceInvoiceTemplate data={recordedInterHoInvoiceVm} idPrefix={interHoInvoicePrintIdPrefix} />
+          </div>
+        ) : null}
+
+        {recordedInterHoInvoiceVm && interHoInvoicePreviewOpen ? (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-rlx-ink/70 backdrop-blur-sm sm:items-center sm:p-4 print:static print:inset-auto print:z-0 print:bg-white print:p-0 print:backdrop-blur-none">
+            <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] print:max-h-none print:max-w-none print:shadow-none">
+              <div className="sticky top-0 z-20 flex flex-col gap-3 bg-rlx-green px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 print:hidden">
+                <div className="min-w-0">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.45em] text-rlx-gold">Invoice preview</p>
+                  <h3 className="truncate font-sans text-xl font-semibold tracking-normal text-white sm:text-2xl">
+                    {billRef}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-white/60">
+                    SRF {interHoSrfInvoice?.reference} · Bill to {selectedCustomer.displayName}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-stretch gap-2 sm:items-center">
+                  <button
+                    type="button"
+                    onClick={() => printServiceInvoice()}
+                    className="flex-1 bg-rlx-gold px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-rlx-green-deep transition hover:bg-rlx-gold-dark sm:flex-none sm:px-5"
+                  >
+                    Print
+                  </button>
+                  <button
+                    type="button"
+                    disabled={interHoInvoicePdfBusy}
+                    onClick={() => void downloadInterHoInvoicePdf(true)}
+                    className="flex-1 border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-white/20 disabled:opacity-50 sm:flex-none sm:px-5"
+                  >
+                    {interHoInvoicePdfBusy ? "Preparing…" : "Download PDF"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInterHoInvoicePreviewOpen(false)}
+                    className="flex-1 border border-white/20 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 sm:flex-none sm:px-5"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+              <div className="p-6 md:p-8">
+                <div className="border border-rlx-rule print:border-0">
+                  <ServiceInvoiceTemplate data={recordedInterHoInvoiceVm} idPrefix={`${interHoInvoicePrintIdPrefix}-preview`} />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -743,7 +1029,7 @@ export function ServiceBillingPage() {
                     key={line.id}
                     className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-12 sm:items-end"
                   >
-                    <div className="sm:col-span-5">
+                    <div className={isInterHoSrfInvoiceFlow ? "sm:col-span-4" : "sm:col-span-5"}>
                       <span className="text-xs font-medium text-stone-600">Description</span>
                       <input
                         value={line.description}
@@ -765,7 +1051,7 @@ export function ServiceBillingPage() {
                         className={inputClass}
                       />
                     </div>
-                    <div className="sm:col-span-3">
+                    <div className={isInterHoSrfInvoiceFlow ? "sm:col-span-2" : "sm:col-span-3"}>
                       <span className="text-xs font-medium text-stone-600">Rate (INR)</span>
                       <input
                         type="number"
@@ -777,7 +1063,17 @@ export function ServiceBillingPage() {
                         className={inputClass}
                       />
                     </div>
-                    <div className="sm:col-span-2 flex sm:justify-end">
+                    {isInterHoSrfInvoiceFlow ? (
+                      <div className="sm:col-span-2">
+                        <span className="text-xs font-medium text-stone-600">GST %</span>
+                        <input
+                          value={line.gstPercent?.trim() ? line.gstPercent : "—"}
+                          readOnly
+                          className={inputClass}
+                        />
+                      </div>
+                    ) : null}
+                    <div className={`${isInterHoSrfInvoiceFlow ? "sm:col-span-2" : "sm:col-span-2"} flex sm:justify-end`}>
                       {isInterHoSrfInvoiceFlow ? (
                         <span className="px-3 py-2 text-xs font-medium text-stone-400">Locked</span>
                       ) : (
@@ -798,30 +1094,33 @@ export function ServiceBillingPage() {
                 <div className="mt-4 space-y-3">
                   <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_220px]">
                     <div>
-                      <label className="text-xs font-medium text-stone-600">Tax % (GST)</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={taxPercent}
-                        onChange={(e) => setTaxPercent(e.target.value)}
-                        readOnly={isInterHoSrfInvoiceFlow}
-                        className={inputClass}
-                      />
+                      <label className="text-xs font-medium text-stone-600">Tax (per spare GST from catalogue)</label>
+                      <p className="mt-1 rounded-xl border border-zimson-200/80 bg-zimson-50/40 px-3 py-2.5 text-sm text-stone-700">
+                        Each line uses the spare&apos;s GST % from Inventory (not the global 18% default).
+                      </p>
                     </div>
                     <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3 text-sm">
                       <p className="flex items-center justify-between text-stone-600">
                         <span>Subtotal (excl GST)</span>
                         <span className="font-semibold text-stone-900">₹{taxableValue.toFixed(2)}</span>
                       </p>
-                      <p className="mt-1 flex items-center justify-between text-stone-600">
-                        <span>CGST</span>
-                        <span className="font-semibold text-stone-900">₹{cgstAmt.toFixed(2)}</span>
-                      </p>
-                      <p className="mt-1 flex items-center justify-between text-stone-600">
-                        <span>SGST</span>
-                        <span className="font-semibold text-stone-900">₹{sgstAmt.toFixed(2)}</span>
-                      </p>
+                      {interHoGst?.igst ? (
+                        <p className="mt-1 flex items-center justify-between text-stone-600">
+                          <span>IGST</span>
+                          <span className="font-semibold text-stone-900">₹{interHoGst.igst.toFixed(2)}</span>
+                        </p>
+                      ) : (
+                        <>
+                          <p className="mt-1 flex items-center justify-between text-stone-600">
+                            <span>CGST</span>
+                            <span className="font-semibold text-stone-900">₹{cgstAmt.toFixed(2)}</span>
+                          </p>
+                          <p className="mt-1 flex items-center justify-between text-stone-600">
+                            <span>SGST</span>
+                            <span className="font-semibold text-stone-900">₹{sgstAmt.toFixed(2)}</span>
+                          </p>
+                        </>
+                      )}
                       <p className="mt-1 border-t border-zimson-200 pt-1.5 flex items-center justify-between font-bold text-zimson-900">
                         <span>Total</span>
                         <span>₹{grandTotal.toFixed(2)}</span>
@@ -832,29 +1131,38 @@ export function ServiceBillingPage() {
                     <table className="min-w-full text-sm">
                       <thead className="bg-zimson-50/70 text-xs font-semibold uppercase tracking-wide text-stone-600">
                         <tr>
+                          <th className="px-3 py-2 text-left">GST %</th>
                           <th className="px-3 py-2 text-left">Taxable amount</th>
                           <th className="px-3 py-2 text-left">CGST</th>
                           <th className="px-3 py-2 text-left">SGST</th>
+                          <th className="px-3 py-2 text-left">IGST</th>
                           <th className="px-3 py-2 text-left">Total tax</th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr className="border-t border-zimson-100">
-                          <td className="px-3 py-2 font-semibold text-zimson-900">₹{taxableValue.toFixed(2)}</td>
-                          <td className="px-3 py-2">₹{cgstAmt.toFixed(2)}</td>
-                          <td className="px-3 py-2">₹{sgstAmt.toFixed(2)}</td>
-                          <td className="px-3 py-2">₹{taxAmt.toFixed(2)}</td>
-                        </tr>
+                        {(interHoGst?.taxRows ?? []).map((row, idx) => (
+                          <tr key={`${row.description}-${idx}`} className="border-t border-zimson-100">
+                            <td className="px-3 py-2 font-semibold text-zimson-900">{row.description}</td>
+                            <td className="px-3 py-2">₹{row.taxable.toFixed(2)}</td>
+                            <td className="px-3 py-2">₹{row.cgst.toFixed(2)}</td>
+                            <td className="px-3 py-2">₹{row.sgst.toFixed(2)}</td>
+                            <td className="px-3 py-2">₹{row.igst.toFixed(2)}</td>
+                            <td className="px-3 py-2">₹{row.total.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                        {(interHoGst?.taxRows ?? []).length === 0 ? (
+                          <tr className="border-t border-zimson-100">
+                            <td className="px-3 py-2 text-stone-500" colSpan={6}>
+                              No taxable lines.
+                            </td>
+                          </tr>
+                        ) : null}
                       </tbody>
                     </table>
                   </div>
                   <p className="text-xs text-stone-500">
-                    Default tax loaded from settings. SAC/HSN: <span className="font-mono">{defaultSacHsn}</span>
-                    {canOpenTaxSettings ? (
-                      <>
-                        {" "}· <Link to="/settings/tax" className="font-medium text-zimson-800 underline">Edit in Tax &amp; billing</Link>
-                      </>
-                    ) : null}
+                    Example: ₹8,000 @ 14% + ₹12,000 @ 12% → total tax ₹2,560.00, invoice total ₹22,560.00.
+                    Default SAC/HSN: <span className="font-mono">{defaultSacHsn}</span>
                   </p>
                 </div>
               ) : (

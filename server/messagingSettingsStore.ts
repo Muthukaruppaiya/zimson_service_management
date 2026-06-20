@@ -1,7 +1,6 @@
 import type { Pool } from "pg";
 import type { MessagingConfig } from "./messaging/types";
 import { resetSmtpTransporter } from "./messaging/smtpTransport";
-import { envFirst } from "./messaging/env";
 import { normalizeMessagingPublicBaseUrl } from "./messaging/publicHttpsUrl";
 
 /** Stored in `messaging_settings.config` (JSONB). Secrets are plain text in DB — super-admin only API. */
@@ -28,6 +27,12 @@ export type MessagingSettingsDb = {
   qikchatApiBaseUrl?: string;
   qikchatTemplateName?: string;
   qikchatTemplateLanguage?: string;
+  qikchatTrackingTemplateName?: string;
+  qikchatTrackingTextTemplateName?: string;
+  qikchatApprovalTemplateName?: string;
+  qikchatTrackingTemplateBody?: string;
+  qikchatApprovalTemplateBody?: string;
+  qikchatInvoiceTemplateBody?: string;
   whatsappInvoiceMode?: string;
   messagingPublicBaseUrl?: string;
   whatsappInvoiceDryRun?: boolean;
@@ -66,6 +71,12 @@ export type MessagingSettingsPublic = {
   qikchatApiBaseUrl: string;
   qikchatTemplateName: string;
   qikchatTemplateLanguage: string;
+  qikchatTrackingTemplateName: string;
+  qikchatTrackingTextTemplateName: string;
+  qikchatApprovalTemplateName: string;
+  qikchatTrackingTemplateBody: string;
+  qikchatApprovalTemplateBody: string;
+  qikchatInvoiceTemplateBody: string;
   whatsappInvoiceMode: "template" | "media";
   messagingPublicBaseUrl: string;
   whatsappInvoiceDryRun: boolean;
@@ -96,6 +107,11 @@ const DEFAULT_SMS_OTP_MESSAGE =
 const DEFAULT_EMAIL_OTP_SUBJECT = "Your Zimson verification code";
 const DEFAULT_EMAIL_OTP_TEXT =
   "Your verification code for Zimson Service Management is {{otp}}.\n\nThis code is valid for 20 minutes. Enter it on the screen where you requested verification.\n\nDo not share this code with anyone.\n\n— Zimson Watch Care";
+const DEFAULT_WHATSAPP_TRACKING_BODY =
+  "Hi {{1}}, your service request {{2}} has been registered. Track: {{3}}";
+const DEFAULT_WHATSAPP_APPROVAL_BODY =
+  "Hi {{1}}, your service request {{2}} needs your approval for a site visit by our technician. Reason: {{3}}. Please review and respond here: {{4}} Thank you for choosing Zimson.";
+const DEFAULT_WHATSAPP_INVOICE_BODY = "Hello {{1}}, please find your invoice {{2}} from Zimson Watch Care.";
 
 let poolRef: Pool | null = null;
 let dbConfig: MessagingSettingsDb = {};
@@ -106,7 +122,6 @@ let metaCache: { updatedAt: string; updatedBy: string | null } = {
   updatedBy: null,
 };
 let configuredFromDatabase = false;
-let envFallbackActive = false;
 
 export type MessagingFlags = {
   whatsappInvoiceMode: "template" | "media";
@@ -125,6 +140,11 @@ function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+function pickStr(dbVal: string | undefined, fallback: string): string {
+  const d = str(dbVal);
+  return d || fallback;
+}
+
 function dbHasAnyCredential(c: MessagingSettingsDb): boolean {
   return Boolean(
     str(c.smsToken) ||
@@ -136,249 +156,79 @@ function dbHasAnyCredential(c: MessagingSettingsDb): boolean {
   );
 }
 
-function envHasAnyCredential(): boolean {
-  return Boolean(
-    envFirst("QIKBERRY_SMS_TOKEN", "qikberry.sms.token") ||
-      envFirst("QIKBERRY_SMS_TEMPLATE_ID") ||
-      envFirst("SMTP_USER", "SPRING_MAIL_USERNAME") ||
-      envFirst("SMTP_PASSWORD", "SPRING_MAIL_PASSWORD") ||
-      envFirst("QIKCHAT_API_KEY", "QIKCHAT_WHATSAPP_API_KEY"),
-  );
-}
-
-/** In production, .env is the deploy source of truth — keep RDS in sync when values differ. */
-function shouldSyncCredentialsFromEnv(): boolean {
-  return process.env.NODE_ENV === "production" || process.env.MESSAGING_SYNC_FROM_ENV === "true";
-}
-
-function mergeEnvCredentialsIntoConfig(cfg: MessagingSettingsDb): { next: MessagingSettingsDb; changed: boolean } {
-  const fromEnv = configFromEnv();
-  const next: MessagingSettingsDb = { ...cfg };
-  let changed = false;
-
-  const setIfEnv = <K extends keyof MessagingSettingsDb>(key: K, envVal: MessagingSettingsDb[K] | undefined) => {
-    if (typeof envVal === "string") {
-      const ev = envVal.trim();
-      if (!ev) return;
-      if (str(next[key]) !== ev) {
-        next[key] = envVal;
-        changed = true;
-      }
-      return;
-    }
-    if (typeof envVal === "number" && !Number.isNaN(envVal) && next[key] !== envVal) {
-      next[key] = envVal;
-      changed = true;
-    }
-  };
-
-  if (str(fromEnv.smsToken)) {
-    setIfEnv("smsToken", fromEnv.smsToken);
-    setIfEnv("smsTemplateId", fromEnv.smsTemplateId);
-    setIfEnv("smsSender", fromEnv.smsSender);
-    setIfEnv("smsService", fromEnv.smsService);
-    setIfEnv("smsUrl", fromEnv.smsUrl);
-    setIfEnv("smsOtpMessageTemplate", fromEnv.smsOtpMessageTemplate);
-  }
-
-  if (str(fromEnv.smtpUser) || str(fromEnv.smtpPassword)) {
-    setIfEnv("smtpHost", fromEnv.smtpHost);
-    setIfEnv("smtpPort", fromEnv.smtpPort);
-    setIfEnv("smtpUser", fromEnv.smtpUser);
-    setIfEnv("smtpPassword", fromEnv.smtpPassword);
-    setIfEnv("smtpFrom", fromEnv.smtpFrom);
-    setIfEnv("smtpOtpSubject", fromEnv.smtpOtpSubject);
-    setIfEnv("smtpOtpMessage", fromEnv.smtpOtpMessage);
-  }
-
-  if (str(fromEnv.qikchatApiKey)) {
-    setIfEnv("qikchatApiKey", fromEnv.qikchatApiKey);
-    setIfEnv("qikchatApiBaseUrl", fromEnv.qikchatApiBaseUrl);
-    setIfEnv("qikchatTemplateName", fromEnv.qikchatTemplateName);
-  }
-
-  return { next, changed };
-}
-
-function configFromEnv(): MessagingSettingsDb {
-  const rawSms = envFirst("QIKBERRY_SMS_TOKEN", "qikberry.sms.token").replace(/^bearer\s+/i, "");
-  const rawWd = envFirst("QIKBERRY_WORKDRIVE_TOKEN", "qikberry.workdrive.token").replace(/^bearer\s+/i, "");
-  let expose: boolean | null = null;
-  if (process.env.MESSAGING_EXPOSE_DEMO_OTP === "true") expose = true;
-  if (process.env.MESSAGING_EXPOSE_DEMO_OTP === "false") expose = false;
-
-  return {
-    smsEnabled: true,
-    smsUrl: envFirst("QIKBERRY_SMS_URL", "qikberry.sms.url") || "https://rest.qikberry.ai/v1/sms/messages",
-    smsToken: rawSms,
-    smsTemplateId: envFirst("QIKBERRY_SMS_TEMPLATE_ID", "qikberry.sms.template-id", "qikberry.sms.templateId"),
-    smsSender: envFirst("QIKBERRY_SMS_SENDER", "qikberry.sms.sender") || "ZIMSON",
-    smsService: envFirst("QIKBERRY_SMS_SERVICE", "qikberry.sms.service") || "SI",
-    smsOtpMessageTemplate: envFirst("QIKBERRY_SMS_OTP_MESSAGE", "qikberry.sms.otp-message") || DEFAULT_SMS_OTP_MESSAGE,
-
-    emailEnabled: true,
-    smtpHost: envFirst("SMTP_HOST", "SPRING_MAIL_HOST", "spring.mail.host") || "smtp.gmail.com",
-    smtpPort: Number(envFirst("SMTP_PORT", "SPRING_MAIL_PORT", "spring.mail.port") || "587"),
-    smtpUser: envFirst("SMTP_USER", "SPRING_MAIL_USERNAME", "spring.mail.username"),
-    smtpPassword: envFirst("SMTP_PASSWORD", "SPRING_MAIL_PASSWORD", "spring.mail.password").replace(/\s+/g, ""),
-    smtpFrom:
-      envFirst("SMTP_FROM", "SPRING_MAIL_FROM") ||
-      envFirst("SMTP_USER", "SPRING_MAIL_USERNAME", "spring.mail.username") ||
-      "Zimson Watch Care <noreply@zimsonwatchcare.com>",
-    smtpOtpSubject: envFirst("SMTP_OTP_SUBJECT") || DEFAULT_EMAIL_OTP_SUBJECT,
-    smtpOtpMessage: envFirst("SMTP_OTP_MESSAGE") || DEFAULT_EMAIL_OTP_TEXT,
-
-    whatsappEnabled: true,
-    qikchatApiKey: envFirst("QIKCHAT_API_KEY", "QIKCHAT_WHATSAPP_API_KEY", "qikchat.api.key"),
-    qikchatApiBaseUrl: envFirst("QIKCHAT_API_BASE_URL", "qikchat.api.base-url") || "https://api.qikchat.in",
-    qikchatTemplateName: envFirst("QIKCHAT_WHATSAPP_TEMPLATE_NAME", "qikchat.whatsapp.template-name") || "invoice",
-    qikchatTemplateLanguage:
-      envFirst("QIKCHAT_WHATSAPP_TEMPLATE_LANGUAGE", "qikchat.whatsapp.template-language") || "en",
-    whatsappInvoiceMode: envFirst("WHATSAPP_INVOICE_MODE") || "template",
-    messagingPublicBaseUrl: envFirst("MESSAGING_PUBLIC_BASE_URL", "PUBLIC_API_URL", "API_PUBLIC_URL"),
-    whatsappInvoiceDryRun: process.env.WHATSAPP_INVOICE_DRY_RUN === "true",
-
-    workdriveForInvoice: process.env.QIKBERRY_WORKDRIVE_FOR_INVOICE === "true",
-    workdriveToken: rawWd,
-    workdriveUploadUrl:
-      envFirst("QIKBERRY_WORKDRIVE_UPLOAD_URL") || "https://wkdrive.qikberry.io/api/v1/upload",
-    workdriveHeaderName: envFirst("QIKBERRY_WORKDRIVE_HEADER_NAME"),
-    workdriveHeaderValue: envFirst("QIKBERRY_WORKDRIVE_HEADER_VALUE"),
-    exposeDemoOtp: expose,
-  };
-}
-
-function pickDbOrEnv(dbVal: string | undefined, envKeys: string[], fallback = ""): { value: string; fromDb: boolean } {
-  const d = str(dbVal);
-  if (d) return { value: d, fromDb: true };
-  const e = envFirst(...envKeys);
-  if (e) return { value: e, fromDb: false };
-  return { value: fallback, fromDb: false };
-}
-
 function resolveMerged(db: MessagingSettingsDb): {
   config: MessagingConfig;
   flags: MessagingFlags;
   fromDb: boolean;
-  envFallback: boolean;
 } {
-  let fromDb = false;
-  let envFallback = false;
+  const fromDb = dbHasAnyCredential(db);
 
-  const track = (r: { value: string; fromDb: boolean }) => {
-    if (r.fromDb) fromDb = true;
-    else if (r.value && !r.fromDb) envFallback = true;
-    return r.value;
-  };
-
-  const rawSms = track(pickDbOrEnv(db.smsToken, ["QIKBERRY_SMS_TOKEN", "qikberry.sms.token"]));
+  const rawSms = str(db.smsToken);
   const bearerToken = rawSms ? `Bearer ${rawSms.replace(/^bearer\s+/i, "")}` : "";
-
-  const smtpPassword = track(
-    pickDbOrEnv(db.smtpPassword, ["SMTP_PASSWORD", "SPRING_MAIL_PASSWORD", "spring.mail.password"]),
-  ).replace(/\s+/g, "");
-
-  const apiKey = track(pickDbOrEnv(db.qikchatApiKey, ["QIKCHAT_API_KEY", "QIKCHAT_WHATSAPP_API_KEY", "qikchat.api.key"]));
-
-  const rawWd = track(pickDbOrEnv(db.workdriveToken, ["QIKBERRY_WORKDRIVE_TOKEN", "qikberry.workdrive.token"]));
+  const smtpPassword = str(db.smtpPassword).replace(/\s+/g, "");
+  const apiKey = str(db.qikchatApiKey);
+  const rawWd = str(db.workdriveToken);
   const workdriveToken = rawWd ? `Bearer ${rawWd.replace(/^bearer\s+/i, "")}` : "";
 
-  const invoiceModeRaw = track(
-    pickDbOrEnv(db.whatsappInvoiceMode, ["WHATSAPP_INVOICE_MODE"], "template"),
-  ).toLowerCase();
+  const invoiceModeRaw = pickStr(db.whatsappInvoiceMode, "template").toLowerCase();
   const whatsappInvoiceMode: "template" | "media" =
     invoiceModeRaw === "media" || invoiceModeRaw === "document" ? "media" : "template";
 
-  const publicBasePick = pickDbOrEnv(db.messagingPublicBaseUrl, [
-    "MESSAGING_PUBLIC_BASE_URL",
-    "PUBLIC_API_URL",
-    "API_PUBLIC_URL",
-  ]);
-  const prodAppPick =
-    process.env.NODE_ENV === "production"
-      ? pickDbOrEnv(undefined, ["APP_BASE_URL", "PUBLIC_APP_URL"])
-      : { value: "", fromDb: false };
-  const publicBaseRaw =
-    process.env.MESSAGING_PUBLIC_BASE_URL?.trim() ||
-    track(publicBasePick) ||
-    track(prodAppPick);
-  const publicBase = publicBaseRaw.trim() ? normalizeMessagingPublicBaseUrl(publicBaseRaw) : "";
+  const publicBaseRaw = str(db.messagingPublicBaseUrl);
+  const publicBase = publicBaseRaw ? normalizeMessagingPublicBaseUrl(publicBaseRaw) : "";
 
-  let dryRun = db.whatsappInvoiceDryRun;
-  if (dryRun === undefined) dryRun = process.env.WHATSAPP_INVOICE_DRY_RUN === "true";
-
-  let workdriveFor = db.workdriveForInvoice;
-  if (workdriveFor === undefined) {
-    if (process.env.QIKBERRY_WORKDRIVE_FOR_INVOICE === "true") workdriveFor = Boolean(workdriveToken);
-    else if (process.env.QIKBERRY_WORKDRIVE_FOR_INVOICE === "false") workdriveFor = false;
-    else workdriveFor = false;
-  }
-
-  let expose: boolean | null = db.exposeDemoOtp ?? null;
-  if (expose === undefined || expose === null) {
-    if (process.env.MESSAGING_EXPOSE_DEMO_OTP === "true") expose = true;
-    else if (process.env.MESSAGING_EXPOSE_DEMO_OTP === "false") expose = false;
-    else expose = null;
-  }
+  const trackingTemplateName = pickStr(db.qikchatTrackingTemplateName, "customer_link");
+  const trackingTextTemplateName =
+    pickStr(db.qikchatTrackingTextTemplateName, "") || trackingTemplateName;
 
   const config: MessagingConfig = {
     whatsapp: {
       apiKey,
-      templateName:
-        track(pickDbOrEnv(db.qikchatTemplateName, ["QIKCHAT_WHATSAPP_TEMPLATE_NAME"], "invoice")) || "invoice",
-      templateLanguage:
-        track(pickDbOrEnv(db.qikchatTemplateLanguage, ["QIKCHAT_WHATSAPP_TEMPLATE_LANGUAGE"], "en")) || "en",
+      templateName: pickStr(db.qikchatTemplateName, "invoice"),
+      templateLanguage: pickStr(db.qikchatTemplateLanguage, "en"),
+      trackingTemplateName,
+      trackingTextTemplateName,
+      approvalTemplateName: pickStr(db.qikchatApprovalTemplateName, "site_visit_approval"),
+      trackingTemplateBody: pickStr(db.qikchatTrackingTemplateBody, DEFAULT_WHATSAPP_TRACKING_BODY),
+      approvalTemplateBody: pickStr(db.qikchatApprovalTemplateBody, DEFAULT_WHATSAPP_APPROVAL_BODY),
+      invoiceTemplateBody: pickStr(db.qikchatInvoiceTemplateBody, DEFAULT_WHATSAPP_INVOICE_BODY),
     },
     sms: {
-      url:
-        track(
-          pickDbOrEnv(db.smsUrl, ["QIKBERRY_SMS_URL"], "https://rest.qikberry.ai/v1/sms/messages"),
-        ) || "https://rest.qikberry.ai/v1/sms/messages",
+      url: pickStr(db.smsUrl, "https://rest.qikberry.ai/v1/sms/messages"),
       bearerToken,
-      templateId: track(
-        pickDbOrEnv(db.smsTemplateId, ["QIKBERRY_SMS_TEMPLATE_ID", "qikberry.sms.template-id", "qikberry.sms.templateId"]),
-      ),
-      sender: track(pickDbOrEnv(db.smsSender, ["QIKBERRY_SMS_SENDER"], "ZIMSON")) || "ZIMSON",
-      service: track(pickDbOrEnv(db.smsService, ["QIKBERRY_SMS_SERVICE"], "SI")) || "SI",
-      otpMessageTemplate:
-        track(pickDbOrEnv(db.smsOtpMessageTemplate, ["QIKBERRY_SMS_OTP_MESSAGE"], DEFAULT_SMS_OTP_MESSAGE)) ||
-        DEFAULT_SMS_OTP_MESSAGE,
+      templateId: str(db.smsTemplateId),
+      sender: pickStr(db.smsSender, "ZIMSON"),
+      service: pickStr(db.smsService, "SI"),
+      otpMessageTemplate: pickStr(db.smsOtpMessageTemplate, DEFAULT_SMS_OTP_MESSAGE),
     },
     email: {
-      host: track(pickDbOrEnv(db.smtpHost, ["SMTP_HOST", "SPRING_MAIL_HOST"], "smtp.gmail.com")) || "smtp.gmail.com",
-      port: db.smtpPort ?? Number(envFirst("SMTP_PORT", "SPRING_MAIL_PORT") || "587"),
-      user: track(pickDbOrEnv(db.smtpUser, ["SMTP_USER", "SPRING_MAIL_USERNAME"])),
+      host: pickStr(db.smtpHost, "smtp.gmail.com"),
+      port: db.smtpPort ?? 587,
+      user: str(db.smtpUser),
       password: smtpPassword,
       from:
-        track(pickDbOrEnv(db.smtpFrom, ["SMTP_FROM", "SPRING_MAIL_FROM"])) ||
-        track(pickDbOrEnv(db.smtpUser, ["SMTP_USER", "SPRING_MAIL_USERNAME"])) ||
+        pickStr(db.smtpFrom, "") ||
+        str(db.smtpUser) ||
         "Zimson Watch Care <noreply@zimsonwatchcare.com>",
-      otpSubject: track(pickDbOrEnv(db.smtpOtpSubject, ["SMTP_OTP_SUBJECT"], DEFAULT_EMAIL_OTP_SUBJECT)),
-      otpTextTemplate: track(pickDbOrEnv(db.smtpOtpMessage, ["SMTP_OTP_MESSAGE"], DEFAULT_EMAIL_OTP_TEXT)),
+      otpSubject: pickStr(db.smtpOtpSubject, DEFAULT_EMAIL_OTP_SUBJECT),
+      otpTextTemplate: pickStr(db.smtpOtpMessage, DEFAULT_EMAIL_OTP_TEXT),
     },
   };
 
   const flags: MessagingFlags = {
     whatsappInvoiceMode,
     messagingPublicBaseUrl: publicBase,
-    whatsappInvoiceDryRun: Boolean(dryRun),
-    workdriveForInvoice: Boolean(workdriveFor),
-    workdriveUploadUrl:
-      track(
-        pickDbOrEnv(db.workdriveUploadUrl, ["QIKBERRY_WORKDRIVE_UPLOAD_URL"], "https://wkdrive.qikberry.io/api/v1/upload"),
-      ) || "https://wkdrive.qikberry.io/api/v1/upload",
-    workdriveHeaderName: track(pickDbOrEnv(db.workdriveHeaderName, ["QIKBERRY_WORKDRIVE_HEADER_NAME"])),
-    workdriveHeaderValue: track(pickDbOrEnv(db.workdriveHeaderValue, ["QIKBERRY_WORKDRIVE_HEADER_VALUE"])),
+    whatsappInvoiceDryRun: db.whatsappInvoiceDryRun ?? false,
+    workdriveForInvoice: db.workdriveForInvoice ?? false,
+    workdriveUploadUrl: pickStr(db.workdriveUploadUrl, "https://wkdrive.qikberry.io/api/v1/upload"),
+    workdriveHeaderName: str(db.workdriveHeaderName),
+    workdriveHeaderValue: str(db.workdriveHeaderValue),
     workdriveToken,
-    exposeDemoOtp: expose,
-    qikchatApiBaseUrl:
-      (track(pickDbOrEnv(db.qikchatApiBaseUrl, ["QIKCHAT_API_BASE_URL"], "https://api.qikchat.in")) || "https://api.qikchat.in").replace(
-        /\/$/,
-        "",
-      ),
+    exposeDemoOtp: db.exposeDemoOtp ?? null,
+    qikchatApiBaseUrl: pickStr(db.qikchatApiBaseUrl, "https://api.qikchat.in").replace(/\/$/, ""),
   };
 
-  return { config, flags, fromDb, envFallback };
+  return { config, flags, fromDb };
 }
 
 function applyCache(db: MessagingSettingsDb, row?: MessagingRow): void {
@@ -387,7 +237,6 @@ function applyCache(db: MessagingSettingsDb, row?: MessagingRow): void {
   resolved = m.config;
   flagsCache = m.flags;
   configuredFromDatabase = m.fromDb;
-  envFallbackActive = m.envFallback;
   if (row) {
     metaCache = {
       updatedAt: row.updated_at.toISOString(),
@@ -403,45 +252,13 @@ export async function initMessagingSettings(pool: Pool): Promise<void> {
   const { rows } = await pool.query<{ config: MessagingSettingsDb; updated_at: Date; updated_by: string | null }>(
     `SELECT config, updated_at, updated_by FROM messaging_settings WHERE id = 1`,
   );
-  let row = rows[0];
+  const row = rows[0];
   if (!row) {
     applyCache({});
     return;
   }
 
-  let cfg = (row.config && typeof row.config === "object" ? row.config : {}) as MessagingSettingsDb;
-  let updatedBy: string | null = null;
-
-  if (!dbHasAnyCredential(cfg) && envHasAnyCredential()) {
-    cfg = { ...configFromEnv(), ...cfg };
-    updatedBy = "env-import";
-  } else if (shouldSyncCredentialsFromEnv() && envHasAnyCredential()) {
-    const merged = mergeEnvCredentialsIntoConfig(cfg);
-    if (merged.changed) {
-      cfg = merged.next;
-      updatedBy = "env-sync";
-    }
-  }
-
-  if (updatedBy) {
-    await pool.query(
-      `UPDATE messaging_settings SET config = $1::jsonb, updated_at = now(), updated_by = $2 WHERE id = 1`,
-      [JSON.stringify(cfg), updatedBy],
-    );
-    const again = await pool.query<{ config: MessagingSettingsDb; updated_at: Date; updated_by: string | null }>(
-      `SELECT config, updated_at, updated_by FROM messaging_settings WHERE id = 1`,
-    );
-    row = again.rows[0]!;
-    cfg = (row.config ?? {}) as MessagingSettingsDb;
-    applyCache(cfg, row);
-    console.log(
-      updatedBy === "env-import"
-        ? "[messaging-settings] Imported credentials from .env into database (one-time)."
-        : "[messaging-settings] Synced credentials from .env into database (production).",
-    );
-    return;
-  }
-
+  const cfg = (row.config && typeof row.config === "object" ? row.config : {}) as MessagingSettingsDb;
   applyCache(cfg, row);
 }
 
@@ -460,7 +277,7 @@ export async function refreshMessagingSettingsCache(): Promise<void> {
 
 export function getResolvedMessagingConfig(): MessagingConfig {
   if (!resolved) {
-    const m = resolveMerged({});
+    const m = resolveMerged(dbConfig);
     resolved = m.config;
     flagsCache = m.flags;
   }
@@ -475,14 +292,9 @@ export function getMessagingFlags(): MessagingFlags {
   return flagsCache;
 }
 
-/** Dev tunnel or manual override — keeps process.env and in-memory flags in sync. */
+/** Dev tunnel override — updates in-memory public base URL only (not .env). */
 export function patchMessagingPublicBaseUrl(url: string): void {
   const clean = url.trim() ? normalizeMessagingPublicBaseUrl(url) : "";
-  if (clean) {
-    process.env.MESSAGING_PUBLIC_BASE_URL = clean;
-  } else {
-    delete process.env.MESSAGING_PUBLIC_BASE_URL;
-  }
   if (flagsCache) {
     flagsCache = { ...flagsCache, messagingPublicBaseUrl: clean };
   }
@@ -537,6 +349,12 @@ export function toPublicSettings(): MessagingSettingsPublic {
     qikchatApiBaseUrl: f.qikchatApiBaseUrl,
     qikchatTemplateName: c.whatsapp.templateName,
     qikchatTemplateLanguage: c.whatsapp.templateLanguage,
+    qikchatTrackingTemplateName: c.whatsapp.trackingTemplateName,
+    qikchatTrackingTextTemplateName: c.whatsapp.trackingTextTemplateName,
+    qikchatApprovalTemplateName: c.whatsapp.approvalTemplateName,
+    qikchatTrackingTemplateBody: c.whatsapp.trackingTemplateBody,
+    qikchatApprovalTemplateBody: c.whatsapp.approvalTemplateBody,
+    qikchatInvoiceTemplateBody: c.whatsapp.invoiceTemplateBody,
     whatsappInvoiceMode: f.whatsappInvoiceMode,
     messagingPublicBaseUrl: f.messagingPublicBaseUrl,
     whatsappInvoiceDryRun: f.whatsappInvoiceDryRun,
@@ -551,7 +369,7 @@ export function toPublicSettings(): MessagingSettingsPublic {
     exposeDemoOtp: f.exposeDemoOtp,
 
     configuredFromDatabase,
-    envFallbackActive,
+    envFallbackActive: false,
     updatedAt: metaCache.updatedAt,
     updatedBy: metaCache.updatedBy,
   };

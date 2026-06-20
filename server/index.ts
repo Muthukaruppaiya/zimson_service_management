@@ -16,6 +16,7 @@ import { registerCatalogRoutes } from "./catalogRoutes";
 import { registerGeoRoutes } from "./geoRoutes";
 import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { registerQuickBillRoutes } from "./quickBillRoutes";
+import { registerServiceInvoiceRoutes } from "./serviceInvoiceRoutes";
 import { registerQuickBillCaptureRoutes } from "./quickBillCaptureRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { getMessagingPublicBaseUrl, isWhatsAppInvoiceDryRun } from "./messaging/config";
@@ -3860,6 +3861,7 @@ async function main() {
   });
   registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(id), allUsers, pushNotifications);
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerServiceInvoiceRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerQuickBillCaptureRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerEdocRoutes(app, dbPool, requireAuth);

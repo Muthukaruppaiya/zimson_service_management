@@ -22,6 +22,12 @@ export type MessagingSettings = {
   qikchatApiBaseUrl: string;
   qikchatTemplateName: string;
   qikchatTemplateLanguage: string;
+  qikchatTrackingTemplateName: string;
+  qikchatTrackingTextTemplateName: string;
+  qikchatApprovalTemplateName: string;
+  qikchatTrackingTemplateBody: string;
+  qikchatApprovalTemplateBody: string;
+  qikchatInvoiceTemplateBody: string;
   whatsappInvoiceMode: "template" | "media";
   messagingPublicBaseUrl: string;
   whatsappInvoiceDryRun: boolean;

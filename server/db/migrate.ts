@@ -1283,4 +1283,77 @@ export async function runMigrations(pool: Pool): Promise<void> {
 
   const { seedWatchCatalogTables } = await import("../watchCatalogRoutes");
   await seedWatchCatalogTables(pool);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS service_invoices (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      invoice_number VARCHAR(64) NOT NULL,
+      invoice_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      source_type VARCHAR(32) NOT NULL,
+      source_id TEXT,
+      region_id TEXT,
+      store_id TEXT,
+      customer_id TEXT,
+      customer_name TEXT NOT NULL DEFAULT '',
+      customer_phone TEXT,
+      customer_gstin TEXT,
+      srf_reference TEXT,
+      total_inr NUMERIC(14, 2) NOT NULL DEFAULT 0,
+      tax_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      paid_inr NUMERIC(14, 2) NOT NULL DEFAULT 0,
+      balance_due_inr NUMERIC(14, 2) NOT NULL DEFAULT 0,
+      payment_status VARCHAR(16) NOT NULL DEFAULT 'unpaid',
+      snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_service_invoices_number ON service_invoices (invoice_number);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_service_invoices_source ON service_invoices (source_type, source_id)
+      WHERE source_id IS NOT NULL AND source_id <> '';
+    CREATE INDEX IF NOT EXISTS idx_service_invoices_region ON service_invoices (region_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_service_invoices_status ON service_invoices (payment_status, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS invoice_payments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      invoice_id UUID NOT NULL REFERENCES service_invoices(id) ON DELETE CASCADE,
+      voucher_ref VARCHAR(64) NOT NULL,
+      amount_inr NUMERIC(14, 2) NOT NULL CHECK (amount_inr > 0),
+      payment_mode VARCHAR(48) NOT NULL,
+      payment_details JSONB NOT NULL DEFAULT '{}'::jsonb,
+      narration TEXT,
+      posted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice ON invoice_payments (invoice_id, posted_at DESC);
+
+    CREATE TABLE IF NOT EXISTS ledger_entries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      voucher_ref VARCHAR(64) NOT NULL,
+      voucher_type VARCHAR(16) NOT NULL,
+      account_code VARCHAR(64) NOT NULL,
+      account_name VARCHAR(128) NOT NULL,
+      debit_inr NUMERIC(14, 2) NOT NULL DEFAULT 0,
+      credit_inr NUMERIC(14, 2) NOT NULL DEFAULT 0,
+      reference_type VARCHAR(32),
+      reference_id TEXT,
+      narration TEXT,
+      region_id TEXT,
+      posted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_ledger_entries_voucher ON ledger_entries (voucher_ref, posted_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ledger_entries_account ON ledger_entries (account_code, posted_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ledger_entries_ref ON ledger_entries (reference_type, reference_id);
+
+    ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_irn VARCHAR(128);
+    ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_ack_no VARCHAR(64);
+    ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_ack_date VARCHAR(48);
+    ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_status VARCHAR(24);
+    ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_error TEXT;
+    ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_generated_at TIMESTAMPTZ;
+    ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_qr TEXT;
+  `);
 }

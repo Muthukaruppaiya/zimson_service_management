@@ -1,5 +1,6 @@
 import {
   formatIndiaMobileE164,
+  getMessagingConfig,
   isEmailConfigured,
   isWhatsAppConfigured,
 } from "./messaging/config";
@@ -119,7 +120,7 @@ export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<Tr
     return { sent: false, reason: "Invalid mobile number.", emailSent, emailReason };
   }
 
-  const templateName = process.env.QIKCHAT_TRACKING_TEMPLATE_NAME?.trim() || "customer_link";
+  const templateName = getMessagingConfig().whatsapp.trackingTemplateName;
 
   try {
     const messageId = await sendTrackingLinkWhatsAppTemplate({
@@ -202,7 +203,7 @@ export async function sendSiteVisitApprovalLink(
     return { sent: false, reason: "Invalid mobile number." };
   }
 
-  const templateName = process.env.QIKCHAT_APPROVAL_TEMPLATE_NAME?.trim() || "site_visit_approval";
+  const templateName = getMessagingConfig().whatsapp.approvalTemplateName;
 
   try {
     const messageId = await sendSiteVisitApprovalWhatsAppTemplate({

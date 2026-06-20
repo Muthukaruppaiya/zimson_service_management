@@ -9,7 +9,7 @@ import { billableLineAmount } from "../../src/lib/natureOfRepair";
 import { isValidGstFormat } from "../../src/data/serviceSeed";
 import { validateCustomerB2bGstin } from "../../src/lib/zimsonCompanyGst";
 import type { TransferPrintMeta } from "../transferDocMeta";
-import { transferPrintKindFromGstins } from "../transferDocMeta";
+import { transferPrintKindFromGstins, rebuildPrintMetaForChallan } from "../transferDocMeta";
 import {
   buildEinvoicePayload,
   buildEwayPayload,
@@ -24,7 +24,8 @@ import {
   resolveEdocSellerGstin,
 } from "./config";
 import { defaultPincodeForState, gstinStateCode, parsePincode, stateNameFromCode } from "./gstState";
-import { saveDeliveryChallanEdoc, saveQuickBillEdoc, saveSrfEdoc } from "./persist";
+import { loadSpareGstById } from "../hsnGstRates";
+import { saveDeliveryChallanEdoc, saveQuickBillEdoc, saveServiceInvoiceEdoc, saveSrfEdoc } from "./persist";
 import type { EdocLine, EdocParty, EdocResult, EdocValueTotals } from "./types";
 
 function skip(reason: string): EdocResult {
@@ -432,6 +433,222 @@ export async function tryGenerateEinvoiceForSrfClose(
   return result;
 }
 
+type RegionEdocRow = {
+  name: string;
+  address: string | null;
+  address_json: unknown;
+  phone: string | null;
+  email: string | null;
+  gst: string | null;
+};
+
+function formatRegionAddress(row: RegionEdocRow): string {
+  const fallback = String(row.address ?? "").trim();
+  if (row.address_json && typeof row.address_json === "object") {
+    const aj = row.address_json as Record<string, unknown>;
+    const parts = [aj.line1, aj.line2, aj.city, aj.state, aj.pincode]
+      .map((p) => String(p ?? "").trim())
+      .filter(Boolean);
+    if (parts.length > 0) return parts.join(", ");
+  }
+  return fallback || "Address";
+}
+
+async function loadRegionForEdoc(db: Pool, regionId: string): Promise<RegionEdocRow | null> {
+  const { rows } = await db.query<RegionEdocRow>(
+    `SELECT name, address, address_json, phone, email, gst FROM regions WHERE id = $1::text`,
+    [regionId],
+  );
+  return rows[0] ?? null;
+}
+
+function parseUsedSparesForEdoc(usedSpares: unknown): Array<{
+  name: string;
+  qty: number;
+  unitPriceInr: number;
+  spareId: string | null;
+  hsnSac: string;
+}> {
+  if (!Array.isArray(usedSpares)) return [];
+  return usedSpares
+    .map((raw) => {
+      if (!raw || typeof raw !== "object") return null;
+      const l = raw as Record<string, unknown>;
+      const name = String(l.name ?? "Spare").trim();
+      const qty = Number(l.qty ?? 0);
+      const unitPriceInr = Number(l.unitPriceInr ?? l.unit_price_inr ?? 0);
+      if (!name || qty <= 0 || unitPriceInr <= 0) return null;
+      const spareId =
+        typeof l.spareId === "string"
+          ? l.spareId
+          : typeof l.spare_id === "string"
+            ? l.spare_id
+            : null;
+      const hsnSac = typeof l.hsn === "string" ? l.hsn.trim() : "";
+      return { name, qty, unitPriceInr, spareId, hsnSac };
+    })
+    .filter((l): l is NonNullable<typeof l> => l != null);
+}
+
+/** Mandatory GST e-invoice for repair HO → sender HO inter-HO repair invoices. */
+export async function tryGenerateEinvoiceForInterHoInvoice(
+  pool: Pool,
+  invoiceId: string,
+): Promise<EdocResult> {
+  const cfg = getMastersIndiaEdocConfig();
+  if (!cfg?.enabled) return skip("E-doc not configured");
+
+  const invRes = await pool.query<{
+    id: string;
+    invoice_number: string;
+    invoice_date: Date;
+    source_type: string;
+    source_id: string | null;
+    region_id: string | null;
+    total_inr: string;
+    edoc_irn: string | null;
+    snapshot_json: unknown;
+    transfer_source_region_id: string | null;
+    used_spares: unknown;
+  }>(
+    `SELECT si.id::text, si.invoice_number, si.invoice_date, si.source_type, si.source_id,
+            si.region_id, si.total_inr::text, si.edoc_irn, si.snapshot_json,
+            sj.transfer_source_region_id, sj.used_spares
+     FROM service_invoices si
+     LEFT JOIN srf_jobs sj ON sj.id::text = si.source_id
+     WHERE si.id = $1::uuid`,
+    [invoiceId],
+  );
+  const inv = invRes.rows[0];
+  if (!inv) return skip("Invoice not found");
+  if (inv.source_type !== "inter_ho_repair") {
+    const r = skip("E-invoice applies to inter-HO repair invoices only");
+    await saveServiceInvoiceEdoc(pool, invoiceId, r);
+    return r;
+  }
+  if (inv.edoc_irn) {
+    return { ok: true, irn: inv.edoc_irn, skipped: true, skipReason: "IRN already exists" };
+  }
+
+  const repairRegionId = String(inv.region_id ?? "").trim();
+  const snap =
+    inv.snapshot_json && typeof inv.snapshot_json === "object"
+      ? (inv.snapshot_json as Record<string, unknown>)
+      : {};
+  const senderId =
+    String(inv.transfer_source_region_id ?? "").trim() ||
+    (typeof snap.transferSourceRegionId === "string" ? snap.transferSourceRegionId.trim() : "");
+
+  if (!repairRegionId || !senderId) {
+    const r = skip("Repair HO and sender HO regions required for inter-HO e-invoice");
+    await saveServiceInvoiceEdoc(pool, invoiceId, r);
+    return r;
+  }
+
+  const repairRegion = await loadRegionForEdoc(pool, repairRegionId);
+  const senderRegion = await loadRegionForEdoc(pool, senderId);
+  if (!repairRegion || !senderRegion) {
+    const r = skip("Could not load HO region details for e-invoice");
+    await saveServiceInvoiceEdoc(pool, invoiceId, r);
+    return r;
+  }
+
+  const sellerGst = String(repairRegion.gst ?? "").trim().toUpperCase();
+  const buyerGst = String(senderRegion.gst ?? "").trim().toUpperCase();
+  if (!isValidGstin(sellerGst) || !isValidGstin(buyerGst)) {
+    const r = skip("Valid repair-HO and sender-HO GSTIN required for inter-HO e-invoice");
+    await saveServiceInvoiceEdoc(pool, invoiceId, r);
+    return r;
+  }
+
+  const usedSpares = parseUsedSparesForEdoc(snap.usedSpares ?? inv.used_spares);
+  if (usedSpares.length === 0) {
+    const r = skip("No billable spare lines for inter-HO e-invoice");
+    await saveServiceInvoiceEdoc(pool, invoiceId, r);
+    return r;
+  }
+
+  const spareGstMap = await loadSpareGstById(pool);
+  const spareIds = [...new Set(usedSpares.map((l) => l.spareId).filter((id): id is string => !!id))];
+  const hsnBySpareId = new Map<string, string>();
+  if (spareIds.length > 0) {
+    const spareMeta = await pool.query<{ id: string; hsn: string | null }>(
+      `SELECT id::text, hsn FROM spares WHERE id = ANY($1::uuid[])`,
+      [spareIds],
+    );
+    for (const row of spareMeta.rows) {
+      if (row.hsn?.trim()) hsnBySpareId.set(row.id, row.hsn.trim());
+    }
+  }
+
+  const taxRow = await loadTaxSettings(pool);
+  const defaultSacHsn = String(taxRow?.default_sac_hsn ?? "9987").trim() || "9987";
+  const configuredGst = Number(taxRow?.gst_rate_percent ?? 18);
+  const sellerGstin = resolveEdocSellerGstin(sellerGst, taxRow?.invoice_store_gstin, cfg);
+  const sellerStateCode = resolveSellerStateCode(sellerGstin);
+  const buyerStateCode = gstinStateCode(buyerGst);
+
+  const billLines = usedSpares.map((l) => ({
+    amountInr: round2(l.qty * l.unitPriceInr),
+    spareId: l.spareId,
+    hsnSac: l.hsnSac || (l.spareId ? hsnBySpareId.get(l.spareId) : undefined) || defaultSacHsn,
+  }));
+  const subtotalInr = billLines.reduce((s, l) => s + l.amountInr, 0);
+
+  const gstResult = computeServiceBillGst({
+    lines: billLines,
+    defaultHsnSac: defaultSacHsn,
+    configuredGstPercent: configuredGst,
+    cgstRatePercent: Number(taxRow?.cgst_rate_percent ?? configuredGst / 2),
+    sgstRatePercent: Number(taxRow?.sgst_rate_percent ?? configuredGst / 2),
+    igstRatePercent: Number(taxRow?.igst_rate_percent ?? configuredGst),
+    pricesTaxInclusive: false,
+    natureOfRepair: "Inter-HO repair",
+    sellerStateCode,
+    customerStateCode: buyerStateCode,
+    billTotalInr: subtotalInr,
+    spareGstLookup: (spareId) => (spareId ? spareGstMap.get(spareId) ?? null : null),
+  });
+
+  const netPayable = gstResult.netPayable;
+  const totals = totalsFromGstResult(gstResult, netPayable);
+  const descriptions = usedSpares.map((l) => l.name);
+
+  const seller = buildPartyFromBillFields({
+    gstin: sellerGstin,
+    legalName: repairRegion.name,
+    address: formatRegionAddress(repairRegion),
+    phone: repairRegion.phone,
+    email: repairRegion.email,
+  });
+
+  const buyer = buildPartyFromBillFields({
+    gstin: buyerGst,
+    legalName: senderRegion.name,
+    address: formatRegionAddress(senderRegion),
+    phone: senderRegion.phone,
+    email: senderRegion.email,
+  });
+
+  const payload = buildEinvoicePayload({
+    userGstin: sellerGstin,
+    documentNumber: inv.invoice_number,
+    documentDate: new Date(inv.invoice_date),
+    seller,
+    buyer,
+    lines: linesFromGstResult(gstResult, descriptions),
+    totals,
+    placeOfSupplyStateCode: buyerStateCode,
+  });
+
+  const result = await generateEinvoice(cfg, payload);
+  await saveServiceInvoiceEdoc(pool, invoiceId, result);
+  if (inv.source_id) {
+    await saveSrfEdoc(pool, inv.source_id, result);
+  }
+  return result;
+}
+
 export async function tryGenerateEwayForChallan(
   pool: Pool,
   dcId: string,
@@ -470,6 +687,13 @@ export async function tryGenerateEwayForChallan(
   const interstate = consignor.stateCode !== consignee.stateCode;
   const nominal = nominalEwayTotals(cfg.ewayNominalValueInr, interstate);
 
+  const flowLabel =
+    printMeta.flow === "ho_to_ho_return"
+      ? "HO return after repair"
+      : printMeta.flow === "ho_to_ho_dispatch"
+        ? "Inter-HO repair dispatch"
+        : printMeta.flow;
+
   const payload = buildEwayPayload({
     userGstin,
     documentNumber: printMeta.transferNumber || dc.dc_number,
@@ -477,10 +701,11 @@ export async function tryGenerateEwayForChallan(
     consignor,
     consignee,
     ...nominal,
-    itemDescription: `Watches / goods — ${lineCount} item(s) — ${printMeta.flow}`,
+    itemDescription: `Wrist watches — ${lineCount} unit(s) — ${flowLabel}`,
     hsnSac: "9113",
     qty: Math.max(1, lineCount),
-    transportationDistanceKm: "100",
+    transportationDistanceKm: "0",
+    subSupplyDescription: flowLabel,
   });
 
   const result = await generateEwayBill(cfg, payload);
@@ -501,4 +726,10 @@ export function edocEwayAutoEnabled(): boolean {
 export function edocFailOpen(): boolean {
   const cfg = getMastersIndiaEdocConfig();
   return cfg?.failOpen !== false;
+}
+
+export async function tryGenerateEwayForChallanId(pool: Pool, dcId: string): Promise<EdocResult> {
+  const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
+  if (!rebuilt) return skip("Challan not found or has no lines");
+  return tryGenerateEwayForChallan(pool, dcId, rebuilt.printMeta, rebuilt.lineCount);
 }

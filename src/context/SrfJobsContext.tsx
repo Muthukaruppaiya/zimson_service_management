@@ -593,9 +593,11 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   ) => {
     const out = await apiJson<{
       odcNumber: string;
+      dcId?: string;
       moved: number;
       documentKind?: "DC" | "ODC" | "TD";
       printMeta?: import("../lib/serviceDocuments").TransferPrintMeta;
+      edoc?: import("../lib/edocResultMessage").EdocUiResult | null;
     }>("/api/service/odcs", {
       method: "POST",
       json: {

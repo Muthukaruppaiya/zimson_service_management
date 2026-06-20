@@ -42,9 +42,7 @@ export function MessagingSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
-  const [meta, setMeta] = useState<{ updatedAt: string; updatedBy: string | null; envFallback: boolean } | null>(
-    null,
-  );
+  const [meta, setMeta] = useState<{ updatedAt: string; updatedBy: string | null } | null>(null);
 
   const [smsEnabled, setSmsEnabled] = useState(true);
   const [smsUrl, setSmsUrl] = useState("");
@@ -70,6 +68,12 @@ export function MessagingSettingsPage() {
   const [qikchatApiBaseUrl, setQikchatApiBaseUrl] = useState("https://api.qikchat.in");
   const [qikchatTemplateName, setQikchatTemplateName] = useState("invoice");
   const [qikchatTemplateLanguage, setQikchatTemplateLanguage] = useState("en");
+  const [qikchatTrackingTemplateName, setQikchatTrackingTemplateName] = useState("customer_link");
+  const [qikchatTrackingTextTemplateName, setQikchatTrackingTextTemplateName] = useState("");
+  const [qikchatApprovalTemplateName, setQikchatApprovalTemplateName] = useState("site_visit_approval");
+  const [qikchatTrackingTemplateBody, setQikchatTrackingTemplateBody] = useState("");
+  const [qikchatApprovalTemplateBody, setQikchatApprovalTemplateBody] = useState("");
+  const [qikchatInvoiceTemplateBody, setQikchatInvoiceTemplateBody] = useState("");
   const [whatsappInvoiceMode, setWhatsappInvoiceMode] = useState<"template" | "media">("template");
   const [messagingPublicBaseUrl, setMessagingPublicBaseUrl] = useState("");
   const [whatsappInvoiceDryRun, setWhatsappInvoiceDryRun] = useState(false);
@@ -107,6 +111,12 @@ export function MessagingSettingsPage() {
     setQikchatApiBaseUrl(s.qikchatApiBaseUrl);
     setQikchatTemplateName(s.qikchatTemplateName);
     setQikchatTemplateLanguage(s.qikchatTemplateLanguage);
+    setQikchatTrackingTemplateName(s.qikchatTrackingTemplateName);
+    setQikchatTrackingTextTemplateName(s.qikchatTrackingTextTemplateName);
+    setQikchatApprovalTemplateName(s.qikchatApprovalTemplateName);
+    setQikchatTrackingTemplateBody(s.qikchatTrackingTemplateBody);
+    setQikchatApprovalTemplateBody(s.qikchatApprovalTemplateBody);
+    setQikchatInvoiceTemplateBody(s.qikchatInvoiceTemplateBody);
     setWhatsappInvoiceMode(s.whatsappInvoiceMode);
     setMessagingPublicBaseUrl(s.messagingPublicBaseUrl);
     setWhatsappInvoiceDryRun(s.whatsappInvoiceDryRun);
@@ -123,7 +133,6 @@ export function MessagingSettingsPage() {
     setMeta({
       updatedAt: s.updatedAt,
       updatedBy: s.updatedBy,
-      envFallback: s.envFallbackActive,
     });
   };
 
@@ -179,6 +188,12 @@ export function MessagingSettingsPage() {
         qikchatApiBaseUrl: qikchatApiBaseUrl.trim(),
         qikchatTemplateName: qikchatTemplateName.trim(),
         qikchatTemplateLanguage: qikchatTemplateLanguage.trim(),
+        qikchatTrackingTemplateName: qikchatTrackingTemplateName.trim(),
+        qikchatTrackingTextTemplateName: qikchatTrackingTextTemplateName.trim(),
+        qikchatApprovalTemplateName: qikchatApprovalTemplateName.trim(),
+        qikchatTrackingTemplateBody: qikchatTrackingTemplateBody.trim(),
+        qikchatApprovalTemplateBody: qikchatApprovalTemplateBody.trim(),
+        qikchatInvoiceTemplateBody: qikchatInvoiceTemplateBody.trim(),
         whatsappInvoiceMode,
         messagingPublicBaseUrl: messagingPublicBaseUrl.trim(),
         whatsappInvoiceDryRun,
@@ -218,7 +233,7 @@ export function MessagingSettingsPage() {
     <div>
       <PageHeader
         title="SMS, email & WhatsApp"
-        description="Qikberry SMS, SMTP email, and Qikchat WhatsApp — stored in the database (not hardcoded in .env)."
+        description="Qikberry SMS, SMTP email, and Qikchat WhatsApp — all credentials and templates are stored in the database."
         actions={
           <Link
             to="/settings/tax"
@@ -228,13 +243,6 @@ export function MessagingSettingsPage() {
           </Link>
         }
       />
-
-      {meta?.envFallback && (
-        <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Some values are still read from <code className="text-xs">.env</code> until you save here. On first server
-          start, existing .env credentials are copied into the database automatically.
-        </p>
-      )}
 
       {error && (
         <p className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>
@@ -357,7 +365,9 @@ export function MessagingSettingsPage() {
 
           <Card className="p-5">
             <h2 className="text-base font-semibold text-zimson-900">WhatsApp (Qikchat)</h2>
-            <p className="mt-1 text-sm text-stone-600">Invoice PDF delivery via approved WhatsApp templates.</p>
+            <p className="mt-1 text-sm text-stone-600">
+              Invoice PDF delivery and SRF tracking / approval messages via approved Qikchat templates.
+            </p>
             <div className="mt-4 space-y-4">
               <Toggle checked={whatsappEnabled} onChange={setWhatsappEnabled} label="WhatsApp channel enabled" />
               <div className="ui-form-grid">
@@ -383,6 +393,63 @@ export function MessagingSettingsPage() {
                     className={inputClass}
                     value={qikchatTemplateLanguage}
                     onChange={(e) => setQikchatTemplateLanguage(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <span className={labelClass}>Tracking template name (with PDF)</span>
+                  <input
+                    className={inputClass}
+                    value={qikchatTrackingTemplateName}
+                    onChange={(e) => setQikchatTrackingTemplateName(e.target.value)}
+                    placeholder="customer_link"
+                  />
+                </div>
+                <div>
+                  <span className={labelClass}>Tracking fallback template (no PDF)</span>
+                  <input
+                    className={inputClass}
+                    value={qikchatTrackingTextTemplateName}
+                    onChange={(e) => setQikchatTrackingTextTemplateName(e.target.value)}
+                    placeholder="Same as tracking, or a body-only template"
+                  />
+                </div>
+                <div>
+                  <span className={labelClass}>Re-estimate approval template name</span>
+                  <input
+                    className={inputClass}
+                    value={qikchatApprovalTemplateName}
+                    onChange={(e) => setQikchatApprovalTemplateName(e.target.value)}
+                    placeholder="site_visit_approval"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={labelClass}>
+                    Tracking template body (register in Meta — {"{{1}}"} name, {"{{2}}"} SRF, {"{{3}}"} URL)
+                  </span>
+                  <textarea
+                    className={`${inputClass} min-h-[72px]`}
+                    value={qikchatTrackingTemplateBody}
+                    onChange={(e) => setQikchatTrackingTemplateBody(e.target.value)}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={labelClass}>
+                    Approval template body ({"{{1}}"} name, {"{{2}}"} SRF, {"{{3}}"} reason, {"{{4}}"} URL)
+                  </span>
+                  <textarea
+                    className={`${inputClass} min-h-[72px]`}
+                    value={qikchatApprovalTemplateBody}
+                    onChange={(e) => setQikchatApprovalTemplateBody(e.target.value)}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={labelClass}>
+                    Invoice template body ({"{{1}}"} name, {"{{2}}"} invoice no — PDF in header)
+                  </span>
+                  <textarea
+                    className={`${inputClass} min-h-[72px]`}
+                    value={qikchatInvoiceTemplateBody}
+                    onChange={(e) => setQikchatInvoiceTemplateBody(e.target.value)}
                   />
                 </div>
                 <div>
@@ -421,7 +488,7 @@ export function MessagingSettingsPage() {
                     Must be your public site/API host where <code>/api</code> reaches Node (e.g.{" "}
                     <code>https://zimsonwatchcare.com</code>). PDFs are served at{" "}
                     <code>/api/messaging/public-invoice-pdf/…</code> — not the React HTML page. Test:{" "}
-                    <code>/api/messaging/public-ping</code>. Local dev: <code>MESSAGING_AUTO_TUNNEL=true</code>.
+                    <code>/api/messaging/public-ping</code>. Local dev: enable auto-tunnel in server settings.
                   </p>
                 </div>
                 <div className="sm:col-span-2">

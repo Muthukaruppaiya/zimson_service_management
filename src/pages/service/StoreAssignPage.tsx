@@ -11,6 +11,11 @@ import { apiJson, ApiError } from "../../lib/api";
 import { printAssignmentSlip } from "../../lib/serviceDocuments";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { formatInr } from "../../lib/formatInr";
+import {
+  resolveSparePriceFromLines,
+  spareMasterSellingPrice,
+  sparePriceCacheKey,
+} from "../../lib/spareSellingPrice";
 import { srfReestimateNotifyMessage } from "../../lib/srfApprovalWhatsApp";
 import { repairRouteLabel } from "../../lib/srfRepairRoute";
 import { inputClassReadOnly } from "../../lib/uiForm";
@@ -142,31 +147,29 @@ export function StoreAssignPage() {
 
   function resolveSpareUnitPrice(spareId: string, watchBrand: string): number {
     if (!spareId) return 0;
-    const cached = unitPriceBySpareId[spareId];
+    const cached = unitPriceBySpareId[sparePriceCacheKey(spareId, watchBrand)];
     if (cached != null) return cached;
     const spare = activeSpares.find((s) => s.id === spareId);
-    return Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
+    return spareMasterSellingPrice(spare);
   }
 
   async function ensureSparePrice(spareId: string, watchBrand: string): Promise<number> {
     if (!spareId) return 0;
-    if (unitPriceBySpareId[spareId] != null) return unitPriceBySpareId[spareId]!;
+    const cacheKey = sparePriceCacheKey(spareId, watchBrand);
+    if (unitPriceBySpareId[cacheKey] != null) return unitPriceBySpareId[cacheKey]!;
     const spare = activeSpares.find((s) => s.id === spareId);
-    const fromMaster = Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
-    let price = fromMaster > 0 ? fromMaster : 0;
+    const fromMaster = spareMasterSellingPrice(spare);
+    let price = fromMaster;
     try {
       const q = user?.regionId ? `?regionId=${encodeURIComponent(user.regionId)}` : "";
       const out = await apiJson<{ prices: SparePriceLine[] }>(
         `/api/catalog/spares/${encodeURIComponent(spareId)}/prices${q}`,
       );
-      const matched = out.prices.find(
-        (p) => p.brand.trim().toLowerCase() === watchBrand.trim().toLowerCase(),
-      );
-      price = matched ? Number(matched.price) : fromMaster > 0 ? fromMaster : 0;
+      price = resolveSparePriceFromLines(out.prices, watchBrand, fromMaster);
     } catch {
-      price = fromMaster > 0 ? fromMaster : 0;
+      price = fromMaster;
     }
-    setUnitPriceBySpareId((prev) => ({ ...prev, [spareId]: price }));
+    setUnitPriceBySpareId((prev) => ({ ...prev, [cacheKey]: price }));
     return price;
   }
 
@@ -375,6 +378,7 @@ export function StoreAssignPage() {
     setRepairPopupJobId(null);
     setRepairLines([{ spareId: "", qty: "1" }]);
     setRepairPopupError("");
+    setUnitPriceBySpareId({});
     setStoreStockBySpareId({});
   }
 

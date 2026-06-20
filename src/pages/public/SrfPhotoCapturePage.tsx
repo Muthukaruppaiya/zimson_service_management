@@ -421,12 +421,12 @@ export function SrfPhotoCapturePage() {
   const watchUploadDisabled = !canUpload || busy || !resolveActiveWatchKind();
 
   return (
-    <div className="min-h-screen bg-stone-100 px-4 py-6 text-stone-900">
+    <div className="min-h-screen bg-rlx-bg px-4 py-6 text-rlx-ink">
       <div className="mx-auto max-w-md">
         <header className="text-center">
-          <p className="text-xs font-semibold uppercase tracking-wide text-zimson-700">Zimson service</p>
-          <h1 className="mt-1 text-xl font-semibold text-zimson-950">Watch photo upload</h1>
-          <p className="mt-2 text-sm text-stone-600">{status}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-rlx-gold-dark">Zimson service</p>
+          <h1 className="mt-1 text-xl font-semibold text-rlx-green">Watch photo upload</h1>
+          <p className="mt-2 text-sm text-rlx-ink-muted">{status}</p>
         </header>
 
         {uploadError ? (
@@ -436,7 +436,7 @@ export function SrfPhotoCapturePage() {
         ) : null}
 
         {session ? (
-          <section className="mt-4 rounded-lg border border-stone-200 bg-white p-3 text-sm">
+          <section className="mt-4 rounded-lg border border-rlx-rule bg-rlx-surface p-3 text-sm shadow-sm">
             <p>
               <span className="font-semibold">SRF:</span> {session.reference}
             </p>
@@ -446,7 +446,7 @@ export function SrfPhotoCapturePage() {
             <p className="mt-1">
               <span className="font-semibold">Watch:</span> {session.watch}
             </p>
-            <p className="mt-2 text-xs text-stone-600">
+            <p className="mt-2 text-xs text-rlx-ink-muted">
               Photos: {watchPhotoCount} / {SRF_MAX_WATCH_PHOTOS} · Document: {documentPhoto ? "1 / 1" : "0 / 1"}
             </p>
           </section>
@@ -493,21 +493,21 @@ export function SrfPhotoCapturePage() {
           onChange={(e) => void onDocumentFileSelected(e.target.files)}
         />
 
-        <section className="mt-5 rounded-lg border border-stone-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-zimson-900">
+        <section className="mt-5 rounded-lg border border-rlx-rule bg-rlx-surface p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-rlx-green">
             Watch photos ({watchPhotoCount} / {SRF_MAX_WATCH_PHOTOS})
           </h2>
-          <p className="mt-1 text-xs text-stone-600">
+          <p className="mt-1 text-xs text-rlx-ink-muted">
             Minimum {SRF_MIN_WATCH_PHOTOS_REQUIRED} photos required for the store to finalize the SRF. Pick any
             categories (damage and other are optional). One photo per category, up to {SRF_MAX_WATCH_PHOTOS} types.
           </p>
 
           {!allWatchPhotosDone ? (
             <div className="mt-3 space-y-2">
-              <label className="block text-xs font-medium text-stone-700">
+              <label className="block text-xs font-medium text-rlx-ink">
                 Photo category
                 <select
-                  className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-rlx-rule bg-white px-3 py-2 text-sm focus:border-rlx-green focus:outline-none focus:ring-1 focus:ring-rlx-green/30"
                   value={selectedKind}
                   disabled={!canUpload || busy || availableKinds.length === 0}
                   onChange={(e) => pickWatchKind(e.target.value as SrfWatchPhotoKind)}
@@ -528,7 +528,7 @@ export function SrfPhotoCapturePage() {
                   type="button"
                   disabled={watchUploadDisabled || cameraStarting || availableKinds.length === 0}
                   onClick={() => void startCamera("watch")}
-                  className="rounded-lg bg-zimson-800 px-3 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  className="rounded-lg bg-rlx-green px-3 py-3 text-sm font-semibold text-white hover:bg-rlx-green-deep disabled:opacity-50"
                 >
                   {cameraStarting ? "Opening…" : "Open camera"}
                 </button>
@@ -536,14 +536,14 @@ export function SrfPhotoCapturePage() {
                   type="button"
                   disabled={watchUploadDisabled || availableKinds.length === 0}
                   onClick={openGalleryPicker}
-                  className="rounded-lg border-2 border-zimson-700 bg-white px-3 py-3 text-sm font-semibold text-zimson-900 disabled:opacity-50"
+                  className="rounded-lg border-2 border-rlx-gold bg-white px-3 py-3 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
                 >
                   {busy ? "Uploading…" : "Gallery"}
                 </button>
               </div>
             </div>
           ) : (
-            <p className="mt-3 text-xs font-medium text-emerald-800">
+            <p className="mt-3 text-xs font-medium text-rlx-green">
               All {SRF_MAX_WATCH_PHOTOS} watch photo slots are filled. You can retake or remove below if needed.
             </p>
           )}
@@ -551,20 +551,20 @@ export function SrfPhotoCapturePage() {
           {uploadedWatchPhotos.length > 0 ? (
             <ul className="mt-4 space-y-2">
               {uploadedWatchPhotos.map(({ kind, shot }) => (
-                <li key={kind} className="flex items-center gap-3 rounded-lg border border-stone-200 p-2">
+                <li key={kind} className="flex items-center gap-3 rounded-lg border border-rlx-rule p-2">
                   <img
                     src={`/${shot.filePath}`}
                     alt={SRF_PHOTO_SLOT_LABELS[kind]}
                     className="h-14 w-14 shrink-0 rounded object-cover"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-stone-800">{SRF_PHOTO_SLOT_LABELS[kind]}</p>
+                    <p className="text-sm font-medium text-rlx-ink">{SRF_PHOTO_SLOT_LABELS[kind]}</p>
                     <div className="mt-1 flex flex-wrap gap-2">
                       <button
                         type="button"
                         disabled={!canUpload || busy || cameraStarting}
                         onClick={() => prepareRetakeWatch(kind)}
-                        className="text-xs font-semibold text-zimson-800 underline disabled:opacity-50"
+                        className="text-xs font-semibold text-rlx-green underline disabled:opacity-50"
                       >
                         Retake (camera)
                       </button>
@@ -575,7 +575,7 @@ export function SrfPhotoCapturePage() {
                           pickWatchKind(kind);
                           openGalleryPicker();
                         }}
-                        className="text-xs font-semibold text-zimson-800 underline disabled:opacity-50"
+                        className="text-xs font-semibold text-rlx-green underline disabled:opacity-50"
                       >
                         Replace (gallery)
                       </button>
@@ -595,16 +595,16 @@ export function SrfPhotoCapturePage() {
           ) : null}
         </section>
 
-        <section className="mt-4 rounded-lg border border-stone-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-zimson-900">Document (1 only)</h2>
-          <p className="mt-1 text-xs text-stone-600">Invoice, warranty card, or ID — photo or PDF.</p>
+        <section className="mt-4 rounded-lg border border-rlx-rule bg-rlx-surface p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-rlx-green">Document (1 only)</h2>
+          <p className="mt-1 text-xs text-rlx-ink-muted">Invoice, warranty card, or ID — photo or PDF.</p>
           {!documentPhoto ? (
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 type="button"
                 disabled={!canUpload || busy || cameraStarting}
                 onClick={() => void startCamera("document")}
-                className="rounded-lg bg-zimson-800 px-3 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                className="rounded-lg bg-rlx-green px-3 py-3 text-sm font-semibold text-white hover:bg-rlx-green-deep disabled:opacity-50"
               >
                 Open camera
               </button>
@@ -612,28 +612,28 @@ export function SrfPhotoCapturePage() {
                 type="button"
                 disabled={!canUpload || busy}
                 onClick={openDocumentGallery}
-                className="rounded-lg border-2 border-zimson-700 bg-white px-3 py-3 text-sm font-semibold text-zimson-900 disabled:opacity-50"
+                className="rounded-lg border-2 border-rlx-gold bg-white px-3 py-3 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
               >
                 Gallery / PDF
               </button>
             </div>
           ) : (
-            <div className="mt-3 flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2">
+            <div className="mt-3 flex items-center gap-3 rounded-lg border border-rlx-gold/40 bg-rlx-green-light/50 p-2">
               {documentIsPdf ? (
-                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded bg-stone-200 text-[10px] font-bold text-stone-600">
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded bg-rlx-green-light text-[10px] font-bold text-rlx-green">
                   PDF
                 </span>
               ) : (
                 <img src={`/${documentPhoto.filePath}`} alt="Document" className="h-14 w-14 shrink-0 rounded object-cover" />
               )}
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-stone-800">Document uploaded</p>
+                <p className="text-sm font-medium text-rlx-ink">Document uploaded</p>
                 <div className="mt-1 flex flex-wrap gap-2">
                   <button
                     type="button"
                     disabled={!canUpload || busy || cameraStarting}
                     onClick={prepareRetakeDocument}
-                    className="text-xs font-semibold text-zimson-800 underline disabled:opacity-50"
+                    className="text-xs font-semibold text-rlx-green underline disabled:opacity-50"
                   >
                     Retake (camera)
                   </button>
@@ -641,7 +641,7 @@ export function SrfPhotoCapturePage() {
                     type="button"
                     disabled={!canUpload || busy}
                     onClick={openDocumentGallery}
-                    className="text-xs font-semibold text-zimson-800 underline"
+                    className="text-xs font-semibold text-rlx-green underline"
                   >
                     Replace (file)
                   </button>
@@ -663,12 +663,12 @@ export function SrfPhotoCapturePage() {
           type="button"
           disabled={busy}
           onClick={() => void refresh()}
-          className="mt-5 w-full rounded-lg border border-stone-300 bg-white py-2 text-sm font-semibold text-stone-800 disabled:opacity-50"
+          className="mt-5 w-full rounded-lg border border-rlx-rule bg-white py-2 text-sm font-semibold text-rlx-ink hover:border-rlx-gold hover:text-rlx-green disabled:opacity-50"
         >
           Refresh
         </button>
 
-        <p className="mt-6 text-center text-[11px] text-stone-500">
+        <p className="mt-6 text-center text-[11px] text-rlx-ink-muted">
           Allow camera access when prompted. Max {SRF_MAX_WATCH_PHOTOS} photos ({srfCustomerPhotoMaxSizeLabel()} each) and 1
           document.
         </p>
@@ -706,7 +706,7 @@ export function SrfPhotoCapturePage() {
                   type="button"
                   disabled={busy}
                   onClick={() => void confirmCaptureUpload()}
-                  className="rounded-xl bg-zimson-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  className="rounded-xl bg-rlx-gold py-3 text-sm font-semibold text-rlx-green-deep disabled:opacity-50"
                 >
                   {busy ? "Saving…" : "Use photo"}
                 </button>
@@ -724,7 +724,7 @@ export function SrfPhotoCapturePage() {
                   type="button"
                   disabled={busy || cameraStarting}
                   onClick={() => void captureFromCamera()}
-                  className="rounded-xl bg-zimson-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  className="rounded-xl bg-rlx-gold py-3 text-sm font-semibold text-rlx-green-deep disabled:opacity-50"
                 >
                   Capture
                 </button>

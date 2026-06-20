@@ -189,6 +189,8 @@ export type StoreBillingInvoiceBuildOptions = {
   collectionPaymentMode?: string | null;
   /** Saved when the store closed billing (includes labour / service charge lines). */
   storeBillingSnapshot?: StoreBillingSnapshot | null;
+  /** Override printed invoice number (e.g. from invoice history register). */
+  invoiceNumberOverride?: string | null;
 };
 
 function resolveBillingCustomerFields(
@@ -261,10 +263,12 @@ export function buildStoreBillingInvoiceFromClosedJob(
           ? Math.max(options.collectionAmountInr, 0)
           : standardDue;
     const cust = resolveBillingCustomerFields(job, options.customer);
+    const invoiceNumber =
+      options.invoiceNumberOverride?.trim() || job.invoiceNumber?.trim() || undefined;
     return mapSrfPreviewToServiceInvoiceViewModel(
       {
         reference: job.reference,
-        invoiceNumber: job.invoiceNumber ?? undefined,
+        invoiceNumber,
         customerName: cust.customerName,
         phone: job.phone,
         email: cust.email,
@@ -298,6 +302,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
         spareHsnLookup: options.spareHsnLookup,
         spareGstLookup: options.spareGstLookup,
         generatedBy: options.generatedBy,
+        invoiceNumber,
       },
     );
   }
@@ -326,11 +331,13 @@ export function buildStoreBillingInvoiceFromClosedJob(
       ? Math.max(options.collectionAmountInr, 0)
       : standardDue;
   const cust = resolveBillingCustomerFields(job, options.customer);
+  const invoiceNumber =
+    options.invoiceNumberOverride?.trim() || job.invoiceNumber?.trim() || undefined;
 
   return mapSrfPreviewToServiceInvoiceViewModel(
     {
       reference: job.reference,
-      invoiceNumber: job.invoiceNumber ?? undefined,
+      invoiceNumber,
       customerName: cust.customerName,
       phone: job.phone,
       email: cust.email,
@@ -361,6 +368,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
       spareHsnLookup: options.spareHsnLookup,
       spareGstLookup: options.spareGstLookup,
       generatedBy: options.generatedBy,
+      invoiceNumber,
     },
   );
 }

@@ -51,7 +51,7 @@ export function EdocSettingsPage() {
   const [password, setPassword] = useState("");
   const [hasPassword, setHasPassword] = useState(false);
   const [apiBase, setApiBase] = useState("https://sandb-api.mastersindia.co");
-  const [ewayApiBase, setEwayApiBase] = useState("https://sandb-api.edoc.mastersindia.co");
+  const [ewayApiBase, setEwayApiBase] = useState("https://sandb-api.mastersindia.co");
   const [tokenUrl, setTokenUrl] = useState("");
   const [einvoicePath, setEinvoicePath] = useState("/api/v1/einvoice/");
   const [ewayPath, setEwayPath] = useState("/api/v1/ewayBillsGenerate/");
@@ -180,7 +180,7 @@ export function EdocSettingsPage() {
               {meta ? (
                 <p className="mt-1 text-xs text-stone-500">
                   {meta.configured ? "Configured" : "Not configured"} ·{" "}
-                  {meta.envFallbackActive ? "using .env fallback" : "database credentials"}
+                  {meta.configuredFromDatabase ? "database credentials" : "not configured — save Masters India settings below"}
                   {meta.updatedBy ? ` · last saved by ${meta.updatedBy}` : ""}
                 </p>
               ) : null}

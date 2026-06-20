@@ -6,6 +6,8 @@ export {
   edocEwayAutoEnabled,
   edocFailOpen,
   tryGenerateEinvoiceForQuickBill,
+  tryGenerateEinvoiceForInterHoInvoice,
   tryGenerateEinvoiceForSrfClose,
   tryGenerateEwayForChallan,
+  tryGenerateEwayForChallanId,
 } from "./hooks";

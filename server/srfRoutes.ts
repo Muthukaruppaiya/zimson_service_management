@@ -24,9 +24,11 @@ import { publishSrfDocumentForWhatsApp } from "./messaging/publishSrfDocumentFor
 import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
+import { createServiceInvoice, sumUsedSparesTotal } from "./serviceInvoiceLedger";
 import {
   edocEnabled,
   edocEwayAutoEnabled,
+  tryGenerateEinvoiceForInterHoInvoice,
   tryGenerateEinvoiceForSrfClose,
   tryGenerateEwayForChallan,
 } from "./mastersIndiaEdoc";
@@ -5128,9 +5130,34 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "Inter-HO invoice can be created only when SRF is ready for outward." });
         return;
       }
+      let usedSpares = Array.isArray(row.usedSpares) ? row.usedSpares : [];
+      const spareIds = [
+        ...new Set(
+          usedSpares
+            .map((s) => String((s as { spareId?: unknown }).spareId ?? "").trim())
+            .filter(Boolean),
+        ),
+      ];
+      if (spareIds.length > 0) {
+        const spareMeta = await pool.query<{ id: string; gst_percent: number | null; hsn: string | null }>(
+          `SELECT id, gst_percent, hsn FROM spares WHERE id = ANY($1::uuid[])`,
+          [spareIds],
+        );
+        const metaById = new Map(spareMeta.rows.map((s) => [s.id, s]));
+        usedSpares = usedSpares.map((line) => {
+          const spareId = String((line as { spareId?: unknown }).spareId ?? "").trim();
+          const meta = spareId ? metaById.get(spareId) : undefined;
+          return {
+            ...line,
+            spareId: spareId || undefined,
+            gstPercent: meta?.gst_percent == null ? null : Number(meta.gst_percent),
+            hsn: meta?.hsn ?? null,
+          };
+        });
+      }
       res.json({
         ...row,
-        usedSpares: Array.isArray(row.usedSpares) ? row.usedSpares : [],
+        usedSpares,
       });
     } catch (e) {
       console.error(e);
@@ -5160,8 +5187,11 @@ export function registerSrfRoutes(
         status: string;
         region_id: string;
         transfer_source_region_id: string | null;
+        transfer_source_reference: string | null;
+        customer_name: string;
+        used_spares: unknown;
       }>(
-        `SELECT id, reference, status, region_id, transfer_source_region_id
+        `SELECT id, reference, status, region_id, transfer_source_region_id, transfer_source_reference, customer_name, used_spares
          FROM srf_jobs
          WHERE id = $1::uuid
          FOR UPDATE`,
@@ -5203,8 +5233,38 @@ export function registerSrfRoutes(
         referenceDoc: invoiceRef,
         details: { invoiceRef, note },
       });
+      const totalInr = Number(req.body?.totalInr);
+      const taxJson =
+        req.body?.taxJson != null && typeof req.body.taxJson === "object" && !Array.isArray(req.body.taxJson)
+          ? req.body.taxJson
+          : {};
+      const computedTotal =
+        Number.isFinite(totalInr) && totalInr > 0 ? totalInr : sumUsedSparesTotal(row.used_spares);
+      const invoiceId = await createServiceInvoice(client, {
+        invoiceNumber: invoiceRef,
+        sourceType: "inter_ho_repair",
+        sourceId: srfId,
+        regionId: row.region_id,
+        customerName: row.customer_name?.trim() || "Sender HO",
+        srfReference: row.reference,
+        totalInr: computedTotal,
+        taxJson: taxJson as Record<string, unknown>,
+        snapshotJson: {
+          usedSpares: row.used_spares,
+          note,
+          transferSourceRegionId: row.transfer_source_region_id,
+          transferSourceReference: row.transfer_source_reference,
+          rootSrfReference: (row.transfer_source_reference ?? "").trim() || row.reference,
+        },
+        createdBy: actor.id,
+        postSalesLedger: true,
+      });
       await client.query("COMMIT");
-      res.json({ ok: true });
+      let edoc = null;
+      if (edocEnabled()) {
+        edoc = await tryGenerateEinvoiceForInterHoInvoice(pool, invoiceId);
+      }
+      res.json({ ok: true, invoiceId, edoc });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -5545,6 +5605,7 @@ export function registerSrfRoutes(
       }
       res.json({
         odcNumber: dcNumber,
+        dcId,
         moved,
         documentKind: isInterHoBatch ? ("DC" as const) : ("TD" as const),
         printMeta,
@@ -5797,6 +5858,49 @@ export function registerSrfRoutes(
         },
       });
       await maybeDisableTrackingToken(client, row.phone ?? "");
+      if (!noBillingHandover && invoiceNumber) {
+        const billJob = await client.query<{
+          id: string;
+          region_id: string;
+          store_id: string;
+          customer_name: string;
+          phone: string;
+          reference: string;
+          store_billing_snapshot: unknown;
+        }>(
+          `SELECT id::text, region_id, store_id, customer_name, phone, reference, store_billing_snapshot
+           FROM srf_jobs WHERE id = $1::uuid`,
+          [srfId],
+        );
+        const bj = billJob.rows[0];
+        if (bj) {
+          const snap =
+            bj.store_billing_snapshot && typeof bj.store_billing_snapshot === "object"
+              ? (bj.store_billing_snapshot as Record<string, unknown>)
+              : storeBillingSnapshot && typeof storeBillingSnapshot === "object"
+                ? (storeBillingSnapshot as Record<string, unknown>)
+                : {};
+          const total = Number(snap.netPayable ?? snap.grandTotal ?? snap.collectionAmountInr ?? 0);
+          await createServiceInvoice(client, {
+            invoiceNumber,
+            sourceType: "srf_store",
+            sourceId: srfId,
+            regionId: bj.region_id,
+            storeId: bj.store_id,
+            customerId: null,
+            customerName: bj.customer_name,
+            customerPhone: bj.phone,
+            srfReference: bj.reference,
+            totalInr: total > 0 ? total : Number(snap.estimateTotalInr ?? 0),
+            snapshotJson: snap,
+            createdBy: actor.id,
+            initialPaidInr: total > 0 ? total : 0,
+            initialPaymentMode:
+              typeof snap.collectionPaymentMode === "string" ? snap.collectionPaymentMode : "Store billing",
+            postSalesLedger: true,
+          });
+        }
+      }
       await client.query("COMMIT");
       let edoc = null;
       if (edocEnabled() && !noBillingHandover && invoiceNumber) {

@@ -26,6 +26,11 @@ import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { TechnicianProfile } from "../../types/technician";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 import { formatInr } from "../../lib/formatInr";
+import {
+  resolveSparePriceFromLines,
+  spareMasterSellingPrice,
+  sparePriceCacheKey,
+} from "../../lib/spareSellingPrice";
 import { inputClassReadOnly } from "../../lib/uiForm";
 
 type InterHoSpareOrder = {
@@ -116,6 +121,10 @@ export function ScSupervisorPage() {
   const [transferTargetRegionId, setTransferTargetRegionId] = useState("");
   const [transferNoteInput, setTransferNoteInput] = useState("");
   const [repairPopupJobId, setRepairPopupJobId] = useState<string | null>(null);
+  const repairPopupJob = useMemo(
+    () => (repairPopupJobId ? jobs.find((j) => j.id === repairPopupJobId) ?? null : null),
+    [repairPopupJobId, jobs],
+  );
   const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string }>>([{ spareId: "", qty: "1" }]);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
   const [hoStockBySpareId, setHoStockBySpareId] = useState<Record<string, number>>({});
@@ -942,6 +951,8 @@ export function ScSupervisorPage() {
 
   function openRepairPopup(jobId: string) {
     setRepairPopupError("");
+    const job = jobs.find((j) => j.id === jobId);
+    const watchBrand = job?.watchBrand ?? "";
     const flow = spareFlowBySrfId.get(jobId);
     if (flow?.status === "FULFILLED" && flow.inwardReceivedAt && flow.lines.length > 0) {
       setUnitPriceBySpareId((prev) => {
@@ -952,7 +963,7 @@ export function ScSupervisorPage() {
           const qty = Number(l.qty ?? 0);
           const lineTotal = Number(l.lineTotalInr ?? 0);
           const resolvedUnit = unit > 0 ? unit : qty > 0 && lineTotal > 0 ? lineTotal / qty : 0;
-          next[l.spareId] = resolvedUnit;
+          next[sparePriceCacheKey(l.spareId, watchBrand)] = resolvedUnit;
         }
         return next;
       });
@@ -980,60 +991,76 @@ export function ScSupervisorPage() {
         : [];
     for (const spareId of spareIds) {
       void fetchHoStockQty(spareId);
+      void ensureSparePrice(spareId, watchBrand);
     }
   }
 
   function closeRepairPopup() {
     setRepairPopupJobId(null);
     setRepairLines([{ spareId: "", qty: "1" }]);
+    setUnitPriceBySpareId({});
     setRepairPopupError("");
     setRepairSaving(false);
   }
 
-  async function ensureSparePrice(spareId: string) {
-    if (!spareId || unitPriceBySpareId[spareId] != null) return;
+  function resolveSpareUnitPrice(spareId: string, watchBrand: string): number {
+    if (!spareId) return 0;
+    const cached = unitPriceBySpareId[sparePriceCacheKey(spareId, watchBrand)];
+    if (cached != null) return cached;
     const spare = activeSpares.find((s) => s.id === spareId);
-    const fromMaster = Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
-    if (fromMaster > 0) {
-      setUnitPriceBySpareId((prev) => ({ ...prev, [spareId]: fromMaster }));
-      return;
-    }
+    return spareMasterSellingPrice(spare);
+  }
+
+  async function ensureSparePrice(spareId: string, watchBrand: string): Promise<number> {
+    if (!spareId) return 0;
+    const cacheKey = sparePriceCacheKey(spareId, watchBrand);
+    if (unitPriceBySpareId[cacheKey] != null) return unitPriceBySpareId[cacheKey]!;
+    const spare = activeSpares.find((s) => s.id === spareId);
+    const fromMaster = spareMasterSellingPrice(spare);
+    let price = fromMaster;
     try {
       const q = user?.regionId ? `?regionId=${encodeURIComponent(user.regionId)}` : "";
       const out = await apiJson<{ prices: SparePriceLine[] }>(
         `/api/catalog/spares/${encodeURIComponent(spareId)}/prices${q}`,
       );
-      const price = Number(out.prices?.[0]?.price ?? 0);
-      setUnitPriceBySpareId((prev) => ({ ...prev, [spareId]: price }));
+      price = resolveSparePriceFromLines(out.prices, watchBrand, fromMaster);
     } catch {
-      setUnitPriceBySpareId((prev) => ({ ...prev, [spareId]: 0 }));
+      price = fromMaster;
     }
+    setUnitPriceBySpareId((prev) => ({ ...prev, [cacheKey]: price }));
+    return price;
   }
 
   async function confirmRepairWithSpares() {
     if (!repairPopupJobId || repairSaving) return;
     const jobId = repairPopupJobId;
     const job = jobs.find((j) => j.id === jobId);
-    const lines = repairLines
-      .map((x) => ({ spareId: x.spareId, qty: Number(x.qty) }))
-      .filter((x) => x.spareId && Number.isFinite(x.qty) && x.qty > 0)
-      .map((x) => {
-        const spare = activeSpares.find((s) => s.id === x.spareId);
-        const unitPriceInr = Number(unitPriceBySpareId[x.spareId] ?? spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
-        return {
-          spareId: x.spareId,
-          name: spare?.name ?? x.spareId,
-          qty: x.qty,
-          unitPriceInr,
-          lineTotalInr: unitPriceInr * x.qty,
-        };
+    const watchBrand = job?.watchBrand ?? "";
+    const lines = [];
+    for (const x of repairLines) {
+      const spareId = x.spareId.trim();
+      const qty = Number(x.qty);
+      if (!spareId || !Number.isFinite(qty) || qty <= 0) continue;
+      const spare = activeSpares.find((s) => s.id === spareId);
+      const unitPriceInr = await ensureSparePrice(spareId, watchBrand);
+      lines.push({
+        spareId,
+        name: spare?.name ?? spareId,
+        qty,
+        unitPriceInr,
+        lineTotalInr: unitPriceInr * qty,
       });
+    }
     if (lines.length === 0) {
       setRepairPopupError("Add at least one used spare from inventory.");
       return;
     }
     if (lines.some((x) => Number(x.unitPriceInr ?? 0) <= 0)) {
-      setRepairPopupError("Price not configured for selected spare(s). Set spare price first.");
+      const missing = lines.find((x) => Number(x.unitPriceInr ?? 0) <= 0);
+      const spare = missing ? activeSpares.find((s) => s.id === missing.spareId) : null;
+      setRepairPopupError(
+        `Selling price not assigned for ${spare?.name ?? "spare"}${watchBrand ? ` — add ${watchBrand} price in Inventory → Spare catalogue` : ""}.`,
+      );
       return;
     }
     const stockErr = await validateRepairStock();
@@ -2008,6 +2035,11 @@ export function ScSupervisorPage() {
             <h3 className="text-lg font-semibold text-zimson-900">Add used spares from inventory</h3>
             <p className="mt-1 text-sm text-stone-600">
               Select spares and quantity, then save. Repair is marked complete and the watch moves to front desk for outward.
+              {repairPopupJob?.watchBrand ? (
+                <span className="block mt-1 text-xs text-stone-500">
+                  Selling prices use watch brand <strong>{repairPopupJob.watchBrand}</strong> from spare catalogue.
+                </span>
+              ) : null}
             </p>
             {repairPopupError ? (
               <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900" role="alert">
@@ -2016,8 +2048,9 @@ export function ScSupervisorPage() {
             ) : null}
             <div className="mt-4 space-y-3">
               {repairLines.map((line, idx) => {
+                const watchBrand = repairPopupJob?.watchBrand ?? "";
                 const spare = activeSpares.find((s) => s.id === line.spareId);
-                const unit = Number(unitPriceBySpareId[line.spareId] ?? spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
+                const unit = resolveSpareUnitPrice(line.spareId, watchBrand);
                 const qty = Number(line.qty || 0);
                 const hoStock = line.spareId ? hoStockBySpareId[line.spareId] : undefined;
                 const lineShort =
@@ -2030,8 +2063,18 @@ export function ScSupervisorPage() {
                       const nextId = e.target.value;
                       setRepairPopupError("");
                       setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
-                      void ensureSparePrice(nextId);
-                      void fetchHoStockQty(nextId);
+                      if (nextId) {
+                        void (async () => {
+                          const picked = activeSpares.find((s) => s.id === nextId);
+                          const price = await ensureSparePrice(nextId, watchBrand);
+                          if (price <= 0) {
+                            setRepairPopupError(
+                              `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? nextId})${watchBrand ? ` — add ${watchBrand} price in Inventory → Spare catalogue` : ""}.`,
+                            );
+                          }
+                          void fetchHoStockQty(nextId);
+                        })();
+                      }
                     }}
                     disabled={repairSaving}
                     className="col-span-8 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"

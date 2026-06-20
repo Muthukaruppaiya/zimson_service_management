@@ -24,15 +24,15 @@ import {
   scInwardReceiptPrintSubtitle,
   type ScInwardDocumentKind,
 } from "../../lib/srfLogisticsDocs";
-import type { TransferPartyBlock } from "../../lib/transferDocumentKind";
+import { formatEwayEdocMessage, type EdocUiResult } from "../../lib/edocResultMessage";
 
 const selectClass =
-  "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm outline-none ring-zimson-400/40 focus:ring-2";
+  "mt-1 w-full rounded-xl border border-rlx-rule bg-white px-3 py-2.5 text-sm outline-none focus:border-rlx-green focus:ring-2 focus:ring-rlx-green/30";
 
 const tabBtn =
-  "rounded-xl px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-zimson-400";
-const tabActive = "bg-zimson-600 text-white shadow-sm";
-const tabIdle = "border border-zimson-300 bg-white text-zimson-900 hover:bg-zimson-50";
+  "rounded-xl px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rlx-green";
+const tabActive = "bg-rlx-green text-white shadow-sm";
+const tabIdle = "border border-rlx-gold bg-white text-rlx-green hover:bg-rlx-green-light";
 
 function inwardFromLocationName(kind: ScInwardDocumentKind, storeLabel: string): string {
   if (kind === "store_transfer") return storeLabel;
@@ -153,6 +153,7 @@ export function ScLogisticsPage() {
   } | null>(null);
   const [outwardAck, setOutwardAck] = useState<{
     odcNumber: string;
+    dcId?: string;
     documentKind: "DC" | "ODC" | "TD";
     watchCount: number;
     fromLocation: string;
@@ -162,6 +163,7 @@ export function ScLogisticsPage() {
     dispatchedAt: Date;
     rows: SrfJob[];
     printMeta: TransferPrintMeta;
+    edoc?: EdocUiResult | null;
     printOpts: {
       fromLocation: string;
       toLocation: string;
@@ -171,6 +173,8 @@ export function ScLogisticsPage() {
       storeInvoiceRef?: string;
     };
   } | null>(null);
+
+  const [ewayBusy, setEwayBusy] = useState(false);
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
@@ -548,6 +552,7 @@ export function ScLogisticsPage() {
         };
       setOutwardAck({
         odcNumber: result.odcNumber,
+        dcId: result.dcId,
         documentKind: docKind,
         watchCount: rows.length,
         fromLocation: printOpts.fromLocation,
@@ -557,20 +562,45 @@ export function ScLogisticsPage() {
         dispatchedAt: new Date(),
         rows,
         printMeta,
+        edoc: result.edoc ?? null,
         printOpts,
       });
+      const ewayNote = formatEwayEdocMessage(result.edoc);
       setOutwardMsg({
         type: "ok",
-        text:
+        text: [
           printMeta.flow === "ho_to_store"
             ? `Internal transfer ${result.odcNumber} created (HO → store). Print when ready.`
             : printMeta.printKind === "dc"
               ? `Delivery Challan ${result.odcNumber} created (${transferDocumentTitle(printMeta.printKind, printMeta.flow)}). Print when ready.`
               : `Internal transfer ${result.odcNumber} created. Print when ready.`,
+          ewayNote,
+        ]
+          .filter(Boolean)
+          .join(" "),
       });
       setSelectedOut({});
     } catch (e) {
       setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not create internal outward transfer." });
+    }
+  }
+
+  async function regenerateOutwardEway() {
+    if (!outwardAck?.dcId) return;
+    setEwayBusy(true);
+    try {
+      const out = await apiJson<{ edoc?: EdocUiResult }>(
+        `/api/edoc/delivery-challans/${encodeURIComponent(outwardAck.dcId)}/generate-eway`,
+        { method: "POST", json: {} },
+      );
+      const edoc = out.edoc ?? null;
+      setOutwardAck((prev) => (prev ? { ...prev, edoc } : prev));
+      const msg = formatEwayEdocMessage(edoc);
+      setOutwardMsg({ type: edoc?.ok ? "ok" : "err", text: msg ?? "Could not generate e-way bill." });
+    } catch (e) {
+      setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not generate e-way bill." });
+    } finally {
+      setEwayBusy(false);
     }
   }
 
@@ -583,7 +613,7 @@ export function ScLogisticsPage() {
           actions={
             <Link
               to="/service-centre"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              className="inline-flex rounded-xl border border-rlx-gold bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green shadow-sm transition hover:bg-rlx-green-light"
             >
               Service centre home
             </Link>
@@ -606,13 +636,13 @@ export function ScLogisticsPage() {
           <div className="flex flex-wrap gap-2">
             <Link
               to="/service-centre/logistics-history"
-              className="inline-flex rounded-xl border border-zimson-300 bg-zimson-50 px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-100"
+              className="inline-flex rounded-xl border border-rlx-gold bg-rlx-green-light px-4 py-2.5 text-sm font-semibold text-rlx-green shadow-sm transition hover:bg-rlx-green-light"
             >
               DC / ODC history
             </Link>
             <Link
               to="/service-centre"
-              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              className="inline-flex rounded-xl border border-rlx-gold bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green shadow-sm transition hover:bg-rlx-green-light"
             >
               Service centre home
             </Link>
@@ -687,7 +717,7 @@ export function ScLogisticsPage() {
               <button
                 type="submit"
                 disabled={!canPostDcInward || !selectedDc || pendingDcOptions.length === 0}
-                className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-xl bg-rlx-green px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green-deep disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Review watches &amp; inward
               </button>
@@ -711,15 +741,15 @@ export function ScLogisticsPage() {
           {inwardReviewOpen ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
               <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
-                <h3 className="text-lg font-semibold text-zimson-900">Inward watches — {inwardReviewDc}</h3>
+                <h3 className="text-lg font-semibold text-rlx-green">Inward watches — {inwardReviewDc}</h3>
                 <p className="mt-1 text-sm text-stone-600">
                   {inwardReviewRows.length} watch{inwardReviewRows.length === 1 ? "" : "es"} sent on this transfer.
                   Tick each watch that arrived in working condition, then inward.
                 </p>
-                <div className="mt-4 overflow-x-auto rounded-xl border border-zimson-200">
+                <div className="mt-4 overflow-x-auto rounded-xl border border-rlx-rule">
                   <table className="w-full min-w-[640px] text-left text-sm">
                     <thead>
-                      <tr className="bg-zimson-50 text-xs uppercase tracking-wide text-stone-600">
+                      <tr className="bg-rlx-green-light text-xs uppercase tracking-wide text-stone-600">
                         <th className="px-3 py-2">OK</th>
                         <th className="px-3 py-2">SRF</th>
                         <th className="px-3 py-2">Customer</th>
@@ -732,7 +762,7 @@ export function ScLogisticsPage() {
                       {inwardReviewRows.map((j) => {
                         const loc = storeById.get(j.storeId);
                         return (
-                          <tr key={j.id} className="border-t border-zimson-100">
+                          <tr key={j.id} className="border-t border-rlx-rule">
                             <td className="px-3 py-2">
                               <input
                                 type="checkbox"
@@ -742,10 +772,10 @@ export function ScLogisticsPage() {
                                   setInwardAccepted((prev) => ({ ...prev, [j.id]: e.target.checked }))
                                 }
                                 aria-label={`Accept ${j.reference} in working condition`}
-                                className="h-4 w-4 rounded border-zimson-400"
+                                className="h-4 w-4 rounded border-rlx-gold"
                               />
                             </td>
-                            <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                            <td className="px-3 py-2 font-mono text-xs font-semibold text-rlx-green">{j.reference}</td>
                             <td className="px-3 py-2 text-stone-800">
                               {j.customerName}
                               <span className="block text-xs text-stone-500">{j.phone}</span>
@@ -774,7 +804,7 @@ export function ScLogisticsPage() {
                     type="button"
                     onClick={closeInwardReview}
                     disabled={inwardSaving}
-                    className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-60"
+                    className="rounded-xl border border-rlx-gold px-4 py-2 text-sm disabled:opacity-60"
                   >
                     Cancel
                   </button>
@@ -782,7 +812,7 @@ export function ScLogisticsPage() {
                     type="button"
                     onClick={() => void confirmInwardSelected()}
                     disabled={inwardSaving || !inwardReviewRows.some((j) => inwardAccepted[j.id])}
-                    className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {inwardSaving
                       ? "Saving…"
@@ -802,9 +832,9 @@ export function ScLogisticsPage() {
             {onlineSpareRows.filter((o) => !o.dispatchedAt).length === 0 ? (
               <p className="text-sm text-stone-600">No pending records.</p>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+              <div className="overflow-x-auto rounded-xl border border-rlx-rule/80">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                  <thead className="border-b border-rlx-green-deep bg-rlx-green text-xs font-semibold uppercase tracking-wide text-white">
                     <tr>
                       <th className="px-3 py-2">Order</th>
                       <th className="px-3 py-2">SRF</th>
@@ -818,8 +848,8 @@ export function ScLogisticsPage() {
                     {onlineSpareRows
                       .filter((o) => !o.dispatchedAt)
                       .map((o) => (
-                        <tr key={o.id} className="border-b border-zimson-100 last:border-0">
-                          <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{o.orderNumber}</td>
+                        <tr key={o.id} className="border-b border-rlx-rule last:border-0">
+                          <td className="px-3 py-2 font-mono text-xs font-semibold text-rlx-green">{o.orderNumber}</td>
                           <td className="px-3 py-2 font-mono text-xs">{o.srfReference}</td>
                           <td className="px-3 py-2 text-xs">{o.fromRegionName} to {o.toRegionName}</td>
                           <td className="px-3 py-2 text-xs">{o.invoiceRef ?? "-"}</td>
@@ -827,7 +857,7 @@ export function ScLogisticsPage() {
                           <td className="px-3 py-2">
                             <Link
                               to="/service-centre/online-store"
-                              className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                              className="rounded-lg border border-rlx-gold bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
                             >
                               Open online store
                             </Link>
@@ -862,20 +892,20 @@ export function ScLogisticsPage() {
                   <input
                     value={outwardQuery}
                     onChange={(e) => setOutwardQuery(e.target.value)}
-                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                    className="rounded-xl border border-rlx-gold/80 bg-rlx-green-light/50 px-3 py-2 text-sm"
                     placeholder="Search SRF/customer/phone/watch/store"
                   />
                   <input
                     type="date"
                     value={outwardFromDate}
                     onChange={(e) => setOutwardFromDate(e.target.value)}
-                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                    className="rounded-xl border border-rlx-gold/80 bg-rlx-green-light/50 px-3 py-2 text-sm"
                   />
                   <input
                     type="date"
                     value={outwardToDate}
                     onChange={(e) => setOutwardToDate(e.target.value)}
-                    className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                    className="rounded-xl border border-rlx-gold/80 bg-rlx-green-light/50 px-3 py-2 text-sm"
                   />
                   <button
                     type="button"
@@ -884,7 +914,7 @@ export function ScLogisticsPage() {
                       setOutwardFromDate("");
                       setOutwardToDate("");
                     }}
-                    className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                    className="rounded-xl border border-rlx-gold px-3 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light"
                   >
                     Reset
                   </button>
@@ -896,7 +926,7 @@ export function ScLogisticsPage() {
                       disabled={!canCreateOdc}
                       checked={outwardRows.length > 0 && outwardRows.every((j) => selectedOut[j.id])}
                       onChange={(e) => toggleAllOut(e.target.checked, outwardRows)}
-                      className="rounded border-zimson-400 text-zimson-600 focus:ring-zimson-500"
+                      className="rounded border-rlx-gold text-rlx-green focus:ring-rlx-green"
                     />
                     Select all
                   </label>
@@ -904,7 +934,7 @@ export function ScLogisticsPage() {
                     type="button"
                     disabled={!canCreateOdc}
                     onClick={() => void handleCreateOdc()}
-                    className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-xl bg-rlx-green px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green-deep disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Generate internal outward &amp; dispatch
                   </button>
@@ -913,7 +943,7 @@ export function ScLogisticsPage() {
                   <label className="text-sm">
                     Scan SRF barcode
                     <input
-                      className="mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+                      className="mt-1 w-full rounded-xl border border-rlx-gold/80 bg-rlx-green-light/50 px-3 py-2 text-sm"
                       placeholder="Scan SRF and press Enter"
                       value={scanOutwardSrfInput}
                       onChange={(e) => setScanOutwardSrfInput(e.target.value)}
@@ -926,9 +956,9 @@ export function ScLogisticsPage() {
                     />
                   </label>
                 </div>
-                <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+                <div className="overflow-x-auto rounded-xl border border-rlx-rule/80">
                   <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                    <thead className="border-b border-rlx-green-deep bg-rlx-green text-xs font-semibold uppercase tracking-wide text-white">
                       <tr>
                         <th className="px-3 py-2 w-10" />
                         <th className="px-3 py-2">SRF</th>
@@ -942,7 +972,7 @@ export function ScLogisticsPage() {
                         <tr
                           key={j.id}
                           onClick={() => setSelectedJob(j)}
-                          className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
+                          className="cursor-pointer border-b border-rlx-rule hover:bg-rlx-green-light/60 last:border-0"
                         >
                           <td className="px-3 py-2 align-top">
                             <input
@@ -953,10 +983,10 @@ export function ScLogisticsPage() {
                                 e.stopPropagation();
                                 toggleOut(j.id);
                               }}
-                              className="rounded border-zimson-400 text-zimson-600 focus:ring-zimson-500"
+                              className="rounded border-rlx-gold text-rlx-green focus:ring-rlx-green"
                             />
                           </td>
-                          <td className="px-3 py-2 align-top font-mono font-semibold text-zimson-900">
+                          <td className="px-3 py-2 align-top font-mono font-semibold text-rlx-gold-dark">
                             {j.reference}
                             {j.transferSourceReference && j.transferSourceReference !== j.reference ? (
                               <span className="mt-0.5 block text-[10px] font-normal text-stone-500">
@@ -984,7 +1014,7 @@ export function ScLogisticsPage() {
                             )}
                           </td>
                           <td className="px-3 py-2 align-top">
-                            <p className="rounded-lg border border-zimson-200 bg-zimson-50 px-2 py-1 text-xs font-semibold text-zimson-900">
+                            <p className="rounded-lg border border-rlx-rule bg-rlx-green-light px-2 py-1 text-xs font-semibold text-rlx-green">
                               {(() => {
                                 const destId = destinationFor(j.id, j.storeId);
                                 if (j.requiresLocalConversion && j.transferTargetRegionId) {
@@ -1054,33 +1084,33 @@ export function ScLogisticsPage() {
                 Close
               </button>
             </div>
-            <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+            <div className="overflow-x-auto rounded-xl border border-rlx-rule/80">
               <table className="min-w-full text-left text-sm">
                 <tbody>
-                  <tr className="border-b border-zimson-100">
-                    <th className="w-56 bg-zimson-50/70 px-3 py-2">Status</th>
+                  <tr className="border-b border-rlx-rule">
+                    <th className="w-56 bg-rlx-green-light/70 px-3 py-2">Status</th>
                     <td className="px-3 py-2">{selectedJob.status.replace(/_/g, " ")}</td>
                   </tr>
-                  <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2">Customer</th>
+                  <tr className="border-b border-rlx-rule">
+                    <th className="bg-rlx-green-light/70 px-3 py-2">Customer</th>
                     <td className="px-3 py-2">{selectedJob.customerName} ({selectedJob.phone})</td>
                   </tr>
-                  <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2">Watch</th>
+                  <tr className="border-b border-rlx-rule">
+                    <th className="bg-rlx-green-light/70 px-3 py-2">Watch</th>
                     <td className="px-3 py-2">{selectedJob.watchBrand} {selectedJob.watchModel} · {selectedJob.serial}</td>
                   </tr>
-                  <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2">DC / ODC</th>
+                  <tr className="border-b border-rlx-rule">
+                    <th className="bg-rlx-green-light/70 px-3 py-2">DC / ODC</th>
                     <td className="px-3 py-2">DC: {selectedJob.dcNumber ?? "-"} · ODC: {selectedJob.outwardDcNumber ?? "-"}</td>
                   </tr>
-                  <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2">Region / Store</th>
+                  <tr className="border-b border-rlx-rule">
+                    <th className="bg-rlx-green-light/70 px-3 py-2">Region / Store</th>
                     <td className="px-3 py-2">
                       HO: {selectedJob.regionName ?? selectedJob.regionId} · Store: {storeById.get(selectedJob.storeId)?.storeName ?? selectedJob.storeId}
                     </td>
                   </tr>
-                  <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2">Timeline</th>
+                  <tr className="border-b border-rlx-rule">
+                    <th className="bg-rlx-green-light/70 px-3 py-2">Timeline</th>
                     <td className="px-3 py-2 text-xs text-stone-700">
                       Dispatched to SC: {selectedJob.dispatchedToScAt ? new Date(selectedJob.dispatchedToScAt).toLocaleString() : "-"}<br />
                       SC inward: {selectedJob.inwardAt ? new Date(selectedJob.inwardAt).toLocaleString() : "-"}<br />
@@ -1089,7 +1119,7 @@ export function ScLogisticsPage() {
                     </td>
                   </tr>
                   <tr>
-                    <th className="bg-zimson-50/70 px-3 py-2">Complaint</th>
+                    <th className="bg-rlx-green-light/70 px-3 py-2">Complaint</th>
                     <td className="px-3 py-2">{selectedJob.complaint || "-"}</td>
                   </tr>
                 </tbody>
@@ -1178,10 +1208,35 @@ export function ScLogisticsPage() {
                   <dd className="font-medium text-stone-900">{user?.displayName ?? "—"}</dd>
                 </div>
               </dl>
+              {outwardAck.printMeta.printKind === "dc" ? (
+                <div className="mt-4 rounded-xl border border-rlx-gold/40 bg-gradient-to-br from-rlx-green-light/80 to-rlx-gold-light/40 px-4 py-3 text-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">E-way bill (Masters India)</p>
+                  {outwardAck.edoc?.ewayBillNo ? (
+                    <p className="mt-1 font-mono text-base font-bold text-rlx-green-deep">{outwardAck.edoc.ewayBillNo}</p>
+                  ) : (
+                    <p className="mt-1 text-rlx-ink-muted">
+                      {formatEwayEdocMessage(outwardAck.edoc) ?? "Not generated yet — enable auto e-way in Settings → E-invoice & e-way, or generate manually."}
+                    </p>
+                  )}
+                  {outwardAck.edoc?.ewayValidUpto ? (
+                    <p className="mt-1 text-xs text-rlx-ink-muted">Valid until {outwardAck.edoc.ewayValidUpto}</p>
+                  ) : null}
+                  {outwardAck.dcId ? (
+                    <button
+                      type="button"
+                      disabled={ewayBusy}
+                      onClick={() => void regenerateOutwardEway()}
+                      className="mt-2 rounded-lg border border-rlx-gold bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
+                    >
+                      {ewayBusy ? "Generating…" : outwardAck.edoc?.ewayBillNo ? "Regenerate e-way" : "Generate e-way bill"}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {outwardAck.rows.length > 0 ? (
-                <div className="mt-4 max-h-32 overflow-y-auto rounded-lg border border-zimson-200 text-xs">
+                <div className="mt-4 max-h-32 overflow-y-auto rounded-lg border border-rlx-rule text-xs">
                   <table className="min-w-full">
-                    <thead className="sticky top-0 bg-zimson-50 text-left font-semibold text-stone-600">
+                    <thead className="sticky top-0 bg-rlx-green-light text-left font-semibold text-stone-600">
                       <tr>
                         <th className="px-2 py-1">SRF</th>
                         <th className="px-2 py-1">Watch</th>
@@ -1189,7 +1244,7 @@ export function ScLogisticsPage() {
                     </thead>
                     <tbody>
                       {outwardAck.rows.map((j) => (
-                        <tr key={j.id} className="border-t border-zimson-100">
+                        <tr key={j.id} className="border-t border-rlx-rule">
                           <td className="px-2 py-1 font-mono font-semibold">{j.reference}</td>
                           <td className="px-2 py-1">
                             {j.watchBrand} {j.watchModel}
@@ -1288,9 +1343,9 @@ export function ScLogisticsPage() {
                 </div>
               </dl>
               {inwardAck.jobs.length > 0 ? (
-                <div className="mt-4 max-h-32 overflow-y-auto rounded-lg border border-zimson-200 text-xs">
+                <div className="mt-4 max-h-32 overflow-y-auto rounded-lg border border-rlx-rule text-xs">
                   <table className="min-w-full">
-                    <thead className="sticky top-0 bg-zimson-50 text-left font-semibold text-stone-600">
+                    <thead className="sticky top-0 bg-rlx-green-light text-left font-semibold text-stone-600">
                       <tr>
                         <th className="px-2 py-1">SRF</th>
                         <th className="px-2 py-1">Watch</th>
@@ -1298,7 +1353,7 @@ export function ScLogisticsPage() {
                     </thead>
                     <tbody>
                       {inwardAck.jobs.map((j) => (
-                        <tr key={j.id} className="border-t border-zimson-100">
+                        <tr key={j.id} className="border-t border-rlx-rule">
                           <td className="px-2 py-1 font-mono font-semibold">{j.reference}</td>
                           <td className="px-2 py-1">
                             {j.watchBrand} {j.watchModel}
@@ -1388,7 +1443,7 @@ export function ScLogisticsPage() {
                       }
                     }
                   }}
-                  className="flex-1 rounded-xl border border-zimson-300 bg-zimson-50 px-4 py-2.5 text-sm font-semibold text-zimson-900 hover:bg-zimson-100"
+                  className="flex-1 rounded-xl border border-rlx-gold bg-rlx-green-light px-4 py-2.5 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light"
                 >
                   Print transfer / DC copy
                 </button>

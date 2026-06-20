@@ -198,19 +198,33 @@ function parseEwayResponse(json: unknown): EdocResult {
       status?: string;
       code?: number;
       requestId?: string;
-      message?: {
-        ewayBillNo?: number | string;
-        ewayBillDate?: string;
-        validUpto?: string;
-        url?: string;
-        error?: boolean | string;
-      };
+      nic_code?: string;
+      message?:
+        | string
+        | {
+            ewayBillNo?: number | string;
+            ewayBillDate?: string;
+            validUpto?: string;
+            url?: string;
+            error?: boolean | string;
+          };
     };
   };
 
-  const msg = root.results?.message;
+  const results = root.results;
+  const rawMsg = results?.message;
+  if (typeof rawMsg === "string" && rawMsg.trim()) {
+    return {
+      ok: false,
+      error: rawMsg.trim(),
+      rawStatus: results?.status ?? null,
+      requestId: results?.requestId ?? null,
+    };
+  }
+
+  const msg = rawMsg && typeof rawMsg === "object" ? rawMsg : null;
   if (!msg) {
-    return { ok: false, error: "Unexpected e-way response", rawStatus: root.results?.status ?? null };
+    return { ok: false, error: "Unexpected e-way response", rawStatus: results?.status ?? null };
   }
   if (msg.error === true || (typeof msg.error === "string" && msg.error)) {
     return {

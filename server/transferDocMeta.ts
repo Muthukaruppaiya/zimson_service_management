@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 export type TransferPrintKind = "dc" | "transfer";
 
@@ -42,7 +42,13 @@ export function transferPrintKindFromGstins(fromGstin: string, toGstin: string):
 function formatAddressJson(raw: unknown, fallback: string): string {
   if (raw && typeof raw === "object") {
     const j = raw as Record<string, unknown>;
-    const parts = [j.line1, j.city, j.state, j.pincode].map((x) => String(x ?? "").trim()).filter(Boolean);
+    const door = String(j.doorNo ?? j.line1 ?? "").trim();
+    const street = String(j.street ?? j.line2 ?? "").trim();
+    const city = String(j.city ?? "").trim();
+    const district = String(j.district ?? "").trim();
+    const state = String(j.state ?? "").trim();
+    const pincode = String(j.pincode ?? "").trim();
+    const parts = [door, street, city, district, state, pincode].filter(Boolean);
     if (parts.length) return parts.join(", ");
   }
   return fallback.trim() || "—";
@@ -182,4 +188,51 @@ export async function buildHoOutwardPrintMeta(
     from,
     to,
   };
+}
+
+/** Rebuild transfer print meta for an existing delivery challan (e-way retry). */
+export async function rebuildPrintMetaForChallan(
+  pool: Pool | PoolClient,
+  dcId: string,
+): Promise<{ printMeta: TransferPrintMeta; lineCount: number } | null> {
+  const dcRes = await pool.query<{ dc_number: string; region_id: string; from_store_id: string }>(
+    `SELECT dc_number, region_id, from_store_id FROM delivery_challans WHERE id = $1::uuid`,
+    [dcId],
+  );
+  const dc = dcRes.rows[0];
+  if (!dc) return null;
+
+  const linesRes = await pool.query<{
+    requires_local_conversion: boolean;
+    transfer_target_region_id: string | null;
+    transfer_source_region_id: string | null;
+    destination_store_id: string | null;
+  }>(
+    `SELECT j.requires_local_conversion, j.transfer_target_region_id, j.transfer_source_region_id, j.destination_store_id
+     FROM delivery_challan_lines l
+     JOIN srf_jobs j ON j.id = l.srf_id
+     WHERE l.dc_id = $1::uuid`,
+    [dcId],
+  );
+  const lineCount = linesRes.rows.length;
+  if (lineCount === 0) return null;
+
+  const first = linesRes.rows[0];
+  const isInterHo =
+    (first.requires_local_conversion && first.transfer_target_region_id) ||
+    (!first.requires_local_conversion && first.transfer_source_region_id);
+  const isReturnLeg = isInterHo && !first.requires_local_conversion;
+  const interHoTargetRegionId = first.requires_local_conversion
+    ? first.transfer_target_region_id
+    : first.transfer_source_region_id;
+
+  const printMeta = await buildHoOutwardPrintMeta(pool as PoolClient, {
+    fromRegionId: dc.region_id,
+    destinationStoreId: first.destination_store_id ?? dc.from_store_id,
+    transferNumber: dc.dc_number,
+    isInterHoBatch: isInterHo,
+    interHoTargetRegionId,
+    isReturnLeg,
+  });
+  return { printMeta, lineCount };
 }

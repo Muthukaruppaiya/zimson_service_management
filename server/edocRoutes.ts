@@ -5,6 +5,7 @@ import {
   testEdocConnection,
   tryGenerateEinvoiceForQuickBill,
   tryGenerateEinvoiceForSrfClose,
+  tryGenerateEwayForChallanId,
 } from "./mastersIndiaEdoc";
 import { toPublicEdocSettings, refreshEdocSettingsCache } from "./edocSettingsStore";
 
@@ -62,5 +63,15 @@ export function registerEdocRoutes(
     }
     const result = await tryGenerateEinvoiceForSrfClose(pool, srfId);
     res.status(result.ok ? 200 : 400).json({ edoc: result });
+  });
+
+  app.post("/api/edoc/delivery-challans/:dcId/generate-eway", requireAuth, async (req, res) => {
+    const dcId = String(req.params.dcId ?? "").trim();
+    if (!dcId) {
+      res.status(400).json({ error: "dcId required" });
+      return;
+    }
+    const result = await tryGenerateEwayForChallanId(pool, dcId);
+    res.status(result.ok ? 200 : result.skipped ? 200 : 400).json({ edoc: result });
   });
 }

@@ -151,14 +151,14 @@ function SrfPhotoThumbTile({
         type="button"
         onClick={() => onPreview(photo)}
         title="Click to preview"
-        className="group w-full cursor-zoom-in text-left transition hover:border-zimson-400 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-zimson-500"
+        className="group w-full cursor-zoom-in text-left transition hover:border-rlx-gold hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-rlx-green"
       >
         <img
           src={`/${photo.filePath}`}
           alt={photo.photoKind ?? "watch photo"}
           className={`${imgClassName} w-full rounded object-cover`}
         />
-        <p className="mt-1 text-[11px] capitalize text-stone-600 group-hover:text-zimson-800">{photo.photoKind ?? "other"}</p>
+        <p className="mt-1 text-[11px] capitalize text-stone-600 group-hover:text-rlx-green">{photo.photoKind ?? "other"}</p>
       </button>
     </div>
   );
@@ -1285,7 +1285,7 @@ export function SrfBookingV2Page() {
           </div>
         </Card>
       ) : null}
-      <div className="mb-6 rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
+      <div className="mb-6 rounded-2xl border border-rlx-rule/80 bg-white/90 p-4 shadow-sm">
         <Stepper steps={[...steps]} activeIndex={step} />
       </div>
       {error ? <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
@@ -1320,7 +1320,7 @@ export function SrfBookingV2Page() {
               <button
                 type="button"
                 onClick={clearLoadedCustomer}
-                className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                className="rounded-lg border border-rlx-gold bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
               >
                 Change customer
               </button>
@@ -1331,7 +1331,7 @@ export function SrfBookingV2Page() {
               Customer ID
               <input
                 readOnly
-                className={`${inputClass} bg-zimson-50/80 font-mono`}
+                className={`${inputClass} bg-rlx-green-light/80 font-mono`}
                 value={loadedCustomerCode ?? ""}
                 placeholder="—"
               />
@@ -1363,7 +1363,7 @@ export function SrfBookingV2Page() {
             {checkingCustomer ? "Checking customer in DB…" : "Customer check runs automatically after you enter a mobile number."}
           </div>
           {customerCheckMsg ? (
-            <p className="mt-3 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">
+            <p className="mt-3 rounded-xl bg-rlx-green-light px-3 py-2 text-sm text-stone-700">
               {customerCheckMsg}
               {customerLockedFromDb ? (
                 <span className="mt-1 block text-xs text-stone-600">
@@ -1383,7 +1383,7 @@ export function SrfBookingV2Page() {
                         Verified
                       </span>
                     ) : (
-                      <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                      <span className="rounded-full bg-rlx-gold px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rlx-green-deep">
                         Unverified
                       </span>
                     )
@@ -1408,21 +1408,21 @@ export function SrfBookingV2Page() {
               </label>
               {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
                 <div
-                  className="md:col-span-2 rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
+                  className="md:col-span-2 rounded-xl border-2 border-rlx-gold bg-rlx-gold-light px-3 py-2 text-sm font-semibold text-rlx-green-deep"
                   role="alert"
                 >
                   Alert: Customer not verified — complete mobile OTP before handover.
                 </div>
               ) : null}
               {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
-                <div className="md:col-span-2 flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50/95 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-amber-950">
+                <div className="md:col-span-2 flex flex-col gap-2 rounded-xl border border-rlx-gold/40 bg-rlx-green-light/90 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-rlx-green">
                     Complete mobile OTP on customer registration to mark this customer verified.
                   </p>
                   <button
                     type="button"
                     onClick={() => redirectToCustomerRegister(phone.trim())}
-                    className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                    className="shrink-0 rounded-lg bg-rlx-green px-3 py-1.5 text-xs font-semibold text-white hover:bg-rlx-green-deep"
                   >
                     Verify with OTP
                   </button>
@@ -1522,9 +1522,9 @@ export function SrfBookingV2Page() {
             </div>
           ) : null}
           {!customerExists && customerChecked ? (
-            <p className="mt-2 text-sm text-amber-700">Customer must be created before moving to Watch details.</p>
+            <p className="mt-2 text-sm text-rlx-gold-dark">Customer must be created before moving to Watch details.</p>
           ) : null}
-          <div className="mt-4 flex justify-end"><button type="button" onClick={() => void goNext()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Next</button></div>
+          <div className="mt-4 flex justify-end"><button type="button" onClick={() => void goNext()} className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep">Next</button></div>
         </Card>
       ) : null}
 
@@ -1615,8 +1615,8 @@ export function SrfBookingV2Page() {
             </label>
           </div>
           <div className="mt-4 flex justify-between">
-            <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
-            <button type="button" onClick={() => void goNext()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Generate QR</button>
+            <button type="button" onClick={goBack} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Back</button>
+            <button type="button" onClick={() => void goNext()} className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep">Generate QR</button>
           </div>
         </Card>
       ) : null}
@@ -1624,7 +1624,7 @@ export function SrfBookingV2Page() {
       {step === 2 ? (
         <Card title="Step 3 — Photos">
           <div className="grid gap-5 md:grid-cols-[220px,1fr]">
-            <div className="rounded-xl border border-zimson-200 p-3 text-center">
+            <div className="rounded-xl border border-rlx-rule p-3 text-center">
               {captureUrl ? (
                 <CustomerLinkQr url={captureUrl} size={260} mode="qr" caption="Scan QR to upload photos" className="mx-auto text-center" />
               ) : (
@@ -1638,9 +1638,9 @@ export function SrfBookingV2Page() {
                 Uploaded photos: <strong>{photoCount}</strong> (minimum{" "}
                 <strong>{SRF_MIN_WATCH_PHOTOS_REQUIRED}</strong> required — any categories, not all six)
               </p>
-              {photoMsg ? <p className="rounded-xl bg-zimson-50 px-3 py-2 text-sm">{photoMsg}</p> : null}
+              {photoMsg ? <p className="rounded-xl bg-rlx-green-light px-3 py-2 text-sm">{photoMsg}</p> : null}
               {photoPreview.length > 0 && !draft ? (
-                <div className="rounded-xl border border-zimson-200 bg-white p-3">
+                <div className="rounded-xl border border-rlx-rule bg-white p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Preview</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {photoPreview.map((p) => (
@@ -1648,7 +1648,7 @@ export function SrfBookingV2Page() {
                         key={p.id}
                         photo={p}
                         imgClassName="h-28"
-                        wrapperClassName="rounded-lg border border-zimson-200 p-1.5"
+                        wrapperClassName="rounded-lg border border-rlx-rule p-1.5"
                         onPreview={openPhotoPreview}
                         onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
                         removeBusy={photoRemoveBusyId === p.id}
@@ -1658,26 +1658,26 @@ export function SrfBookingV2Page() {
                 </div>
               ) : null}
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => void refreshPhotoStatus()} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Refresh status</button>
-                <button type="button" onClick={() => void regenerateCaptureLink()} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Regenerate link</button>
-                {captureUrl ? <a href={captureUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-zimson-700 px-4 py-2 text-sm font-semibold text-white">Open capture page</a> : null}
+                <button type="button" onClick={() => void refreshPhotoStatus()} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Refresh status</button>
+                <button type="button" onClick={() => void regenerateCaptureLink()} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Regenerate link</button>
+                {captureUrl ? <a href={captureUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep">Open capture page</a> : null}
               </div>
               {draft ? (
-                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-950">
-                  <p className="font-semibold text-amber-950">Waiting on photos (draft / photo pending)</p>
+                <div className="mt-4 rounded-xl border border-rlx-gold/40 bg-gradient-to-br from-rlx-green-light/90 to-rlx-gold-light/40 p-3 text-sm text-rlx-green">
+                  <p className="font-semibold text-rlx-green-deep">Waiting on photos (draft / photo pending)</p>
                   {/* <p className="mt-1 text-xs text-amber-900">
                     Edit customer or watch details on file, or cancel this SRF if the booking should not continue.
                   </p> */}
                   {photoPreview.length > 0 ? (
-                    <div className="mt-3 rounded-lg border border-amber-200/90 bg-white/90 p-2">
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">Uploaded image preview</p>
+                    <div className="mt-3 rounded-lg border border-rlx-rule bg-white/90 p-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-rlx-green">Uploaded image preview</p>
                       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {photoPreview.map((p) => (
                           <SrfPhotoThumbTile
                             key={`amber-${p.id}`}
                             photo={p}
                             imgClassName="h-24"
-                            wrapperClassName="rounded-md border border-amber-100 p-1"
+                            wrapperClassName="rounded-md border border-rlx-rule p-1"
                             onPreview={openPhotoPreview}
                             onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
                             removeBusy={photoRemoveBusyId === p.id}
@@ -1689,13 +1689,13 @@ export function SrfBookingV2Page() {
                   <button
                     type="button"
                     onClick={() => void saveDraftEditsAndGoWatchStep()}
-                    className="mt-2 rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+                    className="mt-2 rounded-lg border border-rlx-gold bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
                   >
                     Edit customer &amp; watch
                   </button>
-                  <label className="mt-3 block text-xs font-medium text-amber-950">Cancel reason</label>
+                  <label className="mt-3 block text-xs font-medium text-rlx-green">Cancel reason</label>
                   <textarea
-                    className="mt-1 w-full rounded-lg border border-amber-300 bg-white px-2 py-1.5 text-xs text-stone-900"
+                    className="mt-1 w-full rounded-lg border border-rlx-rule bg-white px-2 py-1.5 text-xs text-rlx-ink focus:border-rlx-green focus:outline-none focus:ring-1 focus:ring-rlx-green/30"
                     rows={2}
                     value={cancelReason}
                     onChange={(e) => setCancelReason(e.target.value)}
@@ -1714,8 +1714,8 @@ export function SrfBookingV2Page() {
             </div>
           </div>
           <div className="mt-4 flex justify-between">
-            <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
-            <button type="button" onClick={() => void goNext()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Next</button>
+            <button type="button" onClick={goBack} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Back</button>
+            <button type="button" onClick={() => void goNext()} className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep">Next</button>
           </div>
         </Card>
       ) : null}
@@ -1795,8 +1795,8 @@ export function SrfBookingV2Page() {
                 placeholder="Optional remarks"
               />
             </label>
-            <div className="md:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
-              <p className="text-sm font-semibold text-zimson-900">Watch condition / observation</p>
+            <div className="md:col-span-2 rounded-xl border border-rlx-rule bg-white p-3">
+              <p className="text-sm font-semibold text-rlx-green">Watch condition / observation</p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <label className="text-xs text-stone-600">Case / Crystal<input className={inputClass} value={obsCaseCrystal} onChange={(e) => setObsCaseCrystal(e.target.value)} /></label>
                 <label className="text-xs text-stone-600">Glass / Crystal<input className={inputClass} value={obsGlassCrystal} onChange={(e) => setObsGlassCrystal(e.target.value)} /></label>
@@ -1808,8 +1808,8 @@ export function SrfBookingV2Page() {
                 <label className="text-xs text-stone-600 sm:col-span-2">Additional notes<input className={inputClass} value={obsAdditionalNotes} onChange={(e) => setObsAdditionalNotes(e.target.value)} /></label>
               </div>
             </div>
-            <div className="md:col-span-2 rounded-xl border border-zimson-200 bg-white p-3">
-              <p className="text-sm font-semibold text-zimson-900">Suggested repairs</p>
+            <div className="md:col-span-2 rounded-xl border border-rlx-rule bg-white p-3">
+              <p className="text-sm font-semibold text-rlx-green">Suggested repairs</p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <label className="text-xs text-stone-600">Movement overhaul<input className={inputClass} value={repMovementOverhaul} onChange={(e) => setRepMovementOverhaul(e.target.value)} /></label>
                 <label className="text-xs text-stone-600">Polishing (Case / Bracelet)<input className={inputClass} value={repPolishing} onChange={(e) => setRepPolishing(e.target.value)} /></label>
@@ -1820,13 +1820,13 @@ export function SrfBookingV2Page() {
                 <label className="text-xs text-stone-600">Replace Dial / Hands<input className={inputClass} value={repDialHands} onChange={(e) => setRepDialHands(e.target.value)} /></label>
               </div>
             </div>
-            <div className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm">
+            <div className="md:col-span-2 rounded-xl bg-rlx-green-light px-3 py-2 text-sm">
               Estimate: <strong>{formatInr(estimateTotal)}</strong> · Advance: <strong>{formatInr(advanceTotal)}</strong>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
-            <button type="button" onClick={() => void beginOtp()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">
+            <button type="button" onClick={goBack} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Back</button>
+            <button type="button" onClick={() => void beginOtp()} className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep">
               Send OTP
             </button>
           </div>
@@ -1835,17 +1835,17 @@ export function SrfBookingV2Page() {
 
       {step === 4 ? (
         <Card title="Step 5 — Review and create">
-          <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+          <div className="overflow-x-auto rounded-xl border border-rlx-rule/80">
             <table className="min-w-full text-left text-sm">
               <tbody>
                 {(loadedCustomerCode || loadedCustomerId) ? (
-                  <tr className="border-b border-zimson-100">
-                    <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Customer ID</th>
-                    <td className="px-3 py-2 font-mono font-semibold text-zimson-900">{loadedCustomerCode ?? "—"}</td>
+                  <tr className="border-b border-rlx-rule">
+                    <th className="w-56 bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Customer ID</th>
+                    <td className="px-3 py-2 font-mono font-semibold text-rlx-green">{loadedCustomerCode ?? "—"}</td>
                   </tr>
                 ) : null}
-                <tr className="border-b border-zimson-100">
-                  <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Customer</th>
+                <tr className="border-b border-rlx-rule">
+                  <th className="w-56 bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Customer</th>
                   <td className="px-3 py-2 text-stone-800">
                     <span className="inline-flex flex-wrap items-center gap-2">
                       <span>
@@ -1856,15 +1856,15 @@ export function SrfBookingV2Page() {
                           Verified
                         </span>
                       ) : (
-                        <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                        <span className="rounded-full bg-rlx-gold px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rlx-green-deep">
                           Unverified
                         </span>
                       )}
                     </span>
                   </td>
                 </tr>
-                <tr className="border-b border-zimson-100">
-                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700 align-top">Address</th>
+                <tr className="border-b border-rlx-rule">
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700 align-top">Address</th>
                   <td className="px-3 py-2 text-stone-800 whitespace-pre-line">
                     {[
                       address.trim(),
@@ -1875,27 +1875,27 @@ export function SrfBookingV2Page() {
                       .join("\n") || "—"}
                   </td>
                 </tr>
-                <tr className="border-b border-zimson-100">
-                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Watch</th>
+                <tr className="border-b border-rlx-rule">
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Watch</th>
                   <td className="px-3 py-2 text-stone-800">
                     {watchBrand}
                     {watchFamily.trim() ? ` · ${watchFamily.trim()}` : ""} {watchModel.trim()} · {serial}
                   </td>
                 </tr>
-                <tr className="border-b border-zimson-100">
-                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">After-service handover store</th>
+                <tr className="border-b border-rlx-rule">
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">After-service handover store</th>
                   <td className="px-3 py-2 text-stone-800">{handoverStoreOptions.find((s) => s.id === handoverStoreId)?.name ?? (handoverStoreId || "-")}</td>
                 </tr>
-                <tr className="border-b border-zimson-100">
-                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Watch complaint</th>
+                <tr className="border-b border-rlx-rule">
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Watch complaint</th>
                   <td className="px-3 py-2 text-stone-800">{complaint}</td>
                 </tr>
-                <tr className="border-b border-zimson-100">
-                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Remarks</th>
+                <tr className="border-b border-rlx-rule">
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Remarks</th>
                   <td className="px-3 py-2 text-stone-800">{estimateRemarks || "-"}</td>
                 </tr>
-                <tr className="border-b border-zimson-100">
-                  <th className="bg-zimson-50/70 px-3 py-2 align-top font-semibold text-stone-700">Uploaded photos</th>
+                <tr className="border-b border-rlx-rule">
+                  <th className="bg-rlx-green-light/70 px-3 py-2 align-top font-semibold text-stone-700">Uploaded photos</th>
                   <td className="px-3 py-2 text-stone-800">
                     <p>{photoCount}</p>
                     {photoPreview.length > 0 ? (
@@ -1905,7 +1905,7 @@ export function SrfBookingV2Page() {
                             key={p.id}
                             photo={p}
                             imgClassName="h-24"
-                            wrapperClassName="rounded-lg border border-zimson-200 bg-white p-1.5"
+                            wrapperClassName="rounded-lg border border-rlx-rule bg-white p-1.5"
                             onPreview={openPhotoPreview}
                             onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
                             removeBusy={photoRemoveBusyId === p.id}
@@ -1916,21 +1916,21 @@ export function SrfBookingV2Page() {
                   </td>
                 </tr>
                 <tr>
-                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimated service finish date</th>
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Estimated service finish date</th>
                   <td className="px-3 py-2 text-stone-800">{estimatedFinishDate || "-"}</td>
                 </tr>
                 <tr>
-                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimate</th>
-                  <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(estimateTotal)}</td>
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Estimate</th>
+                  <td className="px-3 py-2 font-semibold text-rlx-green">{formatInr(estimateTotal)}</td>
                 </tr>
                 <tr>
-                  <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance</th>
-                  <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(advanceTotal)}</td>
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Advance</th>
+                  <td className="px-3 py-2 font-semibold text-rlx-green">{formatInr(advanceTotal)}</td>
                 </tr>
                 {advanceTotal > 0 ? (
                   <>
                     <tr>
-                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance payment</th>
+                      <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Advance payment</th>
                       <td className="px-3 py-2 text-stone-800 whitespace-pre-line">{advancePaymentSummary}</td>
                     </tr>
                   </>
@@ -1939,8 +1939,8 @@ export function SrfBookingV2Page() {
             </table>
           </div>
           <div className="mt-4 flex flex-wrap justify-between gap-3">
-            <button type="button" onClick={goBack} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm font-semibold text-zimson-900">Back</button>
-            <button type="button" onClick={() => void finalizeAndPrint()} className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white">Create SRF</button>
+            <button type="button" onClick={goBack} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Back</button>
+            <button type="button" onClick={() => void finalizeAndPrint()} className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep">Create SRF</button>
           </div>
         </Card>
       ) : null}

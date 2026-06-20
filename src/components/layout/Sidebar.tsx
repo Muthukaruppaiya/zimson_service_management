@@ -124,7 +124,11 @@ export function Sidebar() {
       },
       {
         title: "Accounts", icon: "accounts",
-        items: [{ to: "/accounts/setup", label: "Accounts setup", module: "accounts" }],
+        items: [
+          { to: "/accounts/invoice-history", label: "Invoice history", module: "accounts" },
+          { to: "/accounts/ledger", label: "Payment ledger", module: "accounts" },
+          { to: "/accounts/setup", label: "Accounts setup", module: "accounts" },
+        ],
       },
       {
         title: "Inventory", icon: "inventory",
@@ -172,6 +176,7 @@ export function Sidebar() {
         title: "Supervision", icon: "supervisor",
         items: [
           { to: "/service-centre/supervisor", label: "Assigning", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
+          { to: "/service-centre/srf-history", label: "SRF history", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
           { to: "/service-centre/supervisor/reestimate-sender", label: "Sender re-estimate approvals", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
         ],
       },

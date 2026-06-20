@@ -1,4 +1,4 @@
-/** Messaging provider settings — loaded from DB (super admin) with .env fallback. */
+/** Messaging provider settings — loaded from database (Settings → SMS, email & WhatsApp). */
 
 import {
   getMessagingFlags,
@@ -37,21 +37,11 @@ export function isWhatsAppConfigured(): boolean {
 
 /**
  * Public base URL of this API (HTTPS in production) so WhatsApp can fetch uploaded invoice PDFs.
- * Example: https://api.zimson.in or https://your-server.com:4000
+ * Configured in Settings → SMS, email & WhatsApp (or patched at runtime by dev tunnel).
  */
-/** Runtime tunnel / .env wins over DB cache (tunnel starts after settings init). */
 export function getMessagingPublicBaseUrl(): string {
-  const runtime = process.env.MESSAGING_PUBLIC_BASE_URL?.trim();
-  if (runtime) return normalizeMessagingPublicBaseUrl(runtime);
-
   const fromFlags = getMessagingFlags().messagingPublicBaseUrl?.trim() || "";
   if (fromFlags) return normalizeMessagingPublicBaseUrl(fromFlags);
-
-  const appBase = process.env.APP_BASE_URL?.trim() || "";
-  if (appBase && process.env.NODE_ENV === "production") {
-    return normalizeMessagingPublicBaseUrl(appBase);
-  }
-
   return "";
 }
 

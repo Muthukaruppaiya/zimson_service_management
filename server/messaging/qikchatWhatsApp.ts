@@ -195,7 +195,7 @@ export async function sendTrackingLinkWhatsAppTemplate(
   const trackingUrl = input.trackingUrl.trim();
   if (!srfNumber || !trackingUrl) throw new Error("SRF number and tracking URL are required.");
 
-  const templateName = process.env.QIKCHAT_TRACKING_TEMPLATE_NAME?.trim() || "customer_link";
+  const templateName = cfg.trackingTemplateName;
   const language = cfg.templateLanguage?.trim() || "en";
 
   const documentUrl = resolvePublicHttpsDocumentUrl(input.documentUrl);
@@ -243,7 +243,7 @@ export type SendTrackingLinkBodyOnlyInput = {
 
 /**
  * Tracking link without document header — use when PDF publish fails.
- * Template must be approved without a header (set QIKCHAT_TRACKING_TEXT_TEMPLATE_NAME).
+ * Template must be approved without a header (Settings → tracking text-only template name).
  */
 export async function sendTrackingLinkWhatsAppBodyOnly(
   input: SendTrackingLinkBodyOnlyInput,
@@ -259,10 +259,7 @@ export async function sendTrackingLinkWhatsAppBodyOnly(
   const trackingUrl = input.trackingUrl.trim();
   if (!srfNumber || !trackingUrl) throw new Error("SRF number and tracking URL are required.");
 
-  const templateName =
-    process.env.QIKCHAT_TRACKING_TEXT_TEMPLATE_NAME?.trim() ||
-    process.env.QIKCHAT_TRACKING_TEMPLATE_NAME?.trim() ||
-    "customer_link";
+  const templateName = cfg.trackingTextTemplateName;
   const language = cfg.templateLanguage?.trim() || "en";
 
   const payload = {
@@ -316,7 +313,7 @@ export async function sendSiteVisitApprovalWhatsAppTemplate(
   const trackingUrl = input.trackingUrl.trim();
   if (!srfNumber || !trackingUrl) throw new Error("SRF number and tracking URL are required.");
 
-  const templateName = process.env.QIKCHAT_APPROVAL_TEMPLATE_NAME?.trim() || "site_visit_approval";
+  const templateName = cfg.approvalTemplateName;
   const language = cfg.templateLanguage?.trim() || "en";
 
   const payload = {

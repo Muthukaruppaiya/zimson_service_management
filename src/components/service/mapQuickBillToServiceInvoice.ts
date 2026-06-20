@@ -42,6 +42,9 @@ export type ServiceInvoiceMappingOptions = {
   customerGstin?: string | null;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
   spareGstLookup?: (spareId: string) => number | null | undefined;
+  edocIrn?: string | null;
+  edocAckNo?: string | null;
+  edocQr?: string | null;
 };
 
 function resolvedHsnSac(options?: ServiceInvoiceMappingOptions): string {
@@ -712,5 +715,8 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
     invoiceLegalFooter: sellerPack.legalFooter,
+    irn: options?.edocIrn?.trim() || null,
+    ackNo: options?.edocAckNo?.trim() || null,
+    einvoiceQr: options?.edocQr?.trim() || null,
   };
 }

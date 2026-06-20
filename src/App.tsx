@@ -13,6 +13,8 @@ import { SparesProvider } from "./context/SparesContext";
 import { SrfJobsProvider } from "./context/SrfJobsContext";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AccountsSetupPage } from "./pages/accounts/AccountsSetupPage";
+import { InvoiceHistoryPage } from "./pages/accounts/InvoiceHistoryPage";
+import { LedgerPage } from "./pages/accounts/LedgerPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
@@ -39,6 +41,7 @@ import { ScLogisticsHistoryPage } from "./pages/serviceCentre/ScLogisticsHistory
 import { ScLogisticsPage } from "./pages/serviceCentre/ScLogisticsPage";
 import { ScOnlineStorePage } from "./pages/serviceCentre/ScOnlineStorePage";
 import { ScSupervisorPage } from "./pages/serviceCentre/ScSupervisorPage";
+import { ScSrfHistoryPage } from "./pages/serviceCentre/ScSrfHistoryPage";
 import { ServiceCentreHomePage } from "./pages/serviceCentre/ServiceCentreHomePage";
 import { TechnicianWorkbenchPage } from "./pages/serviceCentre/TechnicianWorkbenchPage";
 import { TechnicianMasterPage } from "./pages/serviceCentre/TechnicianMasterPage";
@@ -100,6 +103,22 @@ export default function App() {
                   element={
                     <ModuleRoute module="dashboard">
                       <DashboardPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/accounts/invoice-history"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <InvoiceHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/accounts/ledger"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <LedgerPage />
                     </ModuleRoute>
                   }
                 />
@@ -332,6 +351,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service_centre">
                       <ServiceBillingPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service-centre/srf-history"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <ScSrfHistoryPage />
                     </ModuleRoute>
                   }
                 />

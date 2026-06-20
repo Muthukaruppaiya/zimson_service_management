@@ -56,6 +56,13 @@ function bodyToDb(body: Record<string, unknown>): MessagingSettingsDb {
     qikchatApiBaseUrl: String(body.qikchatApiBaseUrl ?? "").trim().slice(0, 500) || undefined,
     qikchatTemplateName: String(body.qikchatTemplateName ?? "").trim().slice(0, 120) || undefined,
     qikchatTemplateLanguage: String(body.qikchatTemplateLanguage ?? "").trim().slice(0, 16) || undefined,
+    qikchatTrackingTemplateName: String(body.qikchatTrackingTemplateName ?? "").trim().slice(0, 120) || undefined,
+    qikchatTrackingTextTemplateName:
+      String(body.qikchatTrackingTextTemplateName ?? "").trim().slice(0, 120) || undefined,
+    qikchatApprovalTemplateName: String(body.qikchatApprovalTemplateName ?? "").trim().slice(0, 120) || undefined,
+    qikchatTrackingTemplateBody: String(body.qikchatTrackingTemplateBody ?? "").trim().slice(0, 2000) || undefined,
+    qikchatApprovalTemplateBody: String(body.qikchatApprovalTemplateBody ?? "").trim().slice(0, 2000) || undefined,
+    qikchatInvoiceTemplateBody: String(body.qikchatInvoiceTemplateBody ?? "").trim().slice(0, 2000) || undefined,
     whatsappInvoiceMode,
     messagingPublicBaseUrl: String(body.messagingPublicBaseUrl ?? "").trim().slice(0, 500) || undefined,
     whatsappInvoiceDryRun: parseBool(body.whatsappInvoiceDryRun),
