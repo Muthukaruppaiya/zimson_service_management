@@ -84,6 +84,9 @@ export function buildInvoiceVmFromHistoryRecord(
       storeBillingSnapshot: snapshot,
       collectionAmountInr: record.totalInr,
       invoiceNumberOverride: record.invoiceNumber,
+      edocIrn: record.edocIrn,
+      edocAckNo: record.edocAckNo,
+      edocQr: record.edocQr,
     });
   }
 

@@ -9,6 +9,7 @@ import {
 import {
   edocEnabled,
   tryGenerateEinvoiceForInterHoInvoice,
+  tryGenerateEinvoiceForSrfClose,
 } from "./mastersIndiaEdoc";
 
 type Authed = Request & { userId: string };
@@ -44,6 +45,13 @@ const INVOICE_SRF_JOIN = `
 const INVOICE_SRF_SELECT = `
   si.*,
   sj.reference AS job_srf_reference,
+  sj.edoc_irn AS sj_edoc_irn,
+  sj.edoc_ack_no AS sj_edoc_ack_no,
+  sj.edoc_ack_date AS sj_edoc_ack_date,
+  sj.edoc_status AS sj_edoc_status,
+  sj.edoc_error AS sj_edoc_error,
+  sj.edoc_qr AS sj_edoc_qr,
+  sj.edoc_generated_at AS sj_edoc_generated_at,
   COALESCE(
     NULLIF(TRIM(sj.transfer_source_reference), ''),
     NULLIF(TRIM(sj.reference), ''),
@@ -51,10 +59,19 @@ const INVOICE_SRF_SELECT = `
   ) AS root_srf_reference
 `;
 
+function resolveInvoiceEdoc(row: Record<string, unknown>, field: string): string | null {
+  const sourceType = String(row.source_type ?? "");
+  const fromSi = row[`edoc_${field}`] != null ? String(row[`edoc_${field}`]).trim() : "";
+  const fromSj = row[`sj_edoc_${field}`] != null ? String(row[`sj_edoc_${field}`]).trim() : "";
+  const value = sourceType === "srf_store" ? fromSj || fromSi : fromSi || fromSj;
+  return value || null;
+}
+
 function mapInvoiceRow(row: Record<string, unknown>) {
   const jobSrf = row.job_srf_reference != null ? String(row.job_srf_reference).trim() : "";
   const rootSrf = row.root_srf_reference != null ? String(row.root_srf_reference).trim() : "";
   const storedSrf = row.srf_reference != null ? String(row.srf_reference).trim() : "";
+  const edocStatus = resolveInvoiceEdoc(row, "status");
   return {
     id: String(row.id),
     invoiceNumber: String(row.invoice_number),
@@ -75,13 +92,16 @@ function mapInvoiceRow(row: Record<string, unknown>) {
     paymentStatus: String(row.payment_status),
     taxJson: row.tax_json,
     snapshotJson: row.snapshot_json,
-    edocIrn: row.edoc_irn != null ? String(row.edoc_irn) : null,
-    edocAckNo: row.edoc_ack_no != null ? String(row.edoc_ack_no) : null,
-    edocAckDate: row.edoc_ack_date != null ? String(row.edoc_ack_date) : null,
-    edocStatus: row.edoc_status != null ? String(row.edoc_status) : null,
-    edocError: row.edoc_error != null ? String(row.edoc_error) : null,
-    edocQr: row.edoc_qr != null ? String(row.edoc_qr) : null,
-    edocGeneratedAt: row.edoc_generated_at ?? null,
+    edocIrn: resolveInvoiceEdoc(row, "irn"),
+    edocAckNo: resolveInvoiceEdoc(row, "ack_no"),
+    edocAckDate: resolveInvoiceEdoc(row, "ack_date"),
+    edocStatus,
+    edocError: resolveInvoiceEdoc(row, "error"),
+    edocQr: resolveInvoiceEdoc(row, "qr"),
+    edocGeneratedAt:
+      String(row.source_type ?? "") === "srf_store"
+        ? row.sj_edoc_generated_at ?? null
+        : row.edoc_generated_at ?? row.sj_edoc_generated_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -238,23 +258,39 @@ export function registerServiceInvoiceRoutes(
       }
       const invRow = await client.query<{
         source_type: string;
+        source_id: string | null;
         edoc_irn: string | null;
         edoc_status: string | null;
+        sj_edoc_irn: string | null;
+        sj_edoc_status: string | null;
       }>(
-        `SELECT source_type, edoc_irn, edoc_status FROM service_invoices WHERE id = $1::uuid`,
+        `SELECT si.source_type, si.source_id, si.edoc_irn, si.edoc_status,
+                sj.edoc_irn AS sj_edoc_irn, sj.edoc_status AS sj_edoc_status
+         FROM service_invoices si
+         LEFT JOIN srf_jobs sj ON sj.id::text = si.source_id
+           AND si.source_type IN ('srf_store', 'inter_ho_repair')
+         WHERE si.id = $1::uuid`,
         [invoiceId],
       );
       const invMeta = invRow.rows[0];
+      const resolvedIrn =
+        invMeta?.source_type === "srf_store"
+          ? String(invMeta.sj_edoc_irn ?? "").trim()
+          : String(invMeta?.edoc_irn ?? invMeta?.sj_edoc_irn ?? "").trim();
+      const resolvedStatus =
+        invMeta?.source_type === "srf_store"
+          ? invMeta.sj_edoc_status
+          : invMeta?.edoc_status ?? invMeta?.sj_edoc_status;
       if (
-        invMeta?.source_type === "inter_ho_repair" &&
+        (invMeta?.source_type === "inter_ho_repair" || invMeta?.source_type === "srf_store") &&
         edocEnabled() &&
-        !String(invMeta.edoc_irn ?? "").trim() &&
-        invMeta.edoc_status !== "SKIPPED"
+        !resolvedIrn &&
+        resolvedStatus !== "SKIPPED"
       ) {
         await client.query("ROLLBACK");
         res.status(400).json({
           error:
-            "GST e-invoice (IRN) is mandatory for inter-HO repair invoices. Generate e-invoice before recording payment.",
+            "GST e-invoice (IRN) is mandatory before recording payment. Generate e-invoice first.",
         });
         return;
       }
@@ -348,7 +384,7 @@ export function registerServiceInvoiceRoutes(
     const scope = invoiceScopeSql(actor, "si", 2);
     try {
       const check = await pool.query(
-        `SELECT si.id, si.source_type FROM service_invoices si WHERE si.id = $1::uuid AND ${scope.sql}`,
+        `SELECT si.id, si.source_type, si.source_id FROM service_invoices si WHERE si.id = $1::uuid AND ${scope.sql}`,
         [invoiceId, ...scope.params],
       );
       if (check.rowCount === 0) {
@@ -356,11 +392,17 @@ export function registerServiceInvoiceRoutes(
         return;
       }
       const sourceType = String(check.rows[0]?.source_type ?? "");
-      if (sourceType !== "inter_ho_repair") {
-        res.status(400).json({ error: "E-invoice generation applies to inter-HO repair invoices only." });
+      const sourceId = check.rows[0]?.source_id != null ? String(check.rows[0].source_id) : "";
+      if (sourceType !== "inter_ho_repair" && sourceType !== "srf_store") {
+        res.status(400).json({ error: "E-invoice generation applies to SRF store and inter-HO repair invoices only." });
         return;
       }
-      const edoc = await tryGenerateEinvoiceForInterHoInvoice(pool, invoiceId);
+      const edoc =
+        sourceType === "inter_ho_repair"
+          ? await tryGenerateEinvoiceForInterHoInvoice(pool, invoiceId)
+          : sourceId
+            ? await tryGenerateEinvoiceForSrfClose(pool, sourceId)
+            : { ok: false, skipped: true, skipReason: "Linked SRF not found" };
       const inv = await pool.query(
         `SELECT ${INVOICE_SRF_SELECT}
          FROM service_invoices si

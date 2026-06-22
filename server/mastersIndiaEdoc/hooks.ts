@@ -25,6 +25,12 @@ import {
 } from "./config";
 import { defaultPincodeForState, gstinStateCode, parsePincode, stateNameFromCode } from "./gstState";
 import { loadSpareGstById } from "../hsnGstRates";
+import {
+  isPlausibleGoodsHsn,
+  isServiceSacCode,
+  resolveEdocHsnSac,
+  defaultUqcForEdocLine,
+} from "./hsnSac";
 import { saveDeliveryChallanEdoc, saveQuickBillEdoc, saveServiceInvoiceEdoc, saveSrfEdoc } from "./persist";
 import type { EdocLine, EdocParty, EdocResult, EdocValueTotals } from "./types";
 
@@ -92,14 +98,18 @@ function totalsFromGstResult(
 function linesFromGstResult(
   gstResult: ReturnType<typeof computeServiceBillGst>,
   descriptions: string[],
+  lineFlags?: { isService?: boolean }[],
 ): EdocLine[] {
   return gstResult.lines.map((ln, i) => {
     const tax = round2(ln.tax);
     const interstate = gstResult.isInterstate;
+    const isService = lineFlags?.[i]?.isService ?? isServiceSacCode(ln.hsnSac);
     return {
       slNo: i + 1,
       description: descriptions[i] ?? `Line ${i + 1}`,
       hsnSac: ln.hsnSac,
+      isService,
+      uqc: defaultUqcForEdocLine(isService),
       qty: 1,
       unitPrice: ln.taxable,
       taxable: ln.taxable,
@@ -114,6 +124,58 @@ function linesFromGstResult(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+type SnapshotBillLine = {
+  description: string;
+  amountInr: number;
+  hsnSac?: string | null;
+  spareId?: string | null;
+};
+
+function isLabourSnapshotLine(line: SnapshotBillLine): boolean {
+  if (String(line.spareId ?? "").trim()) return false;
+  return /labour|service\s*\/\s*repair|service charge/i.test(line.description);
+}
+
+async function resolveStoreBillingEdocLines(
+  pool: Pool,
+  billLines: SnapshotBillLine[],
+  defaultSacHsn: string,
+): Promise<Array<SnapshotBillLine & { hsnSac: string; isService: boolean }>> {
+  const spareIds = [
+    ...new Set(billLines.map((l) => String(l.spareId ?? "").trim()).filter(Boolean)),
+  ];
+  const hsnBySpareId = new Map<string, string>();
+  if (spareIds.length > 0) {
+    const spareMeta = await pool.query<{ id: string; hsn: string | null }>(
+      `SELECT id::text, hsn FROM spares WHERE id = ANY($1::uuid[])`,
+      [spareIds],
+    );
+    for (const row of spareMeta.rows) {
+      if (row.hsn?.trim()) hsnBySpareId.set(row.id, row.hsn.trim());
+    }
+  }
+
+  return billLines.map((line) => {
+    const spareId = String(line.spareId ?? "").trim() || null;
+    const labour = isLabourSnapshotLine(line);
+    const catalogueHsn = spareId ? hsnBySpareId.get(spareId) : undefined;
+    const snapshotHsn = String(line.hsnSac ?? "").trim();
+    let rawHsn = defaultSacHsn;
+    if (!labour) {
+      const candidates = [catalogueHsn, snapshotHsn].filter(Boolean) as string[];
+      rawHsn = candidates.find((c) => isPlausibleGoodsHsn(c.replace(/\D/g, ""))) ?? "";
+      if (!rawHsn) rawHsn = candidates[0] ?? defaultSacHsn;
+    }
+    const resolved = resolveEdocHsnSac(rawHsn, { labourLine: labour, defaultSacHsn });
+    return {
+      ...line,
+      spareId,
+      hsnSac: resolved.code,
+      isService: resolved.isService,
+    };
+  });
 }
 
 export async function tryGenerateEinvoiceForQuickBill(
@@ -205,11 +267,40 @@ export async function tryGenerateEinvoiceForQuickBill(
     0,
   );
 
-  const gstResult = computeServiceBillGst({
-    lines: lineRows.map((ln) => ({
+  const spareIds = [...new Set(lineRows.map((l) => String(l.spare_id ?? "").trim()).filter(Boolean))];
+  const hsnBySpareId = new Map<string, string>();
+  if (spareIds.length > 0) {
+    const spareMeta = await pool.query<{ id: string; hsn: string | null }>(
+      `SELECT id::text, hsn FROM spares WHERE id = ANY($1::uuid[])`,
+      [spareIds],
+    );
+    for (const row of spareMeta.rows) {
+      if (row.hsn?.trim()) hsnBySpareId.set(row.id, row.hsn.trim());
+    }
+  }
+  const spareGstMap = await loadSpareGstById(pool);
+
+  const resolvedQbLines = lineRows.map((ln) => {
+    const spareId = String(ln.spare_id ?? "").trim() || null;
+    const catalogueHsn = spareId ? hsnBySpareId.get(spareId) : undefined;
+    const resolved = resolveEdocHsnSac(catalogueHsn ?? defaultSacHsn, {
+      labourLine: !spareId,
+      defaultSacHsn,
+    });
+    return {
+      description: ln.description,
       amountInr: billableLineAmount(natureOfRepair, Number(ln.amount_inr), ln.spare_id),
-      spareId: ln.spare_id,
-      hsnSac: defaultSacHsn,
+      spareId,
+      hsnSac: resolved.code,
+      isService: resolved.isService,
+    };
+  });
+
+  const gstResult = computeServiceBillGst({
+    lines: resolvedQbLines.map((l) => ({
+      amountInr: l.amountInr,
+      spareId: l.spareId,
+      hsnSac: l.hsnSac,
     })),
     defaultHsnSac: defaultSacHsn,
     configuredGstPercent: configuredGst,
@@ -221,11 +312,19 @@ export async function tryGenerateEinvoiceForQuickBill(
     sellerStateCode,
     customerStateCode,
     billTotalInr: subtotalInr,
+    spareGstLookup: (spareId) => (spareId ? spareGstMap.get(spareId) ?? null : null),
   });
 
   const netPayable = customerPayableInr(subtotalInr, gstResult.totalTax, pricesTaxInclusive);
   const totals = totalsFromGstResult(gstResult, netPayable);
-  const descriptions = lineRows.map((l) => l.description);
+  const flagsByHsn = new Map(resolvedQbLines.map((r) => [r.hsnSac, r.isService]));
+  const descriptions = gstResult.lines.map((ln, i) => {
+    const parts = resolvedQbLines.filter((r) => r.hsnSac === ln.hsnSac).map((r) => r.description);
+    return parts.length ? parts.join("; ").slice(0, 300) : `Line ${i + 1}`;
+  });
+  const lineFlags = gstResult.lines.map((ln) => ({
+    isService: flagsByHsn.get(ln.hsnSac) ?? isServiceSacCode(ln.hsnSac),
+  }));
 
   const st = await pool.query<{
     invoice_legal_entity_name: string | null;
@@ -269,7 +368,7 @@ export async function tryGenerateEinvoiceForQuickBill(
     documentDate: new Date(bill.created_at),
     seller,
     buyer,
-    lines: linesFromGstResult(gstResult, descriptions),
+    lines: linesFromGstResult(gstResult, descriptions, lineFlags),
     totals,
     placeOfSupplyStateCode: customerStateCode,
   });
@@ -336,9 +435,9 @@ export async function tryGenerateEinvoiceForSrfClose(
     return r;
   }
 
-  const snapshot = job.store_billing_snapshot as { billLines?: { description: string; amountInr: number; hsnSac?: string }[] } | null;
-  const billLines = Array.isArray(snapshot?.billLines) ? snapshot!.billLines! : [];
-  if (billLines.length === 0) {
+  const snapshot = job.store_billing_snapshot as { billLines?: SnapshotBillLine[] } | null;
+  const rawBillLines = Array.isArray(snapshot?.billLines) ? snapshot!.billLines! : [];
+  if (rawBillLines.length === 0) {
     const r = skip("No billing lines on SRF for e-invoice");
     await saveSrfEdoc(pool, srfId, r);
     return r;
@@ -346,6 +445,9 @@ export async function tryGenerateEinvoiceForSrfClose(
 
   const billingStoreId = String(job.destination_store_id ?? job.store_id ?? "").trim();
   const taxRow = await loadTaxSettings(pool);
+  const defaultSacHsn = String(taxRow?.default_sac_hsn ?? "9987").trim() || "9987";
+  const billLines = await resolveStoreBillingEdocLines(pool, rawBillLines, defaultSacHsn);
+  const spareGstMap = await loadSpareGstById(pool);
   const st = await pool.query<{ invoice_gstin: string | null; invoice_legal_entity_name: string | null; invoice_display_name: string | null; invoice_address: string | null; invoice_phone: string | null; invoice_email: string | null; name: string }>(
     `SELECT invoice_gstin, invoice_legal_entity_name, invoice_display_name, invoice_address, invoice_phone, invoice_email, name
      FROM stores WHERE id = $1::text`,
@@ -354,7 +456,6 @@ export async function tryGenerateEinvoiceForSrfClose(
   const store = st.rows[0];
   const storeGstin = String(store?.invoice_gstin ?? "").trim();
   const sellerGstin = resolveEdocSellerGstin(storeGstin, taxRow?.invoice_store_gstin, cfg);
-  const defaultSacHsn = String(taxRow?.default_sac_hsn ?? "9987").trim() || "9987";
   const configuredGst = Number(taxRow?.gst_rate_percent ?? 18);
   const pricesTaxInclusive = Boolean(taxRow?.prices_tax_inclusive);
   const natureOfRepair = job.nature_of_repair ?? "";
@@ -377,7 +478,8 @@ export async function tryGenerateEinvoiceForSrfClose(
   const gstResult = computeServiceBillGst({
     lines: billLines.map((l) => ({
       amountInr: Number(l.amountInr),
-      hsnSac: l.hsnSac ?? defaultSacHsn,
+      spareId: l.spareId,
+      hsnSac: l.hsnSac,
     })),
     defaultHsnSac: defaultSacHsn,
     configuredGstPercent: configuredGst,
@@ -389,9 +491,18 @@ export async function tryGenerateEinvoiceForSrfClose(
     sellerStateCode,
     customerStateCode,
     billTotalInr: subtotalInr,
+    spareGstLookup: (spareId) => (spareId ? spareGstMap.get(spareId) ?? null : null),
   });
   const netPayable = customerPayableInr(subtotalInr, gstResult.totalTax, pricesTaxInclusive);
   const totals = totalsFromGstResult(gstResult, netPayable);
+  const flagsByHsn = new Map(billLines.map((r) => [r.hsnSac, r.isService]));
+  const descriptions = gstResult.lines.map((ln, i) => {
+    const parts = billLines.filter((r) => r.hsnSac === ln.hsnSac).map((r) => r.description);
+    return parts.length ? parts.join("; ").slice(0, 300) : `Line ${i + 1}`;
+  });
+  const lineFlags = gstResult.lines.map((ln) => ({
+    isService: flagsByHsn.get(ln.hsnSac) ?? isServiceSacCode(ln.hsnSac),
+  }));
 
   const seller = buildPartyFromBillFields({
     gstin: sellerGstin,
@@ -422,7 +533,8 @@ export async function tryGenerateEinvoiceForSrfClose(
     buyer,
     lines: linesFromGstResult(
       gstResult,
-      billLines.map((l) => l.description),
+      descriptions,
+      lineFlags,
     ),
     totals,
     placeOfSupplyStateCode: customerStateCode,
@@ -588,15 +700,27 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
   const sellerStateCode = resolveSellerStateCode(sellerGstin);
   const buyerStateCode = gstinStateCode(buyerGst);
 
-  const billLines = usedSpares.map((l) => ({
-    amountInr: round2(l.qty * l.unitPriceInr),
-    spareId: l.spareId,
-    hsnSac: l.hsnSac || (l.spareId ? hsnBySpareId.get(l.spareId) : undefined) || defaultSacHsn,
-  }));
+  const billLines = usedSpares.map((l) => {
+    const catalogueHsn = l.spareId ? hsnBySpareId.get(l.spareId) : undefined;
+    const candidates = [catalogueHsn, l.hsnSac].filter(Boolean) as string[];
+    const rawHsn = candidates.find((c) => isPlausibleGoodsHsn(c.replace(/\D/g, ""))) ?? candidates[0] ?? defaultSacHsn;
+    const resolved = resolveEdocHsnSac(rawHsn, { labourLine: false, defaultSacHsn });
+    return {
+      amountInr: round2(l.qty * l.unitPriceInr),
+      spareId: l.spareId,
+      hsnSac: resolved.code,
+      isService: resolved.isService,
+      description: l.name,
+    };
+  });
   const subtotalInr = billLines.reduce((s, l) => s + l.amountInr, 0);
 
   const gstResult = computeServiceBillGst({
-    lines: billLines,
+    lines: billLines.map((l) => ({
+      amountInr: l.amountInr,
+      spareId: l.spareId,
+      hsnSac: l.hsnSac,
+    })),
     defaultHsnSac: defaultSacHsn,
     configuredGstPercent: configuredGst,
     cgstRatePercent: Number(taxRow?.cgst_rate_percent ?? configuredGst / 2),
@@ -612,7 +736,14 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
 
   const netPayable = gstResult.netPayable;
   const totals = totalsFromGstResult(gstResult, netPayable);
-  const descriptions = usedSpares.map((l) => l.name);
+  const flagsByHsn = new Map(billLines.map((r) => [r.hsnSac, r.isService]));
+  const descriptions = gstResult.lines.map((ln, i) => {
+    const parts = billLines.filter((r) => r.hsnSac === ln.hsnSac).map((r) => r.description);
+    return parts.length ? parts.join("; ").slice(0, 300) : `Line ${i + 1}`;
+  });
+  const lineFlags = gstResult.lines.map((ln) => ({
+    isService: flagsByHsn.get(ln.hsnSac) ?? false,
+  }));
 
   const seller = buildPartyFromBillFields({
     gstin: sellerGstin,
@@ -636,7 +767,7 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
     documentDate: new Date(inv.invoice_date),
     seller,
     buyer,
-    lines: linesFromGstResult(gstResult, descriptions),
+    lines: linesFromGstResult(gstResult, descriptions, lineFlags),
     totals,
     placeOfSupplyStateCode: buyerStateCode,
   });

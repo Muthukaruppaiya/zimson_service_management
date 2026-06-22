@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CustomerHandoverOtpModal,
   type HandoverOtpMode,
@@ -21,6 +21,10 @@ import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import { useMessagingSend } from "../../components/messaging/WhatsAppSendProvider";
 import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
+import {
+  autoInvoiceWhatsAppDedupKey,
+  shouldAutoSendInvoiceWhatsApp,
+} from "../../lib/invoiceWhatsAppAuto";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { computeServiceBillGst } from "../../lib/serviceBillGst";
@@ -54,6 +58,7 @@ import {
 } from "../../lib/storeBillingAmounts";
 import { captureInvoicePdfFromViewModel } from "../../lib/renderInvoiceForPdf";
 import type { CustomerRecord } from "../../types/customer";
+import type { QuickBillEdocInfo } from "../../types/quickBill";
 import {
   ADVANCE_CASH_DENOMS,
   buildMultiPaymentPayload,
@@ -116,6 +121,10 @@ export function StoreBillingPage() {
   const [handoverModalOpen, setHandoverModalOpen] = useState(false);
   const [handoverModalMode, setHandoverModalMode] = useState<HandoverOtpMode>("primary");
   const [closingAfterOtp, setClosingAfterOtp] = useState(false);
+  const [billingEdoc, setBillingEdoc] = useState<QuickBillEdocInfo | null>(null);
+  const [closedSrfId, setClosedSrfId] = useState<string | null>(null);
+  const [edocEnabled, setEdocEnabled] = useState(false);
+  const [edocBusy, setEdocBusy] = useState(false);
   const [additionalChargeLines, setAdditionalChargeLines] = useState<AdditionalChargeLine[]>([
     { id: `${Date.now()}-charge`, lineType: "charge", description: "", spareId: "", qty: "1", amount: "" },
   ]);
@@ -123,6 +132,7 @@ export function StoreBillingPage() {
   const [serviceChargeInr, setServiceChargeInr] = useState("");
   const [billingStateInput, setBillingStateInput] = useState("");
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
+  const autoWhatsAppSentRef = useRef<string | null>(null);
 
   const currentUserStore = useMemo(() => {
     const sid = user?.storeId ?? "";
@@ -155,6 +165,20 @@ export function StoreBillingPage() {
     };
   }, [user]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void apiJson<{ enabled?: boolean }>("/api/edoc/status")
+      .then((d) => {
+        if (!cancelled) setEdocEnabled(Boolean(d.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setEdocEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const receivedAtStore = useMemo(() => {
     if (!user) return [];
     return jobs.filter((j) => j.status === "received_at_store" && jobVisibleToStoreUser(j, user));
@@ -178,7 +202,8 @@ export function StoreBillingPage() {
     return customers.find((c) => phoneLast10(c.phone) === p10) ?? null;
   }, [billingJob?.phone, customers]);
   const billingCustomerEmail = billingCustomer?.email?.trim() ?? "";
-  const billingCustomerKind = billingCustomer?.customerKind ?? "B2C";
+  const billingCustomerKind = billingCustomer?.customerKind ?? billingJob?.customerKind ?? "B2C";
+  const isB2BBilling = billingCustomerKind === "B2B";
   const billingCustomerGst = billingCustomer?.gst?.trim().toUpperCase() ?? "";
   const billingCustomerState =
     billingCustomer?.billingAddress?.state?.trim() ||
@@ -507,10 +532,17 @@ export function StoreBillingPage() {
       });
       const closeOut = await closeJob(jobId, snapshot);
       const cust = customers.find((c) => phoneLast10(c.phone) === phoneLast10(job.phone));
+      setBillingEdoc(closeOut.edoc ?? null);
+      setClosedSrfId(jobId);
       const closedJob = {
         ...job,
         invoiceNumber: closeOut.invoiceNumber ?? job.invoiceNumber ?? null,
         storeBillingSnapshot: snapshot,
+        edocIrn: closeOut.edoc?.irn ?? null,
+        edocAckNo: closeOut.edoc?.ackNo ?? null,
+        edocQr: closeOut.edoc?.qrUrl ?? null,
+        edocStatus: closeOut.edoc?.ok ? "SUCCESS" : closeOut.edoc?.skipped ? "SKIPPED" : closeOut.edoc ? "FAILED" : null,
+        edocError: closeOut.edoc?.error ?? closeOut.edoc?.skipReason ?? null,
       };
       setBillingInvoiceVm(
         buildStoreBillingInvoiceFromClosedJob(closedJob, {
@@ -525,6 +557,9 @@ export function StoreBillingPage() {
           spareHsnLookup,
           spareGstLookup,
           generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
+          edocIrn: closeOut.edoc?.irn,
+          edocAckNo: closeOut.edoc?.ackNo,
+          edocQr: closeOut.edoc?.qrUrl,
         }),
       );
       setBillPostActionNote(null);
@@ -550,6 +585,40 @@ export function StoreBillingPage() {
       setMessage({ type: "err", text: errText });
     } finally {
       setClosingAfterOtp(false);
+    }
+  }
+
+  async function retryStoreBillingEdoc() {
+    if (!closedSrfId) return;
+    setEdocBusy(true);
+    setBillPostActionNote(null);
+    try {
+      const out = await apiJson<{ edoc: QuickBillEdocInfo }>(
+        `/api/edoc/srf-jobs/${encodeURIComponent(closedSrfId)}/generate-einvoice`,
+        { method: "POST" },
+      );
+      setBillingEdoc(out.edoc);
+      setBillingInvoiceVm((prev) =>
+        prev
+          ? {
+              ...prev,
+              irn: out.edoc?.irn?.trim() || null,
+              ackNo: out.edoc?.ackNo?.trim() || null,
+              einvoiceQr: out.edoc?.qrUrl?.trim() || null,
+            }
+          : prev,
+      );
+      if (out.edoc?.ok) {
+        setBillPostActionNote(`GST e-invoice registered. IRN: ${out.edoc.irn ?? "—"}`);
+      } else if (out.edoc?.skipped) {
+        setBillPostActionNote(`E-invoice skipped: ${out.edoc.skipReason ?? "Not applicable."}`);
+      } else {
+        setBillPostActionNote(`E-invoice failed: ${out.edoc?.error ?? out.edoc?.skipReason ?? "IRP error."}`);
+      }
+    } catch (e) {
+      setBillPostActionNote(e instanceof Error ? e.message : "Could not generate e-invoice.");
+    } finally {
+      setEdocBusy(false);
     }
   }
 
@@ -621,6 +690,20 @@ export function StoreBillingPage() {
       }
     });
   }, [billingInvoiceVm, billingCustomerEmail, resolveBillingInvoicePdfBlob, runEmailSend]);
+
+  useEffect(() => {
+    if (!billSuccessModalOpen || !billingInvoiceVm) return;
+    const dedupKey = autoInvoiceWhatsAppDedupKey(billingInvoiceVm.invoiceNumber, billingEdoc);
+    if (autoWhatsAppSentRef.current === dedupKey) return;
+    if (!shouldAutoSendInvoiceWhatsApp(billingEdoc, billingInvoiceVm.billTo.phone)) return;
+    autoWhatsAppSentRef.current = dedupKey;
+    void handleSendBillingInvoiceWhatsApp();
+  }, [
+    billSuccessModalOpen,
+    billingInvoiceVm,
+    billingEdoc,
+    handleSendBillingInvoiceWhatsApp,
+  ]);
 
   if (!user) return null;
 
@@ -1176,6 +1259,12 @@ export function StoreBillingPage() {
               After OTP is verified (primary mobile/email or other number/email), the tax invoice is generated
               automatically — same as Quick Bill.
             </p>
+            {edocEnabled && isB2BBilling ? (
+              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+                <strong>B2B — GST e-invoice mandatory.</strong> IRN will be registered automatically when the invoice
+                is generated{ billingCustomerGst ? ` (buyer GSTIN ${billingCustomerGst})` : " — ensure customer GSTIN is on file" }.
+              </div>
+            ) : null}
               </>
             ) : null}
             {isRejectedNoRepairFlow ? (
@@ -1281,13 +1370,26 @@ export function StoreBillingPage() {
               <button type="button" className={billSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
                 Close
               </button>
+              {edocEnabled && billingInvoiceVm?.billTo?.gstin?.trim() && billingEdoc && !billingEdoc.ok && !billingEdoc.skipped ? (
+                <button
+                  type="button"
+                  className={billSuccessBtnSecondary}
+                  disabled={edocBusy}
+                  onClick={() => void retryStoreBillingEdoc()}
+                >
+                  {edocBusy ? "Generating IRN…" : "Retry e-invoice"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={billSuccessBtnSecondary}
                 onClick={() => {
+                  autoWhatsAppSentRef.current = null;
                   setBillingInvoiceVm(null);
                   setBillSuccessModalOpen(false);
                   setBillPostActionNote(null);
+                  setBillingEdoc(null);
+                  setClosedSrfId(null);
                   setScreenMode("select");
                 }}
               >
@@ -1296,14 +1398,43 @@ export function StoreBillingPage() {
             </>
           }
         >
+          {billingEdoc && billingInvoiceVm?.billTo?.gstin?.trim() ? (
+            <div
+              className={`mb-3 rounded-lg border px-3 py-2 text-xs ${
+                billingEdoc.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : billingEdoc.skipped
+                    ? "border-stone-200 bg-stone-50 text-stone-800"
+                    : "border-amber-200 bg-amber-50 text-amber-950"
+              }`}
+            >
+              {billingEdoc.ok ? (
+                <p>
+                  <strong>GST e-invoice registered.</strong> IRN:{" "}
+                  <span className="font-mono break-all">{billingEdoc.irn}</span>
+                  {billingEdoc.ackNo ? <> · Ack: {billingEdoc.ackNo}</> : null}
+                </p>
+              ) : billingEdoc.skipped ? (
+                <p>
+                  <strong>E-invoice skipped:</strong> {billingEdoc.skipReason ?? "Not applicable."}
+                </p>
+              ) : (
+                <p>
+                  <strong>E-invoice not generated:</strong>{" "}
+                  {billingEdoc.error ?? billingEdoc.skipReason ?? "IRP error."} Invoice is saved — retry below or from
+                  Invoice history.
+                </p>
+              )}
+            </div>
+          ) : null}
           {billPostActionNote ? (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
               {billPostActionNote}
             </p>
           ) : (
             <p className="text-sm text-stone-700">
-              Use <strong>Print invoice</strong>, <strong>Send invoice by email</strong> (PDF attachment), or{" "}
-              <strong>Send invoice on WhatsApp</strong> when configured.
+              The invoice is sent on WhatsApp automatically when e-invoice is registered (or for B2C). You can also use{" "}
+              <strong>Print invoice</strong>, <strong>Send invoice by email</strong>, or resend on WhatsApp below.
             </p>
           )}
         </ProcessSuccessModal>

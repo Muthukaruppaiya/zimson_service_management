@@ -41,6 +41,10 @@ export type EdocLine = {
   total: number;
   /** Notified GST % for the line (avoids IRP rate mismatch from rounding). */
   gstRatePercent?: number;
+  /** IRP item flag — goods (N) vs SAC service (Y). */
+  isService?: boolean;
+  /** GST unit quantity code (NOS, OTH, KGS, …). */
+  uqc?: string;
 };
 
 export type EdocValueTotals = {

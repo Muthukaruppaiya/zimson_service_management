@@ -1046,6 +1046,7 @@ export function StoreAssignPage() {
           </p>
           <p className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-sm font-medium text-emerald-900">
             Used spares are saved. Raise the tax invoice on the store billing screen when the customer collects the watch.
+            B2B jobs will receive a mandatory GST e-invoice (IRN) at billing close when e-doc is enabled.
           </p>
         </ProcessSuccessModal>
       ) : null}

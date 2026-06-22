@@ -202,7 +202,11 @@ type SrfJobsContextValue = {
       noBillingHandover?: boolean;
       storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
     },
-  ) => Promise<{ ok: boolean; invoiceNumber?: string | null }>;
+  ) => Promise<{
+    ok: boolean;
+    invoiceNumber?: string | null;
+    edoc?: import("../types/quickBill").QuickBillEdocInfo | null;
+  }>;
   getStatusHistory: (srfId: string) => Promise<Array<{ id: string; status: string; note: string; changedBy: string | null; changedAt: string }>>;
   getSrfTrace: (srfId: string) => Promise<SrfTrace>;
   cancelDraftSrf: (srfId: string, reason: string) => Promise<void>;
@@ -632,7 +636,11 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
     },
   ) => {
-    const out = await apiJson<{ ok: boolean; invoiceNumber?: string | null }>(
+    const out = await apiJson<{
+      ok: boolean;
+      invoiceNumber?: string | null;
+      edoc?: import("../types/quickBill").QuickBillEdocInfo | null;
+    }>(
       `/api/service/srf-jobs/${encodeURIComponent(srfId)}/close`,
       { method: "POST", json: payload ?? {} },
     );

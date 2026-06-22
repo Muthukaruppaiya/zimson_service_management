@@ -49,9 +49,9 @@ function interHoEdocLabel(record: ServiceInvoiceRecord): string {
   return "Pending IRN";
 }
 
-function interHoNeedsEdoc(record: ServiceInvoiceRecord, edocEnabled: boolean): boolean {
+function invoiceNeedsEdoc(record: ServiceInvoiceRecord, edocEnabled: boolean): boolean {
   return (
-    record.sourceType === "inter_ho_repair" &&
+    (record.sourceType === "inter_ho_repair" || record.sourceType === "srf_store") &&
     edocEnabled &&
     !record.edocIrn?.trim() &&
     record.edocStatus !== "SKIPPED"
@@ -419,7 +419,7 @@ export function InvoiceHistoryPage() {
                     </td>
                     {edocEnabled ? (
                       <td>
-                        {r.sourceType === "inter_ho_repair" ? (
+                        {r.sourceType === "inter_ho_repair" || r.sourceType === "srf_store" ? (
                           <span
                             className={`inline-block px-2 py-0.5 text-[10px] font-semibold uppercase ${
                               edocStatusCls[r.edocStatus ?? ""] ?? "bg-amber-100 text-amber-900"
@@ -508,7 +508,9 @@ export function InvoiceHistoryPage() {
                     <button type="button" className="ui-btn-secondary text-xs" onClick={() => printInvoice(detail)}>
                       Print
                     </button>
-                    {detail.sourceType === "inter_ho_repair" && edocEnabled && !detail.edocIrn?.trim() ? (
+                    {(detail.sourceType === "inter_ho_repair" || detail.sourceType === "srf_store") &&
+                    edocEnabled &&
+                    !detail.edocIrn?.trim() ? (
                       <button
                         type="button"
                         className="ui-btn-secondary text-xs"
@@ -520,7 +522,7 @@ export function InvoiceHistoryPage() {
                     ) : null}
                   </div>
 
-                  {detail.sourceType === "inter_ho_repair" && edocEnabled ? (
+                  {(detail.sourceType === "inter_ho_repair" || detail.sourceType === "srf_store") && edocEnabled ? (
                     <div
                       className={`rounded border px-3 py-2 text-xs ${
                         detail.edocIrn
@@ -567,7 +569,7 @@ export function InvoiceHistoryPage() {
                   {detail.balanceDueInr > 0.01 ? (
                     <div className="border-t border-rlx-rule pt-4">
                       <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-rlx-gold">Record payment</p>
-                      {interHoNeedsEdoc(detail, edocEnabled) ? (
+                      {invoiceNeedsEdoc(detail, edocEnabled) ? (
                         <p className="mb-3 text-xs text-rose-800">
                           Payment is blocked until GST e-invoice (IRN) is generated for this inter-HO invoice.
                         </p>
@@ -595,7 +597,7 @@ export function InvoiceHistoryPage() {
                         <button
                           type="button"
                           className="w-full bg-rlx-gold px-4 py-2.5 text-sm font-semibold text-rlx-green-deep hover:bg-rlx-gold-dark disabled:opacity-50"
-                          disabled={payBusy || interHoNeedsEdoc(detail, edocEnabled)}
+                          disabled={payBusy || invoiceNeedsEdoc(detail, edocEnabled)}
                           onClick={() => void submitPayment()}
                         >
                           {payBusy ? "Posting…" : "Post payment to ledger"}

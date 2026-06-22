@@ -11,6 +11,7 @@ import { FormPageShell } from "../../components/layout/FormPageShell";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
+import { ProcessLoadingOverlay } from "../../components/ui/ProcessLoadingOverlay";
 import { useAuth } from "../../context/AuthContext";
 import { useCustomers } from "../../context/CustomersContext";
 import { useBrands } from "../../context/BrandsContext";
@@ -43,6 +44,10 @@ import {
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import { useMessagingSend } from "../../components/messaging/WhatsAppSendProvider";
 import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
+import {
+  autoInvoiceWhatsAppDedupKey,
+  shouldAutoSendInvoiceWhatsApp,
+} from "../../lib/invoiceWhatsAppAuto";
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import type { QuickBillEdocInfo, QuickBillInvoice } from "../../types/quickBill";
 import {
@@ -337,6 +342,7 @@ export function QuickBillPage() {
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
   const [isSavingBill, setIsSavingBill] = useState(false);
+  const autoWhatsAppSentRef = useRef<string | null>(null);
 
   const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
   const [spareOptionsLoading, setSpareOptionsLoading] = useState(false);
@@ -1542,6 +1548,7 @@ export function QuickBillPage() {
     setError(null);
     setCompletion(null);
     setIsSavingBill(false);
+    autoWhatsAppSentRef.current = null;
     setHandoverVerified(false);
     setHandoverModalOpen(false);
     setCustomerChecked(false);
@@ -1587,6 +1594,16 @@ export function QuickBillPage() {
     },
     [phone, customerName, runWhatsAppSend, invoiceVmOptions],
   );
+
+  useEffect(() => {
+    if (completion?.mode !== "api" || !billSuccessModalOpen) return;
+    const inv = completion.invoice;
+    const dedupKey = autoInvoiceWhatsAppDedupKey(inv.invoiceNumber || inv.billNumber, completion.edoc);
+    if (autoWhatsAppSentRef.current === dedupKey) return;
+    if (!shouldAutoSendInvoiceWhatsApp(completion.edoc, inv.phone ?? phone)) return;
+    autoWhatsAppSentRef.current = dedupKey;
+    void handleSendInvoiceWhatsApp(inv);
+  }, [completion, billSuccessModalOpen, phone, handleSendInvoiceWhatsApp]);
 
   const handleSendInvoiceEmail = useCallback(
     async (inv: QuickBillInvoice) => {
@@ -1695,7 +1712,8 @@ export function QuickBillPage() {
             </p>
           ) : (
             <p className="mt-3 text-xs text-stone-500">
-              Email sends the invoice PDF via SMTP. WhatsApp uses your approved invoice template when configured.
+              The invoice is sent on WhatsApp automatically when e-invoice is registered (or for B2C). Email uses SMTP;
+              you can resend below if needed.
             </p>
           )}
         </ProcessSuccessModal>
@@ -2805,6 +2823,17 @@ export function QuickBillPage() {
           onCancel={() => setB2bModalOpen(false)}
         />
       ) : null}
+
+      <ProcessLoadingOverlay
+        open={isSavingBill}
+        title="Saving quick bill"
+        statusMessages={[
+          "Recording bill details…",
+          "Applying GST & line items…",
+          "Registering e-invoice when applicable…",
+          "Almost done…",
+        ]}
+      />
       </div>
     </FormPageShell>
   );

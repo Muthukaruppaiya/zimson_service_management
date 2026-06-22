@@ -13,6 +13,12 @@ import type {
   EwayBuildInput,
 } from "./types";
 import {
+  defaultUqcForEdocLine,
+  formatGoodsHsnForEdoc,
+  formatSacCodeForEdoc,
+  isServiceSacCode,
+} from "./hsnSac";
+import {
   isInterstateEdocSupply,
   normalizeEdocLinesForSupply,
   normalizeEdocTotalsForSupply,
@@ -69,12 +75,19 @@ export function buildEinvoicePayload(input: EinvoicingBuildInput): Record<string
     const discount = 0;
     const assAmt = round2(totAmt - discount);
     const taxAmt = round2(ln.cgst + ln.sgst + ln.igst);
+    const isService = ln.isService ?? isServiceSacCode(ln.hsnSac);
+    const hsnCode = isService
+      ? formatSacCodeForEdoc(ln.hsnSac)
+      : formatGoodsHsnForEdoc(ln.hsnSac);
+    const unit = (ln.uqc?.trim() || defaultUqcForEdocLine(isService)).toUpperCase();
     return {
       item_serial_number: String(ln.slNo),
       product_description: ln.description.slice(0, 300),
-      is_service: "Y",
-      hsn_code: ln.hsnSac.replace(/\D/g, "").slice(0, 8) || "9987",
+      is_service: isService ? "Y" : "N",
+      hsn_code: hsnCode,
       quantity: ln.qty,
+      free_quantity: 0,
+      unit,
       unit_price: round2(ln.unitPrice),
       total_amount: totAmt,
       discount,

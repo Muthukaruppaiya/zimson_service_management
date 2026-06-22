@@ -191,6 +191,9 @@ export type StoreBillingInvoiceBuildOptions = {
   storeBillingSnapshot?: StoreBillingSnapshot | null;
   /** Override printed invoice number (e.g. from invoice history register). */
   invoiceNumberOverride?: string | null;
+  edocIrn?: string | null;
+  edocAckNo?: string | null;
+  edocQr?: string | null;
 };
 
 function resolveBillingCustomerFields(
@@ -226,12 +229,24 @@ function resolveBillingCustomerFields(
   };
 }
 
+function resolveEdocForInvoice(
+  job: SrfJob,
+  options: StoreBillingInvoiceBuildOptions,
+): { edocIrn?: string | null; edocAckNo?: string | null; edocQr?: string | null } {
+  return {
+    edocIrn: options.edocIrn?.trim() || job.edocIrn?.trim() || null,
+    edocAckNo: options.edocAckNo?.trim() || job.edocAckNo?.trim() || null,
+    edocQr: options.edocQr?.trim() || job.edocQr?.trim() || null,
+  };
+}
+
 /** Rebuild tax invoice view model for a closed SRF (history reprint / resend). */
 export function buildStoreBillingInvoiceFromClosedJob(
   job: SrfJob,
   options: StoreBillingInvoiceBuildOptions = {},
 ): ServiceInvoiceViewModel {
   const advance = Number(job.advanceInr ?? 0);
+  const edoc = resolveEdocForInvoice(job, options);
   const snapshot =
     options.storeBillingSnapshot ??
     normalizeStoreBillingSnapshot(job.storeBillingSnapshot) ??
@@ -303,6 +318,9 @@ export function buildStoreBillingInvoiceFromClosedJob(
         spareGstLookup: options.spareGstLookup,
         generatedBy: options.generatedBy,
         invoiceNumber,
+        edocIrn: edoc.edocIrn,
+        edocAckNo: edoc.edocAckNo,
+        edocQr: edoc.edocQr,
       },
     );
   }
@@ -369,6 +387,9 @@ export function buildStoreBillingInvoiceFromClosedJob(
       spareGstLookup: options.spareGstLookup,
       generatedBy: options.generatedBy,
       invoiceNumber,
+      edocIrn: edoc.edocIrn,
+      edocAckNo: edoc.edocAckNo,
+      edocQr: edoc.edocQr,
     },
   );
 }

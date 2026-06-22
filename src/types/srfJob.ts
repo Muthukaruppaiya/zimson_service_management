@@ -154,6 +154,13 @@ export type SrfJob = {
   dispatchedToStoreAt: string | null;
   receivedBackAtStoreAt?: string | null;
   closedAt?: string | null;
+  edocIrn?: string | null;
+  edocAckNo?: string | null;
+  edocAckDate?: string | null;
+  edocStatus?: string | null;
+  edocError?: string | null;
+  edocQr?: string | null;
+  edocGeneratedAt?: string | null;
   createdBy?: string | null;
   modifiedBy?: string | null;
   updatedAt?: string;

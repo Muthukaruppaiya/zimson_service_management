@@ -24,6 +24,7 @@ import {
 } from "../../lib/paymentModes";
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
 import { SrfBookingSuccessOverlay } from "../../components/service/SrfBookingSuccessOverlay";
+import { ProcessLoadingOverlay } from "../../components/ui/ProcessLoadingOverlay";
 import { SRF_MIN_WATCH_PHOTOS_REQUIRED, srfMinWatchPhotosFinalizeError } from "../../lib/srfPhotoSlots";
 import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
 import {
@@ -254,6 +255,7 @@ export function SrfBookingV2Page() {
   const [otpSessionId, setOtpSessionId] = useState<string | null>(null);
   const [issuedOtp, setIssuedOtp] = useState<string | null>(null);
   const [otpBusy, setOtpBusy] = useState(false);
+  const [isCreatingSrf, setIsCreatingSrf] = useState(false);
   const [otpInput, setOtpInput] = useState("");
   const [customerChecked, setCustomerChecked] = useState(false);
   const [customerExists, setCustomerExists] = useState(false);
@@ -1083,6 +1085,7 @@ export function SrfBookingV2Page() {
       setError(srfMinWatchPhotosFinalizeError(photoCount));
       return;
     }
+    setIsCreatingSrf(true);
     try {
       const row = await ensureDraft();
       const advancePay =
@@ -1108,6 +1111,8 @@ export function SrfBookingV2Page() {
       setFinalizedRepairRoute(repairRoute);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create SRF.");
+    } finally {
+      setIsCreatingSrf(false);
     }
   }
 
@@ -1939,8 +1944,8 @@ export function SrfBookingV2Page() {
             </table>
           </div>
           <div className="mt-4 flex flex-wrap justify-between gap-3">
-            <button type="button" onClick={goBack} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Back</button>
-            <button type="button" onClick={() => void finalizeAndPrint()} className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep">Create SRF</button>
+            <button type="button" onClick={goBack} disabled={isCreatingSrf} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light disabled:cursor-not-allowed disabled:opacity-50">Back</button>
+            <button type="button" onClick={() => void finalizeAndPrint()} disabled={isCreatingSrf} className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep disabled:cursor-not-allowed disabled:opacity-50">{isCreatingSrf ? "Creating SRF…" : "Create SRF"}</button>
           </div>
         </Card>
       ) : null}
@@ -1994,6 +1999,17 @@ export function SrfBookingV2Page() {
       ) : null}
       {alertModal}
       {otpSentModal}
+
+      <ProcessLoadingOverlay
+        open={isCreatingSrf}
+        title="Creating SRF"
+        statusMessages={[
+          "Saving service request…",
+          "Recording watch details…",
+          "Finalizing estimate & advance…",
+          "Almost done…",
+        ]}
+      />
 
       {b2bModalOpen && loadedCustomerId ? (
         <B2bDetailsModal

@@ -17,6 +17,7 @@ import { phoneLast10 } from "../../lib/customerLookup";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { isArchivedSrfJob, jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { buildStoreBillingInvoiceFromClosedJob } from "../../lib/storeBillingAmounts";
+import type { QuickBillEdocInfo } from "../../types/quickBill";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import type { SrfJob } from "../../types/srfJob";
@@ -28,7 +29,7 @@ const actionBtn =
 export function StoreBillingMasterPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
-  const { jobs } = useSrfJobs();
+  const { jobs, refreshJobs } = useSrfJobs();
   const [page, setPage] = useState(1);
   const [traceId, setTraceId] = useState<string | null>(null);
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
@@ -37,6 +38,8 @@ export function StoreBillingMasterPage() {
   const { customers } = useCustomers();
   const { activeSpares } = useSpares();
   const [resendNote, setResendNote] = useState<string | null>(null);
+  const [edocEnabled, setEdocEnabled] = useState(false);
+  const [edocBusyId, setEdocBusyId] = useState<string | null>(null);
   const pageSize = 10;
 
   const currentUserStore = useMemo(() => {
@@ -69,6 +72,20 @@ export function StoreBillingMasterPage() {
     };
   }, [user]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void apiJson<{ enabled?: boolean }>("/api/edoc/status")
+      .then((d) => {
+        if (!cancelled) setEdocEnabled(Boolean(d.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setEdocEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function invoiceVmForJob(job: SrfJob): ServiceInvoiceViewModel {
     const cust = customers.find((c) => phoneLast10(c.phone) === phoneLast10(job.phone)) ?? null;
     return buildStoreBillingInvoiceFromClosedJob(job, {
@@ -94,6 +111,29 @@ export function StoreBillingMasterPage() {
   function handleResendInvoice(job: SrfJob) {
     setResendNote(null);
     setResendJob(job);
+  }
+
+  async function generateEdocForJob(job: SrfJob) {
+    setEdocBusyId(job.id);
+    setResendNote(null);
+    try {
+      const out = await apiJson<{ edoc: QuickBillEdocInfo }>(
+        `/api/edoc/srf-jobs/${encodeURIComponent(job.id)}/generate-einvoice`,
+        { method: "POST" },
+      );
+      if (out.edoc?.ok) {
+        setResendNote(`E-invoice registered. IRN: ${out.edoc.irn ?? "—"}`);
+      } else if (out.edoc?.skipped) {
+        setResendNote(`E-invoice skipped: ${out.edoc.skipReason ?? "Not applicable."}`);
+      } else {
+        setResendNote(`E-invoice failed: ${out.edoc?.error ?? out.edoc?.skipReason ?? "IRP error."}`);
+      }
+      await refreshJobs();
+    } catch (e) {
+      setResendNote(e instanceof Error ? e.message : "Could not generate e-invoice.");
+    } finally {
+      setEdocBusyId(null);
+    }
   }
 
   const resendCustomer = useMemo(() => {
@@ -144,6 +184,9 @@ export function StoreBillingMasterPage() {
         />
 
         <Card title="Store billing history" subtitle="">
+          {resendNote && !resendJob ? (
+            <p className="mb-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-950 ring-1 ring-sky-200">{resendNote}</p>
+          ) : null}
           {recentClosedBilling.length === 0 ? (
             <p className="text-sm text-stone-600">No closed SRFs in your visible scope yet.</p>
           ) : (
@@ -156,6 +199,7 @@ export function StoreBillingMasterPage() {
                       <th className="px-3 py-2">Customer</th>
                       <th className="px-3 py-2">Watch</th>
                       <th className="px-3 py-2">Closed</th>
+                      {edocEnabled ? <th className="px-3 py-2">E-invoice</th> : null}
                       <th className="px-3 py-2 text-right">Estimate</th>
                       <th className="min-w-[220px] px-3 py-2 text-center">Action</th>
                     </tr>
@@ -184,6 +228,19 @@ export function StoreBillingMasterPage() {
                         <td className="px-3 py-2 text-xs text-stone-600">
                           {j.closedAt ? new Date(j.closedAt).toLocaleString() : "-"}
                         </td>
+                        {edocEnabled ? (
+                          <td className="px-3 py-2 text-[10px] font-semibold uppercase">
+                            {j.edocIrn?.trim() ? (
+                              <span className="text-emerald-700">IRN issued</span>
+                            ) : j.edocStatus === "SKIPPED" || j.customerKind === "B2C" ? (
+                              <span className="text-stone-500">{j.customerKind === "B2C" ? "B2C" : "Skipped"}</span>
+                            ) : j.edocStatus === "FAILED" ? (
+                              <span className="text-rose-700">Failed</span>
+                            ) : (
+                              <span className="text-amber-700">Pending</span>
+                            )}
+                          </td>
+                        ) : null}
                         <td className="px-3 py-2 text-right tabular-nums text-stone-900">
                           {Number(j.estimateTotalInr ?? 0).toLocaleString(undefined, {
                             style: "currency",
@@ -207,6 +264,16 @@ export function StoreBillingMasterPage() {
                             >
                               Print invoice
                             </button>
+                            {edocEnabled && j.customerKind === "B2B" && !j.edocIrn?.trim() ? (
+                              <button
+                                type="button"
+                                disabled={edocBusyId === j.id}
+                                onClick={() => void generateEdocForJob(j)}
+                                className={`${actionBtn} border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100`}
+                              >
+                                {edocBusyId === j.id ? "…" : "Generate IRN"}
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => handleResendInvoice(j)}
