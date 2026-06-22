@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isS3StorageEnabled } from "./config";
 import { absoluteLocalPath } from "./fileStorage";
+import { normalizeMediaRouteKey } from "./mediaUrl";
 import { s3GetObjectStream, s3PresignedGetUrl } from "./s3Client";
 
 /**
@@ -12,9 +13,7 @@ import { s3GetObjectStream, s3PresignedGetUrl } from "./s3Client";
  */
 export function registerMediaRoutes(app: Express): void {
   app.get("/api/media/{*key}", async (req, res) => {
-    const key = String((req.params as { key?: string | string[] }).key ?? "")
-      .replace(/\\/g, "/")
-      .replace(/^\/+/, "");
+    const key = normalizeMediaRouteKey((req.params as { key?: string | string[] }).key);
     if (!key || key.includes("..")) {
       res.status(400).json({ error: "Invalid media path." });
       return;
@@ -47,7 +46,8 @@ export function registerMediaRoutes(app: Express): void {
         res.status(404).json({ error: "File not found." });
         return;
       }
-      res.sendFile(abs);
+      res.setHeader("Cache-Control", "private, max-age=300");
+      res.sendFile(path.resolve(abs));
     } catch (e) {
       console.error("[media]", key, e);
       res.status(404).json({ error: "File not found." });
