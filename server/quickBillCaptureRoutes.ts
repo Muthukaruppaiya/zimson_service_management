@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import crypto from "node:crypto";
 import { deleteStoredFile, persistUploadedFile } from "./storage/fileStorage";
+import { publicMediaUrl } from "./storage/mediaUrl";
 import { categoryForSrfPhoto } from "./storage/config";
 import { createMemoryUpload } from "./storage/multerMemory";
 import type { Pool, PoolClient } from "pg";
@@ -76,8 +77,7 @@ function stripLeadingSlash(path: string): string {
 }
 
 function mediaPublicPath(storagePath: string): string {
-  const p = storagePath.replace(/\\/g, "/").trim();
-  return p.startsWith("/") ? p : `/${p}`;
+  return publicMediaUrl(storagePath);
 }
 
 type SessionRow = {

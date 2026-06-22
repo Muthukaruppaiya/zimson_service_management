@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiJson } from "../../lib/api";
+import { publicMediaUrl } from "../../lib/mediaUrl";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES, srfCustomerPhotoMaxSizeLabel } from "../../lib/srfPhotoLimits";
 import {
   SRF_DOCUMENT_ACCEPT,
@@ -553,7 +554,7 @@ export function SrfPhotoCapturePage() {
               {uploadedWatchPhotos.map(({ kind, shot }) => (
                 <li key={kind} className="flex items-center gap-3 rounded-lg border border-rlx-rule p-2">
                   <img
-                    src={`/${shot.filePath}`}
+                    src={publicMediaUrl(shot.filePath)}
                     alt={SRF_PHOTO_SLOT_LABELS[kind]}
                     className="h-14 w-14 shrink-0 rounded object-cover"
                   />
@@ -624,7 +625,7 @@ export function SrfPhotoCapturePage() {
                   PDF
                 </span>
               ) : (
-                <img src={`/${documentPhoto.filePath}`} alt="Document" className="h-14 w-14 shrink-0 rounded object-cover" />
+                <img src={publicMediaUrl(documentPhoto.filePath)} alt="Document" className="h-14 w-14 shrink-0 rounded object-cover" />
               )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-rlx-ink">Document uploaded</p>

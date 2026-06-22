@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiJson } from "../../lib/api";
+import { publicMediaUrl } from "../../lib/mediaUrl";
 import {
   SRF_DOCUMENT_PHOTO_KIND,
   SRF_MAX_WATCH_PHOTOS,
@@ -573,7 +574,7 @@ export function QuickBillCapturePage() {
               {uploadedWatchPhotos.map(({ kind, shot }) => (
                 <li key={kind} className="flex items-center gap-3 rounded-lg border border-rlx-rule p-2">
                   <img
-                    src={shot.filePath.startsWith("/") ? shot.filePath : `/${shot.filePath}`}
+                    src={publicMediaUrl(shot.filePath)}
                     alt={SRF_PHOTO_SLOT_LABELS[kind]}
                     className="h-14 w-14 shrink-0 rounded object-cover"
                   />
@@ -647,7 +648,7 @@ export function QuickBillCapturePage() {
                 </span>
               ) : (
                 <img
-                  src={documentPhoto.filePath.startsWith("/") ? documentPhoto.filePath : `/${documentPhoto.filePath}`}
+                  src={publicMediaUrl(documentPhoto.filePath)}
                   alt="Document"
                   className="h-14 w-14 shrink-0 rounded object-cover"
                 />

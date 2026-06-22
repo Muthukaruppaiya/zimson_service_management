@@ -1,5 +1,6 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import { persistUploadedFile } from "./storage/fileStorage";
+import { publicMediaUrl } from "./storage/mediaUrl";
 import { categoryForQuickBillAttachment } from "./storage/config";
 import { createMemoryUpload } from "./storage/multerMemory";
 import type { Pool, PoolClient } from "pg";
@@ -442,7 +443,7 @@ export function registerQuickBillRoutes(
         mime: f.mimetype || "application/octet-stream",
         fallbackExt: kindRaw === "doc" ? ".pdf" : ".jpg",
       });
-      res.json({ url: `/${storagePath}` });
+      res.json({ url: publicMediaUrl(storagePath) });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Could not save attachment." });

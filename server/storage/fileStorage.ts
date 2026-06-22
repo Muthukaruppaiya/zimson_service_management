@@ -12,6 +12,16 @@ import { s3DeleteObject, s3PutObject, s3GetObjectBuffer } from "./s3Client";
 
 const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
 
+function uploadsRelFromStoragePath(storagePath: string): string | null {
+  const fp = storagePath.replace(/\\/g, "/").trim().replace(/^\//, "");
+  const fromMedia = keyFromStoragePath(fp);
+  if (fromMedia) return `uploads/${fromMedia}`;
+  const fromUploads = localPathFromStorage(fp);
+  if (fromUploads) return fromUploads.replace(/^\//, "");
+  if (fp.startsWith("uploads/")) return fp;
+  return null;
+}
+
 export function buildStoredFilename(originalName: string, fallbackExt = ".bin"): string {
   const ext = path.extname(originalName || "").slice(0, 12) || fallbackExt;
   return `${Date.now()}-${crypto.randomUUID()}${ext}`;
@@ -38,7 +48,7 @@ export async function persistUploadedFile(input: {
   const dir = path.join(UPLOAD_ROOT, input.category);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, filename), input.buffer);
-  return `uploads/${relativeKey}`.replace(/\\/g, "/");
+  return storagePathForKey(input.category, filename);
 }
 
 /** Read file bytes from api/media/… storage path or legacy absolute/local path. */
@@ -59,21 +69,21 @@ export async function deleteStoredFile(storagePath: string | null | undefined): 
   if (!fp || fp.startsWith("(demo")) return;
 
   const s3Key = keyFromStoragePath(fp);
-  if (s3Key) {
+  if (s3Key && isS3StorageEnabled()) {
     await s3DeleteObject(s3Key).catch(() => {});
     return;
   }
 
-  const localRel = localPathFromStorage(fp) ?? (fp.startsWith("uploads/") ? fp : null);
+  const localRel = uploadsRelFromStoragePath(fp);
   if (!localRel) return;
-  const abs = path.isAbsolute(fp) ? fp : path.join(process.cwd(), localRel);
+  const abs = path.join(process.cwd(), localRel);
   await fs.unlink(abs).catch(() => {});
 }
 
 export function absoluteLocalPath(storagePath: string): string | null {
-  const fp = storagePath.replace(/\\/g, "/").trim();
-  const localRel = localPathFromStorage(fp) ?? (fp.startsWith("uploads/") ? fp.replace(/^\//, "") : null);
+  const localRel = uploadsRelFromStoragePath(storagePath);
   if (!localRel) return null;
+  const fp = storagePath.replace(/\\/g, "/").trim();
   return path.isAbsolute(fp) ? fp : path.join(process.cwd(), localRel);
 }
 

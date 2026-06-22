@@ -10,6 +10,7 @@ import {
   type TransferPartyBlock,
   type TransferPrintKind,
 } from "./transferDocumentKind";
+import { publicMediaUrl } from "./mediaUrl";
 
 export type { TransferFlow, TransferPartyBlock, TransferPrintKind } from "./transferDocumentKind";
 export type TransferPrintMeta = {
@@ -39,6 +40,7 @@ function barcodeBlock(reference: string): string {
   </div>`;
 }
 
+
 function backendOrigin(): string {
   if (typeof window === "undefined") return "";
   const { protocol, hostname, origin } = window.location;
@@ -50,8 +52,7 @@ function backendOrigin(): string {
 
 function absolutePhotoSrc(filePath: string): string {
   if (/^https?:\/\//i.test(filePath)) return filePath;
-  const clean = filePath.startsWith("/") ? filePath : `/${filePath}`;
-  return `${backendOrigin()}${clean}`;
+  return `${backendOrigin()}${publicMediaUrl(filePath)}`;
 }
 
 function formatAdvanceForPrint(

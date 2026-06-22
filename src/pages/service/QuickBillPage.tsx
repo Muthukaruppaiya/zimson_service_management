@@ -100,21 +100,7 @@ import {
   SRF_PHOTO_SLOT_LABELS,
 } from "../../lib/srfPhotoSlots";
 import { watchAttachmentDisplayName } from "../../lib/watchAttachmentUpload";
-import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
-
-type QbCapturePhoto = { id: string; photoKind?: string; filePath: string; mime?: string };
-
-function capturePhotoLabel(photo: QbCapturePhoto): string {
-  const kind = normalizeSrfPhotoKind(photo.photoKind);
-  if (kind === SRF_DOCUMENT_PHOTO_KIND) return "Document";
-  if (kind && kind in SRF_PHOTO_SLOT_LABELS) return SRF_PHOTO_SLOT_LABELS[kind as keyof typeof SRF_PHOTO_SLOT_LABELS];
-  return "Photo";
-}
-
-function capturePhotoSrc(filePath: string): string {
-  const p = filePath.trim();
-  return p.startsWith("/") ? p : `/${p}`;
-}
+import { publicMediaUrl } from "../../lib/mediaUrl";
 import {
   storeServiceChargeMaxLabel,
   validateQuickBillServiceChargeInr,
@@ -127,6 +113,20 @@ import {
   type WatchServiceDetailValues,
 } from "../../components/service/WatchServiceDetailFields";
 import { inputClass } from "../../lib/uiForm";
+import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
+
+type QbCapturePhoto = { id: string; photoKind?: string; filePath: string; mime?: string };
+
+function capturePhotoLabel(photo: QbCapturePhoto): string {
+  const kind = normalizeSrfPhotoKind(photo.photoKind);
+  if (kind === SRF_DOCUMENT_PHOTO_KIND) return "Document";
+  if (kind && kind in SRF_PHOTO_SLOT_LABELS) return SRF_PHOTO_SLOT_LABELS[kind as keyof typeof SRF_PHOTO_SLOT_LABELS];
+  return "Photo";
+}
+
+function capturePhotoSrc(filePath: string): string {
+  return publicMediaUrl(filePath);
+}
 
 type LoadedCustomerRow = {
   id?: string;
