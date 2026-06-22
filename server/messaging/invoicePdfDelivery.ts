@@ -1,12 +1,12 @@
-import fs from "node:fs";
 import type { Request } from "express";
 import { getMessagingPublicBaseUrl } from "./config";
 import { normalizeMessagingPublicBaseUrl } from "./publicHttpsUrl";
 import { publicInvoicePdfApiPath, verifyPublicInvoicePdfUrl } from "./invoicePdfPublicUrl";
 import { uploadInvoicePdfToWorkDrive, shouldUseWorkDriveForInvoicePdf } from "./qikberryWorkDrive";
 import { ensureDevPublicTunnel, verifyTunnelBaseUrl } from "../devPublicTunnel";
-import { isS3StorageEnabled } from "../storage/config";
-import { s3PresignedGetUrl, s3PutObject } from "../storage/s3Client";
+import { categoryForInvoicePdf, isS3StorageEnabled, keyFromStoragePath } from "../storage/config";
+import { persistUploadedFile, readStorageFileBytes } from "../storage/fileStorage";
+import { s3PresignedGetUrl } from "../storage/s3Client";
 
 function getPublicBaseFromRequest(req: Request): string | null {
   const proto = req.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
@@ -19,11 +19,22 @@ function buildPublicInvoicePdfUrl(publicBase: string, filename: string): string 
   return `${normalizeMessagingPublicBaseUrl(publicBase)}${publicInvoicePdfApiPath(filename)}`;
 }
 
-async function tryPresignedS3InvoiceUrl(filePath: string, filename: string): Promise<string | null> {
+/** Saves invoice PDF under bucket folder `Invoices/` (WhatsApp / email delivery). */
+export async function saveInvoicePdfToStorage(pdfBuffer: Buffer, filename: string): Promise<string> {
+  return persistUploadedFile({
+    category: categoryForInvoicePdf(),
+    buffer: pdfBuffer,
+    originalName: filename,
+    mime: "application/pdf",
+    fallbackExt: ".pdf",
+    fixedFilename: filename,
+  });
+}
+
+async function tryPresignedS3FromStoragePath(storagePath: string): Promise<string | null> {
   if (!isS3StorageEnabled()) return null;
-  const buf = fs.readFileSync(filePath);
-  const key = `invoice-pdf/${filename}`;
-  await s3PutObject(key, buf, "application/pdf");
+  const key = keyFromStoragePath(storagePath);
+  if (!key) return null;
   const url = await s3PresignedGetUrl(key, 60 * 60 * 24 * 7);
   await verifyPublicInvoicePdfUrl(url);
   console.log("[messaging/whatsapp/invoice] using S3 presigned PDF URL");
@@ -64,15 +75,10 @@ async function tryPublicApiInvoiceUrl(
   return null;
 }
 
-async function tryMediaApiInvoiceUrl(
-  req: Request,
-  filename: string,
-  filePath: string,
-): Promise<string | null> {
+async function tryMediaApiInvoiceUrl(req: Request, storagePath: string): Promise<string | null> {
   if (!isS3StorageEnabled()) return null;
-  const buf = fs.readFileSync(filePath);
-  const key = `invoice-pdf/${filename}`;
-  await s3PutObject(key, buf, "application/pdf");
+  const key = keyFromStoragePath(storagePath);
+  if (!key) return null;
 
   const bases: string[] = [];
   const configured = getMessagingPublicBaseUrl();
@@ -84,7 +90,7 @@ async function tryMediaApiInvoiceUrl(
   for (const base of bases) {
     if (!base || seen.has(base)) continue;
     seen.add(base);
-    const url = `${base}/api/media/${encodeURIComponent(key)}`;
+    const url = `${base}/api/media/${key.split("/").map(encodeURIComponent).join("/")}`;
     try {
       await verifyPublicInvoicePdfUrl(url);
       console.log("[messaging/whatsapp/invoice] verified media API PDF URL:", url);
@@ -99,23 +105,25 @@ async function tryMediaApiInvoiceUrl(
 /** Resolves a Qikchat-safe HTTPS link to a real PDF (S3 presigned, public API, media API, or Work Drive). */
 export async function resolveWhatsAppInvoiceDocumentUrl(
   req: Request,
-  filePath: string,
+  storagePath: string,
   filename: string,
   documentFilename: string,
 ): Promise<string> {
-  const s3Url = await tryPresignedS3InvoiceUrl(filePath, filename);
+  const s3Url = await tryPresignedS3FromStoragePath(storagePath);
   if (s3Url) return s3Url;
 
   const port = Number(process.env.PORT) || 4000;
   const apiUrl = await tryPublicApiInvoiceUrl(req, filename, port);
   if (apiUrl) return apiUrl;
 
-  const mediaUrl = await tryMediaApiInvoiceUrl(req, filename, filePath);
+  const mediaUrl = await tryMediaApiInvoiceUrl(req, storagePath);
   if (mediaUrl) return mediaUrl;
 
   if (shouldUseWorkDriveForInvoicePdf()) {
     try {
-      const wd = await uploadInvoicePdfToWorkDrive(filePath, documentFilename);
+      const buf = await readStorageFileBytes(storagePath);
+      const abs = await writeTempLocalForWorkDrive(buf, filename);
+      const wd = await uploadInvoicePdfToWorkDrive(abs, documentFilename);
       await verifyPublicInvoicePdfUrl(wd);
       return wd;
     } catch (e) {
@@ -131,4 +139,14 @@ export async function resolveWhatsAppInvoiceDocumentUrl(
     : " On production set FILES_STORAGE=s3 (recommended), or deploy /api/messaging/public-invoice-pdf/ with Nginx proxying /api to Node (not the Vite SPA).";
 
   throw new Error(`Could not publish invoice PDF for WhatsApp.${localHint}`);
+}
+
+async function writeTempLocalForWorkDrive(buf: Buffer, filename: string): Promise<string> {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const dir = path.join(process.cwd(), "uploads", "temp");
+  fs.mkdirSync(dir, { recursive: true });
+  const abs = path.join(dir, filename);
+  fs.writeFileSync(abs, buf);
+  return abs;
 }

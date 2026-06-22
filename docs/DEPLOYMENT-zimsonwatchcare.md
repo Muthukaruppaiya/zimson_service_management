@@ -53,22 +53,26 @@ Key variables:
 - `APP_BASE_URL=https://zimsonwatchcare.com`
 - `MESSAGING_PUBLIC_BASE_URL=https://zimsonwatchcare.com`
 
-## 4. S3 bucket
+## 4. S3 bucket (`zimson-dev-files`)
 
-1. Create a **private** bucket in `ap-south-2` (e.g. `zimson-dev-uploads`).
-2. IAM user or EC2 role with `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` on `arn:aws:s3:::BUCKET/zimson/*`.
-3. Set in `.env`:
+Bucket in `ap-south-2` with folders at the **bucket root** (no prefix):
+
+`srf/` · `quick-bill/` · `customer-documents/` · `service-photos/` · `reports/` · `Invoices/` · `temp/`
+
+EC2 instance IAM role needs `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` on `arn:aws:s3:::zimson-dev-files/*`.
+
+Set in `.env`:
 
 ```env
 FILES_STORAGE=s3
 AWS_REGION=ap-south-2
-AWS_S3_BUCKET=your-bucket-name
-AWS_S3_PREFIX=zimson
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
+AWS_S3_BUCKET=zimson-dev-files
+AWS_S3_PREFIX=
 ```
 
-Uploaded files are stored in DB as `api/media/srf/...` or `api/media/quick-bill/...` and served via `GET /api/media/...` (presigned redirect to S3).
+Verify: `aws s3 ls s3://zimson-dev-files/` and after restart `pm2 logs | grep storage` → `Amazon S3 (zimson-dev-files)`.
+
+Uploaded files are stored in DB as `api/media/srf/...` etc. and served via `GET /api/media/...` (presigned redirect to S3).
 
 ## 5. Build and run on EC2
 

@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { Request } from "express";
 import { getMessagingPublicBaseUrl } from "./config";
 import { normalizeMessagingPublicBaseUrl } from "./publicHttpsUrl";
@@ -7,10 +5,9 @@ import { publicSrfPdfApiPath } from "./srfPdfPublicUrl";
 import { verifyPublicInvoicePdfUrl } from "./invoicePdfPublicUrl";
 import { uploadInvoicePdfToWorkDrive, shouldUseWorkDriveForInvoicePdf } from "./qikberryWorkDrive";
 import { ensureDevPublicTunnel, verifyTunnelBaseUrl } from "../devPublicTunnel";
-import { isS3StorageEnabled } from "../storage/config";
-import { s3PresignedGetUrl, s3PutObject } from "../storage/s3Client";
-
-export const SRF_PDF_DIR = path.join(process.cwd(), "uploads", "srf-pdf");
+import { isS3StorageEnabled, keyFromStoragePath } from "../storage/config";
+import { persistUploadedFile, readStorageFileBytes } from "../storage/fileStorage";
+import { s3PresignedGetUrl } from "../storage/s3Client";
 
 function getPublicBaseFromRequest(req: Request): string | null {
   const proto = req.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
@@ -23,18 +20,27 @@ function buildPublicSrfPdfUrl(publicBase: string, filename: string): string {
   return `${normalizeMessagingPublicBaseUrl(publicBase)}${publicSrfPdfApiPath(filename)}`;
 }
 
-export function saveSrfPdfToDisk(pdfBuffer: Buffer, filename: string): string {
-  fs.mkdirSync(SRF_PDF_DIR, { recursive: true });
-  const filePath = path.join(SRF_PDF_DIR, filename);
-  fs.writeFileSync(filePath, pdfBuffer);
-  return filePath;
+/** Saves SRF acknowledgment PDF under bucket folder `srf/`. Returns storage path (`api/media/srf/…` or `uploads/srf/…`). */
+export async function saveSrfPdfToStorage(pdfBuffer: Buffer, filename: string): Promise<string> {
+  return persistUploadedFile({
+    category: "srf",
+    buffer: pdfBuffer,
+    originalName: filename,
+    mime: "application/pdf",
+    fallbackExt: ".pdf",
+    fixedFilename: filename,
+  });
 }
 
-async function tryPresignedS3SrfUrl(filePath: string, filename: string): Promise<string | null> {
+/** @deprecated Use saveSrfPdfToStorage — kept for type compatibility only. */
+export async function saveSrfPdfToDisk(pdfBuffer: Buffer, filename: string): Promise<string> {
+  return saveSrfPdfToStorage(pdfBuffer, filename);
+}
+
+async function tryPresignedS3FromStoragePath(storagePath: string): Promise<string | null> {
   if (!isS3StorageEnabled()) return null;
-  const buf = fs.readFileSync(filePath);
-  const key = `srf-pdf/${filename}`;
-  await s3PutObject(key, buf, "application/pdf");
+  const key = keyFromStoragePath(storagePath);
+  if (!key) return null;
   const url = await s3PresignedGetUrl(key, 60 * 60 * 24 * 7);
   await verifyPublicInvoicePdfUrl(url);
   console.log("[messaging/whatsapp/srf] using S3 presigned PDF URL");
@@ -71,11 +77,10 @@ async function tryPublicApiSrfUrl(req: Request, filename: string, port: number):
   return null;
 }
 
-async function tryMediaApiSrfUrl(req: Request, filename: string, filePath: string): Promise<string | null> {
+async function tryMediaApiSrfUrl(req: Request, storagePath: string): Promise<string | null> {
   if (!isS3StorageEnabled()) return null;
-  const buf = fs.readFileSync(filePath);
-  const key = `srf-pdf/${filename}`;
-  await s3PutObject(key, buf, "application/pdf");
+  const key = keyFromStoragePath(storagePath);
+  if (!key) return null;
 
   const bases: string[] = [];
   const configured = getMessagingPublicBaseUrl();
@@ -87,7 +92,7 @@ async function tryMediaApiSrfUrl(req: Request, filename: string, filePath: strin
   for (const base of bases) {
     if (!base || seen.has(base)) continue;
     seen.add(base);
-    const url = `${base}/api/media/${encodeURIComponent(key)}`;
+    const url = `${base}/api/media/${key.split("/").map(encodeURIComponent).join("/")}`;
     try {
       await verifyPublicInvoicePdfUrl(url);
       console.log("[messaging/whatsapp/srf] verified media API PDF URL:", url);
@@ -102,23 +107,25 @@ async function tryMediaApiSrfUrl(req: Request, filename: string, filePath: strin
 /** Resolves a Qikchat-safe HTTPS link to the SRF acknowledgment PDF. */
 export async function resolveWhatsAppSrfDocumentUrl(
   req: Request,
-  filePath: string,
+  storagePath: string,
   filename: string,
   documentFilename: string,
 ): Promise<string> {
-  const s3Url = await tryPresignedS3SrfUrl(filePath, filename);
+  const s3Url = await tryPresignedS3FromStoragePath(storagePath);
   if (s3Url) return s3Url;
 
   const port = Number(process.env.PORT) || 4000;
   const apiUrl = await tryPublicApiSrfUrl(req, filename, port);
   if (apiUrl) return apiUrl;
 
-  const mediaUrl = await tryMediaApiSrfUrl(req, filename, filePath);
+  const mediaUrl = await tryMediaApiSrfUrl(req, storagePath);
   if (mediaUrl) return mediaUrl;
 
   if (shouldUseWorkDriveForInvoicePdf()) {
     try {
-      const wd = await uploadInvoicePdfToWorkDrive(filePath, documentFilename);
+      const buf = await readStorageFileBytes(storagePath);
+      const abs = await writeTempLocalForWorkDrive(buf, filename);
+      const wd = await uploadInvoicePdfToWorkDrive(abs, documentFilename);
       await verifyPublicInvoicePdfUrl(wd);
       return wd;
     } catch (e) {
@@ -133,4 +140,14 @@ export async function resolveWhatsAppSrfDocumentUrl(
     : " On production set FILES_STORAGE=s3 (recommended), or deploy /api/messaging/public-srf-pdf/ with Nginx proxying /api to Node.";
 
   throw new Error(`Could not publish SRF PDF for WhatsApp.${localHint}`);
+}
+
+async function writeTempLocalForWorkDrive(buf: Buffer, filename: string): Promise<string> {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const dir = path.join(process.cwd(), "uploads", "temp");
+  fs.mkdirSync(dir, { recursive: true });
+  const abs = path.join(dir, filename);
+  fs.writeFileSync(abs, buf);
+  return abs;
 }

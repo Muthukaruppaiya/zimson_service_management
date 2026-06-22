@@ -4,7 +4,7 @@ import { buildSrfPdfBuffer } from "./srfDocumentPdf";
 import { loadSrfCustomerDocumentPdf } from "./loadSrfCustomerDocument";
 import { loadSrfPrintData, srfDocumentDisplayFilename } from "./loadSrfPrintData";
 import { makeSrfPdfStorageFilename } from "./srfPdfPublicUrl";
-import { resolveWhatsAppSrfDocumentUrl, saveSrfPdfToDisk } from "./srfPdfDelivery";
+import { resolveWhatsAppSrfDocumentUrl, saveSrfPdfToStorage } from "./srfPdfDelivery";
 
 export type PublishedSrfDocument = {
   documentUrl: string;
@@ -20,7 +20,7 @@ async function publishPdfBufferForWhatsApp(
   source: PublishedSrfDocument["source"],
 ): Promise<PublishedSrfDocument> {
   const storageFilename = makeSrfPdfStorageFilename();
-  const filePath = saveSrfPdfToDisk(pdfBuffer, storageFilename);
+  const filePath = await saveSrfPdfToStorage(pdfBuffer, storageFilename);
   const documentUrl = await resolveWhatsAppSrfDocumentUrl(req, filePath, storageFilename, documentFilename);
   return { documentUrl, documentFilename, storageFilename, source };
 }

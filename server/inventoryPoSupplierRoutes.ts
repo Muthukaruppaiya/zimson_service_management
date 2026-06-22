@@ -1,28 +1,12 @@
-import fs from "node:fs";
 import path from "node:path";
 import type { Express, NextFunction, Request, Response } from "express";
-import multer from "multer";
 import type { Pool } from "pg";
 import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
+import { createMemoryUpload } from "./storage/multerMemory";
+import { persistUploadedFile } from "./storage/fileStorage";
 
-const INVOICE_UPLOAD_DIR = path.join(process.cwd(), "uploads", "grn-invoices");
-if (!fs.existsSync(INVOICE_UPLOAD_DIR)) fs.mkdirSync(INVOICE_UPLOAD_DIR, { recursive: true });
-
-const invoiceUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, INVOICE_UPLOAD_DIR),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-    },
-  }),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
-  fileFilter: (_req, file, cb) => {
-    const allowed = [".pdf", ".jpg", ".jpeg", ".png"];
-    cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
-  },
-});
+const grnInvoiceUpload = createMemoryUpload(10 * 1024 * 1024);
 
 type Authed = Request & { userId: string };
 
@@ -1129,7 +1113,7 @@ export function registerInventoryPoSupplierRoutes(
     (req: Request, res: Response, next: NextFunction) => {
       const ct = req.headers["content-type"] ?? "";
       if (ct.includes("multipart/form-data")) {
-        invoiceUpload.single("invoiceFile")(req, res, next);
+        grnInvoiceUpload.single("invoiceFile")(req, res, next);
       } else {
         next();
       }
@@ -1145,7 +1129,23 @@ export function registerInventoryPoSupplierRoutes(
     const invoiceNumber = String(req.body?.invoiceNumber ?? "").trim() || null;
     const invoiceDate = String(req.body?.invoiceDate ?? "").trim() || null;
     const notes = String(req.body?.notes ?? "").trim();
-    const invoiceFilePath: string | null = (req as Request & { file?: Express.Multer.File }).file?.path ?? null;
+    const uploadFile = (req as Request & { file?: Express.Multer.File }).file;
+    let invoiceFilePath: string | null = null;
+    if (uploadFile?.buffer?.length) {
+      const ext = path.extname(uploadFile.originalname || "").toLowerCase();
+      const allowed = [".pdf", ".jpg", ".jpeg", ".png"];
+      if (!allowed.includes(ext)) {
+        res.status(400).json({ error: "GRN invoice file must be PDF, JPG, or PNG." });
+        return;
+      }
+      invoiceFilePath = await persistUploadedFile({
+        category: "customer-documents",
+        buffer: uploadFile.buffer,
+        originalName: uploadFile.originalname || `grn-invoice${ext || ".pdf"}`,
+        mime: uploadFile.mimetype || "application/octet-stream",
+        fallbackExt: ext || ".pdf",
+      });
+    }
     // Items may come as JSON string (multipart) or parsed object (application/json)
     let rawItems = req.body?.items;
     if (typeof rawItems === "string") {

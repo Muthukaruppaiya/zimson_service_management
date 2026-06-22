@@ -1,7 +1,6 @@
 import type { Express, NextFunction, Request, Response } from "express";
-import fs from "node:fs";
 import path from "node:path";
-import multer from "multer";
+import crypto from "node:crypto";
 import {
   getMessagingPublicBaseUrl,
   isEmailConfigured,
@@ -20,36 +19,18 @@ import {
 } from "./messaging/invoicePdfPublicUrl";
 import { resolveSrfPdfFilePath } from "./messaging/srfPdfPublicUrl";
 import { resolveWhatsAppInvoiceDocumentUrl } from "./messaging/invoicePdfDelivery";
+import { createMemoryUpload } from "./storage/multerMemory";
+import { categoryForInvoicePdf } from "./storage/config";
+import { persistUploadedFile, readStoredFileBuffer } from "./storage/fileStorage";
 
-const INVOICE_PDF_DIR = path.join(process.cwd(), "uploads", "invoice-pdf");
-const SRF_PDF_DIR = path.join(process.cwd(), "uploads", "srf-pdf");
+const INVOICE_PDF_DIR = path.join(process.cwd(), "uploads", "Invoices");
+const SRF_PDF_DIR = path.join(process.cwd(), "uploads", "srf");
 
-const invoicePdfUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      try {
-        fs.mkdirSync(INVOICE_PDF_DIR, { recursive: true });
-      } catch {
-        /* ignore */
-      }
-      cb(null, INVOICE_PDF_DIR);
-    },
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname || "").toLowerCase() === ".pdf" ? ".pdf" : ".pdf";
-      cb(null, `inv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`);
-    },
-  }),
-  limits: { fileSize: 12 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const name = (file.originalname ?? "").toLowerCase();
-    const ok =
-      file.mimetype === "application/pdf" ||
-      file.mimetype === "application/octet-stream" ||
-      name.endsWith(".pdf");
-    if (ok) cb(null, true);
-    else cb(new Error("Only PDF files are allowed."));
-  },
-});
+function makeInvoicePdfFilename(): string {
+  return `inv-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.pdf`;
+}
+
+const invoicePdfUpload = createMemoryUpload(12 * 1024 * 1024);
 
 function phoneLast10(v: string): string {
   const digits = v.replace(/\D/g, "");
@@ -77,34 +58,54 @@ export function registerMessagingRoutes(
    * Public tax-invoice PDF for Qikchat/WhatsApp (must return application/pdf, not SPA HTML).
    * URL shape: {MESSAGING_PUBLIC_BASE_URL}/api/messaging/public-invoice-pdf/inv-….pdf
    */
-  app.get("/api/messaging/public-invoice-pdf/:filename", (req, res) => {
-    const filePath = resolveInvoicePdfFilePath(INVOICE_PDF_DIR, String(req.params.filename ?? ""));
-    if (!filePath) {
-      res.status(404).type("text/plain").send("Invoice PDF not found.");
+  app.get("/api/messaging/public-invoice-pdf/:filename", async (req, res) => {
+    const filenameParam = String(req.params.filename ?? "");
+    const filePath = resolveInvoicePdfFilePath(INVOICE_PDF_DIR, filenameParam);
+    if (filePath) {
+      const name = path.basename(filePath);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${name}"`);
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.sendFile(filePath);
       return;
     }
-    const name = path.basename(filePath);
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="${name}"`);
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.sendFile(filePath);
+    const base = path.basename(filenameParam);
+    const buf = await readStoredFileBuffer(`api/media/Invoices/${base}`);
+    if (buf?.length) {
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${base}"`);
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.send(buf);
+      return;
+    }
+    res.status(404).type("text/plain").send("Invoice PDF not found.");
   });
 
   /**
    * Public SRF acknowledgment PDF for Qikchat/WhatsApp (customer_link template document header).
    * URL shape: {MESSAGING_PUBLIC_BASE_URL}/api/messaging/public-srf-pdf/srf-….pdf
    */
-  app.get("/api/messaging/public-srf-pdf/:filename", (req, res) => {
-    const filePath = resolveSrfPdfFilePath(SRF_PDF_DIR, String(req.params.filename ?? ""));
-    if (!filePath) {
-      res.status(404).type("text/plain").send("SRF PDF not found.");
+  app.get("/api/messaging/public-srf-pdf/:filename", async (req, res) => {
+    const filenameParam = String(req.params.filename ?? "");
+    const filePath = resolveSrfPdfFilePath(SRF_PDF_DIR, filenameParam);
+    if (filePath) {
+      const name = path.basename(filePath);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${name}"`);
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.sendFile(filePath);
       return;
     }
-    const name = path.basename(filePath);
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="${name}"`);
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.sendFile(filePath);
+    const base = path.basename(filenameParam);
+    const buf = await readStoredFileBuffer(`api/media/srf/${base}`);
+    if (buf?.length) {
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${base}"`);
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.send(buf);
+      return;
+    }
+    res.status(404).type("text/plain").send("SRF PDF not found.");
   });
 
   app.get("/api/messaging/email/status", requireAuth, (_req, res) => {
@@ -158,8 +159,20 @@ export function registerMessagingRoutes(
 
         const file = req.file;
         let savedApiPdfPath: string | null = null;
-        if (file) {
-          savedApiPdfPath = publicInvoicePdfApiPath(file.filename);
+        let pdfFilename: string | null = null;
+        let storagePath: string | null = null;
+        if (file?.buffer?.length) {
+          pdfFilename = makeInvoicePdfFilename();
+          assertPdfFileBuffer(file.buffer);
+          storagePath = await persistUploadedFile({
+            category: categoryForInvoicePdf(),
+            buffer: file.buffer,
+            originalName: file.originalname || pdfFilename,
+            mime: file.mimetype || "application/pdf",
+            fallbackExt: ".pdf",
+            fixedFilename: pdfFilename,
+          });
+          savedApiPdfPath = publicInvoicePdfApiPath(pdfFilename);
           if (!documentFilename) {
             documentFilename = file.originalname || `Zimson-Invoice-${invoiceNumber}.pdf`;
           }
@@ -172,34 +185,29 @@ export function registerMessagingRoutes(
           return;
         }
 
-        if (file?.path) {
-          assertPdfFileBuffer(fs.readFileSync(file.path));
-        }
-
         const port = Number(process.env.PORT) || 4000;
 
         if (isWhatsAppInvoiceDryRun()) {
-          const localViewUrl = file?.filename
-            ? `http://127.0.0.1:${port}${publicInvoicePdfApiPath(file.filename)}`
+          const localViewUrl = pdfFilename
+            ? `http://127.0.0.1:${port}${publicInvoicePdfApiPath(pdfFilename)}`
             : null;
           res.json({
             ok: true,
             dryRun: true,
             messageId: null,
-            savedPdfPath: file ? `/uploads/invoice-pdf/${file.filename}` : null,
+            savedPdfPath: storagePath,
             localViewUrl,
             message:
-              "Dry run: PDF saved on this PC’s API server (uploads/invoice-pdf). WhatsApp was not called. Set WHATSAPP_INVOICE_DRY_RUN=false to send for real (Work Drive or MESSAGING_PUBLIC_BASE_URL).",
+              "Dry run: PDF saved (uploads/Invoices or S3 Invoices/). WhatsApp was not called. Set WHATSAPP_INVOICE_DRY_RUN=false to send for real.",
           });
           return;
         }
 
-        if (!documentUrl && file?.path && file.filename) {
-          assertPdfFileBuffer(fs.readFileSync(file.path));
+        if (!documentUrl && storagePath && pdfFilename) {
           documentUrl = await resolveWhatsAppInvoiceDocumentUrl(
             req,
-            file.path,
-            file.filename,
+            storagePath,
+            pdfFilename,
             documentFilename || `Zimson-Invoice-${invoiceNumber}.pdf`,
           );
         }
@@ -259,12 +267,12 @@ export function registerMessagingRoutes(
         }
 
         const file = req.file;
-        if (!file?.path) {
+        if (!file?.buffer?.length) {
           res.status(400).json({ error: "Upload the invoice PDF (document field)." });
           return;
         }
 
-        const pdfBuffer = fs.readFileSync(file.path);
+        const pdfBuffer = file.buffer;
         assertPdfFileBuffer(pdfBuffer);
         const documentFilename =
           String(body.documentFilename ?? "").trim() ||

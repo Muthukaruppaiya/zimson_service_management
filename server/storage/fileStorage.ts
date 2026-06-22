@@ -23,8 +23,11 @@ export async function persistUploadedFile(input: {
   originalName: string;
   mime: string;
   fallbackExt?: string;
+  /** When set, use this filename instead of a generated one (must be safe). */
+  fixedFilename?: string;
 }): Promise<string> {
-  const filename = buildStoredFilename(input.originalName, input.fallbackExt ?? ".bin");
+  const filename =
+    input.fixedFilename?.trim() || buildStoredFilename(input.originalName, input.fallbackExt ?? ".bin");
   const relativeKey = `${input.category}/${filename}`;
 
   if (isS3StorageEnabled()) {
@@ -36,6 +39,19 @@ export async function persistUploadedFile(input: {
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, filename), input.buffer);
   return `uploads/${relativeKey}`.replace(/\\/g, "/");
+}
+
+/** Read file bytes from api/media/… storage path or legacy absolute/local path. */
+export async function readStorageFileBytes(filePath: string): Promise<Buffer> {
+  const fp = String(filePath ?? "").replace(/\\/g, "/").trim();
+  const fromStore = fp.startsWith("api/media/") || fp.startsWith("/api/media/");
+  if (fromStore) {
+    const buf = await readStoredFileBuffer(fp.replace(/^\//, ""));
+    if (!buf?.length) throw new Error("File not found in storage.");
+    return buf;
+  }
+  const abs = path.isAbsolute(fp) ? fp : absoluteLocalPath(fp) ?? path.join(process.cwd(), fp);
+  return fs.readFile(abs);
 }
 
 export async function deleteStoredFile(storagePath: string | null | undefined): Promise<void> {

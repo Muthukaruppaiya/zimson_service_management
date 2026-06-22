@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
 import { deleteStoredFile, persistUploadedFile } from "./storage/fileStorage";
+import { categoryForSrfPhoto } from "./storage/config";
 import { createMemoryUpload } from "./storage/multerMemory";
 import type { Pool, PoolClient } from "pg";
 import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib/paymentModes";
@@ -6404,7 +6405,7 @@ export function registerSrfRoutes(
         return;
       }
       const relPath = await persistUploadedFile({
-        category: "srf",
+        category: categoryForSrfPhoto(photoKind),
         buffer: req.file.buffer,
         originalName: req.file.originalname || (photoKind === "document" ? "document.pdf" : "photo.jpg"),
         mime: req.file.mimetype || (photoKind === "document" ? "application/pdf" : "image/jpeg"),

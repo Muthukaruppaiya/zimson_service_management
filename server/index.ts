@@ -11,6 +11,7 @@ import path from "node:path";
 import { join } from "node:path";
 import { resolveInvoicePdfFilePath } from "./messaging/invoicePdfPublicUrl";
 import { resolveSrfPdfFilePath } from "./messaging/srfPdfPublicUrl";
+import { readStoredFileBuffer } from "./storage/fileStorage";
 import { fileURLToPath } from "node:url";
 import { registerCatalogRoutes } from "./catalogRoutes";
 import { registerGeoRoutes } from "./geoRoutes";
@@ -61,7 +62,7 @@ import {
 import { registerAuthSessionRoutes } from "./authSessionRoutes";
 import { registerPasswordResetRoutes } from "./passwordResetRoutes";
 import { startDevPublicTunnel } from "./devPublicTunnel";
-import { isS3StorageEnabled } from "./storage/config";
+import { isS3StorageEnabled, s3Bucket } from "./storage/config";
 import { registerMediaRoutes } from "./storage/mediaRoutes";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -508,32 +509,52 @@ app.use(
 );
 
 /** WhatsApp / Qikchat — registered before SPA fallback so production serves PDF, not index.html. */
-app.get("/api/messaging/public-invoice-pdf/:filename", (req, res) => {
-  const invoicePdfDir = join(process.cwd(), "uploads", "invoice-pdf");
-  const filePath = resolveInvoicePdfFilePath(invoicePdfDir, String(req.params.filename ?? ""));
-  if (!filePath) {
-    res.status(404).type("text/plain").send("Invoice PDF not found.");
+app.get("/api/messaging/public-invoice-pdf/:filename", async (req, res) => {
+  const filenameParam = String(req.params.filename ?? "");
+  const invoicePdfDir = join(process.cwd(), "uploads", "Invoices");
+  const filePath = resolveInvoicePdfFilePath(invoicePdfDir, filenameParam);
+  if (filePath) {
+    const name = path.basename(filePath);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${name}"`);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(filePath);
     return;
   }
-  const name = path.basename(filePath);
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="${name}"`);
-  res.setHeader("Cache-Control", "public, max-age=86400");
-  res.sendFile(filePath);
+  const base = path.basename(filenameParam);
+  const buf = await readStoredFileBuffer(`api/media/Invoices/${base}`);
+  if (buf?.length) {
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${base}"`);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(buf);
+    return;
+  }
+  res.status(404).type("text/plain").send("Invoice PDF not found.");
 });
 
-app.get("/api/messaging/public-srf-pdf/:filename", (req, res) => {
-  const srfPdfDir = join(process.cwd(), "uploads", "srf-pdf");
-  const filePath = resolveSrfPdfFilePath(srfPdfDir, String(req.params.filename ?? ""));
-  if (!filePath) {
-    res.status(404).type("text/plain").send("SRF PDF not found.");
+app.get("/api/messaging/public-srf-pdf/:filename", async (req, res) => {
+  const filenameParam = String(req.params.filename ?? "");
+  const srfPdfDir = join(process.cwd(), "uploads", "srf");
+  const filePath = resolveSrfPdfFilePath(srfPdfDir, filenameParam);
+  if (filePath) {
+    const name = path.basename(filePath);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${name}"`);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(filePath);
     return;
   }
-  const name = path.basename(filePath);
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="${name}"`);
-  res.setHeader("Cache-Control", "public, max-age=86400");
-  res.sendFile(filePath);
+  const base = path.basename(filenameParam);
+  const buf = await readStoredFileBuffer(`api/media/srf/${base}`);
+  if (buf?.length) {
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${base}"`);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(buf);
+    return;
+  }
+  res.status(404).type("text/plain").send("SRF PDF not found.");
 });
 
 async function ensureSeedUsers(): Promise<void> {
@@ -3837,7 +3858,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    `[storage] ${isS3StorageEnabled() ? `Amazon S3 (${process.env.AWS_S3_BUCKET})` : "local disk (uploads/)"}`,
+    `[storage] ${isS3StorageEnabled() ? `Amazon S3 (${s3Bucket()})` : "local disk (uploads/)"}`,
   );
   try {
     await runMigrations(dbPool);

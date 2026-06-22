@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import crypto from "node:crypto";
 import { deleteStoredFile, persistUploadedFile } from "./storage/fileStorage";
+import { categoryForSrfPhoto } from "./storage/config";
 import { createMemoryUpload } from "./storage/multerMemory";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
@@ -351,7 +352,7 @@ export function registerQuickBillCaptureRoutes(
       const oldStored = prior[0]?.file_path;
 
       const storagePath = await persistUploadedFile({
-        category: "quick-bill",
+        category: categoryForSrfPhoto(photoKind),
         buffer: req.file.buffer,
         originalName:
           req.file.originalname ||

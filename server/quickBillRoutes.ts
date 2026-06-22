@@ -1,5 +1,6 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import { persistUploadedFile } from "./storage/fileStorage";
+import { categoryForQuickBillAttachment } from "./storage/config";
 import { createMemoryUpload } from "./storage/multerMemory";
 import type { Pool, PoolClient } from "pg";
 import type { DemoUser } from "../src/types/user";
@@ -435,7 +436,7 @@ export function registerQuickBillRoutes(
     }
     try {
       const storagePath = await persistUploadedFile({
-        category: "quick-bill",
+        category: categoryForQuickBillAttachment(kindRaw),
         buffer: f.buffer,
         originalName: f.originalname || (kindRaw === "doc" ? "document.pdf" : "image.jpg"),
         mime: f.mimetype || "application/octet-stream",
