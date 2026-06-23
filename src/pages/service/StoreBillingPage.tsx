@@ -35,6 +35,10 @@ import {
 import { sanitizeDecimalInput } from "../../lib/inputSanitize";
 import { formatInr } from "../../lib/formatInr";
 import { customerPayableInr } from "../../lib/quickBillPayable";
+import {
+  STORE_BILLING_PRICES_TAX_INCLUSIVE,
+  taxSettingsForStoreBilling,
+} from "../../lib/quickBillPricing";
 import { billableServiceChargeInr } from "../../lib/natureOfRepair";
 import {
   editorLinesBillableSubtotal,
@@ -44,6 +48,7 @@ import {
   type ServiceBillEditorLine,
 } from "../../lib/serviceBillEditorLines";
 import { ServiceBillLinesCard } from "../../components/service/ServiceBillLinesCard";
+import { BillingHandoverPhotoCard } from "../../components/service/BillingHandoverPhotoCard";
 import {
   buildStoreBillingGstLines,
   type StoreBillingAdditionalCharge,
@@ -118,6 +123,11 @@ export function StoreBillingPage() {
   const [hoSparesBillRef, setHoSparesBillRef] = useState("");
   const [storeBillRef, setStoreBillRef] = useState("");
   const [handoverVerified, setHandoverVerified] = useState(false);
+  const [handoverSessionId, setHandoverSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHandoverSessionId(null);
+  }, [billingSelectedId]);
   const [handoverModalOpen, setHandoverModalOpen] = useState(false);
   const [handoverModalMode, setHandoverModalMode] = useState<HandoverOtpMode>("primary");
   const [closingAfterOtp, setClosingAfterOtp] = useState(false);
@@ -210,7 +220,11 @@ export function StoreBillingPage() {
     billingCustomer?.city?.trim() ||
     "";
   const billingCustomerAddress = customerAddressText(billingCustomer);
-  const invoiceSacHsn = serviceTaxSettings?.defaultSacHsn?.trim() || "9987";
+  const storeBillingTaxSettings = useMemo(
+    () => taxSettingsForStoreBilling(serviceTaxSettings),
+    [serviceTaxSettings],
+  );
+  const invoiceSacHsn = storeBillingTaxSettings?.defaultSacHsn?.trim() || "9987";
 
   const spareGstLookup = useCallback(
     (spareId: string) => {
@@ -331,10 +345,10 @@ export function StoreBillingPage() {
 
   const taxPreview = useMemo(() => {
     if (!billingJob || !billingAmounts || isRejectedNoRepairFlow) return null;
-    const labourGstPercent = serviceTaxSettings?.gstRatePercent ?? 18;
+    const labourGstPercent = storeBillingTaxSettings?.gstRatePercent ?? 18;
     const storeGstin =
       storeInvoiceForPrint?.invoiceStoreGstin?.trim() ||
-      serviceTaxSettings?.invoiceStoreGstin?.trim() ||
+      storeBillingTaxSettings?.invoiceStoreGstin?.trim() ||
       "";
     const sellerState = resolveSellerStateCode(storeGstin);
     const customerState = resolveCustomerSupplyStateCode({
@@ -360,7 +374,7 @@ export function StoreBillingPage() {
       spareHsnLookup,
       spareGstLookup,
       defaultSacGstPercent: labourGstPercent,
-      pricesTaxInclusive: Boolean(serviceTaxSettings?.pricesTaxInclusive),
+      pricesTaxInclusive: STORE_BILLING_PRICES_TAX_INCLUSIVE,
       natureOfRepair: billingJob.natureOfRepair,
       sellerStateCode: sellerState,
       customerStateCode: customerState,
@@ -375,7 +389,7 @@ export function StoreBillingPage() {
     serviceChargeBillable,
     previewAdditionalCharges,
     invoiceSacHsn,
-    serviceTaxSettings,
+    storeBillingTaxSettings,
     storeInvoiceForPrint,
     billingCustomerKind,
     billingCustomerGst,
@@ -391,10 +405,10 @@ export function StoreBillingPage() {
     const payable = customerPayableInr(
       billSubtotalBeforeAdvance,
       taxPreview?.totalTax ?? 0,
-      Boolean(serviceTaxSettings?.pricesTaxInclusive),
+      STORE_BILLING_PRICES_TAX_INCLUSIVE,
     );
     return Number.isFinite(payable) ? payable : billSubtotalBeforeAdvance;
-  }, [billSubtotalBeforeAdvance, taxPreview?.totalTax, serviceTaxSettings?.pricesTaxInclusive]);
+  }, [billSubtotalBeforeAdvance, taxPreview?.totalTax]);
 
   const standardBillingTotal = useMemo(() => {
     const due = invoiceTotalInr - advanceAmount;
@@ -487,11 +501,16 @@ export function StoreBillingPage() {
     jobId: string,
     storeBillingSnapshot?: import("../../lib/storeBillingSnapshot").StoreBillingSnapshot,
   ) {
-    return closeWithInvoice(jobId, { hoSparesBillRef, storeBillRef, storeBillingSnapshot });
+    return closeWithInvoice(jobId, {
+      hoSparesBillRef,
+      storeBillRef,
+      storeBillingSnapshot,
+      handoverSessionId,
+    });
   }
 
   async function closeRejectedNoBilling(jobId: string) {
-    await closeWithInvoice(jobId, { noBillingHandover: true });
+    await closeWithInvoice(jobId, { noBillingHandover: true, handoverSessionId });
   }
 
   async function finalizeInvoiceAfterOtp(jobId: string) {
@@ -546,7 +565,7 @@ export function StoreBillingPage() {
       };
       setBillingInvoiceVm(
         buildStoreBillingInvoiceFromClosedJob(closedJob, {
-          taxSettings: serviceTaxSettings,
+          taxSettings: storeBillingTaxSettings,
           defaultHsnSac: invoiceSacHsn,
           storeInvoice: storeInvoiceForPrint,
           customer: cust ?? null,
@@ -565,6 +584,7 @@ export function StoreBillingPage() {
       setBillPostActionNote(null);
       setBillSuccessModalOpen(true);
       setHandoverVerified(false);
+      setHandoverSessionId(null);
       setMessage({
         type: "ok",
         text: closeOut.invoiceNumber
@@ -894,6 +914,10 @@ export function StoreBillingPage() {
                 ) : null}
               </div>
             ) : null}
+            <BillingHandoverPhotoCard
+              srfId={billingJob.id}
+              onSessionChange={setHandoverSessionId}
+            />
             {useQuickBillStyleLines && billingJob ? (
               <ServiceBillLinesCard
                 watchBrand={billingJob.watchBrand}
@@ -909,10 +933,11 @@ export function StoreBillingPage() {
                 customerAddress={billingCustomerAddress}
                 customerCity={billingCustomer?.city}
                 serviceSacHsn={invoiceSacHsn}
-                serviceTaxSettings={serviceTaxSettings}
+                serviceTaxSettings={storeBillingTaxSettings}
+                pricesTaxInclusive={STORE_BILLING_PRICES_TAX_INCLUSIVE}
                 storeGstin={
                   storeInvoiceForPrint?.invoiceStoreGstin?.trim() ||
-                  serviceTaxSettings?.invoiceStoreGstin?.trim()
+                  storeBillingTaxSettings?.invoiceStoreGstin?.trim()
                 }
                 natureOfRepair={billingJob.natureOfRepair}
                 taxPreview={taxPreview}

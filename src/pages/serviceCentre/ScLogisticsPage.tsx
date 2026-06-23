@@ -25,6 +25,8 @@ import {
   type ScInwardDocumentKind,
 } from "../../lib/srfLogisticsDocs";
 import { formatEwayEdocMessage, type EdocUiResult } from "../../lib/edocResultMessage";
+import { transferFlowNeedsEway } from "../../lib/ewayBill";
+import { EwayBillModal } from "../../components/service/EwayBillModal";
 
 const selectClass =
   "mt-1 w-full rounded-xl border border-rlx-rule bg-white px-3 py-2.5 text-sm outline-none focus:border-rlx-green focus:ring-2 focus:ring-rlx-green/30";
@@ -174,7 +176,7 @@ export function ScLogisticsPage() {
     };
   } | null>(null);
 
-  const [ewayBusy, setEwayBusy] = useState(false);
+  const [ewayModalOpen, setEwayModalOpen] = useState(false);
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
@@ -565,6 +567,9 @@ export function ScLogisticsPage() {
         edoc: result.edoc ?? null,
         printOpts,
       });
+      if (transferFlowNeedsEway(printMeta.flow) && result.dcId && !result.edoc?.ewayBillNo) {
+        setEwayModalOpen(true);
+      }
       const ewayNote = formatEwayEdocMessage(result.edoc);
       setOutwardMsg({
         type: "ok",
@@ -587,21 +592,13 @@ export function ScLogisticsPage() {
 
   async function regenerateOutwardEway() {
     if (!outwardAck?.dcId) return;
-    setEwayBusy(true);
-    try {
-      const out = await apiJson<{ edoc?: EdocUiResult }>(
-        `/api/edoc/delivery-challans/${encodeURIComponent(outwardAck.dcId)}/generate-eway`,
-        { method: "POST", json: {} },
-      );
-      const edoc = out.edoc ?? null;
-      setOutwardAck((prev) => (prev ? { ...prev, edoc } : prev));
-      const msg = formatEwayEdocMessage(edoc);
-      setOutwardMsg({ type: edoc?.ok ? "ok" : "err", text: msg ?? "Could not generate e-way bill." });
-    } catch (e) {
-      setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not generate e-way bill." });
-    } finally {
-      setEwayBusy(false);
-    }
+    setEwayModalOpen(true);
+  }
+
+  function onOutwardEwaySuccess(edoc: EdocUiResult) {
+    setOutwardAck((prev) => (prev ? { ...prev, edoc } : prev));
+    const msg = formatEwayEdocMessage(edoc);
+    setOutwardMsg({ type: edoc?.ok ? "ok" : "err", text: msg ?? "Could not generate e-way bill." });
   }
 
   if (user && !canPostDcInward && !canCreateOdc) {
@@ -1208,14 +1205,14 @@ export function ScLogisticsPage() {
                   <dd className="font-medium text-stone-900">{user?.displayName ?? "—"}</dd>
                 </div>
               </dl>
-              {outwardAck.printMeta.printKind === "dc" ? (
+              {transferFlowNeedsEway(outwardAck.printMeta.flow) ? (
                 <div className="mt-4 rounded-xl border border-rlx-gold/40 bg-gradient-to-br from-rlx-green-light/80 to-rlx-gold-light/40 px-4 py-3 text-sm">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">E-way bill (Masters India)</p>
                   {outwardAck.edoc?.ewayBillNo ? (
                     <p className="mt-1 font-mono text-base font-bold text-rlx-green-deep">{outwardAck.edoc.ewayBillNo}</p>
                   ) : (
                     <p className="mt-1 text-rlx-ink-muted">
-                      {formatEwayEdocMessage(outwardAck.edoc) ?? "Not generated yet — enable auto e-way in Settings → E-invoice & e-way, or generate manually."}
+                      {formatEwayEdocMessage(outwardAck.edoc) ?? "Not generated yet — click Create e-way bill and enter transport details."}
                     </p>
                   )}
                   {outwardAck.edoc?.ewayValidUpto ? (
@@ -1224,11 +1221,10 @@ export function ScLogisticsPage() {
                   {outwardAck.dcId ? (
                     <button
                       type="button"
-                      disabled={ewayBusy}
                       onClick={() => void regenerateOutwardEway()}
-                      className="mt-2 rounded-lg border border-rlx-gold bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
+                      className="mt-2 rounded-lg border border-rlx-gold bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
                     >
-                      {ewayBusy ? "Generating…" : outwardAck.edoc?.ewayBillNo ? "Regenerate e-way" : "Generate e-way bill"}
+                      {outwardAck.edoc?.ewayBillNo ? "Regenerate e-way bill" : "Create e-way bill"}
                     </button>
                   ) : null}
                 </div>
@@ -1458,6 +1454,16 @@ export function ScLogisticsPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {outwardAck?.dcId && transferFlowNeedsEway(outwardAck.printMeta.flow) ? (
+        <EwayBillModal
+          open={ewayModalOpen}
+          kind="challan"
+          resourceId={outwardAck.dcId}
+          onClose={() => setEwayModalOpen(false)}
+          onSuccess={onOutwardEwaySuccess}
+        />
       ) : null}
     </div>
   );

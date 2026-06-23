@@ -70,6 +70,7 @@ import { InventoryStockAdjustmentPage } from "./pages/inventory/InventoryStockAd
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
 import { SrfPhotoCapturePage } from "./pages/public/SrfPhotoCapturePage";
+import { SrfBillingHandoverCapturePage } from "./pages/public/SrfBillingHandoverCapturePage";
 import { QuickBillCapturePage } from "./pages/public/QuickBillCapturePage";
 import { SrfTrackingPage } from "./pages/public/SrfTrackingPage";
 
@@ -94,6 +95,7 @@ export default function App() {
             <Route path="/login/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/login/reset-password" element={<ResetPasswordPage />} />
             <Route path="/service/srf-capture" element={<SrfPhotoCapturePage />} />
+            <Route path="/service/srf-handover-capture" element={<SrfBillingHandoverCapturePage />} />
             <Route path="/service/quick-bill-capture" element={<QuickBillCapturePage />} />
             <Route path="/track" element={<SrfTrackingPage />} />
             <Route element={<RequireAuth />}>

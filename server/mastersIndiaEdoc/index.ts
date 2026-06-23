@@ -10,4 +10,12 @@ export {
   tryGenerateEinvoiceForSrfClose,
   tryGenerateEwayForChallan,
   tryGenerateEwayForChallanId,
+  tryGenerateEwayForBrandSend,
+  tryGenerateEwayForOnlineSpareOrder,
+  getEwayPrefillForChallan,
+  getEwayPrefillForBrandSend,
+  getEwayPrefillForOnlineSpareOrder,
+  parseEwayGenerateInput,
+  transferFlowNeedsEway,
 } from "./hooks";
+export type { EwayGenerateInput, EwayPrefill } from "./types";

@@ -84,6 +84,38 @@ export type EwayBuildInput = {
   transportationDistanceKm?: string;
   subSupplyDescription?: string;
   vehicleNumber?: string;
+  transportationMode?: string;
+  transporterName?: string;
+};
+
+/** User-supplied fields when generating an e-way bill manually. */
+export type EwayGenerateInput = {
+  taxableAmountInr?: number;
+  totalInvoiceValueInr?: number;
+  vehicleNumber?: string;
+  transportationDistanceKm?: string;
+  transportationMode?: string;
+  transporterName?: string;
+  forceRegenerate?: boolean;
+  consigneeGstin?: string;
+  consigneeLegalName?: string;
+  consigneeAddress?: string;
+  consigneePlace?: string;
+  consigneePincode?: string;
+};
+
+export type EwayPrefill = {
+  documentNumber: string;
+  flowLabel: string;
+  fromLabel: string;
+  toLabel: string;
+  consignorGstin: string;
+  consigneeGstin: string;
+  vehicleNumber: string;
+  defaultValueInr: number;
+  interstate: boolean;
+  existingEwayBillNo?: string | null;
+  requiresConsigneeInput?: boolean;
 };
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;

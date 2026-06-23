@@ -9,7 +9,7 @@ import {
   resolveSellerStateCode,
 } from "../../lib/gstSupply";
 import { computeServiceBillGst, resolveLineGstPercent } from "../../lib/serviceBillGst";
-import { QUICK_BILL_PRICES_TAX_INCLUSIVE } from "../../lib/quickBillPricing";
+import { COUNTER_PRICES_TAX_INCLUSIVE } from "../../lib/quickBillPricing";
 import type { QuickBillInvoice, QuickBillLineInvoice } from "../../types/quickBill";
 import type {
   PaymentSplit,
@@ -196,7 +196,7 @@ function buildGstLines(
     spareHsnLookup,
     spareGstLookup,
     defaultSacGstPercent,
-    pricesTaxInclusive: QUICK_BILL_PRICES_TAX_INCLUSIVE,
+    pricesTaxInclusive: COUNTER_PRICES_TAX_INCLUSIVE,
     natureOfRepair,
     sellerStateCode,
     customerStateCode,
@@ -219,7 +219,7 @@ function buildGstLines(
     });
     const g = rate / 100;
     let taxableLine = lineAmt;
-    if (QUICK_BILL_PRICES_TAX_INCLUSIVE && g > 0) taxableLine = lineAmt / (1 + g);
+    if (COUNTER_PRICES_TAX_INCLUSIVE && g > 0) taxableLine = lineAmt / (1 + g);
     const unitTaxable = taxableLine / qty;
     totalQty += qty;
     outLines.push({
@@ -462,7 +462,7 @@ export function mapQuickBillInvoiceToViewModel(
 ): ServiceInvoiceViewModel {
   const hsnSac = resolvedHsnSac(options);
   const tax = options?.taxSettings
-    ? { ...options.taxSettings, pricesTaxInclusive: QUICK_BILL_PRICES_TAX_INCLUSIVE }
+    ? { ...options.taxSettings, pricesTaxInclusive: COUNTER_PRICES_TAX_INCLUSIVE }
     : null;
   const sellerPack = mergeSellerFromSettings(tax, options?.storeInvoice ?? undefined);
   const billName =

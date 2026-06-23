@@ -32,6 +32,8 @@ import {
   sparePriceCacheKey,
 } from "../../lib/spareSellingPrice";
 import { inputClassReadOnly } from "../../lib/uiForm";
+import { EwayBillModal } from "../../components/service/EwayBillModal";
+import { formatEwayEdocMessage, type EdocUiResult } from "../../lib/edocResultMessage";
 
 type InterHoSpareOrder = {
   id: string;
@@ -166,6 +168,7 @@ export function ScSupervisorPage() {
   const [orderDetailsId, setOrderDetailsId] = useState<string | null>(null);
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [sendBrandPopupJobId, setSendBrandPopupJobId] = useState<string | null>(null);
+  const [ewayBrandJobId, setEwayBrandJobId] = useState<string | null>(null);
   const [sendBrandDispatchRef, setSendBrandDispatchRef] = useState("");
   const [sendBrandReason, setSendBrandReason] = useState("Cannot be repaired at HO");
   const [brandEstimatePopupJobId, setBrandEstimatePopupJobId] = useState<string | null>(null);
@@ -626,6 +629,7 @@ export function ScSupervisorPage() {
       if (row) printBrandDispatchDocument(row, { dispatchRef, note });
       await technicianSendToBrand(jobId, { dispatchRef, note });
       setFeedback((f) => ({ ...f, [jobId]: "Sent to brand. ODC generated and dispatch document opened for print." }));
+      setEwayBrandJobId(jobId);
       closeSendToBrandPopup();
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not send to brand." }));
@@ -1511,17 +1515,26 @@ export function ScSupervisorPage() {
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {j.status === "sent_to_brand" ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBrandEstimatePopupJobId(j.id);
-                        setBrandEstimateAmountInput("");
-                        setBrandEstimateNoteInput("");
-                      }}
-                      className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
-                    >
-                      Log brand estimate
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setEwayBrandJobId(j.id)}
+                        className="rounded-xl border border-rlx-gold bg-white px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light"
+                      >
+                        Create e-way bill
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBrandEstimatePopupJobId(j.id);
+                          setBrandEstimateAmountInput("");
+                          setBrandEstimateNoteInput("");
+                        }}
+                        className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                      >
+                        Log brand estimate
+                      </button>
+                    </>
                   ) : null}
                   {j.status === "brand_estimate_pending" ? (
                     <button
@@ -3076,6 +3089,23 @@ export function ScSupervisorPage() {
       ) : null}
 
       {traceJobId ? <SrfTraceModal srfId={traceJobId} onClose={() => setTraceJobId(null)} /> : null}
+
+      {ewayBrandJobId ? (
+        <EwayBillModal
+          open={Boolean(ewayBrandJobId)}
+          kind="brand"
+          resourceId={ewayBrandJobId}
+          onClose={() => setEwayBrandJobId(null)}
+          onSuccess={(edoc: EdocUiResult) => {
+            if (ewayBrandJobId) {
+              setFeedback((f) => ({
+                ...f,
+                [ewayBrandJobId]: formatEwayEdocMessage(edoc) ?? "E-way bill generated.",
+              }));
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }

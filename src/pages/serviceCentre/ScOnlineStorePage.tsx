@@ -4,6 +4,8 @@ import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { apiJson } from "../../lib/api";
+import { EwayBillModal } from "../../components/service/EwayBillModal";
+import { formatEwayEdocMessage, type EdocUiResult } from "../../lib/edocResultMessage";
 
 type InterHoSpareOrder = {
   id: string;
@@ -48,6 +50,7 @@ export function ScOnlineStorePage() {
   const { user } = useAuth();
   const [rows, setRows] = useState<InterHoSpareOrder[]>([]);
   const [msg, setMsg] = useState("");
+  const [ewayOrderId, setEwayOrderId] = useState<string | null>(null);
 
   const selectedOrder = useMemo(
     () => rows.find((o) => o.id === orderId) ?? null,
@@ -92,6 +95,11 @@ export function ScOnlineStorePage() {
     return "INWARD DONE";
   }
 
+  function canCreateEway(o: InterHoSpareOrder): boolean {
+    if (o.status !== "FULFILLED" || !o.dispatchedAt) return false;
+    return user?.role === "super_admin" || user?.role === "admin" || o.toRegionId === (user?.regionId ?? "");
+  }
+
   async function markDispatch(orderId: string) {
     const note = window.prompt("Outward note (optional)") ?? "";
     try {
@@ -101,6 +109,7 @@ export function ScOnlineStorePage() {
       });
       await refreshOrders();
       setMsg("Outward dispatch updated.");
+      setEwayOrderId(orderId);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Could not mark outward dispatch.");
     }
@@ -217,6 +226,15 @@ export function ScOnlineStorePage() {
                     Mark outward dispatch
                   </button>
                 ) : null}
+                {canCreateEway(selectedOrder) ? (
+                  <button
+                    type="button"
+                    onClick={() => setEwayOrderId(selectedOrder.id)}
+                    className="rounded-lg border border-rlx-gold bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
+                  >
+                    Create e-way bill
+                  </button>
+                ) : null}
                 {canInward(selectedOrder) ? (
                   <button type="button" onClick={() => void markInward(selectedOrder.id)} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100">
                     Mark inward receive
@@ -227,6 +245,18 @@ export function ScOnlineStorePage() {
           )
         ) : null}
       </Card>
+
+      {ewayOrderId ? (
+        <EwayBillModal
+          open={Boolean(ewayOrderId)}
+          kind="online_order"
+          resourceId={ewayOrderId}
+          onClose={() => setEwayOrderId(null)}
+          onSuccess={(edoc: EdocUiResult) => {
+            setMsg(formatEwayEdocMessage(edoc) ?? "E-way bill generated.");
+          }}
+        />
+      ) : null}
     </div>
   );
 }

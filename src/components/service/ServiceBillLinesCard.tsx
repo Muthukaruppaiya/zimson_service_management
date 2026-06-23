@@ -50,6 +50,8 @@ type Props = {
   billSubtotalInr: number;
   advanceInr: number;
   standardTotalInr: number;
+  /** When set, overrides serviceTaxSettings.pricesTaxInclusive (store billing uses tax-inclusive MRP). */
+  pricesTaxInclusive?: boolean;
   userRole?: string | null;
   /** Store user: slip spares read-only; only labour / service charge editable. */
   labourChargesOnly?: boolean;
@@ -81,10 +83,13 @@ export function ServiceBillLinesCard({
   billSubtotalInr,
   advanceInr,
   standardTotalInr,
+  pricesTaxInclusive: pricesTaxInclusiveProp,
   userRole,
   labourChargesOnly = false,
   onValidationError,
 }: Props) {
+  const pricesTaxInclusive =
+    pricesTaxInclusiveProp ?? Boolean(serviceTaxSettings?.pricesTaxInclusive);
   const [barcodeSku, setBarcodeSku] = useState("");
   const [partPick, setPartPick] = useState("");
 
@@ -426,9 +431,15 @@ export function ServiceBillLinesCard({
               Seller: {stateCodeLabel(sellerStateCode)} · Customer: {stateCodeLabel(customerStateCode)}
               {!isNatureOfRepairTaxable(natureOfRepair) ? " · No tax (nature of repair)" : null}
             </p>
+            {pricesTaxInclusive ? (
+              <p className="mt-1 text-xs text-stone-600">
+                Line amounts are tax-inclusive (MRP). GST below is split from the line total for the
+                invoice.
+              </p>
+            ) : null}
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
               <div>
-                <dt className="text-stone-500">Taxable</dt>
+                <dt className="text-stone-500">{pricesTaxInclusive ? "Base value" : "Taxable"}</dt>
                 <dd className="font-semibold">₹{taxPreview.grossTaxable.toFixed(2)}</dd>
               </div>
               {taxPreview.isInterstate ? (
@@ -449,14 +460,25 @@ export function ServiceBillLinesCard({
                 </>
               )}
               <div>
-                <dt className="text-stone-500">Total tax</dt>
+                <dt className="text-stone-500">Tax (GST)</dt>
                 <dd className="font-semibold">₹{taxPreview.totalTax.toFixed(2)}</dd>
               </div>
+              {pricesTaxInclusive ? (
+                <div>
+                  <dt className="text-stone-500">Gross total</dt>
+                  <dd className="font-semibold">
+                    ₹
+                    {(
+                      taxPreview.grossTaxable + taxPreview.totalTax
+                    ).toFixed(2)}
+                  </dd>
+                </div>
+              ) : null}
             </dl>
             <div className="mt-3">
               <GstSummaryBlock
                 taxPreview={taxPreview}
-                pricesTaxInclusive={Boolean(serviceTaxSettings?.pricesTaxInclusive)}
+                pricesTaxInclusive={pricesTaxInclusive}
                 billSubtotalInr={billSubtotalInr}
                 advanceInr={advanceInr}
                 standardTotalInr={standardTotalInr}

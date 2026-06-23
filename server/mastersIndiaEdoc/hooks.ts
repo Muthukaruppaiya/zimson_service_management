@@ -30,11 +30,62 @@ import {
   resolveEdocHsnSac,
   defaultUqcForEdocLine,
 } from "./hsnSac";
-import { saveDeliveryChallanEdoc, saveQuickBillEdoc, saveServiceInvoiceEdoc, saveSrfEdoc } from "./persist";
-import type { EdocLine, EdocParty, EdocResult, EdocValueTotals } from "./types";
+import { saveDeliveryChallanEdoc, saveInterHoSpareOrderEwayEdoc, saveQuickBillEdoc, saveServiceInvoiceEdoc, saveSrfEdoc, saveSrfEwayEdoc } from "./persist";
+import type { EdocLine, EdocParty, EdocResult, EdocValueTotals, EwayGenerateInput, EwayPrefill } from "./types";
 
 function skip(reason: string): EdocResult {
   return { ok: false, skipped: true, skipReason: reason };
+}
+
+export function parseEwayGenerateInput(body: unknown): EwayGenerateInput {
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const num = (key: string) => {
+    const n = Number(b[key]);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
+  const str = (key: string) => {
+    const s = String(b[key] ?? "").trim();
+    return s || undefined;
+  };
+  return {
+    taxableAmountInr: num("taxableAmountInr"),
+    totalInvoiceValueInr: num("totalInvoiceValueInr"),
+    vehicleNumber: str("vehicleNumber"),
+    transportationDistanceKm: str("transportationDistanceKm"),
+    transportationMode: str("transportationMode"),
+    transporterName: str("transporterName"),
+    forceRegenerate: b.forceRegenerate === true,
+    consigneeGstin: str("consigneeGstin"),
+    consigneeLegalName: str("consigneeLegalName"),
+    consigneeAddress: str("consigneeAddress"),
+    consigneePlace: str("consigneePlace"),
+    consigneePincode: str("consigneePincode"),
+  };
+}
+
+function resolveEwayTotals(
+  nominalInr: number,
+  interstate: boolean,
+  input?: EwayGenerateInput,
+): Pick<EwayBuildInput, "taxableAmount" | "totalInvoiceValue" | "cgst" | "sgst" | "igst"> {
+  if (input?.taxableAmountInr && input.taxableAmountInr > 0) {
+    return nominalEwayTotals(input.taxableAmountInr, interstate);
+  }
+  if (input?.totalInvoiceValueInr && input.totalInvoiceValueInr > 0) {
+    const taxableBack = Math.round((input.totalInvoiceValueInr / 1.18) * 100) / 100;
+    return nominalEwayTotals(taxableBack, interstate);
+  }
+  return nominalEwayTotals(nominalInr, interstate);
+}
+
+function flowLabelFromMeta(printMeta: TransferPrintMeta): string {
+  if (printMeta.flow === "ho_to_ho_return") return "HO return after repair";
+  if (printMeta.flow === "ho_to_ho_dispatch") return "Inter-HO repair dispatch";
+  return printMeta.flow.replace(/_/g, " ");
+}
+
+export function transferFlowNeedsEway(flow: TransferPrintMeta["flow"]): boolean {
+  return flow === "ho_to_ho_dispatch" || flow === "ho_to_ho_return";
 }
 
 async function loadTaxSettings(db: Pool) {
@@ -439,7 +490,7 @@ export async function tryGenerateEinvoiceForSrfClose(
   const storeGstin = String(store?.invoice_gstin ?? "").trim();
   const sellerGstin = resolveEdocSellerGstin(storeGstin, taxRow?.invoice_store_gstin, cfg);
   const configuredGst = Number(taxRow?.gst_rate_percent ?? 18);
-  const pricesTaxInclusive = Boolean(taxRow?.prices_tax_inclusive);
+  const pricesTaxInclusive = true;
   const natureOfRepair = job.nature_of_repair ?? "";
 
   const sellerStateCode = resolveSellerStateCode(sellerGstin);
@@ -765,11 +816,61 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
   return result;
 }
 
+export async function getEwayPrefillForChallan(pool: Pool, dcId: string): Promise<EwayPrefill | null> {
+  const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
+  if (!rebuilt) return null;
+  const { printMeta } = rebuilt;
+  if (!transferFlowNeedsEway(printMeta.flow)) return null;
+
+  const cfg = getMastersIndiaEdocConfig();
+  const dcRes = await pool.query<{ dc_number: string; edoc_eway_bill_no: string | null }>(
+    `SELECT dc_number, edoc_eway_bill_no FROM delivery_challans WHERE id = $1::uuid`,
+    [dcId],
+  );
+  const dc = dcRes.rows[0];
+  if (!dc) return null;
+
+  const vehicleRes = await pool.query<{ brand_dispatch_ref: string | null }>(
+    `SELECT j.brand_dispatch_ref
+     FROM delivery_challan_lines l
+     JOIN srf_jobs j ON j.id = l.srf_id
+     WHERE l.dc_id = $1::uuid
+     ORDER BY j.reference ASC
+     LIMIT 1`,
+    [dcId],
+  );
+  const vehicleNumber = String(vehicleRes.rows[0]?.brand_dispatch_ref ?? "").trim();
+  const consignorGstin = normalizeTransferGstin(printMeta.from.gstin);
+  const consigneeGstin = normalizeTransferGstin(printMeta.to.gstin);
+  const interstate = gstinStateCode(consignorGstin) !== gstinStateCode(consigneeGstin);
+
+  return {
+    documentNumber: printMeta.transferNumber || dc.dc_number,
+    flowLabel: flowLabelFromMeta(printMeta),
+    fromLabel: printMeta.from.locationLabel,
+    toLabel: printMeta.to.locationLabel,
+    consignorGstin,
+    consigneeGstin,
+    vehicleNumber,
+    defaultValueInr: cfg?.ewayNominalValueInr ?? 1000,
+    interstate,
+    existingEwayBillNo: dc.edoc_eway_bill_no,
+  };
+}
+
+function normalizeTransferGstin(gstin: string): string {
+  const g = String(gstin ?? "")
+    .trim()
+    .toUpperCase();
+  return g === "—" ? "" : g;
+}
+
 export async function tryGenerateEwayForChallan(
   pool: Pool,
   dcId: string,
   printMeta: TransferPrintMeta,
   lineCount: number,
+  input?: EwayGenerateInput,
 ): Promise<EdocResult> {
   const cfg = getMastersIndiaEdocConfig();
   if (!cfg?.enabled) return skip("E-doc not configured");
@@ -780,8 +881,14 @@ export async function tryGenerateEwayForChallan(
   );
   const dc = dcRes.rows[0];
   if (!dc) return skip("Challan not found");
-  if (dc.edoc_eway_bill_no) {
+  if (dc.edoc_eway_bill_no && !input?.forceRegenerate) {
     return { ok: true, ewayBillNo: dc.edoc_eway_bill_no, skipped: true, skipReason: "E-way already exists" };
+  }
+
+  if (!transferFlowNeedsEway(printMeta.flow)) {
+    const r = skip("E-way is required only for inter-HO transfer (not store dispatch).");
+    await saveDeliveryChallanEdoc(pool, dcId, r);
+    return r;
   }
 
   const printKind = transferPrintKindFromGstins(printMeta.from.gstin, printMeta.to.gstin);
@@ -801,14 +908,8 @@ export async function tryGenerateEwayForChallan(
 
   const userGstin = resolveEdocEwayUserGstin(consignor.gstin, cfg);
   const interstate = consignor.stateCode !== consignee.stateCode;
-  const nominal = nominalEwayTotals(cfg.ewayNominalValueInr, interstate);
-
-  const flowLabel =
-    printMeta.flow === "ho_to_ho_return"
-      ? "HO return after repair"
-      : printMeta.flow === "ho_to_ho_dispatch"
-        ? "Inter-HO repair dispatch"
-        : printMeta.flow;
+  const nominal = resolveEwayTotals(cfg.ewayNominalValueInr, interstate, input);
+  const flowLabel = flowLabelFromMeta(printMeta);
 
   const payload = buildEwayPayload({
     userGstin,
@@ -820,13 +921,269 @@ export async function tryGenerateEwayForChallan(
     itemDescription: `Wrist watches — ${lineCount} unit(s) — ${flowLabel}`,
     hsnSac: "9113",
     qty: Math.max(1, lineCount),
-    transportationDistanceKm: "0",
+    transportationDistanceKm: input?.transportationDistanceKm ?? "0",
     subSupplyDescription: flowLabel,
+    vehicleNumber: input?.vehicleNumber,
+    transportationMode: input?.transportationMode,
+    transporterName: input?.transporterName,
   });
 
   const result = await generateEwayBill(cfg, payload);
   await saveDeliveryChallanEdoc(pool, dcId, result);
   return result;
+}
+
+export async function tryGenerateEwayForChallanId(
+  pool: Pool,
+  dcId: string,
+  input?: EwayGenerateInput,
+): Promise<EdocResult> {
+  const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
+  if (!rebuilt) return skip("Challan not found or has no lines");
+  return tryGenerateEwayForChallan(pool, dcId, rebuilt.printMeta, rebuilt.lineCount, input);
+}
+
+export async function getEwayPrefillForBrandSend(pool: Pool, srfId: string): Promise<EwayPrefill | null> {
+  const cfg = getMastersIndiaEdocConfig();
+  const { rows } = await pool.query<{
+    brand_odc_number: string | null;
+    brand_dispatch_ref: string | null;
+    watch_brand: string;
+    region_id: string;
+    edoc_eway_bill_no: string | null;
+  }>(
+    `SELECT brand_odc_number, brand_dispatch_ref, watch_brand, region_id, edoc_eway_bill_no
+     FROM srf_jobs WHERE id = $1::uuid`,
+    [srfId],
+  );
+  const row = rows[0];
+  if (!row?.brand_odc_number) return null;
+
+  const { rows: regRows } = await pool.query<{ name: string; gst: string | null }>(
+    `SELECT name, gst FROM regions WHERE id = $1::text`,
+    [row.region_id],
+  );
+  const reg = regRows[0];
+  const consignorGstin = String(reg?.gst ?? "").trim().toUpperCase();
+
+  return {
+    documentNumber: row.brand_odc_number,
+    flowLabel: `Send to brand (${row.watch_brand})`,
+    fromLabel: reg?.name ? `HO / Service Centre: ${reg.name}` : "Service centre HO",
+    toLabel: `Brand service centre — ${row.watch_brand}`,
+    consignorGstin,
+    consigneeGstin: "",
+    vehicleNumber: String(row.brand_dispatch_ref ?? "").trim(),
+    defaultValueInr: cfg?.ewayNominalValueInr ?? 1000,
+    interstate: true,
+    existingEwayBillNo: row.edoc_eway_bill_no,
+    requiresConsigneeInput: true,
+  };
+}
+
+export async function tryGenerateEwayForBrandSend(
+  pool: Pool,
+  srfId: string,
+  input?: EwayGenerateInput,
+): Promise<EdocResult> {
+  const cfg = getMastersIndiaEdocConfig();
+  if (!cfg?.enabled) return skip("E-doc not configured");
+
+  const { rows } = await pool.query<{
+    brand_odc_number: string | null;
+    brand_sent_at: Date | null;
+    watch_brand: string;
+    region_id: string;
+    edoc_eway_bill_no: string | null;
+  }>(
+    `SELECT brand_odc_number, brand_sent_at, watch_brand, region_id, edoc_eway_bill_no
+     FROM srf_jobs WHERE id = $1::uuid`,
+    [srfId],
+  );
+  const row = rows[0];
+  if (!row?.brand_odc_number) return skip("Brand ODC not found — send to brand first.");
+  if (row.edoc_eway_bill_no && !input?.forceRegenerate) {
+    return { ok: true, ewayBillNo: row.edoc_eway_bill_no, skipped: true, skipReason: "E-way already exists" };
+  }
+
+  const client = await pool.connect();
+  try {
+    const from = await loadRegionHoPartyForEway(client, row.region_id);
+    const consignor = partyFromTransferBlock(from, resolveEdocEwayUserGstin("", cfg));
+    if (!isValidGstin(consignor.gstin)) {
+      const r = skip("Consignor HO GSTIN required for e-way");
+      await saveSrfEwayEdoc(pool, srfId, r);
+      return r;
+    }
+
+    const consigneeGstin = String(input?.consigneeGstin ?? "").trim().toUpperCase();
+    if (!isValidGstin(consigneeGstin)) {
+      const r = skip("Brand consignee GSTIN is required for e-way");
+      await saveSrfEwayEdoc(pool, srfId, r);
+      return r;
+    }
+    const consignee = buildPartyFromBillFields({
+      gstin: consigneeGstin,
+      legalName: input?.consigneeLegalName?.trim() || `Brand — ${row.watch_brand}`,
+      address: input?.consigneeAddress,
+      city: input?.consigneePlace,
+    });
+    if (input?.consigneePincode) {
+      const pin = parseInt(String(input.consigneePincode).replace(/\D/g, ""), 10);
+      if (Number.isFinite(pin) && pin > 0) consignee.pincode = pin;
+    }
+
+    const userGstin = resolveEdocEwayUserGstin(consignor.gstin, cfg);
+    const interstate = consignor.stateCode !== consignee.stateCode;
+    const nominal = resolveEwayTotals(cfg.ewayNominalValueInr, interstate, input);
+
+    const payload = buildEwayPayload({
+      userGstin,
+      documentNumber: row.brand_odc_number,
+      documentDate: row.brand_sent_at ? new Date(row.brand_sent_at) : new Date(),
+      consignor,
+      consignee,
+      ...nominal,
+      itemDescription: `Wrist watch — brand repair — ${row.watch_brand}`,
+      hsnSac: "9113",
+      qty: 1,
+      transportationDistanceKm: input?.transportationDistanceKm ?? "0",
+      subSupplyDescription: `Send to brand — ${row.watch_brand}`,
+      vehicleNumber: input?.vehicleNumber,
+      transportationMode: input?.transportationMode,
+      transporterName: input?.transporterName,
+    });
+
+    const result = await generateEwayBill(cfg, payload);
+    await saveSrfEwayEdoc(pool, srfId, result);
+    return result;
+  } finally {
+    client.release();
+  }
+}
+
+async function loadRegionHoPartyForEway(client: import("pg").PoolClient, regionId: string) {
+  const { loadRegionHoParty } = await import("../transferDocMeta");
+  return loadRegionHoParty(client, regionId);
+}
+
+export async function getEwayPrefillForOnlineSpareOrder(pool: Pool, orderId: string): Promise<EwayPrefill | null> {
+  const cfg = getMastersIndiaEdocConfig();
+  const { rows } = await pool.query<{
+    order_number: string;
+    from_region_id: string;
+    to_region_id: string;
+    dispatched_at: string | null;
+    edoc_eway_bill_no: string | null;
+    line_total: string | null;
+  }>(
+    `SELECT o.order_number, o.from_region_id, o.to_region_id, o.dispatched_at, o.edoc_eway_bill_no,
+            (SELECT COALESCE(SUM(l.line_total_inr), 0)::text FROM srf_inter_ho_spare_order_lines l WHERE l.order_id = o.id) AS line_total
+     FROM srf_inter_ho_spare_orders o
+     WHERE o.id = $1::uuid`,
+    [orderId],
+  );
+  const row = rows[0];
+  if (!row?.dispatched_at) return null;
+
+  const { rows: regions } = await pool.query<{ id: string; name: string; gst: string | null }>(
+    `SELECT id, name, gst FROM regions WHERE id = ANY($1::text[])`,
+    [[row.from_region_id, row.to_region_id]],
+  );
+  const byId = new Map(regions.map((r) => [r.id, r]));
+  const supplier = byId.get(row.to_region_id);
+  const requester = byId.get(row.from_region_id);
+  const consignorGstin = String(supplier?.gst ?? "").trim().toUpperCase();
+  const consigneeGstin = String(requester?.gst ?? "").trim().toUpperCase();
+  const lineTotal = Number(row.line_total ?? 0);
+  const defaultValue = lineTotal > 0 ? lineTotal : (cfg?.ewayNominalValueInr ?? 1000);
+
+  return {
+    documentNumber: row.order_number,
+    flowLabel: "Online store — inter-HO spare dispatch",
+    fromLabel: supplier?.name ? `HO / Service Centre: ${supplier.name}` : "Supplier HO",
+    toLabel: requester?.name ? `HO / Service Centre: ${requester.name}` : "Requesting HO",
+    consignorGstin,
+    consigneeGstin,
+    vehicleNumber: "",
+    defaultValueInr: defaultValue,
+    interstate: gstinStateCode(consignorGstin) !== gstinStateCode(consigneeGstin),
+    existingEwayBillNo: row.edoc_eway_bill_no,
+  };
+}
+
+export async function tryGenerateEwayForOnlineSpareOrder(
+  pool: Pool,
+  orderId: string,
+  input?: EwayGenerateInput,
+): Promise<EdocResult> {
+  const cfg = getMastersIndiaEdocConfig();
+  if (!cfg?.enabled) return skip("E-doc not configured");
+
+  const { rows } = await pool.query<{
+    order_number: string;
+    from_region_id: string;
+    to_region_id: string;
+    dispatched_at: string | null;
+    edoc_eway_bill_no: string | null;
+    line_total: string | null;
+  }>(
+    `SELECT o.order_number, o.from_region_id, o.to_region_id, o.dispatched_at, o.edoc_eway_bill_no,
+            (SELECT COALESCE(SUM(l.line_total_inr), 0)::text FROM srf_inter_ho_spare_order_lines l WHERE l.order_id = o.id) AS line_total
+     FROM srf_inter_ho_spare_orders o
+     WHERE o.id = $1::uuid`,
+    [orderId],
+  );
+  const row = rows[0];
+  if (!row?.dispatched_at) return skip("Complete outward dispatch before generating e-way.");
+  if (row.edoc_eway_bill_no && !input?.forceRegenerate) {
+    return { ok: true, ewayBillNo: row.edoc_eway_bill_no, skipped: true, skipReason: "E-way already exists" };
+  }
+
+  const client = await pool.connect();
+  try {
+    const from = await loadRegionHoPartyForEway(client, row.to_region_id);
+    const to = await loadRegionHoPartyForEway(client, row.from_region_id);
+    const consignor = partyFromTransferBlock(from, resolveEdocEwayUserGstin("", cfg));
+    const consignee = partyFromTransferBlock(to, consignor.gstin);
+    if (!isValidGstin(consignor.gstin) || !isValidGstin(consignee.gstin)) {
+      const r = skip("Consignor and consignee GSTIN required for e-way");
+      await saveInterHoSpareOrderEwayEdoc(pool, orderId, r);
+      return r;
+    }
+
+    const userGstin = resolveEdocEwayUserGstin(consignor.gstin, cfg);
+    const interstate = consignor.stateCode !== consignee.stateCode;
+    const lineTotal = Number(row.line_total ?? 0);
+    const mergedInput: EwayGenerateInput = {
+      ...input,
+      taxableAmountInr: input?.taxableAmountInr ?? (lineTotal > 0 ? lineTotal : undefined),
+    };
+    const nominal = resolveEwayTotals(cfg.ewayNominalValueInr, interstate, mergedInput);
+
+    const payload = buildEwayPayload({
+      userGstin,
+      documentNumber: row.order_number,
+      documentDate: new Date(row.dispatched_at),
+      consignor,
+      consignee,
+      ...nominal,
+      itemDescription: "Spare parts — inter-HO online store dispatch",
+      hsnSac: "9113",
+      qty: 1,
+      transportationDistanceKm: input?.transportationDistanceKm ?? "0",
+      subSupplyDescription: "Online store inter-HO spare dispatch",
+      vehicleNumber: input?.vehicleNumber,
+      transportationMode: input?.transportationMode,
+      transporterName: input?.transporterName,
+    });
+
+    const result = await generateEwayBill(cfg, payload);
+    await saveInterHoSpareOrderEwayEdoc(pool, orderId, result);
+    return result;
+  } finally {
+    client.release();
+  }
 }
 
 export function edocEnabled(): boolean {
@@ -842,10 +1199,4 @@ export function edocEwayAutoEnabled(): boolean {
 export function edocFailOpen(): boolean {
   const cfg = getMastersIndiaEdocConfig();
   return cfg?.failOpen !== false;
-}
-
-export async function tryGenerateEwayForChallanId(pool: Pool, dcId: string): Promise<EdocResult> {
-  const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
-  if (!rebuilt) return skip("Challan not found or has no lines");
-  return tryGenerateEwayForChallan(pool, dcId, rebuilt.printMeta, rebuilt.lineCount);
 }

@@ -6,6 +6,12 @@ import {
   tryGenerateEinvoiceForQuickBill,
   tryGenerateEinvoiceForSrfClose,
   tryGenerateEwayForChallanId,
+  tryGenerateEwayForBrandSend,
+  tryGenerateEwayForOnlineSpareOrder,
+  getEwayPrefillForChallan,
+  getEwayPrefillForBrandSend,
+  getEwayPrefillForOnlineSpareOrder,
+  parseEwayGenerateInput,
 } from "./mastersIndiaEdoc";
 import { toPublicEdocSettings, refreshEdocSettingsCache } from "./edocSettingsStore";
 
@@ -65,13 +71,78 @@ export function registerEdocRoutes(
     res.status(result.ok ? 200 : 400).json({ edoc: result });
   });
 
+  app.get("/api/edoc/delivery-challans/:dcId/eway-prefill", requireAuth, async (req, res) => {
+    const dcId = String(req.params.dcId ?? "").trim();
+    if (!dcId) {
+      res.status(400).json({ error: "dcId required" });
+      return;
+    }
+    const prefill = await getEwayPrefillForChallan(pool, dcId);
+    if (!prefill) {
+      res.status(404).json({ error: "E-way prefill not available for this challan." });
+      return;
+    }
+    res.json({ prefill });
+  });
+
   app.post("/api/edoc/delivery-challans/:dcId/generate-eway", requireAuth, async (req, res) => {
     const dcId = String(req.params.dcId ?? "").trim();
     if (!dcId) {
       res.status(400).json({ error: "dcId required" });
       return;
     }
-    const result = await tryGenerateEwayForChallanId(pool, dcId);
+    const input = parseEwayGenerateInput(req.body);
+    const result = await tryGenerateEwayForChallanId(pool, dcId, input);
+    res.status(result.ok ? 200 : result.skipped ? 200 : 400).json({ edoc: result });
+  });
+
+  app.get("/api/edoc/srf-jobs/:srfId/eway-prefill", requireAuth, async (req, res) => {
+    const srfId = String(req.params.srfId ?? "").trim();
+    if (!srfId) {
+      res.status(400).json({ error: "srfId required" });
+      return;
+    }
+    const prefill = await getEwayPrefillForBrandSend(pool, srfId);
+    if (!prefill) {
+      res.status(404).json({ error: "E-way prefill not available — send watch to brand first." });
+      return;
+    }
+    res.json({ prefill });
+  });
+
+  app.post("/api/edoc/srf-jobs/:srfId/generate-eway", requireAuth, async (req, res) => {
+    const srfId = String(req.params.srfId ?? "").trim();
+    if (!srfId) {
+      res.status(400).json({ error: "srfId required" });
+      return;
+    }
+    const input = parseEwayGenerateInput(req.body);
+    const result = await tryGenerateEwayForBrandSend(pool, srfId, input);
+    res.status(result.ok ? 200 : result.skipped ? 200 : 400).json({ edoc: result });
+  });
+
+  app.get("/api/edoc/inter-ho-spare-orders/:orderId/eway-prefill", requireAuth, async (req, res) => {
+    const orderId = String(req.params.orderId ?? "").trim();
+    if (!orderId) {
+      res.status(400).json({ error: "orderId required" });
+      return;
+    }
+    const prefill = await getEwayPrefillForOnlineSpareOrder(pool, orderId);
+    if (!prefill) {
+      res.status(404).json({ error: "E-way prefill not available — complete outward dispatch first." });
+      return;
+    }
+    res.json({ prefill });
+  });
+
+  app.post("/api/edoc/inter-ho-spare-orders/:orderId/generate-eway", requireAuth, async (req, res) => {
+    const orderId = String(req.params.orderId ?? "").trim();
+    if (!orderId) {
+      res.status(400).json({ error: "orderId required" });
+      return;
+    }
+    const input = parseEwayGenerateInput(req.body);
+    const result = await tryGenerateEwayForOnlineSpareOrder(pool, orderId, input);
     res.status(result.ok ? 200 : result.skipped ? 200 : 400).json({ edoc: result });
   });
 }

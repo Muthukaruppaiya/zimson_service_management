@@ -200,6 +200,7 @@ type SrfJobsContextValue = {
       hoSparesBillRef?: string;
       storeBillRef?: string;
       noBillingHandover?: boolean;
+      handoverSessionId?: string | null;
       storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
     },
   ) => Promise<{
@@ -633,6 +634,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       hoSparesBillRef?: string;
       storeBillRef?: string;
       noBillingHandover?: boolean;
+      handoverSessionId?: string | null;
       storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
     },
   ) => {

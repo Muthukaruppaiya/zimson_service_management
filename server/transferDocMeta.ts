@@ -108,7 +108,7 @@ async function loadStoreParty(client: PoolClient, storeId: string): Promise<Tran
   };
 }
 
-async function loadRegionHoParty(client: PoolClient, regionId: string): Promise<TransferPartyBlock> {
+export async function loadRegionHoParty(client: PoolClient, regionId: string): Promise<TransferPartyBlock> {
   const { rows } = await client.query<{
     name: string;
     address: string | null;

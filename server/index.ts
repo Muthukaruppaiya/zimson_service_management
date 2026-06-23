@@ -19,6 +19,7 @@ import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { registerQuickBillRoutes } from "./quickBillRoutes";
 import { registerServiceInvoiceRoutes } from "./serviceInvoiceRoutes";
 import { registerQuickBillCaptureRoutes } from "./quickBillCaptureRoutes";
+import { registerSrfBillingHandoverRoutes } from "./srfBillingHandoverRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { getMessagingPublicBaseUrl, isWhatsAppInvoiceDryRun } from "./messaging/config";
 import { initMessagingSettings } from "./messagingSettingsStore";
@@ -3884,6 +3885,7 @@ async function main() {
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerServiceInvoiceRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerQuickBillCaptureRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerSrfBillingHandoverRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerEdocRoutes(app, dbPool, requireAuth);
   await initEdocSettings(dbPool);

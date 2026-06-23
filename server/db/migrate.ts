@@ -1270,6 +1270,12 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_status VARCHAR(24);
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_error TEXT;
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_generated_at TIMESTAMPTZ;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_eway_bill_no VARCHAR(32);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_eway_valid_upto VARCHAR(48);
+    ALTER TABLE srf_inter_ho_spare_orders ADD COLUMN IF NOT EXISTS edoc_eway_bill_no VARCHAR(32);
+    ALTER TABLE srf_inter_ho_spare_orders ADD COLUMN IF NOT EXISTS edoc_eway_valid_upto VARCHAR(48);
+    ALTER TABLE srf_inter_ho_spare_orders ADD COLUMN IF NOT EXISTS edoc_error TEXT;
+    ALTER TABLE srf_inter_ho_spare_orders ADD COLUMN IF NOT EXISTS edoc_generated_at TIMESTAMPTZ;
   `);
 
   await pool.query(`
@@ -1355,5 +1361,24 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_error TEXT;
     ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_generated_at TIMESTAMPTZ;
     ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_qr TEXT;
+
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS handover_photo_path TEXT;
+
+    CREATE TABLE IF NOT EXISTS srf_billing_handover_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+      token_hash VARCHAR(128) NOT NULL UNIQUE,
+      photo_path TEXT,
+      photo_mime VARCHAR(128),
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      finalized_at TIMESTAMPTZ,
+      created_by VARCHAR(80),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_srf_billing_handover_srf
+      ON srf_billing_handover_sessions (srf_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_srf_billing_handover_expiry
+      ON srf_billing_handover_sessions (expires_at);
   `);
 }

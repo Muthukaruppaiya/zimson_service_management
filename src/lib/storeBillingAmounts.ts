@@ -6,6 +6,7 @@ import {
 } from "./natureOfRepairBilling";
 import { normalizeNatureOfRepair } from "./natureOfRepair";
 import { customerPayableInr } from "./quickBillPayable";
+import { STORE_BILLING_PRICES_TAX_INCLUSIVE } from "./quickBillPricing";
 import { resolveCustomerSupplyStateCode, resolveSellerStateCode } from "./gstSupply";
 import { computeServiceBillGst } from "./serviceBillGst";
 import { buildStoreBillingGstLines } from "./storeBillingGstPreview";
@@ -264,7 +265,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
       hsnSac: l.hsnSac?.trim() || hsnSac,
     }));
     const taxPreview = computeStoreBillingTaxPreview(job, options, gstLines, billSubtotal);
-    const pricesTaxInclusive = Boolean(options.taxSettings?.pricesTaxInclusive);
+    const pricesTaxInclusive = STORE_BILLING_PRICES_TAX_INCLUSIVE;
     const invoiceTotalInr = customerPayableInr(
       billSubtotal,
       taxPreview?.totalTax ?? 0,
@@ -337,7 +338,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
     gstLines.length > 0
       ? computeStoreBillingTaxPreview(job, options, gstLines, billSubtotal)
       : null;
-  const pricesTaxInclusive = Boolean(options.taxSettings?.pricesTaxInclusive);
+  const pricesTaxInclusive = STORE_BILLING_PRICES_TAX_INCLUSIVE;
   const invoiceTotalInr = customerPayableInr(
     billSubtotal,
     taxPreview?.totalTax ?? 0,
@@ -421,7 +422,7 @@ function computeStoreBillingTaxPreview(
     spareHsnLookup: options.spareHsnLookup,
     spareGstLookup: options.spareGstLookup,
     defaultSacGstPercent: tax?.gstRatePercent ?? 18,
-    pricesTaxInclusive: Boolean(tax?.pricesTaxInclusive),
+    pricesTaxInclusive: STORE_BILLING_PRICES_TAX_INCLUSIVE,
     natureOfRepair: job.natureOfRepair,
     sellerStateCode: sellerState,
     customerStateCode: customerState,

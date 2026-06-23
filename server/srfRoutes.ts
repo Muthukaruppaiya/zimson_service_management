@@ -23,6 +23,7 @@ import { resolveCustomerEmail } from "./messaging/customerContact";
 import { sendReestimateDecisionNotification, sendSiteVisitApprovalLink, sendTrackingLink } from "./notificationService";
 import { publishSrfDocumentForWhatsApp } from "./messaging/publishSrfDocumentForWhatsApp";
 import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
+import { finalizeSrfBillingHandoverSession } from "./srfBillingHandoverRoutes";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
 import { createServiceInvoice, sumUsedSparesTotal } from "./serviceInvoiceLedger";
@@ -5760,6 +5761,7 @@ export function registerSrfRoutes(
       !Array.isArray(req.body.storeBillingSnapshot)
         ? req.body.storeBillingSnapshot
         : null;
+    const handoverSessionId = String(req.body?.handoverSessionId ?? "").trim() || null;
     const actorStoreId = String(actor.storeId ?? "").trim();
     const isAdmin = actor.role === "super_admin" || actor.role === "admin";
     const client = await pool.connect();
@@ -5841,6 +5843,9 @@ export function registerSrfRoutes(
           Boolean(storeBillingSnapshot && !noBillingHandover),
         ],
       );
+      if (handoverSessionId) {
+        await finalizeSrfBillingHandoverSession(client, handoverSessionId, srfId);
+      }
       await appendStatusHistory(
         client,
         srfId,
