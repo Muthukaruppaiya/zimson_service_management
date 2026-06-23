@@ -474,8 +474,37 @@ export function registerCatalogRoutes(
       const params: unknown[] = [spareId];
       const aggregateRegion = String(req.query.aggregate ?? "").trim() === "region";
       const regionScopeQ = String(req.query.regionId ?? "").trim();
+      const storeIdQ = String(req.query.storeId ?? "").trim();
 
-      if (aggregateRegion) {
+      if (storeIdQ) {
+        if (
+          (actor.role === "store_user" ||
+            actor.role === "store_manager" ||
+            actor.role === "store_accounts") &&
+          storeIdQ !== actor.storeId
+        ) {
+          res.status(403).json({ error: "Cannot view stock for another store." });
+          return;
+        }
+        let regionId = regionScopeQ || actor.regionId || "";
+        if (!regionId) {
+          const storeRow = await pool.query<{ region_id: string }>(
+            `SELECT region_id FROM stores WHERE id = $1::text`,
+            [storeIdQ],
+          );
+          regionId = String(storeRow.rows[0]?.region_id ?? "").trim();
+        }
+        if (!regionId) {
+          res.status(400).json({ error: "regionId is required with storeId." });
+          return;
+        }
+        if (actor.role === "admin" && actor.regionId !== regionId) {
+          res.status(403).json({ error: "Cannot view stock outside your region." });
+          return;
+        }
+        params.push(regionId, storeIdQ);
+        whereExtra = " AND location_type = 'STORE' AND region_id = $2::text AND store_id = $3::text";
+      } else if (aggregateRegion) {
         const scope =
           actor.role === "super_admin" || actor.role === "admin" ? regionScopeQ || null : actor.regionId ?? null;
         if (scope) {
@@ -487,7 +516,15 @@ export function registerCatalogRoutes(
         if (actor.role === "admin") {
           params.push(actor.regionId);
           whereExtra = " AND region_id = $2::text";
-        } else if (actor.role === "store_user") {
+        } else if (
+          actor.role === "store_user" ||
+          actor.role === "store_manager" ||
+          actor.role === "store_accounts"
+        ) {
+          if (!actor.regionId || !actor.storeId) {
+            res.status(400).json({ error: "Store account is missing region or store assignment." });
+            return;
+          }
           params.push(actor.regionId, actor.storeId);
           whereExtra = " AND location_type = 'STORE' AND region_id = $2::text AND store_id = $3::text";
         } else if (

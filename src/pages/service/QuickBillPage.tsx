@@ -56,7 +56,7 @@ import {
   resolveSellerStateCode,
   stateCodeLabel,
 } from "../../lib/gstSupply";
-import { normalizeHsnCode } from "../../lib/hsnGst";
+import { formatSacForBilling, normalizeHsnCode, DEFAULT_SERVICE_SAC } from "../../lib/hsnGst";
 import { computeServiceBillGst, resolveLineGstPercent } from "../../lib/serviceBillGst";
 import {
   allowsZeroBillTotal,
@@ -84,6 +84,7 @@ import {
   resolveOperatingStoreId,
   storesForRegion,
 } from "../../lib/serviceOperatingContext";
+import { isStoreRole } from "../../lib/userCreationPolicy";
 import type { TechnicianProfile } from "../../types/technician";
 import {
   isFullyOtpVerified,
@@ -106,6 +107,10 @@ import {
   validateQuickBillServiceChargeInr,
 } from "../../lib/serviceChargeLimits";
 import { customerPayableInr } from "../../lib/quickBillPayable";
+import {
+  QUICK_BILL_PRICES_TAX_INCLUSIVE,
+  taxSettingsForQuickBill,
+} from "../../lib/quickBillPricing";
 import {
   WatchServiceDetailFields,
   emptyWatchServiceDetailValues,
@@ -347,7 +352,7 @@ export function QuickBillPage() {
   const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
   const [spareOptionsLoading, setSpareOptionsLoading] = useState(false);
   const [barcodeSku, setBarcodeSku] = useState("");
-  const [invoiceHsnSac, setInvoiceHsnSac] = useState("9987");
+  const [invoiceHsnSac, setInvoiceHsnSac] = useState(DEFAULT_SERVICE_SAC);
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
 
   const [customerChecked, setCustomerChecked] = useState(false);
@@ -665,7 +670,7 @@ export function QuickBillPage() {
         );
         if (cancelled) return;
         const s = data.settings;
-        setInvoiceHsnSac(s.defaultSacHsn.trim() || "9987");
+        setInvoiceHsnSac(formatSacForBilling(s.defaultSacHsn.trim() || DEFAULT_SERVICE_SAC));
         setServiceTaxSettings(s);
       } catch {
         if (!cancelled) setServiceTaxSettings(null);
@@ -695,13 +700,32 @@ export function QuickBillPage() {
   }, [effectiveBillingRegionId]);
 
   const stockQuerySuffix = useMemo(() => {
+    // Store login: API scopes stock to the logged-in store (no regional aggregate).
+    if (user?.role && isStoreRole(user.role)) return "";
+
     const qs = new URLSearchParams();
+    const billingStore = effectiveBillingStoreId.trim();
+
+    // HO / region login with a billing store selected: show that store's stock only.
+    if (billingStore) {
+      qs.set("storeId", billingStore);
+      const regionId =
+        user?.role === "super_admin"
+          ? billingRegionId.trim() || effectiveBillingRegionId
+          : effectiveBillingRegionId;
+      if (regionId) qs.set("regionId", regionId);
+      return `?${qs.toString()}`;
+    }
+
+    // Region login before a store is picked: regional stock totals.
     qs.set("aggregate", "region");
     if (user?.role === "super_admin" && billingRegionId.trim()) {
       qs.set("regionId", billingRegionId.trim());
+    } else if (effectiveBillingRegionId) {
+      qs.set("regionId", effectiveBillingRegionId);
     }
     return `?${qs.toString()}`;
-  }, [user?.role, billingRegionId]);
+  }, [user?.role, billingRegionId, effectiveBillingRegionId, effectiveBillingStoreId]);
 
   useEffect(() => {
     if (!apiMode || user?.role !== "super_admin") return;
@@ -1252,7 +1276,7 @@ export function QuickBillPage() {
         return;
       }
       const storeIdForBill =
-        user?.role === "store_user"
+        user?.role && isStoreRole(user.role)
           ? user.storeId
           : effectiveBillingStoreId || null;
       if (
@@ -1388,10 +1412,15 @@ export function QuickBillPage() {
     [lines, spareOptions, spares],
   );
 
+  const quickBillTaxSettings = useMemo(
+    () => taxSettingsForQuickBill(serviceTaxSettings),
+    [serviceTaxSettings],
+  );
+
   const invoiceVmOptions = useMemo(
     () => ({
       defaultHsnSac: invoiceHsnSac,
-      taxSettings: serviceTaxSettings,
+      taxSettings: quickBillTaxSettings,
       storeInvoice: seedStoreToInvoiceProfile(billingStore),
       customerBillingState: customerBillingState.trim() || null,
       customerType,
@@ -1402,7 +1431,7 @@ export function QuickBillPage() {
     }),
     [
       invoiceHsnSac,
-      serviceTaxSettings,
+      quickBillTaxSettings,
       billingStore,
       customerBillingState,
       customerType,
@@ -1415,6 +1444,7 @@ export function QuickBillPage() {
   );
 
   const labourGstPercent = serviceTaxSettings?.gstRatePercent ?? 18;
+  const serviceSacHsn = formatSacForBilling(invoiceHsnSac);
 
   const taxPreview = useMemo(() => {
     const storeGstin =
@@ -1447,17 +1477,17 @@ export function QuickBillPage() {
       gstLines.push({
         amountInr: serviceChargeBillable,
         spareId: undefined,
-        hsnSac: invoiceHsnSac,
+        hsnSac: serviceSacHsn,
       });
     }
     if (gstLines.length === 0) return null;
     return computeServiceBillGst({
       lines: gstLines,
-      defaultHsnSac: invoiceHsnSac,
+      defaultHsnSac: serviceSacHsn,
       spareHsnLookup,
       spareGstLookup,
       defaultSacGstPercent: labourGstPercent,
-      pricesTaxInclusive: Boolean(serviceTaxSettings?.pricesTaxInclusive),
+      pricesTaxInclusive: QUICK_BILL_PRICES_TAX_INCLUSIVE,
       natureOfRepair,
       sellerStateCode: sellerState,
       customerStateCode: customerState,
@@ -1486,12 +1516,11 @@ export function QuickBillPage() {
       customerPayableInr(
         total,
         taxPreview?.totalTax ?? 0,
-        Boolean(serviceTaxSettings?.pricesTaxInclusive),
+        QUICK_BILL_PRICES_TAX_INCLUSIVE,
       ),
-    [total, taxPreview, serviceTaxSettings?.pricesTaxInclusive],
+    [total, taxPreview],
   );
 
-  const serviceSacHsn = invoiceHsnSac;
   const serviceHsnGstRate = labourGstPercent;
 
   const spareLinesWithHsn = useMemo(
@@ -2625,9 +2654,13 @@ export function QuickBillPage() {
                     ? " · No tax (nature of repair)"
                     : null}
                 </p>
+                <p className="mt-1 text-xs text-stone-600">
+                  Spare & service amounts are tax-inclusive (MRP). GST below is split from the line
+                  total for the invoice.
+                </p>
                 <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
                   <div>
-                    <dt className="text-stone-500">Taxable</dt>
+                    <dt className="text-stone-500">Base value</dt>
                     <dd className="font-semibold">
                       {taxPreview.grossTaxable.toLocaleString(undefined, {
                         style: "currency",
@@ -2668,9 +2701,18 @@ export function QuickBillPage() {
                     </>
                   )}
                   <div>
-                    <dt className="text-stone-500">Total tax</dt>
+                    <dt className="text-stone-500">Tax (GST)</dt>
                     <dd className="font-semibold">
                       {taxPreview.totalTax.toLocaleString(undefined, {
+                        style: "currency",
+                        currency: "INR",
+                      })}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-stone-500">Gross total</dt>
+                    <dd className="font-semibold">
+                      {payableTotal.toLocaleString(undefined, {
                         style: "currency",
                         currency: "INR",
                       })}
@@ -2683,17 +2725,21 @@ export function QuickBillPage() {
             )}
           </div>
           <div className="mt-4 space-y-1 text-right text-sm text-stone-900">
-            {!serviceTaxSettings?.pricesTaxInclusive && taxPreview && taxPreview.totalTax > 0 ? (
-              <>
-                <p className="text-xs text-stone-600">
-                  Subtotal (excl. GST):{" "}
-                  {total.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                </p>
-                <p className="text-xs text-stone-600">
-                  GST:{" "}
-                  {taxPreview.totalTax.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                </p>
-              </>
+            {taxPreview && taxPreview.totalTax > 0 ? (
+              <p className="text-xs text-stone-600">
+                Base{" "}
+                {taxPreview.grossTaxable.toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "INR",
+                })}{" "}
+                + GST{" "}
+                {taxPreview.totalTax.toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "INR",
+                })}{" "}
+                = gross{" "}
+                {payableTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+              </p>
             ) : null}
             <p className="text-base font-bold text-zimson-900">
               Amount to collect:{" "}

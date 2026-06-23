@@ -98,6 +98,7 @@ export const BUILTIN_HSN_GST: Record<string, number> = {
   "8483": 18,
   // Services (SAC)
   "9987": 18,
+  "998714": 18,
   "9983": 18,
   "998313": 18,
   "998314": 18,
@@ -191,6 +192,19 @@ export function gstRateFromHsn(
   if (HSN_CHAPTER_DEFAULT_GST[chapter] != null) return HSN_CHAPTER_DEFAULT_GST[chapter]!;
 
   return DEFAULT_HSN_GST_PERCENT;
+}
+
+/** Valid 6-digit SAC for repair/labour (IRP rejects legacy 4-digit 9987). */
+export const DEFAULT_SERVICE_SAC = "998714";
+
+/** Normalize SAC for billing display and GST lookup. */
+export function formatSacForBilling(sac: string | null | undefined): string {
+  const d = normalizeHsnCode(sac).replace(/\D/g, "");
+  if (!d.startsWith("99")) return DEFAULT_SERVICE_SAC;
+  if (d === "9987") return DEFAULT_SERVICE_SAC;
+  if (d.length >= 6) return d.slice(0, 6);
+  if (d.length >= 4) return d.padEnd(6, "0");
+  return DEFAULT_SERVICE_SAC;
 }
 
 /** @deprecated Use BUILTIN_HSN_GST */

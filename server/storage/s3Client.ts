@@ -29,7 +29,22 @@ function getClient(): S3Client {
 export function fullS3Key(relativeKey: string): string {
   const rel = relativeKey.replace(/^\/+/, "");
   const prefix = s3KeyPrefix();
+  if (!prefix) return rel;
   return rel.startsWith(`${prefix}/`) ? rel : `${prefix}/${rel}`;
+}
+
+/** Older uploads (empty AWS_S3_PREFIX bug) stored keys like `/service-photos/file.png`. */
+export function legacyLeadingSlashS3Key(canonicalKey: string): string {
+  const k = canonicalKey.replace(/^\/+/, "");
+  return `/${k}`;
+}
+
+async function resolveS3ObjectKey(relativeKey: string): Promise<string> {
+  const canonical = fullS3Key(relativeKey);
+  if (await s3ObjectExists(canonical)) return canonical;
+  const legacy = legacyLeadingSlashS3Key(canonical);
+  if (await s3ObjectExists(legacy)) return legacy;
+  return canonical;
 }
 
 export async function s3PutObject(
@@ -48,10 +63,11 @@ export async function s3PutObject(
 }
 
 export async function s3DeleteObject(relativeKey: string): Promise<void> {
+  const key = await resolveS3ObjectKey(relativeKey);
   await getClient().send(
     new DeleteObjectCommand({
       Bucket: s3Bucket(),
-      Key: fullS3Key(relativeKey),
+      Key: key,
     }),
   );
 }
@@ -71,21 +87,23 @@ export async function s3ObjectExists(relativeKey: string): Promise<boolean> {
 }
 
 export async function s3PresignedGetUrl(relativeKey: string, expiresSec = 3600): Promise<string> {
+  const key = await resolveS3ObjectKey(relativeKey);
   return getSignedUrl(
     getClient(),
     new GetObjectCommand({
       Bucket: s3Bucket(),
-      Key: fullS3Key(relativeKey),
+      Key: key,
     }),
     { expiresIn: expiresSec },
   );
 }
 
 export async function s3GetObjectStream(relativeKey: string) {
+  const key = await resolveS3ObjectKey(relativeKey);
   const out = await getClient().send(
     new GetObjectCommand({
       Bucket: s3Bucket(),
-      Key: fullS3Key(relativeKey),
+      Key: key,
     }),
   );
   return out;

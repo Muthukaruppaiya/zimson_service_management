@@ -1,5 +1,5 @@
 import { isNatureOfRepairTaxable } from "./natureOfRepair";
-import { normalizeHsnCode } from "./hsnGst";
+import { normalizeHsnCode, formatSacForBilling, gstRateFromHsn } from "./hsnGst";
 import { isInterstateSupply, splitGstAmount } from "./gstSupply";
 import type { ServiceInvoiceTaxRow } from "../types/serviceInvoice";
 
@@ -38,7 +38,7 @@ function lineHsn(
     const h = normalizeHsnCode(spareHsnLookup(line.spareId));
     if (h) return h;
   }
-  return normalizeHsnCode(defaultHsnSac) || "9987";
+  return formatSacForBilling(defaultHsnSac);
 }
 
 /** GST % for a billing line — spare catalogue first, else labour SAC default. */
@@ -102,11 +102,16 @@ export function computeServiceBillGst(params: {
     const amt = Number(ln.amountInr) || 0;
     if (amt <= 0) continue;
     const hsn = lineHsn(ln, defaultHsnSac, spareHsnLookup);
-    const rateFromSource = resolveLineGstPercent({
-      spareId: ln.spareId,
-      defaultSacGstPercent: labourGstPercent,
-      spareGstLookup,
-    });
+    const resolvedHsn = ln.hsnSac?.trim();
+    const spareRate =
+      ln.spareId && spareGstLookup ? spareGstLookup(ln.spareId) : null;
+    const rateFromSource = resolvedHsn
+      ? spareRate ?? gstRateFromHsn(resolvedHsn)
+      : resolveLineGstPercent({
+          spareId: ln.spareId,
+          defaultSacGstPercent: labourGstPercent,
+          spareGstLookup,
+        });
     const effectiveRate = taxableJob ? rateFromSource : 0;
     const key = `${hsn}|${effectiveRate}`;
     const g = effectiveRate / 100;

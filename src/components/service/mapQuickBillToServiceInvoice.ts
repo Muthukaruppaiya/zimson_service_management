@@ -9,6 +9,7 @@ import {
   resolveSellerStateCode,
 } from "../../lib/gstSupply";
 import { computeServiceBillGst, resolveLineGstPercent } from "../../lib/serviceBillGst";
+import { QUICK_BILL_PRICES_TAX_INCLUSIVE } from "../../lib/quickBillPricing";
 import type { QuickBillInvoice, QuickBillLineInvoice } from "../../types/quickBill";
 import type {
   PaymentSplit,
@@ -195,7 +196,7 @@ function buildGstLines(
     spareHsnLookup,
     spareGstLookup,
     defaultSacGstPercent,
-    pricesTaxInclusive: Boolean(tax?.pricesTaxInclusive),
+    pricesTaxInclusive: QUICK_BILL_PRICES_TAX_INCLUSIVE,
     natureOfRepair,
     sellerStateCode,
     customerStateCode,
@@ -218,7 +219,7 @@ function buildGstLines(
     });
     const g = rate / 100;
     let taxableLine = lineAmt;
-    if (tax?.pricesTaxInclusive && g > 0) taxableLine = lineAmt / (1 + g);
+    if (QUICK_BILL_PRICES_TAX_INCLUSIVE && g > 0) taxableLine = lineAmt / (1 + g);
     const unitTaxable = taxableLine / qty;
     totalQty += qty;
     outLines.push({
@@ -460,7 +461,9 @@ export function mapQuickBillInvoiceToViewModel(
   options?: ServiceInvoiceMappingOptions,
 ): ServiceInvoiceViewModel {
   const hsnSac = resolvedHsnSac(options);
-  const tax = options?.taxSettings ?? null;
+  const tax = options?.taxSettings
+    ? { ...options.taxSettings, pricesTaxInclusive: QUICK_BILL_PRICES_TAX_INCLUSIVE }
+    : null;
   const sellerPack = mergeSellerFromSettings(tax, options?.storeInvoice ?? undefined);
   const billName =
     inv.customerType === "B2B" ? (inv.company ?? "—") : inv.customerName?.trim() || "Walk-in / B2C";

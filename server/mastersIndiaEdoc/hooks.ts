@@ -26,7 +26,6 @@ import {
 import { defaultPincodeForState, gstinStateCode, parsePincode, stateNameFromCode } from "./gstState";
 import { loadSpareGstById } from "../hsnGstRates";
 import {
-  isPlausibleGoodsHsn,
   isServiceSacCode,
   resolveEdocHsnSac,
   defaultUqcForEdocLine,
@@ -162,13 +161,12 @@ async function resolveStoreBillingEdocLines(
     const labour = isLabourSnapshotLine(line);
     const catalogueHsn = spareId ? hsnBySpareId.get(spareId) : undefined;
     const snapshotHsn = String(line.hsnSac ?? "").trim();
-    let rawHsn = defaultSacHsn;
-    if (!labour) {
-      const candidates = [catalogueHsn, snapshotHsn].filter(Boolean) as string[];
-      rawHsn = candidates.find((c) => isPlausibleGoodsHsn(c.replace(/\D/g, ""))) ?? "";
-      if (!rawHsn) rawHsn = candidates[0] ?? defaultSacHsn;
-    }
-    const resolved = resolveEdocHsnSac(rawHsn, { labourLine: labour, defaultSacHsn });
+    const rawHsn = labour ? defaultSacHsn : (catalogueHsn || snapshotHsn || "").trim();
+    const resolved = resolveEdocHsnSac(rawHsn || null, {
+      labourLine: labour,
+      defaultSacHsn,
+      preferGoods: !labour,
+    });
     return {
       ...line,
       spareId,
@@ -248,7 +246,7 @@ export async function tryGenerateEinvoiceForQuickBill(
   const sellerGstin = resolveEdocSellerGstin(storeGstin, taxRow?.invoice_store_gstin, cfg);
   const configuredGst = Number(taxRow?.gst_rate_percent ?? 18);
   const defaultSacHsn = String(taxRow?.default_sac_hsn ?? "9987").trim() || "9987";
-  const pricesTaxInclusive = Boolean(taxRow?.prices_tax_inclusive);
+  const pricesTaxInclusive = true;
   const natureOfRepair = bill.nature_of_repair ?? "";
 
   /** Tax split must match the GSTIN on the e-invoice payload (may differ from store display GSTIN in sandbox). */
@@ -267,34 +265,18 @@ export async function tryGenerateEinvoiceForQuickBill(
     0,
   );
 
-  const spareIds = [...new Set(lineRows.map((l) => String(l.spare_id ?? "").trim()).filter(Boolean))];
-  const hsnBySpareId = new Map<string, string>();
-  if (spareIds.length > 0) {
-    const spareMeta = await pool.query<{ id: string; hsn: string | null }>(
-      `SELECT id::text, hsn FROM spares WHERE id = ANY($1::uuid[])`,
-      [spareIds],
-    );
-    for (const row of spareMeta.rows) {
-      if (row.hsn?.trim()) hsnBySpareId.set(row.id, row.hsn.trim());
-    }
-  }
   const spareGstMap = await loadSpareGstById(pool);
 
-  const resolvedQbLines = lineRows.map((ln) => {
-    const spareId = String(ln.spare_id ?? "").trim() || null;
-    const catalogueHsn = spareId ? hsnBySpareId.get(spareId) : undefined;
-    const resolved = resolveEdocHsnSac(catalogueHsn ?? defaultSacHsn, {
-      labourLine: !spareId,
-      defaultSacHsn,
-    });
-    return {
+  const resolvedQbLines = await resolveStoreBillingEdocLines(
+    pool,
+    lineRows.map((ln) => ({
       description: ln.description,
       amountInr: billableLineAmount(natureOfRepair, Number(ln.amount_inr), ln.spare_id),
-      spareId,
-      hsnSac: resolved.code,
-      isService: resolved.isService,
-    };
-  });
+      spareId: String(ln.spare_id ?? "").trim() || null,
+      hsnSac: null,
+    })),
+    defaultSacHsn,
+  );
 
   const gstResult = computeServiceBillGst({
     lines: resolvedQbLines.map((l) => ({
@@ -702,9 +684,12 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
 
   const billLines = usedSpares.map((l) => {
     const catalogueHsn = l.spareId ? hsnBySpareId.get(l.spareId) : undefined;
-    const candidates = [catalogueHsn, l.hsnSac].filter(Boolean) as string[];
-    const rawHsn = candidates.find((c) => isPlausibleGoodsHsn(c.replace(/\D/g, ""))) ?? candidates[0] ?? defaultSacHsn;
-    const resolved = resolveEdocHsnSac(rawHsn, { labourLine: false, defaultSacHsn });
+    const rawHsn = (catalogueHsn || String(l.hsnSac ?? "").trim() || "").trim();
+    const resolved = resolveEdocHsnSac(rawHsn || null, {
+      labourLine: false,
+      defaultSacHsn,
+      preferGoods: true,
+    });
     return {
       amountInr: round2(l.qty * l.unitPriceInr),
       spareId: l.spareId,

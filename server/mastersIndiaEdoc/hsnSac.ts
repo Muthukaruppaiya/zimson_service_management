@@ -1,7 +1,10 @@
 import { normalizeHsnCode } from "../../src/lib/hsnGst";
 
 /** Default goods HSN for watch spare parts when catalogue HSN is missing or invalid. */
-export const WATCH_SPARE_FALLBACK_HSN = "91139000";
+export const WATCH_SPARE_FALLBACK_HSN = "91149000";
+
+/** Valid 6-digit SAC for repair/labour on IRP (legacy settings often used 4-digit 9987). */
+export const DEFAULT_SERVICE_SAC = "998714";
 
 export function isServiceSacCode(hsn: string | null | undefined): boolean {
   const digits = normalizeHsnCode(hsn).replace(/\D/g, "");
@@ -12,12 +15,13 @@ function digitsOnly(hsn: string | null | undefined): string {
   return normalizeHsnCode(hsn).replace(/\D/g, "");
 }
 
-/** SAC codes for IRP (typically 4 or 6 digits). */
-export function formatSacCodeForEdoc(hsn: string, fallback = "9987"): string {
+/** SAC codes for IRP — must be 6 digits for Masters India / NIC. */
+export function formatSacCodeForEdoc(hsn: string, fallback = DEFAULT_SERVICE_SAC): string {
   const d = digitsOnly(hsn);
   if (!d.startsWith("99")) return fallback;
+  if (d === "9987") return DEFAULT_SERVICE_SAC;
   if (d.length >= 6) return d.slice(0, 6);
-  if (d.length >= 4) return d.slice(0, 4);
+  if (d.length >= 4) return d.padEnd(6, "0");
   return fallback;
 }
 
@@ -37,11 +41,11 @@ const GOODS_CHAPTERS = new Set([
 
 /** Reject catalogue typos / non-HSN values before calling IRP. */
 export function isPlausibleGoodsHsn(digits: string): boolean {
-  if (digits.length < 6 || digits.length > 10) return false;
+  if (digits.length < 4 || digits.length > 10) return false;
   if (digits.startsWith("99")) return false;
   const chapter = Number.parseInt(digits.slice(0, 2), 10);
   if (!Number.isFinite(chapter) || chapter < 1 || chapter > 97) return false;
-  if (!GOODS_CHAPTERS.has(chapter)) return false;
+  if (digits.length >= 6 && !GOODS_CHAPTERS.has(chapter)) return false;
   return true;
 }
 
@@ -56,19 +60,31 @@ export function defaultUqcForEdocLine(isService: boolean): string {
 
 export function resolveEdocHsnSac(
   raw: string | null | undefined,
-  opts: { labourLine?: boolean; defaultSacHsn?: string },
+  opts: { labourLine?: boolean; defaultSacHsn?: string; preferGoods?: boolean },
 ): { code: string; isService: boolean } {
-  const defaultSac = (opts.defaultSacHsn ?? "9987").trim() || "9987";
+  const defaultSac =
+    formatSacCodeForEdoc((opts.defaultSacHsn ?? DEFAULT_SERVICE_SAC).trim() || DEFAULT_SERVICE_SAC);
   if (opts.labourLine) {
     return { code: formatSacCodeForEdoc(defaultSac, defaultSac), isService: true };
   }
 
   const digits = digitsOnly(raw);
+
+  if (opts.preferGoods) {
+    if (digits && !digits.startsWith("99") && digits.length >= 4) {
+      return { code: formatGoodsHsnForEdoc(digits), isService: false };
+    }
+    return { code: formatGoodsHsnForEdoc(WATCH_SPARE_FALLBACK_HSN), isService: false };
+  }
+
   if (digits && isPlausibleSac(digits)) {
     return { code: formatSacCodeForEdoc(digits, defaultSac), isService: true };
   }
   if (digits && isPlausibleGoodsHsn(digits)) {
     return { code: formatGoodsHsnForEdoc(digits), isService: false };
   }
-  return { code: WATCH_SPARE_FALLBACK_HSN, isService: false };
+  if (digits && !digits.startsWith("99") && digits.length >= 4) {
+    return { code: formatGoodsHsnForEdoc(digits), isService: false };
+  }
+  return { code: formatGoodsHsnForEdoc(WATCH_SPARE_FALLBACK_HSN), isService: false };
 }

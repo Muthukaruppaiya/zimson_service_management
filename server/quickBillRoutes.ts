@@ -649,9 +649,13 @@ export function registerQuickBillRoutes(
       res.status(403).json({ error: "Cannot post quick bill outside your region." });
       return;
     }
-    if (actor.role === "store_user") {
+    if (
+      actor.role === "store_user" ||
+      actor.role === "store_manager" ||
+      actor.role === "store_accounts"
+    ) {
       if (actor.regionId !== regionId || actor.storeId !== storeId) {
-        res.status(403).json({ error: "Store user can only bill for their own store." });
+        res.status(403).json({ error: "Store accounts can only bill for their own store." });
         return;
       }
     }
@@ -888,7 +892,8 @@ export function registerQuickBillRoutes(
     const taxRow = taxRes.rows[0];
     const configuredGst = Number(taxRow?.gst_rate_percent ?? 18);
     const defaultSacHsn = String(taxRow?.default_sac_hsn ?? "9987").trim() || "9987";
-    const pricesTaxInclusive = Boolean(taxRow?.prices_tax_inclusive);
+    /** Quick bill line amounts are MRP / counter price — GST is included in spare & service charges. */
+    const pricesTaxInclusive = true;
 
     let storeGstin = "";
     if (storeId) {
