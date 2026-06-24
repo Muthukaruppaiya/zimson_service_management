@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiJson } from "../../lib/api";
+import { apiJson, ApiError } from "../../lib/api";
 import { formatEwayEdocMessage, type EdocUiResult } from "../../lib/edocResultMessage";
 import {
   ewayGeneratePath,
@@ -35,6 +35,23 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
   const [consigneeAddress, setConsigneeAddress] = useState("");
   const [consigneePlace, setConsigneePlace] = useState("");
   const [consigneePincode, setConsigneePincode] = useState("");
+  const [sandboxNote, setSandboxNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void apiJson<{ effectiveEwayGstin?: string | null }>("/api/edoc/status")
+      .then((s) => {
+        if (cancelled || !s.effectiveEwayGstin) return;
+        setSandboxNote(`E-way API userGstin: ${s.effectiveEwayGstin}`);
+      })
+      .catch(() => {
+        if (!cancelled) setSandboxNote(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open || !resourceId) return;
@@ -107,14 +124,26 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
       onSuccess(edoc);
       onClose();
     } catch (e) {
-      setSubmitErr(e instanceof Error ? e.message : "Could not generate e-way bill.");
+      if (e instanceof ApiError) {
+        const body = e.body as { edoc?: EdocUiResult; error?: string } | null;
+        const edoc = body?.edoc;
+        setSubmitErr(
+          formatEwayEdocMessage(edoc) ??
+            edoc?.error ??
+            body?.error ??
+            e.message ??
+            "Could not generate e-way bill.",
+        );
+      } else {
+        setSubmitErr(e instanceof Error ? e.message : "Could not generate e-way bill.");
+      }
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
       <div
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-rlx-gold bg-white p-5 shadow-xl"
         role="dialog"
@@ -153,6 +182,7 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
                   {prefill.interstate ? " (inter-state)" : " (intra-state)"}
                 </p>
               ) : null}
+              {sandboxNote ? <p className="mt-2 text-amber-800">{sandboxNote}</p> : null}
               {prefill.existingEwayBillNo ? (
                 <p className="mt-2 font-mono text-amber-800">Existing: {prefill.existingEwayBillNo} — submit to regenerate.</p>
               ) : null}

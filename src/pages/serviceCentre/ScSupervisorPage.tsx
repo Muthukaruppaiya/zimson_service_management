@@ -102,10 +102,13 @@ export function ScSupervisorPage() {
     supervisorMoveRejectedToOdc,
     supervisorLogBrandEstimate,
     supervisorApproveBrandEstimate,
+    supervisorForwardBrandEstimateToCustomer,
+    supervisorAcknowledgeBrandReceipt,
     supervisorReceiveFromBrand,
     supervisorLogBrandInvoice,
     supervisorLogBrandCreditNote,
     supervisorNotifyBrandCoupon,
+    supervisorReleaseBrandCreditReturn,
     getStatusHistory,
   } = useSrfJobs();
   const [feedback, setFeedback] = useState<Record<string, string>>({});
@@ -174,6 +177,12 @@ export function ScSupervisorPage() {
   const [brandEstimatePopupJobId, setBrandEstimatePopupJobId] = useState<string | null>(null);
   const [brandEstimateAmountInput, setBrandEstimateAmountInput] = useState("");
   const [brandEstimateNoteInput, setBrandEstimateNoteInput] = useState("");
+  const [brandAckMailPopupJobId, setBrandAckMailPopupJobId] = useState<string | null>(null);
+  const [brandMailRefInput, setBrandMailRefInput] = useState("");
+  const [brandAckNoteInput, setBrandAckNoteInput] = useState("");
+  const [brandForwardPopupJobId, setBrandForwardPopupJobId] = useState<string | null>(null);
+  const [brandMarkupInput, setBrandMarkupInput] = useState("");
+  const [brandForwardNoteInput, setBrandForwardNoteInput] = useState("");
   const [brandInvoicePopupJobId, setBrandInvoicePopupJobId] = useState<string | null>(null);
   const [brandInvoiceRefInput, setBrandInvoiceRefInput] = useState("");
   const [brandInvoiceAmountInput, setBrandInvoiceAmountInput] = useState("");
@@ -232,9 +241,13 @@ export function ScSupervisorPage() {
       (j) =>
         (j.status === "sent_to_brand" ||
           j.status === "brand_estimate_pending" ||
+          j.status === "brand_estimate_customer_pending" ||
+          j.status === "brand_estimate_customer_accepted" ||
           j.status === "brand_approved" ||
           j.status === "brand_repair_in_progress" ||
-          j.status === "received_from_brand") &&
+          j.status === "received_from_brand" ||
+          j.status === "brand_credit_note_pending" ||
+          j.status === "brand_credit_note_active") &&
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
@@ -636,6 +649,31 @@ export function ScSupervisorPage() {
     }
   }
 
+  async function confirmBrandForwardToCustomer() {
+    if (!brandForwardPopupJobId) return;
+    const jobId = brandForwardPopupJobId;
+    const markupInr = Number(brandMarkupInput);
+    const note = brandForwardNoteInput.trim();
+    if (!Number.isFinite(markupInr) || markupInr < 0) {
+      setFeedback((f) => ({ ...f, [jobId]: "Enter a valid markup amount (0 or more)." }));
+      return;
+    }
+    if (!note) {
+      setFeedback((f) => ({ ...f, [jobId]: "Customer remark is required." }));
+      return;
+    }
+    try {
+      const notify = await supervisorForwardBrandEstimateToCustomer(jobId, { markupInr, note });
+      setFeedback((f) => ({
+        ...f,
+        [jobId]: srfReestimateNotifyMessage("Brand estimate sent to customer for approval.", notify),
+      }));
+      setBrandForwardPopupJobId(null);
+    } catch (e) {
+      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not forward to customer." }));
+    }
+  }
+
   async function confirmBrandEstimate() {
     if (!brandEstimatePopupJobId) return;
     const jobId = brandEstimatePopupJobId;
@@ -647,7 +685,7 @@ export function ScSupervisorPage() {
     }
     try {
       await supervisorLogBrandEstimate(jobId, { estimateInr: amount, currency: "INR", note });
-      setFeedback((f) => ({ ...f, [jobId]: `Brand estimate logged: INR ${amount.toFixed(2)}.` }));
+      setFeedback((f) => ({ ...f, [jobId]: `Brand estimate logged: INR ${amount.toFixed(2)}. Forward to customer with markup.` }));
       setBrandEstimatePopupJobId(null);
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand estimate." }));
@@ -694,7 +732,7 @@ export function ScSupervisorPage() {
     }
     try {
       await supervisorLogBrandCreditNote(jobId, { couponCode, valueInr, validUntil: validUntil || undefined, note });
-      setFeedback((f) => ({ ...f, [jobId]: `Brand credit note logged (${couponCode}).` }));
+      setFeedback((f) => ({ ...f, [jobId]: `Brand credit note logged (${couponCode}). Awaiting accounts approval.` }));
       setBrandCreditPopupJobId(null);
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand credit note." }));
@@ -1489,7 +1527,7 @@ export function ScSupervisorPage() {
         </Card>
       ) : null}
       {brandDeskView.length > 0 ? (
-        <Card title="Brand desk" subtitle="SRFs sent to brand — track estimate, approval, receive and invoice" className="mb-6">
+        <Card title="Brand desk" subtitle="Send to brand → acknowledge brand mail → estimate or credit note path" className="mb-6">
           <div className="space-y-4">
             {brandDeskView.map((j) => (
               <div key={j.id} className="rounded-2xl border border-violet-200/80 bg-white/90 p-4 shadow-sm">
@@ -1505,10 +1543,40 @@ export function ScSupervisorPage() {
                         {Number(j.brandEstimateInr).toLocaleString(undefined, { style: "currency", currency: "INR" })}
                       </p>
                     ) : null}
+                    {j.technicianBrandRecommendedAt ? (
+                      <p className="mt-1 text-xs font-semibold text-violet-800">
+                        Technician recommends brand repair
+                        {j.technicianBrandRecommendNote ? ` — ${j.technicianBrandRecommendNote}` : ""}
+                      </p>
+                    ) : null}
+                    {j.brandAcknowledgedAt ? (
+                      <p className="mt-1 text-xs text-emerald-700">
+                        Brand mail acknowledged
+                        {j.brandMailRef ? ` · ${j.brandMailRef}` : ""}
+                        {" · "}{new Date(j.brandAcknowledgedAt).toLocaleString()}
+                      </p>
+                    ) : null}
+                    {j.brandCustomerQuoteInr ? (
+                      <p className="mt-1 text-xs text-stone-600">
+                        <span className="font-semibold">Customer quote:</span>{" "}
+                        {Number(j.brandCustomerQuoteInr).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        {j.brandMarkupInr != null && Number(j.brandMarkupInr) > 0
+                          ? ` (brand ${Number(j.brandEstimateInr ?? 0).toLocaleString(undefined, { style: "currency", currency: "INR" })} + markup ${Number(j.brandMarkupInr).toLocaleString(undefined, { style: "currency", currency: "INR" })})`
+                          : ""}
+                      </p>
+                    ) : null}
                     {j.brandInvoiceAmountInr ? (
                       <p className="mt-1 text-xs text-stone-600">
                         <span className="font-semibold">Brand invoice:</span>{" "}
                         {Number(j.brandInvoiceAmountInr).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                      </p>
+                    ) : null}
+                    {j.brandCouponValueInr ? (
+                      <p className="mt-1 text-xs text-stone-600">
+                        <span className="font-semibold">Credit note / voucher:</span>{" "}
+                        {j.brandCouponCode ? `${j.brandCouponCode} · ` : ""}
+                        {Number(j.brandCouponValueInr).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        {j.brandCreditNoteApprovedAt ? " · Accounts approved" : j.status === "brand_credit_note_pending" ? " · Pending accounts" : ""}
                       </p>
                     ) : null}
                   </div>
@@ -1523,33 +1591,83 @@ export function ScSupervisorPage() {
                       >
                         Create e-way bill
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBrandEstimatePopupJobId(j.id);
-                          setBrandEstimateAmountInput("");
-                          setBrandEstimateNoteInput("");
-                        }}
-                        className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
-                      >
-                        Log brand estimate
-                      </button>
+                      {!j.brandAcknowledgedAt ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBrandAckMailPopupJobId(j.id);
+                            setBrandMailRefInput("");
+                            setBrandAckNoteInput("");
+                          }}
+                          className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800"
+                        >
+                          Acknowledge brand mail
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBrandEstimatePopupJobId(j.id);
+                              setBrandEstimateAmountInput("");
+                              setBrandEstimateNoteInput("");
+                            }}
+                            className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                          >
+                            Log brand estimate (from mail)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBrandCreditPopupJobId(j.id);
+                              setBrandCouponCodeInput("");
+                              setBrandCouponValueInput("");
+                              setBrandCouponValidUntilInput("");
+                              setBrandCouponNoteInput("");
+                            }}
+                            className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100"
+                          >
+                            Log brand credit note (from mail)
+                          </button>
+                        </>
+                      )}
                     </>
                   ) : null}
                   {j.status === "brand_estimate_pending" ? (
                     <button
                       type="button"
+                      onClick={() => {
+                        setBrandForwardPopupJobId(j.id);
+                        setBrandMarkupInput("");
+                        setBrandForwardNoteInput("Brand repair estimate — includes handling and service charges.");
+                      }}
+                      className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800"
+                    >
+                      Forward estimate to customer
+                    </button>
+                  ) : null}
+                  {j.status === "brand_estimate_customer_pending" ? (
+                    <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      Waiting for customer approval on brand repair estimate
+                      {j.brandCustomerQuoteInr
+                        ? ` (INR ${Number(j.brandCustomerQuoteInr).toLocaleString()}).`
+                        : "."}
+                    </p>
+                  ) : null}
+                  {j.status === "brand_estimate_customer_accepted" ? (
+                    <button
+                      type="button"
                       onClick={async () => {
                         try {
-                          await supervisorApproveBrandEstimate(j.id, { note: "" });
-                          setFeedback((f) => ({ ...f, [j.id]: "Brand estimate approved." }));
+                          await supervisorApproveBrandEstimate(j.id, { note: "Customer accepted — HO approval sent to brand." });
+                          setFeedback((f) => ({ ...f, [j.id]: "HO approval sent to brand — repair in progress." }));
                         } catch (e) {
                           setFeedback((f) => ({ ...f, [j.id]: e instanceof Error ? e.message : "Could not approve." }));
                         }
                       }}
                       className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
                     >
-                      Approve brand estimate
+                      Approve & send to brand
                     </button>
                   ) : null}
                   {j.status === "brand_approved" || j.status === "brand_repair_in_progress" ? (
@@ -1569,31 +1687,55 @@ export function ScSupervisorPage() {
                     </button>
                   ) : null}
                   {j.status === "received_from_brand" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBrandInvoicePopupJobId(j.id);
+                        setBrandInvoiceRefInput("");
+                        setBrandInvoiceAmountInput(j.brandEstimateInr ? String(Number(j.brandEstimateInr).toFixed(2)) : "");
+                        setBrandInvoiceNoteInput("");
+                      }}
+                      className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                    >
+                      Log brand invoice
+                    </button>
+                  ) : null}
+                  {j.status === "brand_credit_note_pending" ? (
+                    <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      Credit note logged — awaiting accounts approval and voucher generation.
+                    </p>
+                  ) : null}
+                  {j.status === "brand_credit_note_active" ? (
                     <>
+                      {!j.customerCouponNotifiedAt ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBrandNotifyPopupJobId(j.id);
+                            setBrandNotifyNoteInput("Customer informed through web, SMS and WhatsApp copy.");
+                          }}
+                          className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800"
+                        >
+                          Notify customer (voucher)
+                        </button>
+                      ) : (
+                        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                          Customer notified · {new Date(j.customerCouponNotifiedAt).toLocaleString()}
+                        </p>
+                      )}
                       <button
                         type="button"
-                        onClick={() => {
-                          setBrandInvoicePopupJobId(j.id);
-                          setBrandInvoiceRefInput("");
-                          setBrandInvoiceAmountInput(j.brandEstimateInr ? String(Number(j.brandEstimateInr).toFixed(2)) : "");
-                          setBrandInvoiceNoteInput("");
+                        onClick={async () => {
+                          try {
+                            await supervisorReleaseBrandCreditReturn(j.id, { note: "Release watch to store after brand credit note." });
+                            setFeedback((f) => ({ ...f, [j.id]: "Watch released to outward queue for store return." }));
+                          } catch (e) {
+                            setFeedback((f) => ({ ...f, [j.id]: e instanceof Error ? e.message : "Could not release to store." }));
+                          }
                         }}
                         className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
                       >
-                        Log brand invoice
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBrandCreditPopupJobId(j.id);
-                          setBrandCouponCodeInput("");
-                          setBrandCouponValueInput("");
-                          setBrandCouponValidUntilInput("");
-                          setBrandCouponNoteInput("");
-                        }}
-                        className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100"
-                      >
-                        Log brand credit note
+                        Release watch to store
                       </button>
                     </>
                   ) : null}
@@ -1831,6 +1973,12 @@ export function ScSupervisorPage() {
                       <p className="mt-1 text-xs font-medium text-cyan-700">
                         Spare flow active ({spareFlow?.orderNumber}) ·{" "}
                         {spareFlowInwardDone ? "Inward completed" : "Waiting inward"}
+                      </p>
+                    ) : null}
+                    {j.technicianBrandRecommendedAt ? (
+                      <p className="mt-1 text-xs font-semibold text-violet-800">
+                        Technician recommends brand repair
+                        {j.technicianBrandRecommendNote ? ` — ${j.technicianBrandRecommendNote}` : ""}
                       </p>
                     ) : null}
                   </div>
@@ -2200,6 +2348,75 @@ export function ScSupervisorPage() {
               >
                 Send to brand
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {brandAckMailPopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Acknowledge brand mail</h3>
+            <p className="mt-1 text-sm text-stone-600">Confirm receipt of brand email before logging estimate or credit note.</p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">Mail reference / subject
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandMailRefInput} onChange={(e) => setBrandMailRefInput(e.target.value)} placeholder="e.g. RE: Estimate for SRF…" />
+              </label>
+              <label className="text-sm">Note
+                <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={2} value={brandAckNoteInput} onChange={(e) => setBrandAckNoteInput(e.target.value)} />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setBrandAckMailPopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const jobId = brandAckMailPopupJobId;
+                  if (!jobId) return;
+                  void supervisorAcknowledgeBrandReceipt(jobId, {
+                    mailRef: brandMailRefInput.trim() || undefined,
+                    note: brandAckNoteInput.trim() || "Brand mail acknowledged.",
+                  })
+                    .then(() => {
+                      setFeedback((f) => ({ ...f, [jobId]: "Brand mail acknowledged — log estimate or credit note from mail." }));
+                      setBrandAckMailPopupJobId(null);
+                    })
+                    .catch((e: unknown) => {
+                      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not acknowledge mail." }));
+                    });
+                }}
+                className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Acknowledge mail
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {brandForwardPopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">Forward brand estimate to customer</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Brand estimate{" "}
+              {(() => {
+                const job = jobs.find((x) => x.id === brandForwardPopupJobId);
+                return job?.brandEstimateInr
+                  ? Number(job.brandEstimateInr).toLocaleString(undefined, { style: "currency", currency: "INR" })
+                  : "—";
+              })()}
+              {" "}+ your markup = customer quote.
+            </p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">Markup / additional amount (INR)
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandMarkupInput} onChange={(e) => setBrandMarkupInput(e.target.value)} placeholder="0" />
+              </label>
+              <label className="text-sm">Remark for customer *
+                <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={3} value={brandForwardNoteInput} onChange={(e) => setBrandForwardNoteInput(e.target.value)} />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setBrandForwardPopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
+              <button type="button" onClick={() => void confirmBrandForwardToCustomer()} className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">Send to customer</button>
             </div>
           </div>
         </div>

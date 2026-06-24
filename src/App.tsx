@@ -14,6 +14,7 @@ import { SrfJobsProvider } from "./context/SrfJobsContext";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AccountsSetupPage } from "./pages/accounts/AccountsSetupPage";
 import { InvoiceHistoryPage } from "./pages/accounts/InvoiceHistoryPage";
+import { BrandCreditNotesPage } from "./pages/accounts/BrandCreditNotesPage";
 import { LedgerPage } from "./pages/accounts/LedgerPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
@@ -113,6 +114,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="accounts">
                       <InvoiceHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/accounts/brand-credit-notes"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <BrandCreditNotesPage />
                     </ModuleRoute>
                   }
                 />

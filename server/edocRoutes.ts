@@ -3,6 +3,8 @@ import type { Pool } from "pg";
 import {
   getMastersIndiaEdocConfig,
   testEdocConnection,
+  testEinvoiceConnection,
+  testEwayConnection,
   tryGenerateEinvoiceForQuickBill,
   tryGenerateEinvoiceForSrfClose,
   tryGenerateEwayForChallanId,
@@ -33,6 +35,9 @@ export function registerEdocRoutes(
       sellerGstinOverride: publicSettings.sellerGstinOverride || null,
       ewayUserGstin: publicSettings.ewayUserGstin || null,
       envFallbackActive: publicSettings.envFallbackActive,
+      sandboxMode: publicSettings.sandboxMode ?? /sandb-api/i.test(publicSettings.apiBase),
+      effectiveEwayGstin: publicSettings.effectiveEwayGstin || null,
+      effectiveEinvoiceGstin: publicSettings.effectiveEinvoiceGstin || null,
     });
   });
 
@@ -46,6 +51,36 @@ export function registerEdocRoutes(
     const result = await testEdocConnection(cfg);
     if (!result.ok) {
       res.status(400).json({ error: result.error ?? "Token test failed" });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  app.post("/api/edoc/test-einvoice", requireAuth, async (_req, res) => {
+    await refreshEdocSettingsCache();
+    const cfg = getMastersIndiaEdocConfig();
+    if (!cfg) {
+      res.status(400).json({ error: "Set Masters India e-doc username and password in Settings → E-invoice & e-way." });
+      return;
+    }
+    const result = await testEinvoiceConnection(cfg);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? "E-invoice IRP check failed" });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  app.post("/api/edoc/test-eway", requireAuth, async (_req, res) => {
+    await refreshEdocSettingsCache();
+    const cfg = getMastersIndiaEdocConfig();
+    if (!cfg) {
+      res.status(400).json({ error: "Set Masters India e-doc username and password in Settings → E-invoice & e-way." });
+      return;
+    }
+    const result = await testEwayConnection(cfg);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? "E-way test failed" });
       return;
     }
     res.json({ ok: true });
@@ -93,7 +128,11 @@ export function registerEdocRoutes(
     }
     const input = parseEwayGenerateInput(req.body);
     const result = await tryGenerateEwayForChallanId(pool, dcId, input);
-    res.status(result.ok ? 200 : result.skipped ? 200 : 400).json({ edoc: result });
+    const errMsg = result.error ?? result.skipReason ?? null;
+    res.status(result.ok ? 200 : result.skipped ? 200 : 400).json({
+      error: result.ok || result.skipped ? undefined : errMsg ?? "E-way generation failed",
+      edoc: result,
+    });
   });
 
   app.get("/api/edoc/srf-jobs/:srfId/eway-prefill", requireAuth, async (req, res) => {

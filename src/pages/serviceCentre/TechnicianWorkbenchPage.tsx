@@ -15,6 +15,7 @@ export function TechnicianWorkbenchPage() {
     jobs,
     technicianEstimateOk,
     technicianRequestReestimate,
+    technicianRecommendBrand,
     submitSparesSlip,
     technicianMarkRepairComplete,
   } = useSrfJobs();
@@ -99,6 +100,17 @@ export function TechnicianWorkbenchPage() {
     }
   }
 
+  async function recommendBrand(jobId: string) {
+    setNote(null);
+    if (!user?.technicianProfileId) return;
+    try {
+      await technicianRecommendBrand(jobId, "Cannot be repaired at HO — recommend brand repair.");
+      setNote("Brand repair recommended — supervisor will review and send to brand if agreed.");
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Could not record brand recommendation.");
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -143,6 +155,11 @@ export function TechnicianWorkbenchPage() {
                     Used spares: {j.usedSpares.map((x) => `${x.name} x${x.qty}`).join(", ")}
                   </div>
                 ) : null}
+                {j.technicianBrandRecommendedAt ? (
+                  <p className="mt-2 text-xs font-semibold text-violet-800">
+                    Brand repair recommended — awaiting supervisor action.
+                  </p>
+                ) : null}
                 <div className="mt-4 flex flex-wrap gap-2">
                   {j.status === "assigned" ? (
                     <>
@@ -160,7 +177,27 @@ export function TechnicianWorkbenchPage() {
                       >
                         Need re-estimate
                       </button>
+                      {!j.technicianBrandRecommendedAt ? (
+                        <button
+                          type="button"
+                          onClick={() => void recommendBrand(j.id)}
+                          className="rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-900 hover:bg-violet-100"
+                        >
+                          Recommend send to brand
+                        </button>
+                      ) : null}
                     </>
+                  ) : null}
+                  {j.status === "estimate_ok" || j.status === "reestimate_required" ? (
+                    !j.technicianBrandRecommendedAt ? (
+                      <button
+                        type="button"
+                        onClick={() => void recommendBrand(j.id)}
+                        className="rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-900 hover:bg-violet-100"
+                      >
+                        Recommend send to brand
+                      </button>
+                    ) : null
                   ) : null}
                   {j.status === "estimate_ok" ? (
                     <>

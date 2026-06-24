@@ -2,6 +2,8 @@
 export type EdocResult = {
   ok: boolean;
   skipped?: boolean;
+  /** Transient IRP failure — background worker will retry. */
+  pending?: boolean;
   skipReason?: string;
   irn?: string | null;
   ackNo?: string | null;
@@ -86,6 +88,7 @@ export type EwayBuildInput = {
   vehicleNumber?: string;
   transportationMode?: string;
   transporterName?: string;
+  documentType?: string;
 };
 
 /** User-supplied fields when generating an e-way bill manually. */
@@ -120,10 +123,14 @@ export type EwayPrefill = {
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
+/** Masters India sandbox test GSTIN — not a standard-format GSTIN but valid for sandb-api. */
+export const SANDBOX_EDOC_TEST_GSTIN = "09AAAPG7885R002";
+
 export function isValidGstin(gstin: string | null | undefined): boolean {
   const g = String(gstin ?? "")
     .trim()
     .toUpperCase();
+  if (g === SANDBOX_EDOC_TEST_GSTIN) return true;
   return GSTIN_RE.test(g);
 }
 

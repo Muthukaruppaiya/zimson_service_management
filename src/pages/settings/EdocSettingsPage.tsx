@@ -40,6 +40,8 @@ export function EdocSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testingEway, setTestingEway] = useState(false);
+  const [testingEinvoice, setTestingEinvoice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [testMsg, setTestMsg] = useState<string | null>(null);
@@ -145,6 +147,39 @@ export function EdocSettingsPage() {
     }
   }
 
+  async function testEway() {
+    setTestingEway(true);
+    setTestMsg(null);
+    setError(null);
+    try {
+      await apiJson("/api/edoc/test-eway", { method: "POST" });
+      setTestMsg("E-way test bill generated — NIC credentials are working.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "E-way test failed.");
+    } finally {
+      setTestingEway(false);
+    }
+  }
+
+  async function testEinvoice() {
+    setTestingEinvoice(true);
+    setTestMsg(null);
+    setError(null);
+    try {
+      await apiJson("/api/edoc/test-einvoice", { method: "POST" });
+      const gstin = meta?.effectiveEinvoiceGstin ?? "09AAAPG7885R002";
+      setTestMsg(`E-invoice IRP reachable — sandbox uses test GSTIN ${gstin}.`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "E-invoice IRP check failed.");
+    } finally {
+      setTestingEinvoice(false);
+    }
+  }
+
+  const sandboxMode = meta?.sandboxMode ?? /sandb-api/i.test(apiBase);
+  const effectiveEwayGstin = meta?.effectiveEwayGstin ?? "";
+  const effectiveEinvoiceGstin = meta?.effectiveEinvoiceGstin ?? "";
+
   if (!isSuperAdmin) {
     return (
       <div>
@@ -185,13 +220,90 @@ export function EdocSettingsPage() {
                 </p>
               ) : null}
             </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={testing || testingEway || testingEinvoice || saving}
+                onClick={() => void testToken()}
+                className="rounded-xl border border-zimson-400 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50 disabled:opacity-60"
+              >
+                {testing ? "Testing…" : "Test token"}
+              </button>
+              <button
+                type="button"
+                disabled={testing || testingEway || testingEinvoice || saving}
+                onClick={() => void testEinvoice()}
+                className="rounded-xl border border-emerald-400 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-60"
+              >
+                {testingEinvoice ? "Testing…" : "Test e-invoice IRP"}
+              </button>
+              <button
+                type="button"
+                disabled={testing || testingEway || testingEinvoice || saving}
+                onClick={() => void testEway()}
+                className="rounded-xl border border-violet-400 bg-white px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-50 disabled:opacity-60"
+              >
+                {testingEway ? "Testing…" : "Test e-way"}
+              </button>
+            </div>
+          </div>
+
+          {sandboxMode ? (
+            <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <p className="font-semibold">Sandbox API (sandb-api.mastersindia.co)</p>
+              <p className="mt-1">
+                E-way uses your configured GSTIN and region consignor/consignee —{" "}
+                {effectiveEwayGstin ? (
+                  <span className="font-mono">{effectiveEwayGstin}</span>
+                ) : (
+                  "set E-way user GSTIN below"
+                )}
+                . Register NIC e-way API credentials for that GSTIN on the Masters India portal (separate from
+                e-invoice IRP login).
+              </p>
+              <p className="mt-2 text-xs text-amber-900">
+                Sandbox e-invoice always uses Masters India test seller GSTIN{" "}
+                <span className="font-mono">{effectiveEinvoiceGstin || "09AAAPG7885R002"}</span> (IRP on sandb-api).
+                E-way uses your configured GSTIN ({effectiveEwayGstin || "see below"}).
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+              <p className="font-semibold">Production API (router.mastersindia.co)</p>
+              <p className="mt-1">
+                E-invoice uses your store/region GSTIN{" "}
+                <span className="font-mono">{effectiveEinvoiceGstin || sellerGstinOverride || "—"}</span>. GSTIN must be
+                registered on{" "}
+                <a className="font-semibold underline" href="https://edoc.mastersindia.co" target="_blank" rel="noreferrer">
+                  edoc.mastersindia.co
+                </a>{" "}
+                under login <span className="font-mono">{username || "—"}</span> with IRP username/password.
+              </p>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={testing || saving}
-              onClick={() => void testToken()}
-              className="rounded-xl border border-zimson-400 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50 disabled:opacity-60"
+              className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-50"
+              onClick={() => {
+                setApiBase("https://sandb-api.mastersindia.co");
+                setEwayApiBase("https://sandb-api.mastersindia.co");
+                setTokenUrl("https://sandb-api.mastersindia.co/api/v1/token-auth/");
+              }}
             >
-              {testing ? "Testing…" : "Test token"}
+              Use sandbox API
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-emerald-500 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-950 hover:bg-emerald-50"
+              onClick={() => {
+                setApiBase("https://router.mastersindia.co");
+                setEwayApiBase("https://router.mastersindia.co");
+                setTokenUrl("https://router.mastersindia.co/api/v1/token-auth/");
+              }}
+            >
+              Use production API
             </button>
           </div>
 
@@ -239,15 +351,26 @@ export function EdocSettingsPage() {
               <div>
                 <span className={labelClass}>E-way path</span>
                 <input className={inputClass} value={ewayPath} onChange={(e) => setEwayPath(e.target.value)} />
+                <p className="mt-1 text-xs text-stone-500">
+                  Must be <span className="font-mono">/api/v1/ewayBillsGenerate/</span> (Bills with an s). Wrong path
+                  returns &quot;Invalid Product&quot;.
+                </p>
               </div>
               <div>
-                <span className={labelClass}>Sandbox seller GSTIN override</span>
+                <span className={labelClass}>Seller GSTIN override (production)</span>
                 <input
                   className={inputClass}
                   value={sellerGstinOverride}
                   onChange={(e) => setSellerGstinOverride(e.target.value.toUpperCase())}
-                  placeholder="09AAAPG7885R002"
+                  placeholder="33AAACZ0566D1ZN"
                 />
+                {sandboxMode ? (
+                  <p className="mt-1 text-xs text-amber-800">
+                    Not used for sandbox e-invoice — IRP always uses{" "}
+                    <span className="font-mono">{effectiveEinvoiceGstin || "09AAAPG7885R002"}</span>. Used for production
+                    e-invoice and as e-way fallback.
+                  </p>
+                ) : null}
               </div>
               <div>
                 <span className={labelClass}>E-way user GSTIN</span>
@@ -257,6 +380,12 @@ export function EdocSettingsPage() {
                   onChange={(e) => setEwayUserGstin(e.target.value.toUpperCase())}
                   placeholder="05AAABC0181E1ZE"
                 />
+                {sandboxMode ? (
+                  <p className="mt-1 text-xs text-amber-800">
+                    Used as e-way userGstin when region GSTIN is missing. Current effective:{" "}
+                    <span className="font-mono">{effectiveEwayGstin || "—"}</span>
+                  </p>
+                ) : null}
               </div>
               <div>
                 <span className={labelClass}>E-way nominal value (INR)</span>

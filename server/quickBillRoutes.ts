@@ -535,7 +535,10 @@ export function registerQuickBillRoutes(
                 qb.payment_mode AS "paymentMode",
                 qb.notes,
                 qb.total_inr::float8 AS "totalInr",
-                qb.created_by AS "createdBy"
+                qb.created_by AS "createdBy",
+                qb.edoc_irn AS "edocIrn",
+                qb.edoc_status AS "edocStatus",
+                qb.edoc_error AS "edocError"
          FROM quick_bills qb
          LEFT JOIN regions r ON r.id = qb.region_id
          LEFT JOIN stores s ON s.id = qb.store_id
@@ -578,6 +581,9 @@ export function registerQuickBillRoutes(
           notes: r.notes ?? "",
           totalInr: Number(r.totalInr),
           createdBy: r.createdBy,
+          edocIrn: (r.edocIrn as string | null) ?? null,
+          edocStatus: (r.edocStatus as string | null) ?? null,
+          edocError: (r.edocError as string | null) ?? null,
         };
       });
       res.json({ bills });

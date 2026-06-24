@@ -15,6 +15,9 @@ export type TransferPartyBlock = {
   phone: string;
   email: string;
   gstin: string;
+  /** City / place from region or store master (for e-way). */
+  place?: string;
+  pincode?: number;
 };
 
 export type TransferPrintMeta = {
@@ -131,6 +134,13 @@ export async function loadRegionHoParty(client: PoolClient, regionId: string): P
       gstin: "—",
     };
   }
+  const addrJson =
+    row.address_json && typeof row.address_json === "object"
+      ? (row.address_json as Record<string, unknown>)
+      : null;
+  const city = String(addrJson?.city ?? addrJson?.district ?? "").trim();
+  const pinRaw = String(addrJson?.pincode ?? "").trim();
+  const pincode = /^\d{6}$/.test(pinRaw) ? Number(pinRaw) : undefined;
   return {
     locationLabel: `HO / Service Centre: ${row.name}`,
     legalName: row.name,
@@ -138,6 +148,8 @@ export async function loadRegionHoParty(client: PoolClient, regionId: string): P
     phone: String(row.phone ?? "").trim() || "—",
     email: String(row.email ?? "").trim() || "—",
     gstin: String(row.gst ?? "").trim() || "—",
+    place: city || undefined,
+    pincode,
   };
 }
 

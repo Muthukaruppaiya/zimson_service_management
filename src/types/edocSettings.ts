@@ -15,6 +15,9 @@ export type EdocSettings = {
   configured: boolean;
   configuredFromDatabase: boolean;
   envFallbackActive: boolean;
+  sandboxMode: boolean;
+  effectiveEwayGstin: string;
+  effectiveEinvoiceGstin: string;
   updatedAt: string;
   updatedBy: string | null;
 };

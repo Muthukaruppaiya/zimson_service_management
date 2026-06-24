@@ -3,6 +3,13 @@ import type { EdocResult } from "./types";
 
 type Db = Pool | PoolClient;
 
+function edocPersistStatus(result: EdocResult): string {
+  if (result.ok) return "SUCCESS";
+  if (result.skipped) return "SKIPPED";
+  if (result.pending) return "PENDING";
+  return "FAILED";
+}
+
 export async function saveQuickBillEdoc(db: Db, billId: string, result: EdocResult): Promise<void> {
   await db.query(
     `UPDATE quick_bills
@@ -19,7 +26,7 @@ export async function saveQuickBillEdoc(db: Db, billId: string, result: EdocResu
       result.irn ?? null,
       result.ackNo ?? null,
       result.ackDate ?? null,
-      result.ok ? "SUCCESS" : result.skipped ? "SKIPPED" : "FAILED",
+      edocPersistStatus(result),
       result.error ?? result.skipReason ?? null,
       result.ok,
       result.qrUrl ?? null,
@@ -43,7 +50,7 @@ export async function saveSrfEdoc(db: Db, srfId: string, result: EdocResult): Pr
       result.irn ?? null,
       result.ackNo ?? null,
       result.ackDate ?? null,
-      result.ok ? "SUCCESS" : result.skipped ? "SKIPPED" : "FAILED",
+      result.ok ? "SUCCESS" : result.skipped ? "SKIPPED" : result.pending ? "PENDING" : "FAILED",
       result.error ?? result.skipReason ?? null,
       result.ok,
       result.qrUrl ?? null,
@@ -67,7 +74,7 @@ export async function saveServiceInvoiceEdoc(db: Db, invoiceId: string, result: 
       result.irn ?? null,
       result.ackNo ?? null,
       result.ackDate ?? null,
-      result.ok ? "SUCCESS" : result.skipped ? "SKIPPED" : "FAILED",
+      result.ok ? "SUCCESS" : result.skipped ? "SKIPPED" : result.pending ? "PENDING" : "FAILED",
       result.error ?? result.skipReason ?? null,
       result.ok,
       result.qrUrl ?? null,
@@ -124,7 +131,7 @@ export async function saveDeliveryChallanEdoc(db: Db, dcId: string, result: Edoc
       dcId,
       result.ewayBillNo ?? null,
       result.ewayValidUpto ?? null,
-      result.ok ? "SUCCESS" : result.skipped ? "SKIPPED" : "FAILED",
+      result.ok ? "SUCCESS" : result.skipped ? "SKIPPED" : result.pending ? "PENDING" : "FAILED",
       result.error ?? result.skipReason ?? null,
       result.ok,
     ],

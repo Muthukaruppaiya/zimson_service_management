@@ -24,7 +24,7 @@ import {
   scInwardReceiptPrintSubtitle,
   type ScInwardDocumentKind,
 } from "../../lib/srfLogisticsDocs";
-import { formatEwayEdocMessage, type EdocUiResult } from "../../lib/edocResultMessage";
+import { formatEwayEdocMessage, challanCanCreateOrRetryEway, type EdocUiResult } from "../../lib/edocResultMessage";
 import { transferFlowNeedsEway } from "../../lib/ewayBill";
 import { EwayBillModal } from "../../components/service/EwayBillModal";
 
@@ -177,6 +177,21 @@ export function ScLogisticsPage() {
   } | null>(null);
 
   const [ewayModalOpen, setEwayModalOpen] = useState(false);
+  const [edocEnabled, setEdocEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void apiJson<{ enabled?: boolean }>("/api/edoc/status")
+      .then((d) => {
+        if (!cancelled) setEdocEnabled(Boolean(d.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setEdocEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
@@ -567,7 +582,18 @@ export function ScLogisticsPage() {
         edoc: result.edoc ?? null,
         printOpts,
       });
-      if (transferFlowNeedsEway(printMeta.flow) && result.dcId && !result.edoc?.ewayBillNo) {
+      if (
+        challanCanCreateOrRetryEway({
+          flow: printMeta.flow,
+          edocEnabled,
+          ewayBillNo: result.edoc?.ewayBillNo,
+          edocStatus: result.edoc?.ok ? "SUCCESS" : result.edoc?.skipped ? "SKIPPED" : result.edoc ? "FAILED" : null,
+          edocError: result.edoc?.error,
+          skipped: result.edoc?.skipped,
+          skipReason: result.edoc?.skipReason,
+        }) &&
+        result.dcId
+      ) {
         setEwayModalOpen(true);
       }
       const ewayNote = formatEwayEdocMessage(result.edoc);
@@ -1218,7 +1244,15 @@ export function ScLogisticsPage() {
                   {outwardAck.edoc?.ewayValidUpto ? (
                     <p className="mt-1 text-xs text-rlx-ink-muted">Valid until {outwardAck.edoc.ewayValidUpto}</p>
                   ) : null}
-                  {outwardAck.dcId ? (
+                  {challanCanCreateOrRetryEway({
+                    flow: outwardAck.printMeta.flow,
+                    edocEnabled,
+                    ewayBillNo: outwardAck.edoc?.ewayBillNo,
+                    edocStatus: outwardAck.edoc?.ok ? "SUCCESS" : outwardAck.edoc?.skipped ? "SKIPPED" : outwardAck.edoc ? "FAILED" : null,
+                    edocError: outwardAck.edoc?.error,
+                    skipped: outwardAck.edoc?.skipped,
+                    skipReason: outwardAck.edoc?.skipReason,
+                  }) && outwardAck.dcId ? (
                     <button
                       type="button"
                       onClick={() => void regenerateOutwardEway()}

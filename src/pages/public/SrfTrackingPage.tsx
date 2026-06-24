@@ -246,7 +246,9 @@ export function SrfTrackingPage() {
               </p>
             ) : null}
             {jobs.map((j, jobIdx) => {
-              const pendingReestimate = j.status === "reestimate_required" && !j.customerReestimateResponse;
+              const pendingReestimate =
+                (j.status === "reestimate_required" || j.status === "brand_estimate_customer_pending") &&
+                !j.customerReestimateResponse;
               const isOpen = openJobId === j.id;
               const steps = trackingFlowForRepairRoute(j.repairRoute, j.status);
               const activeFlow = trackingFlowIndex(j.status, j.repairRoute);

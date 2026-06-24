@@ -5,6 +5,7 @@ import {
   refreshEdocSettingsCache,
   saveEdocSettings,
   toPublicEdocSettings,
+  normalizeEwayPath,
   type EdocSettingsDb,
 } from "./edocSettingsStore";
 
@@ -32,7 +33,7 @@ function bodyToDb(body: Record<string, unknown>): EdocSettingsDb {
     ewayApiBase: String(body.ewayApiBase ?? "").trim().slice(0, 500) || undefined,
     tokenUrl: String(body.tokenUrl ?? "").trim().slice(0, 500) || undefined,
     einvoicePath: String(body.einvoicePath ?? "").trim().slice(0, 120) || undefined,
-    ewayPath: String(body.ewayPath ?? "").trim().slice(0, 120) || undefined,
+    ewayPath: normalizeEwayPath(String(body.ewayPath ?? "").trim()).slice(0, 120) || undefined,
     sellerGstinOverride: String(body.sellerGstinOverride ?? "").trim().toUpperCase().slice(0, 15) || undefined,
     ewayUserGstin: String(body.ewayUserGstin ?? "").trim().toUpperCase().slice(0, 15) || undefined,
     ewayNominalValueInr: nominal,

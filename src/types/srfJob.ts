@@ -20,6 +20,8 @@ export type SrfJobStatus =
   | "inter_ho_reestimate_customer_accepted"
   | "sent_to_brand"
   | "brand_estimate_pending"
+  | "brand_estimate_customer_pending"
+  | "brand_estimate_customer_accepted"
   | "brand_approved"
   | "brand_repair_in_progress"
   | "received_from_brand"
@@ -99,6 +101,10 @@ export type SrfJob = {
     | null;
   interHoReestimateReceiverSrfId?: string | null;
   brandSentAt?: string | null;
+  technicianBrandRecommendedAt?: string | null;
+  technicianBrandRecommendNote?: string | null;
+  brandAcknowledgedAt?: string | null;
+  brandMailRef?: string | null;
   brandDispatchRef?: string | null;
   brandDispatchNote?: string | null;
   brandDispatchDocPath?: string | null;
@@ -108,6 +114,8 @@ export type SrfJob = {
   brandEstimateCurrency?: string | null;
   brandEstimateReceivedAt?: string | null;
   brandEstimateEmailMeta?: Record<string, unknown> | null;
+  brandMarkupInr?: number | null;
+  brandCustomerQuoteInr?: number | null;
   brandHoApprovalSentAt?: string | null;
   brandHoApprovalEmailMeta?: Record<string, unknown> | null;
   brandReturnReceivedAt?: string | null;
@@ -118,6 +126,8 @@ export type SrfJob = {
   brandCouponValueInr?: number | null;
   brandCouponReceivedAt?: string | null;
   brandCouponValidUntil?: string | null;
+  brandCreditNoteApprovedAt?: string | null;
+  brandCreditNoteApprovedBy?: string | null;
   customerCouponNotifiedAt?: string | null;
   customerCouponNotifyChannels?: Record<string, unknown> | null;
   trackingUrl?: string | null;

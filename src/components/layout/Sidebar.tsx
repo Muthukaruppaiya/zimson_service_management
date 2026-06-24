@@ -126,6 +126,7 @@ export function Sidebar() {
         title: "Accounts", icon: "accounts",
         items: [
           { to: "/accounts/invoice-history", label: "Invoice history", module: "accounts" },
+          { to: "/accounts/brand-credit-notes", label: "Brand credit notes", module: "accounts" },
           { to: "/accounts/ledger", label: "Payment ledger", module: "accounts" },
           { to: "/accounts/setup", label: "Accounts setup", module: "accounts" },
         ],

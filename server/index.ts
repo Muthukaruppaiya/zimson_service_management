@@ -24,6 +24,7 @@ import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { getMessagingPublicBaseUrl, isWhatsAppInvoiceDryRun } from "./messaging/config";
 import { initMessagingSettings } from "./messagingSettingsStore";
 import { initEdocSettings } from "./edocSettingsStore";
+import { startEdocRetryWorker } from "./edocRetryWorker";
 import { registerMessagingSettingsRoutes } from "./messagingSettingsRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
@@ -3889,6 +3890,7 @@ async function main() {
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerEdocRoutes(app, dbPool, requireAuth);
   await initEdocSettings(dbPool);
+  startEdocRetryWorker(dbPool);
   registerEdocSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   await initMessagingSettings(dbPool);
   registerMessagingSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

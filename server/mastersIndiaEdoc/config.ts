@@ -1,37 +1,82 @@
 import { getResolvedEdocConfig } from "../edocSettingsStore";
-import type { MastersIndiaEdocConfig } from "./types";
-import { isValidGstin } from "./types";
+import type { EdocParty, MastersIndiaEdocConfig } from "./types";
+import { isValidGstin, SANDBOX_EDOC_TEST_GSTIN } from "./types";
 
 export type { MastersIndiaEdocConfig } from "./types";
-export { isValidGstin } from "./types";
+export { isValidGstin, SANDBOX_EDOC_TEST_GSTIN } from "./types";
 
 export function getMastersIndiaEdocConfig(): MastersIndiaEdocConfig | null {
   return getResolvedEdocConfig();
 }
 
-/** Pick seller GSTIN: store → tax settings → sandbox override. */
+export const PRODUCTION_EDOC_API_BASE = "https://router.mastersindia.co";
+
+export function isSandboxEdocApi(cfg: MastersIndiaEdocConfig): boolean {
+  return /sandb-api/i.test(cfg.apiBase) || /sandb-api/i.test(cfg.ewayApiBase);
+}
+
+export function isProductionEdocApi(cfg: MastersIndiaEdocConfig): boolean {
+  return !isSandboxEdocApi(cfg);
+}
+
+/**
+ * Seller GSTIN for e-invoice (IRP).
+ * Sandbox: always MI test GSTIN 09… — IRP credentials on sandb-api are registered for that GSTIN only.
+ * Production: store / region → tax settings → override.
+ */
 export function resolveEdocSellerGstin(
   storeGstin: string | null | undefined,
   taxSettingsGstin: string | null | undefined,
   cfg: MastersIndiaEdocConfig,
 ): string {
+  if (isSandboxEdocApi(cfg)) {
+    return SANDBOX_EDOC_TEST_GSTIN;
+  }
   const candidates = [
-    cfg.sellerGstinOverride,
     String(storeGstin ?? "").trim().toUpperCase(),
     String(taxSettingsGstin ?? "").trim().toUpperCase(),
-    "09AAAPG7885R002",
+    String(cfg.sellerGstinOverride ?? "").trim().toUpperCase(),
   ];
   for (const g of candidates) {
     if (g && isValidGstin(g)) return g;
   }
-  return "09AAAPG7885R002";
+  return "";
+}
+
+/** Sandbox e-invoice: IRP expects test GSTIN 09… with matching UP pincode/place. */
+export function alignSandboxEdocSellerParty(
+  party: EdocParty,
+  cfg: MastersIndiaEdocConfig,
+): EdocParty {
+  if (!isSandboxEdocApi(cfg)) return party;
+  return {
+    ...party,
+    gstin: SANDBOX_EDOC_TEST_GSTIN,
+    stateCode: "09",
+    pincode: 201301,
+    location: "Noida",
+  };
+}
+
+/** Sandbox e-way: use configured / region GSTIN. MI test GSTIN 09… only when nothing else is set. */
+export function alignSandboxEdocEwayParties(
+  consignor: EdocParty,
+  consignee: EdocParty,
+  _cfg: MastersIndiaEdocConfig,
+): { consignor: EdocParty; consignee: EdocParty } {
+  return { consignor, consignee };
 }
 
 export function resolveEdocEwayUserGstin(
   consignorGstin: string,
   cfg: MastersIndiaEdocConfig,
 ): string {
-  if (cfg.ewayUserGstin) return cfg.ewayUserGstin;
-  if (isValidGstin(consignorGstin)) return consignorGstin.toUpperCase();
+  const configured = String(cfg.ewayUserGstin ?? "").trim().toUpperCase();
+  if (configured && isValidGstin(configured)) return configured;
+  const fromParty = String(consignorGstin ?? "").trim().toUpperCase();
+  if (isValidGstin(fromParty)) return fromParty;
+  const sellerOverride = String(cfg.sellerGstinOverride ?? "").trim().toUpperCase();
+  if (sellerOverride && isValidGstin(sellerOverride)) return sellerOverride;
+  if (isSandboxEdocApi(cfg)) return SANDBOX_EDOC_TEST_GSTIN;
   return "05AAABC0181E1ZE";
 }

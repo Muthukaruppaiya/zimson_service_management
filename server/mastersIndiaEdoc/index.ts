@@ -1,5 +1,5 @@
 export { getMastersIndiaEdocConfig, isValidGstin } from "./config";
-export { testEdocConnection } from "./client";
+export { testEdocConnection, testEinvoiceConnection, testEwayConnection } from "./client";
 export type { EdocResult } from "./types";
 export {
   edocEnabled,

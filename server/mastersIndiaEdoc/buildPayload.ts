@@ -3,6 +3,7 @@ import {
   defaultPincodeForState,
   formatDocumentDate,
   gstinStateCode,
+  edocPartyLocation,
   parsePincode,
   stateNameFromCode,
 } from "./gstState";
@@ -25,14 +26,18 @@ import {
   normGstStateCode,
 } from "./taxSplit";
 
+function clampEdocField(value: string, maxLen: number): string {
+  return String(value ?? "").trim().slice(0, maxLen);
+}
+
 function partyToApi(p: EdocParty): Record<string, unknown> {
   return {
     gstin: p.gstin,
-    legal_name: p.legalName,
-    trade_name: p.tradeName ?? p.legalName,
-    address1: p.address1,
-    address2: p.address2 ?? "",
-    location: p.location,
+    legal_name: clampEdocField(p.legalName, 100),
+    trade_name: clampEdocField(p.tradeName ?? p.legalName, 100),
+    address1: clampEdocField(p.address1, 100),
+    address2: clampEdocField(p.address2 ?? "", 100),
+    location: clampEdocField(p.location, 50),
     pincode: p.pincode,
     state_code: p.stateCode.replace(/\D/g, "").padStart(2, "0").slice(0, 2),
     phone_number: p.phone ?? "",
@@ -48,14 +53,21 @@ export function partyFromTransferBlock(block: TransferPartyBlock, gstinFallback:
   const stateCode = gstinStateCode(gstin);
   const addr = block.address && block.address !== "—" ? block.address : "Address line 1";
   const parts = addr.split(",").map((s) => s.trim()).filter(Boolean);
+  const place =
+    block.place?.trim() ||
+    edocPartyLocation(addr, null, stateCode);
+  const pincode =
+    block.pincode && block.pincode > 0
+      ? block.pincode
+      : parsePincode(addr, defaultPincodeForState(stateCode));
   return {
     gstin,
     legalName: block.legalName && block.legalName !== "—" ? block.legalName : "Party",
     tradeName: block.legalName,
     address1: parts[0] ?? addr.slice(0, 90),
     address2: parts.slice(1).join(", ").slice(0, 90) || "",
-    location: parts[parts.length - 1] ?? stateNameFromCode(stateCode),
-    pincode: parsePincode(addr, defaultPincodeForState(stateCode)),
+    location: place.slice(0, 50),
+    pincode,
     stateCode,
     phone: block.phone !== "—" ? block.phone : undefined,
     email: block.email !== "—" ? block.email : undefined,
@@ -136,13 +148,14 @@ export function buildEinvoicePayload(input: EinvoicingBuildInput): Record<string
 export function buildEwayPayload(input: EwayBuildInput): Record<string, unknown> {
   const consignorState = stateNameFromCode(input.consignor.stateCode);
   const consigneeState = stateNameFromCode(input.consignee.stateCode);
+  const sameGstin = input.consignor.gstin === input.consignee.gstin;
 
   return {
     userGstin: input.userGstin,
     supply_type: "outward",
-    sub_supply_type: "Others",
+    sub_supply_type: sameGstin ? "Others" : "Supply",
     sub_supply_description: input.subSupplyDescription?.slice(0, 100) || "Inter-location goods movement",
-    document_type: "CHL",
+    document_type: input.documentType ?? "Delivery Challan",
     document_number: input.documentNumber.slice(0, 50),
     document_date: formatDocumentDate(input.documentDate),
     gstin_of_consignor: input.consignor.gstin,
@@ -161,7 +174,7 @@ export function buildEwayPayload(input: EwayBuildInput): Record<string, unknown>
     pincode_of_consignee: input.consignee.pincode,
     state_of_supply: consigneeState,
     actual_to_state_name: consigneeState,
-    transaction_type: 4,
+    transaction_type: sameGstin ? 1 : 4,
     other_value: 0,
     total_invoice_value: round2(input.totalInvoiceValue),
     taxable_amount: round2(input.taxableAmount),
@@ -170,7 +183,7 @@ export function buildEwayPayload(input: EwayBuildInput): Record<string, unknown>
     igst_amount: round2(input.igst),
     cess_amount: 0,
     cess_nonadvol_value: 0,
-    transporter_id: input.userGstin,
+    transporter_id: "",
     transporter_name: input.transporterName?.trim() || "",
     transporter_document_number: "",
     transporter_document_date: "",

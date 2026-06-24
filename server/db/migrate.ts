@@ -645,6 +645,14 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_coupon_received_at TIMESTAMP
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_coupon_valid_until DATE;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_coupon_notified_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_coupon_notify_channels JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS technician_brand_recommended_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS technician_brand_recommend_note TEXT;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_acknowledged_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_credit_note_approved_at TIMESTAMPTZ;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_credit_note_approved_by VARCHAR(80);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_mail_ref VARCHAR(120);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_markup_inr NUMERIC(14, 2);
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_customer_quote_inr NUMERIC(14, 2);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS estimated_finish_date DATE;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS repair_route VARCHAR(20) NOT NULL DEFAULT 'send_to_ho';
 UPDATE srf_jobs SET repair_route = 'send_to_ho' WHERE repair_route IS NULL OR TRIM(repair_route) = '';

@@ -9,7 +9,7 @@ import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
-import { apiJson } from "../../lib/api";
+import { apiJson, ApiError } from "../../lib/api";
 import { ResendClosedSrfInvoiceActions } from "../../components/service/ResendClosedSrfInvoiceActions";
 import { useCustomers } from "../../context/CustomersContext";
 import { useSpares } from "../../context/SparesContext";
@@ -17,6 +17,12 @@ import { phoneLast10 } from "../../lib/customerLookup";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { isArchivedSrfJob, jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { buildStoreBillingInvoiceFromClosedJob } from "../../lib/storeBillingAmounts";
+import {
+  formatEinvoiceEdocMessage,
+  humanizeEinvoiceError,
+  srfCanGenerateEinvoice,
+  srfNeedsEinvoiceRetry,
+} from "../../lib/edocResultMessage";
 import type { QuickBillEdocInfo } from "../../types/quickBill";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
@@ -113,24 +119,38 @@ export function StoreBillingMasterPage() {
     setResendJob(job);
   }
 
-  async function generateEdocForJob(job: SrfJob) {
+  async function retryEinvoice(job: SrfJob) {
+    if (!srfNeedsEinvoiceRetry(job, edocEnabled) && !srfCanGenerateEinvoice(job, edocEnabled)) return;
     setEdocBusyId(job.id);
     setResendNote(null);
     try {
       const out = await apiJson<{ edoc: QuickBillEdocInfo }>(
         `/api/edoc/srf-jobs/${encodeURIComponent(job.id)}/generate-einvoice`,
-        { method: "POST" },
+        { method: "POST", json: {} },
       );
+      const msg = formatEinvoiceEdocMessage(out.edoc);
       if (out.edoc?.ok) {
-        setResendNote(`E-invoice registered. IRN: ${out.edoc.irn ?? "—"}`);
-      } else if (out.edoc?.skipped) {
-        setResendNote(`E-invoice skipped: ${out.edoc.skipReason ?? "Not applicable."}`);
+        setResendNote(msg ?? "E-invoice registered.");
       } else {
-        setResendNote(`E-invoice failed: ${out.edoc?.error ?? out.edoc?.skipReason ?? "IRP error."}`);
+        setResendNote(
+          `E-invoice failed: ${humanizeEinvoiceError(out.edoc?.error ?? out.edoc?.skipReason ?? msg)}`,
+        );
       }
       await refreshJobs();
+      if (resendJob?.id === job.id) {
+        setResendJob((prev) =>
+          prev && prev.id === job.id
+            ? {
+                ...prev,
+                edocIrn: out.edoc?.irn ?? prev.edocIrn,
+                edocStatus: out.edoc?.ok ? "SUCCESS" : out.edoc?.skipped ? "SKIPPED" : "FAILED",
+                edocError: out.edoc?.error ?? out.edoc?.skipReason ?? prev.edocError,
+              }
+            : prev,
+        );
+      }
     } catch (e) {
-      setResendNote(e instanceof Error ? e.message : "Could not generate e-invoice.");
+      setResendNote(e instanceof ApiError ? e.message : "Could not retry e-invoice.");
     } finally {
       setEdocBusyId(null);
     }
@@ -264,14 +284,23 @@ export function StoreBillingMasterPage() {
                             >
                               Print invoice
                             </button>
-                            {edocEnabled && j.customerKind === "B2B" && !j.edocIrn?.trim() ? (
+                            {srfNeedsEinvoiceRetry(j, edocEnabled) ? (
                               <button
                                 type="button"
                                 disabled={edocBusyId === j.id}
-                                onClick={() => void generateEdocForJob(j)}
+                                onClick={() => void retryEinvoice(j)}
                                 className={`${actionBtn} border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100`}
                               >
-                                {edocBusyId === j.id ? "…" : "Generate IRN"}
+                                {edocBusyId === j.id ? "…" : "Retry e-invoice"}
+                              </button>
+                            ) : srfCanGenerateEinvoice(j, edocEnabled) ? (
+                              <button
+                                type="button"
+                                disabled={edocBusyId === j.id}
+                                onClick={() => void retryEinvoice(j)}
+                                className={`${actionBtn} border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100`}
+                              >
+                                {edocBusyId === j.id ? "…" : "Generate e-invoice"}
                               </button>
                             ) : null}
                             <button
@@ -358,6 +387,20 @@ export function StoreBillingMasterPage() {
                 spareGstLookup={spareGstLookup}
                 onResult={setResendNote}
               />
+              {srfNeedsEinvoiceRetry(resendJob, edocEnabled) || srfCanGenerateEinvoice(resendJob, edocEnabled) ? (
+                <button
+                  type="button"
+                  className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-950 shadow-sm transition hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
+                  disabled={edocBusyId === resendJob.id}
+                  onClick={() => void retryEinvoice(resendJob)}
+                >
+                  {edocBusyId === resendJob.id
+                    ? "Generating…"
+                    : srfNeedsEinvoiceRetry(resendJob, edocEnabled)
+                      ? "Retry e-invoice"
+                      : "Generate e-invoice"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition hover:bg-stone-50 sm:w-auto"
@@ -371,6 +414,24 @@ export function StoreBillingMasterPage() {
             </>
           }
         >
+          {resendJob.customerKind === "B2B" && edocEnabled && !resendJob.edocIrn?.trim() ? (
+            <div
+              className={`mb-3 rounded-lg px-3 py-2 text-xs ${
+                resendJob.edocStatus === "FAILED"
+                  ? "bg-amber-50 text-amber-950 ring-1 ring-amber-200"
+                  : "bg-stone-50 text-stone-700 ring-1 ring-stone-200"
+              }`}
+            >
+              {resendJob.edocStatus === "FAILED" ? (
+                <>
+                  <strong>E-invoice not generated:</strong>{" "}
+                  {humanizeEinvoiceError(resendJob.edocError)}
+                </>
+              ) : (
+                <span>E-invoice not registered yet for this B2B invoice.</span>
+              )}
+            </div>
+          ) : null}
           {resendNote ? (
             <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-950 ring-1 ring-emerald-200/80">
               {resendNote}

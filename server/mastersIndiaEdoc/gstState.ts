@@ -105,3 +105,40 @@ export function parsePincode(text: string, fallback?: number): number {
   if (m) return Number(m[1]);
   return fallback ?? 600001;
 }
+
+/** IRP `location` / place — city or locality only (max 50 chars), not full address. */
+export function edocPartyLocation(
+  address: string | null | undefined,
+  city: string | null | undefined,
+  stateCode: string,
+): string {
+  const cityTrim = String(city ?? "").trim();
+  if (cityTrim) return cityTrim.slice(0, 50);
+
+  const stateLabel = stateNameFromCode(stateCode);
+  const addr = String(address ?? "").trim();
+  if (!addr) return stateLabel.slice(0, 50);
+
+  const parts = addr.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length > 1) {
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i]!;
+      if (/^\d{6}$/.test(p)) continue;
+      if (p.toUpperCase() === stateLabel) continue;
+      if (p.length >= 3 && p.length <= 50) return p;
+    }
+  }
+
+  let work = addr.replace(/\b\d{6}\b\s*$/, "").trim();
+  const statePat = new RegExp(`\\b${stateLabel.replace(/\s+/g, "\\s+")}\\s*$`, "i");
+  work = work.replace(statePat, "").trim();
+  if (work) {
+    const tokens = work.split(/\s+/).filter(Boolean);
+    const two = tokens.slice(-2).join(" ");
+    if (two.length >= 3 && two.length <= 50) return two;
+    const one = tokens[tokens.length - 1];
+    if (one && one.length >= 3 && one.length <= 50) return one;
+  }
+
+  return stateLabel.slice(0, 50);
+}

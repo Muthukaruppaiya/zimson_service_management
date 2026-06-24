@@ -1348,7 +1348,7 @@ export function QuickBillPage() {
           edocIrn: edoc?.irn ?? invoice.edocIrn,
           edocAckNo: edoc?.ackNo ?? invoice.edocAckNo,
           edocQr: edoc?.qrUrl ?? invoice.edocQr,
-          edocStatus: edoc?.ok ? "SUCCESS" : edoc?.skipped ? "SKIPPED" : edoc ? "FAILED" : invoice.edocStatus,
+          edocStatus: edoc?.ok ? "SUCCESS" : edoc?.pending ? "PENDING" : edoc?.skipped ? "SKIPPED" : edoc ? "FAILED" : invoice.edocStatus,
           edocError: edoc?.error ?? edoc?.skipReason ?? invoice.edocError,
         };
         setCompletion({ mode: "api", invoice: mergedInvoice, edoc: edoc ?? null });
@@ -1715,7 +1715,9 @@ export function QuickBillPage() {
                   ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
                   : edoc.skipped
                     ? "bg-stone-50 text-stone-700 ring-stone-200"
-                    : "bg-amber-50 text-amber-950 ring-amber-200"
+                    : edoc.pending
+                      ? "bg-sky-50 text-sky-950 ring-sky-200"
+                      : "bg-amber-50 text-amber-950 ring-amber-200"
               }`}
             >
               {edoc.ok ? (
@@ -1726,6 +1728,11 @@ export function QuickBillPage() {
               ) : edoc.skipped ? (
                 <>
                   <strong>E-invoice skipped:</strong> {edoc.skipReason ?? "Not applicable."}
+                </>
+              ) : edoc.pending ? (
+                <>
+                  <strong>E-invoice pending.</strong> Masters India IRP is slow or down — the app retries automatically
+                  every 90 seconds. Bill is saved; IRN will appear in history when IRP responds.
                 </>
               ) : (
                 <>

@@ -45,6 +45,8 @@ export function trackingFlowIndexHo(status: string): number {
     status === "customer_rejected" ||
     status === "sent_to_brand" ||
     status === "brand_estimate_pending" ||
+    status === "brand_estimate_customer_pending" ||
+    status === "brand_estimate_customer_accepted" ||
     status === "brand_approved" ||
     status === "brand_repair_in_progress" ||
     status === "received_from_brand" ||
@@ -106,12 +108,15 @@ export function customerTrackingStatusLabel(
   if (
     status === "sent_to_brand" ||
     status === "brand_estimate_pending" ||
+    status === "brand_estimate_customer_pending" ||
+    status === "brand_estimate_customer_accepted" ||
     status === "brand_approved" ||
     status === "brand_repair_in_progress"
   ) {
     return "With brand service";
   }
-  if (status === "received_from_brand") return "Returned from brand";
+  if (status === "brand_estimate_customer_pending") return "Brand repair estimate — your approval needed";
+  if (status === "brand_estimate_customer_accepted") return "Estimate accepted — brand repair starting";
   if (status === "brand_credit_note_pending" || status === "brand_credit_note_active") return "Brand credit issued";
   if (status === "customer_rejected") return "Awaiting confirmation";
   if (status === "inter_ho_reestimate_pending_sender") return "Re-estimate under review";

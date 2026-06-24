@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { MastersIndiaEdocConfig } from "./mastersIndiaEdoc/types";
 import { isValidGstin } from "./mastersIndiaEdoc/types";
+import { isSandboxEdocApi, resolveEdocEwayUserGstin, resolveEdocSellerGstin, SANDBOX_EDOC_TEST_GSTIN } from "./mastersIndiaEdoc/config";
 
 /** Stored in `edoc_settings.config` (JSONB). Super-admin only API. */
 export type EdocSettingsDb = {
@@ -36,6 +37,9 @@ export type EdocSettingsPublic = {
   configured: boolean;
   configuredFromDatabase: boolean;
   envFallbackActive: boolean;
+  sandboxMode: boolean;
+  effectiveEwayGstin: string;
+  effectiveEinvoiceGstin: string;
   updatedAt: string;
   updatedBy: string | null;
 };
@@ -50,6 +54,31 @@ let configuredFromDatabase = false;
 
 function trimBase(url: string): string {
   return url.replace(/\/+$/, "");
+}
+
+/** Legacy/wrong host from old docs — DNS does not resolve; use main API base. */
+function normalizeEwayApiBase(apiBase: string, ewayApiBase: string): string {
+  const api = trimBase(apiBase);
+  const eway = trimBase(ewayApiBase || api);
+  try {
+    const host = new URL(eway).hostname.toLowerCase();
+    if (host === "sandb-api.edoc.mastersindia.co" || host.endsWith(".edoc.mastersindia.co")) {
+      return api;
+    }
+  } catch {
+    return api;
+  }
+  return eway;
+}
+
+/** Common typo: ewayBillGenerate → ewayBillsGenerate (MI returns 401 Invalid Product). */
+export function normalizeEwayPath(path: string): string {
+  const trimmed = str(path) || "/api/v1/ewayBillsGenerate/";
+  const lower = trimmed.toLowerCase().replace(/\/+$/, "");
+  if (lower.includes("ewaybillgenerate") && !lower.includes("ewaybillsgenerate")) {
+    return "/api/v1/ewayBillsGenerate/";
+  }
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
 function str(v: unknown): string {
@@ -85,7 +114,8 @@ function resolveMerged(db: EdocSettingsDb): {
     return { config: null, fromDb: dbHasCredentials(db) };
   }
 
-  const apiBase = trimBase(str(db.apiBase) || defaults.apiBase!);
+  const envApiBase = process.env.EDOC_API_BASE?.trim();
+  const apiBase = trimBase(envApiBase || str(db.apiBase) || defaults.apiBase!);
   const sellerOverride = str(db.sellerGstinOverride).toUpperCase();
   const ewayGst = str(db.ewayUserGstin).toUpperCase();
 
@@ -95,10 +125,10 @@ function resolveMerged(db: EdocSettingsDb): {
     username,
     password,
     apiBase,
-    ewayApiBase: trimBase(str(db.ewayApiBase) || apiBase),
+    ewayApiBase: normalizeEwayApiBase(apiBase, str(db.ewayApiBase) || apiBase),
     tokenUrl: str(db.tokenUrl) || `${apiBase}/api/v1/token-auth/`,
     einvoicePath: str(db.einvoicePath) || defaults.einvoicePath!,
-    ewayPath: str(db.ewayPath) || defaults.ewayPath!,
+    ewayPath: normalizeEwayPath(str(db.ewayPath) || defaults.ewayPath!),
     sellerGstinOverride: sellerOverride && isValidGstin(sellerOverride) ? sellerOverride : null,
     ewayUserGstin: ewayGst && isValidGstin(ewayGst) ? ewayGst : null,
     ewayNominalValueInr: Math.max(1, Number(db.ewayNominalValueInr ?? defaults.ewayNominalValueInr) || 1000),
@@ -166,14 +196,15 @@ export function toPublicEdocSettings(): EdocSettingsPublic {
   const db = dbConfig;
   const defaults = defaultEdocDb();
   const apiBase = trimBase(str(db.apiBase) || defaults.apiBase!);
+  const sandboxMode = cfg ? isSandboxEdocApi(cfg) : /sandb-api/i.test(apiBase);
   return {
     enabled: cfg?.enabled ?? db.enabled ?? defaults.enabled ?? true,
     failOpen: cfg?.failOpen ?? db.failOpen ?? defaults.failOpen ?? true,
     apiBase: cfg?.apiBase ?? apiBase,
-    ewayApiBase: cfg?.ewayApiBase ?? trimBase(str(db.ewayApiBase) || apiBase),
+    ewayApiBase: normalizeEwayApiBase(apiBase, cfg?.ewayApiBase ?? trimBase(str(db.ewayApiBase) || apiBase)),
     tokenUrl: cfg?.tokenUrl ?? (str(db.tokenUrl) || `${apiBase}/api/v1/token-auth/`),
     einvoicePath: cfg?.einvoicePath ?? (str(db.einvoicePath) || defaults.einvoicePath!),
-    ewayPath: cfg?.ewayPath ?? (str(db.ewayPath) || defaults.ewayPath!),
+    ewayPath: normalizeEwayPath(cfg?.ewayPath ?? (str(db.ewayPath) || defaults.ewayPath!)),
     sellerGstinOverride: cfg?.sellerGstinOverride ?? str(db.sellerGstinOverride),
     ewayUserGstin: cfg?.ewayUserGstin ?? str(db.ewayUserGstin),
     ewayNominalValueInr: cfg?.ewayNominalValueInr ?? db.ewayNominalValueInr ?? defaults.ewayNominalValueInr ?? 1000,
@@ -183,6 +214,9 @@ export function toPublicEdocSettings(): EdocSettingsPublic {
     configured: Boolean(cfg),
     configuredFromDatabase,
     envFallbackActive: false,
+    sandboxMode,
+    effectiveEwayGstin: cfg ? resolveEdocEwayUserGstin("", cfg) : sandboxMode ? SANDBOX_EDOC_TEST_GSTIN : "",
+    effectiveEinvoiceGstin: cfg ? resolveEdocSellerGstin("", "", cfg) : sandboxMode ? SANDBOX_EDOC_TEST_GSTIN : "",
     updatedAt: metaCache.updatedAt,
     updatedBy: metaCache.updatedBy,
   };
@@ -201,7 +235,7 @@ export async function saveEdocSettings(patch: EdocSettingsDb, updatedBy: string)
   if (patch.ewayApiBase !== undefined) next.ewayApiBase = trimBase(patch.ewayApiBase.trim()).slice(0, 500);
   if (patch.tokenUrl !== undefined) next.tokenUrl = patch.tokenUrl.trim().slice(0, 500);
   if (patch.einvoicePath !== undefined) next.einvoicePath = patch.einvoicePath.trim().slice(0, 120);
-  if (patch.ewayPath !== undefined) next.ewayPath = patch.ewayPath.trim().slice(0, 120);
+  if (patch.ewayPath !== undefined) next.ewayPath = normalizeEwayPath(patch.ewayPath.trim()).slice(0, 120);
   if (patch.sellerGstinOverride !== undefined) {
     next.sellerGstinOverride = patch.sellerGstinOverride.trim().toUpperCase().slice(0, 15);
   }

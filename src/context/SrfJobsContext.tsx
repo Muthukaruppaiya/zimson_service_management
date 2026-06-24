@@ -163,6 +163,7 @@ type SrfJobsContextValue = {
   supervisorMoveRejectedToOdc: (jobId: string, note?: string) => Promise<void>;
   technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
   technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<SrfReestimateNotifyResult>;
+  technicianRecommendBrand: (jobId: string, note?: string) => Promise<void>;
   technicianSendToBrand: (jobId: string, payload: { dispatchRef?: string; note?: string; dispatchDocPath?: string }) => Promise<void>;
   submitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   technicianMarkRepairComplete: (jobId: string, technicianProfileId: string) => Promise<void>;
@@ -171,6 +172,11 @@ type SrfJobsContextValue = {
     payload: { estimateInr: number; currency?: string; note?: string; emailMeta?: Record<string, unknown> },
   ) => Promise<void>;
   supervisorApproveBrandEstimate: (jobId: string, payload?: { note?: string; emailMeta?: Record<string, unknown> }) => Promise<void>;
+  supervisorForwardBrandEstimateToCustomer: (
+    jobId: string,
+    payload: { markupInr: number; note: string },
+  ) => Promise<SrfReestimateNotifyResult>;
+  supervisorAcknowledgeBrandReceipt: (jobId: string, payload?: { note?: string; mailRef?: string }) => Promise<void>;
   supervisorReceiveFromBrand: (jobId: string, payload?: { note?: string }) => Promise<void>;
   supervisorLogBrandInvoice: (
     jobId: string,
@@ -184,6 +190,11 @@ type SrfJobsContextValue = {
     jobId: string,
     payload?: { channels?: Record<string, unknown>; note?: string },
   ) => Promise<void>;
+  supervisorReleaseBrandCreditReturn: (jobId: string, payload?: { note?: string }) => Promise<void>;
+  accountsApproveBrandCreditNote: (
+    jobId: string,
+    payload?: { note?: string; voucherCode?: string },
+  ) => Promise<{ voucherCode: string }>;
   createOutwardBatch: (
     items: { jobId: string; destinationStoreId: string }[],
     opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
@@ -502,6 +513,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshJobs]);
 
+  const technicianRecommendBrand = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/recommend-brand`, {
+      method: "POST",
+      json: { note },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
   const technicianSendToBrand = useCallback(async (
     jobId: string,
     payload: { dispatchRef?: string; note?: string; dispatchDocPath?: string },
@@ -551,6 +570,32 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const supervisorAcknowledgeBrandReceipt = useCallback(async (
+    jobId: string,
+    payload?: { note?: string; mailRef?: string },
+  ) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/acknowledge`, {
+      method: "POST",
+      json: payload ?? {},
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorForwardBrandEstimateToCustomer = useCallback(async (
+    jobId: string,
+    payload: { markupInr: number; note: string },
+  ) => {
+    const out = await apiJson<{ ok: boolean; whatsappSent?: boolean; whatsappReason?: string | null }>(
+      `/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/forward-estimate-to-customer`,
+      { method: "POST", json: payload },
+    );
+    await refreshJobs();
+    return {
+      whatsappSent: out.whatsappSent,
+      whatsappReason: out.whatsappReason ?? null,
+    };
+  }, [refreshJobs]);
+
   const supervisorReceiveFromBrand = useCallback(async (jobId: string, payload?: { note?: string }) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/receive-return`, {
       method: "POST",
@@ -590,6 +635,26 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       json: payload ?? {},
     });
     await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorReleaseBrandCreditReturn = useCallback(async (jobId: string, payload?: { note?: string }) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/release-credit-return`, {
+      method: "POST",
+      json: payload ?? {},
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const accountsApproveBrandCreditNote = useCallback(async (
+    jobId: string,
+    payload?: { note?: string; voucherCode?: string },
+  ) => {
+    const out = await apiJson<{ ok: boolean; voucherCode: string }>(
+      `/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/approve-credit-note`,
+      { method: "POST", json: payload ?? {} },
+    );
+    await refreshJobs();
+    return { voucherCode: out.voucherCode };
   }, [refreshJobs]);
 
   const createOutwardBatch = useCallback(async (
@@ -719,15 +784,20 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorMoveRejectedToOdc,
       technicianEstimateOk,
       technicianRequestReestimate,
+      technicianRecommendBrand,
       technicianSendToBrand,
       submitSparesSlip,
       technicianMarkRepairComplete,
       supervisorLogBrandEstimate,
       supervisorApproveBrandEstimate,
+      supervisorForwardBrandEstimateToCustomer,
+      supervisorAcknowledgeBrandReceipt,
       supervisorReceiveFromBrand,
       supervisorLogBrandInvoice,
       supervisorLogBrandCreditNote,
       supervisorNotifyBrandCoupon,
+      supervisorReleaseBrandCreditReturn,
+      accountsApproveBrandCreditNote,
       createOutwardBatch,
       receiveOutwardByDc,
       closeWithInvoice,
@@ -768,15 +838,20 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorMoveRejectedToOdc,
       technicianEstimateOk,
       technicianRequestReestimate,
+      technicianRecommendBrand,
       technicianSendToBrand,
       submitSparesSlip,
       technicianMarkRepairComplete,
       supervisorLogBrandEstimate,
       supervisorApproveBrandEstimate,
+      supervisorForwardBrandEstimateToCustomer,
+      supervisorAcknowledgeBrandReceipt,
       supervisorReceiveFromBrand,
       supervisorLogBrandInvoice,
       supervisorLogBrandCreditNote,
       supervisorNotifyBrandCoupon,
+      supervisorReleaseBrandCreditReturn,
+      accountsApproveBrandCreditNote,
       createOutwardBatch,
       receiveOutwardByDc,
       closeWithInvoice,

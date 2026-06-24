@@ -71,6 +71,8 @@ function laneOf(job: SrfJob): "HO" | "STORE" {
     s === "reestimate_required" ||
     s === "sent_to_brand" ||
     s === "brand_estimate_pending" ||
+    s === "brand_estimate_customer_pending" ||
+    s === "brand_estimate_customer_accepted" ||
     s === "brand_approved" ||
     s === "brand_repair_in_progress" ||
     s === "received_from_brand" ||
@@ -91,6 +93,8 @@ function timelineLabel(job: SrfJob): string {
   if (
     job.status === "sent_to_brand" ||
     job.status === "brand_estimate_pending" ||
+    job.status === "brand_estimate_customer_pending" ||
+    job.status === "brand_estimate_customer_accepted" ||
     job.status === "brand_approved" ||
     job.status === "brand_repair_in_progress"
   ) {

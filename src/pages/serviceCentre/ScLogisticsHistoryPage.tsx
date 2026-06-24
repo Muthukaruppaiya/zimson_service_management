@@ -1,11 +1,36 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { EwayBillModal } from "../../components/service/EwayBillModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
+import { apiJson } from "../../lib/api";
+import {
+  challanShowEwayHistoryRetry,
+  formatEwayEdocMessage,
+  type EdocUiResult,
+} from "../../lib/edocResultMessage";
+import type { TransferFlow } from "../../lib/transferDocumentKind";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import type { SrfJob } from "../../types/srfJob";
+
+type DeliveryChallanHistoryRow = {
+  id: string;
+  dcNumber: string;
+  createdAt: string;
+  flow: TransferFlow;
+  needsEway: boolean;
+  srfReferences: string[];
+  edocEwayBillNo?: string | null;
+  edocEwayValidUpto?: string | null;
+  edocStatus?: string | null;
+  edocError?: string | null;
+};
+
+const actionBtn =
+  "rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-950 transition hover:bg-amber-100 disabled:opacity-50";
 
 export function ScLogisticsHistoryPage() {
   const { user } = useAuth();
@@ -16,6 +41,12 @@ export function ScLogisticsHistoryPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
+  const [dcRows, setDcRows] = useState<DeliveryChallanHistoryRow[]>([]);
+  const [dcLoading, setDcLoading] = useState(false);
+  const [dcMsg, setDcMsg] = useState<string | null>(null);
+  const [edocEnabled, setEdocEnabled] = useState(false);
+  const [ewayDcId, setEwayDcId] = useState<string | null>(null);
+  const [ewayBusyId, setEwayBusyId] = useState<string | null>(null);
   const pageSize = 10;
 
   const storeById = useMemo(() => {
@@ -62,12 +93,135 @@ export function ScLogisticsHistoryPage() {
     return filteredRows.slice(start, start + pageSize);
   }, [filteredRows, currentPage]);
 
+  const loadDcHistory = useCallback(async () => {
+    if (!user) return;
+    setDcLoading(true);
+    try {
+      const out = await apiJson<{ rows: DeliveryChallanHistoryRow[] }>("/api/service/delivery-challans/history");
+      setDcRows(out.rows);
+    } catch {
+      setDcRows([]);
+    } finally {
+      setDcLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void loadDcHistory();
+  }, [loadDcHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void apiJson<{ enabled?: boolean }>("/api/edoc/status")
+      .then((d) => {
+        if (!cancelled) setEdocEnabled(Boolean(d.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setEdocEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function dcCanRetry(row: DeliveryChallanHistoryRow): boolean {
+    return challanShowEwayHistoryRetry(edocEnabled, row.edocEwayBillNo);
+  }
+
+  function ewayActionLabel(row: DeliveryChallanHistoryRow): string {
+    if (row.edocStatus === "FAILED" || row.edocStatus === "SKIPPED") return "Retry e-way bill";
+    return "Create e-way bill";
+  }
+
+  function onEwaySuccess(edoc: EdocUiResult) {
+    setDcMsg(formatEwayEdocMessage(edoc) ?? (edoc?.ok ? "E-way bill generated." : "Could not generate e-way bill."));
+    void loadDcHistory();
+  }
+
   return (
     <div>
       <PageHeader
         title="DC / ODC history"
         description="Single-page lifecycle view for inward and outward challans."
+        actions={
+          <Link
+            to="/service-centre/logistics"
+            className="inline-flex rounded-xl border border-rlx-gold bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green shadow-sm transition hover:bg-rlx-green-light"
+          >
+            Back to logistics
+          </Link>
+        }
       />
+
+      {edocEnabled ? (
+        <Card title={`Delivery challans & e-way (${dcRows.length})`} subtitle="">
+          {dcMsg ? (
+            <p className="mb-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-950 ring-1 ring-sky-200">{dcMsg}</p>
+          ) : null}
+          {dcLoading ? (
+            <p className="text-sm text-stone-600">Loading delivery challans…</p>
+          ) : dcRows.length === 0 ? (
+            <p className="text-sm text-stone-600">No delivery challans in your scope yet.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+              <table className="min-w-full text-left text-sm">
+                <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                  <tr>
+                    <th className="px-3 py-2">DC</th>
+                    <th className="px-3 py-2">Created</th>
+                    <th className="px-3 py-2">SRF</th>
+                    <th className="px-3 py-2">E-way</th>
+                    <th className="px-3 py-2 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dcRows.map((row) => (
+                    <tr key={row.id} className="border-b border-zimson-100 last:border-0">
+                      <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{row.dcNumber}</td>
+                      <td className="px-3 py-2 text-xs text-stone-600">{new Date(row.createdAt).toLocaleString()}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-stone-700">
+                        {row.srfReferences.join(", ") || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-[10px] font-semibold uppercase">
+                        {row.edocEwayBillNo?.trim() ? (
+                          <span className="text-emerald-700">EWB {row.edocEwayBillNo}</span>
+                        ) : row.edocStatus === "SKIPPED" ? (
+                          <span className="text-stone-500" title={row.edocError ?? undefined}>
+                            Skipped
+                          </span>
+                        ) : row.edocStatus === "FAILED" ? (
+                          <span className="text-rose-700" title={row.edocError ?? undefined}>
+                            Failed
+                          </span>
+                        ) : !row.needsEway ? (
+                          <span className="text-stone-500">No e-way</span>
+                        ) : (
+                          <span className="text-amber-700">Pending</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {dcCanRetry(row) ? (
+                          <button
+                            type="button"
+                            disabled={ewayBusyId === row.id}
+                            onClick={() => {
+                              setEwayBusyId(row.id);
+                              setEwayDcId(row.id);
+                            }}
+                            className={actionBtn}
+                          >
+                            {ewayBusyId === row.id ? "…" : ewayActionLabel(row)}
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      ) : null}
 
       <Card title={`DC / ODC history (${filteredRows.length})`}>
         <div className="mb-4 grid gap-2 md:grid-cols-4">
@@ -159,13 +313,12 @@ export function ScLogisticsHistoryPage() {
                       <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.dcNumber ?? "-"}</td>
                       <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.outwardDcNumber ?? "-"}</td>
                       <td className="px-3 py-2">{j.customerName}</td>
-                       <td className="px-3 py-2 text-xs text-stone-600">
+                      <td className="px-3 py-2 text-xs text-stone-600">
                         {(() => {
                           if (j.requiresLocalConversion && j.transferTargetRegionId) {
-                            const reg = regions.find(r => r.id === j.transferTargetRegionId);
+                            const reg = regions.find((r) => r.id === j.transferTargetRegionId);
                             return `HO: ${reg?.name ?? j.transferTargetRegionId}`;
                           }
-                          // Use destinationStoreId as the primary indicator of the "root" destination
                           const destId = j.destinationStoreId || j.transferSourceStoreId || j.storeId;
                           const loc = storeById.get(destId);
                           return loc ? (loc.regionName ? `HO: ${loc.regionName} · ` : "") + `Store: ${loc.storeName}` : destId;
@@ -228,29 +381,44 @@ export function ScLogisticsHistoryPage() {
                   </tr>
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2">Customer</th>
-                    <td className="px-3 py-2">{selectedJob.customerName} ({selectedJob.phone})</td>
+                    <td className="px-3 py-2">
+                      {selectedJob.customerName} ({selectedJob.phone})
+                    </td>
                   </tr>
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2">Watch</th>
-                    <td className="px-3 py-2">{selectedJob.watchBrand} {selectedJob.watchModel} · {selectedJob.serial}</td>
+                    <td className="px-3 py-2">
+                      {selectedJob.watchBrand} {selectedJob.watchModel} · {selectedJob.serial}
+                    </td>
                   </tr>
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2">DC / ODC</th>
-                    <td className="px-3 py-2">DC: {selectedJob.dcNumber ?? "-"} · ODC: {selectedJob.outwardDcNumber ?? "-"}</td>
+                    <td className="px-3 py-2">
+                      DC: {selectedJob.dcNumber ?? "-"} · ODC: {selectedJob.outwardDcNumber ?? "-"}
+                    </td>
                   </tr>
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2">Region / Store</th>
                     <td className="px-3 py-2">
-                      HO: {selectedJob.regionName ?? selectedJob.regionId} · Store: {storeById.get(selectedJob.storeId)?.storeName ?? selectedJob.storeId}
+                      HO: {selectedJob.regionName ?? selectedJob.regionId} · Store:{" "}
+                      {storeById.get(selectedJob.storeId)?.storeName ?? selectedJob.storeId}
                     </td>
                   </tr>
                   <tr className="border-b border-zimson-100">
                     <th className="bg-zimson-50/70 px-3 py-2">Timeline</th>
                     <td className="px-3 py-2 text-xs text-stone-700">
-                      Dispatched to SC: {selectedJob.dispatchedToScAt ? new Date(selectedJob.dispatchedToScAt).toLocaleString() : "-"}<br />
-                      SC inward: {selectedJob.inwardAt ? new Date(selectedJob.inwardAt).toLocaleString() : "-"}<br />
-                      Dispatched to store: {selectedJob.dispatchedToStoreAt ? new Date(selectedJob.dispatchedToStoreAt).toLocaleString() : "-"}<br />
-                      Store inward: {selectedJob.receivedBackAtStoreAt ? new Date(selectedJob.receivedBackAtStoreAt).toLocaleString() : "-"}
+                      Dispatched to SC:{" "}
+                      {selectedJob.dispatchedToScAt ? new Date(selectedJob.dispatchedToScAt).toLocaleString() : "-"}
+                      <br />
+                      SC inward: {selectedJob.inwardAt ? new Date(selectedJob.inwardAt).toLocaleString() : "-"}
+                      <br />
+                      Dispatched to store:{" "}
+                      {selectedJob.dispatchedToStoreAt ? new Date(selectedJob.dispatchedToStoreAt).toLocaleString() : "-"}
+                      <br />
+                      Store inward:{" "}
+                      {selectedJob.receivedBackAtStoreAt
+                        ? new Date(selectedJob.receivedBackAtStoreAt).toLocaleString()
+                        : "-"}
                     </td>
                   </tr>
                   <tr>
@@ -262,6 +430,23 @@ export function ScLogisticsHistoryPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {ewayDcId ? (
+        <EwayBillModal
+          open={Boolean(ewayDcId)}
+          kind="challan"
+          resourceId={ewayDcId}
+          onClose={() => {
+            setEwayDcId(null);
+            setEwayBusyId(null);
+          }}
+          onSuccess={(edoc) => {
+            onEwaySuccess(edoc);
+            setEwayDcId(null);
+            setEwayBusyId(null);
+          }}
+        />
       ) : null}
     </div>
   );

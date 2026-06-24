@@ -9,7 +9,7 @@ import { billableLineAmount } from "../../src/lib/natureOfRepair";
 import { isValidGstFormat } from "../../src/data/serviceSeed";
 import { validateCustomerB2bGstin } from "../../src/lib/zimsonCompanyGst";
 import type { TransferPrintMeta } from "../transferDocMeta";
-import { transferPrintKindFromGstins, rebuildPrintMetaForChallan } from "../transferDocMeta";
+import { rebuildPrintMetaForChallan } from "../transferDocMeta";
 import {
   buildEinvoicePayload,
   buildEwayPayload,
@@ -18,12 +18,13 @@ import {
 } from "./buildPayload";
 import { generateEinvoice, generateEwayBill } from "./client";
 import {
+  alignSandboxEdocSellerParty,
   getMastersIndiaEdocConfig,
   isValidGstin,
   resolveEdocEwayUserGstin,
   resolveEdocSellerGstin,
 } from "./config";
-import { defaultPincodeForState, gstinStateCode, parsePincode, stateNameFromCode } from "./gstState";
+import { defaultPincodeForState, gstinStateCode, edocPartyLocation, parsePincode, stateNameFromCode } from "./gstState";
 import { loadSpareGstById } from "../hsnGstRates";
 import {
   isServiceSacCode,
@@ -88,6 +89,28 @@ export function transferFlowNeedsEway(flow: TransferPrintMeta["flow"]): boolean 
   return flow === "ho_to_ho_dispatch" || flow === "ho_to_ho_return";
 }
 
+async function loadStoreGstinForEdoc(
+  pool: Pool,
+  storeId: string | null | undefined,
+  regionIdFallback?: string | null,
+): Promise<string> {
+  const id = String(storeId ?? "").trim();
+  if (!id) return "";
+  const st = await pool.query<{ invoice_gstin: string | null; region_id: string }>(
+    `SELECT invoice_gstin, region_id FROM stores WHERE id = $1::text`,
+    [id],
+  );
+  let gstin = String(st.rows[0]?.invoice_gstin ?? "").trim();
+  if (gstin) return gstin;
+  const regionId = String(st.rows[0]?.region_id ?? regionIdFallback ?? "").trim();
+  if (!regionId) return "";
+  const reg = await pool.query<{ gst: string | null }>(
+    `SELECT gst FROM regions WHERE id = $1::text`,
+    [regionId],
+  );
+  return String(reg.rows[0]?.gst ?? "").trim();
+}
+
 async function loadTaxSettings(db: Pool) {
   const { rows } = await db.query<{
     gst_rate_percent: string;
@@ -123,7 +146,7 @@ function buildPartyFromBillFields(args: {
     tradeName: args.legalName.slice(0, 100),
     address1: parts[0] ?? addr.slice(0, 90),
     address2: parts.slice(1).join(", ").slice(0, 90),
-    location: args.city?.trim() || parts[parts.length - 1] || stateNameFromCode(stateCode),
+    location: edocPartyLocation(args.address, args.city, stateCode),
     pincode: parsePincode(addr, defaultPincodeForState(stateCode)),
     stateCode,
     phone: args.phone ?? undefined,
@@ -248,12 +271,13 @@ export async function tryGenerateEinvoiceForQuickBill(
     bill_number: string;
     created_at: Date;
     store_id: string | null;
+    region_id: string | null;
     nature_of_repair: string | null;
     total_inr: string;
     edoc_irn: string | null;
   }>(
     `SELECT customer_type, gst, company, customer_name, phone, email, address, city,
-            customer_billing_state, invoice_number, bill_number, created_at, store_id,
+            customer_billing_state, invoice_number, bill_number, created_at, store_id, region_id,
             nature_of_repair, total_inr::text, edoc_irn
      FROM quick_bills WHERE id = $1::uuid`,
     [billId],
@@ -284,17 +308,15 @@ export async function tryGenerateEinvoiceForQuickBill(
   );
 
   const taxRow = await loadTaxSettings(pool);
-  let storeGstin = "";
-  if (bill.store_id) {
-    const st = await pool.query<{ invoice_gstin: string | null }>(
-      `SELECT invoice_gstin FROM stores WHERE id = $1::text`,
-      [bill.store_id],
-    );
-    storeGstin = String(st.rows[0]?.invoice_gstin ?? "").trim();
-  }
+  let storeGstin = await loadStoreGstinForEdoc(pool, bill.store_id, bill.region_id);
   if (!storeGstin) storeGstin = String(taxRow?.invoice_store_gstin ?? "").trim();
 
   const sellerGstin = resolveEdocSellerGstin(storeGstin, taxRow?.invoice_store_gstin, cfg);
+  if (!sellerGstin) {
+    const r = skip("Seller GSTIN required — set region/store GST or production Masters India API URL.");
+    await saveQuickBillEdoc(pool, billId, r);
+    return r;
+  }
   const configuredGst = Number(taxRow?.gst_rate_percent ?? 18);
   const defaultSacHsn = String(taxRow?.default_sac_hsn ?? "9987").trim() || "9987";
   const pricesTaxInclusive = true;
@@ -378,13 +400,16 @@ export async function tryGenerateEinvoiceForQuickBill(
     store?.name ||
     "Zimson";
 
-  const seller = buildPartyFromBillFields({
-    gstin: sellerGstin,
-    legalName: sellerName,
-    address: store?.invoice_address,
-    phone: store?.invoice_phone,
-    email: store?.invoice_email,
-  });
+  const seller = alignSandboxEdocSellerParty(
+    buildPartyFromBillFields({
+      gstin: sellerGstin,
+      legalName: sellerName,
+      address: store?.invoice_address,
+      phone: store?.invoice_phone,
+      email: store?.invoice_email,
+    }),
+    cfg,
+  );
 
   const buyer = buildPartyFromBillFields({
     gstin: buyerGst,
@@ -396,7 +421,7 @@ export async function tryGenerateEinvoiceForQuickBill(
   });
 
   const payload = buildEinvoicePayload({
-    userGstin: sellerGstin,
+    userGstin: seller.gstin,
     documentNumber: bill.invoice_number ?? bill.bill_number,
     documentDate: new Date(bill.created_at),
     seller,
@@ -487,8 +512,15 @@ export async function tryGenerateEinvoiceForSrfClose(
     [billingStoreId],
   );
   const store = st.rows[0];
-  const storeGstin = String(store?.invoice_gstin ?? "").trim();
+  let storeGstin = await loadStoreGstinForEdoc(pool, billingStoreId);
+  if (!storeGstin) storeGstin = String(store?.invoice_gstin ?? "").trim();
+  if (!storeGstin) storeGstin = String(taxRow?.invoice_store_gstin ?? "").trim();
   const sellerGstin = resolveEdocSellerGstin(storeGstin, taxRow?.invoice_store_gstin, cfg);
+  if (!sellerGstin) {
+    const r = skip("Seller GSTIN required — set region/store GST or production Masters India API URL.");
+    await saveSrfEdoc(pool, srfId, r);
+    return r;
+  }
   const configuredGst = Number(taxRow?.gst_rate_percent ?? 18);
   const pricesTaxInclusive = true;
   const natureOfRepair = job.nature_of_repair ?? "";
@@ -537,17 +569,20 @@ export async function tryGenerateEinvoiceForSrfClose(
     isService: flagsByHsn.get(ln.hsnSac) ?? isServiceSacCode(ln.hsnSac),
   }));
 
-  const seller = buildPartyFromBillFields({
-    gstin: sellerGstin,
-    legalName:
-      String(store?.invoice_legal_entity_name ?? "").trim() ||
-      String(store?.invoice_display_name ?? "").trim() ||
-      store?.name ||
-      "Zimson",
-    address: store?.invoice_address,
-    phone: store?.invoice_phone,
-    email: store?.invoice_email,
-  });
+  const seller = alignSandboxEdocSellerParty(
+    buildPartyFromBillFields({
+      gstin: sellerGstin,
+      legalName:
+        String(store?.invoice_legal_entity_name ?? "").trim() ||
+        String(store?.invoice_display_name ?? "").trim() ||
+        store?.name ||
+        "Zimson",
+      address: store?.invoice_address,
+      phone: store?.invoice_phone,
+      email: store?.invoice_email,
+    }),
+    cfg,
+  );
 
   const buyer = buildPartyFromBillFields({
     gstin: buyerGst,
@@ -559,7 +594,7 @@ export async function tryGenerateEinvoiceForSrfClose(
   });
 
   const payload = buildEinvoicePayload({
-    userGstin: sellerGstin,
+    userGstin: seller.gstin,
     documentNumber: job.invoice_number ?? job.reference,
     documentDate: job.closed_at ? new Date(job.closed_at) : new Date(),
     seller,
@@ -781,13 +816,16 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
     isService: flagsByHsn.get(ln.hsnSac) ?? false,
   }));
 
-  const seller = buildPartyFromBillFields({
-    gstin: sellerGstin,
-    legalName: repairRegion.name,
-    address: formatRegionAddress(repairRegion),
-    phone: repairRegion.phone,
-    email: repairRegion.email,
-  });
+  const seller = alignSandboxEdocSellerParty(
+    buildPartyFromBillFields({
+      gstin: sellerGstin,
+      legalName: repairRegion.name,
+      address: formatRegionAddress(repairRegion),
+      phone: repairRegion.phone,
+      email: repairRegion.email,
+    }),
+    cfg,
+  );
 
   const buyer = buildPartyFromBillFields({
     gstin: buyerGst,
@@ -798,7 +836,7 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
   });
 
   const payload = buildEinvoicePayload({
-    userGstin: sellerGstin,
+    userGstin: seller.gstin,
     documentNumber: inv.invoice_number,
     documentDate: new Date(inv.invoice_date),
     seller,
@@ -820,7 +858,6 @@ export async function getEwayPrefillForChallan(pool: Pool, dcId: string): Promis
   const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
   if (!rebuilt) return null;
   const { printMeta } = rebuilt;
-  if (!transferFlowNeedsEway(printMeta.flow)) return null;
 
   const cfg = getMastersIndiaEdocConfig();
   const dcRes = await pool.query<{ dc_number: string; edoc_eway_bill_no: string | null }>(
@@ -891,15 +928,8 @@ export async function tryGenerateEwayForChallan(
     return r;
   }
 
-  const printKind = transferPrintKindFromGstins(printMeta.from.gstin, printMeta.to.gstin);
-  if (printKind !== "dc") {
-    const r = skip("Same GSTIN — delivery challan only (no e-way)");
-    await saveDeliveryChallanEdoc(pool, dcId, r);
-    return r;
-  }
-
-  const consignor = partyFromTransferBlock(printMeta.from, resolveEdocEwayUserGstin("", cfg));
-  const consignee = partyFromTransferBlock(printMeta.to, consignor.gstin);
+  let consignor = partyFromTransferBlock(printMeta.from, "");
+  let consignee = partyFromTransferBlock(printMeta.to, consignor.gstin);
   if (!isValidGstin(consignor.gstin) || !isValidGstin(consignee.gstin)) {
     const r = skip("Consignor and consignee GSTIN required for e-way");
     await saveDeliveryChallanEdoc(pool, dcId, r);
@@ -915,6 +945,7 @@ export async function tryGenerateEwayForChallan(
     userGstin,
     documentNumber: printMeta.transferNumber || dc.dc_number,
     documentDate: new Date(dc.created_at),
+    documentType: "Delivery Challan",
     consignor,
     consignee,
     ...nominal,
@@ -1144,8 +1175,8 @@ export async function tryGenerateEwayForOnlineSpareOrder(
   try {
     const from = await loadRegionHoPartyForEway(client, row.to_region_id);
     const to = await loadRegionHoPartyForEway(client, row.from_region_id);
-    const consignor = partyFromTransferBlock(from, resolveEdocEwayUserGstin("", cfg));
-    const consignee = partyFromTransferBlock(to, consignor.gstin);
+    let consignor = partyFromTransferBlock(from, "");
+    let consignee = partyFromTransferBlock(to, consignor.gstin);
     if (!isValidGstin(consignor.gstin) || !isValidGstin(consignee.gstin)) {
       const r = skip("Consignor and consignee GSTIN required for e-way");
       await saveInterHoSpareOrderEwayEdoc(pool, orderId, r);

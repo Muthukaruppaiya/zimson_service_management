@@ -16,8 +16,14 @@ import {
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { APP_PAYMENT_MODES, ADVANCE_CASH_DENOMS, sumAdvanceCashDenominations } from "../../lib/paymentModes";
 import type { AppPaymentMode } from "../../lib/paymentModes";
-import type { QuickBillHistoryRow, QuickBillInvoice } from "../../types/quickBill";
+import type { QuickBillHistoryRow, QuickBillInvoice, QuickBillEdocInfo } from "../../types/quickBill";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
+import {
+  formatEinvoiceEdocMessage,
+  humanizeEinvoiceError,
+  isTransientEinvoiceErrorMessage,
+  quickBillNeedsEinvoiceRetry,
+} from "../../lib/edocResultMessage";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
 
 const TABLE_HEADERS: { key: string; label: string; align?: "right"; hide?: string }[] = [
@@ -106,6 +112,11 @@ export function QuickBillHistoryPage() {
   const pageSize = 10;
   const [invoiceHsnSac, setInvoiceHsnSac] = useState("9987");
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
+  const [edocSettings, setEdocSettings] = useState<{ enabled?: boolean } | null>(null);
+  const [edocBusyId, setEdocBusyId] = useState<string | null>(null);
+  const [edocMsg, setEdocMsg] = useState<string | null>(null);
+
+  const edocEnabled = Boolean(edocSettings?.enabled);
 
   useEffect(() => {
     const q = searchParams.get("q");
@@ -133,6 +144,21 @@ export function QuickBillHistoryPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!apiMode || !user) return;
+    let cancelled = false;
+    void apiJson<{ enabled?: boolean }>("/api/edoc/status")
+      .then((out) => {
+        if (!cancelled) setEdocSettings(out);
+      })
+      .catch(() => {
+        if (!cancelled) setEdocSettings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiMode, user]);
 
   useEffect(() => {
     if (!selected || !apiMode) {
@@ -217,6 +243,9 @@ export function QuickBillHistoryPage() {
       customerType: inv?.customerType,
       customerGstin: inv?.gst ?? null,
       generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
+      edocIrn: inv?.edocIrn ?? null,
+      edocAckNo: inv?.edocAckNo ?? null,
+      edocQr: inv?.edocQr ?? null,
     }),
     [invoiceHsnSac, serviceTaxSettings, storeForInvoice, currentUserStore, user?.displayName, user?.email, user?.id],
   );
@@ -302,6 +331,46 @@ export function QuickBillHistoryPage() {
     }
   }
 
+  async function retryEinvoice(row: QuickBillHistoryRow) {
+    if (!apiMode || !quickBillNeedsEinvoiceRetry(row, edocEnabled)) return;
+    setEdocBusyId(row.id);
+    setEdocMsg("Contacting Masters India e-invoice (sandbox may take up to 2 minutes)…");
+    const maxAttempts = 3;
+    const retryDelayMs = 15_000;
+    try {
+      let lastError = "";
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (attempt > 1) {
+          setEdocMsg(`Masters India slow or busy — retrying e-invoice (${attempt}/${maxAttempts})…`);
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+        const out = await apiJson<{ edoc: QuickBillEdocInfo }>(
+          `/api/edoc/quick-bills/${encodeURIComponent(row.id)}/generate-einvoice`,
+          { method: "POST", json: {} },
+        );
+        const msg = formatEinvoiceEdocMessage(out.edoc);
+        if (out.edoc?.ok) {
+          setEdocMsg(msg ?? "E-invoice registered.");
+          await load();
+          if (selected?.id === row.id) {
+            const data = await apiJson<{ invoice: QuickBillInvoice }>(`/api/service/quick-bills/${row.id}`);
+            setDetailInvoice(data.invoice);
+          }
+          return;
+        }
+        lastError = out.edoc?.error ?? out.edoc?.skipReason ?? msg ?? "";
+        if (!isTransientEinvoiceErrorMessage(lastError) || attempt === maxAttempts) {
+          setEdocMsg(`E-invoice failed: ${humanizeEinvoiceError(lastError)}`);
+          return;
+        }
+      }
+    } catch (e) {
+      setEdocMsg(e instanceof ApiError ? e.message : "Could not retry e-invoice.");
+    } finally {
+      setEdocBusyId(null);
+    }
+  }
+
   return (
     <div className="ui-page-bleed relative font-sans text-rlx-ink">
       <div className={`min-h-0 bg-rlx-bg ${selected ? "print:hidden" : ""}`}>
@@ -350,6 +419,12 @@ export function QuickBillHistoryPage() {
           {error ? (
             <div className="mb-5 border-l-4 border-red-500 bg-red-50 px-4 py-3 text-sm text-red-800">
               {error}
+            </div>
+          ) : null}
+
+          {edocMsg ? (
+            <div className="mb-5 border-l-4 border-sky-500 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+              {edocMsg}
             </div>
           ) : null}
 
@@ -527,6 +602,19 @@ export function QuickBillHistoryPage() {
                             >
                               {downloadBusyId === r.id ? "…" : "Download"}
                             </button>
+                            {quickBillNeedsEinvoiceRetry(r, edocEnabled) ? (
+                              <button
+                                type="button"
+                                disabled={edocBusyId === r.id || !apiMode}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void retryEinvoice(r);
+                                }}
+                                className={`${btnAction} disabled:opacity-40`}
+                              >
+                                {edocBusyId === r.id ? "Retrying…" : "Retry e-invoice"}
+                              </button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -601,6 +689,23 @@ export function QuickBillHistoryPage() {
                 ) : null}
                 {detailInvoice && apiMode ? (
                   <>
+                    {quickBillNeedsEinvoiceRetry(
+                      {
+                        customerType: detailInvoice.customerType,
+                        edocIrn: detailInvoice.edocIrn,
+                        edocStatus: detailInvoice.edocStatus,
+                      },
+                      edocEnabled,
+                    ) ? (
+                      <button
+                        type="button"
+                        disabled={edocBusyId === detailInvoice.id}
+                        onClick={() => void retryEinvoice(selected)}
+                        className="flex-1 border border-amber-300/80 bg-amber-600 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-amber-700 disabled:opacity-50 sm:flex-none sm:px-5"
+                      >
+                        {edocBusyId === detailInvoice.id ? "Retrying…" : "Retry e-invoice"}
+                      </button>
+                    ) : null}
                     <SendInvoiceEmailButton
                       email={detailInvoice.email ?? ""}
                       customerName={
@@ -659,6 +764,43 @@ export function QuickBillHistoryPage() {
               {whatsappNote ? (
                 <div className="mb-5 border-l-4 border-emerald-500 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 print:hidden">
                   {whatsappNote}
+                </div>
+              ) : null}
+              {detailInvoice?.customerType === "B2B" && edocEnabled && !detailInvoice.edocIrn?.trim() ? (
+                <div
+                  className={`mb-5 border-l-4 px-4 py-3 text-sm print:hidden ${
+                    detailInvoice.edocStatus === "FAILED"
+                      ? "border-red-500 bg-red-50 text-red-900"
+                      : detailInvoice.edocStatus === "PENDING"
+                        ? "border-sky-500 bg-sky-50 text-sky-950"
+                        : "border-amber-500 bg-amber-50 text-amber-950"
+                  }`}
+                >
+                  {detailInvoice.edocStatus === "FAILED" || detailInvoice.edocStatus === "PENDING" ? (
+                    <>
+                      <strong>
+                        {detailInvoice.edocStatus === "PENDING"
+                          ? "E-invoice pending"
+                          : "E-invoice not generated"}
+                      </strong>
+                      <p className="mt-1 text-xs break-all">
+                        {detailInvoice.edocError ?? "IRP error."}
+                      </p>
+                      <p className="mt-2 text-xs opacity-90">
+                        Use <strong>Retry e-invoice</strong> above — the app retries up to 3 times when the sandbox is
+                        slow.
+                      </p>
+                    </>
+                  ) : (
+                    <span>E-invoice not generated yet for this B2B bill.</span>
+                  )}
+                </div>
+              ) : null}
+              {detailInvoice?.edocIrn?.trim() ? (
+                <div className="mb-5 border-l-4 border-emerald-500 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 print:hidden">
+                  <strong>E-invoice registered.</strong> IRN:{" "}
+                  <span className="font-mono break-all">{detailInvoice.edocIrn}</span>
+                  {detailInvoice.edocAckNo ? <> · Ack: {detailInvoice.edocAckNo}</> : null}
                 </div>
               ) : null}
 

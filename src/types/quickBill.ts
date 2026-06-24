@@ -41,6 +41,9 @@ export type QuickBillHistoryRow = {
   notes: string;
   totalInr: number;
   createdBy: string;
+  edocIrn?: string | null;
+  edocStatus?: string | null;
+  edocError?: string | null;
 };
 
 export type QuickBillInvoice = {
@@ -100,6 +103,7 @@ export type QuickBillInvoice = {
 export type QuickBillEdocInfo = {
   ok: boolean;
   skipped?: boolean;
+  pending?: boolean;
   skipReason?: string;
   irn?: string | null;
   ackNo?: string | null;
