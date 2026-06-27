@@ -65,6 +65,7 @@ export function shouldShowInSupervisorSrfList(job: SrfJob, allJobs: Iterable<Srf
   if (isArchivedSrfJob(job)) return false;
   if (job.status === "sent_to_other_ho") {
     if (job.interHoReestimatePhase) return true;
+    if (job.interHoBrandEstimatePhase) return true;
     if ((job.transferSourceRegionId ?? "").trim()) return true;
     if ((job.transferTargetRegionId ?? "").trim()) return true;
     const rootRef = rootSrfBookingReference(job);
@@ -121,6 +122,103 @@ export function interHoMainAndReceiverRefs(
     }
   }
   return { mainRef };
+}
+
+/** Archived sender-HO row linked to a receiver local SRF. */
+export function findInterHoArchivedSenderForReceiver(
+  receiverJob: Pick<SrfJob, "id" | "transferSourceReference">,
+  allJobs: Iterable<SrfJob>,
+): SrfJob | undefined {
+  for (const j of allJobs) {
+    if (j.status !== "sent_to_other_ho") continue;
+    if (j.interHoReestimateReceiverSrfId === receiverJob.id) return j;
+    const root = (receiverJob.transferSourceReference ?? "").trim();
+    if (!root) continue;
+    if (rootSrfBookingReference(j) === root) return j;
+  }
+  return undefined;
+}
+
+/** Logged-in user belongs to the originating (sender) HO for this inter-HO chain. */
+export function isSenderHoUserForInterHoJob(
+  job: Pick<SrfJob, "regionId" | "transferSourceRegionId" | "reference" | "transferSourceReference" | "requiresLocalConversion" | "status">,
+  user: SessionUser,
+): boolean {
+  if (user.role === "super_admin" || user.role === "admin") return true;
+  if (!user.regionId) return false;
+  if (isInterHoReceiverLocal(job)) {
+    return user.regionId === (job.transferSourceRegionId ?? "").trim();
+  }
+  return user.regionId === (job.regionId ?? "").trim();
+}
+
+/** Active inter-HO brand estimate — sender HO negotiates with customer; receiver row is passive. */
+export function isInterHoBrandEstimateHandshakeActive(
+  job: Pick<SrfJob, "status" | "interHoBrandEstimatePhase">,
+): boolean {
+  const phase = job.interHoBrandEstimatePhase;
+  if (phase && ["pending_sender", "customer_pending", "customer_accepted", "customer_rejected"].includes(phase)) {
+    return true;
+  }
+  return (
+    job.status === "inter_ho_brand_estimate_pending_sender" ||
+    job.status === "inter_ho_brand_estimate_customer_accepted" ||
+    (job.status === "brand_estimate_customer_pending" && phase === "customer_pending")
+  );
+}
+
+/** Sender HO rows with an active inter-HO brand estimate handshake. */
+export function isInterHoSenderBrandEstimateRow(
+  job: SrfJob,
+  user: SessionUser,
+  allJobs: Iterable<SrfJob> = [],
+): boolean {
+  if (isInterHoReceiverLocal(job)) return false;
+  const sourceRef = (job.transferSourceReference ?? "").trim();
+  let sourceRefBelongsToUserRegion = false;
+  if (sourceRef && user.regionId) {
+    for (const x of allJobs) {
+      if (x.reference.trim() === sourceRef && x.regionId === user.regionId) {
+        sourceRefBelongsToUserRegion = true;
+        break;
+      }
+    }
+  }
+  if (user.role !== "super_admin" && user.role !== "admin") {
+    const sourceRegion = (job.transferSourceRegionId ?? "").trim();
+    const ownRegion = (job.regionId ?? "").trim();
+    if (
+      !user.regionId ||
+      (user.regionId !== sourceRegion && user.regionId !== ownRegion && !sourceRefBelongsToUserRegion)
+    ) {
+      return false;
+    }
+  }
+  if (job.interHoBrandEstimatePhase) return true;
+  if (
+    job.status === "inter_ho_brand_estimate_pending_sender" ||
+    job.status === "inter_ho_brand_estimate_customer_accepted"
+  ) {
+    return true;
+  }
+  if (job.status === "brand_estimate_customer_pending" && job.interHoBrandEstimatePhase === "customer_pending") {
+    return true;
+  }
+  if (job.status === "sent_to_other_ho" && job.interHoReestimateReceiverSrfId && job.interHoBrandEstimatePhase) {
+    return true;
+  }
+  return false;
+}
+
+/** Sender HO rows with inter-HO re-estimate or brand estimate awaiting action. */
+export function isInterHoSenderActionRow(
+  job: SrfJob,
+  user: SessionUser,
+  allJobs: Iterable<SrfJob> = [],
+): boolean {
+  return (
+    isInterHoSenderReestimateRow(job, user, allJobs) || isInterHoSenderBrandEstimateRow(job, user, allJobs)
+  );
 }
 
 /** Sender HO rows with an active inter-HO re-estimate handshake. */
@@ -227,7 +325,19 @@ export function jobVisibleToServiceCentre(job: SrfJob, user: SessionUser): boole
     user.role === "ho_manager" ||
     user.role === "ho_purchase"
   ) {
-    return user.regionId != null && (user.regionId === job.regionId || user.regionId === job.transferSourceRegionId);
+    if (user.regionId != null && (user.regionId === job.regionId || user.regionId === job.transferSourceRegionId)) {
+      return true;
+    }
+    // Sender HO must see receiver rows during inter-HO brand estimate handshake.
+    if (
+      user.regionId != null &&
+      isInterHoReceiverLocal(job) &&
+      user.regionId === (job.transferSourceRegionId ?? "").trim() &&
+      isInterHoBrandEstimateHandshakeActive(job)
+    ) {
+      return true;
+    }
+    return false;
   }
   if (user.role === "admin") return user.regionId === job.regionId;
   return false;

@@ -18,6 +18,8 @@ export type SrfJobStatus =
   | "customer_rejected"
   | "inter_ho_reestimate_pending_sender"
   | "inter_ho_reestimate_customer_accepted"
+  | "inter_ho_brand_estimate_pending_sender"
+  | "inter_ho_brand_estimate_customer_accepted"
   | "sent_to_brand"
   | "brand_estimate_pending"
   | "brand_estimate_customer_pending"
@@ -100,6 +102,13 @@ export type SrfJob = {
     | "customer_rejected"
     | null;
   interHoReestimateReceiverSrfId?: string | null;
+  /** Inter-HO brand estimate handshake phase (receiver ↔ sender ↔ customer). */
+  interHoBrandEstimatePhase?:
+    | "pending_sender"
+    | "customer_pending"
+    | "customer_accepted"
+    | "customer_rejected"
+    | null;
   brandSentAt?: string | null;
   technicianBrandRecommendedAt?: string | null;
   technicianBrandRecommendNote?: string | null;

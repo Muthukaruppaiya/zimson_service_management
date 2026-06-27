@@ -19,6 +19,10 @@ import {
   rootSrfBookingReference,
   shouldShowInSupervisorSrfList,
   isInterHoSenderReestimateRow,
+  isInterHoSenderBrandEstimateRow,
+  isInterHoSenderActionRow,
+  findInterHoArchivedSenderForReceiver,
+  isSenderHoUserForInterHoJob,
 } from "../../lib/srfAccess";
 import { printAssignmentSlip, printBrandDispatchDocument, printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
 import type { SrfJob } from "../../types/srfJob";
@@ -79,6 +83,52 @@ function sparesAmountInr(job: { usedSpares?: Array<{ qty: number; unitPriceInr?:
   return 0;
 }
 
+function needsInterHoSenderInvoice(
+  job: Pick<SrfJob, "transferSourceRegionId" | "requiresLocalConversion" | "hoSparesBillRef">,
+): boolean {
+  return (
+    !!(job.transferSourceRegionId ?? "").trim() &&
+    !job.requiresLocalConversion &&
+    !(job.hoSparesBillRef ?? "").trim()
+  );
+}
+
+function resolveInterHoBrandForwardAmount(jobId: string, jobs: SrfJob[]): { brandEstimateInr: number; remark: string } {
+  const row = jobs.find((j) => j.id === jobId);
+  if (!row) return { brandEstimateInr: 0, remark: "" };
+  let receiver = row.status !== "sent_to_other_ho" ? row : undefined;
+  let arch = row.status === "sent_to_other_ho" ? row : undefined;
+  if (!receiver && arch?.interHoReestimateReceiverSrfId) {
+    receiver = jobs.find((j) => j.id === arch!.interHoReestimateReceiverSrfId);
+  }
+  if (!arch && receiver) {
+    const root = rootSrfBookingReference(receiver);
+    arch = jobs.find(
+      (j) =>
+        j.status === "sent_to_other_ho" &&
+        (j.interHoReestimateReceiverSrfId === receiver!.id || rootSrfBookingReference(j) === root),
+    );
+  }
+  const amountSource = receiver ?? arch ?? row;
+  const brandEstimateInr = Number(
+    receiver?.brandEstimateInr ?? amountSource?.brandEstimateInr ?? amountSource?.reestimateRequestedInr ?? 0,
+  );
+  const remark = String(
+    amountSource?.reestimateRequestedNote ?? "Brand repair estimate — includes handling and service charges.",
+  );
+  return { brandEstimateInr, remark };
+}
+
+type BrandConfirmKind = "approve_send_brand" | "receive_from_brand";
+
+type BrandSuccessAck = {
+  title: string;
+  description: string;
+  reference: string;
+  detail: string;
+  interHoInvoiceJobId?: string;
+};
+
 export function ScSupervisorPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -95,6 +145,9 @@ export function ScSupervisorPage() {
     interHoRequestReestimate,
     interHoForwardReestimateToCustomer,
     interHoApproveReestimateForReceiver,
+    interHoForwardBrandEstimateToSender,
+    interHoForwardBrandEstimateToCustomer,
+    interHoApproveBrandEstimateForReceiver,
     technicianSendToBrand,
     supervisorTransferToOtherHo,
     submitSparesSlip,
@@ -108,7 +161,6 @@ export function ScSupervisorPage() {
     supervisorLogBrandInvoice,
     supervisorLogBrandCreditNote,
     supervisorNotifyBrandCoupon,
-    supervisorReleaseBrandCreditReturn,
     getStatusHistory,
   } = useSrfJobs();
   const [feedback, setFeedback] = useState<Record<string, string>>({});
@@ -181,6 +233,8 @@ export function ScSupervisorPage() {
   const [brandMailRefInput, setBrandMailRefInput] = useState("");
   const [brandAckNoteInput, setBrandAckNoteInput] = useState("");
   const [brandForwardPopupJobId, setBrandForwardPopupJobId] = useState<string | null>(null);
+  const [brandForwardInterHoSender, setBrandForwardInterHoSender] = useState(false);
+  const [senderForwardBrandMode, setSenderForwardBrandMode] = useState(false);
   const [brandMarkupInput, setBrandMarkupInput] = useState("");
   const [brandForwardNoteInput, setBrandForwardNoteInput] = useState("");
   const [brandInvoicePopupJobId, setBrandInvoicePopupJobId] = useState<string | null>(null);
@@ -188,12 +242,17 @@ export function ScSupervisorPage() {
   const [brandInvoiceAmountInput, setBrandInvoiceAmountInput] = useState("");
   const [brandInvoiceNoteInput, setBrandInvoiceNoteInput] = useState("");
   const [brandCreditPopupJobId, setBrandCreditPopupJobId] = useState<string | null>(null);
-  const [brandCouponCodeInput, setBrandCouponCodeInput] = useState("");
-  const [brandCouponValueInput, setBrandCouponValueInput] = useState("");
+  const [brandCreditNoteRefInput, setBrandCreditNoteRefInput] = useState("");
   const [brandCouponValidUntilInput, setBrandCouponValidUntilInput] = useState("");
   const [brandCouponNoteInput, setBrandCouponNoteInput] = useState("");
   const [brandNotifyPopupJobId, setBrandNotifyPopupJobId] = useState<string | null>(null);
   const [brandNotifyNoteInput, setBrandNotifyNoteInput] = useState("Customer informed through web, SMS and WhatsApp copy.");
+  const [brandConfirmPopup, setBrandConfirmPopup] = useState<{
+    kind: BrandConfirmKind;
+    jobId: string;
+    note: string;
+  } | null>(null);
+  const [brandSuccessAck, setBrandSuccessAck] = useState<BrandSuccessAck | null>(null);
   void spareOrderMsg;
   const [scanSrfInput, setScanSrfInput] = useState("");
   const [listDetailJobId, setListDetailJobId] = useState<string | null>(null);
@@ -247,7 +306,7 @@ export function ScSupervisorPage() {
           j.status === "brand_repair_in_progress" ||
           j.status === "received_from_brand" ||
           j.status === "brand_credit_note_pending" ||
-          j.status === "brand_credit_note_active") &&
+          j.status === "inter_ho_brand_estimate_pending_sender") &&
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
@@ -255,15 +314,13 @@ export function ScSupervisorPage() {
     () => (srfId ? brandDeskQueue.filter((j) => j.id === srfId) : brandDeskQueue),
     [brandDeskQueue, srfId],
   );
-  /** Repair HO creates inter-HO invoice before return dispatch to sender HO (not sender HO). */
+  /** Repair HO creates inter-HO invoice to sender HO before return dispatch (includes brand-return jobs). */
   const repairHoInvoiceQueue = useMemo(() => {
     if (!user) return [];
     return jobs.filter(
       (j) =>
         j.status === "ready_for_outward" &&
-        (!!j.transferSourceRegionId || !!j.transferTargetRegionId) &&
-        !j.requiresLocalConversion &&
-        !(j.hoSparesBillRef ?? "").trim() &&
+        needsInterHoSenderInvoice(j) &&
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
@@ -278,20 +335,72 @@ export function ScSupervisorPage() {
   }, [jobs, user]);
   const interHoSenderReestimateQueue = useMemo(() => {
     if (!user) return [];
-    return jobs.filter((j) => isInterHoSenderReestimateRow(j, user, jobs));
+    const seen = new Set<string>();
+    const out: SrfJob[] = [];
+    const push = (j: SrfJob) => {
+      if (seen.has(j.id)) return;
+      seen.add(j.id);
+      out.push(j);
+    };
+    for (const j of jobs) {
+      if (jobVisibleToServiceCentre(j, user) && isInterHoSenderActionRow(j, user, jobs)) {
+        push(j);
+      }
+    }
+    for (const j of jobs) {
+      if (!jobVisibleToServiceCentre(j, user) || !isInterHoReceiverLocal(j)) continue;
+      if (!isSenderHoUserForInterHoJob(j, user)) continue;
+      if (
+        j.status !== "inter_ho_brand_estimate_pending_sender" &&
+        j.status !== "inter_ho_brand_estimate_customer_accepted" &&
+        j.interHoBrandEstimatePhase !== "pending_sender" &&
+        j.interHoBrandEstimatePhase !== "customer_accepted" &&
+        j.interHoBrandEstimatePhase !== "customer_rejected"
+      ) {
+        continue;
+      }
+      const arch = findInterHoArchivedSenderForReceiver(j, jobs);
+      if (arch) push(arch);
+      else push(j);
+    }
+    return out;
   }, [jobs, user]);
   const interHoSenderActionQueue = useMemo(() => {
     if (!user) return [];
     return interHoSenderReestimateQueue.filter(
-      (j) =>
-        j.interHoReestimatePhase === "pending_sender" ||
-        j.interHoReestimatePhase === "customer_pending" ||
-        j.interHoReestimatePhase === "customer_accepted" ||
-        j.interHoReestimatePhase === "customer_rejected" ||
-        ((j.status === "reestimate_required" || j.status === "customer_rejected") &&
-          (!!j.transferSourceRegionId || !!j.transferTargetRegionId || !!j.transferSourceReference)) ||
-        j.status === "inter_ho_reestimate_pending_sender" ||
-        j.status === "inter_ho_reestimate_customer_accepted",
+      (j) => {
+        const brandPhase = j.interHoBrandEstimatePhase;
+        const rePhase = j.interHoReestimatePhase;
+        if (
+          brandPhase === "pending_sender" ||
+          brandPhase === "customer_rejected"
+        ) {
+          return true;
+        }
+        if (brandPhase === "customer_accepted") {
+          return true;
+        }
+        if (
+          rePhase === "pending_sender" ||
+          rePhase === "customer_accepted" ||
+          rePhase === "customer_rejected"
+        ) {
+          return true;
+        }
+        return (
+          j.interHoReestimatePhase === "pending_sender" ||
+          j.interHoReestimatePhase === "customer_pending" ||
+          j.interHoReestimatePhase === "customer_accepted" ||
+          j.interHoReestimatePhase === "customer_rejected" ||
+          j.interHoBrandEstimatePhase === "customer_pending" ||
+          ((j.status === "reestimate_required" || j.status === "customer_rejected") &&
+            (!!j.transferSourceRegionId || !!j.transferTargetRegionId || !!j.transferSourceReference)) ||
+          j.status === "inter_ho_reestimate_pending_sender" ||
+          j.status === "inter_ho_reestimate_customer_accepted" ||
+          j.status === "inter_ho_brand_estimate_pending_sender" ||
+          j.status === "inter_ho_brand_estimate_customer_accepted"
+        );
+      },
     );
   }, [interHoSenderReestimateQueue, user]);
   const interHoSenderFallbackQueue = useMemo(() => {
@@ -303,11 +412,14 @@ export function ScSupervisorPage() {
         !!(j.transferSourceRegionId ?? "").trim() ||
         !!(j.transferTargetRegionId ?? "").trim() ||
         !!(j.transferSourceReference ?? "").trim() ||
-        !!j.interHoReestimatePhase;
+        !!j.interHoReestimatePhase ||
+        !!j.interHoBrandEstimatePhase;
       if (!interHoLinked) return false;
       return (
         j.status === "inter_ho_reestimate_pending_sender" ||
         j.status === "inter_ho_reestimate_customer_accepted" ||
+        j.status === "inter_ho_brand_estimate_pending_sender" ||
+        j.status === "inter_ho_brand_estimate_customer_accepted" ||
         j.status === "reestimate_required" ||
         j.status === "customer_rejected" ||
         j.status === "sent_to_other_ho"
@@ -360,16 +472,30 @@ export function ScSupervisorPage() {
       listDetailJob.status === "sent_to_other_ho"
         ? findLocalRepairSrfForRoot(rootRef, jobs, user)
         : undefined;
-    const senderReestimate = isInterHoSenderReestimateRow(listDetailJob, user, jobs);
+    const senderBrandEstimate = isInterHoSenderBrandEstimateRow(listDetailJob, user, jobs);
+    const senderReestimate =
+      isInterHoSenderReestimateRow(listDetailJob, user, jobs) && !senderBrandEstimate;
     const showReestimateDetails =
       Number(listDetailJob.reestimateRequestedInr ?? 0) > 0 ||
       Boolean(listDetailJob.reestimateRequestedNote?.trim()) ||
       Boolean(listDetailJob.interHoReestimatePhase) ||
+      Boolean(listDetailJob.interHoBrandEstimatePhase) ||
       listDetailJob.status === "reestimate_required" ||
       listDetailJob.status === "customer_rejected" ||
       listDetailJob.status === "inter_ho_reestimate_pending_sender" ||
-      listDetailJob.status === "inter_ho_reestimate_customer_accepted";
-    return { mainRef, receiverRef, rootRef, needsConvert, localRepair, senderReestimate, showReestimateDetails };
+      listDetailJob.status === "inter_ho_reestimate_customer_accepted" ||
+      listDetailJob.status === "inter_ho_brand_estimate_pending_sender" ||
+      listDetailJob.status === "inter_ho_brand_estimate_customer_accepted";
+    return {
+      mainRef,
+      receiverRef,
+      rootRef,
+      needsConvert,
+      localRepair,
+      senderReestimate,
+      senderBrandEstimate,
+      showReestimateDetails,
+    };
   }, [listDetailJob, jobs, user]);
 
   /** Archived / superseded sender rows → open the live local repair SRF when possible. */
@@ -496,28 +622,67 @@ export function ScSupervisorPage() {
           (j.interHoReestimateReceiverSrfId === receiver!.id || rootSrfBookingReference(j) === root),
       );
     }
+    const isBrand =
+      arch?.interHoBrandEstimatePhase === "pending_sender" ||
+      arch?.interHoBrandEstimatePhase === "customer_rejected" ||
+      row.interHoBrandEstimatePhase === "pending_sender" ||
+      row.interHoBrandEstimatePhase === "customer_rejected";
     const amountSource = receiver ?? arch ?? row;
+    const { brandEstimateInr, remark: brandRemark } = resolveInterHoBrandForwardAmount(jobId, jobs);
+    setSenderForwardBrandMode(isBrand);
     setSenderForwardPopupJobId(jobId);
-    setSenderForwardAmountInput(String(amountSource?.reestimateRequestedInr ?? ""));
-    setSenderForwardRemarkInput(String(amountSource?.reestimateRequestedNote ?? ""));
+    if (isBrand) {
+      setSenderForwardAmountInput(brandEstimateInr > 0 ? String(brandEstimateInr) : String(amountSource?.reestimateRequestedInr ?? ""));
+      setSenderForwardRemarkInput(brandRemark);
+    } else {
+      setSenderForwardAmountInput(String(amountSource?.reestimateRequestedInr ?? ""));
+      setSenderForwardRemarkInput(String(amountSource?.reestimateRequestedNote ?? ""));
+    }
   }
 
   function closeSenderForwardPopup() {
     setSenderForwardPopupJobId(null);
     setSenderForwardAmountInput("");
     setSenderForwardRemarkInput("");
+    setSenderForwardBrandMode(false);
   }
 
   async function confirmSenderForwardToCustomer() {
     if (!senderForwardPopupJobId) return;
-    const amount = Number(senderForwardAmountInput);
     const note = senderForwardRemarkInput.trim();
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setFeedback((f) => ({ ...f, [senderForwardPopupJobId]: "Enter valid amount to send to customer." }));
-      return;
-    }
     if (!note) {
       setFeedback((f) => ({ ...f, [senderForwardPopupJobId]: "Enter remark for customer." }));
+      return;
+    }
+    if (senderForwardBrandMode) {
+      const customerAmountInr = Number(senderForwardAmountInput);
+      const { brandEstimateInr } = resolveInterHoBrandForwardAmount(senderForwardPopupJobId, jobs);
+      if (!Number.isFinite(customerAmountInr) || customerAmountInr <= 0) {
+        setFeedback((f) => ({ ...f, [senderForwardPopupJobId]: "Enter a valid amount for the customer." }));
+        return;
+      }
+      const markupInr = Math.max(0, customerAmountInr - brandEstimateInr);
+      try {
+        const notify = await interHoForwardBrandEstimateToCustomer(senderForwardPopupJobId, { markupInr, note });
+        setFeedback((f) => ({
+          ...f,
+          [senderForwardPopupJobId]: srfReestimateNotifyMessage(
+            "Brand estimate sent to customer on the existing tracking link.",
+            notify,
+          ),
+        }));
+        closeSenderForwardPopup();
+      } catch (e) {
+        setFeedback((f) => ({
+          ...f,
+          [senderForwardPopupJobId]: e instanceof Error ? e.message : "Could not forward to customer.",
+        }));
+      }
+      return;
+    }
+    const amount = Number(senderForwardAmountInput);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFeedback((f) => ({ ...f, [senderForwardPopupJobId]: "Enter valid amount to send to customer." }));
       return;
     }
     try {
@@ -539,12 +704,22 @@ export function ScSupervisorPage() {
   }
 
   async function approveInterHoForReceiver(archivedJobId: string) {
+    const row = jobs.find((j) => j.id === archivedJobId);
+    const isBrand = row?.interHoBrandEstimatePhase === "customer_accepted";
     try {
-      await interHoApproveReestimateForReceiver(archivedJobId);
-      setFeedback((f) => ({
-        ...f,
-        [archivedJobId]: "Customer-approved re-estimate released to repair HO — repair can continue.",
-      }));
+      if (isBrand) {
+        await interHoApproveBrandEstimateForReceiver(archivedJobId);
+        setFeedback((f) => ({
+          ...f,
+          [archivedJobId]: "Customer-approved brand estimate released to repair HO — they can approve brand repair.",
+        }));
+      } else {
+        await interHoApproveReestimateForReceiver(archivedJobId);
+        setFeedback((f) => ({
+          ...f,
+          [archivedJobId]: "Customer-approved re-estimate released to repair HO — repair can continue.",
+        }));
+      }
     } catch (e) {
       setFeedback((f) => ({
         ...f,
@@ -641,34 +816,95 @@ export function ScSupervisorPage() {
       const row = jobs.find((x) => x.id === jobId);
       if (row) printBrandDispatchDocument(row, { dispatchRef, note });
       await technicianSendToBrand(jobId, { dispatchRef, note });
-      setFeedback((f) => ({ ...f, [jobId]: "Sent to brand. ODC generated and dispatch document opened for print." }));
-      setEwayBrandJobId(jobId);
       closeSendToBrandPopup();
+      setEwayBrandJobId(jobId);
+      setBrandSuccessAck({
+        title: "Sent to brand",
+        description: row?.reference ?? jobId,
+        reference: row?.reference ?? jobId,
+        detail: needsInterHoSenderInvoice(row ?? { transferSourceRegionId: null, requiresLocalConversion: false, hoSparesBillRef: null })
+          ? "Watch dispatched to brand. After brand return, create invoice to sender HO before return dispatch."
+          : "ODC generated and dispatch document opened for print. Track brand mail for estimate or credit note.",
+      });
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not send to brand." }));
+    }
+  }
+
+  async function executeBrandConfirm() {
+    if (!brandConfirmPopup) return;
+    const { kind, jobId, note } = brandConfirmPopup;
+    const job = jobs.find((j) => j.id === jobId);
+    const reference = job?.reference ?? jobId;
+    try {
+      if (kind === "approve_send_brand") {
+        await supervisorApproveBrandEstimate(jobId, {
+          note: note.trim() || "Customer accepted — HO approval sent to brand.",
+        });
+        setBrandSuccessAck({
+          title: "Approval sent to brand",
+          description: reference,
+          reference,
+          detail: "HO approved the brand estimate. Brand repair is now in progress.",
+        });
+      } else if (kind === "receive_from_brand") {
+        await supervisorReceiveFromBrand(jobId, {
+          note: note.trim() || "Watch received from brand.",
+        });
+        setBrandSuccessAck({
+          title: "Received from brand",
+          description: reference,
+          reference,
+          detail: "Watch received at HO. Log the brand invoice to move to outward queue.",
+        });
+      }
+      setBrandConfirmPopup(null);
+    } catch (e) {
+      setFeedback((f) => ({
+        ...f,
+        [jobId]: e instanceof Error ? e.message : "Could not update brand status.",
+      }));
     }
   }
 
   async function confirmBrandForwardToCustomer() {
     if (!brandForwardPopupJobId) return;
     const jobId = brandForwardPopupJobId;
-    const markupInr = Number(brandMarkupInput);
     const note = brandForwardNoteInput.trim();
+    if (!note) {
+      setFeedback((f) => ({ ...f, [jobId]: "Remark is required." }));
+      return;
+    }
+    if (brandForwardInterHoSender) {
+      try {
+        await interHoForwardBrandEstimateToSender(jobId, { note });
+        setBrandForwardPopupJobId(null);
+        setBrandForwardInterHoSender(false);
+        setBrandSuccessAck({
+          title: "Estimate sent to sender HO",
+          description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
+          reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
+          detail: "Sender HO will add markup and forward the brand estimate to the customer for approval.",
+        });
+      } catch (e) {
+        setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not forward to sender HO." }));
+      }
+      return;
+    }
+    const markupInr = Number(brandMarkupInput);
     if (!Number.isFinite(markupInr) || markupInr < 0) {
       setFeedback((f) => ({ ...f, [jobId]: "Enter a valid markup amount (0 or more)." }));
       return;
     }
-    if (!note) {
-      setFeedback((f) => ({ ...f, [jobId]: "Customer remark is required." }));
-      return;
-    }
     try {
       const notify = await supervisorForwardBrandEstimateToCustomer(jobId, { markupInr, note });
-      setFeedback((f) => ({
-        ...f,
-        [jobId]: srfReestimateNotifyMessage("Brand estimate sent to customer for approval.", notify),
-      }));
       setBrandForwardPopupJobId(null);
+      setBrandSuccessAck({
+        title: "Estimate sent to customer",
+        description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
+        reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
+        detail: srfReestimateNotifyMessage("Customer will approve on the tracking link.", notify),
+      });
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not forward to customer." }));
     }
@@ -685,8 +921,13 @@ export function ScSupervisorPage() {
     }
     try {
       await supervisorLogBrandEstimate(jobId, { estimateInr: amount, currency: "INR", note });
-      setFeedback((f) => ({ ...f, [jobId]: `Brand estimate logged: INR ${amount.toFixed(2)}. Forward to customer with markup.` }));
       setBrandEstimatePopupJobId(null);
+      setBrandSuccessAck({
+        title: "Brand estimate logged",
+        description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
+        reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
+        detail: `Brand estimate INR ${amount.toFixed(2)} saved. Forward to customer with markup.`,
+      });
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand estimate." }));
     }
@@ -708,8 +949,21 @@ export function ScSupervisorPage() {
     }
     try {
       await supervisorLogBrandInvoice(jobId, { invoiceRef, invoiceAmountInr, note });
-      setFeedback((f) => ({ ...f, [jobId]: `Brand invoice logged (${invoiceRef}). Sent to outward queue.` }));
       setBrandInvoicePopupJobId(null);
+      const job = jobs.find((j) => j.id === jobId);
+      const interHo = job ? needsInterHoSenderInvoice(job) : false;
+      setBrandSuccessAck({
+        title: "Brand invoice logged",
+        description: job?.reference ?? jobId,
+        reference: job?.reference ?? jobId,
+        detail: interHo
+          ? `Brand invoice ${invoiceRef} saved. Create invoice to sender HO next.`
+          : `Brand invoice ${invoiceRef} saved. SRF moved to outward queue.`,
+        interHoInvoiceJobId: interHo ? jobId : undefined,
+      });
+      if (interHo) {
+        navigate(`/service-centre/inter-ho-invoice?srfId=${encodeURIComponent(jobId)}&invoiceFor=sender-ho`);
+      }
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand invoice." }));
     }
@@ -718,22 +972,26 @@ export function ScSupervisorPage() {
   async function confirmBrandCreditNote() {
     if (!brandCreditPopupJobId) return;
     const jobId = brandCreditPopupJobId;
-    const couponCode = brandCouponCodeInput.trim();
-    const valueInr = Number(brandCouponValueInput);
+    const brandCreditNoteRef = brandCreditNoteRefInput.trim();
     const validUntil = brandCouponValidUntilInput.trim();
     const note = brandCouponNoteInput.trim();
-    if (!couponCode) {
-      setFeedback((f) => ({ ...f, [jobId]: "Coupon code is required." }));
-      return;
-    }
-    if (!Number.isFinite(valueInr) || valueInr <= 0) {
-      setFeedback((f) => ({ ...f, [jobId]: "Enter valid coupon value." }));
+    if (!note) {
+      setFeedback((f) => ({ ...f, [jobId]: "Credit note remark from brand mail is required." }));
       return;
     }
     try {
-      await supervisorLogBrandCreditNote(jobId, { couponCode, valueInr, validUntil: validUntil || undefined, note });
-      setFeedback((f) => ({ ...f, [jobId]: `Brand credit note logged (${couponCode}). Awaiting accounts approval.` }));
+      await supervisorLogBrandCreditNote(jobId, {
+        brandCreditNoteRef: brandCreditNoteRef || undefined,
+        validUntil: validUntil || undefined,
+        note,
+      });
       setBrandCreditPopupJobId(null);
+      setBrandSuccessAck({
+        title: "Credit note sent to accounts",
+        description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
+        reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
+        detail: "Accounts HO will issue voucher and email the customer.",
+      });
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand credit note." }));
     }
@@ -1178,7 +1436,34 @@ export function ScSupervisorPage() {
     }
   }
 
+  function interHoBrandEstimatePhaseLabel(phase: string | null | undefined): string {
+    switch (phase) {
+      case "pending_sender":
+        return "Awaiting sender HO — forward to customer";
+      case "customer_pending":
+        return "With customer on tracking link";
+      case "customer_accepted":
+        return "Customer approved — repair HO notified";
+      case "customer_rejected":
+        return "Customer rejected — negotiate";
+      default:
+        return "—";
+    }
+  }
+
   function supervisorListStatusLabel(job: SrfJob): string {
+    if (job.interHoBrandEstimatePhase === "pending_sender" || job.status === "inter_ho_brand_estimate_pending_sender") {
+      return "inter ho brand estimate pending sender";
+    }
+    if (job.interHoBrandEstimatePhase === "customer_pending") {
+      return "brand estimate sent to customer";
+    }
+    if (job.interHoBrandEstimatePhase === "customer_accepted") {
+      return "customer approved brand estimate";
+    }
+    if (job.status === "inter_ho_brand_estimate_customer_accepted") {
+      return "customer approved brand estimate";
+    }
     if (job.interHoReestimatePhase === "pending_sender" || job.status === "inter_ho_reestimate_pending_sender") {
       return "inter ho re-estimate pending sender";
     }
@@ -1421,7 +1706,7 @@ export function ScSupervisorPage() {
       {repairHoInvoiceView.length > 0 ? (
         <Card
           title="Inter-HO repair invoice"
-          subtitle="Repair HO must create invoice to sender HO before return dispatch"
+          subtitle="Repair HO must invoice sender HO before return dispatch (local repair or brand return)"
           className="mb-6"
         >
           {repairHoInvoiceView.map((j) => (
@@ -1446,19 +1731,23 @@ export function ScSupervisorPage() {
       ) : null}
       {interHoSenderReestimateView.length > 0 ? (
         <Card
-          title={`Inter-HO re-estimate (sender) · ${interHoSenderReestimateView.length}`}
-          subtitle="Repair HO proposed a revised estimate — forward to the customer on the existing tracking link."
+          title={`Inter-HO customer approvals (sender) · ${interHoSenderReestimateView.length}`}
+          subtitle="Repair HO re-estimate or brand estimate — forward to the customer on the existing tracking link."
           className="mb-6"
         >
           <div className="space-y-4">
             {interHoSenderReestimateView.map((j) => {
               const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
+              const isBrand = !!j.interHoBrandEstimatePhase;
               return (
                 <div
                   key={j.id}
                   className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/40 p-4 shadow-sm"
                 >
                   <p className="font-mono text-sm font-bold text-zimson-900">{mainRef}</p>
+                  {isBrand ? (
+                    <p className="mt-0.5 text-[10px] font-semibold text-violet-700">Inter-HO brand estimate (sender action)</p>
+                  ) : null}
                   {receiverRef && receiverRef !== mainRef ? (
                     <p className="text-[11px] text-stone-500">
                       Receiver SRF (converted): <span className="font-mono">{receiverRef}</span>
@@ -1468,6 +1757,28 @@ export function ScSupervisorPage() {
                   <p className="mt-1 text-sm text-stone-600">
                     {j.watchBrand} {j.watchModel} · {j.serial}
                   </p>
+                  {j.interHoBrandEstimatePhase === "pending_sender" ? (
+                    <p className="mt-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900">
+                      Repair HO forwarded brand estimate INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}
+                      {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
+                    </p>
+                  ) : null}
+                  {j.interHoBrandEstimatePhase === "customer_pending" ? (
+                    <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                      Waiting for customer approval on brand estimate (INR{" "}
+                      {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}).
+                    </p>
+                  ) : null}
+                  {j.interHoBrandEstimatePhase === "customer_accepted" ? (
+                    <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
+                      Customer approved brand estimate INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}. Repair HO has been notified to approve and send to brand.
+                    </p>
+                  ) : null}
+                  {j.interHoBrandEstimatePhase === "customer_rejected" ? (
+                    <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900">
+                      Customer rejected brand estimate — negotiate and forward a revised quote via tracking link.
+                    </p>
+                  ) : null}
                   {j.interHoReestimatePhase === "pending_sender" ? (
                     <p className="mt-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-900">
                       Repair HO proposed INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}
@@ -1491,7 +1802,18 @@ export function ScSupervisorPage() {
                     </p>
                   ) : null}
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {j.interHoReestimatePhase === "pending_sender" || j.interHoReestimatePhase === "customer_rejected" ? (
+                    {(j.interHoBrandEstimatePhase === "pending_sender" || j.interHoBrandEstimatePhase === "customer_rejected") ? (
+                      <button
+                        type="button"
+                        onClick={() => openSenderForwardPopup(j.id)}
+                        className="rounded-xl border border-violet-500 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-violet-100"
+                      >
+                        {j.interHoBrandEstimatePhase === "customer_rejected"
+                          ? "Negotiate & forward brand estimate"
+                          : "Forward estimate to customer"}
+                      </button>
+                    ) : null}
+                    {(j.interHoReestimatePhase === "pending_sender" || j.interHoReestimatePhase === "customer_rejected") ? (
                       <button
                         type="button"
                         onClick={() => openSenderForwardPopup(j.id)}
@@ -1579,6 +1901,16 @@ export function ScSupervisorPage() {
                         {j.brandCreditNoteApprovedAt ? " · Accounts approved" : j.status === "brand_credit_note_pending" ? " · Pending accounts" : ""}
                       </p>
                     ) : null}
+                    {needsInterHoSenderInvoice(j) ? (
+                      <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                        Inter-HO transfer: invoice sender HO before return dispatch
+                        {j.status === "received_from_brand"
+                          ? " — complete this brand step, then create repair HO invoice."
+                          : j.status === "sent_to_brand" || j.status === "brand_repair_in_progress"
+                            ? " — after brand return and invoice."
+                            : "."}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -1620,8 +1952,7 @@ export function ScSupervisorPage() {
                             type="button"
                             onClick={() => {
                               setBrandCreditPopupJobId(j.id);
-                              setBrandCouponCodeInput("");
-                              setBrandCouponValueInput("");
+                              setBrandCreditNoteRefInput("");
                               setBrandCouponValidUntilInput("");
                               setBrandCouponNoteInput("");
                             }}
@@ -1638,15 +1969,50 @@ export function ScSupervisorPage() {
                       type="button"
                       onClick={() => {
                         setBrandForwardPopupJobId(j.id);
+                        setBrandForwardInterHoSender(isInterHoReceiverLocal(j));
                         setBrandMarkupInput("");
-                        setBrandForwardNoteInput("Brand repair estimate — includes handling and service charges.");
+                        setBrandForwardNoteInput(
+                          isInterHoReceiverLocal(j)
+                            ? "Brand repair estimate from brand mail — sender HO to forward to customer."
+                            : "Brand repair estimate — includes handling and service charges.",
+                        );
                       }}
                       className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800"
                     >
-                      Forward estimate to customer
+                      {isInterHoReceiverLocal(j) ? "Forward estimate to sender HO" : "Forward estimate to customer"}
                     </button>
                   ) : null}
-                  {j.status === "brand_estimate_customer_pending" ? (
+                  {j.status === "inter_ho_brand_estimate_pending_sender" ? (
+                    <>
+                      <p className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                        Brand estimate sent to sender HO (INR {Number(j.brandEstimateInr ?? j.reestimateRequestedInr ?? 0).toLocaleString()})
+                        {user && isSenderHoUserForInterHoJob(j, user)
+                          ? " — add markup and forward to the customer."
+                          : " — awaiting sender HO to forward to customer."}
+                      </p>
+                      {user && isSenderHoUserForInterHoJob(j, user) ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const arch = findInterHoArchivedSenderForReceiver(j, jobs);
+                            openSenderForwardPopup(arch?.id ?? j.id);
+                          }}
+                          className="rounded-xl border border-violet-500 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-950 hover:bg-violet-100"
+                        >
+                          Forward estimate to customer
+                        </button>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {j.status === "brand_estimate_customer_pending" && j.interHoBrandEstimatePhase === "customer_pending" ? (
+                    <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      Sender HO forwarded brand estimate — waiting for customer approval
+                      {j.brandCustomerQuoteInr
+                        ? ` (INR ${Number(j.brandCustomerQuoteInr).toLocaleString()}).`
+                        : "."}
+                    </p>
+                  ) : null}
+                  {j.status === "brand_estimate_customer_pending" && !j.interHoBrandEstimatePhase ? (
                     <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                       Waiting for customer approval on brand repair estimate
                       {j.brandCustomerQuoteInr
@@ -1655,32 +2021,36 @@ export function ScSupervisorPage() {
                     </p>
                   ) : null}
                   {j.status === "brand_estimate_customer_accepted" ? (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          await supervisorApproveBrandEstimate(j.id, { note: "Customer accepted — HO approval sent to brand." });
-                          setFeedback((f) => ({ ...f, [j.id]: "HO approval sent to brand — repair in progress." }));
-                        } catch (e) {
-                          setFeedback((f) => ({ ...f, [j.id]: e instanceof Error ? e.message : "Could not approve." }));
+                    user && isInterHoReceiverLocal(j) && isSenderHoUserForInterHoJob(j, user) ? (
+                      <p className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                        Customer approved brand estimate — repair HO has been notified to approve and send to brand.
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBrandConfirmPopup({
+                            kind: "approve_send_brand",
+                            jobId: j.id,
+                            note: "Customer accepted — HO approval sent to brand.",
+                          })
                         }
-                      }}
-                      className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                    >
-                      Approve & send to brand
-                    </button>
+                        className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                      >
+                        Approve & send to brand
+                      </button>
+                    )
                   ) : null}
                   {j.status === "brand_approved" || j.status === "brand_repair_in_progress" ? (
                     <button
                       type="button"
-                      onClick={async () => {
-                        try {
-                          await supervisorReceiveFromBrand(j.id, { note: "" });
-                          setFeedback((f) => ({ ...f, [j.id]: "Watch received from brand." }));
-                        } catch (e) {
-                          setFeedback((f) => ({ ...f, [j.id]: e instanceof Error ? e.message : "Could not receive." }));
-                        }
-                      }}
+                      onClick={() =>
+                        setBrandConfirmPopup({
+                          kind: "receive_from_brand",
+                          jobId: j.id,
+                          note: "Watch received from brand.",
+                        })
+                      }
                       className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800"
                     >
                       Mark received from brand
@@ -1702,42 +2072,8 @@ export function ScSupervisorPage() {
                   ) : null}
                   {j.status === "brand_credit_note_pending" ? (
                     <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                      Credit note logged — awaiting accounts approval and voucher generation.
+                      Credit note logged — awaiting accounts HO to set amount, issue 12-digit voucher, and email customer. SRF will close automatically (watch stays at brand — no return dispatch).
                     </p>
-                  ) : null}
-                  {j.status === "brand_credit_note_active" ? (
-                    <>
-                      {!j.customerCouponNotifiedAt ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBrandNotifyPopupJobId(j.id);
-                            setBrandNotifyNoteInput("Customer informed through web, SMS and WhatsApp copy.");
-                          }}
-                          className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800"
-                        >
-                          Notify customer (voucher)
-                        </button>
-                      ) : (
-                        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                          Customer notified · {new Date(j.customerCouponNotifiedAt).toLocaleString()}
-                        </p>
-                      )}
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await supervisorReleaseBrandCreditReturn(j.id, { note: "Release watch to store after brand credit note." });
-                            setFeedback((f) => ({ ...f, [j.id]: "Watch released to outward queue for store return." }));
-                          } catch (e) {
-                            setFeedback((f) => ({ ...f, [j.id]: e instanceof Error ? e.message : "Could not release to store." }));
-                          }
-                        }}
-                        className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                      >
-                        Release watch to store
-                      </button>
-                    </>
                   ) : null}
                   <button
                     type="button"
@@ -2150,18 +2486,22 @@ export function ScSupervisorPage() {
       {senderForwardPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Forward re-estimate to customer</h3>
+            <h3 className="text-lg font-semibold text-zimson-900">
+              {senderForwardBrandMode ? "Forward brand estimate to customer" : "Forward re-estimate to customer"}
+            </h3>
             <p className="mt-1 text-sm text-stone-600">
-              Update the price if needed, then send to the customer on the same tracking link used at booking.
+              {senderForwardBrandMode
+                ? "Customer quote is pre-filled from the brand estimate. Increase the amount to add markup, then send on the tracking link."
+                : "Update the price if needed, then send to the customer on the same tracking link used at booking."}
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
-                Amount for customer (INR) *
+                {senderForwardBrandMode ? "Amount for customer (INR) *" : "Amount for customer (INR) *"}
                 <input
                   className="mt-1 w-full rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
                   value={senderForwardAmountInput}
                   onChange={(e) => setSenderForwardAmountInput(e.target.value)}
-                  placeholder="Revised estimate"
+                  placeholder={senderForwardBrandMode ? "Brand estimate amount" : "Revised estimate"}
                   autoFocus
                 />
               </label>
@@ -2377,8 +2717,14 @@ export function ScSupervisorPage() {
                     note: brandAckNoteInput.trim() || "Brand mail acknowledged.",
                   })
                     .then(() => {
-                      setFeedback((f) => ({ ...f, [jobId]: "Brand mail acknowledged — log estimate or credit note from mail." }));
+                      const ref = jobs.find((x) => x.id === jobId)?.reference ?? jobId;
                       setBrandAckMailPopupJobId(null);
+                      setBrandSuccessAck({
+                        title: "Brand mail acknowledged",
+                        description: ref,
+                        reference: ref,
+                        detail: "You can now log brand estimate or credit note from the mail.",
+                      });
                     })
                     .catch((e: unknown) => {
                       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not acknowledge mail." }));
@@ -2395,28 +2741,49 @@ export function ScSupervisorPage() {
       {brandForwardPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Forward brand estimate to customer</h3>
+            <h3 className="text-lg font-semibold text-zimson-900">
+              {brandForwardInterHoSender ? "Forward brand estimate to sender HO" : "Forward brand estimate to customer"}
+            </h3>
             <p className="mt-1 text-sm text-stone-600">
-              Brand estimate{" "}
-              {(() => {
-                const job = jobs.find((x) => x.id === brandForwardPopupJobId);
-                return job?.brandEstimateInr
-                  ? Number(job.brandEstimateInr).toLocaleString(undefined, { style: "currency", currency: "INR" })
-                  : "—";
-              })()}
-              {" "}+ your markup = customer quote.
+              {brandForwardInterHoSender ? (
+                <>
+                  Brand estimate{" "}
+                  {(() => {
+                    const job = jobs.find((x) => x.id === brandForwardPopupJobId);
+                    return job?.brandEstimateInr
+                      ? Number(job.brandEstimateInr).toLocaleString(undefined, { style: "currency", currency: "INR" })
+                      : "—";
+                  })()}
+                  {" "}— sender HO will add markup and reach the customer.
+                </>
+              ) : (
+                <>
+                  Brand estimate{" "}
+                  {(() => {
+                    const job = jobs.find((x) => x.id === brandForwardPopupJobId);
+                    return job?.brandEstimateInr
+                      ? Number(job.brandEstimateInr).toLocaleString(undefined, { style: "currency", currency: "INR" })
+                      : "—";
+                  })()}
+                  {" "}+ your markup = customer quote.
+                </>
+              )}
             </p>
             <div className="mt-4 grid gap-3">
+              {!brandForwardInterHoSender ? (
               <label className="text-sm">Markup / additional amount (INR)
                 <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandMarkupInput} onChange={(e) => setBrandMarkupInput(e.target.value)} placeholder="0" />
               </label>
-              <label className="text-sm">Remark for customer *
+              ) : null}
+              <label className="text-sm">{brandForwardInterHoSender ? "Remark for sender HO *" : "Remark for customer *"}
                 <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={3} value={brandForwardNoteInput} onChange={(e) => setBrandForwardNoteInput(e.target.value)} />
               </label>
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setBrandForwardPopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
-              <button type="button" onClick={() => void confirmBrandForwardToCustomer()} className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">Send to customer</button>
+              <button type="button" onClick={() => { setBrandForwardPopupJobId(null); setBrandForwardInterHoSender(false); }} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
+              <button type="button" onClick={() => void confirmBrandForwardToCustomer()} className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">
+                {brandForwardInterHoSender ? "Send to sender HO" : "Send to customer"}
+              </button>
             </div>
           </div>
         </div>
@@ -2465,24 +2832,22 @@ export function ScSupervisorPage() {
       {brandCreditPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Log brand credit note</h3>
+            <h3 className="text-lg font-semibold text-zimson-900">Log brand credit note (from mail)</h3>
+            <p className="mt-1 text-sm text-stone-600">Accounts HO will set voucher amount and auto-generate a 12-digit code for the customer.</p>
             <div className="mt-4 grid gap-3">
-              <label className="text-sm">Coupon / credit note code *
-                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandCouponCodeInput} onChange={(e) => setBrandCouponCodeInput(e.target.value)} />
+              <label className="text-sm">Brand credit note ref (from mail)
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandCreditNoteRefInput} onChange={(e) => setBrandCreditNoteRefInput(e.target.value)} placeholder="Brand mail reference (optional)" />
               </label>
-              <label className="text-sm">Coupon value (INR) *
-                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandCouponValueInput} onChange={(e) => setBrandCouponValueInput(e.target.value)} />
-              </label>
-              <label className="text-sm">Valid until
+              <label className="text-sm">Suggested valid until
                 <input type="date" className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandCouponValidUntilInput} onChange={(e) => setBrandCouponValidUntilInput(e.target.value)} />
               </label>
-              <label className="text-sm">Remark
-                <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={2} value={brandCouponNoteInput} onChange={(e) => setBrandCouponNoteInput(e.target.value)} />
+              <label className="text-sm">Remark from brand mail *
+                <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={3} value={brandCouponNoteInput} onChange={(e) => setBrandCouponNoteInput(e.target.value)} placeholder="Summary of brand credit note email…" />
               </label>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" onClick={() => setBrandCreditPopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
-              <button type="button" onClick={() => void confirmBrandCreditNote()} className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white">Save coupon</button>
+              <button type="button" onClick={() => void confirmBrandCreditNote()} className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white">Send to accounts</button>
             </div>
           </div>
         </div>
@@ -3068,6 +3433,14 @@ export function ScSupervisorPage() {
                               : "—"}
                           </td>
                         </tr>
+                        {listDetailJob.interHoBrandEstimatePhase ? (
+                          <tr>
+                            <td className="py-0.5 pr-3 font-medium text-stone-600">Inter-HO brand step</td>
+                            <td className="py-0.5 font-medium text-violet-900">
+                              {interHoBrandEstimatePhaseLabel(listDetailJob.interHoBrandEstimatePhase)}
+                            </td>
+                          </tr>
+                        ) : null}
                         {listDetailJob.interHoReestimatePhase ? (
                           <tr>
                             <td className="py-0.5 pr-3 font-medium text-stone-600">Inter-HO step</td>
@@ -3112,6 +3485,32 @@ export function ScSupervisorPage() {
                         >
                           Update price &amp; forward to customer
                         </button>
+                      </div>
+                    ) : null}
+                    {listDetailMeta.senderBrandEstimate &&
+                    (listDetailJob.interHoBrandEstimatePhase === "pending_sender" ||
+                      listDetailJob.interHoBrandEstimatePhase === "customer_rejected") ? (
+                      <div className="mt-3 flex flex-wrap gap-2 border-t border-violet-200/80 pt-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openSenderForwardPopup(listDetailJob.id);
+                            setListDetailJobId(null);
+                          }}
+                          className="rounded-lg border border-violet-500 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-950 hover:bg-violet-100"
+                        >
+                          Forward brand estimate to customer
+                        </button>
+                      </div>
+                    ) : null}
+                    {listDetailMeta.senderBrandEstimate &&
+                    listDetailJob.interHoBrandEstimatePhase === "customer_accepted" ? (
+                      <div className="mt-3 border-t border-emerald-200/80 pt-3">
+                        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
+                          Customer approved brand estimate INR{" "}
+                          {Number(listDetailJob.reestimateRequestedInr ?? 0).toLocaleString()}. Repair HO has been
+                          notified to approve and send to brand.
+                        </p>
                       </div>
                     ) : null}
                     {listDetailMeta.senderReestimate &&
@@ -3180,6 +3579,91 @@ export function ScSupervisorPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {brandConfirmPopup ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zimson-900">
+              {brandConfirmPopup.kind === "approve_send_brand"
+                ? "Confirm approval to brand"
+                : "Confirm received from brand"}
+            </h3>
+            <p className="mt-2 text-sm text-stone-600">
+              {brandConfirmPopup.kind === "approve_send_brand"
+                ? "Customer accepted the estimate. Send HO approval to brand and start brand repair?"
+                : "Confirm the watch has been received back from brand at your HO."}
+            </p>
+            <label className="mt-4 block text-sm">
+              Note (optional)
+              <textarea
+                className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                rows={2}
+                value={brandConfirmPopup.note}
+                onChange={(e) =>
+                  setBrandConfirmPopup((prev) => (prev ? { ...prev, note: e.target.value } : prev))
+                }
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBrandConfirmPopup(null)}
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void executeBrandConfirm()}
+                className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {brandSuccessAck ? (
+        <ProcessSuccessModal
+          open
+          title={brandSuccessAck.title}
+          description={brandSuccessAck.description}
+          onBackdropClick={() => setBrandSuccessAck(null)}
+          actions={
+            <>
+              {brandSuccessAck.interHoInvoiceJobId ? (
+                <button
+                  type="button"
+                  className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 sm:w-auto"
+                  onClick={() => {
+                    const id = brandSuccessAck.interHoInvoiceJobId!;
+                    setBrandSuccessAck(null);
+                    navigate(`/service-centre/inter-ho-invoice?srfId=${encodeURIComponent(id)}&invoiceFor=sender-ho`);
+                  }}
+                >
+                  Create sender HO invoice
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90 sm:w-auto"
+                onClick={() => setBrandSuccessAck(null)}
+              >
+                Done
+              </button>
+            </>
+          }
+        >
+          <div className="rounded-xl border-2 border-violet-200 bg-violet-50/80 px-4 py-3 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-violet-800">SRF reference</p>
+            <p className="mt-1 font-mono text-2xl font-bold text-violet-950">{brandSuccessAck.reference}</p>
+          </div>
+          <p className="mt-3 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm text-stone-800">
+            {brandSuccessAck.detail}
+          </p>
+        </ProcessSuccessModal>
       ) : null}
 
       {convertLocalAck ? (

@@ -157,6 +157,12 @@ type SrfJobsContextValue = {
     payload: { estimateTotalInr?: number; note?: string },
   ) => Promise<SrfReestimateNotifyResult>;
   interHoApproveReestimateForReceiver: (jobId: string, note?: string) => Promise<void>;
+  interHoForwardBrandEstimateToSender: (jobId: string, payload: { note: string }) => Promise<void>;
+  interHoForwardBrandEstimateToCustomer: (
+    jobId: string,
+    payload: { markupInr: number; note: string },
+  ) => Promise<SrfReestimateNotifyResult>;
+  interHoApproveBrandEstimateForReceiver: (jobId: string, note?: string) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
@@ -184,17 +190,23 @@ type SrfJobsContextValue = {
   ) => Promise<void>;
   supervisorLogBrandCreditNote: (
     jobId: string,
-    payload: { couponCode: string; valueInr: number; validUntil?: string; note?: string },
+    payload: { brandCreditNoteRef?: string; validUntil?: string; note: string },
   ) => Promise<void>;
   supervisorNotifyBrandCoupon: (
     jobId: string,
     payload?: { channels?: Record<string, unknown>; note?: string },
   ) => Promise<void>;
-  supervisorReleaseBrandCreditReturn: (jobId: string, payload?: { note?: string }) => Promise<void>;
   accountsApproveBrandCreditNote: (
     jobId: string,
-    payload?: { note?: string; voucherCode?: string },
-  ) => Promise<{ voucherCode: string }>;
+    payload: { valueInr: number; note?: string; validUntil?: string },
+  ) => Promise<{
+    voucherCode: string;
+    valueInr: number;
+    closed?: boolean;
+    customerNotified?: boolean;
+    emailSent?: boolean;
+    whatsappSent?: boolean;
+  }>;
   createOutwardBatch: (
     items: { jobId: string; destinationStoreId: string }[],
     opts?: { hoInvoiceRef?: string; storeInvoiceRef?: string },
@@ -458,6 +470,37 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const interHoForwardBrandEstimateToSender = useCallback(async (jobId: string, payload: { note: string }) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/brand-estimate-forward-sender`, {
+      method: "POST",
+      json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const interHoForwardBrandEstimateToCustomer = useCallback(
+    async (jobId: string, payload: { markupInr: number; note: string }) => {
+      const out = await apiJson<{ whatsappSent?: boolean; whatsappReason?: string | null }>(
+        `/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/brand-estimate-forward-customer`,
+        { method: "POST", json: payload },
+      );
+      await refreshJobs();
+      return {
+        whatsappSent: Boolean(out.whatsappSent),
+        whatsappReason: out.whatsappReason ?? null,
+      };
+    },
+    [refreshJobs],
+  );
+
+  const interHoApproveBrandEstimateForReceiver = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/brand-estimate-approve-receiver`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
   const supervisorApproveReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate-approve`, {
       method: "POST",
@@ -617,7 +660,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
 
   const supervisorLogBrandCreditNote = useCallback(async (
     jobId: string,
-    payload: { couponCode: string; valueInr: number; validUntil?: string; note?: string },
+    payload: { brandCreditNoteRef?: string; validUntil?: string; note: string },
   ) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/credit-note`, {
       method: "POST",
@@ -637,25 +680,30 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
-  const supervisorReleaseBrandCreditReturn = useCallback(async (jobId: string, payload?: { note?: string }) => {
-    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/release-credit-return`, {
-      method: "POST",
-      json: payload ?? {},
-    });
-    await refreshJobs();
-  }, [refreshJobs]);
-
   const accountsApproveBrandCreditNote = useCallback(async (
     jobId: string,
-    payload?: { note?: string; voucherCode?: string },
+    payload: { valueInr: number; note?: string; validUntil?: string },
   ) => {
-    const out = await apiJson<{ ok: boolean; voucherCode: string }>(
+    const out = await apiJson<{
+      ok: boolean;
+      closed?: boolean;
+      voucherCode: string;
+      valueInr: number;
+      customerNotified?: boolean;
+      emailSent?: boolean;
+      whatsappSent?: boolean;
+    }>(
       `/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/approve-credit-note`,
-      { method: "POST", json: payload ?? {} },
+      { method: "POST", json: payload },
     );
-    await refreshJobs();
-    return { voucherCode: out.voucherCode };
-  }, [refreshJobs]);
+    return {
+      voucherCode: out.voucherCode,
+      valueInr: out.valueInr,
+      customerNotified: out.customerNotified,
+      emailSent: out.emailSent,
+      whatsappSent: out.whatsappSent,
+    };
+  }, []);
 
   const createOutwardBatch = useCallback(async (
     items: { jobId: string; destinationStoreId: string }[],
@@ -778,6 +826,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       interHoRequestReestimate,
       interHoForwardReestimateToCustomer,
       interHoApproveReestimateForReceiver,
+      interHoForwardBrandEstimateToSender,
+      interHoForwardBrandEstimateToCustomer,
+      interHoApproveBrandEstimateForReceiver,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
@@ -796,7 +847,6 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorLogBrandInvoice,
       supervisorLogBrandCreditNote,
       supervisorNotifyBrandCoupon,
-      supervisorReleaseBrandCreditReturn,
       accountsApproveBrandCreditNote,
       createOutwardBatch,
       receiveOutwardByDc,
@@ -832,6 +882,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       interHoRequestReestimate,
       interHoForwardReestimateToCustomer,
       interHoApproveReestimateForReceiver,
+      interHoForwardBrandEstimateToSender,
+      interHoForwardBrandEstimateToCustomer,
+      interHoApproveBrandEstimateForReceiver,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
@@ -850,7 +903,6 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorLogBrandInvoice,
       supervisorLogBrandCreditNote,
       supervisorNotifyBrandCoupon,
-      supervisorReleaseBrandCreditReturn,
       accountsApproveBrandCreditNote,
       createOutwardBatch,
       receiveOutwardByDc,

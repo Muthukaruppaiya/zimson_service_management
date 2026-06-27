@@ -22,6 +22,7 @@ import type { DemoUser, UserRole } from "../src/types/user";
 import { resolveCustomerEmail } from "./messaging/customerContact";
 import { sendReestimateDecisionNotification, sendSiteVisitApprovalLink, sendTrackingLink } from "./notificationService";
 import { publishSrfDocumentForWhatsApp } from "./messaging/publishSrfDocumentForWhatsApp";
+import { sendBrandVoucherEmail } from "./messaging/brandVoucherEmail";
 import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { finalizeSrfBillingHandoverSession } from "./srfBillingHandoverRoutes";
 import { appendStockHistory } from "./db/stockHistory";
@@ -112,10 +113,97 @@ function canApproveBrandCreditNote(actor: DemoUser | null): boolean {
   );
 }
 
-function generateBrandVoucherCode(reference: string): string {
-  const ref = String(reference ?? "SRF").replace(/[^A-Z0-9]/gi, "").slice(0, 12).toUpperCase() || "SRF";
-  const suffix = Date.now().toString(36).slice(-4).toUpperCase();
-  return `ZIMSON-${ref}-${suffix}`;
+function generateBrandVoucherCode(): string {
+  return String(crypto.randomInt(0, 1_000_000_000_000)).padStart(12, "0");
+}
+
+async function generateUniqueBrandVoucherCode(client: PoolClient): Promise<string> {
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const code = generateBrandVoucherCode();
+    const exists = await client.query<{ id: string }>(
+      `SELECT id FROM srf_jobs WHERE brand_coupon_code = $1 LIMIT 1`,
+      [code],
+    );
+    if (!exists.rows[0]) return code;
+  }
+  throw new Error("Could not generate unique voucher code.");
+}
+
+async function notifyCustomerBrandVoucher(
+  req: Request,
+  pool: Pool,
+  srfId: string,
+  payload: {
+    voucherCode: string;
+    valueInr: number;
+    validUntil?: string | null;
+  },
+): Promise<{ emailSent: boolean; emailReason?: string; whatsappSent: boolean; whatsappReason?: string }> {
+  const { rows } = await pool.query<{
+    reference: string;
+    customer_name: string;
+    phone: string;
+    store_id: string;
+    region_id: string;
+  }>(
+    `SELECT reference, customer_name, phone, store_id, region_id FROM srf_jobs WHERE id = $1::uuid`,
+    [srfId],
+  );
+  const row = rows[0];
+  if (!row) {
+    return { emailSent: false, emailReason: "SRF not found.", whatsappSent: false, whatsappReason: "SRF not found." };
+  }
+  let trackingUrl = "";
+  try {
+    trackingUrl = await resolveCustomerTrackingUrl(req, pool, row.phone);
+  } catch {
+    trackingUrl = "";
+  }
+  const amountLabel = payload.valueInr.toLocaleString("en-IN", { style: "currency", currency: "INR" });
+  const validityLabel = payload.validUntil
+    ? new Date(payload.validUntil).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : "";
+  let emailSent = false;
+  let emailReason: string | undefined;
+  try {
+    const email = await resolveCustomerEmail(pool, row.phone);
+    if (email) {
+      await sendBrandVoucherEmail({
+        toEmail: email,
+        customerName: row.customer_name,
+        srfReference: row.reference,
+        voucherCode: payload.voucherCode,
+        valueInr: payload.valueInr,
+        validUntil: payload.validUntil,
+        trackingUrl: trackingUrl || getAppBaseUrl(req),
+      });
+      emailSent = true;
+    } else {
+      emailReason = "No customer email on file.";
+    }
+  } catch (e) {
+    emailReason = e instanceof Error ? e.message : "Email send failed.";
+    console.error("[BRAND VOUCHER] email failed", e);
+  }
+
+  const approvalReason = `Brand credit voucher ${payload.voucherCode} for ${amountLabel}${validityLabel ? ` (valid till ${validityLabel})` : ""}. Redeem at any Zimson store.`;
+  let whatsappSent = false;
+  let whatsappReason: string | undefined;
+  if (trackingUrl) {
+    const wa = await sendSiteVisitApprovalLink({
+      phone: row.phone,
+      name: row.customer_name,
+      srfReference: row.reference,
+      approvalReason,
+      trackingUrl,
+    }).catch(() => ({ sent: false, reason: "WhatsApp send failed." }));
+    whatsappSent = wa.sent;
+    whatsappReason = wa.reason;
+  } else {
+    whatsappReason = "Tracking URL unavailable for WhatsApp.";
+  }
+
+  return { emailSent, emailReason, whatsappSent, whatsappReason };
 }
 
 function toJsonMeta(input: unknown): Record<string, unknown> {
@@ -199,9 +287,13 @@ function visibleWhere(actor: DemoUser, idxStart = 1): { sql: string; params: unk
     `(j.region_id = ${regionParam}
       OR (j.transfer_source_region_id = ${regionParam} AND j.status = 'sent_to_other_ho')
       OR (j.transfer_source_region_id = ${regionParam} AND j.inter_ho_reestimate_phase IS NOT NULL)
+      OR (j.transfer_source_region_id = ${regionParam} AND j.inter_ho_brand_estimate_phase IS NOT NULL)
       OR (j.transfer_source_region_id = ${regionParam} AND j.status IN (
         'inter_ho_reestimate_pending_sender',
         'inter_ho_reestimate_customer_accepted',
+        'inter_ho_brand_estimate_pending_sender',
+        'inter_ho_brand_estimate_customer_accepted',
+        'brand_estimate_customer_pending',
         'reestimate_required',
         'customer_rejected'
       ))
@@ -893,6 +985,7 @@ export function registerSrfRoutes(
                 j.transfer_source_reference AS "transferSourceReference",
                 j.inter_ho_reestimate_phase AS "interHoReestimatePhase",
                 j.inter_ho_reestimate_receiver_srf_id AS "interHoReestimateReceiverSrfId",
+                j.inter_ho_brand_estimate_phase AS "interHoBrandEstimatePhase",
                 j.technician_brand_recommended_at AS "technicianBrandRecommendedAt",
                 j.technician_brand_recommend_note AS "technicianBrandRecommendNote",
                 j.brand_acknowledged_at AS "brandAcknowledgedAt",
@@ -1096,6 +1189,7 @@ export function registerSrfRoutes(
                 j.transfer_target_region_id AS "transferTargetRegionId",
                 j.inter_ho_reestimate_phase AS "interHoReestimatePhase",
                 j.inter_ho_reestimate_receiver_srf_id AS "interHoReestimateReceiverSrfId",
+                j.inter_ho_brand_estimate_phase AS "interHoBrandEstimatePhase",
                 j.brand_sent_at AS "brandSentAt",
                 j.brand_dispatch_ref AS "brandDispatchRef",
                 j.brand_dispatch_note AS "brandDispatchNote",
@@ -4066,6 +4160,433 @@ export function registerSrfRoutes(
     }
   });
 
+  app.post("/api/service/srf-jobs/:srfId/inter-ho/brand-estimate-forward-sender", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can forward brand estimate to sender HO." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    if (!note) {
+      res.status(400).json({ error: "Remark for sender HO is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const recvRes = await client.query<{
+        status: string;
+        reference: string;
+        transfer_source_reference: string | null;
+        requires_local_conversion: boolean;
+        region_id: string;
+        brand_estimate_inr: string | null;
+      }>(
+        `SELECT status, reference, transfer_source_reference, requires_local_conversion, region_id,
+                brand_estimate_inr::text
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const recv = recvRes.rows[0];
+      if (!recv || !isInterHoReceiverLocalRow(recv)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Inter-HO brand estimate forwarding is only for receiver HO brand SRFs." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== recv.region_id) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only the repair HO can forward brand estimate to sender HO." });
+        return;
+      }
+      if (recv.status !== "brand_estimate_pending") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "SRF must be in brand_estimate_pending state." });
+        return;
+      }
+      const brandEstimate = Number(recv.brand_estimate_inr ?? 0);
+      if (!Number.isFinite(brandEstimate) || brandEstimate <= 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Brand estimate must be logged before forwarding to sender HO." });
+        return;
+      }
+      const arch = await findInterHoArchivedSenderRow(client, srfId);
+      if (!arch) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Could not find sender HO archived row for this inter-HO SRF." });
+        return;
+      }
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'inter_ho_brand_estimate_pending_sender',
+             reestimate_requested_inr = $2,
+             reestimate_requested_note = $3,
+             reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
+             inter_ho_brand_estimate_phase = 'pending_sender',
+             updated_at = now(),
+             modified_by = $4
+         WHERE id = $1::uuid`,
+        [srfId, brandEstimate, note, actor.id],
+      );
+      await client.query(
+        `UPDATE srf_jobs
+         SET reestimate_requested_inr = $2,
+             reestimate_requested_note = $3,
+             reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
+             inter_ho_brand_estimate_phase = 'pending_sender',
+             inter_ho_reestimate_receiver_srf_id = $4::uuid,
+             updated_at = now(),
+             modified_by = $5
+         WHERE id = $1::uuid`,
+        [arch.id, brandEstimate, note, srfId, actor.id],
+      );
+      await appendStatusHistory(
+        client,
+        srfId,
+        "inter_ho_brand_estimate_pending_sender",
+        actor.id,
+        `Repair HO forwarded brand estimate INR ${brandEstimate.toFixed(2)} to sender HO: ${note}`,
+      );
+      await appendActionLog(client, srfId, {
+        action: "inter_ho_brand_estimate_forward_sender",
+        description: `Brand estimate INR ${brandEstimate.toFixed(2)} sent to sender HO for customer forwarding.`,
+        amountInr: brandEstimate,
+        actor,
+        details: { remark: note, senderArchivedSrfId: arch.id },
+      });
+      await appendActionLog(client, arch.id, {
+        action: "inter_ho_brand_estimate_pending_sender",
+        description: `Awaiting sender HO to forward brand estimate INR ${brandEstimate.toFixed(2)} to customer.`,
+        amountInr: brandEstimate,
+        actor,
+        details: { receiverSrfId: srfId, remark: note },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not forward brand estimate to sender HO." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/inter-ho/brand-estimate-forward-customer", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can forward inter-HO brand estimate to customer." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const markupInr = Number(req.body?.markupInr ?? 0);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      let arch = await client.query<{
+        id: string;
+        status: string;
+        transfer_source_region_id: string | null;
+        inter_ho_brand_estimate_phase: string | null;
+        phone: string;
+        reference: string;
+        customer_name: string;
+      }>(
+        `SELECT id, status, transfer_source_region_id, inter_ho_brand_estimate_phase, phone, reference, customer_name
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      let archRow = arch.rows[0];
+      let receiverId = srfId;
+      if (!archRow || archRow.status !== "sent_to_other_ho") {
+        const recvLink = await findInterHoArchivedSenderRow(client, srfId);
+        if (!recvLink) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Inter-HO sender archived SRF not found." });
+          return;
+        }
+        arch = await client.query<{
+          id: string;
+          status: string;
+          transfer_source_region_id: string | null;
+          inter_ho_brand_estimate_phase: string | null;
+          phone: string;
+          reference: string;
+          customer_name: string;
+        }>(
+          `SELECT id, status, transfer_source_region_id, inter_ho_brand_estimate_phase, phone, reference, customer_name
+           FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+          [recvLink.id],
+        );
+        archRow = arch.rows[0];
+        receiverId = srfId;
+      } else {
+        const recv = await findInterHoReceiverRow(client, srfId);
+        if (!recv) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Linked receiver HO SRF not found." });
+          return;
+        }
+        receiverId = recv.id;
+      }
+      if (!archRow || archRow.status !== "sent_to_other_ho") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        return;
+      }
+      const senderRegion = archRow.transfer_source_region_id ?? "";
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only sender HO can forward brand estimate to the customer." });
+        return;
+      }
+      const phase = archRow.inter_ho_brand_estimate_phase ?? "";
+      if (!["pending_sender", "customer_rejected"].includes(phase)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "No pending inter-HO brand estimate to forward to customer." });
+        return;
+      }
+      if (!Number.isFinite(markupInr) || markupInr < 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Valid markup amount is required (0 or more)." });
+        return;
+      }
+      if (!note) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Remark for customer is required." });
+        return;
+      }
+      const recvMeta = await client.query<{
+        brand_estimate_inr: number;
+        reestimate_requested_inr: number;
+      }>(
+        `SELECT brand_estimate_inr::float8, reestimate_requested_inr::float8
+         FROM srf_jobs WHERE id = $1::uuid`,
+        [receiverId],
+      );
+      const brandEstimate = Number(recvMeta.rows[0]?.brand_estimate_inr ?? 0);
+      if (!Number.isFinite(brandEstimate) || brandEstimate <= 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Brand estimate amount missing on receiver SRF." });
+        return;
+      }
+      const customerQuote = brandEstimate + markupInr;
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_estimate_customer_pending',
+             brand_markup_inr = $2,
+             brand_customer_quote_inr = $3,
+             reestimate_requested_inr = $3,
+             reestimate_requested_note = $4,
+             reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
+             inter_ho_brand_estimate_phase = 'customer_pending',
+             updated_at = now(),
+             modified_by = $5
+         WHERE id = $1::uuid`,
+        [receiverId, markupInr, customerQuote, note, actor.id],
+      );
+      await client.query(
+        `UPDATE srf_jobs
+         SET reestimate_requested_inr = $2,
+             reestimate_requested_note = $3,
+             reestimate_requested_at = now(),
+             customer_reestimate_response = NULL,
+             customer_reestimate_responded_at = NULL,
+             inter_ho_brand_estimate_phase = 'customer_pending',
+             inter_ho_reestimate_receiver_srf_id = $4::uuid,
+             updated_at = now(),
+             modified_by = $5
+         WHERE id = $1::uuid`,
+        [archRow.id, customerQuote, note, receiverId, actor.id],
+      );
+      await appendStatusHistory(
+        client,
+        receiverId,
+        "brand_estimate_customer_pending",
+        actor.id,
+        `Sender HO forwarded brand estimate to customer: INR ${customerQuote.toFixed(2)} (brand ${brandEstimate.toFixed(2)} + markup ${markupInr.toFixed(2)}). ${note}`,
+      );
+      const attempt = await startReestimateAttempt(client, receiverId, {
+        amountInr: customerQuote,
+        remark: note,
+        raisedBy: actor,
+      });
+      await appendActionLog(client, receiverId, {
+        action: "inter_ho_brand_estimate_forward_customer",
+        description: `Sender HO forwarded brand estimate attempt #${attempt.attemptNo} (INR ${customerQuote.toFixed(2)}) to customer.`,
+        amountInr: customerQuote,
+        actor,
+        details: { attemptNo: attempt.attemptNo, remark: note, brandEstimateInr: brandEstimate, markupInr },
+      });
+      await appendActionLog(client, archRow.id, {
+        action: "inter_ho_brand_estimate_forward_customer",
+        description: `Forwarded brand estimate INR ${customerQuote.toFixed(2)} to customer for approval.`,
+        amountInr: customerQuote,
+        actor,
+        details: { receiverSrfId: receiverId, remark: note },
+      });
+      await client.query("COMMIT");
+      let approvalNotify = { sent: false, reason: "Notification skipped." };
+      try {
+        const recvRef = await pool.query<{ transfer_source_reference: string | null; reference: string }>(
+          `SELECT transfer_source_reference, reference FROM srf_jobs WHERE id = $1::uuid`,
+          [receiverId],
+        );
+        const rootRef =
+          String(recvRef.rows[0]?.transfer_source_reference ?? "").trim() ||
+          String(recvRef.rows[0]?.reference ?? archRow.reference).trim();
+        approvalNotify = await notifyCustomerSiteVisitApproval(req, pool, archRow.id, {
+          srfReference: rootRef,
+          approvalReason: formatApprovalReason(customerQuote, note),
+        });
+      } catch (e) {
+        console.error("[APPROVAL LINK] inter-HO brand forward notify failed", e);
+      }
+      res.json({
+        ok: true,
+        customerQuoteInr: customerQuote,
+        whatsappSent: approvalNotify.sent,
+        whatsappReason: approvalNotify.reason ?? null,
+      });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not forward inter-HO brand estimate to customer." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/inter-ho/brand-estimate-approve-receiver", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can approve inter-HO brand estimate for repair HO." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      let arch = await client.query<{
+        id: string;
+        status: string;
+        transfer_source_region_id: string | null;
+        inter_ho_brand_estimate_phase: string | null;
+      }>(
+        `SELECT id, status, transfer_source_region_id, inter_ho_brand_estimate_phase
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      let archRow = arch.rows[0];
+      let receiverId = srfId;
+      if (!archRow || archRow.status !== "sent_to_other_ho") {
+        const recvRes = await client.query<{ status: string; inter_ho_brand_estimate_phase: string | null }>(
+          `SELECT status, inter_ho_brand_estimate_phase FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+          [srfId],
+        );
+        const recv = recvRes.rows[0];
+        if (!recv || recv.status !== "inter_ho_brand_estimate_customer_accepted") {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Customer must accept brand estimate before sender HO can release repair HO." });
+          return;
+        }
+        const archLink = await findInterHoArchivedSenderRow(client, srfId);
+        if (!archLink) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Sender HO archived row not found." });
+          return;
+        }
+        receiverId = srfId;
+        arch = await client.query<{
+          id: string;
+          status: string;
+          transfer_source_region_id: string | null;
+          inter_ho_brand_estimate_phase: string | null;
+        }>(
+          `SELECT id, status, transfer_source_region_id, inter_ho_brand_estimate_phase
+           FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+          [archLink.id],
+        );
+        archRow = arch.rows[0];
+      } else {
+        const recv = await findInterHoReceiverRow(client, srfId);
+        if (!recv || recv.status !== "inter_ho_brand_estimate_customer_accepted") {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Customer must accept brand estimate before sender HO can release repair HO." });
+          return;
+        }
+        receiverId = recv.id;
+      }
+      if (!archRow) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        return;
+      }
+      const senderRegion = archRow.transfer_source_region_id ?? "";
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only sender HO can approve brand estimate for repair HO." });
+        return;
+      }
+      const recvAmt = await client.query<{ brand_customer_quote_inr: number }>(
+        `SELECT brand_customer_quote_inr::float8 FROM srf_jobs WHERE id = $1::uuid`,
+        [receiverId],
+      );
+      const amount = Number(recvAmt.rows[0]?.brand_customer_quote_inr ?? 0);
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_estimate_customer_accepted',
+             inter_ho_brand_estimate_phase = NULL,
+             reestimate_approved_at = now(),
+             reestimate_approved_note = $2,
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid`,
+        [receiverId, note || "Sender HO approved customer brand estimate — repair HO may approve brand.", actor.id],
+      );
+      await client.query(
+        `UPDATE srf_jobs
+         SET inter_ho_brand_estimate_phase = NULL,
+             reestimate_approved_at = now(),
+             reestimate_approved_note = $2,
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid`,
+        [archRow.id, note || "Sender HO released repair HO to approve brand.", actor.id],
+      );
+      await appendStatusHistory(
+        client,
+        receiverId,
+        "brand_estimate_customer_accepted",
+        actor.id,
+        note || `Sender HO approved customer brand estimate (INR ${amount.toFixed(2)}). Repair HO can approve brand.`,
+      );
+      await appendActionLog(client, receiverId, {
+        action: "inter_ho_brand_estimate_approve_receiver",
+        description: `Sender HO approved customer brand estimate — repair HO may send approval to brand (INR ${amount.toFixed(2)}).`,
+        amountInr: amount,
+        actor,
+        details: { note: note || null },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not approve inter-HO brand estimate for repair HO." });
+    } finally {
+      client.release();
+    }
+  });
+
   app.post("/api/service/srf-jobs/:srfId/supervisor/repair-complete", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
@@ -5010,6 +5531,23 @@ export function registerSrfRoutes(
       return;
     }
     try {
+      const interHoCheck = await pool.query<{
+        reference: string;
+        transfer_source_reference: string | null;
+        requires_local_conversion: boolean;
+        status: string;
+      }>(
+        `SELECT reference, transfer_source_reference, requires_local_conversion, status
+         FROM srf_jobs WHERE id = $1::uuid AND status = 'brand_estimate_pending'`,
+        [srfId],
+      );
+      const interHoRow = interHoCheck.rows[0];
+      if (interHoRow && isInterHoReceiverLocalRow(interHoRow)) {
+        res.status(400).json({
+          error: "Inter-HO SRF — forward brand estimate to sender HO first. Sender HO will reach the customer.",
+        });
+        return;
+      }
       const prior = await pool.query<{ brand_estimate_inr: string | null }>(
         `SELECT brand_estimate_inr::text FROM srf_jobs WHERE id = $1::uuid AND status = 'brand_estimate_pending'`,
         [srfId],
@@ -5260,33 +5798,29 @@ export function registerSrfRoutes(
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
-    const couponCode = String(req.body?.couponCode ?? "").trim();
-    const valueInr = Number(req.body?.valueInr ?? 0);
+    const brandCreditNoteRef = String(req.body?.brandCreditNoteRef ?? req.body?.couponCode ?? "").trim() || null;
     const validUntil = String(req.body?.validUntil ?? "").trim() || null;
     const note = String(req.body?.note ?? "").trim();
-    if (!couponCode) {
-      res.status(400).json({ error: "Coupon / credit note code is required." });
-      return;
-    }
-    if (!Number.isFinite(valueInr) || valueInr <= 0) {
-      res.status(400).json({ error: "Valid coupon value is required." });
+    if (!note) {
+      res.status(400).json({ error: "Credit note remark from brand mail is required." });
       return;
     }
     try {
       const upd = await pool.query(
         `UPDATE srf_jobs
          SET status = 'brand_credit_note_pending',
-             brand_coupon_code = $2,
-             brand_coupon_value_inr = $3,
+             brand_invoice_ref = COALESCE($2, brand_invoice_ref),
              brand_coupon_received_at = now(),
-             brand_coupon_valid_until = $4::date,
+             brand_coupon_valid_until = $3::date,
+             brand_coupon_code = NULL,
+             brand_coupon_value_inr = NULL,
              updated_at = now(),
-             modified_by = $5
+             modified_by = $4
          WHERE id = $1::uuid
            AND status = 'sent_to_brand'
            AND brand_acknowledged_at IS NOT NULL
            AND brand_estimate_inr IS NULL`,
-        [srfId, couponCode, valueInr, validUntil, actor?.id ?? null],
+        [srfId, brandCreditNoteRef, validUntil, actor?.id ?? null],
       );
       if ((upd.rowCount ?? 0) === 0) {
         res.status(400).json({ error: "SRF must have acknowledged brand mail with no estimate logged yet." });
@@ -5300,15 +5834,14 @@ export function registerSrfRoutes(
           srfId,
           "brand_credit_note_pending",
           actor?.id ?? null,
-          note || `Brand issued coupon ${couponCode} for INR ${valueInr.toFixed(2)}.`,
+          note || "Brand credit note logged from mail — awaiting accounts approval.",
         );
         await appendActionLog(client, srfId, {
           action: "brand_credit_note_received",
-          description: `Brand credit note logged (${couponCode}, INR ${valueInr.toFixed(2)}).`,
+          description: `Brand credit note logged from mail${brandCreditNoteRef ? ` (ref ${brandCreditNoteRef})` : ""}.`,
           actor: actor ?? undefined,
-          amountInr: valueInr,
-          referenceDoc: couponCode,
-          details: { validUntil, note },
+          referenceDoc: brandCreditNoteRef,
+          details: { validUntil, note, brandCreditNoteRef },
         });
         await client.query("COMMIT");
       } catch {
@@ -5339,6 +5872,7 @@ export function registerSrfRoutes(
                 j.watch_model AS "watchModel",
                 j.serial,
                 j.status,
+                j.brand_invoice_ref AS "brandInvoiceRef",
                 j.brand_coupon_code AS "brandCouponCode",
                 j.brand_coupon_value_inr::float8 AS "brandCouponValueInr",
                 j.brand_coupon_valid_until AS "brandCouponValidUntil",
@@ -5346,7 +5880,8 @@ export function registerSrfRoutes(
                 j.brand_credit_note_approved_at AS "brandCreditNoteApprovedAt",
                 j.created_at AS "createdAt"
          FROM srf_jobs j
-         WHERE j.status IN ('brand_credit_note_pending', 'brand_credit_note_active')
+         WHERE j.status = 'brand_credit_note_pending'
+            OR (j.status = 'closed' AND j.brand_credit_note_approved_at IS NOT NULL)
          ORDER BY j.brand_coupon_received_at DESC NULLS LAST, j.created_at DESC`,
       );
       res.json({ rows });
@@ -5364,16 +5899,23 @@ export function registerSrfRoutes(
     }
     const srfId = String(req.params.srfId ?? "").trim();
     const note = String(req.body?.note ?? "").trim();
-  const voucherCodeOverride = String(req.body?.voucherCode ?? "").trim();
+    const valueInr = Number(req.body?.valueInr ?? 0);
+    const validUntil = String(req.body?.validUntil ?? "").trim() || null;
+    if (!Number.isFinite(valueInr) || valueInr <= 0) {
+      res.status(400).json({ error: "Valid voucher amount (INR) is required." });
+      return;
+    }
     const client = await pool.connect();
+    let voucherCode = "";
+    let validUntilDb: string | null = null;
     try {
       await client.query("BEGIN");
       const row = await client.query<{
         reference: string;
-        brand_coupon_code: string | null;
-        brand_coupon_value_inr: string | null;
+        brand_coupon_valid_until: string | null;
+        phone: string;
       }>(
-        `SELECT reference, brand_coupon_code, brand_coupon_value_inr::text
+        `SELECT reference, brand_coupon_valid_until::text, phone
          FROM srf_jobs WHERE id = $1::uuid AND status = 'brand_credit_note_pending' FOR UPDATE`,
         [srfId],
       );
@@ -5383,91 +5925,104 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "SRF must be in brand_credit_note_pending state." });
         return;
       }
-      const voucherCode =
-        voucherCodeOverride || job.brand_coupon_code?.trim() || generateBrandVoucherCode(job.reference);
+      voucherCode = await generateUniqueBrandVoucherCode(client);
+      validUntilDb = validUntil || job.brand_coupon_valid_until;
+      const closeNote =
+        note ||
+        `Brand credit note — voucher ${voucherCode} for INR ${valueInr.toFixed(2)}. Watch retained at brand; SRF closed.`;
       await client.query(
         `UPDATE srf_jobs
-         SET status = 'brand_credit_note_active',
+         SET status = 'closed',
+             closed_at = now(),
              brand_coupon_code = $2,
+             brand_coupon_value_inr = $3,
+             brand_coupon_valid_until = COALESCE($4::date, brand_coupon_valid_until),
              brand_credit_note_approved_at = now(),
-             brand_credit_note_approved_by = $3,
+             brand_credit_note_approved_by = $5,
+             customer_coupon_notified_at = now(),
+             customer_coupon_notify_channels = $6::jsonb,
              updated_at = now(),
-             modified_by = $3
+             modified_by = $5
          WHERE id = $1::uuid`,
-        [srfId, voucherCode, actor?.id ?? null],
+        [
+          srfId,
+          voucherCode,
+          valueInr,
+          validUntilDb,
+          actor?.id ?? null,
+          JSON.stringify({ email: true, whatsapp: true, source: "accounts_approve" }),
+        ],
       );
-      await appendStatusHistory(
-        client,
-        srfId,
-        "brand_credit_note_active",
-        actor?.id ?? null,
-        note || `Accounts approved voucher ${voucherCode}.`,
-      );
+      await appendStatusHistory(client, srfId, "closed", actor?.id ?? null, closeNote);
       await appendActionLog(client, srfId, {
         action: "brand_credit_note_approved",
-        description: `Voucher approved: ${voucherCode}`,
+        description: `Voucher issued: ${voucherCode} (INR ${valueInr.toFixed(2)}). SRF closed — watch not returned from brand.`,
         actor: actor ?? undefined,
-        amountInr: Number(job.brand_coupon_value_inr ?? 0) || null,
+        amountInr: valueInr,
         referenceDoc: voucherCode,
-        details: { note },
+        details: { note, validUntil: validUntilDb, watchReturned: false },
       });
+      const arch = await findInterHoArchivedSenderRow(client, srfId);
+      if (arch) {
+        await client.query(
+          `UPDATE srf_jobs
+           SET status = 'closed',
+               closed_at = now(),
+               updated_at = now(),
+               modified_by = $2
+           WHERE id = $1::uuid
+             AND status = 'sent_to_other_ho'`,
+          [arch.id, actor?.id ?? null],
+        );
+        await appendStatusHistory(
+          client,
+          arch.id,
+          "closed",
+          actor?.id ?? null,
+          `Closed — receiver HO brand credit note on ${job.reference}. Watch retained at brand.`,
+        );
+        await appendActionLog(client, arch.id, {
+          action: "inter_ho_brand_credit_note_closed",
+          description: `Sender HO SRF closed after receiver brand credit note (voucher on ${job.reference}).`,
+          actor: actor ?? undefined,
+          referenceDoc: voucherCode,
+          details: { receiverSrfId: srfId, receiverReference: job.reference },
+        });
+      }
+      await maybeDisableTrackingToken(client, job.phone ?? "");
       await client.query("COMMIT");
-      res.json({ ok: true, voucherCode });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
       res.status(400).json({ error: "Could not approve brand credit note." });
+      return;
     } finally {
       client.release();
     }
+
+    const notify = await notifyCustomerBrandVoucher(req, pool, srfId, {
+      voucherCode,
+      valueInr,
+      validUntil: validUntilDb,
+    });
+    res.json({
+      ok: true,
+      closed: true,
+      voucherCode,
+      valueInr,
+      customerNotified: notify.emailSent || notify.whatsappSent,
+      emailSent: notify.emailSent,
+      emailReason: notify.emailReason ?? null,
+      whatsappSent: notify.whatsappSent,
+      whatsappReason: notify.whatsappReason ?? null,
+    });
   });
 
-  app.post("/api/service/srf-jobs/:srfId/brand/release-credit-return", requireAuth, async (req, res) => {
-    const actor = getUserById((req as Authed).userId);
-    if (!canManageBrandDesk(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can release credit-note return." });
-      return;
-    }
-    const srfId = String(req.params.srfId ?? "").trim();
-    const note = String(req.body?.note ?? "").trim();
-    try {
-      const upd = await pool.query(
-        `UPDATE srf_jobs
-         SET status = 'ready_for_outward',
-             brand_return_received_at = COALESCE(brand_return_received_at, now()),
-             ready_for_outward_at = now(),
-             updated_at = now(),
-             modified_by = $2
-         WHERE id = $1::uuid
-           AND status = 'brand_credit_note_active'
-           AND brand_credit_note_approved_at IS NOT NULL`,
-        [srfId, actor?.id ?? null],
-      );
-      if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "SRF must have accounts-approved credit note before return dispatch." });
-        return;
-      }
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await appendStatusHistory(client, srfId, "ready_for_outward", actor?.id ?? null, note || "Watch released to store after brand credit note.");
-        await appendActionLog(client, srfId, {
-          action: "brand_credit_return_released",
-          description: "Credit-note job moved to outward queue.",
-          actor: actor ?? undefined,
-          details: { note },
-        });
-        await client.query("COMMIT");
-      } catch {
-        await client.query("ROLLBACK").catch(() => {});
-      } finally {
-        client.release();
-      }
-      res.json({ ok: true });
-    } catch (e) {
-      console.error(e);
-      res.status(400).json({ error: "Could not release credit-note return." });
-    }
+  app.post("/api/service/srf-jobs/:srfId/brand/release-credit-return", requireAuth, async (_req, res) => {
+    res.status(400).json({
+      error:
+        "Brand credit note jobs close automatically when accounts approves the voucher. The watch is not returned — no outward dispatch.",
+    });
   });
 
   app.post("/api/service/srf-jobs/:srfId/brand/notify-customer-coupon", requireAuth, async (req, res) => {
@@ -5546,6 +6101,9 @@ export function registerSrfRoutes(
         toRegionId: string;
         toRegionName: string;
         status: string;
+        brandInvoiceRef: string | null;
+        brandInvoiceAmountInr: number | null;
+        brandCouponValueInr: number | null;
         usedSpares: Array<{ name: string; qty: number; unitPriceInr?: number | null }> | null;
       }>(
         `SELECT j.id,
@@ -5561,6 +6119,9 @@ export function registerSrfRoutes(
                 j.transfer_source_region_id AS "toRegionId",
                 sr.name AS "toRegionName",
                 j.status,
+                j.brand_invoice_ref AS "brandInvoiceRef",
+                j.brand_invoice_amount_inr::float8 AS "brandInvoiceAmountInr",
+                j.brand_coupon_value_inr::float8 AS "brandCouponValueInr",
                 j.used_spares AS "usedSpares"
          FROM srf_jobs j
          JOIN regions rr ON rr.id = j.region_id
@@ -5605,6 +6166,31 @@ export function registerSrfRoutes(
             hsn: meta?.hsn ?? null,
           };
         });
+      }
+      const brandAmount = Number(row.brandInvoiceAmountInr ?? 0);
+      if (Number.isFinite(brandAmount) && brandAmount > 0) {
+        usedSpares = [
+          ...usedSpares,
+          {
+            name: row.brandInvoiceRef?.trim()
+              ? `Brand repair (${row.brandInvoiceRef.trim()})`
+              : "Brand repair charges",
+            qty: 1,
+            unitPriceInr: brandAmount,
+          },
+        ];
+      } else {
+        const couponAmount = Number(row.brandCouponValueInr ?? 0);
+        if (Number.isFinite(couponAmount) && couponAmount > 0) {
+          usedSpares = [
+            ...usedSpares,
+            {
+              name: "Brand credit note handling",
+              qty: 1,
+              unitPriceInr: couponAmount,
+            },
+          ];
+        }
       }
       res.json({
         ...row,
@@ -6566,10 +7152,12 @@ export function registerSrfRoutes(
         repair_route: string;
         reestimate_requested_inr: number | null;
         inter_ho_reestimate_phase: string | null;
+        inter_ho_brand_estimate_phase: string | null;
         transfer_source_reference: string | null;
       }>(
         `SELECT id, status, phone, reference, customer_name, region_id, repair_route,
-                reestimate_requested_inr::float8, inter_ho_reestimate_phase, transfer_source_reference
+                reestimate_requested_inr::float8, inter_ho_reestimate_phase, inter_ho_brand_estimate_phase,
+                transfer_source_reference
          FROM srf_jobs
          WHERE id = $1::uuid
          FOR UPDATE`,
@@ -6587,16 +7175,24 @@ export function registerSrfRoutes(
         return;
       }
       const interHoCustomerPending = srf.inter_ho_reestimate_phase === "customer_pending";
-      const brandCustomerPending = srf.status === "brand_estimate_customer_pending";
-      const archRow = interHoCustomerPending ? await findInterHoArchivedSenderRow(client, srfId) : null;
+      const interHoBrandCustomerPending =
+        srf.status === "brand_estimate_customer_pending" && srf.inter_ho_brand_estimate_phase === "customer_pending";
+      const brandCustomerPending =
+        srf.status === "brand_estimate_customer_pending" && !interHoBrandCustomerPending;
+      const archRow =
+        interHoCustomerPending || interHoBrandCustomerPending
+          ? await findInterHoArchivedSenderRow(client, srfId)
+          : null;
       const storeSelfRepair = normalizeSrfRepairRoute(srf.repair_route) === "store_self";
       const statusAfterAccept = brandCustomerPending
         ? "brand_estimate_customer_accepted"
-        : interHoCustomerPending
-          ? "inter_ho_reestimate_customer_accepted"
-          : storeSelfRepair
-            ? "store_self_working"
-            : "assigned";
+        : interHoBrandCustomerPending
+          ? "brand_estimate_customer_accepted"
+          : interHoCustomerPending
+            ? "inter_ho_reestimate_customer_accepted"
+            : storeSelfRepair
+              ? "store_self_working"
+              : "assigned";
       const customerActor = {
         id: null as string | null,
         role: "customer",
@@ -6610,6 +7206,7 @@ export function registerSrfRoutes(
                customer_reestimate_responded_at = now(),
                estimate_total_inr = COALESCE($2::numeric, estimate_total_inr),
                inter_ho_reestimate_phase = $4,
+               inter_ho_brand_estimate_phase = $5,
                updated_at = now()
            WHERE id = $1::uuid`,
           [
@@ -6617,6 +7214,7 @@ export function registerSrfRoutes(
             srf.reestimate_requested_inr,
             statusAfterAccept,
             interHoCustomerPending ? "customer_accepted" : null,
+            interHoBrandCustomerPending ? null : null,
           ],
         );
         if (archRow) {
@@ -6624,11 +7222,12 @@ export function registerSrfRoutes(
             `UPDATE srf_jobs
              SET customer_reestimate_response = 'accepted',
                  customer_reestimate_responded_at = now(),
-                 inter_ho_reestimate_phase = 'customer_accepted',
+                 inter_ho_reestimate_phase = CASE WHEN $3::text IS NOT NULL THEN 'customer_accepted' ELSE inter_ho_reestimate_phase END,
+                 inter_ho_brand_estimate_phase = CASE WHEN $4::boolean THEN 'customer_accepted' ELSE inter_ho_brand_estimate_phase END,
                  reestimate_requested_inr = $2,
                  updated_at = now()
              WHERE id = $1::uuid`,
-            [archRow.id, srf.reestimate_requested_inr],
+            [archRow.id, srf.reestimate_requested_inr, interHoCustomerPending ? "customer_accepted" : null, interHoBrandCustomerPending],
           );
         }
         await appendStatusHistory(
@@ -6637,8 +7236,8 @@ export function registerSrfRoutes(
           statusAfterAccept,
           null,
           note ||
-            (brandCustomerPending
-              ? "Customer accepted brand repair estimate — HO can approve brand repair."
+            (brandCustomerPending || interHoBrandCustomerPending
+              ? "Customer accepted brand repair estimate — repair HO can approve brand repair."
               : interHoCustomerPending
                 ? "Customer accepted re-estimate — awaiting sender HO approval for repair HO."
                 : "Customer accepted re-estimate."),
@@ -6664,19 +7263,26 @@ export function registerSrfRoutes(
                customer_reestimate_response = 'rejected',
                customer_reestimate_responded_at = now(),
                inter_ho_reestimate_phase = $2,
+               inter_ho_brand_estimate_phase = $4,
                updated_at = now()
            WHERE id = $1::uuid`,
-          [srfId, interHoCustomerPending ? "customer_rejected" : null, brandCustomerPending ? "brand_estimate_pending" : "customer_rejected"],
+          [
+            srfId,
+            interHoCustomerPending ? "customer_rejected" : null,
+            interHoBrandCustomerPending ? "brand_estimate_pending" : brandCustomerPending ? "brand_estimate_pending" : "customer_rejected",
+            interHoBrandCustomerPending ? "customer_rejected" : null,
+          ],
         );
         if (archRow) {
           await client.query(
             `UPDATE srf_jobs
              SET customer_reestimate_response = 'rejected',
                  customer_reestimate_responded_at = now(),
-                 inter_ho_reestimate_phase = 'customer_rejected',
+                 inter_ho_reestimate_phase = CASE WHEN $2::text IS NOT NULL THEN 'customer_rejected' ELSE inter_ho_reestimate_phase END,
+                 inter_ho_brand_estimate_phase = CASE WHEN $3::boolean THEN 'customer_rejected' ELSE inter_ho_brand_estimate_phase END,
                  updated_at = now()
              WHERE id = $1::uuid`,
-            [archRow.id],
+            [archRow.id, interHoCustomerPending ? "customer_rejected" : null, interHoBrandCustomerPending],
           );
         }
         await appendStatusHistory(
@@ -6704,7 +7310,29 @@ export function registerSrfRoutes(
         });
       }
       await client.query("COMMIT");
-      if (!accepted && pushInApp && srf.region_id && !interHoCustomerPending) {
+      if (pushInApp && accepted && interHoBrandCustomerPending && srf.region_id) {
+        const amount = Number(srf.reestimate_requested_inr ?? 0);
+        const { rows: notifyRows } = await pool.query<{ id: string }>(
+          `SELECT id FROM app_users
+           WHERE region_id = $1::text
+             AND role IN (
+               'service_centre_supervisor',
+               'ho_manager',
+               'admin',
+               'super_admin'
+             )`,
+          [srf.region_id],
+        );
+        await pushInApp(
+          notifyRows.map((r) => r.id),
+          {
+            title: "Customer accepted brand estimate",
+            message: `SRF ${srf.reference}: customer accepted the brand repair estimate${amount > 0 ? ` (INR ${amount.toLocaleString("en-IN")})` : ""}. Approve and send to brand.`,
+            category: "service_srf",
+          },
+        );
+      }
+      if (!accepted && pushInApp && srf.region_id && !interHoCustomerPending && !interHoBrandCustomerPending) {
         const { rows: notifyRows } = await pool.query<{ id: string }>(
           `SELECT id FROM app_users
            WHERE region_id = $1::text

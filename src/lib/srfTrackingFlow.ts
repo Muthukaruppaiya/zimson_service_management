@@ -52,6 +52,8 @@ export function trackingFlowIndexHo(status: string): number {
     status === "received_from_brand" ||
     status === "brand_credit_note_pending" ||
     status === "brand_credit_note_active" ||
+    status === "inter_ho_brand_estimate_pending_sender" ||
+    status === "inter_ho_brand_estimate_customer_accepted" ||
     status === "store_self_pending" ||
     status === "store_self_assigned" ||
     status === "store_self_working" ||
@@ -89,6 +91,7 @@ export function customerTrackingStatusLabel(
   status: string,
   hasPendingReestimate: boolean,
   repairRoute?: string | null,
+  brandCreditNoteApprovedAt?: string | null,
 ): string {
   if (hasPendingReestimate) return "Approval required";
 
@@ -115,14 +118,24 @@ export function customerTrackingStatusLabel(
   ) {
     return "With brand service";
   }
-  if (status === "brand_estimate_customer_pending") return "Brand repair estimate — your approval needed";
-  if (status === "brand_estimate_customer_accepted") return "Estimate accepted — brand repair starting";
-  if (status === "brand_credit_note_pending" || status === "brand_credit_note_active") return "Brand credit issued";
+  if (status === "brand_estimate_customer_pending") {
+    return "Brand repair estimate — your approval needed";
+  }
+  if (status === "brand_estimate_customer_accepted") {
+    return "Brand estimate approved — service centre proceeding";
+  }
+  if (status === "inter_ho_brand_estimate_pending_sender") return "Brand estimate with sender service centre";
+  if (status === "inter_ho_brand_estimate_customer_accepted") return "Brand estimate approved — service centre proceeding";
+  if (status === "brand_credit_note_pending") return "Brand credit processing";
+  if (status === "brand_credit_note_active") return "Brand credit issued";
   if (status === "customer_rejected") return "Awaiting confirmation";
   if (status === "inter_ho_reestimate_pending_sender") return "Re-estimate under review";
   if (status === "inter_ho_reestimate_customer_accepted") return "Estimate accepted — confirming with service centre";
   if (status === "ready_for_outward" || status === "dispatched_to_store") return "Ready for return";
   if (status === "received_at_store") return "Ready for pickup";
-  if (status === "closed") return "Delivered";
+  if (status === "closed") {
+    if (brandCreditNoteApprovedAt) return "Completed — brand voucher issued";
+    return "Delivered";
+  }
   return "In progress";
 }
