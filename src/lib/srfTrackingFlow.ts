@@ -43,6 +43,8 @@ export function trackingFlowIndexHo(status: string): number {
     status === "estimate_ok" ||
     status === "reestimate_required" ||
     status === "customer_rejected" ||
+    status === "brand_outward_pending" ||
+    status === "brand_dispatch_pending" ||
     status === "sent_to_brand" ||
     status === "brand_estimate_pending" ||
     status === "brand_estimate_customer_pending" ||
@@ -109,6 +111,8 @@ export function customerTrackingStatusLabel(
   if (status === "sent_to_other_ho") return "Sent for specialist repair";
   if (status === "assigned" || status === "estimate_ok" || status === "reestimate_required") return "Under repair";
   if (
+    status === "brand_outward_pending" ||
+    status === "brand_dispatch_pending" ||
     status === "sent_to_brand" ||
     status === "brand_estimate_pending" ||
     status === "brand_estimate_customer_pending" ||
@@ -118,6 +122,8 @@ export function customerTrackingStatusLabel(
   ) {
     return "With brand service";
   }
+  if (status === "brand_outward_pending") return "Preparing brand dispatch";
+  if (status === "brand_dispatch_pending") return "Brand dispatch being confirmed";
   if (status === "brand_estimate_customer_pending") {
     return "Brand repair estimate — your approval needed";
   }

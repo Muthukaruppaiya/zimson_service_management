@@ -163,6 +163,7 @@ type SrfJobsContextValue = {
     payload: { markupInr: number; note: string },
   ) => Promise<SrfReestimateNotifyResult>;
   interHoApproveBrandEstimateForReceiver: (jobId: string, note?: string) => Promise<void>;
+  interHoReturnWithoutRepair: (jobId: string, note?: string) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
@@ -170,7 +171,12 @@ type SrfJobsContextValue = {
   technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
   technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<SrfReestimateNotifyResult>;
   technicianRecommendBrand: (jobId: string, note?: string) => Promise<void>;
-  technicianSendToBrand: (jobId: string, payload: { dispatchRef?: string; note?: string; dispatchDocPath?: string }) => Promise<void>;
+  technicianSendToBrand: (jobId: string, payload: { note?: string }) => Promise<void>;
+  clerkLogBrandDispatch: (jobId: string, payload: { dispatchRef: string; note: string }) => Promise<void>;
+  supervisorConfirmBrandDispatch: (
+    jobId: string,
+    payload?: { note?: string; dispatchDocPath?: string },
+  ) => Promise<{ brandOdcNumber?: string }>;
   submitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
   technicianMarkRepairComplete: (jobId: string, technicianProfileId: string) => Promise<void>;
   supervisorLogBrandEstimate: (
@@ -501,6 +507,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const interHoReturnWithoutRepair = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/return-without-repair`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
   const supervisorApproveReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate-approve`, {
       method: "POST",
@@ -564,16 +578,36 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
-  const technicianSendToBrand = useCallback(async (
-    jobId: string,
-    payload: { dispatchRef?: string; note?: string; dispatchDocPath?: string },
-  ) => {
-    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/send`, {
+  const technicianSendToBrand = useCallback(async (jobId: string, payload: { note?: string }) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/queue-outward`, {
       method: "POST",
       json: payload,
     });
     await refreshJobs();
   }, [refreshJobs]);
+
+  const clerkLogBrandDispatch = useCallback(async (jobId: string, payload: { dispatchRef: string; note: string }) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/clerk-log-dispatch`, {
+      method: "POST",
+      json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorConfirmBrandDispatch = useCallback(
+    async (jobId: string, payload?: { note?: string; dispatchDocPath?: string }) => {
+      const out = await apiJson<{ brandOdcNumber?: string }>(
+        `/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/confirm-dispatch`,
+        {
+          method: "POST",
+          json: payload ?? {},
+        },
+      );
+      await refreshJobs();
+      return out;
+    },
+    [refreshJobs],
+  );
 
   const submitSparesSlip = useCallback(async (jobId: string, lines: UsedSpareLine[]) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/spares-slip`, {
@@ -829,6 +863,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       interHoForwardBrandEstimateToSender,
       interHoForwardBrandEstimateToCustomer,
       interHoApproveBrandEstimateForReceiver,
+      interHoReturnWithoutRepair,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
@@ -837,6 +872,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       technicianRequestReestimate,
       technicianRecommendBrand,
       technicianSendToBrand,
+      clerkLogBrandDispatch,
+      supervisorConfirmBrandDispatch,
       submitSparesSlip,
       technicianMarkRepairComplete,
       supervisorLogBrandEstimate,
@@ -885,6 +922,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       interHoForwardBrandEstimateToSender,
       interHoForwardBrandEstimateToCustomer,
       interHoApproveBrandEstimateForReceiver,
+      interHoReturnWithoutRepair,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
@@ -893,6 +931,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       technicianRequestReestimate,
       technicianRecommendBrand,
       technicianSendToBrand,
+      clerkLogBrandDispatch,
+      supervisorConfirmBrandDispatch,
       submitSparesSlip,
       technicianMarkRepairComplete,
       supervisorLogBrandEstimate,

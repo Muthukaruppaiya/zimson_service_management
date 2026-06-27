@@ -84,8 +84,9 @@ function sparesAmountInr(job: { usedSpares?: Array<{ qty: number; unitPriceInr?:
 }
 
 function needsInterHoSenderInvoice(
-  job: Pick<SrfJob, "transferSourceRegionId" | "requiresLocalConversion" | "hoSparesBillRef">,
+  job: Pick<SrfJob, "transferSourceRegionId" | "requiresLocalConversion" | "hoSparesBillRef" | "interHoReturnWithoutRepair">,
 ): boolean {
+  if (job.interHoReturnWithoutRepair) return false;
   return (
     !!(job.transferSourceRegionId ?? "").trim() &&
     !job.requiresLocalConversion &&
@@ -148,7 +149,9 @@ export function ScSupervisorPage() {
     interHoForwardBrandEstimateToSender,
     interHoForwardBrandEstimateToCustomer,
     interHoApproveBrandEstimateForReceiver,
+    interHoReturnWithoutRepair,
     technicianSendToBrand,
+    supervisorConfirmBrandDispatch,
     supervisorTransferToOtherHo,
     submitSparesSlip,
     supervisorMarkRepairComplete,
@@ -206,6 +209,7 @@ export function ScSupervisorPage() {
     sourceReference: string;
   } | null>(null);
   const [moveToOdcPopupJobId, setMoveToOdcPopupJobId] = useState<string | null>(null);
+  const [moveToOdcInterHo, setMoveToOdcInterHo] = useState(false);
   const [moveToOdcNote, setMoveToOdcNote] = useState("");
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
   const [spareOrderRows, setSpareOrderRows] = useState<InterHoSpareOrder[]>([]);
@@ -299,6 +303,8 @@ export function ScSupervisorPage() {
     return jobs.filter(
       (j) =>
         (j.status === "sent_to_brand" ||
+          j.status === "brand_outward_pending" ||
+          j.status === "brand_dispatch_pending" ||
           j.status === "brand_estimate_pending" ||
           j.status === "brand_estimate_customer_pending" ||
           j.status === "brand_estimate_customer_accepted" ||
@@ -764,29 +770,41 @@ export function ScSupervisorPage() {
   }
 
   function openMoveToOdcPopup(jobId: string) {
+    const job = jobs.find((j) => j.id === jobId);
+    setMoveToOdcInterHo(job ? isInterHoReceiverLocal(job) : false);
     setMoveToOdcPopupJobId(jobId);
     setMoveToOdcNote("");
   }
 
   function closeMoveToOdcPopup() {
     setMoveToOdcPopupJobId(null);
+    setMoveToOdcInterHo(false);
     setMoveToOdcNote("");
   }
 
   async function confirmMoveToOdc() {
     if (!moveToOdcPopupJobId) return;
     try {
-      await supervisorMoveRejectedToOdc(moveToOdcPopupJobId, moveToOdcNote.trim());
-      setFeedback((f) => ({
-        ...f,
-        [moveToOdcPopupJobId]:
-          "Moved to internal outward queue. Logistics can now create internal outward transfer and return watch without billing.",
-      }));
+      if (moveToOdcInterHo) {
+        await interHoReturnWithoutRepair(moveToOdcPopupJobId, moveToOdcNote.trim());
+        setFeedback((f) => ({
+          ...f,
+          [moveToOdcPopupJobId]:
+            "Queued return to sender HO without repair. Logistics: create return DC to sender HO. Sender HO will inward and dispatch to store for customer handover (no billing).",
+        }));
+      } else {
+        await supervisorMoveRejectedToOdc(moveToOdcPopupJobId, moveToOdcNote.trim());
+        setFeedback((f) => ({
+          ...f,
+          [moveToOdcPopupJobId]:
+            "Moved to internal outward queue. Logistics can now create internal outward transfer and return watch without billing.",
+        }));
+      }
       closeMoveToOdcPopup();
     } catch (e) {
       setFeedback((f) => ({
         ...f,
-        [moveToOdcPopupJobId]: e instanceof Error ? e.message : "Could not move to internal outward queue.",
+        [moveToOdcPopupJobId]: e instanceof Error ? e.message : "Could not move to outward queue.",
       }));
     }
   }
@@ -807,27 +825,48 @@ export function ScSupervisorPage() {
     if (!sendBrandPopupJobId) return;
     const jobId = sendBrandPopupJobId;
     const note = sendBrandReason.trim();
-    const dispatchRef = sendBrandDispatchRef.trim();
     if (!note) {
       setFeedback((f) => ({ ...f, [jobId]: "Reason is required to send to brand." }));
       return;
     }
     try {
-      const row = jobs.find((x) => x.id === jobId);
-      if (row) printBrandDispatchDocument(row, { dispatchRef, note });
-      await technicianSendToBrand(jobId, { dispatchRef, note });
+      await technicianSendToBrand(jobId, { note });
       closeSendToBrandPopup();
-      setEwayBrandJobId(jobId);
       setBrandSuccessAck({
-        title: "Sent to brand",
-        description: row?.reference ?? jobId,
-        reference: row?.reference ?? jobId,
-        detail: needsInterHoSenderInvoice(row ?? { transferSourceRegionId: null, requiresLocalConversion: false, hoSparesBillRef: null })
-          ? "Watch dispatched to brand. After brand return, create invoice to sender HO before return dispatch."
-          : "ODC generated and dispatch document opened for print. Track brand mail for estimate or credit note.",
+        title: "Queued for brand dispatch",
+        description: jobs.find((x) => x.id === jobId)?.reference ?? jobId,
+        reference: jobs.find((x) => x.id === jobId)?.reference ?? jobId,
+        detail:
+          "Front desk will enter courier / AWB details in Service Centre Logistics. You acknowledge and confirm dispatch on the brand desk after entry.",
       });
     } catch (e) {
-      setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not send to brand." }));
+      setFeedback((f) => ({
+        ...f,
+        [jobId]: e instanceof Error ? e.message : "Could not queue brand dispatch.",
+      }));
+    }
+  }
+
+  async function confirmBrandDispatchFromDesk(job: SrfJob) {
+    const note = (job.brandDispatchNote ?? "").trim();
+    try {
+      const out = await supervisorConfirmBrandDispatch(job.id, { note: note || undefined });
+      printBrandDispatchDocument(job, {
+        dispatchRef: job.brandDispatchRef ?? undefined,
+        note: note || job.brandDispatchClerkNote || undefined,
+      });
+      setEwayBrandJobId(job.id);
+      setBrandSuccessAck({
+        title: "Sent to brand",
+        description: job.reference,
+        reference: job.reference,
+        detail: `ODC ${out.brandOdcNumber ?? "generated"}. Dispatch document opened for print. Track brand mail for estimate or credit note.`,
+      });
+    } catch (e) {
+      setFeedback((f) => ({
+        ...f,
+        [job.id]: e instanceof Error ? e.message : "Could not confirm brand dispatch.",
+      }));
     }
   }
 
@@ -1914,6 +1953,30 @@ export function ScSupervisorPage() {
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
+                  {j.status === "brand_outward_pending" ? (
+                    <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      Waiting for front desk to log brand dispatch (courier / AWB) in Service Centre Logistics.
+                      {j.brandDispatchNote ? ` Supervisor note: ${j.brandDispatchNote}` : ""}
+                    </p>
+                  ) : null}
+                  {j.status === "brand_dispatch_pending" ? (
+                    <>
+                      <p className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                        Front desk logged dispatch ref <span className="font-mono font-semibold">{j.brandDispatchRef}</span>
+                        {j.brandDispatchClerkNote ? ` — ${j.brandDispatchClerkNote}` : ""}
+                        {j.brandDispatchClerkAt
+                          ? ` (${new Date(j.brandDispatchClerkAt).toLocaleString()})`
+                          : ""}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void confirmBrandDispatchFromDesk(j)}
+                        className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800"
+                      >
+                        Acknowledge &amp; confirm send to brand
+                      </button>
+                    </>
+                  ) : null}
                   {j.status === "sent_to_brand" ? (
                     <>
                       <button
@@ -2395,7 +2458,9 @@ export function ScSupervisorPage() {
                       onClick={() => openMoveToOdcPopup(j.id)}
                       className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
                     >
-                      Move to internal outward (no repair)
+                      {interHoReceiverLocal
+                        ? "Return to sender HO (no repair)"
+                        : "Move to internal outward (no repair)"}
                     </button>
                   ) : null}
                   {(j.status === "assigned" || j.status === "estimate_ok") && !lockTransferBrandSpares && !interHoReceiverLocal && !reestimateJourneyActive ? (
@@ -2652,20 +2717,12 @@ export function ScSupervisorPage() {
       {sendBrandPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Send SRF to brand</h3>
+            <h3 className="text-lg font-semibold text-zimson-900">Queue send to brand</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Enter technician paper-note summary. System will generate an ODC number for brand dispatch.
+              Supervisor approves sending the watch to brand. Front desk enters courier / AWB in Logistics; you
+              acknowledge and confirm on the brand desk after their entry.
             </p>
             <div className="mt-4 grid gap-3">
-              <label className="text-sm">
-                Brand dispatch reference / AWB (optional)
-                <input
-                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                  value={sendBrandDispatchRef}
-                  onChange={(e) => setSendBrandDispatchRef(e.target.value)}
-                  placeholder="Optional courier / handover ref"
-                />
-              </label>
               <label className="text-sm">
                 Technician note / reason *
                 <textarea
@@ -2686,7 +2743,7 @@ export function ScSupervisorPage() {
                 onClick={() => void sendToBrandBySupervisor()}
                 className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white"
               >
-                Send to brand
+                Queue for front desk
               </button>
             </div>
           </div>
@@ -3196,10 +3253,13 @@ export function ScSupervisorPage() {
       {moveToOdcPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-rose-900">Move SRF to outward queue</h3>
+            <h3 className="text-lg font-semibold text-rose-900">
+              {moveToOdcInterHo ? "Return watch to sender HO (no repair)" : "Move SRF to outward queue"}
+            </h3>
             <p className="mt-1 text-sm text-stone-600">
-              Use this only after speaking with the customer and confirming they do not want the repair. The
-              watch will be returned to store via internal outward transfer and handed over without billing.
+              {moveToOdcInterHo
+                ? "Use this after the customer declined the re-estimate and will not proceed. Repair HO returns the watch un-repaired to sender HO. Sender HO will inward, dispatch to store, and the store hands over to the customer without billing."
+                : "Use this only after speaking with the customer and confirming they do not want the repair. The watch will be returned to store via internal outward transfer and handed over without billing."}
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
@@ -3222,7 +3282,7 @@ export function ScSupervisorPage() {
                 onClick={() => void confirmMoveToOdc()}
                 className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white"
               >
-                Confirm — move to internal outward
+                {moveToOdcInterHo ? "Confirm — return to sender HO" : "Confirm — move to internal outward"}
               </button>
             </div>
           </div>

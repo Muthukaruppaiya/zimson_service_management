@@ -994,6 +994,10 @@ export function registerSrfRoutes(
                 j.brand_dispatch_ref AS "brandDispatchRef",
                 j.brand_dispatch_note AS "brandDispatchNote",
                 j.brand_dispatch_doc_path AS "brandDispatchDocPath",
+                j.brand_dispatch_queued_at AS "brandDispatchQueuedAt",
+                j.brand_dispatch_clerk_note AS "brandDispatchClerkNote",
+                j.brand_dispatch_clerk_at AS "brandDispatchClerkAt",
+                j.inter_ho_return_without_repair AS "interHoReturnWithoutRepair",
                 j.brand_odc_number AS "brandOdcNumber",
                 j.brand_inward_ref AS "brandInwardRef",
                 j.brand_estimate_inr::float8 AS "brandEstimateInr",
@@ -1193,6 +1197,11 @@ export function registerSrfRoutes(
                 j.brand_sent_at AS "brandSentAt",
                 j.brand_dispatch_ref AS "brandDispatchRef",
                 j.brand_dispatch_note AS "brandDispatchNote",
+                j.brand_dispatch_doc_path AS "brandDispatchDocPath",
+                j.brand_dispatch_queued_at AS "brandDispatchQueuedAt",
+                j.brand_dispatch_clerk_note AS "brandDispatchClerkNote",
+                j.brand_dispatch_clerk_at AS "brandDispatchClerkAt",
+                j.inter_ho_return_without_repair AS "interHoReturnWithoutRepair",
                 j.brand_odc_number AS "brandOdcNumber",
                 j.brand_inward_ref AS "brandInwardRef",
                 j.technician_brand_recommended_at AS "technicianBrandRecommendedAt",
@@ -4697,6 +4706,127 @@ export function registerSrfRoutes(
     }
   });
 
+  app.post("/api/service/srf-jobs/:srfId/inter-ho/return-without-repair", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can return watch to sender HO without repair." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const recvRes = await client.query<{
+        status: string;
+        reference: string;
+        region_id: string;
+        transfer_source_region_id: string | null;
+        transfer_source_reference: string | null;
+        requires_local_conversion: boolean;
+      }>(
+        `SELECT status, reference, region_id, transfer_source_region_id, transfer_source_reference, requires_local_conversion
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const recv = recvRes.rows[0];
+      if (!recv || !isInterHoReceiverLocalRow(recv)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Return without repair is only for inter-HO receiver HO SRFs." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== recv.region_id) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only the repair HO can return the watch to sender HO." });
+        return;
+      }
+      if (recv.status !== "customer_rejected") {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "Only customer-rejected SRFs can be returned to sender HO without repair.",
+        });
+        return;
+      }
+      const arch = await findInterHoArchivedSenderRow(client, srfId);
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'ready_for_outward',
+             inter_ho_return_without_repair = true,
+             inter_ho_reestimate_phase = NULL,
+             inter_ho_brand_estimate_phase = NULL,
+             completed_at_sc = COALESCE(completed_at_sc, now()),
+             ready_for_outward_at = now(),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid`,
+        [srfId, actor.id],
+      );
+      if (arch) {
+        await client.query(
+          `UPDATE srf_jobs
+           SET inter_ho_reestimate_phase = NULL,
+               inter_ho_brand_estimate_phase = NULL,
+               updated_at = now(),
+               modified_by = $2
+           WHERE id = $1::uuid`,
+          [arch.id, actor.id],
+        );
+      }
+      await appendStatusHistory(
+        client,
+        srfId,
+        "ready_for_outward",
+        actor.id,
+        note ||
+          "Customer declined re-estimate — repair HO returning watch un-repaired to sender HO (no billing).",
+      );
+      await recordSupervisorFollowup(client, srfId, {
+        followup: "move_to_odc",
+        note,
+        actor,
+      });
+      await appendActionLog(client, srfId, {
+        action: "inter_ho_return_without_repair",
+        description:
+          note ||
+          "Repair HO queued return to sender HO without repair after customer declined re-estimate.",
+        actor,
+        details: { senderArchivedSrfId: arch?.id ?? null, reason: note },
+      });
+      await client.query("COMMIT");
+      const senderRegionId = (recv.transfer_source_region_id ?? "").trim();
+      if (pushInApp && senderRegionId) {
+        const { rows: notifyRows } = await pool.query<{ id: string }>(
+          `SELECT id FROM app_users
+           WHERE region_id = $1::text
+             AND role IN (
+               'service_centre_supervisor',
+               'service_centre_clerk',
+               'ho_manager',
+               'admin',
+               'super_admin'
+             )`,
+          [senderRegionId],
+        );
+        await pushInApp(
+          notifyRows.map((r) => r.id),
+          {
+            title: "Inter-HO return without repair",
+            message: `SRF ${recv.reference}: repair HO is returning the watch un-repaired after customer declined the re-estimate. Inward when the return DC arrives, then dispatch to store for customer handover.`,
+            category: "service_srf",
+          },
+        );
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not queue return to sender HO." });
+    } finally {
+      client.release();
+    }
+  });
+
   app.post("/api/service/srf-jobs/:srfId/supervisor/transfer-other-ho", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
@@ -5336,21 +5466,23 @@ export function registerSrfRoutes(
     }
   });
 
-  app.post("/api/service/srf-jobs/:srfId/brand/send", requireAuth, async (req, res) => {
+  app.post("/api/service/srf-jobs/:srfId/brand/queue-outward", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canManageBrandDesk(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can send to brand." });
+      res.status(403).json({ error: "Only supervisor/admin can queue brand dispatch." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
-    const dispatchRef = String(req.body?.dispatchRef ?? "").trim() || null;
     const note = String(req.body?.note ?? "").trim();
-    const docPath = String(req.body?.dispatchDocPath ?? "").trim() || null;
+    if (!note) {
+      res.status(400).json({ error: "Reason / technician note is required." });
+      return;
+    }
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const row = await client.query<{ status: string; assigned_technician_id: string | null; region_id: string }>(
-        `SELECT status, assigned_technician_id, region_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+      const row = await client.query<{ status: string; region_id: string }>(
+        `SELECT status, region_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
       const srf = row.rows[0];
@@ -5359,45 +5491,284 @@ export function registerSrfRoutes(
         res.status(404).json({ error: "SRF not found." });
         return;
       }
-      if (!["assigned", "estimate_ok", "reestimate_required"].includes(srf.status)) {
+      if (!["assigned", "estimate_ok", "reestimate_required", "customer_rejected"].includes(srf.status)) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "SRF must be assigned/estimate_ok/reestimate_required to send to brand." });
+        res.status(400).json({
+          error: "SRF must be assigned/estimate_ok/reestimate_required/customer_rejected to queue brand dispatch.",
+        });
         return;
       }
-      const brandOdcNumber = await nextDocNumber(client, "ODC", "", scopeCode(srf.region_id, "BRD"));
       await client.query(
         `UPDATE srf_jobs
-         SET status = 'sent_to_brand',
-             brand_sent_at = now(),
-             brand_dispatch_ref = $2,
-             brand_dispatch_note = $3,
-             brand_dispatch_doc_path = $4,
-             brand_odc_number = $5,
+         SET status = 'brand_outward_pending',
+             brand_dispatch_note = $2,
+             brand_dispatch_queued_at = now(),
+             brand_dispatch_ref = NULL,
+             brand_dispatch_clerk_note = NULL,
+             brand_dispatch_clerk_at = NULL,
+             brand_dispatch_clerk_by = NULL,
              updated_at = now(),
-             modified_by = $6
+             modified_by = $3
          WHERE id = $1::uuid`,
-        [srfId, dispatchRef, note || null, docPath, brandOdcNumber, actor.id],
+        [srfId, note, actor!.id],
       );
       await appendStatusHistory(
         client,
         srfId,
-        "sent_to_brand",
-        actor.id,
-        note || `Sent to brand for external repair via ODC ${brandOdcNumber}.`,
+        "brand_outward_pending",
+        actor!.id,
+        `Queued for front desk brand dispatch: ${note}`,
       );
       await appendActionLog(client, srfId, {
-        action: "brand_send",
-        description: "Watch sent to brand for external repair.",
+        action: "brand_queue_outward",
+        description: "Supervisor queued watch for front desk brand dispatch.",
+        actor: actor!,
+        details: { note },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not queue brand dispatch." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/clerk-log-dispatch", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !SC_ODC_OUTWARD_ROLES.has(actor.role)) {
+      res.status(403).json({ error: "Only front desk / logistics roles can log brand dispatch details." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const dispatchRef = String(req.body?.dispatchRef ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    if (!dispatchRef) {
+      res.status(400).json({ error: "Courier / AWB / handover reference is required." });
+      return;
+    }
+    if (!note) {
+      res.status(400).json({ error: "Dispatch remark is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const row = await client.query<{ status: string; region_id: string }>(
+        `SELECT status, region_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const srf = row.rows[0];
+      if (!srf) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== srf.region_id) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Brand dispatch can only be logged for your service centre." });
+        return;
+      }
+      if (srf.status !== "brand_outward_pending") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "SRF must be queued for brand dispatch (brand_outward_pending)." });
+        return;
+      }
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_dispatch_pending',
+             brand_dispatch_ref = $2,
+             brand_dispatch_clerk_note = $3,
+             brand_dispatch_clerk_at = now(),
+             brand_dispatch_clerk_by = $4::uuid,
+             updated_at = now(),
+             modified_by = $4
+         WHERE id = $1::uuid`,
+        [srfId, dispatchRef, note, actor.id],
+      );
+      await appendStatusHistory(
+        client,
+        srfId,
+        "brand_dispatch_pending",
+        actor.id,
+        `Front desk logged brand dispatch ${dispatchRef}: ${note}`,
+      );
+      await appendActionLog(client, srfId, {
+        action: "brand_clerk_log_dispatch",
+        description: `Front desk logged brand dispatch ref ${dispatchRef}.`,
         actor,
+        details: { dispatchRef, note },
+      });
+      await client.query("COMMIT");
+      if (pushInApp && srf.region_id) {
+        const { rows: notifyRows } = await pool.query<{ id: string }>(
+          `SELECT id FROM app_users
+           WHERE region_id = $1::text
+             AND role IN ('service_centre_supervisor', 'ho_manager', 'admin', 'super_admin')`,
+          [srf.region_id],
+        );
+        await pushInApp(
+          notifyRows.map((r) => r.id),
+          {
+            title: "Brand dispatch ready for acknowledgement",
+            message: `Front desk logged brand dispatch (${dispatchRef}). Supervisor to acknowledge and confirm send to brand.`,
+            category: "service_srf",
+          },
+        );
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not log brand dispatch." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/confirm-dispatch", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can confirm brand dispatch." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const docPath = String(req.body?.dispatchDocPath ?? "").trim() || null;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const row = await client.query<{
+        status: string;
+        region_id: string;
+        brand_dispatch_ref: string | null;
+        brand_dispatch_note: string | null;
+        brand_dispatch_clerk_note: string | null;
+      }>(
+        `SELECT status, region_id, brand_dispatch_ref, brand_dispatch_note, brand_dispatch_clerk_note
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const srf = row.rows[0];
+      if (!srf) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (srf.status !== "brand_dispatch_pending") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "SRF must have front desk dispatch logged (brand_dispatch_pending)." });
+        return;
+      }
+      const dispatchRef = (srf.brand_dispatch_ref ?? "").trim();
+      if (!dispatchRef) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Front desk dispatch reference is missing." });
+        return;
+      }
+      const brandOdcNumber = await nextDocNumber(client, "ODC", "", scopeCode(srf.region_id, "BRD"));
+      const confirmNote =
+        note ||
+        `Supervisor confirmed brand dispatch. Front desk: ${dispatchRef}${srf.brand_dispatch_clerk_note ? ` — ${srf.brand_dispatch_clerk_note}` : ""}`;
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'sent_to_brand',
+             brand_sent_at = now(),
+             brand_dispatch_doc_path = $2,
+             brand_odc_number = $3,
+             updated_at = now(),
+             modified_by = $4
+         WHERE id = $1::uuid`,
+        [srfId, docPath, brandOdcNumber, actor!.id],
+      );
+      await appendStatusHistory(client, srfId, "sent_to_brand", actor!.id, confirmNote);
+      await appendActionLog(client, srfId, {
+        action: "brand_confirm_dispatch",
+        description: "Supervisor acknowledged front desk entry and confirmed send to brand.",
+        actor: actor!,
         referenceDoc: brandOdcNumber,
-        details: { dispatchRef, dispatchDocPath: docPath, brandOdcNumber, note },
+        details: {
+          dispatchRef,
+          supervisorNote: note,
+          clerkNote: srf.brand_dispatch_clerk_note,
+          brandOdcNumber,
+          dispatchDocPath: docPath,
+        },
       });
       await client.query("COMMIT");
       res.json({ ok: true, brandOdcNumber });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not mark SRF as sent to brand." });
+      res.status(400).json({ error: "Could not confirm brand dispatch." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/send", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can queue brand dispatch." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    if (!note) {
+      res.status(400).json({ error: "Reason / technician note is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const row = await client.query<{ status: string }>(
+        `SELECT status FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const srf = row.rows[0];
+      if (!srf) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (!["assigned", "estimate_ok", "reestimate_required", "customer_rejected"].includes(srf.status)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "SRF must be assigned/estimate_ok/reestimate_required/customer_rejected to queue brand dispatch.",
+        });
+        return;
+      }
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_outward_pending',
+             brand_dispatch_note = $2,
+             brand_dispatch_queued_at = now(),
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid`,
+        [srfId, note, actor!.id],
+      );
+      await appendStatusHistory(
+        client,
+        srfId,
+        "brand_outward_pending",
+        actor!.id,
+        `Queued for front desk brand dispatch: ${note}`,
+      );
+      await appendActionLog(client, srfId, {
+        action: "brand_queue_outward",
+        description: "Supervisor queued watch for front desk brand dispatch.",
+        actor: actor!,
+        details: { note },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not queue brand dispatch." });
     } finally {
       client.release();
     }
@@ -6348,10 +6719,12 @@ export function registerSrfRoutes(
         transfer_source_region_id: string | null;
         transfer_source_store_id: string | null;
         transfer_source_reference: string | null;
+        inter_ho_return_without_repair: boolean;
       }>(
         `SELECT id, status, region_id, store_id, ho_spares_bill_ref, destination_store_id, requires_local_conversion,
                 transfer_target_region_id, transfer_target_store_id,
-                transfer_source_region_id, transfer_source_store_id, transfer_source_reference
+                transfer_source_region_id, transfer_source_store_id, transfer_source_reference,
+                inter_ho_return_without_repair
          FROM srf_jobs
          WHERE id = ANY($1::uuid[])`,
         [items.map((x: { srfId: string }) => x.srfId)],
@@ -6375,7 +6748,13 @@ export function registerSrfRoutes(
       }
       const firstTransfer = transferCandidates[0] ?? null;
       const isReturnToSenderBatch = !!firstTransfer && !firstTransfer.requires_local_conversion;
-      if (isReturnToSenderBatch && !hoInvoiceRef && transferCandidates.some((r) => !(r.ho_spares_bill_ref ?? "").trim())) {
+      if (
+        isReturnToSenderBatch &&
+        !hoInvoiceRef &&
+        transferCandidates.some(
+          (r) => !(r.ho_spares_bill_ref ?? "").trim() && !r.inter_ho_return_without_repair,
+        )
+      ) {
         await client.query("ROLLBACK");
         res.status(400).json({ error: "Create repair HO invoice first (or provide invoice ref) before return-to-sender dispatch." });
         return;

@@ -94,7 +94,8 @@ export function ensureApplicationPdfBlob(blob: Blob): Blob {
 }
 
 export function triggerBlobDownload(blob: Blob, filename: string): void {
-  const name = filename.trim().toLowerCase().endsWith(".pdf") ? filename.trim() : `${filename.trim()}.pdf`;
+  const trimmed = filename.trim();
+  const name = /\.\w{2,5}$/i.test(trimmed) ? trimmed : `${trimmed}.pdf`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

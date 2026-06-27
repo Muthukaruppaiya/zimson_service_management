@@ -99,7 +99,7 @@ type OnlineSpareOrderRow = {
 export function ScLogisticsPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
-  const { jobs, confirmInwardByDc, createOutwardBatch } = useSrfJobs();
+  const { jobs, confirmInwardByDc, createOutwardBatch, clerkLogBrandDispatch } = useSrfJobs();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get("tab") === "outward" ? "outward" : "inward";
 
@@ -195,6 +195,10 @@ export function ScLogisticsPage() {
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
+  const [brandDispatchPopupJobId, setBrandDispatchPopupJobId] = useState<string | null>(null);
+  const [brandDispatchRefInput, setBrandDispatchRefInput] = useState("");
+  const [brandDispatchNoteInput, setBrandDispatchNoteInput] = useState("");
+  const [brandDispatchSaving, setBrandDispatchSaving] = useState(false);
   const [outwardMsg, setOutwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [outwardQuery, setOutwardQuery] = useState(
     searchParams.get("tab") === "outward" ? searchParams.get("q") ?? "" : "",
@@ -292,6 +296,13 @@ export function ScLogisticsPage() {
     setInwardAccepted({});
     setInwardSaving(false);
   }
+
+  const brandOutwardQueue = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter(
+      (j) => j.status === "brand_outward_pending" && jobVisibleToServiceCentre(j, user),
+    );
+  }, [jobs, user]);
 
   const readyOutward = useMemo(() => {
     if (!user) return [];
@@ -449,9 +460,15 @@ export function ScLogisticsPage() {
       return { jobId, destinationStoreId: dest };
     });
     const selectedRows = jobs.filter((j) => ids.includes(j.id));
-    const hasReturnToSender = selectedRows.some((j) => !!j.transferTargetRegionId && !j.requiresLocalConversion);
+    const hasReturnToSender = selectedRows.some(
+      (j) => !j.requiresLocalConversion && !!j.transferSourceRegionId,
+    );
     const missingRepairInvoiceRefs = selectedRows.filter(
-      (j) => !!j.transferTargetRegionId && !j.requiresLocalConversion && !(j.hoSparesBillRef ?? "").trim(),
+      (j) =>
+        !j.requiresLocalConversion &&
+        !!j.transferSourceRegionId &&
+        !j.interHoReturnWithoutRepair &&
+        !(j.hoSparesBillRef ?? "").trim(),
     );
     if (hasReturnToSender && missingRepairInvoiceRefs.length > 0) {
       const refs = missingRepairInvoiceRefs.map((j) => j.reference).join(", ");
@@ -892,6 +909,53 @@ export function ScLogisticsPage() {
               </div>
             )}
           </Card>
+          <Card
+            title={`Send to brand (front desk) · ${brandOutwardQueue.length}`}
+            subtitle="Supervisor queued these watches. Enter courier / AWB — supervisor acknowledges on brand desk."
+          >
+            {brandOutwardQueue.length === 0 ? (
+              <p className="mt-4 text-sm text-stone-600">No watches waiting for brand dispatch logistics entry.</p>
+            ) : (
+              <div className="mt-4 overflow-x-auto rounded-xl border border-violet-200/80">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-violet-300 bg-violet-50 text-xs font-semibold uppercase tracking-wide text-violet-900">
+                    <tr>
+                      <th className="px-3 py-2">SRF</th>
+                      <th className="px-3 py-2">Watch</th>
+                      <th className="px-3 py-2">Supervisor note</th>
+                      <th className="px-3 py-2 w-40" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {brandOutwardQueue.map((j) => (
+                      <tr key={j.id} className="border-b border-violet-100 last:border-0">
+                        <td className="px-3 py-2 font-mono font-semibold text-violet-950">{j.reference}</td>
+                        <td className="px-3 py-2 text-stone-700">
+                          {j.watchBrand} {j.watchModel}
+                          <span className="mt-0.5 block text-xs text-stone-500">{j.customerName}</span>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-stone-600">{j.brandDispatchNote?.trim() || "—"}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            disabled={!canCreateOdc}
+                            onClick={() => {
+                              setBrandDispatchPopupJobId(j.id);
+                              setBrandDispatchRefInput("");
+                              setBrandDispatchNoteInput("");
+                            }}
+                            className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Log dispatch to brand
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
           <Card title="Create internal outward transfer">
             {outwardMsg ? (
               <p
@@ -1022,8 +1086,12 @@ export function ScLogisticsPage() {
                             <span className="mt-0.5 block text-xs text-stone-500">{j.customerName}</span>
                           </td>
                           <td className="px-3 py-2 align-top">
-                            {!!j.transferTargetRegionId && !j.requiresLocalConversion ? (
-                              j.hoSparesBillRef ? (
+                            {(!j.requiresLocalConversion && !!j.transferSourceRegionId) ? (
+                              j.interHoReturnWithoutRepair ? (
+                                <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-900">
+                                  No repair return — invoice not required
+                                </p>
+                              ) : j.hoSparesBillRef ? (
                                 <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
                                   {j.hoSparesBillRef}
                                 </p>
@@ -1498,6 +1566,78 @@ export function ScLogisticsPage() {
           onClose={() => setEwayModalOpen(false)}
           onSuccess={onOutwardEwaySuccess}
         />
+      ) : null}
+      {brandDispatchPopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-violet-950">Log brand dispatch</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Enter courier / AWB / handover details. Supervisor will acknowledge and confirm on the brand desk.
+            </p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Dispatch reference / AWB *
+                <input
+                  className={selectClass}
+                  value={brandDispatchRefInput}
+                  onChange={(e) => setBrandDispatchRefInput(e.target.value)}
+                  placeholder="Courier AWB or handover ref"
+                />
+              </label>
+              <label className="text-sm">
+                Dispatch remark *
+                <textarea
+                  className={selectClass}
+                  rows={3}
+                  value={brandDispatchNoteInput}
+                  onChange={(e) => setBrandDispatchNoteInput(e.target.value)}
+                  placeholder="Courier name, packet details, handover person…"
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBrandDispatchPopupJobId(null)}
+                className="rounded-xl border border-rlx-rule px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={brandDispatchSaving}
+                onClick={() => {
+                  if (!brandDispatchPopupJobId) return;
+                  const dispatchRef = brandDispatchRefInput.trim();
+                  const note = brandDispatchNoteInput.trim();
+                  if (!dispatchRef || !note) {
+                    setOutwardMsg({ type: "err", text: "AWB/ref and remark are required." });
+                    return;
+                  }
+                  setBrandDispatchSaving(true);
+                  void clerkLogBrandDispatch(brandDispatchPopupJobId, { dispatchRef, note })
+                    .then(() => {
+                      setBrandDispatchPopupJobId(null);
+                      setOutwardMsg({
+                        type: "ok",
+                        text: "Brand dispatch logged. Supervisor will acknowledge on the brand desk.",
+                      });
+                    })
+                    .catch((e: unknown) => {
+                      setOutwardMsg({
+                        type: "err",
+                        text: e instanceof Error ? e.message : "Could not log brand dispatch.",
+                      });
+                    })
+                    .finally(() => setBrandDispatchSaving(false));
+                }}
+                className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {brandDispatchSaving ? "Saving…" : "Save dispatch entry"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

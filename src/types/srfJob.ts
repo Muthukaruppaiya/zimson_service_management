@@ -20,6 +20,8 @@ export type SrfJobStatus =
   | "inter_ho_reestimate_customer_accepted"
   | "inter_ho_brand_estimate_pending_sender"
   | "inter_ho_brand_estimate_customer_accepted"
+  | "brand_outward_pending"
+  | "brand_dispatch_pending"
   | "sent_to_brand"
   | "brand_estimate_pending"
   | "brand_estimate_customer_pending"
@@ -117,6 +119,10 @@ export type SrfJob = {
   brandDispatchRef?: string | null;
   brandDispatchNote?: string | null;
   brandDispatchDocPath?: string | null;
+  brandDispatchQueuedAt?: string | null;
+  brandDispatchClerkNote?: string | null;
+  brandDispatchClerkAt?: string | null;
+  interHoReturnWithoutRepair?: boolean;
   brandOdcNumber?: string | null;
   brandInwardRef?: string | null;
   brandEstimateInr?: number | null;

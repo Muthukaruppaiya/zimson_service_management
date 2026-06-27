@@ -17,6 +17,7 @@ import { registerCatalogRoutes } from "./catalogRoutes";
 import { registerGeoRoutes } from "./geoRoutes";
 import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { registerQuickBillRoutes } from "./quickBillRoutes";
+import { registerClientReportsRoutes } from "./clientReportsRoutes";
 import { registerServiceInvoiceRoutes } from "./serviceInvoiceRoutes";
 import { registerQuickBillCaptureRoutes } from "./quickBillCaptureRoutes";
 import { registerSrfBillingHandoverRoutes } from "./srfBillingHandoverRoutes";
@@ -3885,6 +3886,7 @@ async function main() {
   registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(id), allUsers, pushNotifications);
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerServiceInvoiceRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerClientReportsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerQuickBillCaptureRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfBillingHandoverRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

@@ -13,6 +13,7 @@ import { SparesProvider } from "./context/SparesContext";
 import { SrfJobsProvider } from "./context/SrfJobsContext";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AccountsSetupPage } from "./pages/accounts/AccountsSetupPage";
+import { ClientReportsPage } from "./pages/accounts/ClientReportsPage";
 import { InvoiceHistoryPage } from "./pages/accounts/InvoiceHistoryPage";
 import { BrandCreditNotesPage } from "./pages/accounts/BrandCreditNotesPage";
 import { LedgerPage } from "./pages/accounts/LedgerPage";
@@ -106,6 +107,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="dashboard">
                       <DashboardPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/accounts/reports"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <ClientReportsPage />
                     </ModuleRoute>
                   }
                 />

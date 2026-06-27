@@ -55,6 +55,8 @@ const statusCls: Record<string, string> = {
   inter_ho_reestimate_pending_sender: "bg-indigo-100 text-indigo-900",
   inter_ho_reestimate_customer_accepted: "bg-emerald-100 text-emerald-900",
   sent_to_brand: "bg-violet-100 text-violet-700",
+  brand_outward_pending: "bg-violet-100 text-violet-700",
+  brand_dispatch_pending: "bg-indigo-100 text-indigo-700",
   brand_estimate_pending: "bg-violet-100 text-violet-700",
   brand_estimate_customer_pending: "bg-amber-100 text-amber-800",
   brand_estimate_customer_accepted: "bg-emerald-100 text-emerald-800",
