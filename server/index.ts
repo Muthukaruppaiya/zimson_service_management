@@ -18,6 +18,7 @@ import { registerGeoRoutes } from "./geoRoutes";
 import { registerInventoryPoSupplierRoutes } from "./inventoryPoSupplierRoutes";
 import { registerQuickBillRoutes } from "./quickBillRoutes";
 import { registerClientReportsRoutes } from "./clientReportsRoutes";
+import { registerAnalyticsRoutes } from "./analyticsRoutes";
 import { registerServiceInvoiceRoutes } from "./serviceInvoiceRoutes";
 import { registerQuickBillCaptureRoutes } from "./quickBillCaptureRoutes";
 import { registerSrfBillingHandoverRoutes } from "./srfBillingHandoverRoutes";
@@ -268,6 +269,8 @@ function isValidEmail(value: string): boolean {
 const MODULE_KEY_ALLOWLIST: ModuleKey[] = [
   "dashboard",
   "service",
+  "accounts",
+  "analytics",
   "regions",
   "users",
   "service_centre",
@@ -3887,6 +3890,7 @@ async function main() {
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerServiceInvoiceRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerClientReportsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerAnalyticsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerQuickBillCaptureRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfBillingHandoverRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

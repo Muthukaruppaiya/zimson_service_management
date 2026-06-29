@@ -20,10 +20,28 @@ type GstSplit = {
   igstValue: number;
 };
 
-function parseFilters(fromRaw: string, toRaw: string): ReportFilters {
-  const from = (fromRaw || "").trim() || new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-  const to = (toRaw || "").trim() || new Date().toISOString().slice(0, 10);
+const REPORT_TZ = "Asia/Kolkata";
+
+function parseFilters(fromRaw: string, toRaw: string): Pick<ReportFilters, "from" | "to"> {
+  let from =
+    (fromRaw || "").trim() || new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+  let to = (toRaw || "").trim() || new Date().toISOString().slice(0, 10);
+  if (from > to) [from, to] = [to, from];
   return { from, to };
+}
+
+/** Calendar date in India — matches how store teams pick invoice dates. */
+function sqlIstDate(tsColumn: string): string {
+  return `(${tsColumn} AT TIME ZONE '${REPORT_TZ}')::date`;
+}
+
+/** Inclusive YYYY-MM-DD range on a date expression. */
+function sqlDateBetween(dateExpr: string, fromIdx: number, toIdx: number): string {
+  return `${dateExpr} >= $${fromIdx}::date AND ${dateExpr} <= $${toIdx}::date`;
+}
+
+function sqlTsBetween(tsColumn: string, fromIdx: number, toIdx: number): string {
+  return sqlDateBetween(sqlIstDate(tsColumn), fromIdx, toIdx);
 }
 
 /** Region / store scoping aligned with accounts invoice history. */
@@ -33,7 +51,7 @@ function reportActorScope(
   regionExpr: string,
   storeExpr: string,
 ): string {
-  if (actor.role === "super_admin" || actor.role === "admin") return "TRUE";
+  if (actor.role === "super_admin") return "TRUE";
   if (
     (actor.role === "store_accounts" || actor.role === "store_manager" || actor.role === "store_user") &&
     actor.storeId
@@ -269,8 +287,7 @@ export async function fetchRevenueReportSheets(pool: Pool, actor: DemoUser, filt
      LEFT JOIN stores st ON st.id = COALESCE(NULLIF(si.store_id, ''), NULLIF(sj.destination_store_id, ''), sj.store_id)
      LEFT JOIN regions r ON r.id = COALESCE(NULLIF(si.region_id, ''), sj.region_id)
      LEFT JOIN customers c ON c.phone_last10 = RIGHT(regexp_replace(COALESCE(si.customer_phone, sj.phone, ''), '\\D', '', 'g'), 10)
-     WHERE COALESCE(si.invoice_date, si.created_at::date) >= $1::date
-       AND COALESCE(si.invoice_date, si.created_at::date) < ($2::date + INTERVAL '1 day')
+     WHERE ${sqlDateBetween(`COALESCE(si.invoice_date, ${sqlIstDate("si.created_at")})`, 1, 2)}
        AND si.source_type IN ('srf_store', 'inter_ho_repair')
        AND ${invActorSql}
        AND ${invFilterSql}
@@ -316,8 +333,7 @@ export async function fetchRevenueReportSheets(pool: Pool, actor: DemoUser, filt
          (sj.store_billing_snapshot->>'collectionAmountInr')::numeric AS collection_amount_inr
      ) snap ON TRUE
      WHERE sj.status = 'closed'
-       AND COALESCE(sj.closed_at, sj.updated_at) >= $1::date
-       AND COALESCE(sj.closed_at, sj.updated_at) < ($2::date + INTERVAL '1 day')
+       AND ${sqlTsBetween("COALESCE(sj.closed_at, sj.updated_at)", 1, 2)}
        AND (
          (sj.store_billing_snapshot IS NOT NULL AND sj.store_billing_snapshot::text NOT IN ('{}', 'null'))
          OR NULLIF(TRIM(sj.invoice_number), '') IS NOT NULL
@@ -353,8 +369,7 @@ export async function fetchRevenueReportSheets(pool: Pool, actor: DemoUser, filt
      JOIN quick_bill_lines qbl ON qbl.quick_bill_id = qb.id
      LEFT JOIN stores st ON st.id = qb.store_id
      LEFT JOIN regions r ON r.id = qb.region_id
-     WHERE qb.created_at >= $1::date
-       AND qb.created_at < ($2::date + INTERVAL '1 day')
+     WHERE ${sqlTsBetween("qb.created_at", 1, 2)}
        AND ${qbActorSql}
        AND ${qbFilterSql}
      ORDER BY qb.created_at, qb.bill_number, qbl.line_no`,
@@ -629,8 +644,7 @@ export async function fetchHsnPurchaseRows(pool: Pool, actor: DemoUser, filters:
      JOIN spares sp ON sp.id = gi.spare_id
      JOIN regions r ON r.id = g.region_id
      LEFT JOIN stores st ON st.region_id = g.region_id
-     WHERE COALESCE(g.invoice_date, g.created_at::date) >= $1::date
-       AND COALESCE(g.invoice_date, g.created_at::date) < ($2::date + INTERVAL '1 day')
+     WHERE ${sqlDateBetween(`COALESCE(g.invoice_date, ${sqlIstDate("g.created_at")})`, 1, 2)}
        AND ${actorSql}
        AND ${filterSql}
      ORDER BY g.created_at, g.grn_number, gi.id`,
@@ -707,8 +721,7 @@ export async function fetchSrReturnedRows(pool: Pool, actor: DemoUser, filters: 
      LEFT JOIN regions r ON r.id = sj.region_id
      LEFT JOIN customers c ON c.phone_last10 = RIGHT(regexp_replace(sj.phone, '\\D', '', 'g'), 10)
      WHERE sal.action IN ('store_no_billing_handover', 'inter_ho_return_without_repair')
-       AND sal.created_at >= $1::date
-       AND sal.created_at < ($2::date + INTERVAL '1 day')
+       AND ${sqlTsBetween("sal.created_at", 1, 2)}
        AND ${actorSql}
        AND ${filterSql}
      ORDER BY sal.created_at, sj.reference`,
@@ -879,6 +892,101 @@ export function buildMultiSheetReportWorkbook(
     XLSX.utils.book_append_sheet(wb, ws, safeName);
   }
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+export async function fetchReportPreviewCounts(pool: Pool, actor: DemoUser, filters: ReportFilters) {
+  const { srfLines, quickBillLines } = await fetchRevenueReportSheets(pool, actor, filters);
+  const [hsnRows, returnedRows] = await Promise.all([
+    fetchHsnPurchaseRows(pool, actor, filters),
+    fetchSrReturnedRows(pool, actor, filters),
+  ]);
+  return {
+    filters,
+    counts: {
+      srfRevenueLines: srfLines.length,
+      quickBillRevenueLines: quickBillLines.length,
+      summarySaleInvoices: new Set([...srfLines, ...quickBillLines].map((r) => `${r["SR #"]}|${r.INVCNO}`)).size,
+      hsnPurchaseRows: hsnRows.length,
+      srReturnedRows: returnedRows.length,
+    },
+  };
+}
+
+export type ChartSlice = { name: string; value: number };
+
+export function serializeReportRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row)) {
+      if (v instanceof Date) out[k] = v.toISOString().slice(0, 10);
+      else out[k] = v ?? "";
+    }
+    return out;
+  });
+}
+
+function groupSum(
+  rows: Record<string, unknown>[],
+  labelKey: (row: Record<string, unknown>) => string,
+  amountKey: (row: Record<string, unknown>) => number,
+): ChartSlice[] {
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    const label = labelKey(row).trim() || "—";
+    map.set(label, (map.get(label) ?? 0) + amountKey(row));
+  }
+  return [...map.entries()]
+    .map(([name, value]) => ({ name, value: round2(value) }))
+    .filter((x) => x.value > 0)
+    .sort((a, b) => b.value - a.value);
+}
+
+function totalAmount(rows: Record<string, unknown>[], field: string): number {
+  return round2(rows.reduce((s, r) => s + Number(r[field] ?? 0), 0));
+}
+
+export function buildRevenueCharts(srfLines: Record<string, unknown>[], quickBillLines: Record<string, unknown>[]) {
+  const all = [...srfLines, ...quickBillLines];
+  return {
+    srfVsQuickBill: [
+      { name: "SR Revenue", value: totalAmount(srfLines, "FINALPRICE") },
+      { name: "Quick Bill", value: totalAmount(quickBillLines, "FINALPRICE") },
+    ].filter((x) => x.value > 0),
+    byStore: groupSum(all, (r) => String(r.STORE ?? ""), (r) => Number(r.FINALPRICE ?? 0)).slice(0, 12),
+    byPayment: groupSum(all, (r) => String(r["Payment Remarks"] ?? "Not set"), (r) => Number(r.FINALPRICE ?? 0)),
+    bySrType: groupSum(all, (r) => String(r["SR.Type"] ?? ""), (r) => Number(r.FINALPRICE ?? 0)),
+    byBrand: groupSum(all, (r) => String(r.BRAND ?? "Unknown"), (r) => Number(r.FINALPRICE ?? 0)).slice(0, 10),
+  };
+}
+
+export function buildSummarySaleCharts(rows: Record<string, unknown>[]) {
+  return {
+    byStore: groupSum(rows, (r) => String(r.STORE ?? ""), (r) => Number(r.FINALPRICE ?? 0)).slice(0, 12),
+    byPayment: [
+      { name: "Cash", value: round2(rows.reduce((s, r) => s + Number(r.CASH ?? 0), 0)) },
+      { name: "Card", value: round2(rows.reduce((s, r) => s + Number(r.CARD ?? 0), 0)) },
+      { name: "Online", value: round2(rows.reduce((s, r) => s + Number(r.ONLINE ?? 0), 0)) },
+      { name: "Cheque", value: round2(rows.reduce((s, r) => s + Number(r.CHEQUE ?? 0), 0)) },
+    ].filter((x) => x.value > 0),
+    byNature: groupSum(rows, (r) => String(r["Nature Of Repair"] ?? ""), (r) => Number(r.FINALPRICE ?? 0)),
+    bySrType: groupSum(rows, (r) => String(r["SR.Type"] ?? ""), (r) => Number(r.FINALPRICE ?? 0)),
+  };
+}
+
+export function buildHsnPurchaseCharts(rows: Record<string, unknown>[]) {
+  return {
+    byHsn: groupSum(rows, (r) => String(r["HSN Code"] ?? ""), (r) => Number(r["Inv.Val."] ?? 0)).slice(0, 12),
+    byVendor: groupSum(rows, (r) => String(r["Vendor Name"] ?? ""), (r) => Number(r["Inv.Val."] ?? 0)).slice(0, 10),
+    byStore: groupSum(rows, (r) => String(r["Store Code"] ?? ""), (r) => Number(r["Inv.Val."] ?? 0)).slice(0, 10),
+  };
+}
+
+export function buildSrReturnedCharts(rows: Record<string, unknown>[]) {
+  return {
+    byStore: groupSum(rows, (r) => String(r.STORE ?? ""), (r) => Number(r.FINALPRICE ?? 0)).slice(0, 12),
+    byNature: groupSum(rows, (r) => String(r["Nature of Repair"] ?? ""), (r) => 1),
+    byBrand: groupSum(rows, (r) => String(r.BRAND ?? ""), (r) => 1).slice(0, 10),
+  };
 }
 
 export function parseReportFilters(query: Record<string, unknown>): ReportFilters {

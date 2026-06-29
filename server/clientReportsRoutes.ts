@@ -2,15 +2,21 @@ import type { Express, Request, Response } from "express";
 import type { Pool } from "pg";
 import type { DemoUser } from "../src/types/user";
 import {
+  buildHsnPurchaseCharts,
   buildMultiSheetReportWorkbook,
   buildReportWorkbook,
+  buildRevenueCharts,
+  buildSrReturnedCharts,
+  buildSummarySaleCharts,
   fetchHsnPurchaseRows,
+  fetchReportPreviewCounts,
   fetchRevenueReportSheets,
   fetchSrReturnedRows,
   fetchSummarySaleRows,
   HSN_PURCHASE_HEADERS,
   parseReportFilters,
   REVENUE_HEADERS,
+  serializeReportRows,
   SR_RETURNED_HEADERS,
   SUMMARY_SALE_HEADERS,
 } from "./clientReports";
@@ -63,6 +69,121 @@ export function registerClientReportsRoutes(
         { id: "sr-returned", label: "SR returned report", description: "Watches returned without billing or inter-HO no-repair returns." },
       ],
     });
+  });
+
+  app.get("/api/accounts/reports/preview", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canAccessReports(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    try {
+      await prepareReportData(pool);
+      const filters = parseReportFilters(req.query as Record<string, unknown>);
+      const preview = await fetchReportPreviewCounts(pool, actor, filters);
+      res.json(preview);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not preview report data." });
+    }
+  });
+
+  app.get("/api/accounts/reports/revenue/data", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canAccessReports(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    try {
+      await prepareReportData(pool);
+      const filters = parseReportFilters(req.query as Record<string, unknown>);
+      const { srfLines, quickBillLines } = await fetchRevenueReportSheets(pool, actor, filters);
+      res.json({
+        filters,
+        srfLines: serializeReportRows(srfLines),
+        quickBillLines: serializeReportRows(quickBillLines),
+        totals: {
+          srfAmount: srfLines.reduce((s, r) => s + Number(r.FINALPRICE ?? 0), 0),
+          quickBillAmount: quickBillLines.reduce((s, r) => s + Number(r.FINALPRICE ?? 0), 0),
+          srfRows: srfLines.length,
+          quickBillRows: quickBillLines.length,
+        },
+        charts: buildRevenueCharts(srfLines, quickBillLines),
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load revenue report data." });
+    }
+  });
+
+  app.get("/api/accounts/reports/summary-sale/data", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canAccessReports(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    try {
+      await prepareReportData(pool);
+      const filters = parseReportFilters(req.query as Record<string, unknown>);
+      const rows = await fetchSummarySaleRows(pool, actor, filters);
+      res.json({
+        filters,
+        rows: serializeReportRows(rows),
+        totals: {
+          invoices: rows.length,
+          amount: rows.reduce((s, r) => s + Number(r.FINALPRICE ?? 0), 0),
+        },
+        charts: buildSummarySaleCharts(rows),
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load summary sale data." });
+    }
+  });
+
+  app.get("/api/accounts/reports/hsn-purchase/data", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canAccessReports(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    try {
+      const filters = parseReportFilters(req.query as Record<string, unknown>);
+      const rows = await fetchHsnPurchaseRows(pool, actor, filters);
+      res.json({
+        filters,
+        rows: serializeReportRows(rows),
+        totals: {
+          lines: rows.length,
+          amount: rows.reduce((s, r) => s + Number(r["Inv.Val."] ?? 0), 0),
+        },
+        charts: buildHsnPurchaseCharts(rows),
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load HSN purchase data." });
+    }
+  });
+
+  app.get("/api/accounts/reports/sr-returned/data", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canAccessReports(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    try {
+      const filters = parseReportFilters(req.query as Record<string, unknown>);
+      const rows = await fetchSrReturnedRows(pool, actor, filters);
+      res.json({
+        filters,
+        rows: serializeReportRows(rows),
+        totals: { lines: rows.length },
+        charts: buildSrReturnedCharts(rows),
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load SR returned data." });
+    }
   });
 
   app.get("/api/accounts/reports/revenue", requireAuth, async (req, res) => {

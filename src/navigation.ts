@@ -30,6 +30,13 @@ export const mainNav: NavItem[] = [
     badge: "Finance",
   },
   {
+    to: "/analytics",
+    label: "BI analytics",
+    description: "Sales, purchases, SRF pipeline and regional KPIs",
+    module: "analytics",
+    badge: "BI",
+  },
+  {
     to: "/service-centre",
     label: "Service centre",
     description: "Inward, assign, technician",

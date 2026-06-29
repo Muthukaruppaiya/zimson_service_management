@@ -30,7 +30,7 @@ function invoiceScopeSql(
   alias = "si",
   paramIndex = 1,
 ): { sql: string; params: string[] } {
-  if (actor.role === "super_admin" || actor.role === "admin") {
+  if (actor.role === "super_admin") {
     return { sql: "TRUE", params: [] };
   }
   if (!actor.regionId) return { sql: "FALSE", params: [] };

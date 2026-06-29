@@ -16,6 +16,7 @@ export type ModuleKey =
   | "dashboard"
   | "service"
   | "accounts"
+  | "analytics"
   | "regions"
   | "users"
   | "service_centre"

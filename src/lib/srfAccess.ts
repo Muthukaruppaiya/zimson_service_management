@@ -297,6 +297,24 @@ export function findLocalRepairSrfForRoot(
   return undefined;
 }
 
+/** Dashboard / KPI scope — store users see one store; regional roles see one region; super admin sees all. */
+export function jobMatchesRoleScope(job: SrfJob, user: SessionUser): boolean {
+  if (isArchivedSrfJob(job)) return false;
+  if (user.role === "super_admin") return true;
+
+  const regionId = (user.regionId ?? "").trim();
+  const storeId = (user.storeId ?? "").trim();
+
+  if (user.role === "store_user" || user.role === "store_manager" || user.role === "store_accounts") {
+    if (!storeId) return false;
+    return job.storeId === storeId || (job.destinationStoreId ?? "") === storeId;
+  }
+
+  if (!regionId) return false;
+
+  return job.regionId === regionId || (job.transferSourceRegionId ?? "").trim() === regionId;
+}
+
 export function jobVisibleToStoreUser(job: SrfJob, user: SessionUser): boolean {
   if (user.role === "super_admin" || user.role === "admin") return true;
   if (user.role === "admin") return user.regionId === job.regionId;

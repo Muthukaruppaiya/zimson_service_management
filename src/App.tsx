@@ -13,7 +13,12 @@ import { SparesProvider } from "./context/SparesContext";
 import { SrfJobsProvider } from "./context/SrfJobsContext";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AccountsSetupPage } from "./pages/accounts/AccountsSetupPage";
-import { ClientReportsPage } from "./pages/accounts/ClientReportsPage";
+import { ClientReportsIndexPage } from "./pages/accounts/ClientReportsIndexPage";
+import { AnalyticsDashboardPage } from "./pages/accounts/AnalyticsDashboardPage";
+import { HsnPurchaseReportPage } from "./pages/accounts/HsnPurchaseReportPage";
+import { RevenueReportPage } from "./pages/accounts/RevenueReportPage";
+import { SrReturnedReportPage } from "./pages/accounts/SrReturnedReportPage";
+import { SummarySaleReportPage } from "./pages/accounts/SummarySaleReportPage";
 import { InvoiceHistoryPage } from "./pages/accounts/InvoiceHistoryPage";
 import { BrandCreditNotesPage } from "./pages/accounts/BrandCreditNotesPage";
 import { LedgerPage } from "./pages/accounts/LedgerPage";
@@ -111,10 +116,51 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/analytics"
+                  element={
+                    <ModuleRoute module="analytics">
+                      <AnalyticsDashboardPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route path="/accounts/analytics" element={<Navigate to="/analytics" replace />} />
+                <Route
                   path="/accounts/reports"
                   element={
                     <ModuleRoute module="accounts">
-                      <ClientReportsPage />
+                      <ClientReportsIndexPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/accounts/reports/revenue"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <RevenueReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/accounts/reports/summary-sale"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <SummarySaleReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/accounts/reports/hsn-purchase"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <HsnPurchaseReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/accounts/reports/sr-returned"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <SrReturnedReportPage />
                     </ModuleRoute>
                   }
                 />

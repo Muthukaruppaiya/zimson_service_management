@@ -8,7 +8,7 @@ import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } fro
 import type { UserRole } from "../../types/user";
 
 type IconName =
-  | "dashboard" | "service" | "accounts" | "inventory" | "purchase"
+  | "dashboard" | "service" | "accounts" | "analytics" | "inventory" | "purchase"
   | "billing" | "master" | "settings" | "chevron" | "sparkle"
   | "logistics" | "supervisor" | "online";
 
@@ -21,6 +21,8 @@ function NavIcon({ name, className = "" }: { name: IconName; className?: string 
       return <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
     case "accounts":
       return <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.9 0-3.5.9-3.5 2s1.6 2 3.5 2 3.5.9 3.5 2-1.6 2-3.5 2m0-10v10m0-10c1.2 0 2.3.35 3 .9M12 8c-1.2 0-2.3.35-3 .9" /></svg>;
+    case "analytics":
+      return <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M4 19V5m0 14h16M8 17V9m4 8V7m4 10v-5" /></svg>;
     case "inventory":
       return <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
     case "purchase":
@@ -46,7 +48,7 @@ function NavIcon({ name, className = "" }: { name: IconName; className?: string 
   }
 }
 
-type ModuleKey = "dashboard" | "service" | "accounts" | "inventory" | "regions" | "users" | "settings" | "service_centre";
+type ModuleKey = "dashboard" | "service" | "accounts" | "analytics" | "inventory" | "regions" | "users" | "settings" | "service_centre";
 
 type SidebarItem = {
   to: string;
@@ -112,6 +114,12 @@ export function Sidebar() {
     if (!user) return [];
     const all: SidebarSection[] = [
       {
+        title: "Analytics", icon: "analytics",
+        items: [
+          { to: "/analytics", label: "BI dashboard", module: "analytics" },
+        ],
+      },
+      {
         title: "Service", icon: "service",
         items: [
           { to: "/service/quick-bill", label: "Quick bill", module: "service" },
@@ -125,7 +133,11 @@ export function Sidebar() {
       {
         title: "Accounts", icon: "accounts",
         items: [
-          { to: "/accounts/reports", label: "Client reports", module: "accounts" },
+          { to: "/accounts/reports", label: "Reports hub", module: "accounts" },
+          { to: "/accounts/reports/revenue", label: "Revenue report", module: "accounts" },
+          { to: "/accounts/reports/summary-sale", label: "Summary sale", module: "accounts" },
+          { to: "/accounts/reports/hsn-purchase", label: "HSN purchase", module: "accounts" },
+          { to: "/accounts/reports/sr-returned", label: "SR returned", module: "accounts" },
           { to: "/accounts/invoice-history", label: "Invoice history", module: "accounts" },
           { to: "/accounts/brand-credit-notes", label: "Brand credit notes", module: "accounts" },
           { to: "/accounts/ledger", label: "Payment ledger", module: "accounts" },
