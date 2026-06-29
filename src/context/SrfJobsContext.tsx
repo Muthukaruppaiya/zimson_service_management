@@ -189,6 +189,9 @@ type SrfJobsContextValue = {
     payload: { markupInr: number; note: string },
   ) => Promise<SrfReestimateNotifyResult>;
   supervisorAcknowledgeBrandReceipt: (jobId: string, payload?: { note?: string; mailRef?: string }) => Promise<void>;
+  supervisorBrandReturnWithoutRepair: (jobId: string, note: string) => Promise<void>;
+  supervisorCustomerAcceptedBrandEstimateLater: (jobId: string, note?: string) => Promise<void>;
+  supervisorBrandReadyOutwardNoRepair: (jobId: string, note?: string) => Promise<void>;
   supervisorReceiveFromBrand: (jobId: string, payload?: { note?: string }) => Promise<void>;
   supervisorLogBrandInvoice: (
     jobId: string,
@@ -658,6 +661,30 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const supervisorBrandReturnWithoutRepair = useCallback(async (jobId: string, note: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/return-without-repair`, {
+      method: "POST",
+      json: { note },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorCustomerAcceptedBrandEstimateLater = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/customer-accepted-estimate-later`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorBrandReadyOutwardNoRepair = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/ready-outward-no-repair`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
   const supervisorForwardBrandEstimateToCustomer = useCallback(async (
     jobId: string,
     payload: { markupInr: number; note: string },
@@ -880,6 +907,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorApproveBrandEstimate,
       supervisorForwardBrandEstimateToCustomer,
       supervisorAcknowledgeBrandReceipt,
+      supervisorBrandReturnWithoutRepair,
+      supervisorCustomerAcceptedBrandEstimateLater,
+      supervisorBrandReadyOutwardNoRepair,
       supervisorReceiveFromBrand,
       supervisorLogBrandInvoice,
       supervisorLogBrandCreditNote,
@@ -939,6 +969,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorApproveBrandEstimate,
       supervisorForwardBrandEstimateToCustomer,
       supervisorAcknowledgeBrandReceipt,
+      supervisorBrandReturnWithoutRepair,
+      supervisorCustomerAcceptedBrandEstimateLater,
+      supervisorBrandReadyOutwardNoRepair,
       supervisorReceiveFromBrand,
       supervisorLogBrandInvoice,
       supervisorLogBrandCreditNote,

@@ -640,6 +640,7 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_clerk_note TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_clerk_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_clerk_by UUID;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS inter_ho_return_without_repair BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_return_without_repair BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_odc_number VARCHAR(64);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_inward_ref VARCHAR(64);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_estimate_inr NUMERIC(14, 2);

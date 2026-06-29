@@ -123,6 +123,8 @@ export type SrfJob = {
   brandDispatchClerkNote?: string | null;
   brandDispatchClerkAt?: string | null;
   interHoReturnWithoutRepair?: boolean;
+  /** Brand will return watch unrepaired — skip brand invoice; outward to store after receipt. */
+  brandReturnWithoutRepair?: boolean;
   brandOdcNumber?: string | null;
   brandInwardRef?: string | null;
   brandEstimateInr?: number | null;

@@ -998,6 +998,7 @@ export function registerSrfRoutes(
                 j.brand_dispatch_clerk_note AS "brandDispatchClerkNote",
                 j.brand_dispatch_clerk_at AS "brandDispatchClerkAt",
                 j.inter_ho_return_without_repair AS "interHoReturnWithoutRepair",
+                j.brand_return_without_repair AS "brandReturnWithoutRepair",
                 j.brand_odc_number AS "brandOdcNumber",
                 j.brand_inward_ref AS "brandInwardRef",
                 j.brand_estimate_inr::float8 AS "brandEstimateInr",
@@ -1202,6 +1203,7 @@ export function registerSrfRoutes(
                 j.brand_dispatch_clerk_note AS "brandDispatchClerkNote",
                 j.brand_dispatch_clerk_at AS "brandDispatchClerkAt",
                 j.inter_ho_return_without_repair AS "interHoReturnWithoutRepair",
+                j.brand_return_without_repair AS "brandReturnWithoutRepair",
                 j.brand_odc_number AS "brandOdcNumber",
                 j.brand_inward_ref AS "brandInwardRef",
                 j.technician_brand_recommended_at AS "technicianBrandRecommendedAt",
@@ -5846,12 +5848,11 @@ export function registerSrfRoutes(
              updated_at = now(),
              modified_by = $5
          WHERE id = $1::uuid
-           AND status = 'sent_to_brand'
-           AND brand_acknowledged_at IS NOT NULL`,
+           AND status = 'sent_to_brand'`,
         [srfId, estimateInr, currency, JSON.stringify(toJsonMeta(req.body?.emailMeta)), actor?.id ?? null],
       );
       if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "Acknowledge brand mail before logging estimate." });
+        res.status(400).json({ error: "SRF must be in sent_to_brand state to log brand estimate." });
         return;
       }
       const client = await pool.connect();
@@ -6189,12 +6190,11 @@ export function registerSrfRoutes(
              modified_by = $4
          WHERE id = $1::uuid
            AND status = 'sent_to_brand'
-           AND brand_acknowledged_at IS NOT NULL
            AND brand_estimate_inr IS NULL`,
         [srfId, brandCreditNoteRef, validUntil, actor?.id ?? null],
       );
       if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "SRF must have acknowledged brand mail with no estimate logged yet." });
+        res.status(400).json({ error: "SRF must be sent_to_brand with no brand estimate logged yet." });
         return;
       }
       const client = await pool.connect();
@@ -6224,6 +6224,198 @@ export function registerSrfRoutes(
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not log brand credit note." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/return-without-repair", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can mark brand return without repair." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    if (!note) {
+      res.status(400).json({ error: "Remark is required (brand cannot repair / customer declined repair)." });
+      return;
+    }
+    try {
+      const prior = await pool.query<{
+        status: string;
+        customer_reestimate_response: string | null;
+      }>(
+        `SELECT status, customer_reestimate_response
+         FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const row = prior.rows[0];
+      if (!row) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      const fromSent = row.status === "sent_to_brand";
+      const fromDeclinedEstimate =
+        row.status === "brand_estimate_pending" && row.customer_reestimate_response === "rejected";
+      if (!fromSent && !fromDeclinedEstimate) {
+        res.status(400).json({
+          error:
+            "Return without repair is allowed when watch is at brand (sent_to_brand) or after customer declined brand estimate.",
+        });
+        return;
+      }
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_repair_in_progress',
+             brand_return_without_repair = true,
+             brand_ho_approval_sent_at = COALESCE(brand_ho_approval_sent_at, now()),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND status = $3`,
+        [srfId, actor?.id ?? null, row.status],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({ error: "Could not update SRF for brand return without repair." });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "brand_repair_in_progress",
+          actor?.id ?? null,
+          note || "Brand cannot repair — watch will return to HO without repair.",
+        );
+        await appendActionLog(client, srfId, {
+          action: "brand_return_without_repair",
+          description: "Brand return without repair — awaiting physical return from brand workshop.",
+          actor: actor ?? undefined,
+          details: { note },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not mark brand return without repair." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/customer-accepted-estimate-later", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can record customer acceptance." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    try {
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'brand_estimate_customer_accepted',
+             customer_reestimate_response = 'accepted',
+             customer_reestimate_responded_at = now(),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND status = 'brand_estimate_pending'
+           AND customer_reestimate_response = 'rejected'`,
+        [srfId, actor?.id ?? null],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({
+          error: "SRF must be in brand_estimate_pending with a prior customer decline on the brand estimate.",
+        });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "brand_estimate_customer_accepted",
+          actor?.id ?? null,
+          note || "Customer accepted brand repair estimate after follow-up (phone / in person).",
+        );
+        await appendActionLog(client, srfId, {
+          action: "brand_estimate_customer_accepted_later",
+          description: "Supervisor recorded customer acceptance of brand estimate after initial decline.",
+          actor: actor ?? undefined,
+          details: { note },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not record customer acceptance." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/brand/ready-outward-no-repair", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can move unrepaired brand return to outward." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    try {
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET status = 'ready_for_outward',
+             ready_for_outward_at = COALESCE(ready_for_outward_at, now()),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND status = 'received_from_brand'
+           AND brand_return_without_repair = true`,
+        [srfId, actor?.id ?? null],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(400).json({
+          error: "SRF must be received_from_brand with brand return-without-repair flagged.",
+        });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendStatusHistory(
+          client,
+          srfId,
+          "ready_for_outward",
+          actor?.id ?? null,
+          note ||
+            "Unrepaired watch received from brand — moved to outward queue for store dispatch (no brand invoice).",
+        );
+        await appendActionLog(client, srfId, {
+          action: "brand_outward_no_repair",
+          description: "Watch returned from brand without repair — ready for store dispatch.",
+          actor: actor ?? undefined,
+          details: { note },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not move to outward queue." });
     }
   });
 
