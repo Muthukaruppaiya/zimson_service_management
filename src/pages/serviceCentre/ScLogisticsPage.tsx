@@ -936,7 +936,7 @@ export function ScLogisticsPage() {
           </Card>
           <Card
             title={`Send to brand (front desk) · ${brandOutwardQueue.length}`}
-            subtitle="Supervisor queued these watches. Select one or more, then enter courier / AWB — supervisor acknowledges on brand desk."
+            subtitle="Supervisor queued these watches. Select one or more, then enter courier / AWB — supervisor logs estimate on brand desk."
           >
             {outwardMsg ? (
               <p
@@ -1643,7 +1643,7 @@ export function ScLogisticsPage() {
               <span className="font-semibold text-violet-900">
                 {selectedBrandJobIds.length} watch{selectedBrandJobIds.length === 1 ? "" : "es"}
               </span>
-              . Supervisor will acknowledge and confirm on the brand desk.
+              . Watch moves to brand desk for estimate / credit note.
             </p>
             {selectedBrandJobIds.length > 0 ? (
               <ul className="mt-2 max-h-28 overflow-y-auto rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2 text-xs text-violet-950">
@@ -1706,7 +1706,7 @@ export function ScLogisticsPage() {
                       setSelectedBrandOut({});
                       setOutwardMsg({
                         type: "ok",
-                        text: `Brand dispatch logged for ${out.updated} watch${out.updated === 1 ? "" : "es"}. Supervisor will acknowledge on the brand desk.`,
+                        text: `Brand dispatch logged for ${out.updated} watch${out.updated === 1 ? "" : "es"}. Supervisor can log estimate on brand desk.`,
                       });
                     })
                     .catch((e: unknown) => {

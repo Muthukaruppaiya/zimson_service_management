@@ -851,6 +851,12 @@ export async function runMigrations(pool: Pool): Promise<void> {
     END $$;
   `);
   await pool.query(`
+    UPDATE srf_jobs
+    SET status = 'sent_to_brand',
+        brand_sent_at = COALESCE(brand_sent_at, brand_dispatch_clerk_at, now())
+    WHERE status = 'brand_dispatch_pending';
+  `);
+  await pool.query(`
     ALTER TABLE srf_inter_ho_spare_orders
       ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS dispatched_by VARCHAR(80),

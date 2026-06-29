@@ -185,7 +185,14 @@ type SrfJobsContextValue = {
   technicianMarkRepairComplete: (jobId: string, technicianProfileId: string) => Promise<void>;
   supervisorLogBrandEstimate: (
     jobId: string,
-    payload: { estimateInr: number; currency?: string; note?: string; emailMeta?: Record<string, unknown> },
+    payload: {
+      estimateInr: number;
+      currency?: string;
+      note?: string;
+      emailMeta?: Record<string, unknown>;
+      attachmentPath?: string;
+      attachmentMeta?: Record<string, unknown>;
+    },
   ) => Promise<void>;
   supervisorApproveBrandEstimate: (jobId: string, payload?: { note?: string; emailMeta?: Record<string, unknown> }) => Promise<void>;
   supervisorForwardBrandEstimateToCustomer: (
@@ -193,7 +200,10 @@ type SrfJobsContextValue = {
     payload: { markupInr: number; note: string },
   ) => Promise<SrfReestimateNotifyResult>;
   supervisorAcknowledgeBrandReceipt: (jobId: string, payload?: { note?: string; mailRef?: string }) => Promise<void>;
-  supervisorBrandReturnWithoutRepair: (jobId: string, note: string) => Promise<void>;
+  supervisorBrandReturnWithoutRepair: (
+    jobId: string,
+    payload: { note: string; attachmentPath?: string; attachmentMeta?: Record<string, unknown> },
+  ) => Promise<void>;
   supervisorCustomerAcceptedBrandEstimateLater: (jobId: string, note?: string) => Promise<void>;
   supervisorBrandReadyOutwardNoRepair: (jobId: string, note?: string) => Promise<void>;
   supervisorReceiveFromBrand: (jobId: string, payload?: { note?: string }) => Promise<void>;
@@ -203,7 +213,14 @@ type SrfJobsContextValue = {
   ) => Promise<void>;
   supervisorLogBrandCreditNote: (
     jobId: string,
-    payload: { brandCreditNoteRef?: string; validUntil?: string; note: string },
+    payload: {
+      brandCreditNoteRef?: string;
+      validUntil?: string;
+      note: string;
+      valueInr: number;
+      attachmentPath: string;
+      attachmentMeta?: Record<string, unknown>;
+    },
   ) => Promise<void>;
   supervisorNotifyBrandCoupon: (
     jobId: string,
@@ -646,7 +663,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
 
   const supervisorLogBrandEstimate = useCallback(async (
     jobId: string,
-    payload: { estimateInr: number; currency?: string; note?: string; emailMeta?: Record<string, unknown> },
+    payload: {
+      estimateInr: number;
+      currency?: string;
+      note?: string;
+      emailMeta?: Record<string, unknown>;
+      attachmentPath?: string;
+      attachmentMeta?: Record<string, unknown>;
+    },
   ) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/estimate`, {
       method: "POST",
@@ -677,10 +701,13 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
-  const supervisorBrandReturnWithoutRepair = useCallback(async (jobId: string, note: string) => {
+  const supervisorBrandReturnWithoutRepair = useCallback(async (
+    jobId: string,
+    payload: { note: string; attachmentPath?: string; attachmentMeta?: Record<string, unknown> },
+  ) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/return-without-repair`, {
       method: "POST",
-      json: { note },
+      json: payload,
     });
     await refreshJobs();
   }, [refreshJobs]);
@@ -737,7 +764,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
 
   const supervisorLogBrandCreditNote = useCallback(async (
     jobId: string,
-    payload: { brandCreditNoteRef?: string; validUntil?: string; note: string },
+    payload: {
+      brandCreditNoteRef?: string;
+      validUntil?: string;
+      note: string;
+      valueInr: number;
+      attachmentPath: string;
+      attachmentMeta?: Record<string, unknown>;
+    },
   ) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/credit-note`, {
       method: "POST",

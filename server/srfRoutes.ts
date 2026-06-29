@@ -114,7 +114,12 @@ function canApproveBrandCreditNote(actor: DemoUser | null): boolean {
 }
 
 function generateBrandVoucherCode(): string {
-  return String(crypto.randomInt(0, 1_000_000_000_000)).padStart(12, "0");
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let suffix = "";
+  for (let i = 0; i < 8; i++) {
+    suffix += chars[crypto.randomInt(0, chars.length)];
+  }
+  return `ZIM${suffix}`;
 }
 
 async function generateUniqueBrandVoucherCode(client: PoolClient): Promise<string> {
@@ -228,6 +233,67 @@ function srfPublicPhotoUpload(req: Request, res: Response, next: NextFunction) {
     }
     next();
   });
+}
+
+function brandMailUpload(req: Request, res: Response, next: NextFunction) {
+  upload.single("file")(req, res, (err: unknown) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        res.status(400).json({
+          error: `File is too large. Maximum size is ${Math.round(SRF_CUSTOMER_PHOTO_MAX_BYTES / (1024 * 1024))} MB.`,
+        });
+        return;
+      }
+      const msg = err instanceof Error ? err.message : "Upload failed.";
+      res.status(400).json({ error: msg });
+      return;
+    }
+    next();
+  });
+}
+
+async function persistBrandMailAttachmentForJob(
+  pool: Pool,
+  srfId: string,
+  file: Express.Multer.File,
+  actorId: string | null,
+): Promise<{ attachmentPath: string; fileName: string; mime: string; bytes: number }> {
+  const formatError = validateSrfDocumentUpload(file);
+  if (formatError) throw new Error(formatError);
+  const relPath = await persistUploadedFile({
+    category: "customer-documents",
+    buffer: file.buffer,
+    originalName: file.originalname || "brand-mail.pdf",
+    mime: file.mimetype || "application/pdf",
+    fallbackExt: ".pdf",
+  });
+  await pool.query(
+    `INSERT INTO srf_job_photos (srf_id, photo_kind, file_path, mime, bytes, created_by)
+     VALUES ($1::uuid, 'brand_mail', $2, $3, $4, $5)`,
+    [srfId, relPath, file.mimetype || "application/octet-stream", file.size, actorId],
+  );
+  return {
+    attachmentPath: relPath,
+    fileName: file.originalname || "brand-mail",
+    mime: file.mimetype || "application/octet-stream",
+    bytes: file.size,
+  };
+}
+
+function mergeBrandAttachmentMeta(
+  base: Record<string, unknown>,
+  attachmentPath: string | null | undefined,
+  attachmentMeta: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out = { ...base };
+  const path = (attachmentPath ?? attachmentMeta?.attachmentPath ?? "").toString().trim();
+  if (path) {
+    out.attachmentPath = path;
+    if (attachmentMeta?.fileName) out.fileName = attachmentMeta.fileName;
+    if (attachmentMeta?.mime) out.mime = attachmentMeta.mime;
+    if (attachmentMeta?.bytes != null) out.bytes = attachmentMeta.bytes;
+  }
+  return out;
 }
 
 function roleCanCreateDraft(actor: DemoUser): boolean {
@@ -478,6 +544,47 @@ function scopeCode(code: string, fallback: string, maxLen = 3): string {
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, maxLen)
     .padEnd(maxLen, "0");
+}
+
+/** Front desk logs courier/AWB — job moves straight to sent_to_brand (no supervisor ack step). */
+async function finalizeClerkBrandDispatch(
+  client: PoolClient,
+  srfId: string,
+  actor: DemoUser,
+  regionId: string,
+  dispatchRef: string,
+  note: string,
+): Promise<string> {
+  const brandOdcNumber = await nextDocNumber(client, "ODC", "", scopeCode(regionId, "BRD"));
+  await client.query(
+    `UPDATE srf_jobs
+     SET status = 'sent_to_brand',
+         brand_dispatch_ref = $2,
+         brand_dispatch_clerk_note = $3,
+         brand_dispatch_clerk_at = now(),
+         brand_dispatch_clerk_by = $4,
+         brand_sent_at = now(),
+         brand_odc_number = $5,
+         updated_at = now(),
+         modified_by = $4
+     WHERE id = $1::uuid`,
+    [srfId, dispatchRef, note, actor.id, brandOdcNumber],
+  );
+  await appendStatusHistory(
+    client,
+    srfId,
+    "sent_to_brand",
+    actor.id,
+    `Front desk logged brand dispatch ${dispatchRef}: ${note}. ODC ${brandOdcNumber}.`,
+  );
+  await appendActionLog(client, srfId, {
+    action: "brand_clerk_log_dispatch",
+    description: `Front desk logged brand dispatch — watch sent to brand (${brandOdcNumber}).`,
+    actor,
+    referenceDoc: brandOdcNumber,
+    details: { dispatchRef, note, brandOdcNumber },
+  });
+  return brandOdcNumber;
 }
 
 function srfStoreScopeCode(storeName: string | null | undefined, storeId: string): string {
@@ -5578,31 +5685,14 @@ export function registerSrfRoutes(
         res.status(400).json({ error: "SRF must be queued for brand dispatch (brand_outward_pending)." });
         return;
       }
-      await client.query(
-        `UPDATE srf_jobs
-         SET status = 'brand_dispatch_pending',
-             brand_dispatch_ref = $2,
-             brand_dispatch_clerk_note = $3,
-             brand_dispatch_clerk_at = now(),
-             brand_dispatch_clerk_by = $4,
-             updated_at = now(),
-             modified_by = $4
-         WHERE id = $1::uuid`,
-        [srfId, dispatchRef, note, actor.id],
-      );
-      await appendStatusHistory(
+      const brandOdcNumber = await finalizeClerkBrandDispatch(
         client,
         srfId,
-        "brand_dispatch_pending",
-        actor.id,
-        `Front desk logged brand dispatch ${dispatchRef}: ${note}`,
-      );
-      await appendActionLog(client, srfId, {
-        action: "brand_clerk_log_dispatch",
-        description: `Front desk logged brand dispatch ref ${dispatchRef}.`,
         actor,
-        details: { dispatchRef, note },
-      });
+        srf.region_id,
+        dispatchRef,
+        note,
+      );
       await client.query("COMMIT");
       if (pushInApp && srf.region_id) {
         const { rows: notifyRows } = await pool.query<{ id: string }>(
@@ -5614,13 +5704,13 @@ export function registerSrfRoutes(
         await pushInApp(
           notifyRows.map((r) => r.id),
           {
-            title: "Brand dispatch ready for acknowledgement",
-            message: `Front desk logged brand dispatch (${dispatchRef}). Supervisor to acknowledge and confirm send to brand.`,
+            title: "Watch sent to brand",
+            message: `Front desk logged dispatch (${dispatchRef}). Log brand estimate, credit note, or return path on brand desk.`,
             category: "service_srf",
           },
         );
       }
-      res.json({ ok: true });
+      res.json({ ok: true, brandOdcNumber });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -5682,31 +5772,7 @@ export function registerSrfRoutes(
           });
           return;
         }
-        await client.query(
-          `UPDATE srf_jobs
-           SET status = 'brand_dispatch_pending',
-               brand_dispatch_ref = $2,
-               brand_dispatch_clerk_note = $3,
-               brand_dispatch_clerk_at = now(),
-               brand_dispatch_clerk_by = $4,
-               updated_at = now(),
-               modified_by = $4
-           WHERE id = $1::uuid`,
-          [srfId, dispatchRef, note, actor.id],
-        );
-        await appendStatusHistory(
-          client,
-          srfId,
-          "brand_dispatch_pending",
-          actor.id,
-          `Front desk logged brand dispatch ${dispatchRef}: ${note}`,
-        );
-        await appendActionLog(client, srfId, {
-          action: "brand_clerk_log_dispatch",
-          description: `Front desk logged brand dispatch ref ${dispatchRef}.`,
-          actor,
-          details: { dispatchRef, note, batch: true },
-        });
+        await finalizeClerkBrandDispatch(client, srfId, actor, srf.region_id, dispatchRef, note);
         notifyRegionId = srf.region_id;
         updated += 1;
       }
@@ -5721,8 +5787,8 @@ export function registerSrfRoutes(
         await pushInApp(
           notifyRows.map((r) => r.id),
           {
-            title: "Brand dispatch ready for acknowledgement",
-            message: `Front desk logged brand dispatch (${dispatchRef}) for ${updated} watch${updated === 1 ? "" : "es"}. Supervisor to acknowledge and confirm send to brand.`,
+            title: "Watch(es) sent to brand",
+            message: `Front desk logged dispatch (${dispatchRef}) for ${updated} watch${updated === 1 ? "" : "es"}. Log estimate or credit note on brand desk.`,
             category: "service_srf",
           },
         );
@@ -5931,6 +5997,38 @@ export function registerSrfRoutes(
     }
   });
 
+  app.post("/api/service/srf-jobs/:srfId/brand/upload-attachment", requireAuth, brandMailUpload, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can upload brand mail documents." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    if (!req.file) {
+      res.status(400).json({ error: "Upload a PDF or image under field name 'file'." });
+      return;
+    }
+    try {
+      const row = await pool.query<{ region_id: string }>(
+        `SELECT region_id FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      if (!row.rows[0]) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (actor!.role !== "super_admin" && actor!.role !== "admin" && actor!.regionId !== row.rows[0].region_id) {
+        res.status(403).json({ error: "Upload is only allowed for your service centre." });
+        return;
+      }
+      const saved = await persistBrandMailAttachmentForJob(pool, srfId, req.file, actor!.id);
+      res.json(saved);
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: e instanceof Error ? e.message : "Could not upload brand mail document." });
+    }
+  });
+
   app.post("/api/service/srf-jobs/:srfId/brand/estimate", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canManageBrandDesk(actor)) {
@@ -5941,6 +6039,12 @@ export function registerSrfRoutes(
     const estimateInr = Number(req.body?.estimateInr ?? 0);
     const currency = String(req.body?.currency ?? "INR").trim().toUpperCase() || "INR";
     const note = String(req.body?.note ?? "").trim();
+    const attachmentPath = String(req.body?.attachmentPath ?? "").trim() || null;
+    const emailMeta = mergeBrandAttachmentMeta(
+      toJsonMeta(req.body?.emailMeta),
+      attachmentPath,
+      toJsonMeta(req.body?.attachmentMeta),
+    );
     if (!Number.isFinite(estimateInr) || estimateInr <= 0) {
       res.status(400).json({ error: "Valid brand estimate amount is required." });
       return;
@@ -5957,7 +6061,7 @@ export function registerSrfRoutes(
              modified_by = $5
          WHERE id = $1::uuid
            AND status = 'sent_to_brand'`,
-        [srfId, estimateInr, currency, JSON.stringify(toJsonMeta(req.body?.emailMeta)), actor?.id ?? null],
+        [srfId, estimateInr, currency, JSON.stringify(emailMeta), actor?.id ?? null],
       );
       if ((upd.rowCount ?? 0) === 0) {
         res.status(400).json({ error: "SRF must be in sent_to_brand state to log brand estimate." });
@@ -5978,7 +6082,7 @@ export function registerSrfRoutes(
           description: `Brand estimate logged (${currency} ${estimateInr.toFixed(2)}).`,
           actor: actor ?? undefined,
           amountInr: currency === "INR" ? estimateInr : null,
-          details: { estimateInr, currency, note, emailMeta: toJsonMeta(req.body?.emailMeta) },
+          details: { estimateInr, currency, note, emailMeta },
         });
         await client.query("COMMIT");
       } catch {
@@ -6281,25 +6385,41 @@ export function registerSrfRoutes(
     const brandCreditNoteRef = String(req.body?.brandCreditNoteRef ?? req.body?.couponCode ?? "").trim() || null;
     const validUntil = String(req.body?.validUntil ?? "").trim() || null;
     const note = String(req.body?.note ?? "").trim();
+    const valueInr = Number(req.body?.valueInr ?? 0);
+    const attachmentPath = String(req.body?.attachmentPath ?? "").trim();
     if (!note) {
       res.status(400).json({ error: "Credit note remark from brand mail is required." });
       return;
     }
+    if (!Number.isFinite(valueInr) || valueInr <= 0) {
+      res.status(400).json({ error: "Valid voucher amount (INR) from brand mail is required." });
+      return;
+    }
+    if (!attachmentPath) {
+      res.status(400).json({ error: "Credit note document upload is required." });
+      return;
+    }
+    const invoiceMeta = mergeBrandAttachmentMeta(
+      {},
+      attachmentPath,
+      toJsonMeta(req.body?.attachmentMeta),
+    );
     try {
       const upd = await pool.query(
         `UPDATE srf_jobs
          SET status = 'brand_credit_note_pending',
              brand_invoice_ref = COALESCE($2, brand_invoice_ref),
+             brand_invoice_meta = $5::jsonb,
              brand_coupon_received_at = now(),
              brand_coupon_valid_until = $3::date,
              brand_coupon_code = NULL,
-             brand_coupon_value_inr = NULL,
+             brand_coupon_value_inr = $6,
              updated_at = now(),
              modified_by = $4
          WHERE id = $1::uuid
            AND status = 'sent_to_brand'
            AND brand_estimate_inr IS NULL`,
-        [srfId, brandCreditNoteRef, validUntil, actor?.id ?? null],
+        [srfId, brandCreditNoteRef, validUntil, actor?.id ?? null, JSON.stringify(invoiceMeta), valueInr],
       );
       if ((upd.rowCount ?? 0) === 0) {
         res.status(400).json({ error: "SRF must be sent_to_brand with no brand estimate logged yet." });
@@ -6320,7 +6440,7 @@ export function registerSrfRoutes(
           description: `Brand credit note logged from mail${brandCreditNoteRef ? ` (ref ${brandCreditNoteRef})` : ""}.`,
           actor: actor ?? undefined,
           referenceDoc: brandCreditNoteRef,
-          details: { validUntil, note, brandCreditNoteRef },
+          details: { validUntil, note, brandCreditNoteRef, invoiceMeta, proposedValueInr: valueInr },
         });
         await client.query("COMMIT");
       } catch {
@@ -6343,10 +6463,14 @@ export function registerSrfRoutes(
     }
     const srfId = String(req.params.srfId ?? "").trim();
     const note = String(req.body?.note ?? "").trim();
+    const attachmentPath = String(req.body?.attachmentPath ?? "").trim() || null;
     if (!note) {
       res.status(400).json({ error: "Remark is required (brand cannot repair / customer declined repair)." });
       return;
     }
+    const returnMeta = attachmentPath
+      ? mergeBrandAttachmentMeta({}, attachmentPath, toJsonMeta(req.body?.attachmentMeta))
+      : null;
     try {
       const prior = await pool.query<{
         status: string;
@@ -6376,11 +6500,12 @@ export function registerSrfRoutes(
          SET status = 'brand_repair_in_progress',
              brand_return_without_repair = true,
              brand_ho_approval_sent_at = COALESCE(brand_ho_approval_sent_at, now()),
+             brand_invoice_meta = CASE WHEN $4::jsonb IS NOT NULL THEN $4::jsonb ELSE brand_invoice_meta END,
              updated_at = now(),
              modified_by = $2
          WHERE id = $1::uuid
            AND status = $3`,
-        [srfId, actor?.id ?? null, row.status],
+        [srfId, actor?.id ?? null, row.status, returnMeta ? JSON.stringify(returnMeta) : null],
       );
       if ((upd.rowCount ?? 0) === 0) {
         res.status(400).json({ error: "Could not update SRF for brand return without repair." });
@@ -6400,7 +6525,7 @@ export function registerSrfRoutes(
           action: "brand_return_without_repair",
           description: "Brand return without repair — awaiting physical return from brand workshop.",
           actor: actor ?? undefined,
-          details: { note },
+          details: { note, returnMeta },
         });
         await client.query("COMMIT");
       } catch {
@@ -6544,6 +6669,7 @@ export function registerSrfRoutes(
                 j.serial,
                 j.status,
                 j.brand_invoice_ref AS "brandInvoiceRef",
+                j.brand_invoice_meta AS "brandInvoiceMeta",
                 j.brand_coupon_code AS "brandCouponCode",
                 j.brand_coupon_value_inr::float8 AS "brandCouponValueInr",
                 j.brand_coupon_valid_until AS "brandCouponValidUntil",
