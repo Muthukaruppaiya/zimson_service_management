@@ -638,7 +638,7 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_doc_path TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_queued_at TIMESTAMPTZ;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_clerk_note TEXT;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_clerk_at TIMESTAMPTZ;
-ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_clerk_by UUID;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_dispatch_clerk_by VARCHAR(80);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS inter_ho_return_without_repair BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_return_without_repair BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_odc_number VARCHAR(64);
@@ -835,6 +835,21 @@ export async function runMigrations(pool: Pool): Promise<void> {
      WHERE store_id IS NOT NULL
      ON CONFLICT (user_id, store_id) DO NOTHING`,
   );
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'srf_jobs'
+          AND column_name = 'brand_dispatch_clerk_by'
+          AND udt_name = 'uuid'
+      ) THEN
+        ALTER TABLE srf_jobs
+          ALTER COLUMN brand_dispatch_clerk_by TYPE VARCHAR(80)
+          USING brand_dispatch_clerk_by::text;
+      END IF;
+    END $$;
+  `);
   await pool.query(`
     ALTER TABLE srf_inter_ho_spare_orders
       ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ,

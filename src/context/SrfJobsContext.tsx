@@ -173,6 +173,10 @@ type SrfJobsContextValue = {
   technicianRecommendBrand: (jobId: string, note?: string) => Promise<void>;
   technicianSendToBrand: (jobId: string, payload: { note?: string }) => Promise<void>;
   clerkLogBrandDispatch: (jobId: string, payload: { dispatchRef: string; note: string }) => Promise<void>;
+  clerkLogBrandDispatchBatch: (
+    jobIds: string[],
+    payload: { dispatchRef: string; note: string },
+  ) => Promise<{ updated: number }>;
   supervisorConfirmBrandDispatch: (
     jobId: string,
     payload?: { note?: string; dispatchDocPath?: string },
@@ -597,6 +601,18 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const clerkLogBrandDispatchBatch = useCallback(
+    async (jobIds: string[], payload: { dispatchRef: string; note: string }) => {
+      const out = await apiJson<{ ok: boolean; updated: number }>(
+        "/api/service/srf-jobs/brand/clerk-log-dispatch-batch",
+        { method: "POST", json: { jobIds, ...payload } },
+      );
+      await refreshJobs();
+      return { updated: out.updated };
+    },
+    [refreshJobs],
+  );
+
   const supervisorConfirmBrandDispatch = useCallback(
     async (jobId: string, payload?: { note?: string; dispatchDocPath?: string }) => {
       const out = await apiJson<{ brandOdcNumber?: string }>(
@@ -900,6 +916,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       technicianRecommendBrand,
       technicianSendToBrand,
       clerkLogBrandDispatch,
+      clerkLogBrandDispatchBatch,
       supervisorConfirmBrandDispatch,
       submitSparesSlip,
       technicianMarkRepairComplete,
@@ -962,6 +979,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       technicianRecommendBrand,
       technicianSendToBrand,
       clerkLogBrandDispatch,
+      clerkLogBrandDispatchBatch,
       supervisorConfirmBrandDispatch,
       submitSparesSlip,
       technicianMarkRepairComplete,

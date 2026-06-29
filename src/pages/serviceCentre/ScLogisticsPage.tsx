@@ -99,7 +99,7 @@ type OnlineSpareOrderRow = {
 export function ScLogisticsPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
-  const { jobs, confirmInwardByDc, createOutwardBatch, clerkLogBrandDispatch } = useSrfJobs();
+  const { jobs, confirmInwardByDc, createOutwardBatch, clerkLogBrandDispatchBatch } = useSrfJobs();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get("tab") === "outward" ? "outward" : "inward";
 
@@ -195,7 +195,8 @@ export function ScLogisticsPage() {
 
   const [selectedOut, setSelectedOut] = useState<Record<string, boolean>>({});
   const [scanOutwardSrfInput, setScanOutwardSrfInput] = useState("");
-  const [brandDispatchPopupJobId, setBrandDispatchPopupJobId] = useState<string | null>(null);
+  const [selectedBrandOut, setSelectedBrandOut] = useState<Record<string, boolean>>({});
+  const [brandDispatchPopupOpen, setBrandDispatchPopupOpen] = useState(false);
   const [brandDispatchRefInput, setBrandDispatchRefInput] = useState("");
   const [brandDispatchNoteInput, setBrandDispatchNoteInput] = useState("");
   const [brandDispatchSaving, setBrandDispatchSaving] = useState(false);
@@ -303,6 +304,30 @@ export function ScLogisticsPage() {
       (j) => j.status === "brand_outward_pending" && jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
+
+  const selectedBrandJobIds = useMemo(
+    () => brandOutwardQueue.filter((j) => selectedBrandOut[j.id]).map((j) => j.id),
+    [brandOutwardQueue, selectedBrandOut],
+  );
+
+  function toggleBrand(id: string) {
+    setSelectedBrandOut((s) => ({ ...s, [id]: !s[id] }));
+  }
+
+  function toggleAllBrand(checked: boolean) {
+    const next: Record<string, boolean> = {};
+    if (checked) brandOutwardQueue.forEach((j) => (next[j.id] = true));
+    setSelectedBrandOut(next);
+  }
+
+  function openBrandDispatchPopup(jobIds?: string[]) {
+    if (jobIds?.length) {
+      setSelectedBrandOut(Object.fromEntries(jobIds.map((id) => [id, true])));
+    }
+    setBrandDispatchRefInput("");
+    setBrandDispatchNoteInput("");
+    setBrandDispatchPopupOpen(true);
+  }
 
   const readyOutward = useMemo(() => {
     if (!user) return [];
@@ -911,15 +936,51 @@ export function ScLogisticsPage() {
           </Card>
           <Card
             title={`Send to brand (front desk) · ${brandOutwardQueue.length}`}
-            subtitle="Supervisor queued these watches. Enter courier / AWB — supervisor acknowledges on brand desk."
+            subtitle="Supervisor queued these watches. Select one or more, then enter courier / AWB — supervisor acknowledges on brand desk."
           >
+            {outwardMsg ? (
+              <p
+                className={
+                  outwardMsg.type === "ok"
+                    ? "mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200"
+                    : "mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200"
+                }
+              >
+                {outwardMsg.text}
+              </p>
+            ) : null}
             {brandOutwardQueue.length === 0 ? (
               <p className="mt-4 text-sm text-stone-600">No watches waiting for brand dispatch logistics entry.</p>
             ) : (
-              <div className="mt-4 overflow-x-auto rounded-xl border border-violet-200/80">
+              <>
+                <div className="mt-4 mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-sm text-stone-700">
+                    <input
+                      type="checkbox"
+                      disabled={!canCreateOdc}
+                      checked={
+                        brandOutwardQueue.length > 0 &&
+                        brandOutwardQueue.every((j) => selectedBrandOut[j.id])
+                      }
+                      onChange={(e) => toggleAllBrand(e.target.checked)}
+                      className="rounded border-violet-400 text-violet-700 focus:ring-violet-500"
+                    />
+                    Select all ({brandOutwardQueue.length})
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!canCreateOdc || selectedBrandJobIds.length === 0}
+                    onClick={() => openBrandDispatchPopup()}
+                    className="rounded-xl bg-violet-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Log dispatch for selected ({selectedBrandJobIds.length})
+                  </button>
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-violet-200/80">
                 <table className="min-w-full text-left text-sm">
                   <thead className="border-b border-violet-300 bg-violet-50 text-xs font-semibold uppercase tracking-wide text-violet-900">
                     <tr>
+                      <th className="px-3 py-2 w-10" />
                       <th className="px-3 py-2">SRF</th>
                       <th className="px-3 py-2">Watch</th>
                       <th className="px-3 py-2">Supervisor note</th>
@@ -929,6 +990,15 @@ export function ScLogisticsPage() {
                   <tbody>
                     {brandOutwardQueue.map((j) => (
                       <tr key={j.id} className="border-b border-violet-100 last:border-0">
+                        <td className="px-3 py-2 align-top">
+                          <input
+                            type="checkbox"
+                            disabled={!canCreateOdc}
+                            checked={!!selectedBrandOut[j.id]}
+                            onChange={() => toggleBrand(j.id)}
+                            className="rounded border-violet-400 text-violet-700 focus:ring-violet-500"
+                          />
+                        </td>
                         <td className="px-3 py-2 font-mono font-semibold text-violet-950">{j.reference}</td>
                         <td className="px-3 py-2 text-stone-700">
                           {j.watchBrand} {j.watchModel}
@@ -939,14 +1009,10 @@ export function ScLogisticsPage() {
                           <button
                             type="button"
                             disabled={!canCreateOdc}
-                            onClick={() => {
-                              setBrandDispatchPopupJobId(j.id);
-                              setBrandDispatchRefInput("");
-                              setBrandDispatchNoteInput("");
-                            }}
-                            className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => openBrandDispatchPopup([j.id])}
+                            className="rounded-lg border border-violet-400 bg-white px-3 py-1.5 text-xs font-semibold text-violet-900 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Log dispatch to brand
+                            Log this watch
                           </button>
                         </td>
                       </tr>
@@ -954,6 +1020,7 @@ export function ScLogisticsPage() {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </Card>
           <Card title="Create internal outward transfer">
@@ -1567,13 +1634,28 @@ export function ScLogisticsPage() {
           onSuccess={onOutwardEwaySuccess}
         />
       ) : null}
-      {brandDispatchPopupJobId ? (
+      {brandDispatchPopupOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-violet-950">Log brand dispatch</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Enter courier / AWB / handover details. Supervisor will acknowledge and confirm on the brand desk.
+              Enter courier / AWB / handover details for{" "}
+              <span className="font-semibold text-violet-900">
+                {selectedBrandJobIds.length} watch{selectedBrandJobIds.length === 1 ? "" : "es"}
+              </span>
+              . Supervisor will acknowledge and confirm on the brand desk.
             </p>
+            {selectedBrandJobIds.length > 0 ? (
+              <ul className="mt-2 max-h-28 overflow-y-auto rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2 text-xs text-violet-950">
+                {brandOutwardQueue
+                  .filter((j) => selectedBrandOut[j.id])
+                  .map((j) => (
+                    <li key={j.id} className="font-mono">
+                      {j.reference} · {j.watchBrand} {j.watchModel}
+                    </li>
+                  ))}
+              </ul>
+            ) : null}
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Dispatch reference / AWB *
@@ -1598,29 +1680,33 @@ export function ScLogisticsPage() {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setBrandDispatchPopupJobId(null)}
+                onClick={() => setBrandDispatchPopupOpen(false)}
                 className="rounded-xl border border-rlx-rule px-4 py-2 text-sm"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={brandDispatchSaving}
+                disabled={brandDispatchSaving || selectedBrandJobIds.length === 0}
                 onClick={() => {
-                  if (!brandDispatchPopupJobId) return;
                   const dispatchRef = brandDispatchRefInput.trim();
                   const note = brandDispatchNoteInput.trim();
                   if (!dispatchRef || !note) {
                     setOutwardMsg({ type: "err", text: "AWB/ref and remark are required." });
                     return;
                   }
+                  if (selectedBrandJobIds.length === 0) {
+                    setOutwardMsg({ type: "err", text: "Select at least one watch." });
+                    return;
+                  }
                   setBrandDispatchSaving(true);
-                  void clerkLogBrandDispatch(brandDispatchPopupJobId, { dispatchRef, note })
-                    .then(() => {
-                      setBrandDispatchPopupJobId(null);
+                  void clerkLogBrandDispatchBatch(selectedBrandJobIds, { dispatchRef, note })
+                    .then((out) => {
+                      setBrandDispatchPopupOpen(false);
+                      setSelectedBrandOut({});
                       setOutwardMsg({
                         type: "ok",
-                        text: "Brand dispatch logged. Supervisor will acknowledge on the brand desk.",
+                        text: `Brand dispatch logged for ${out.updated} watch${out.updated === 1 ? "" : "es"}. Supervisor will acknowledge on the brand desk.`,
                       });
                     })
                     .catch((e: unknown) => {
@@ -1633,7 +1719,7 @@ export function ScLogisticsPage() {
                 }}
                 className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
-                {brandDispatchSaving ? "Saving…" : "Save dispatch entry"}
+                {brandDispatchSaving ? "Saving…" : `Save dispatch (${selectedBrandJobIds.length})`}
               </button>
             </div>
           </div>

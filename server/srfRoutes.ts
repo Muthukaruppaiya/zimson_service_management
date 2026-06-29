@@ -5584,7 +5584,7 @@ export function registerSrfRoutes(
              brand_dispatch_ref = $2,
              brand_dispatch_clerk_note = $3,
              brand_dispatch_clerk_at = now(),
-             brand_dispatch_clerk_by = $4::uuid,
+             brand_dispatch_clerk_by = $4,
              updated_at = now(),
              modified_by = $4
          WHERE id = $1::uuid`,
@@ -5624,7 +5624,115 @@ export function registerSrfRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not log brand dispatch." });
+      const msg = e instanceof Error ? e.message : "Could not log brand dispatch.";
+      res.status(400).json({ error: msg.includes("invalid input syntax for type uuid") ? "Could not log brand dispatch — user id mismatch." : msg || "Could not log brand dispatch." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post("/api/service/srf-jobs/brand/clerk-log-dispatch-batch", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !SC_ODC_OUTWARD_ROLES.has(actor.role)) {
+      res.status(403).json({ error: "Only front desk / logistics roles can log brand dispatch details." });
+      return;
+    }
+    const jobIds = Array.isArray(req.body?.jobIds)
+      ? [...new Set(req.body.jobIds.map((id: unknown) => String(id ?? "").trim()).filter(Boolean))]
+      : [];
+    const dispatchRef = String(req.body?.dispatchRef ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    if (jobIds.length === 0) {
+      res.status(400).json({ error: "Select at least one SRF to log brand dispatch." });
+      return;
+    }
+    if (!dispatchRef) {
+      res.status(400).json({ error: "Courier / AWB / handover reference is required." });
+      return;
+    }
+    if (!note) {
+      res.status(400).json({ error: "Dispatch remark is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      let notifyRegionId: string | null = null;
+      let updated = 0;
+      for (const srfId of jobIds) {
+        const row = await client.query<{ status: string; region_id: string; reference: string }>(
+          `SELECT status, region_id, reference FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+          [srfId],
+        );
+        const srf = row.rows[0];
+        if (!srf) {
+          await client.query("ROLLBACK");
+          res.status(404).json({ error: `SRF not found: ${srfId}` });
+          return;
+        }
+        if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== srf.region_id) {
+          await client.query("ROLLBACK");
+          res.status(403).json({ error: `Brand dispatch can only be logged for your service centre (${srf.reference}).` });
+          return;
+        }
+        if (srf.status !== "brand_outward_pending") {
+          await client.query("ROLLBACK");
+          res.status(400).json({
+            error: `${srf.reference} must be queued for brand dispatch (brand_outward_pending). Current status: ${srf.status}.`,
+          });
+          return;
+        }
+        await client.query(
+          `UPDATE srf_jobs
+           SET status = 'brand_dispatch_pending',
+               brand_dispatch_ref = $2,
+               brand_dispatch_clerk_note = $3,
+               brand_dispatch_clerk_at = now(),
+               brand_dispatch_clerk_by = $4,
+               updated_at = now(),
+               modified_by = $4
+           WHERE id = $1::uuid`,
+          [srfId, dispatchRef, note, actor.id],
+        );
+        await appendStatusHistory(
+          client,
+          srfId,
+          "brand_dispatch_pending",
+          actor.id,
+          `Front desk logged brand dispatch ${dispatchRef}: ${note}`,
+        );
+        await appendActionLog(client, srfId, {
+          action: "brand_clerk_log_dispatch",
+          description: `Front desk logged brand dispatch ref ${dispatchRef}.`,
+          actor,
+          details: { dispatchRef, note, batch: true },
+        });
+        notifyRegionId = srf.region_id;
+        updated += 1;
+      }
+      await client.query("COMMIT");
+      if (pushInApp && notifyRegionId) {
+        const { rows: notifyRows } = await pool.query<{ id: string }>(
+          `SELECT id FROM app_users
+           WHERE region_id = $1::text
+             AND role IN ('service_centre_supervisor', 'ho_manager', 'admin', 'super_admin')`,
+          [notifyRegionId],
+        );
+        await pushInApp(
+          notifyRows.map((r) => r.id),
+          {
+            title: "Brand dispatch ready for acknowledgement",
+            message: `Front desk logged brand dispatch (${dispatchRef}) for ${updated} watch${updated === 1 ? "" : "es"}. Supervisor to acknowledge and confirm send to brand.`,
+            category: "service_srf",
+          },
+        );
+      }
+      res.json({ ok: true, updated });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      const msg = e instanceof Error ? e.message : "Could not log brand dispatch batch.";
+      res.status(400).json({ error: msg || "Could not log brand dispatch batch." });
     } finally {
       client.release();
     }
