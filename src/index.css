@@ -69,6 +69,13 @@
     border-radius: 9999px !important;
   }
 
+  /* Dashboard action tiles — smooth rounded corners (ChronoSync) */
+  .cs-action-tile,
+  .dashboard-quick-tile,
+  .chrono-dashboard .cs-action-tile {
+    border-radius: 1.25rem !important;
+  }
+
   /* ── Global form primitives ───────────────────────── */
   input, select, textarea {
     color: var(--color-rlx-ink);
@@ -503,6 +510,440 @@
   }
 }
 
+/* =============================================================================
+ * ChronoSync Dashboard — unified portal styling (reference: image_8.png)
+ * ============================================================================= */
+.chrono-dashboard {
+  --cs-primary-navy: #032d60;
+  --cs-accent-gold: #c39b5b;
+  --cs-bg-navy: #021a36;
+  --cs-page-bg: #f4f6f8;
+  --cs-card-bg: #ffffff;
+  --cs-divider: #e0e6ed;
+  --cs-text-dark: #333333;
+  --cs-text-muted: #777777;
+  --cs-status-orange-bg: #fee4b4;
+  --cs-status-orange-text: #9d7c4a;
+  --cs-status-red-bg: #f7dada;
+  --cs-status-red-text: #8d021f;
+  --cs-quickaction-bg: #e0e6ed;
+  --cs-spacing-base: 16px;
+  --cs-spacing-lg: 24px;
+  --cs-radius-base: 8px;
+  --cs-radius-pill: 40px;
+  --cs-shadow-base: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --cs-shadow-hover: 0 6px 16px rgba(0, 0, 0, 0.1);
+
+  background-color: var(--cs-page-bg);
+  animation: dashboard-fade-in 0.35s ease-out;
+}
+
+.cs-dashboard-container {
+  max-width: none;
+  margin: 0 auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-spacing-base);
+}
+
+/* ── Welcome banner ─────────────────────────────────────────────────────── */
+#cs-welcome.dashboard-hero,
+.dashboard-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px !important;
+  background:
+    linear-gradient(90deg, rgba(101, 114, 132, 0.18) 0%, rgba(101, 114, 132, 0) 28%),
+    linear-gradient(135deg, #1f2d40 0%, #2f3f56 55%, #2a394f 100%);
+  color: #ffffff;
+  padding: 28px 32px;
+  animation: dashboard-fade-in 0.45s ease-out;
+}
+
+.dashboard-hero-watermark {
+  width: 430px;
+  height: auto;
+  opacity: 0.78;
+}
+
+.dashboard-hero-title {
+  position: relative;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dashboard-hero-sub {
+  position: relative;
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* ── Shared card base ───────────────────────────────────────────────────── */
+.chrono-dashboard .cs-card:not(.cs-action-tile) {
+  background-color: var(--cs-card-bg);
+  border-radius: var(--cs-radius-base) !important;
+  box-shadow: var(--cs-shadow-base);
+  border: 1px solid transparent;
+  position: relative;
+  box-sizing: border-box;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  text-decoration: none;
+  color: inherit;
+}
+
+.chrono-dashboard .cs-card:not(.cs-action-tile):hover {
+  box-shadow: var(--cs-shadow-hover);
+}
+
+/* ── KPI status labels ──────────────────────────────────────────────────── */
+.cs-status-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px !important;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  pointer-events: none;
+  letter-spacing: 0.06em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cs-status-blinker {
+  position: relative;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px !important;
+}
+
+.cs-status-blinker::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  animation: cs-status-blinker-ping 1.4s ease-in-out infinite;
+}
+
+.cs-status-blinker-action {
+  background: #d97706;
+}
+
+.cs-status-blinker-action::before {
+  background: rgba(217, 119, 6, 0.55);
+}
+
+.cs-status-blinker-urgent {
+  background: #dc2626;
+}
+
+.cs-status-blinker-urgent::before {
+  background: rgba(220, 38, 38, 0.55);
+}
+
+@keyframes cs-status-blinker-ping {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.cs-status-label.action {
+  background-color: var(--cs-status-orange-bg);
+  color: var(--cs-status-orange-text);
+}
+
+.cs-status-label.urgent {
+  background-color: var(--cs-status-red-bg);
+  color: var(--cs-status-red-text);
+}
+
+/* ── KPI grid ─────────────────────────────────────────────────────────────── */
+.cs-kpi-grid {
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--cs-spacing-base);
+}
+
+@media (max-width: 1279px) {
+  .cs-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 639px) {
+  .cs-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cs-kpi-card {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 8px;
+  min-height: 9rem;
+  padding: var(--cs-spacing-base);
+  border-radius: 1.25rem !important;
+  overflow: hidden;
+}
+
+.cs-kpi-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cs-kpi-label {
+  margin: 0;
+  padding-right: 4.5rem;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--cs-text-muted);
+  line-height: 1.3;
+}
+
+.cs-kpi-value {
+  margin: 4px 0 0;
+  font-size: clamp(2rem, 3.5vw, 3rem);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--cs-primary-navy);
+}
+
+.cs-kpi-sub {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cs-text-muted);
+  line-height: 1.3;
+}
+
+.dashboard-kpi-illustration {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  opacity: 0.95;
+}
+
+.dashboard-kpi-card:hover {
+  transform: translateY(-2px);
+}
+
+/* Force rounded corners for top KPI/action queue cards */
+.chrono-dashboard a.dashboard-kpi-card,
+.chrono-dashboard .dashboard-kpi-card {
+  border-radius: 1.25rem !important;
+  overflow: hidden !important;
+}
+
+/* KPI card live blinkers — ACTION (amber) and URGENT (red) */
+@keyframes dashboard-kpi-action-glow {
+  0%,
+  100% {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 0 rgba(201, 162, 39, 0.45);
+    border-color: rgba(254, 228, 180, 0.9) !important;
+  }
+  50% {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1), 0 0 0 5px rgba(201, 162, 39, 0.12);
+    border-color: rgba(201, 162, 39, 0.55) !important;
+  }
+}
+
+@keyframes dashboard-kpi-urgent-glow {
+  0%,
+  100% {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 0 rgba(220, 38, 38, 0.4);
+    border-color: rgba(252, 165, 165, 0.95) !important;
+  }
+  50% {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1), 0 0 0 6px rgba(220, 38, 38, 0.14);
+    border-color: rgba(248, 113, 113, 0.85) !important;
+  }
+}
+
+.chrono-dashboard .dashboard-kpi-card {
+  border: 1px solid var(--cs-divider) !important;
+}
+
+.chrono-dashboard .dashboard-kpi-blink-action {
+  animation: dashboard-kpi-action-glow 1.7s ease-in-out infinite;
+}
+
+.chrono-dashboard .dashboard-kpi-blink-urgent {
+  animation: dashboard-kpi-urgent-glow 1.35s ease-in-out infinite;
+}
+
+/* ── Quick action tiles ───────────────────────────────────────────────────── */
+.cs-actions-grid {
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--cs-spacing-base);
+}
+
+@media (max-width: 1023px) {
+  .cs-actions-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 479px) {
+  .cs-actions-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.chrono-dashboard a.cs-action-tile,
+.chrono-dashboard .cs-action-tile {
+  background-color: var(--cs-quickaction-bg) !important;
+  border-radius: 1.25rem !important;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  aspect-ratio: 1.5;
+  width: 100%;
+  border: 1px solid rgba(203, 213, 224, 0.6) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+  overflow: hidden;
+  text-decoration: none;
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.chrono-dashboard a.cs-action-tile:hover,
+.chrono-dashboard .cs-action-tile:hover {
+  background-color: #cbd5e0 !important;
+  transform: translateY(-2px);
+  box-shadow: var(--cs-shadow-hover) !important;
+}
+
+.chrono-dashboard a.cs-action-tile:active,
+.chrono-dashboard .cs-action-tile:active {
+  transform: translateY(0);
+}
+
+.cs-action-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--cs-primary-navy);
+}
+
+/* Quick-action icons — 60–72px per reference */
+.dashboard-quick-tile-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+
+.dashboard-quick-tile-icon .dashboard-quick-tile-svg,
+.dashboard-quick-tile-icon svg {
+  width: 120px !important;
+  height: 120px !important;
+  max-width: 120px;
+  max-height: 120px;
+}
+
+/* ── Footer panels ────────────────────────────────────────────────────────── */
+.cs-footer-grid {
+  grid-template-columns: 2fr 1fr;
+  gap: var(--cs-spacing-base);
+}
+
+@media (max-width: 1279px) {
+  .cs-footer-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Gold-glow search (header + quick find) ───────────────────────────────── */
+.cs-lookup-wrapper {
+  position: relative;
+  flex: 1;
+  max-width: 100%;
+  padding: 2px;
+}
+
+.cs-lookup-wrapper::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 52%;
+  background: linear-gradient(180deg, rgba(27, 58, 143, 0.08) 0%, rgba(27, 58, 143, 0.32) 100%);
+  border-radius: 9999px !important;
+  filter: blur(5px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cs-lookup-wrapper::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  right: -1px;
+  bottom: -1px;
+  border: 1.5px solid rgba(27, 58, 143, 0.75);
+  border-radius: var(--cs-radius-pill) !important;
+  filter: blur(2px);
+  opacity: 0.95;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.cs-lookup-inner {
+  border-radius: var(--cs-radius-pill) !important;
+  box-shadow:
+    inset 0 -1px 0 rgba(27, 58, 143, 0.4),
+    0 1px 5px rgba(16, 37, 112, 0.3);
+}
+
+/* ── Quick find strip ─────────────────────────────────────────────────────── */
+.dashboard-search-panel {
+  animation: dashboard-fade-in 0.55s ease-out backwards;
+  border-radius: var(--cs-radius-base) !important;
+  border: 1px solid var(--cs-divider);
+  background: var(--cs-page-bg);
+}
+
+.dashboard-action-card {
+  animation: dashboard-fade-in 0.5s ease-out backwards;
+}
+
+@keyframes dashboard-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Dashboard waiting queue blinker */
 @keyframes dashboard-waiting-glow {
   0%,
@@ -535,10 +976,9 @@
 }
 
 .dashboard-stat-waiting {
-  animation: dashboard-waiting-soft 2s ease-in-out infinite;
-  box-shadow: 0 0 0 1px rgb(251 191 36 / 0.5);
+  /* subtle highlight only — no pulse on full card */
 }
 
 .dashboard-stat-waiting-urgent {
-  animation: dashboard-waiting-glow 1.8s ease-in-out infinite;
+  /* ring applied via Tailwind on DashboardPage */
 }

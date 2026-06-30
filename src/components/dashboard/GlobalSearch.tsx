@@ -6,6 +6,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import type { QuickBillHistoryRow } from "../../types/quickBill";
 import type { SessionUser } from "../../types/user";
+import { pushRecentLookup } from "../../lib/dashboardRecentLookups";
 
 type HitKind = "SRF" | "DC" | "ODC" | "QB";
 
@@ -109,7 +110,13 @@ function KindBadge({ kind }: { kind: HitKind }) {
   );
 }
 
-export function GlobalSearch({ autoFocus = true }: { autoFocus?: boolean }) {
+export function GlobalSearch({
+  autoFocus = true,
+  variant = "compact",
+}: {
+  autoFocus?: boolean;
+  variant?: "compact" | "dashboard" | "header";
+}) {
   const navigate = useNavigate();
   const apiMode = useApiMode();
   const { user } = useAuth();
@@ -242,6 +249,12 @@ export function GlobalSearch({ autoFocus = true }: { autoFocus?: boolean }) {
   }, [query]);
 
   function go(hit: SearchHit) {
+    pushRecentLookup({
+      query: hit.primary,
+      label: hit.secondary,
+      kind: hit.kind,
+      to: hit.to,
+    });
     navigate(hit.to);
     setOpen(false);
     setQuery("");
@@ -264,18 +277,28 @@ export function GlobalSearch({ autoFocus = true }: { autoFocus?: boolean }) {
     if (e.key === "Escape") setOpen(false);
   }
 
+  const isDashboard = variant === "dashboard";
+  const isHeader = variant === "header";
+  const isDark = isDashboard || isHeader;
+
   return (
-    <div ref={containerRef} className="relative w-full">
-      {/* Search input row */}
+    <div ref={containerRef} className={`relative w-full ${isDark ? "cs-lookup-wrapper" : ""}`}>
       <div
         className={[
-          "relative flex items-center border bg-white transition-all",
+          "cs-lookup-inner relative z-[1] flex items-center border transition-all",
+          isDark
+            ? "rounded-full bg-[#021a36]"
+            : "bg-white",
           open
-            ? "border-rlx-green shadow-[0_4px_16px_rgba(0,96,57,0.15)]"
-            : "border-rlx-rule hover:border-rlx-green/50",
+            ? isDark
+              ? "border-[#c39b5b]/70"
+              : "border-rlx-green shadow-[0_4px_16px_rgba(27,58,143,0.12)]"
+            : isDark
+              ? "border-[#e0e6ed]/30 hover:border-[#c39b5b]/50"
+              : "border-rlx-rule hover:border-rlx-green/50",
         ].join(" ")}
       >
-        <span className="pl-3 text-rlx-ink-muted">
+        <span className={isDark ? "pl-4 text-white/50" : "pl-3 text-rlx-ink-muted"}>
           <SearchIcon className="h-4 w-4" />
         </span>
         <input
@@ -287,23 +310,36 @@ export function GlobalSearch({ autoFocus = true }: { autoFocus?: boolean }) {
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Search SRF, DC/ODC, Quick bill — or scan a barcode"
-          className="h-9 min-w-0 flex-1 bg-transparent px-2 text-[13px] text-rlx-ink outline-none placeholder:text-rlx-ink-muted/50"
+          placeholder={
+            isHeader
+              ? "Search Serial/SRF, Customer, or part"
+              : isDashboard
+                ? "Search SRF, Serial, or scan barcode"
+                : "Search SRF, DC/ODC, Quick bill — or scan a barcode"
+          }
+          className={`min-w-0 flex-1 bg-transparent outline-none ${
+            isDark
+              ? `${isHeader ? "h-11" : "h-10"} px-3 text-sm text-white placeholder:text-white/40`
+              : "h-9 px-2 text-[13px] text-rlx-ink placeholder:text-rlx-ink-muted/50"
+          }`}
         />
         {query ? (
           <button
             type="button"
             onClick={() => { setQuery(""); inputRef.current?.focus(); }}
-            className="px-2 text-rlx-ink-muted transition hover:text-rlx-ink"
+            className={`px-2 transition ${isDark ? "text-white/50 hover:text-white" : "text-rlx-ink-muted hover:text-rlx-ink"}`}
             aria-label="Clear"
           >
             <CloseIcon className="h-3.5 w-3.5" />
           </button>
         ) : null}
-        {/* Scanner badge — compact, no rounded */}
         <span
-          className="flex shrink-0 items-center gap-1 border-l border-rlx-rule px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.15em]"
-          style={{ color: "#C9A227", background: "rgba(201,162,39,0.06)" }}
+          className={`flex shrink-0 items-center gap-1.5 font-semibold uppercase tracking-[0.12em] ${
+            isDark
+              ? "mr-1 rounded-full border border-[#C9A227]/40 px-3 py-1.5 text-[10px] text-[#C9A227]"
+              : "border-l border-rlx-rule px-3 py-1.5 text-[10px] tracking-[0.15em]"
+          }`}
+          style={isDark ? { background: "rgba(201,162,39,0.12)" } : { color: "#C9A227", background: "rgba(201,162,39,0.08)" }}
           title="Barcode scanner ready"
         >
           <ScanIcon className="h-3.5 w-3.5" />
@@ -323,7 +359,7 @@ export function GlobalSearch({ autoFocus = true }: { autoFocus?: boolean }) {
 
       {/* Results dropdown */}
       {open && query.trim() ? (
-        <div className="absolute left-0 right-0 z-50 mt-1 overflow-hidden border border-rlx-rule bg-white shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+        <div className={`absolute left-0 right-0 z-50 mt-1 overflow-hidden border border-rlx-rule bg-white shadow-[0_8px_32px_rgba(0,0,0,0.18)] ${isDark ? "rounded-xl" : ""}`}>
           {hits.length === 0 ? (
             <div className="px-5 py-5 text-center text-sm text-rlx-ink-muted">
               No matches for{" "}

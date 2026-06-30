@@ -5,7 +5,7 @@ import {
 } from "./dashboardQuickLinks";
 import type { SessionUser } from "../types/user";
 
-const STORAGE_PREFIX = "zimson_dashboard_quick_links_v1";
+const STORAGE_PREFIX = "zimson_dashboard_quick_links_v2";
 
 function storageKey(userId: string): string {
   return `${STORAGE_PREFIX}:${userId}`;

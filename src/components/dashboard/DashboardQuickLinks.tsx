@@ -7,7 +7,6 @@ import {
   resolveQuickLinkDefs,
   type DashboardQuickLinkId,
 } from "../../lib/dashboardQuickLinks";
-import { QUICK_LINK_ICON_TONE } from "../../lib/dashboardQuickLinkStyles";
 import {
   loadDashboardQuickLinkIds,
   saveDashboardQuickLinkIds,
@@ -64,53 +63,34 @@ export function DashboardQuickLinks() {
   if (available.length === 0) return null;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-rlx-rule bg-white shadow-[0_2px_12px_rgba(16,37,112,0.06)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rlx-rule bg-gradient-to-r from-rlx-green to-rlx-green-deep px-4 py-3 md:px-5">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-rlx-gold">Quick links</p>
-          <h2 className="mt-0.5 text-sm font-semibold text-white md:text-base">Your daily shortcuts</h2>
-        </div>
+    <section className="overflow-hidden rounded-2xl border border-[#e8ebf0] bg-white shadow-[0_2px_10px_rgba(16,37,112,0.05)]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e8ebf0] bg-white px-3 py-2.5 md:px-4">
+        <h2 className="text-sm font-bold text-[#1B3A8F]">Daily Actions &amp; Quick Create</h2>
         <button
           type="button"
           onClick={openSettings}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition hover:bg-white/20"
+          className="inline-flex items-center gap-1 rounded-full border border-[#d8dde6] bg-white px-3 py-1 text-[11px] font-semibold text-[#374151] shadow-sm transition hover:bg-[#f9fafb]"
         >
-          <CustomizeIcon />
-          Customize
+          <CustomizeIcon className="h-3.5 w-3.5" />
+          Manage Links
         </button>
       </div>
 
-      <div className="bg-gradient-to-b from-stone-50/80 to-white px-4 py-6 md:px-6 md:py-7">
-        <p className="mb-5 text-center text-xs text-stone-500 sm:text-left">
-          Tap a coloured icon below — no need to open the menu first.
-        </p>
-
+      <div className="bg-[#f4f6f9] px-3 py-4 md:px-5 md:py-5">
         {activeLinks.length > 0 ? (
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(5.75rem,1fr))] gap-x-3 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(6.25rem,1fr))] sm:gap-x-4 md:gap-x-5">
-            {activeLinks.map((item) => {
-              const tone = QUICK_LINK_ICON_TONE[item.id];
-              return (
-                <li key={item.id} className="flex justify-center">
-                  <Link
-                    to={item.to}
-                    title={item.description}
-                    className={`group flex w-full max-w-[6.5rem] flex-col items-center rounded-2xl p-1.5 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rlx-green`}
-                  >
-                    <span
-                      className={`relative flex aspect-square w-full max-w-[4.75rem] items-center justify-center rounded-2xl border shadow-[0_4px_14px_rgba(16,37,112,0.08)] ring-2 ring-transparent transition duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_8px_20px_rgba(16,37,112,0.12)] group-active:translate-y-0 group-active:scale-[0.98] sm:max-w-[5.25rem] ${tone.tile} ${tone.hoverRing}`}
-                    >
-                      <DashboardQuickLinkIcon
-                        id={item.id}
-                        className={`h-9 w-9 sm:h-10 sm:w-10 ${tone.icon}`}
-                      />
-                    </span>
-                    <span className="mt-2.5 line-clamp-2 w-full px-0.5 text-center text-[11px] font-bold leading-snug text-stone-800 group-hover:text-rlx-green sm:text-xs">
-                      {item.shortLabel}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
+          <ul className="cs-actions-grid grid">
+            {activeLinks.map((item) => (
+              <li key={item.id} className="min-w-0">
+                <Link
+                  to={item.to}
+                  title={item.description}
+                  className="cs-action-tile dashboard-quick-tile group focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#032d60]"
+                >
+                  <DashboardQuickLinkIcon id={item.id} />
+                  <span className="cs-action-label">{item.shortLabel}</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         ) : (
           <p className="rounded-xl border border-dashed border-amber-300/60 bg-amber-50/80 px-4 py-6 text-center text-sm text-amber-950">
@@ -140,14 +120,13 @@ export function DashboardQuickLinks() {
               <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4">
                 {available.map((item) => {
                   const checked = draftIds.includes(item.id);
-                  const tone = QUICK_LINK_ICON_TONE[item.id];
                   return (
                     <li key={item.id}>
                       <label
-                        className={`flex cursor-pointer flex-col items-center rounded-2xl border-2 p-2.5 transition ${
+                        className={`dashboard-quick-tile flex cursor-pointer flex-col items-center justify-between p-2 transition ${
                           checked
-                            ? "border-rlx-green bg-white shadow-md"
-                            : "border-transparent bg-white/80 opacity-75 hover:opacity-100"
+                            ? "ring-2 ring-[#1B3A8F]/30"
+                            : "opacity-80 hover:opacity-100"
                         }`}
                       >
                         <input
@@ -163,12 +142,10 @@ export function DashboardQuickLinks() {
                         ) : (
                           <span className="mb-1 h-4 w-4" aria-hidden />
                         )}
-                        <span
-                          className={`flex h-12 w-12 items-center justify-center rounded-xl border ${tone.tile}`}
-                        >
-                          <DashboardQuickLinkIcon id={item.id} className={`h-7 w-7 ${tone.icon}`} />
+                        <span className="flex flex-1 items-center justify-center">
+                          <DashboardQuickLinkIcon id={item.id} />
                         </span>
-                        <span className="mt-2 text-center text-[10px] font-bold leading-tight text-stone-800">
+                        <span className="mt-1 text-center text-[10px] font-semibold leading-tight text-[#1B3A8F]">
                           {item.shortLabel}
                         </span>
                       </label>

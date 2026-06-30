@@ -4,6 +4,7 @@ import type { ModuleKey, SessionUser } from "../types/user";
 export type DashboardQuickLinkId =
   | "quick_bill"
   | "srf_booking"
+  | "parts_order"
   | "quick_bill_history"
   | "srf_register"
   | "srf_master"
@@ -27,7 +28,7 @@ export const DASHBOARD_QUICK_LINK_CATALOG: DashboardQuickLinkDef[] = [
   {
     id: "quick_bill",
     label: "Quick bill entry",
-    shortLabel: "Quick bill",
+    shortLabel: "Quick Bill",
     description: "Walk-in repair billing and customer upload link.",
     to: "/service/quick-bill",
     module: "service",
@@ -35,15 +36,23 @@ export const DASHBOARD_QUICK_LINK_CATALOG: DashboardQuickLinkDef[] = [
   {
     id: "srf_booking",
     label: "SRF booking",
-    shortLabel: "SRF booking",
+    shortLabel: "New SRF Booking",
     description: "New service request — photos, estimate, and OTP.",
     to: "/service/srf",
     module: "service",
   },
   {
+    id: "parts_order",
+    label: "Parts order",
+    shortLabel: "Parts Order",
+    description: "Create and track spare parts purchase requests.",
+    to: "/inventory/purchase-requests",
+    module: "inventory",
+  },
+  {
     id: "quick_bill_history",
     label: "Quick bill history",
-    shortLabel: "Bill history",
+    shortLabel: "Bill History",
     description: "Past quick bills and invoice reprints.",
     to: "/service/quick-bill-history",
     module: "service",
@@ -51,7 +60,7 @@ export const DASHBOARD_QUICK_LINK_CATALOG: DashboardQuickLinkDef[] = [
   {
     id: "srf_register",
     label: "SRF booking list",
-    shortLabel: "SRF list",
+    shortLabel: "Search SRFs",
     description: "Open and in-progress SRF jobs.",
     to: "/service/srf-register",
     module: "service",
@@ -59,7 +68,7 @@ export const DASHBOARD_QUICK_LINK_CATALOG: DashboardQuickLinkDef[] = [
   {
     id: "srf_master",
     label: "All SRF records",
-    shortLabel: "All SRF",
+    shortLabel: "All SRFs",
     description: "Search and filter full SRF timelines.",
     to: "/service/srf-master",
     module: "service",
@@ -106,7 +115,14 @@ export const DASHBOARD_QUICK_LINK_CATALOG: DashboardQuickLinkDef[] = [
   },
 ];
 
-const DEFAULT_LINK_IDS: DashboardQuickLinkId[] = ["quick_bill", "srf_booking", "store_billing"];
+const DEFAULT_LINK_IDS: DashboardQuickLinkId[] = [
+  "quick_bill",
+  "srf_booking",
+  "parts_order",
+  "quick_bill_history",
+  "srf_register",
+  "srf_master",
+];
 
 export function quickLinksAvailableForUser(user: SessionUser | null): DashboardQuickLinkDef[] {
   if (!user) return [];
