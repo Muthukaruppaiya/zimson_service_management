@@ -45,6 +45,7 @@ import {
 import {
   WatchServiceDetailFields,
   emptyWatchServiceDetailValues,
+  watchServiceDetailsFromApi,
   watchServiceDetailsToApiPayload,
   type WatchServiceDetailValues,
 } from "../../components/service/WatchServiceDetailFields";
@@ -586,7 +587,14 @@ export function SrfBookingV2Page() {
       }
       if (step === 1) {
         if (!validateWatch()) return;
-        await ensureDraft();
+        const row = await ensureDraft();
+        await patchStoreDraftSrf(row.srfId, {
+          watchBrand: watchBrand.trim(),
+          watchFamily: watchFamily.trim(),
+          watchModel: watchModel.trim(),
+          serial: serial.trim(),
+          ...watchServiceDetailsToApiPayload(watchServiceDetails),
+        });
       }
       if (step === 2 && photoCount < SRF_MIN_WATCH_PHOTOS_REQUIRED) {
         setError(srfMinWatchPhotosFinalizeError(photoCount));
@@ -720,7 +728,7 @@ export function SrfBookingV2Page() {
 
     const fromRecord = (row: LoadedCustomer) => {
       applyLoadedCustomer(row);
-      setCustomerCheckMsg("Customer registered. Continue with watch details.");
+      setCustomerCheckMsg(null);
       setStep(1);
     };
 
@@ -823,10 +831,11 @@ export function SrfBookingV2Page() {
         setWatchFamily((job.watchFamily ?? "").trim());
         setWatchModel(job.watchModel.trim());
         setSerial(job.serial);
+        setWatchServiceDetails(watchServiceDetailsFromApi(job));
 
         setCustomerChecked(true);
         setCustomerExists(true);
-        setCustomerCheckMsg("Resumed booking — review customer/watch if needed, then continue.");
+        setCustomerCheckMsg(null);
 
         try {
           const data = await apiJson<{ customer: LoadedCustomer | null }>(
@@ -900,7 +909,7 @@ export function SrfBookingV2Page() {
       const data = await apiJson<{ customer: LoadedCustomer | null }>(`/api/customers?phone=${encodeURIComponent(phone.trim())}`);
       if (data.customer) {
         applyLoadedCustomer(data.customer);
-        setCustomerCheckMsg("Existing customer found and loaded from DB.");
+        setCustomerCheckMsg(null);
       } else {
         const local = customers.find((c) => phone10(c.phone) === p10);
         if (local) {
@@ -921,7 +930,7 @@ export function SrfBookingV2Page() {
             phoneVerifiedAt: local.phoneVerifiedAt ?? null,
             emailVerifiedAt: local.emailVerifiedAt ?? null,
           });
-          setCustomerCheckMsg("Existing customer found locally.");
+          setCustomerCheckMsg(null);
         } else {
           setCustomerExists(false);
           setCustomerChecked(false);
@@ -942,7 +951,7 @@ export function SrfBookingV2Page() {
           setGst("");
           setPan("");
           customerNameForNavRef.current = "";
-          setCustomerCheckMsg("New mobile — opening customer registration…");
+          setCustomerCheckMsg(null);
           redirectToCustomerRegister(phone.trim());
           return;
         }
@@ -967,7 +976,7 @@ export function SrfBookingV2Page() {
           phoneVerifiedAt: local.phoneVerifiedAt ?? null,
           emailVerifiedAt: local.emailVerifiedAt ?? null,
         });
-        setCustomerCheckMsg("Customer found locally (server lookup unavailable).");
+        setCustomerCheckMsg(null);
       } else {
         setError(e instanceof Error ? e.message : "Could not check customer.");
       }
@@ -1364,17 +1373,9 @@ export function SrfBookingV2Page() {
               />
             </label>
           </div>
-          <div className="mt-3 text-xs text-stone-500">
-            {checkingCustomer ? "Checking customer in DB…" : "Customer check runs automatically after you enter a mobile number."}
-          </div>
           {customerCheckMsg ? (
             <p className="mt-3 rounded-xl bg-rlx-green-light px-3 py-2 text-sm text-stone-700">
               {customerCheckMsg}
-              {customerLockedFromDb ? (
-                <span className="mt-1 block text-xs text-stone-600">
-                  Customer master data is read-only. Use Change customer to search another mobile.
-                </span>
-              ) : null}
             </p>
           ) : null}
           {phone10(phone).length === 10 && !checkingCustomer ? (
@@ -1635,13 +1636,10 @@ export function SrfBookingV2Page() {
               ) : (
                 <p className="text-sm">Generating QR...</p>
               )}
-              <p className="mt-2 break-all text-xs text-stone-500">{captureUrl}</p>
             </div>
             <div className="space-y-3">
-              <p className="text-sm">Scan QR and upload images from the customer capture page. Link auto-disables after SRF finalize.</p>
               <p className="text-sm">
-                Uploaded photos: <strong>{photoCount}</strong> (minimum{" "}
-                <strong>{SRF_MIN_WATCH_PHOTOS_REQUIRED}</strong> required — any categories, not all six)
+                Uploaded photos: <strong>{photoCount}</strong>
               </p>
               {photoMsg ? <p className="rounded-xl bg-rlx-green-light px-3 py-2 text-sm">{photoMsg}</p> : null}
               {photoPreview.length > 0 && !draft ? (
@@ -1665,7 +1663,6 @@ export function SrfBookingV2Page() {
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => void refreshPhotoStatus()} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Refresh status</button>
                 <button type="button" onClick={() => void regenerateCaptureLink()} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Regenerate link</button>
-                {captureUrl ? <a href={captureUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep">Open capture page</a> : null}
               </div>
               {draft ? (
                 <div className="mt-4 rounded-xl border border-rlx-gold/40 bg-gradient-to-br from-rlx-green-light/90 to-rlx-gold-light/40 p-3 text-sm text-rlx-green">
@@ -1767,9 +1764,6 @@ export function SrfBookingV2Page() {
                 placeholder="0.00"
                 max={estimateTotal > 0 ? estimateTotal : undefined}
               />
-              {estimateTotal > 0 ? (
-                <p className="mt-1 text-[11px] text-stone-500">Maximum advance: {formatInr(estimateTotal)}</p>
-              ) : null}
             </label>
             <label className="block min-w-0 text-sm md:col-span-2">
               <span className="mb-1 block font-medium text-stone-700">Estimated service finish date</span>

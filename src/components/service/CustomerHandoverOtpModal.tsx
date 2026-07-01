@@ -205,7 +205,6 @@ export function CustomerHandoverOtpModal({
                   placeholder="Email (optional)"
                 />
               </label>
-              <p className="text-[11px] text-stone-500">At least one of mobile or email is required.</p>
               <button
                 type="button"
                 onClick={() => void handleCustomSend()}
@@ -218,15 +217,9 @@ export function CustomerHandoverOtpModal({
           ) : (
             <div className="space-y-3">
               {busy && !sessionId ? <OtpSendingIndicator /> : null}
-              {sentTo.length > 0 ? (
-                <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                  OTP sent — enter the code below.
-                </p>
-              ) : null}
               {sessionId ? (
                 <DemoOtpGate
                   title="Enter OTP"
-                  subtitle="Use the code from SMS or email. One code works for all destinations."
                   issuedCode={demoOtp ?? undefined}
                   value={otpInput}
                   onChange={setOtpInput}

@@ -9,7 +9,7 @@ import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "
 import { repairRouteLabel } from "../../lib/srfRepairRoute";
 import { jobVisibleToServiceCentre, shouldShowInSupervisorSrfList } from "../../lib/srfAccess";
 import type { SrfJob, SrfJobStatus } from "../../types/srfJob";
-import type { SeedRegion } from "../../data/seed";
+import { uiPageTitleOnDarkClass } from "../../lib/pageTypography";
 
 const statusCls: Record<string, string> = {
   received_at_sc: "bg-violet-100 text-violet-700",
@@ -134,7 +134,7 @@ export function ScSrfHistoryPage() {
           </p>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="font-display text-xl font-light tracking-wide text-white md:text-2xl">HO / SC SRF history</h1>
+              <h1 className={uiPageTitleOnDarkClass}>HO / SC SRF history</h1>
               <p className="mt-1 max-w-2xl text-xs text-white/70">
                 All SRF jobs handled at your service centre — assignments, inter-HO transfers, brand desk, and billing refs.
               </p>

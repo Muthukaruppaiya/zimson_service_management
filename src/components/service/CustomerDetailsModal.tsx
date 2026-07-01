@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { apiJson } from "../../lib/api";
 import { formatCustomerAddressLines } from "../../lib/customerAddress";
 import type { CustomerRecord } from "../../types/customer";
+import { uiPageTitleOnDarkClass } from "../../lib/pageTypography";
 
 type CustomerDetailsModalProps = {
   customerId: string | null;
@@ -91,7 +92,7 @@ export function CustomerDetailsModal({ customerId, open, onClose, fallback }: Cu
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[9px] font-semibold uppercase tracking-[0.35em] text-rlx-gold">Customer profile</p>
-              <h2 id="customer-details-title" className="mt-1 font-display text-lg font-light text-white">
+              <h2 id="customer-details-title" className={`mt-1 ${uiPageTitleOnDarkClass}`}>
                 {loading && !c ? "Loading…" : c?.displayName ?? "Customer details"}
               </h2>
             </div>

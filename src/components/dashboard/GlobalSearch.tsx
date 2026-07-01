@@ -347,16 +347,6 @@ export function GlobalSearch({
         </span>
       </div>
 
-      {/* Detected kind hint — ONLY shown when user is typing */}
-      {query.trim() ? (
-        <div className="flex items-center gap-1.5 px-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-rlx-ink-muted">
-          <span>Detected:</span>
-          <span className="border border-rlx-rule bg-white px-2 py-0.5 text-rlx-green">
-            {detectedKind === "AUTO" ? "Looking up…" : KIND_STYLES[detectedKind].label}
-          </span>
-        </div>
-      ) : null}
-
       {/* Results dropdown */}
       {open && query.trim() ? (
         <div className={`absolute left-0 right-0 z-50 mt-1 overflow-hidden border border-rlx-rule bg-white shadow-[0_8px_32px_rgba(0,0,0,0.18)] ${isDark ? "rounded-xl" : ""}`}>

@@ -63,7 +63,6 @@ import {
   billableLineAmount,
   billableServiceChargeInr,
   isNatureOfRepairTaxable,
-  natureOfRepairBillingNote,
 } from "../../lib/natureOfRepair";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
@@ -75,7 +74,7 @@ import {
   nextQuickBillRef,
   panFromGstin,
 } from "../../data/serviceSeed";
-import { validateCustomerB2bGstin, ZIMSON_OWN_GSTIN_FIELD_HINT } from "../../lib/zimsonCompanyGst";
+import { validateCustomerB2bGstin } from "../../lib/zimsonCompanyGst";
 import {
   hoNeedsOperatingStorePicker,
   isHoServiceOperator,
@@ -226,9 +225,6 @@ function QuickBillInvoicePanel({
 }) {
   return (
     <div className="space-y-6">
-      <p className="text-xs text-stone-500 print:hidden">
-        Preview uses the same layout as print. Sidebar and top bar are hidden when you print.
-      </p>
       <ServiceInvoiceTemplate data={viewModel} idPrefix="qb" />
       <div className="flex flex-wrap gap-3 print:hidden">
         <button
@@ -469,7 +465,6 @@ export function QuickBillPage() {
       );
       if (data.customer) {
         applyLoadedCustomer(data.customer);
-        setCustomerCheckMsg("Existing customer found and loaded.");
       } else {
         const local = customers.find((c) => phoneLast10(c.phone) === p10);
         if (local) {
@@ -490,7 +485,6 @@ export function QuickBillPage() {
             phoneVerifiedAt: local.phoneVerifiedAt ?? null,
             emailVerifiedAt: local.emailVerifiedAt ?? null,
           });
-          setCustomerCheckMsg("Existing customer found locally.");
         } else {
           setCustomerChecked(false);
           verifiedBillPhoneLast10Ref.current = "";
@@ -507,7 +501,7 @@ export function QuickBillPage() {
           setCity("");
           setCustomerBillingState("");
           customerNameForNavRef.current = "";
-          setCustomerCheckMsg("New mobile — opening customer registration…");
+          setCustomerCheckMsg(null);
           redirectToCustomerRegister(rawPhone);
           return;
         }
@@ -532,7 +526,6 @@ export function QuickBillPage() {
           phoneVerifiedAt: local.phoneVerifiedAt ?? null,
           emailVerifiedAt: local.emailVerifiedAt ?? null,
         });
-        setCustomerCheckMsg("Customer found locally (server lookup unavailable).");
       } else {
         setError(e instanceof Error ? e.message : "Could not check customer.");
       }
@@ -559,7 +552,7 @@ export function QuickBillPage() {
 
     const fromRecord = (row: LoadedCustomerRow) => {
       applyLoadedCustomer(row);
-      setCustomerCheckMsg("Customer saved — continue with watch and bill lines.");
+      setCustomerCheckMsg(null);
     };
 
     const local = getById(customerId);
@@ -979,7 +972,7 @@ export function QuickBillPage() {
       const parts: string[] = [];
       if (hasDoc) parts.push("document");
       if (watchCount > 0) parts.push(`${watchCount} watch photo${watchCount === 1 ? "" : "s"}`);
-      setCaptureMsg(parts.length > 0 ? `Customer uploaded: ${parts.join(", ")}.` : "Waiting for customer uploads…");
+      setCaptureMsg(parts.length > 0 ? `Customer uploaded: ${parts.join(", ")}.` : null);
     },
     [],
   );
@@ -1746,18 +1739,13 @@ export function QuickBillPage() {
             <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
               {billPostActionNote}
             </p>
-          ) : (
-            <p className="mt-3 text-xs text-stone-500">
-              The invoice is sent on WhatsApp automatically when e-invoice is registered (or for B2C). Email uses SMTP;
-              you can resend below if needed.
-            </p>
-          )}
+          ) : null}
         </ProcessSuccessModal>
 
         <ServiceBreadcrumb current="Quick bill" className="print:hidden" />
         <PageHeader
           title="Quick bill"
-          description="Bill saved. Print or start another sale from this screen — no separate invoicing page."
+          description=""
           className="print:hidden"
         />
         <QuickBillInvoicePanel viewModel={qbVm} onNew={resetForm} />
@@ -1821,7 +1809,7 @@ export function QuickBillPage() {
       <div>
         <ProcessSuccessModal
           open={billSuccessModalOpen}
-          title="Quick bill completed (demo)"
+          title="Quick bill completed"
           description={`Reference ${completion.ref} · ${demoTotalFmt}`}
           onBackdropClick={() => setBillSuccessModalOpen(false)}
           actions={
@@ -1872,13 +1860,10 @@ export function QuickBillPage() {
               {billPostActionNote}
             </p>
           ) : null}
-          <p className="mt-3 text-xs text-stone-500">
-            Customer delivery covers email, SMS, and WhatsApp once integrations are enabled.
-          </p>
         </ProcessSuccessModal>
 
         <ServiceBreadcrumb current="Quick bill" className="print:hidden" />
-        <PageHeader title="Quick bill" description="Quick bill preview." className="print:hidden" />
+        <PageHeader title="Quick bill" description="" className="print:hidden" />
         <QuickBillInvoicePanel viewModel={demoVm} onNew={resetForm} />
       </div>
     );
@@ -1890,7 +1875,6 @@ export function QuickBillPage() {
       {apiMode && showHoBillingLocation ? (
         <Card
           title="Billing location"
-          subtitle="Regional spare prices and the store on the quick bill. Required for HO admin accounts."
           className="mb-4"
         >
           <div className="grid gap-4 sm:grid-cols-2">
@@ -1951,14 +1935,7 @@ export function QuickBillPage() {
         }}
         className="min-w-0 space-y-4 sm:space-y-5"
       >
-        <Card
-          title="Customer"
-          subtitle={
-            customerType === "B2B"
-              ? "Business — customer master with GST & PAN (mandatory)"
-              : ""
-          }
-        >
+        <Card title="Customer">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex gap-4">
               <label
@@ -1997,7 +1974,7 @@ export function QuickBillPage() {
             ) : null}
           </div>
 
-          {customerType === "B2B" ? (
+          {/* {customerType === "B2B" ? (
             <p className="mb-4 rounded-xl border border-zimson-200 bg-zimson-50/80 px-3 py-2 text-xs text-stone-700">
               Create / attach a <strong>business customer</strong>: company, GSTIN, PAN, and primary
               contact are required before completing the bill.
@@ -2007,7 +1984,7 @@ export function QuickBillPage() {
               Enter the customer&apos;s <strong>10-digit mobile</strong> — lookup runs automatically. New
               numbers open registration; you cannot complete the bill without a customer on file.
             </p>
-          )}
+          )} */}
 
           <div className={qbGrid2}>
             <div className={qbField}>
@@ -2078,11 +2055,6 @@ export function QuickBillPage() {
                     placeholder="15-character GSTIN"
                     maxLength={15}
                   />
-                  {!customerLockedFromDb ? (
-                    <p className="mt-1 break-words text-[11px] leading-snug text-amber-900/90">
-                      {ZIMSON_OWN_GSTIN_FIELD_HINT}
-                    </p>
-                  ) : null}
                 </div>
                 <div className={qbField}>
                   <label htmlFor="qb-pan" className="text-xs font-medium text-stone-600">
@@ -2137,17 +2109,9 @@ export function QuickBillPage() {
                 placeholder="optional"
               />
             </div>
-            {checkingCustomer ? (
-              <p className="md:col-span-2 text-xs text-stone-500">Checking customer in DB…</p>
-            ) : null}
             {customerCheckMsg ? (
               <p className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">
                 {customerCheckMsg}
-                {customerLockedFromDb ? (
-                  <span className="mt-1 block text-xs text-stone-600">
-                    Customer master data is read-only. Use Change customer to search another mobile.
-                  </span>
-                ) : null}
               </p>
             ) : null}
             {customerChecked && loadedCustomerId && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
@@ -2267,15 +2231,10 @@ export function QuickBillPage() {
                       className="mx-auto text-center"
                     />
                   ) : (
-                    <div className="flex min-h-[140px] items-center justify-center rounded-lg border border-dashed border-zimson-300 bg-white p-4 text-center text-xs text-stone-500">
-                      QR appears after you generate a link
-                    </div>
+                    <div className="flex min-h-[140px] items-center justify-center rounded-lg border border-dashed border-zimson-300 bg-white p-4" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1 space-y-2 text-sm">
-                  {captureUrl ? (
-                    <p className="break-all text-xs text-stone-500">{captureUrl}</p>
-                  ) : null}
                   {captureMsg ? (
                     <p className="rounded-lg bg-white px-3 py-2 text-xs text-zimson-900">{captureMsg}</p>
                   ) : null}
@@ -2307,16 +2266,6 @@ export function QuickBillPage() {
                         >
                           New link
                         </button>
-                        {captureUrl ? (
-                          <a
-                            href={captureUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-lg bg-zimson-700 px-4 py-2 text-xs font-semibold text-white"
-                          >
-                            Open capture page
-                          </a>
-                        ) : null}
                       </>
                     )}
                   </div>
@@ -2372,10 +2321,6 @@ export function QuickBillPage() {
                     })}
                   </div>
                 </div>
-              ) : captureSession ? (
-                <p className="mt-4 text-xs text-stone-500">
-                  Waiting for customer to upload watch photos and/or document…
-                </p>
               ) : null}
             </div>
           </div>
@@ -2433,8 +2378,6 @@ export function QuickBillPage() {
           <div className="space-y-3">
             {lines.length === 0 ? (
               <p className="rounded-xl border border-dashed border-zimson-200 bg-zimson-50/40 px-3 py-4 text-sm text-stone-600">
-                Add spares from the catalog above. Use &quot;Add charge line&quot; or service charge below for labour /
-                repair fees.
               </p>
             ) : (
               lines.map((line, index) => {
@@ -2585,9 +2528,7 @@ export function QuickBillPage() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="mt-1 rounded-lg border border-dashed border-stone-200 bg-white px-3 py-2 text-xs text-stone-500">
-                    Spare HSN codes appear here when you add lines from the catalogue.
-                  </p>
+                  <div className="mt-1 rounded-lg border border-dashed border-stone-200 bg-white px-3 py-2 text-xs" aria-hidden />
                 )}
                 {serviceChargeNum > 0 ? (
                   <p className="mt-2 text-xs text-stone-600">
@@ -2595,9 +2536,6 @@ export function QuickBillPage() {
                     <span className="font-mono font-semibold">{serviceSacHsn}</span> (GST {serviceHsnGstRate}%)
                   </p>
                 ) : null}
-                <p className="mt-1 text-[11px] text-stone-500">
-                  HSN and GST % are read-only here — set per spare in Inventory → Spare catalogue. Labour uses GST % from Tax settings (SAC).
-                </p>
               </div>
               {customerType === "B2C" ? (
                 <div className={qbField}>
@@ -2611,9 +2549,6 @@ export function QuickBillPage() {
                     className={inputClass}
                     placeholder="e.g. Tamil Nadu"
                   />
-                  <p className="mt-1 text-[11px] text-stone-500">
-                    Leave blank to use store state (walk-in at counter)
-                  </p>
                 </div>
               ) : (
                 <div className={qbField}>
@@ -2626,11 +2561,6 @@ export function QuickBillPage() {
                 </div>
               )}
             </div>
-            {natureOfRepairBillingNote(natureOfRepair) ? (
-              <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                {natureOfRepairBillingNote(natureOfRepair)}
-              </p>
-            ) : null}
             {taxPreview ? (
               <div className="rounded-lg border border-zimson-200 bg-white p-3 text-sm text-stone-800">
                 <p className="font-semibold text-zimson-900">
@@ -2639,12 +2569,12 @@ export function QuickBillPage() {
                     : "Intrastate supply — CGST + SGST"}
                 </p>
                 <p className="mt-1 text-xs text-stone-600">
-                  Seller: {stateCodeLabel(resolveSellerStateCode(
+                  {/* Seller: {stateCodeLabel(resolveSellerStateCode(
                     seedStoreToInvoiceProfile(billingStore)?.invoiceStoreGstin ||
                       serviceTaxSettings?.invoiceStoreGstin,
                   ))}{" "}
-                  · Customer:{" "}
-                  {stateCodeLabel(
+                  · Customer:{" "} */}
+                  {/* {stateCodeLabel(
                     resolveCustomerSupplyStateCode({
                       customerType,
                       customerGstin: gst,
@@ -2656,15 +2586,15 @@ export function QuickBillPage() {
                           serviceTaxSettings?.invoiceStoreGstin,
                       ),
                     }),
-                  )}
+                  )} */}
                   {!isNatureOfRepairTaxable(watchServiceDetails.natureOfRepair)
                     ? " · No tax (nature of repair)"
                     : null}
                 </p>
-                <p className="mt-1 text-xs text-stone-600">
+                {/* <p className="mt-1 text-xs text-stone-600">
                   Spare & service amounts are tax-inclusive (MRP). GST below is split from the line
                   total for the invoice.
-                </p>
+                </p> */}
                 <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
                   <div>
                     <dt className="text-stone-500">Base value</dt>
@@ -2727,9 +2657,7 @@ export function QuickBillPage() {
                   </div>
                 </dl>
               </div>
-            ) : (
-              <p className="text-xs text-stone-500">Add line items to see GST breakdown.</p>
-            )}
+            ) : null}
           </div>
           <div className="mt-4 space-y-1 text-right text-sm text-stone-900">
             {taxPreview && taxPreview.totalTax > 0 ? (
@@ -2807,10 +2735,10 @@ export function QuickBillPage() {
         ) : null}
 
         <div className="space-y-3">
-          <p className="text-xs text-stone-600">
+          {/* <p className="text-xs text-stone-600">
             After OTP is verified (primary or other mobile/email), the bill is saved and the success popup opens
             automatically.
-          </p>
+          </p> */}
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <button
               type="button"

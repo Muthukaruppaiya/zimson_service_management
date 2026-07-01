@@ -1,29 +1,33 @@
 import type { ReactNode } from "react";
+import {
+  uiGoldAccentBarClass,
+  uiPageTitleClass,
+  uiPageTitleLgClass,
+} from "../../lib/pageTypography";
 
 type PageHeaderProps = {
   title: string;
   description: string;
   actions?: ReactNode;
   className?: string;
+  size?: "default" | "lg";
 };
 
-export function PageHeader({ title, description, actions, className = "" }: PageHeaderProps) {
+export function PageHeader({ title, description: _description, actions, className = "", size = "default" }: PageHeaderProps) {
+  const isLg = size === "lg";
+  const titleClass = isLg ? uiPageTitleLgClass : uiPageTitleClass;
+
   return (
-    <div className={`mb-3 border-b border-rlx-rule pb-3 ${className}`.trim()}>
+    <div className={`mb-4 border-b border-rlx-rule pb-4 ${className}`.trim()}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="mb-2 h-[2px] w-7 bg-rlx-gold" />
-          <h1 className="font-display text-lg font-light leading-tight tracking-tight text-rlx-ink md:text-xl">
-            {title}
-          </h1>
-          {description ? (
-            <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-rlx-ink-muted">
-              {description}
-            </p>
-          ) : null}
+          <div className="flex items-center gap-3">
+            <div className={uiGoldAccentBarClass} aria-hidden />
+            <h1 className={titleClass}>{title}</h1>
+          </div>
         </div>
         {actions ? (
-          <div className="flex shrink-0 flex-wrap gap-1.5 text-[11px]">{actions}</div>
+          <div className="flex shrink-0 flex-wrap gap-1.5 text-xs">{actions}</div>
         ) : null}
       </div>
     </div>

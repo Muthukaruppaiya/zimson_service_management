@@ -12,6 +12,19 @@ export type ServiceBillEditorLine = {
   locked?: boolean;
 };
 
+export function brandInvoiceToEditorLine(job: SrfJob, defaultSacHsn: string): ServiceBillEditorLine {
+  const ref = (job.brandInvoiceRef ?? "").trim();
+  const amt = Number(job.brandInvoiceAmountInr ?? 0);
+  const desc = ref ? `Brand repair invoice (${ref})` : "Brand repair invoice charges";
+  return {
+    id: `brand-invoice-${job.id}`,
+    description: desc,
+    amount: amt > 0 ? String(amt) : "",
+    hsn: defaultSacHsn,
+    locked: true,
+  };
+}
+
 export function usedSparesToEditorLines(
   job: SrfJob,
   resolveHsn: (spareId: string | null | undefined) => string | null,

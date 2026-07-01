@@ -896,16 +896,7 @@ export function ServiceBillingPage() {
       ) : null}
 
       {phase === "match" && selectedCustomer ? (
-        <Card title="Step 3 — Customer on file" subtitle="Fetched from customer directory">
-          {lookupNote ? (
-            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              {lookupNote}
-            </div>
-          ) : (
-            <p className="mb-4 text-sm text-emerald-800">
-              Matching customer found — details below. Continue to build the bill.
-            </p>
-          )}
+        <Card title="Step 3 — Customer on file">
           <dl className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/50 p-4 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-xs font-medium text-stone-500">Name</dt>

@@ -543,20 +543,10 @@ export function StoreAssignPage() {
                       Send to HO
                     </button>
                   </div>
-                  <p className="mt-1 text-[11px] text-stone-500">
-                    Complete repair with spares, send a revised estimate, or dispatch the watch to HO via{" "}
-                    <strong>Store dispatch</strong> if it cannot be repaired at your store.
-                  </p>
                 </JobRow>
               ))}
             </div>
           )}
-          <p className="mt-4 text-sm text-stone-600">
-            <Link to="/service/store-billing" className="font-semibold text-zimson-800 underline">
-              Go to store billing
-            </Link>{" "}
-            after completion to raise the customer invoice.
-          </p>
         </Card>
       </div>
 
@@ -598,10 +588,6 @@ export function StoreAssignPage() {
                       Return to customer without repair
                     </button>
                   </div>
-                  <p className="mt-2 text-[11px] text-stone-500">
-                    If negotiation fails, return the watch — the SRF moves to{" "}
-                    <strong>Store billing</strong> for handover without invoice.
-                  </p>
                 </JobRow>
               ))}
             </div>

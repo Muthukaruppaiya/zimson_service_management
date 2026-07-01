@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, apiJson } from "../../lib/api";
 import { watchModelsForBrand } from "../../data/serviceSeed";
 import { SearchableCombobox } from "./SearchableCombobox";
@@ -35,6 +35,24 @@ export function WatchModelPicker({
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const prevBrandRef = useRef<string | null>(null);
+
+  function hydrateFromModelProp(models: WatchModelRow[]) {
+    const name = model.trim();
+    if (!name) {
+      setCatalogModelKey("");
+      setCustomModelText("");
+      return;
+    }
+    if (models.some((x) => x.model === name)) {
+      setCatalogModelKey(name);
+      setCustomModelText("");
+      return;
+    }
+    setCatalogModelKey("__new__");
+    setCustomModelText(name);
+  }
 
   useEffect(() => {
     if (!apiMode || !watchBrand.trim()) {
@@ -86,8 +104,9 @@ export function WatchModelPicker({
   }, [catalogModelKey, customModelText]);
 
   useEffect(() => {
+    if (disableAutoSelect && !resolvedModel && model.trim()) return;
     onModelChange(resolvedModel);
-  }, [resolvedModel, onModelChange]);
+  }, [resolvedModel, onModelChange, disableAutoSelect, model]);
 
   useEffect(() => {
     onSelectionModeChange?.(catalogModelKey === "__new__" || catalogModels.length === 0);
@@ -106,15 +125,26 @@ export function WatchModelPicker({
   }, [model, catalogModels]);
 
   useEffect(() => {
-    if (disableAutoSelect) {
-      setCatalogModelKey("");
-      setCustomModelText("");
-    } else {
-      setCatalogModelKey("__new__");
-      setCustomModelText(model.trim() ? model : "");
+    const prev = prevBrandRef.current;
+    prevBrandRef.current = watchBrand;
+    if (prev !== null && prev !== watchBrand) {
+      if (disableAutoSelect) {
+        setCatalogModelKey("");
+        setCustomModelText("");
+      } else {
+        setCatalogModelKey("__new__");
+        setCustomModelText(model.trim() ? model : "");
+      }
     }
     setSaveMsg(null);
-  }, [watchBrand, disableAutoSelect]);
+  }, [watchBrand, disableAutoSelect, model]);
+
+  useEffect(() => {
+    if (!disableAutoSelect) return;
+    if (model.trim() && resolvedModel !== model.trim()) {
+      hydrateFromModelProp(catalogModels);
+    }
+  }, [disableAutoSelect, model, catalogModels, resolvedModel]);
 
   useEffect(() => {
     if (disableAutoSelect) return;

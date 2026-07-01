@@ -12,6 +12,7 @@ import {
   ResendSrfTrackingWhatsAppButton,
   srfTrackingWhatsAppResultMessage,
 } from "../../components/service/ResendSrfTrackingWhatsAppButton";
+import { uiPageTitleOnDarkClass } from "../../lib/pageTypography";
 import { ResendSrfApprovalWhatsAppButton } from "../../components/service/ResendSrfApprovalWhatsAppButton";
 import { canResendSrfTrackingWhatsApp } from "../../lib/resendSrfTrackingWhatsApp";
 import { canResendSrfApprovalWhatsApp } from "../../lib/srfApprovalWhatsApp";
@@ -37,6 +38,14 @@ const btnActionMuted =
 const btnActionWa =
   "inline-flex items-center justify-center gap-1 border border-emerald-400/70 bg-emerald-50 px-2 py-1 " +
   "text-[10px] font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:opacity-50";
+
+const btnActionDelete =
+  "inline-flex items-center justify-center gap-1 border border-rose-300 bg-rose-50 px-2 py-1 " +
+  "text-[10px] font-semibold text-rose-800 transition hover:bg-rose-100 disabled:opacity-50";
+
+function isDeletableDraftSrf(status: string): boolean {
+  return status === "draft";
+}
 
 const statusCls: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700",
@@ -78,7 +87,7 @@ function statusLabel(status: string): string {
 
 export function SrfBookingsRegisterPage() {
   const { user } = useAuth();
-  const { jobs } = useSrfJobs();
+  const { jobs, cancelDraftSrf } = useSrfJobs();
   const { regions } = useRegions();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
@@ -88,6 +97,8 @@ export function SrfBookingsRegisterPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [traceId, setTraceId] = useState<string | null>(null);
   const [whatsappNote, setWhatsappNote] = useState<string | null>(null);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
@@ -99,7 +110,9 @@ export function SrfBookingsRegisterPage() {
   const visible = useMemo(() => {
     if (!user) return [];
     const scope = jobs.filter((j) => jobVisibleToStoreUser(j, user) || jobVisibleToServiceCentre(j, user));
-    return scope.filter((j) => shouldShowInSrfBookingRegister(j, scope));
+    return scope.filter(
+      (j) => shouldShowInSrfBookingRegister(j, scope) && j.status !== "cancelled",
+    );
   }, [jobs, user]);
 
   const statusOptions = useMemo(
@@ -149,6 +162,24 @@ export function SrfBookingsRegisterPage() {
     return store ? srfPrintStoreFromSeed(store) : undefined;
   }
 
+  async function handleDeleteDraft(job: SrfJob) {
+    if (!isDeletableDraftSrf(job.status)) return;
+    const ok = window.confirm(
+      `Delete draft ${job.reference}?\n\nThis booking will be removed from the register.`,
+    );
+    if (!ok) return;
+    setDeleteError(null);
+    setDeleteBusyId(job.id);
+    try {
+      await cancelDraftSrf(job.id, "Deleted from booking register");
+      if (detailId === job.id) setDetailId(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Could not delete draft SRF.");
+    } finally {
+      setDeleteBusyId(null);
+    }
+  }
+
   return (
     <div className="ui-page-bleed relative font-sans text-rlx-ink">
       <div className={`min-h-0 bg-rlx-bg ${detail ? "print:hidden" : ""}`}>
@@ -160,7 +191,7 @@ export function SrfBookingsRegisterPage() {
           </p>
           <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <h1 className="font-display text-xl font-light leading-tight tracking-wide text-white md:text-2xl">
+              <h1 className={uiPageTitleOnDarkClass}>
                 SRF Booking Register
               </h1>
             </div>
@@ -260,6 +291,10 @@ export function SrfBookingsRegisterPage() {
             </div>
           </div>
 
+          {deleteError ? (
+            <div className="mb-3 border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">{deleteError}</div>
+          ) : null}
+
           {rows.length === 0 ? (
             <div className="border border-rlx-rule bg-white px-5 py-8 text-center">
               <p className="text-xs text-rlx-ink-muted">No bookings match the current filters.</p>
@@ -352,6 +387,19 @@ export function SrfBookingsRegisterPage() {
                               >
                                 Continue
                               </Link>
+                            ) : null}
+                            {isDeletableDraftSrf(j.status) ? (
+                              <button
+                                type="button"
+                                disabled={deleteBusyId === j.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleDeleteDraft(j);
+                                }}
+                                className={btnActionDelete}
+                              >
+                                {deleteBusyId === j.id ? "…" : "Delete"}
+                              </button>
                             ) : null}
                             {canResendSrfApprovalWhatsApp(j.status, j.customerReestimateResponse) ? (
                               <span onClick={(e) => e.stopPropagation()} role="presentation">
@@ -494,6 +542,16 @@ export function SrfBookingsRegisterPage() {
                   >
                     Continue
                   </Link>
+                ) : null}
+                {isDeletableDraftSrf(detail.status) ? (
+                  <button
+                    type="button"
+                    disabled={deleteBusyId === detail.id}
+                    onClick={() => void handleDeleteDraft(detail)}
+                    className="flex-1 border border-rose-300/80 bg-rose-600 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-rose-700 disabled:opacity-50 sm:flex-none"
+                  >
+                    {deleteBusyId === detail.id ? "Deleting…" : "Delete"}
+                  </button>
                 ) : null}
                 <button
                   type="button"

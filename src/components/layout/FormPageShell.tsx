@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ServiceBreadcrumb } from "../service/ServiceBreadcrumb";
+import { uiGoldAccentBarClass, uiPageTitleClass } from "../../lib/pageTypography";
 
 type FormPageShellProps = {
   breadcrumb: string;
@@ -15,24 +16,21 @@ type FormPageShellProps = {
 export function FormPageShell({
   breadcrumb,
   title,
-  description,
+  description: _description,
   actions,
   children,
 }: FormPageShellProps) {
   return (
     <div className="min-w-0 max-w-full font-sans text-rlx-ink">
       <ServiceBreadcrumb current={breadcrumb} />
-      <div className="mb-3 flex flex-col gap-2 border-b border-rlx-rule pb-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-4 flex flex-col gap-2 border-b border-rlx-rule pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <div className="mb-2 h-[2px] w-7 bg-rlx-gold" />
-          <h1 className="font-display text-lg font-light leading-tight tracking-tight text-rlx-ink md:text-xl">
-            {title}
-          </h1>
-          {description ? (
-            <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-rlx-ink-muted">{description}</p>
-          ) : null}
+          <div className="flex items-center gap-3">
+            <div className={uiGoldAccentBarClass} aria-hidden />
+            <h1 className={uiPageTitleClass}>{title}</h1>
+          </div>
         </div>
-        {actions ? <div className="flex shrink-0 flex-wrap gap-1.5 text-[11px]">{actions}</div> : null}
+        {actions ? <div className="flex shrink-0 flex-wrap gap-1.5 text-xs">{actions}</div> : null}
       </div>
       {children}
     </div>

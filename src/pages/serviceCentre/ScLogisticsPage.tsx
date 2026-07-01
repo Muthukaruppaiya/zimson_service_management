@@ -17,7 +17,6 @@ import {
   transferDocumentTitle,
 } from "../../lib/transferDocumentKind";
 import {
-  scInwardAckSubtitle,
   scInwardAckTitle,
   scInwardDocumentKindFromJob,
   scInwardNumberLabel,
@@ -674,7 +673,7 @@ export function ScLogisticsPage() {
       <div>
         <PageHeader
           title="Service centre logistics"
-          description="HO inward and outward batches"
+          description=""
           actions={
             <Link
               to="/service-centre"
@@ -684,10 +683,6 @@ export function ScLogisticsPage() {
             </Link>
           }
         />
-        <p className="text-sm text-stone-600">
-          Your role cannot confirm internal inward from store or generate internal outward batches. Use supervisor/technician
-          areas instead, or ask an administrator for the inward/outward logistics role.
-        </p>
       </div>
     );
   }
@@ -807,10 +802,6 @@ export function ScLogisticsPage() {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
               <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
                 <h3 className="text-lg font-semibold text-rlx-green">Inward watches — {inwardReviewDc}</h3>
-                <p className="mt-1 text-sm text-stone-600">
-                  {inwardReviewRows.length} watch{inwardReviewRows.length === 1 ? "" : "es"} sent on this transfer.
-                  Tick each watch that arrived in working condition, then inward.
-                </p>
                 <div className="mt-4 overflow-x-auto rounded-xl border border-rlx-rule">
                   <table className="w-full min-w-[640px] text-left text-sm">
                     <thead>
@@ -858,12 +849,6 @@ export function ScLogisticsPage() {
                     </tbody>
                   </table>
                 </div>
-                {inwardReviewRows.some((j) => !inwardAccepted[j.id]) ? (
-                  <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                    Unticked watch(es) will stay on this transfer and can be sent back to the store (return flow — next
-                    step).
-                  </p>
-                ) : null}
                 <div className="mt-5 flex flex-wrap justify-end gap-2">
                   <button
                     type="button"
@@ -895,7 +880,7 @@ export function ScLogisticsPage() {
             title="Online spare ODC pending (sender HO)"
           >
             {onlineSpareRows.filter((o) => !o.dispatchedAt).length === 0 ? (
-              <p className="text-sm text-stone-600">No pending records.</p>
+              <div className="min-h-[2rem]" aria-hidden />
             ) : (
               <div className="overflow-x-auto rounded-xl border border-rlx-rule/80">
                 <table className="min-w-full text-left text-sm">
@@ -934,10 +919,7 @@ export function ScLogisticsPage() {
               </div>
             )}
           </Card>
-          <Card
-            title={`Send to brand (front desk) · ${brandOutwardQueue.length}`}
-            subtitle="Supervisor queued these watches. Select one or more, then enter courier / AWB — supervisor logs estimate on brand desk."
-          >
+          <Card title={`Send to brand (front desk) · ${brandOutwardQueue.length}`}>
             {outwardMsg ? (
               <p
                 className={
@@ -950,7 +932,7 @@ export function ScLogisticsPage() {
               </p>
             ) : null}
             {brandOutwardQueue.length === 0 ? (
-              <p className="mt-4 text-sm text-stone-600">No watches waiting for brand dispatch logistics entry.</p>
+              <div className="mt-4 min-h-[2rem]" aria-hidden />
             ) : (
               <>
                 <div className="mt-4 mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1037,9 +1019,7 @@ export function ScLogisticsPage() {
             ) : null}
 
             {readyOutward.length === 0 ? (
-              <p className="mt-4 text-sm text-stone-600">
-                No watches in the outward queue. Technicians must mark repair complete first; jobs then appear here.
-              </p>
+              <div className="mt-4 min-h-[2rem]" aria-hidden />
             ) : (
               <>
                 <div className="mt-4 mb-3 grid gap-2 md:grid-cols-4">
@@ -1205,16 +1185,6 @@ export function ScLogisticsPage() {
                                 return (loc?.regionName ? `HO: ${loc.regionName} · ` : "") + `Store: ${loc?.storeName ?? destId}`;
                               })()}
                             </p>
-                            {j.requiresLocalConversion && (
-                              <p className="mt-1 text-[10px] text-stone-500">
-                                Original Store: {storeById.get(j.storeId)?.storeName ?? j.storeId}
-                              </p>
-                            )}
-                            <p className="mt-1 text-xs text-stone-500">
-                              {j.transferTargetStoreId
-                                ? "Inter-HO transfer: destination is auto-fixed."
-                                : "Set at SRF booking (same-region store)."}
-                            </p>
                           </td>
                         </tr>
                       ))}
@@ -1313,19 +1283,6 @@ export function ScLogisticsPage() {
               </h2>
             </div>
             <div className="px-5 py-5">
-              <p className="text-sm text-stone-600">
-                {outwardAck.documentKind === "DC" ? (
-                  <>
-                    <strong>{outwardAck.watchCount}</strong> watch{outwardAck.watchCount === 1 ? "" : "es"} on inter-HO DC.
-                    Receiving HO will inward this batch from their pending list.
-                  </>
-                ) : (
-                  <>
-                    <strong>{outwardAck.watchCount}</strong> watch{outwardAck.watchCount === 1 ? "" : "es"} on transfer document (TD).
-                    Store can inward when the batch arrives.
-                  </>
-                )}
-              </p>
               <div
                 className={`mt-4 rounded-xl border-2 px-4 py-3 text-center ${
                   outwardAck.documentKind === "DC"
@@ -1372,8 +1329,8 @@ export function ScLogisticsPage() {
                   {outwardAck.edoc?.ewayBillNo ? (
                     <p className="mt-1 font-mono text-base font-bold text-rlx-green-deep">{outwardAck.edoc.ewayBillNo}</p>
                   ) : (
-                    <p className="mt-1 text-rlx-ink-muted">
-                      {formatEwayEdocMessage(outwardAck.edoc) ?? "Not generated yet — click Create e-way bill and enter transport details."}
+                    <p className="mt-1 font-mono text-base font-bold text-rlx-green-deep">
+                      {formatEwayEdocMessage(outwardAck.edoc) ?? "—"}
                     </p>
                   )}
                   {outwardAck.edoc?.ewayValidUpto ? (
@@ -1471,8 +1428,7 @@ export function ScLogisticsPage() {
               </h2>
             </div>
             <div className="px-5 py-5">
-              <p className="text-sm text-stone-600">{scInwardAckSubtitle(inwardAck.documentKind, inwardAck.updated)}</p>
-              <div className="mt-4 rounded-xl border-2 border-emerald-200 bg-emerald-50/80 px-4 py-3 text-center">
+              <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/80 px-4 py-3 text-center">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
                   {scInwardNumberLabel(inwardAck.documentKind)}
                 </p>
@@ -1638,13 +1594,6 @@ export function ScLogisticsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-violet-950">Log brand dispatch</h3>
-            <p className="mt-1 text-sm text-stone-600">
-              Enter courier / AWB / handover details for{" "}
-              <span className="font-semibold text-violet-900">
-                {selectedBrandJobIds.length} watch{selectedBrandJobIds.length === 1 ? "" : "es"}
-              </span>
-              . Watch moves to brand desk for estimate / credit note.
-            </p>
             {selectedBrandJobIds.length > 0 ? (
               <ul className="mt-2 max-h-28 overflow-y-auto rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2 text-xs text-violet-950">
                 {brandOutwardQueue

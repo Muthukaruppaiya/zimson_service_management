@@ -181,6 +181,7 @@ export function WatchInventoryPage() {
       <PageHeader
         title="Watch inventory (HO + Store)"
         description=""
+        size="lg"
       />
 
       <Card title={`Open watch count: ${totalOpen}`} subtitle="" className="mb-6">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, apiJson } from "../../lib/api";
 import { sanitizeTextInput } from "../../lib/inputSanitize";
 import { SearchableCombobox } from "./SearchableCombobox";
@@ -35,6 +35,25 @@ export function WatchFamilyPicker({
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const prevBrandRef = useRef<string | null>(null);
+
+  function hydrateFromFamilyProp(families: WatchFamilyRow[]) {
+    const f = family.trim();
+    if (!f) {
+      setCatalogFamilyKey("");
+      setCustomFamilyText("");
+      return;
+    }
+    const match = families.find((x) => x.family.trim().toLowerCase() === f.toLowerCase());
+    if (match) {
+      setCatalogFamilyKey(match.family);
+      setCustomFamilyText("");
+      return;
+    }
+    setCatalogFamilyKey("__new__");
+    setCustomFamilyText(f);
+  }
+
   const catalogFamilies = useMemo(() => {
     const by = new Map<string, WatchFamilyRow>();
     for (const row of dbFamilies) {
@@ -51,8 +70,9 @@ export function WatchFamilyPicker({
   }, [catalogFamilyKey, customFamilyText]);
 
   useEffect(() => {
+    if (disableAutoSelect && !resolvedFamily && family.trim()) return;
     onFamilyChange(resolvedFamily);
-  }, [resolvedFamily, onFamilyChange]);
+  }, [resolvedFamily, onFamilyChange, disableAutoSelect, family]);
 
   useEffect(() => {
     onSelectionModeChange?.(catalogFamilyKey === "__new__" || catalogFamilies.length === 0);
@@ -98,15 +118,26 @@ export function WatchFamilyPicker({
   }, [apiMode, watchBrand]);
 
   useEffect(() => {
-    if (disableAutoSelect) {
-      setCatalogFamilyKey("");
-      setCustomFamilyText("");
-    } else {
-      setCatalogFamilyKey("__new__");
-      setCustomFamilyText(family.trim() ? family : "");
+    const prev = prevBrandRef.current;
+    prevBrandRef.current = watchBrand;
+    if (prev !== null && prev !== watchBrand) {
+      if (disableAutoSelect) {
+        setCatalogFamilyKey("");
+        setCustomFamilyText("");
+      } else {
+        setCatalogFamilyKey("__new__");
+        setCustomFamilyText(family.trim() ? family : "");
+      }
     }
     setSaveMsg(null);
-  }, [watchBrand, disableAutoSelect]);
+  }, [watchBrand, disableAutoSelect, family]);
+
+  useEffect(() => {
+    if (!disableAutoSelect) return;
+    if (family.trim() && resolvedFamily !== family.trim()) {
+      hydrateFromFamilyProp(catalogFamilies);
+    }
+  }, [disableAutoSelect, family, catalogFamilies, resolvedFamily]);
 
   useEffect(() => {
     if (disableAutoSelect) return;

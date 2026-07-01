@@ -94,7 +94,7 @@ export function BillingHandoverPhotoCard({ srfId, enabled = true, onSessionChang
         { method: "POST" },
       );
       applySession(data);
-      setMsg("Share the QR or link with the customer to photograph the watch at handover.");
+      setMsg(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not create upload link.");
     } finally {
@@ -112,7 +112,7 @@ export function BillingHandoverPhotoCard({ srfId, enabled = true, onSessionChang
         { method: "POST" },
       );
       applySession(data);
-      setMsg("New upload link generated.");
+      setMsg(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not refresh link.");
     } finally {
@@ -140,11 +140,7 @@ export function BillingHandoverPhotoCard({ srfId, enabled = true, onSessionChang
 
   return (
     <div className="rounded-xl border border-zimson-200 bg-zimson-50/50 p-4">
-      <p className="text-sm font-semibold text-zimson-900">Handover watch photo (customer link)</p>
-      <p className="mt-1 text-xs text-stone-600">
-        One photo of the watch when handing over to the customer. Generate a QR/link — customer uploads from
-        their phone (same as SRF booking capture).
-      </p>
+      <p className="text-sm font-semibold text-zimson-900">Handover watch photo</p>
       {error ? (
         <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</p>
       ) : null}
@@ -156,15 +152,12 @@ export function BillingHandoverPhotoCard({ srfId, enabled = true, onSessionChang
       <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="mx-auto w-full max-w-[200px] shrink-0 lg:mx-0">
           {captureUrl ? (
-            <CustomerLinkQr url={captureUrl} size={180} mode="qr" caption="Scan to upload" className="text-center" />
+            <CustomerLinkQr url={captureUrl} size={180} mode="qr" className="text-center" />
           ) : (
-            <div className="flex min-h-[140px] items-center justify-center rounded-lg border border-dashed border-zimson-300 bg-white p-4 text-center text-xs text-stone-500">
-              QR appears after you generate a link
-            </div>
+            <div className="flex min-h-[140px] items-center justify-center rounded-lg border border-dashed border-zimson-300 bg-white p-4" />
           )}
         </div>
         <div className="min-w-0 flex-1 space-y-2">
-          {captureUrl ? <p className="break-all text-xs text-stone-500">{captureUrl}</p> : null}
           <div className="flex flex-wrap gap-2">
             {!session?.token ? (
               <button
@@ -197,16 +190,6 @@ export function BillingHandoverPhotoCard({ srfId, enabled = true, onSessionChang
                 >
                   New link
                 </button>
-                {captureUrl ? (
-                  <a
-                    href={captureUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-lg bg-zimson-700 px-4 py-2 text-xs font-semibold text-white"
-                  >
-                    Open capture page
-                  </a>
-                ) : null}
               </>
             )}
           </div>
@@ -229,8 +212,6 @@ export function BillingHandoverPhotoCard({ srfId, enabled = true, onSessionChang
             Remove photo
           </button>
         </div>
-      ) : session?.sessionId ? (
-        <p className="mt-3 text-xs text-stone-500">Waiting for customer to upload handover photo…</p>
       ) : null}
     </div>
   );

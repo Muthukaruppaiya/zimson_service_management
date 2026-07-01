@@ -16,7 +16,7 @@ import {
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { APP_PAYMENT_MODES, ADVANCE_CASH_DENOMS, sumAdvanceCashDenominations } from "../../lib/paymentModes";
 import type { AppPaymentMode } from "../../lib/paymentModes";
-import type { QuickBillHistoryRow, QuickBillInvoice, QuickBillEdocInfo } from "../../types/quickBill";
+import { uiPageTitleOnDarkClass } from "../../lib/pageTypography";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import {
   formatEinvoiceEdocMessage,
@@ -383,7 +383,7 @@ export function QuickBillHistoryPage() {
           </p>
           <div className="flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <h1 className="font-display text-2xl font-light leading-tight tracking-wide text-white md:text-3xl">
+              <h1 className={uiPageTitleOnDarkClass}>
                 Quick Bill History
               </h1>
               {/* <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/70">

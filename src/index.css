@@ -162,6 +162,14 @@
 
 .app-main-content .ui-table-dense th {
   padding: 0.375rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.ui-page-bleed table thead th,
+.app-main-content table thead th {
+  font-size: 0.6875rem !important;
+  font-weight: 700 !important;
 }
 
 .app-main-content .ui-table-dense td {
@@ -181,9 +189,9 @@
 .app-shell section.border.border-rlx-rule table thead tr:first-child th {
   background: var(--color-rlx-green);
   color: #fff;
-  font-size: 0.5625rem;
-  font-weight: 600;
-  letter-spacing: 0.16em;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -571,10 +579,16 @@
   position: relative;
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 1.25rem;
-  font-weight: 700;
+  font-size: 1.75rem;
+  font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+@media (min-width: 768px) {
+  .dashboard-hero-title {
+    font-size: 2.25rem;
+  }
 }
 
 .dashboard-hero-sub {

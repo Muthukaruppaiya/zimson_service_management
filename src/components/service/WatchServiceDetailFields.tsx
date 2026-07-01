@@ -1,10 +1,5 @@
 import { WatchCatalogSinglePicker } from "./WatchCatalogSinglePicker";
-import {
-  NATURE_OF_REPAIR_OPTIONS,
-  normalizeNatureOfRepair,
-  natureOfRepairBillingNote,
-  natureOfRepairLabel,
-} from "../../lib/natureOfRepair";
+import { NATURE_OF_REPAIR_OPTIONS, normalizeNatureOfRepair } from "../../lib/natureOfRepair";
 import { parseWatchCatalogMultiValue } from "../../lib/watchCatalogMulti";
 import { sanitizeMultilineTextInput, sanitizeTextInput } from "../../lib/inputSanitize";
 
@@ -74,9 +69,6 @@ export function WatchServiceDetailFields({
   disabled,
 }: Props) {
   const pairRow = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start";
-  const taxNote =
-    NATURE_OF_REPAIR_OPTIONS.find((o) => o.value === values.natureOfRepair)?.taxNote ?? "";
-  const billingNote = natureOfRepairBillingNote(values.natureOfRepair);
 
   return (
     <>
@@ -113,19 +105,10 @@ export function WatchServiceDetailFields({
             <option value="">Select nature of repair…</option>
             {NATURE_OF_REPAIR_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label} ({o.taxNote})
+                {o.label}
               </option>
             ))}
           </select>
-          {values.natureOfRepair ? (
-            <p className="mt-1 text-[10px] text-stone-500">
-              Invoice: {natureOfRepairLabel(values.natureOfRepair)}
-              {taxNote ? ` · ${taxNote}` : ""}
-            </p>
-          ) : null}
-          {billingNote ? (
-            <p className="mt-1 text-[10px] font-medium text-amber-800">{billingNote}</p>
-          ) : null}
         </div>
         <div className="min-w-0">
           <label htmlFor={`${idPrefix}-chain-count`} className="text-xs font-medium text-stone-600">

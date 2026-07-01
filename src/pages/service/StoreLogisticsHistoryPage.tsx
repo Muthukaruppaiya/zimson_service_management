@@ -385,13 +385,7 @@ export function StoreLogisticsHistoryPage() {
         </button>
 
         {filteredRows.length === 0 ? (
-          <p className="text-sm text-stone-600">
-            No inward or outward transfer records for your store yet. Use{" "}
-            <Link to="/service/store-dispatch" className="font-semibold text-zimson-700 underline">
-              Store dispatch
-            </Link>{" "}
-            to send watches to HO or receive returns.
-          </p>
+          <div className="min-h-[2rem]" aria-hidden />
         ) : (
           <div className="space-y-3">
             <div className="overflow-x-auto rounded-xl border border-zimson-200/80">

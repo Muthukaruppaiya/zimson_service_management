@@ -14,7 +14,6 @@ import {
   printTransferFromMeta,
   type TransferPrintMeta,
 } from "../../lib/serviceDocuments";
-import { storeInwardReceiptPrintSubtitle } from "../../lib/srfLogisticsDocs";
 import { resolveHoToStorePrint, resolveStoreToHoPrint } from "../../lib/transferDocumentKind";
 import type { TransferPartyBlock } from "../../lib/transferDocumentKind";
 import type { SrfJob } from "../../types/srfJob";
@@ -356,13 +355,7 @@ export function StoreDispatchPage() {
           className="mt-8"
         >
           {atStore.length === 0 ? (
-            <p className="text-sm text-stone-600">
-              No open SRFs at your store. Create one from{" "}
-              <Link className="font-medium text-zimson-800 underline" to="/service/srf">
-                SRF booking
-              </Link>
-              .
-            </p>
+            <div className="min-h-[2rem]" aria-hidden />
           ) : (
             <>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -448,7 +441,7 @@ export function StoreDispatchPage() {
         </Card>
       ) : (
         <>
-          <Card title="Inward SRF (HO to Store)" subtitle="Select pending internal transfer and confirm inward at store." className="mt-8">
+          <Card title="Inward SRF (HO to Store)" className="mt-8">
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-sm">
                 Pending internal transfer number
@@ -495,13 +488,9 @@ export function StoreDispatchPage() {
             </div>
           </Card>
 
-          <Card
-            title="Inwarded SRF inventory at store"
-            subtitle="Inwarded watches stay in store inventory until customer collection."
-            className="mt-8"
-          >
+          <Card title="Inwarded SRF inventory at store" className="mt-8">
             {receivedAtStore.length === 0 ? (
-              <p className="text-sm text-stone-600">No inwarded watches in store inventory.</p>
+              <div className="min-h-[2rem]" aria-hidden />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] text-left text-sm">
@@ -540,10 +529,6 @@ export function StoreDispatchPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Inward watches — {inwardReviewDc}</h3>
-            <p className="mt-1 text-sm text-stone-600">
-              {inwardReviewRows.length} watch{inwardReviewRows.length === 1 ? "" : "es"} sent on this transfer.
-              Tick each watch that arrived in working condition, then inward.
-            </p>
             <div className="mt-4 overflow-x-auto rounded-xl border border-zimson-200">
               <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
@@ -586,11 +571,6 @@ export function StoreDispatchPage() {
                 </tbody>
               </table>
             </div>
-            {inwardReviewRows.some((j) => !inwardAccepted[j.id]) ? (
-              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                Unticked watch(es) will stay on this transfer and can be sent back to HO (return flow — next step).
-              </p>
-            ) : null}
             <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
@@ -659,7 +639,6 @@ export function StoreDispatchPage() {
             </>
           }
         >
-          <p className="text-sm text-stone-700">{storeInwardReceiptPrintSubtitle()}</p>
           <div className="mt-4 rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">
             <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">Transfer number (TD)</p>
             <p className="mt-1 font-mono text-2xl font-bold text-stone-900">{storeInwardAck.inwardNumber}</p>
@@ -727,12 +706,7 @@ export function StoreDispatchPage() {
             </>
           }
         >
-          <p className="text-sm text-stone-700">
-            {/* Hand over the physical watch(es) with the printed internal transfer document. Store → HO movement
-            uses a transfer document (not a GST delivery challan). Your regional HO inward desk will select this
-            batch from their pending list. */}
-          </p>
-          <div className="mt-4 rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">
+          <div className="rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">
             <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">Transfer number (TD)</p>
             <p className="mt-1 font-mono text-2xl font-bold text-stone-900">{outwardAck.dcNumber}</p>
           </div>

@@ -8,7 +8,7 @@ import {
   isValidPanFormat,
   panFromGstin,
 } from "../../data/serviceSeed";
-import { validateCustomerB2bGstin, ZIMSON_OWN_GSTIN_FIELD_HINT } from "../../lib/zimsonCompanyGst";
+import { validateCustomerB2bGstin } from "../../lib/zimsonCompanyGst";
 import { inputClass, inputClassReadOnly } from "../../lib/uiForm";
 import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../lib/gstLookupClient";
 
@@ -211,9 +211,6 @@ export function B2bDetailsModal({
                 {gstFetchBusy ? "…" : fieldLocked ? "Fetched from GST" : "Fetch company from GST"}
               </button>
             </div>
-            <p className="mt-1 text-[11px] leading-snug text-amber-900/90">
-              {ZIMSON_OWN_GSTIN_FIELD_HINT}
-            </p>
           </div>
 
           {/* Company — filled from GST lookup only */}
@@ -244,9 +241,9 @@ export function B2bDetailsModal({
               readOnly
               tabIndex={-1}
             />
-            <p className="mt-1 text-[11px] text-stone-500">
+            {/* <p className="mt-1 text-[11px] text-stone-500">
               Taken from the GST registry or characters 3–12 of the GSTIN.
-            </p>
+            </p> */}
           </div>
         </div>
 

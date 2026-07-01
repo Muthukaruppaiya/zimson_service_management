@@ -142,7 +142,7 @@ export function ScLogisticsHistoryPage() {
     <div>
       <PageHeader
         title="DC / ODC history"
-        description="Single-page lifecycle view for inward and outward challans."
+        description=""
         actions={
           <Link
             to="/service-centre/logistics"
@@ -159,9 +159,9 @@ export function ScLogisticsHistoryPage() {
             <p className="mb-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-950 ring-1 ring-sky-200">{dcMsg}</p>
           ) : null}
           {dcLoading ? (
-            <p className="text-sm text-stone-600">Loading delivery challans…</p>
+            <div className="min-h-[2rem]" aria-hidden />
           ) : dcRows.length === 0 ? (
-            <p className="text-sm text-stone-600">No delivery challans in your scope yet.</p>
+            <div className="min-h-[2rem]" aria-hidden />
           ) : (
             <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
               <table className="min-w-full text-left text-sm">
@@ -270,7 +270,7 @@ export function ScLogisticsHistoryPage() {
           </button>
         </div>
         {filteredRows.length === 0 ? (
-          <p className="text-sm text-stone-600">No DC/ODC records found.</p>
+          <div className="min-h-[2rem]" aria-hidden />
         ) : (
           <div className="space-y-3">
             <div className="overflow-x-auto rounded-xl border border-zimson-200/80">

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ServiceBreadcrumb } from "../service/ServiceBreadcrumb";
+import { uiPageTitleOnDarkClass } from "../../lib/pageTypography";
 
 type ListPageShellProps = {
   breadcrumb: string;
@@ -40,10 +41,10 @@ export function ListPageShell({
         <ServiceBreadcrumb current={breadcrumb} />
 
         <div className="bg-rlx-green px-4 py-4 md:px-5 md:py-5">
-          <p className="mb-1 text-[9px] font-semibold uppercase tracking-[0.4em] text-rlx-gold">{eyebrow}</p>
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.35em] text-rlx-gold">{eyebrow}</p>
           <div className="flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <h1 className="font-display text-lg font-light leading-tight tracking-wide text-white md:text-xl">
+              <h1 className={uiPageTitleOnDarkClass}>
                 {title}
               </h1>
             </div>
@@ -56,7 +57,7 @@ export function ListPageShell({
         <div className="px-4 py-3 md:px-5 md:py-4">
           {countLabel ? (
             <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-[10px] font-semibold uppercase tracking-[0.28em] text-rlx-ink-muted">{countLabel}</h2>
+              <h2 className="text-xs font-bold uppercase tracking-[0.24em] text-rlx-ink-muted">{countLabel}</h2>
             </div>
           ) : null}
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Card } from "../ui/Card";
 import { GstSummaryBlock } from "./GstSummaryBlock";
 import { sanitizeDecimalInput, sanitizeTextInput } from "../../lib/inputSanitize";
@@ -10,11 +10,10 @@ import {
   resolveSellerStateCode,
   stateCodeLabel,
 } from "../../lib/gstSupply";
-import { isNatureOfRepairTaxable, natureOfRepairBillingNote } from "../../lib/natureOfRepair";
+import { isNatureOfRepairTaxable } from "../../lib/natureOfRepair";
 import type { ServiceBillEditorLine } from "../../lib/serviceBillEditorLines";
 import { editorLineAmountInr } from "../../lib/serviceBillEditorLines";
 import {
-  storeServiceChargeMaxLabel,
   validateStoreServiceAmountInr,
 } from "../../lib/serviceChargeLimits";
 import { inputClass } from "../../lib/uiForm";
@@ -56,6 +55,11 @@ type Props = {
   /** Store user: slip spares read-only; only labour / service charge editable. */
   labourChargesOnly?: boolean;
   onValidationError?: (message: string | null) => void;
+  title?: string;
+  subtitle?: string;
+  topBanner?: ReactNode;
+  /** Hide barcode / catalogue spare pickers (e.g. brand repair billing). */
+  hideSpareCatalog?: boolean;
 };
 
 function emptyEditableLine(): ServiceBillEditorLine {
@@ -87,6 +91,10 @@ export function ServiceBillLinesCard({
   userRole,
   labourChargesOnly = false,
   onValidationError,
+  title = "Service lines",
+  subtitle = "",
+  topBanner,
+  hideSpareCatalog = false,
 }: Props) {
   const pricesTaxInclusive =
     pricesTaxInclusiveProp ?? Boolean(serviceTaxSettings?.pricesTaxInclusive);
@@ -191,15 +199,9 @@ export function ServiceBillLinesCard({
   }
 
   return (
-    <Card
-      title="Service lines"
-      subtitle={
-        labourChargesOnly
-          ? "Spares from the supervisor slip are fixed — enter labour / service charge only."
-          : "Same layout as Quick Bill — spares, labour SAC, and GST"
-      }
-    >
-      {!labourChargesOnly ? (
+    <Card title={title} subtitle={subtitle || undefined}>
+      {topBanner ? <div className="mb-4">{topBanner}</div> : null}
+      {!labourChargesOnly && !hideSpareCatalog ? (
       <div className="mb-4 flex min-w-0 flex-col gap-3 border-b border-zimson-100 pb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Add lines</p>
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
@@ -243,41 +245,43 @@ export function ServiceBillLinesCard({
             ))}
           </select>
         </div>
-        {watchBrand.trim() ? (
-          <p className="text-[11px] text-stone-500">
-            Watch brand: <span className="font-semibold">{watchBrand}</span> — supervisor slip lines are locked;
-            add extra spares or charges below.
-          </p>
-        ) : null}
       </div>
       ) : null}
 
       <div className="space-y-3">
         {lines.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-zimson-200 bg-zimson-50/40 px-3 py-4 text-sm text-stone-600">
-            No spares on slip yet. Add spares from the catalogue or enter labour in the service charge row below.
-          </p>
+          <div className="rounded-xl border border-dashed border-zimson-200 bg-zimson-50/40 px-3 py-4" aria-hidden />
         ) : (
           lines.map((line, index) => {
-            const lineHsn = line.spareId ? normalizeHsnCode(line.hsn) || "—" : null;
+            const lineHsn = line.spareId
+              ? normalizeHsnCode(line.hsn) || "—"
+              : line.hsn?.trim()
+                ? normalizeHsnCode(line.hsn) || line.hsn.trim()
+                : null;
             const lineGstRate =
-              line.spareId && lineHsn && lineHsn !== "—"
+              lineHsn && lineHsn !== "—"
                 ? resolveLineGstPercent({
-                    spareId: line.spareId,
+                    spareId: line.spareId ?? null,
                     defaultSacGstPercent: labourGstPercent,
                     spareGstLookup: resolveSpareGst,
                   })
                 : null;
+            const showHsnColumn = Boolean(line.spareId || (line.locked && lineHsn));
             const readOnly = labourChargesOnly || Boolean(line.spareId) || Boolean(line.locked);
+            const lineLabel = line.locked && !line.spareId
+              ? "Brand invoice"
+              : line.locked
+                ? "Spare (from slip)"
+                : line.spareId
+                  ? "Spare"
+                  : "Description";
             return (
               <div
                 key={line.id}
                 className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[1fr_minmax(0,7rem)_minmax(0,9rem)_auto] sm:items-end"
               >
                 <div className="min-w-0">
-                  <span className="text-xs font-medium text-stone-600">
-                    {line.locked ? "Spare (from slip)" : line.spareId ? "Spare" : "Description"}
-                  </span>
+                  <span className="text-xs font-medium text-stone-600">{lineLabel}</span>
                   <input
                     value={line.description}
                     readOnly={readOnly}
@@ -293,9 +297,11 @@ export function ServiceBillLinesCard({
                     placeholder={`Line ${index + 1}`}
                   />
                 </div>
-                {line.spareId ? (
+                {showHsnColumn ? (
                   <div className="min-w-0 w-full">
-                    <span className="text-xs font-medium text-stone-600">HSN (inventory)</span>
+                    <span className="text-xs font-medium text-stone-600">
+                      {line.spareId ? "HSN (inventory)" : "HSN / SAC"}
+                    </span>
                     <input
                       value={lineHsn ?? "—"}
                       readOnly
@@ -327,7 +333,7 @@ export function ServiceBillLinesCard({
                   disabled={line.locked || labourChargesOnly}
                   className="w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
                 >
-                  {line.locked || labourChargesOnly ? "On slip" : "Remove"}
+                  {line.locked || labourChargesOnly ? "Fixed" : "Remove"}
                 </button>
               </div>
             );
@@ -369,7 +375,6 @@ export function ServiceBillLinesCard({
               className={inputClass}
               placeholder="0"
             />
-            <p className="mt-0.5 text-[10px] text-stone-500">{storeServiceChargeMaxLabel(userRole)}</p>
           </div>
           <button
             type="button"
@@ -404,7 +409,6 @@ export function ServiceBillLinesCard({
                 className={inputClass}
                 placeholder="e.g. Tamil Nadu"
               />
-              <p className="mt-1 text-[11px] text-stone-500">Leave blank to use store state (walk-in at counter)</p>
             </div>
           ) : (
             <div className="min-w-0">
@@ -417,11 +421,6 @@ export function ServiceBillLinesCard({
             </div>
           )}
         </div>
-        {natureOfRepair && natureOfRepairBillingNote(natureOfRepair) ? (
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-            {natureOfRepairBillingNote(natureOfRepair)}
-          </p>
-        ) : null}
         {taxPreview ? (
           <div className="rounded-lg border border-zimson-200 bg-white p-3 text-sm text-stone-800">
             <p className="font-semibold text-zimson-900">
@@ -431,12 +430,6 @@ export function ServiceBillLinesCard({
               Seller: {stateCodeLabel(sellerStateCode)} · Customer: {stateCodeLabel(customerStateCode)}
               {!isNatureOfRepairTaxable(natureOfRepair) ? " · No tax (nature of repair)" : null}
             </p>
-            {pricesTaxInclusive ? (
-              <p className="mt-1 text-xs text-stone-600">
-                Line amounts are tax-inclusive (MRP). GST below is split from the line total for the
-                invoice.
-              </p>
-            ) : null}
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
               <div>
                 <dt className="text-stone-500">{pricesTaxInclusive ? "Base value" : "Taxable"}</dt>
@@ -485,9 +478,7 @@ export function ServiceBillLinesCard({
               />
             </div>
           </div>
-        ) : (
-          <p className="text-xs text-stone-500">Add billable line items to see IGST / CGST / SGST breakdown.</p>
-        )}
+        ) : null}
       </div>
     </Card>
   );

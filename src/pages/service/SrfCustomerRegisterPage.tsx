@@ -4,6 +4,7 @@ import { FormPageShell } from "../../components/layout/FormPageShell";
 import { Card } from "../../components/ui/Card";
 import { CustomerAddressForm } from "../../components/service/CustomerAddressForm";
 import { CustomerDetailsModal } from "../../components/service/CustomerDetailsModal";
+import { RegistrationOtpModal } from "../../components/service/RegistrationOtpModal";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useCustomers } from "../../context/CustomersContext";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
@@ -12,7 +13,6 @@ import { formatOtpSentSubtitlePhoneEmail } from "../../lib/otpSentMessage";
 import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../data/serviceSeed";
 import {
   validateCustomerB2bGstin,
-  ZIMSON_OWN_GSTIN_FIELD_HINT,
 } from "../../lib/zimsonCompanyGst";
 import { apiJson, useApiMode } from "../../lib/api";
 import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../lib/gstLookupClient";
@@ -119,6 +119,9 @@ export function SrfCustomerRegisterPage() {
   const [emailOtpVerified, setEmailOtpVerified] = useState(false);
   const [otpStartBusy, setOtpStartBusy] = useState(false);
   const [emailOtpAnchor, setEmailOtpAnchor] = useState<string | null>(null);
+  const [mobileOtpModalOpen, setMobileOtpModalOpen] = useState(false);
+  const [emailOtpModalOpen, setEmailOtpModalOpen] = useState(false);
+  const [otpConfirmBusy, setOtpConfirmBusy] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -321,6 +324,7 @@ export function SrfCustomerRegisterPage() {
       });
       setSessionId(out.sessionId);
       setDemoMobileOtp(out.demoMobileOtp ?? null);
+      setMobileOtpModalOpen(true);
       showOtpSent(formatOtpSentSubtitlePhoneEmail(phone, undefined));
     } catch (e) {
       showOtpAlert(e instanceof Error ? e.message : "Could not send mobile OTP.", "OTP");
@@ -340,13 +344,17 @@ export function SrfCustomerRegisterPage() {
       return;
     }
     try {
+      setOtpConfirmBusy(true);
       await confirmRegistrationMobileOtp({ sessionId, otp: mobileOtpInput.trim() });
       setMobileOtpVerified(true);
+      setMobileOtpModalOpen(false);
     } catch (e) {
       showOtpAlert(
         e instanceof Error ? e.message : "Mobile OTP could not be confirmed.",
         "OTP verification failed",
       );
+    } finally {
+      setOtpConfirmBusy(false);
     }
   }
 
@@ -370,6 +378,7 @@ export function SrfCustomerRegisterPage() {
       if (out.demoEmailOtp) {
         setEmailOtpInput("");
       }
+      setEmailOtpModalOpen(true);
       showOtpSent(formatOtpSentSubtitlePhoneEmail(undefined, email.trim()));
     } catch (e) {
       showOtpAlert(e instanceof Error ? e.message : "Could not send email OTP.", "OTP");
@@ -391,13 +400,17 @@ export function SrfCustomerRegisterPage() {
       return;
     }
     try {
+      setOtpConfirmBusy(true);
       await confirmRegistrationEmailOtp({ sessionId, otp: emailOtpInput.trim() });
       setEmailOtpVerified(true);
+      setEmailOtpModalOpen(false);
     } catch (e) {
       showOtpAlert(
         e instanceof Error ? e.message : "Email OTP could not be confirmed.",
         "OTP verification failed",
       );
+    } finally {
+      setOtpConfirmBusy(false);
     }
   }
 
@@ -715,44 +728,13 @@ export function SrfCustomerRegisterPage() {
                 ) : null}
               </div>
               {sessionId && !mobileOtpVerified ? (
-                <div className="mt-2 rounded-xl border border-dashed border-zimson-400 bg-zimson-50/80 p-3">
-                  {demoMobileOtp ? (
-                    <p className="text-xs text-stone-600">
-                      <span className="font-semibold text-zimson-900">Mobile OTP</span>{" "}
-                      <span className="text-stone-500">(SMS not configured — use this code)</span>{" "}
-                      <span className="font-mono text-lg font-bold tracking-widest text-stone-900">{demoMobileOtp}</span>
-                    </p>
-                  ) : (
-                    <p className="text-xs text-stone-600">
-                      A 6-digit OTP was sent to <strong className="text-zimson-900">{phone}</strong>. Enter it below.
-                    </p>
-                  )}
-                  <div className="mt-2 flex flex-wrap items-end gap-2">
-                    <div className="min-w-0 flex-1">
-                      <label className="text-xs font-medium text-stone-600" htmlFor="srf-reg-mobile-otp">
-                        Enter mobile OTP *
-                      </label>
-                      <input
-                        id="srf-reg-mobile-otp"
-                        value={mobileOtpInput}
-                        onChange={(e) => setMobileOtpInput(digitsOnly(e.target.value, 6))}
-                        className={inputClass}
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        maxLength={6}
-                        placeholder="6 digits"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleConfirmMobileOtp()}
-                      disabled={mobileOtpInput.length !== 6}
-                      className="shrink-0 rounded-lg bg-zimson-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Confirm OTP
-                    </button>
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileOtpModalOpen(true)}
+                  className="mt-1 text-xs font-semibold text-zimson-800 underline hover:text-zimson-950"
+                >
+                  Enter mobile OTP code
+                </button>
               ) : null}
             </div>
             <div>
@@ -806,46 +788,13 @@ export function SrfCustomerRegisterPage() {
                 ) : null}
               </div>
               {sessionId && mobileOtpVerified && !emailOtpVerified && emailOtpAnchor === emailKey ? (
-                <div className="mt-2 rounded-xl border border-dashed border-zimson-400 bg-zimson-50/80 p-3">
-                  {demoEmailOtp ? (
-                    <p className="text-xs text-stone-600">
-                      <span className="font-semibold text-zimson-900">Email OTP</span>{" "}
-                      <span className="text-stone-500">
-                        (email could not be sent — enter this code below)
-                      </span>{" "}
-                      <span className="font-mono text-lg font-bold tracking-widest text-stone-900">{demoEmailOtp}</span>
-                    </p>
-                  ) : (
-                    <p className="text-xs text-stone-600">
-                      A 6-digit OTP was sent to <strong className="text-zimson-900">{email}</strong>. Enter it below.
-                    </p>
-                  )}
-                  <div className="mt-2 flex flex-wrap items-end gap-2">
-                    <div className="min-w-0 flex-1">
-                      <label className="text-xs font-medium text-stone-600" htmlFor="srf-reg-email-otp">
-                        Enter email OTP
-                      </label>
-                      <input
-                        id="srf-reg-email-otp"
-                        value={emailOtpInput}
-                        onChange={(e) => setEmailOtpInput(digitsOnly(e.target.value, 6))}
-                        className={inputClass}
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        maxLength={6}
-                        placeholder="6 digits"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleConfirmEmailOtp()}
-                      disabled={emailOtpInput.length !== 6}
-                      className="shrink-0 rounded-lg bg-zimson-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Confirm OTP
-                    </button>
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setEmailOtpModalOpen(true)}
+                  className="mt-1 text-xs font-semibold text-zimson-800 underline hover:text-zimson-950"
+                >
+                  Enter email OTP code
+                </button>
               ) : null}
             </div>
             <div>
@@ -1033,7 +982,6 @@ export function SrfCustomerRegisterPage() {
                   {gstFetchBusy ? "…" : gstLookupLocked ? "Fetched from GST" : "Fetch company from GST"}
                 </button>
               </div>
-              <p className="sm:col-span-2 text-[11px] text-amber-900/90">{ZIMSON_OWN_GSTIN_FIELD_HINT}</p>
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium text-stone-600">Company / legal name *</label>
                 <input
@@ -1053,9 +1001,9 @@ export function SrfCustomerRegisterPage() {
                   tabIndex={-1}
                   placeholder="Filled after GST lookup"
                 />
-                <p className="mt-1 text-[11px] text-stone-500">
+                {/* <p className="mt-1 text-[11px] text-stone-500">
                   Taken from the GST registry or characters 3–12 of the GSTIN.
-                </p>
+                </p> */}
               </div>
             </div>
           </Card>
@@ -1125,6 +1073,28 @@ export function SrfCustomerRegisterPage() {
       ) : null}
       {alertModal}
       {otpSentModal}
+      <RegistrationOtpModal
+        open={mobileOtpModalOpen}
+        kind="mobile"
+        target={phone}
+        value={mobileOtpInput}
+        onChange={setMobileOtpInput}
+        onConfirm={() => void handleConfirmMobileOtp()}
+        onResend={() => void handleStartMobileOtp()}
+        onClose={() => setMobileOtpModalOpen(false)}
+        busy={otpConfirmBusy || otpStartBusy}
+      />
+      <RegistrationOtpModal
+        open={emailOtpModalOpen}
+        kind="email"
+        target={email}
+        value={emailOtpInput}
+        onChange={setEmailOtpInput}
+        onConfirm={() => void handleConfirmEmailOtp()}
+        onResend={() => void handleStartEmailOtp()}
+        onClose={() => setEmailOtpModalOpen(false)}
+        busy={otpConfirmBusy || otpStartBusy}
+      />
       <CustomerDetailsModal
         customerId={existingCustomer?.id ?? null}
         open={detailsOpen}

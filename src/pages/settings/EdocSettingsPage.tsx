@@ -249,37 +249,9 @@ export function EdocSettingsPage() {
           </div>
 
           {sandboxMode ? (
-            <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              <p className="font-semibold">Sandbox API (sandb-api.mastersindia.co)</p>
-              <p className="mt-1">
-                E-way uses your configured GSTIN and region consignor/consignee —{" "}
-                {effectiveEwayGstin ? (
-                  <span className="font-mono">{effectiveEwayGstin}</span>
-                ) : (
-                  "set E-way user GSTIN below"
-                )}
-                . Register NIC e-way API credentials for that GSTIN on the Masters India portal (separate from
-                e-invoice IRP login).
-              </p>
-              <p className="mt-2 text-xs text-amber-900">
-                Sandbox e-invoice always uses Masters India test seller GSTIN{" "}
-                <span className="font-mono">{effectiveEinvoiceGstin || "09AAAPG7885R002"}</span> (IRP on sandb-api).
-                E-way uses your configured GSTIN ({effectiveEwayGstin || "see below"}).
-              </p>
-            </div>
+            <p className="mt-4 text-sm font-semibold text-amber-950">Sandbox</p>
           ) : (
-            <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-              <p className="font-semibold">Production API (router.mastersindia.co)</p>
-              <p className="mt-1">
-                E-invoice uses your store/region GSTIN{" "}
-                <span className="font-mono">{effectiveEinvoiceGstin || sellerGstinOverride || "—"}</span>. GSTIN must be
-                registered on{" "}
-                <a className="font-semibold underline" href="https://edoc.mastersindia.co" target="_blank" rel="noreferrer">
-                  edoc.mastersindia.co
-                </a>{" "}
-                under login <span className="font-mono">{username || "—"}</span> with IRP username/password.
-              </p>
-            </div>
+            <p className="mt-4 text-sm font-semibold text-emerald-950">Production</p>
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">

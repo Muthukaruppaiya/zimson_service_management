@@ -44,6 +44,7 @@ import {
   editorLinesBillableSubtotal,
   editorLinesToGstLines,
   editorLinesToInvoiceBillLines,
+  brandInvoiceToEditorLine,
   usedSparesToEditorLines,
   type ServiceBillEditorLine,
 } from "../../lib/serviceBillEditorLines";
@@ -248,7 +249,9 @@ export function StoreBillingPage() {
   );
   const isBrandRepairFlow = billingAmounts?.isBrandRepair ?? false;
   const isInterHoReturnFlow = billingAmounts?.isInterHoReturn ?? false;
-  const useQuickBillStyleLines = Boolean(billingJob && !isBrandRepairFlow && !isInterHoReturnFlow && !isRejectedNoRepairFlow);
+  const useServiceBillLinesCard = Boolean(billingJob && !isRejectedNoRepairFlow);
+  /** @deprecated alias — same as useServiceBillLinesCard */
+  const useQuickBillStyleLines = useServiceBillLinesCard;
 
   const spareOptions = useMemo(
     () =>
@@ -264,21 +267,32 @@ export function StoreBillingPage() {
   );
 
   useEffect(() => {
-    if (!billingJob || !useQuickBillStyleLines) {
+    if (!billingJob || !useServiceBillLinesCard) {
       setBillLines([]);
       setServiceChargeInr("");
       setBillingStateInput("");
       return;
     }
-    setBillLines(
-      usedSparesToEditorLines(billingJob, (spareId) => {
-        if (!spareId) return null;
-        return activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null;
-      }),
-    );
+    if (isBrandRepairFlow) {
+      setBillLines([brandInvoiceToEditorLine(billingJob, invoiceSacHsn)]);
+    } else {
+      setBillLines(
+        usedSparesToEditorLines(billingJob, (spareId) => {
+          if (!spareId) return null;
+          return activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null;
+        }),
+      );
+    }
     setServiceChargeInr("");
     setBillingStateInput(billingCustomerState);
-  }, [billingJob?.id, useQuickBillStyleLines, billingCustomerState, activeSpares]);
+  }, [
+    billingJob?.id,
+    useServiceBillLinesCard,
+    isBrandRepairFlow,
+    billingCustomerState,
+    activeSpares,
+    invoiceSacHsn,
+  ]);
 
   const serviceChargeBillable = useMemo(() => {
     const n = Number.parseFloat(serviceChargeInr);
@@ -288,7 +302,7 @@ export function StoreBillingPage() {
     );
   }, [serviceChargeInr, billingJob?.natureOfRepair]);
 
-  const effectiveCustomerState = useQuickBillStyleLines ? billingStateInput : billingCustomerState;
+  const effectiveCustomerState = useServiceBillLinesCard ? billingStateInput : billingCustomerState;
   function getSpareUnitPrice(spareId: string): number {
     const spare = activeSpares.find((s) => s.id === spareId);
     return Number(spare?.sellingPriceInr ?? spare?.mrpInr ?? 0);
@@ -339,7 +353,7 @@ export function StoreBillingPage() {
       : sparesBillableAmount;
   const advanceAmount = Number(billingJob?.advanceInr ?? 0);
   const estimatedAmtInr = billingJob ? resolveCustomerServiceBaseInr(billingJob) : 0;
-  const billSubtotalBeforeAdvance = useQuickBillStyleLines
+  const billSubtotalBeforeAdvance = useServiceBillLinesCard
     ? editorLinesBillableSubtotal(billLines, billingJob?.natureOfRepair, serviceChargeInr)
     : repairBaseAmount + additionalChargesTotal;
 
@@ -359,7 +373,7 @@ export function StoreBillingPage() {
       cityText: billingCustomer?.city ?? null,
       sellerStateCode: sellerState,
     });
-    const gstLines = useQuickBillStyleLines
+    const gstLines = useServiceBillLinesCard
       ? editorLinesToGstLines(
           billLines,
           billingJob.natureOfRepair,
@@ -384,7 +398,7 @@ export function StoreBillingPage() {
     billingJob,
     billingAmounts,
     isRejectedNoRepairFlow,
-    useQuickBillStyleLines,
+    useServiceBillLinesCard,
     billLines,
     serviceChargeBillable,
     previewAdditionalCharges,
@@ -539,7 +553,7 @@ export function StoreBillingPage() {
     try {
       const snapshot = buildStoreBillingSnapshot({
         job,
-        useQuickBillStyleLines,
+        useServiceBillLinesCard,
         billLines,
         serviceChargeBillable,
         additionalCharges: previewAdditionalCharges,
@@ -868,11 +882,7 @@ export function StoreBillingPage() {
               </table>
             </div>
           </>
-        ) : !billingJob ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Select SRF first from step 1 to continue invoice creation.
-          </div>
-        ) : (
+        ) : !billingJob ? null : (
           <div className="mt-4 space-y-4 rounded-xl border border-zimson-200/80 p-4">
             <div className="flex items-center justify-between">
               <div className="text-sm text-stone-700">
@@ -896,29 +906,11 @@ export function StoreBillingPage() {
                 </button>
               </div>
             </div>
-            {isRejectedNoRepairFlow ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Customer rejected re-estimate and the watch is being returned without repair. Use handover
-                without billing when the customer collects the watch.
-              </div>
-            ) : null}
-            {isInterHoReturnFlow ? (
-              <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-950">
-                Inter-HO return: bill repair HO spares (from repair invoice) plus any labour/service charges you enter below.
-                GST is applied on spares + charges; booking advance is deducted from the final total.
-                {(billingJob.hoSparesBillRef ?? "").trim() ? (
-                  <span className="mt-1 block text-xs">
-                    Repair HO invoice ref:{" "}
-                    <span className="font-mono font-semibold">{billingJob.hoSparesBillRef}</span>
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
             <BillingHandoverPhotoCard
               srfId={billingJob.id}
               onSessionChange={setHandoverSessionId}
             />
-            {useQuickBillStyleLines && billingJob ? (
+            {useServiceBillLinesCard && billingJob ? (
               <ServiceBillLinesCard
                 watchBrand={billingJob.watchBrand}
                 spareOptions={spareOptions}
@@ -945,44 +937,72 @@ export function StoreBillingPage() {
                 advanceInr={advanceAmount}
                 standardTotalInr={standardBillingTotal}
                 userRole={user?.role}
-                labourChargesOnly={user?.role === "store_user"}
+                labourChargesOnly={user?.role === "store_user" && !isBrandRepairFlow}
+                hideSpareCatalog={isBrandRepairFlow}
+                title="Service lines"
+                topBanner={
+                  isBrandRepairFlow ? (
+                    <div className="grid gap-2 rounded-xl border border-violet-200/80 bg-violet-50/50 p-3 text-sm sm:grid-cols-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-violet-900/80">
+                          Brand invoice ref
+                        </p>
+                        <p className="mt-0.5 font-mono font-semibold text-zimson-900">
+                          {billingJob.brandInvoiceRef?.trim() || "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-violet-900/80">
+                          Brand invoice amount
+                        </p>
+                        <p className="mt-0.5 font-semibold text-zimson-900">
+                          {formatInr(brandInvoiceAmount)}
+                        </p>
+                      </div>
+                      {billingJob.brandEstimateInr ? (
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-violet-900/80">
+                            Brand estimate
+                          </p>
+                          <p className="mt-0.5 font-semibold text-stone-800">
+                            {formatInr(Number(billingJob.brandEstimateInr))}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : isInterHoReturnFlow ? (
+                    <div className="grid gap-2 rounded-xl border border-indigo-200/80 bg-indigo-50/50 p-3 text-sm sm:grid-cols-2">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-900/80">
+                          Repair HO invoice ref
+                        </p>
+                        <p className="mt-0.5 font-mono font-semibold text-zimson-900">
+                          {(billingJob.hoSparesBillRef ?? hoSparesBillRef).trim() || "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-900/80">
+                          Service estimate (reference only)
+                        </p>
+                        <p className="mt-0.5 font-semibold text-stone-800">{formatInr(estimatedAmtInr)}</p>
+                      </div>
+                    </div>
+                  ) : null
+                }
                 onValidationError={(msg) => {
                   if (msg) setMessage({ type: "err", text: msg });
                   else if (message?.type === "err") setMessage(null);
                 }}
               />
             ) : null}
-            {!useQuickBillStyleLines ? (
+            {!useServiceBillLinesCard ? (
             <div className="rounded-xl bg-zimson-50 p-3 text-sm text-stone-700">
               <p className="font-semibold text-zimson-900">
-                {isBrandRepairFlow
-                  ? "Brand repair invoice"
-                  : isInterHoReturnFlow
-                    ? "Repair HO spares (on tax invoice)"
-                    : "Supervisor used spares"}
+                {isInterHoReturnFlow
+                  ? "Repair HO spares (on tax invoice)"
+                  : "Supervisor used spares"}
               </p>
-              {isBrandRepairFlow ? (
-                <div className="mt-2 overflow-x-auto rounded-xl border border-violet-200/80 bg-white">
-                  <table className="min-w-full text-left text-xs">
-                    <tbody>
-                      <tr className="border-b border-violet-100">
-                        <th className="w-48 bg-violet-50/60 px-3 py-2 font-semibold text-stone-700">Brand invoice ref</th>
-                        <td className="px-3 py-2 font-semibold text-zimson-900">{billingJob.brandInvoiceRef ?? "-"}</td>
-                      </tr>
-                      <tr className="border-b border-violet-100">
-                        <th className="bg-violet-50/60 px-3 py-2 font-semibold text-stone-700">Brand invoice amount</th>
-                        <td className="px-3 py-2 font-semibold text-zimson-900">INR {brandInvoiceAmount.toFixed(2)}</td>
-                      </tr>
-                      {billingJob.brandEstimateInr ? (
-                        <tr>
-                          <th className="bg-violet-50/60 px-3 py-2 font-semibold text-stone-700">Brand estimate</th>
-                          <td className="px-3 py-2 text-stone-700">INR {Number(billingJob.brandEstimateInr).toFixed(2)}</td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
-              ) : billingJob.usedSpares && billingJob.usedSpares.length > 0 ? (
+              {billingJob.usedSpares && billingJob.usedSpares.length > 0 ? (
                 <div className="mt-2 overflow-x-auto rounded-xl border border-zimson-200/80 bg-white">
                   <table className="min-w-full text-left text-xs">
                     <thead className="border-b border-zimson-200 bg-zimson-50/60 text-stone-600">
@@ -1006,11 +1026,11 @@ export function StoreBillingPage() {
                   </table>
                 </div>
               ) : (
-                <p className="mt-1 text-xs text-amber-700">No spares slip submitted yet.</p>
+                <div className="mt-1" aria-hidden />
               )}
             </div>
             ) : null}
-            {!isRejectedNoRepairFlow && !useQuickBillStyleLines ? (
+            {!isRejectedNoRepairFlow && !useServiceBillLinesCard ? (
               <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-sm font-semibold text-zimson-900">Additional line items (labour / service charges)</p>
@@ -1101,7 +1121,7 @@ export function StoreBillingPage() {
                 </div>
               </div>
             ) : null}
-            {!isRejectedNoRepairFlow && !useQuickBillStyleLines ? (
+            {!isRejectedNoRepairFlow && !useServiceBillLinesCard ? (
             <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
               <table className="min-w-full text-left text-sm">
                 <tbody>
@@ -1216,13 +1236,17 @@ export function StoreBillingPage() {
             ) : null}
             {!isRejectedNoRepairFlow ? (
               <>
-            {useQuickBillStyleLines ? (
+            {useServiceBillLinesCard ? (
               <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
                 <table className="min-w-full text-left text-sm">
                   <tbody>
                     <tr className="border-b border-zimson-100">
-                      <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimated amt</th>
-                      <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(estimatedAmtInr)}</td>
+                      <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">
+                        {isInterHoReturnFlow ? "Service estimate (reference only)" : "Estimated amt"}
+                      </th>
+                      <td className={`px-3 py-2 font-semibold ${isInterHoReturnFlow ? "text-stone-600" : "text-zimson-900"}`}>
+                        {formatInr(estimatedAmtInr)}
+                      </td>
                     </tr>
                     <tr className="border-b border-zimson-100">
                       <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance received</th>
@@ -1269,9 +1293,6 @@ export function StoreBillingPage() {
                   Number.isFinite(standardBillingTotal) ? String(standardBillingTotal) : "0"
                 }
               />
-              <p className="mt-1 text-xs text-stone-500">
-                Leave blank to use balance due {formatInr(standardBillingTotal)} (after GST and advance).
-              </p>
             </label>
             <MultiPaymentFields
               idPrefix="store-bill"
@@ -1280,16 +1301,6 @@ export function StoreBillingPage() {
               form={multiPaymentForm}
               onChange={setMultiPaymentForm}
             />
-            <p className="text-xs text-stone-600">
-              After OTP is verified (primary mobile/email or other number/email), the tax invoice is generated
-              automatically — same as Quick Bill.
-            </p>
-            {edocEnabled && isB2BBilling ? (
-              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
-                <strong>B2B — GST e-invoice mandatory.</strong> IRN will be registered automatically when the invoice
-                is generated{ billingCustomerGst ? ` (buyer GSTIN ${billingCustomerGst})` : " — ensure customer GSTIN is on file" }.
-              </div>
-            ) : null}
               </>
             ) : null}
             {isRejectedNoRepairFlow ? (

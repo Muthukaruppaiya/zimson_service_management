@@ -94,7 +94,7 @@ export function DashboardQuickLinks() {
           </ul>
         ) : (
           <p className="rounded-xl border border-dashed border-amber-300/60 bg-amber-50/80 px-4 py-6 text-center text-sm text-amber-950">
-            No shortcuts yet. Tap <strong>Customize</strong> to add icons to your home screen.
+            No shortcuts
           </p>
         )}
       </div>
@@ -114,7 +114,7 @@ export function DashboardQuickLinks() {
               <h3 id="quick-links-settings-title" className="text-base font-semibold text-white">
                 Choose your shortcuts
               </h3>
-              <p className="mt-1 text-xs text-white/75">Tap icons to show or hide on Home.</p>
+              <p className="mt-1 text-xs text-white/75">Shortcuts</p>
             </div>
             <div className="max-h-[min(52vh,400px)] overflow-y-auto bg-stone-50/50 px-4 py-4">
               <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4">

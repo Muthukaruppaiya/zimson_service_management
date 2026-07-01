@@ -175,10 +175,10 @@ export function InventoryStockPriceOverviewPage() {
         title={isStoreUser ? "Store stock" : "Stock control desk"}
         description={
           isStoreUser
-            ? "View spare stock and prices for your assigned store only (read-only)."
+            ? ""
             : viewOnly
-              ? "View-only access to HO stock levels and spare prices for your region."
-              : "Scalable list for high-volume spares with drill-down stock, prices, and timeline history."
+              ? ""
+              : ""
         }
         actions={
           viewOnly ? null : (
@@ -192,13 +192,13 @@ export function InventoryStockPriceOverviewPage() {
         }
       />
 
-      {viewOnly ? (
+      {/* {viewOnly ? (
         <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
           {isStoreUser
-            ? "View-only: stock shown is limited to your store. You cannot add or adjust inventory from here."
-            : "View-only: you can browse stock and prices but cannot change inventory records."}
+            ? ""
+            : ""}
         </p>
-      ) : null}
+      ) : null} */}
 
       <Card
         title="Filters"

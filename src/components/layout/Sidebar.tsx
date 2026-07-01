@@ -133,7 +133,6 @@ export function Sidebar() {
       {
         title: "Accounts", icon: "accounts",
         items: [
-          { to: "/accounts/reports", label: "Reports hub", module: "accounts" },
           { to: "/accounts/reports/revenue", label: "Revenue report", module: "accounts" },
           { to: "/accounts/reports/summary-sale", label: "Summary sale", module: "accounts" },
           { to: "/accounts/reports/hsn-purchase", label: "HSN purchase", module: "accounts" },

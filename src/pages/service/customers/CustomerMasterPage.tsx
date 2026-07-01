@@ -5,7 +5,7 @@ import { Card } from "../../../components/ui/Card";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../../data/serviceSeed";
 import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../../lib/gstLookupClient";
-import { validateCustomerB2bGstin, ZIMSON_OWN_GSTIN_FIELD_HINT } from "../../../lib/zimsonCompanyGst";
+import { validateCustomerB2bGstin } from "../../../lib/zimsonCompanyGst";
 import { apiJson } from "../../../lib/api";
 import type { CustomerKind, CustomerRecord } from "../../../types/customer";
 
@@ -357,7 +357,6 @@ export function CustomerMasterPage() {
                       {gstFetchBusy ? "Fetching…" : "Get GST details"}
                     </button>
                   </div>
-                  <p className="mt-1 text-[11px] leading-snug text-amber-900/90">{ZIMSON_OWN_GSTIN_FIELD_HINT}</p>
                 </div>
                 <label className="text-sm">PAN<input className={inputClass} value={edit.pan} onChange={(e) => setEdit((p) => (p ? { ...p, pan: e.target.value.toUpperCase() } : p))} /></label>
               </div>

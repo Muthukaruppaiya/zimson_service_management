@@ -103,6 +103,7 @@ export function WatchCatalogSinglePicker({
     const current = value.trim();
     const parts = parseWatchCatalogMultiValue(value);
     const normalizedCurrent = (parts[0] ?? current).trim();
+    if (!next && normalizedCurrent) return;
     if (next !== normalizedCurrent) onChange(next);
   }, [resolvedName, onChange, value]);
 

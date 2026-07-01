@@ -14,7 +14,7 @@ type Props = {
 export function ProcessLoadingOverlay({
   open,
   title,
-  hint = "Please wait — do not close this screen.",
+  hint,
   statusMessages,
   statusIntervalMs = 2200,
 }: Props) {
