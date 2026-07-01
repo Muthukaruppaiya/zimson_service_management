@@ -399,6 +399,8 @@ export function QuickBillPage() {
   const [handoverModalMode, setHandoverModalMode] = useState<HandoverOtpMode>("primary");
   const autoLookupTimerRef = useRef<number | null>(null);
   const lastAutoLookupPhoneRef = useRef("");
+  /** Blocks phone auto-lookup from wiping fields while resuming after new-customer registration. */
+  const resumeCustomerHydrateRef = useRef(false);
   /** Set synchronously when a customer row is applied; OTP gate trusts this if `customerChecked` lags one frame. */
   const verifiedBillPhoneLast10Ref = useRef("");
   const phoneInputRef = useRef("");
@@ -546,13 +548,20 @@ export function QuickBillPage() {
     const customerId = searchParams.get("customerId");
     const phoneHint = searchParams.get("phone");
     const resume = searchParams.get("resumeCustomer");
+    const customerCodeHint = searchParams.get("customerCode")?.trim() || null;
     if (!customerId) return;
     if (resume && resume !== "1") return;
+    resumeCustomerHydrateRef.current = true;
     if (phoneHint) setPhone((prev) => prev.trim() || phoneHint);
+    if (customerCodeHint) setLoadedCustomerCode(customerCodeHint);
 
     const fromRecord = (row: LoadedCustomerRow) => {
-      applyLoadedCustomer(row);
+      applyLoadedCustomer({
+        ...row,
+        customerCode: row.customerCode?.trim() || customerCodeHint,
+      });
       setCustomerCheckMsg(null);
+      resumeCustomerHydrateRef.current = false;
     };
 
     const local = getById(customerId);
@@ -579,6 +588,7 @@ export function QuickBillPage() {
     }
 
     if (!phoneHint) {
+      resumeCustomerHydrateRef.current = false;
       setSearchParams({}, { replace: true });
       return;
     }
@@ -610,11 +620,15 @@ export function QuickBillPage() {
       } catch {
         if (!cancelled) setError("Could not load saved customer. Check API connection.");
       } finally {
-        if (!cancelled) setSearchParams({}, { replace: true });
+        if (!cancelled) {
+          resumeCustomerHydrateRef.current = false;
+          setSearchParams({}, { replace: true });
+        }
       }
     })();
     return () => {
       cancelled = true;
+      resumeCustomerHydrateRef.current = false;
     };
   }, [searchParams, getById, setSearchParams, applyLoadedCustomer]);
 
@@ -626,6 +640,7 @@ export function QuickBillPage() {
   }, [gst, customerType]);
 
   useEffect(() => {
+    if (resumeCustomerHydrateRef.current) return;
     const normalized = phoneLast10(phone);
     if (normalized === lastAutoLookupPhoneRef.current) return;
     verifiedBillPhoneLast10Ref.current = "";

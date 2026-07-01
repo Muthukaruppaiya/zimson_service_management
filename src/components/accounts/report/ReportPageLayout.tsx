@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
 import { Card } from "../../ui/Card";
 import { PageHeader } from "../../ui/PageHeader";
 import { ReportFilters } from "./ReportFilters";
@@ -41,22 +40,14 @@ export function ReportPageLayout({
         title={title}
         description={description}
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              to="/accounts/reports"
-              className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
-            >
-              All reports
-            </Link>
-            <button
-              type="button"
-              disabled={!hasData || downloading || running}
-              onClick={() => void onDownload()}
-              className="rounded-xl bg-zimson-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-900 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {downloading ? "Downloading…" : downloadLabel}
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={!hasData || downloading || running}
+            onClick={() => void onDownload()}
+            className="rounded-xl bg-zimson-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {downloading ? "Downloading…" : downloadLabel}
+          </button>
         }
       />
 

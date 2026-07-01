@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
+import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import type { MessagingSettings } from "../../types/messagingSettings";
 
@@ -39,9 +40,11 @@ export function MessagingSettingsPage() {
   const isSuperAdmin = user?.role === "super_admin";
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingSection, setSavingSection] = useState<"sms" | "email" | "whatsapp" | "workdrive" | "otp" | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
-  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const { showSuccess, showError, alertModal } = useMessageAlert();
   const [meta, setMeta] = useState<{ updatedAt: string; updatedBy: string | null } | null>(null);
 
   const [smsEnabled, setSmsEnabled] = useState(true);
@@ -158,63 +161,69 @@ export function MessagingSettingsPage() {
     void load();
   }, [load]);
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
+  function buildPayload() {
+    return {
+      smsEnabled,
+      smsUrl: smsUrl.trim(),
+      smsToken: smsToken.trim(),
+      smsTemplateId: smsTemplateId.trim(),
+      smsSender: smsSender.trim(),
+      smsService: smsService.trim(),
+      smsOtpMessageTemplate: smsOtpMessageTemplate.trim(),
+
+      emailEnabled,
+      smtpHost: smtpHost.trim(),
+      smtpPort: Number.parseInt(smtpPort, 10) || 587,
+      smtpUser: smtpUser.trim(),
+      smtpPassword: smtpPassword.trim(),
+      smtpFrom: smtpFrom.trim(),
+      smtpOtpSubject: smtpOtpSubject.trim(),
+      smtpOtpMessage: smtpOtpMessage.trim(),
+
+      whatsappEnabled,
+      qikchatApiKey: qikchatApiKey.trim(),
+      qikchatApiBaseUrl: qikchatApiBaseUrl.trim(),
+      qikchatTemplateName: qikchatTemplateName.trim(),
+      qikchatTemplateLanguage: qikchatTemplateLanguage.trim(),
+      qikchatTrackingTemplateName: qikchatTrackingTemplateName.trim(),
+      qikchatTrackingTextTemplateName: qikchatTrackingTextTemplateName.trim(),
+      qikchatApprovalTemplateName: qikchatApprovalTemplateName.trim(),
+      qikchatTrackingTemplateBody: qikchatTrackingTemplateBody.trim(),
+      qikchatApprovalTemplateBody: qikchatApprovalTemplateBody.trim(),
+      qikchatInvoiceTemplateBody: qikchatInvoiceTemplateBody.trim(),
+      whatsappInvoiceMode,
+      messagingPublicBaseUrl: messagingPublicBaseUrl.trim(),
+      whatsappInvoiceDryRun,
+
+      workdriveForInvoice,
+      workdriveToken: workdriveToken.trim(),
+      workdriveUploadUrl: workdriveUploadUrl.trim(),
+      workdriveHeaderName: workdriveHeaderName.trim(),
+
+      exposeDemoOtp: exposeDemoOtp === "auto" ? null : exposeDemoOtp === "true",
+    };
+  }
+
+  async function handleSaveSection(
+    section: "sms" | "email" | "whatsapp" | "workdrive" | "otp",
+    successTitle: string,
+  ) {
     if (!apiMode || !isSuperAdmin) return;
-    setSaving(true);
+    setSavingSection(section);
     setError(null);
-    setSavedMsg(null);
     try {
-      const payload = {
-        smsEnabled,
-        smsUrl: smsUrl.trim(),
-        smsToken: smsToken.trim(),
-        smsTemplateId: smsTemplateId.trim(),
-        smsSender: smsSender.trim(),
-        smsService: smsService.trim(),
-        smsOtpMessageTemplate: smsOtpMessageTemplate.trim(),
-
-        emailEnabled,
-        smtpHost: smtpHost.trim(),
-        smtpPort: Number.parseInt(smtpPort, 10) || 587,
-        smtpUser: smtpUser.trim(),
-        smtpPassword: smtpPassword.trim(),
-        smtpFrom: smtpFrom.trim(),
-        smtpOtpSubject: smtpOtpSubject.trim(),
-        smtpOtpMessage: smtpOtpMessage.trim(),
-
-        whatsappEnabled,
-        qikchatApiKey: qikchatApiKey.trim(),
-        qikchatApiBaseUrl: qikchatApiBaseUrl.trim(),
-        qikchatTemplateName: qikchatTemplateName.trim(),
-        qikchatTemplateLanguage: qikchatTemplateLanguage.trim(),
-        qikchatTrackingTemplateName: qikchatTrackingTemplateName.trim(),
-        qikchatTrackingTextTemplateName: qikchatTrackingTextTemplateName.trim(),
-        qikchatApprovalTemplateName: qikchatApprovalTemplateName.trim(),
-        qikchatTrackingTemplateBody: qikchatTrackingTemplateBody.trim(),
-        qikchatApprovalTemplateBody: qikchatApprovalTemplateBody.trim(),
-        qikchatInvoiceTemplateBody: qikchatInvoiceTemplateBody.trim(),
-        whatsappInvoiceMode,
-        messagingPublicBaseUrl: messagingPublicBaseUrl.trim(),
-        whatsappInvoiceDryRun,
-
-        workdriveForInvoice,
-        workdriveToken: workdriveToken.trim(),
-        workdriveUploadUrl: workdriveUploadUrl.trim(),
-        workdriveHeaderName: workdriveHeaderName.trim(),
-
-        exposeDemoOtp: exposeDemoOtp === "auto" ? null : exposeDemoOtp === "true",
-      };
       const data = await apiJson<{ settings: MessagingSettings }>("/api/settings/messaging", {
         method: "PUT",
-        json: payload,
+        json: buildPayload(),
       });
       applySettings(data.settings);
-      setSavedMsg("Saved. Changes apply immediately — restart is not required.");
+      showSuccess("Changes apply immediately — restart is not required.", successTitle);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Save failed.");
+      const msg = err instanceof ApiError ? err.message : "Save failed.";
+      setError(msg);
+      showError(msg, "Save failed");
     } finally {
-      setSaving(false);
+      setSavingSection(null);
     }
   }
 
@@ -244,19 +253,14 @@ export function MessagingSettingsPage() {
         }
       />
 
-      {error && (
+      {error ? (
         <p className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>
-      )}
-      {savedMsg && (
-        <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          {savedMsg}
-        </p>
-      )}
+      ) : null}
 
       {loading ? (
         <Card className="p-8 text-center text-sm text-stone-500">Loading…</Card>
       ) : (
-        <form onSubmit={(e) => void handleSave(e)} className="space-y-6">
+        <div className="space-y-6">
           <Card className="p-5">
             <h2 className="text-base font-semibold text-zimson-900">SMS (Qikberry)</h2>
             <p className="mt-1 text-sm text-stone-600">OTP and transactional SMS via Qikberry REST API.</p>
@@ -305,6 +309,16 @@ export function MessagingSettingsPage() {
                   />
                 </div>
               </div>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                disabled={savingSection !== null}
+                onClick={() => void handleSaveSection("sms", "SMS settings saved")}
+                className="inline-flex items-center justify-center rounded-xl bg-zimson-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-900 disabled:opacity-60"
+              >
+                {savingSection === "sms" ? "Saving…" : "Save SMS settings"}
+              </button>
             </div>
           </Card>
 
@@ -360,6 +374,16 @@ export function MessagingSettingsPage() {
                   />
                 </div>
               </div>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                disabled={savingSection !== null}
+                onClick={() => void handleSaveSection("email", "Email settings saved")}
+                className="inline-flex items-center justify-center rounded-xl bg-zimson-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-900 disabled:opacity-60"
+              >
+                {savingSection === "email" ? "Saving…" : "Save email settings"}
+              </button>
             </div>
           </Card>
 
@@ -500,6 +524,16 @@ export function MessagingSettingsPage() {
                 </div>
               </div>
             </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                disabled={savingSection !== null}
+                onClick={() => void handleSaveSection("whatsapp", "WhatsApp settings saved")}
+                className="inline-flex items-center justify-center rounded-xl bg-zimson-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-900 disabled:opacity-60"
+              >
+                {savingSection === "whatsapp" ? "Saving…" : "Save WhatsApp settings"}
+              </button>
+            </div>
           </Card>
 
           <Card className="p-5">
@@ -542,6 +576,16 @@ export function MessagingSettingsPage() {
                 </div>
               </div>
             </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                disabled={savingSection !== null}
+                onClick={() => void handleSaveSection("workdrive", "Work Drive settings saved")}
+                className="inline-flex items-center justify-center rounded-xl bg-zimson-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-900 disabled:opacity-60"
+              >
+                {savingSection === "workdrive" ? "Saving…" : "Save Work Drive settings"}
+              </button>
+            </div>
           </Card>
 
           <Card className="p-5">
@@ -558,25 +602,27 @@ export function MessagingSettingsPage() {
                 <option value="false">Never show on screen</option>
               </select>
             </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                disabled={savingSection !== null}
+                onClick={() => void handleSaveSection("otp", "OTP display settings saved")}
+                className="inline-flex items-center justify-center rounded-xl bg-zimson-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-900 disabled:opacity-60"
+              >
+                {savingSection === "otp" ? "Saving…" : "Save OTP settings"}
+              </button>
+            </div>
           </Card>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center justify-center rounded-xl bg-zimson-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-900 disabled:opacity-60"
-            >
-              {saving ? "Saving…" : "Save messaging settings"}
-            </button>
-            {meta && (
-              <p className="text-xs text-stone-500">
-                Last updated {new Date(meta.updatedAt).toLocaleString()}
-                {meta.updatedBy ? ` by ${meta.updatedBy}` : ""}
-              </p>
-            )}
-          </div>
-        </form>
+          {meta ? (
+            <p className="text-xs text-stone-500">
+              Last updated {new Date(meta.updatedAt).toLocaleString()}
+              {meta.updatedBy ? ` by ${meta.updatedBy}` : ""}
+            </p>
+          ) : null}
+        </div>
       )}
+      {alertModal}
     </div>
   );
 }

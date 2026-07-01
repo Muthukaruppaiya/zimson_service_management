@@ -550,6 +550,9 @@ export function SrfCustomerRegisterPage() {
       customerId: successInfo.id,
       phone: digits,
     });
+    if (successInfo.customerCode?.trim()) {
+      q.set("customerCode", successInfo.customerCode.trim());
+    }
     if (returnTo && returnTo.startsWith("/")) {
       if (returnTo.startsWith("/service/quick-bill")) {
         q.set("resumeCustomer", "1");

@@ -13,7 +13,6 @@ import { SparesProvider } from "./context/SparesContext";
 import { SrfJobsProvider } from "./context/SrfJobsContext";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AccountsSetupPage } from "./pages/accounts/AccountsSetupPage";
-import { ClientReportsIndexPage } from "./pages/accounts/ClientReportsIndexPage";
 import { AnalyticsDashboardPage } from "./pages/accounts/AnalyticsDashboardPage";
 import { HsnPurchaseReportPage } from "./pages/accounts/HsnPurchaseReportPage";
 import { RevenueReportPage } from "./pages/accounts/RevenueReportPage";
@@ -21,6 +20,8 @@ import { SrReturnedReportPage } from "./pages/accounts/SrReturnedReportPage";
 import { SummarySaleReportPage } from "./pages/accounts/SummarySaleReportPage";
 import { InvoiceHistoryPage } from "./pages/accounts/InvoiceHistoryPage";
 import { BrandCreditNotesPage } from "./pages/accounts/BrandCreditNotesPage";
+import { AccountsServiceDashboardPage } from "./pages/accounts/AccountsServiceDashboardPage";
+import { BrandCreditHistoryPage } from "./pages/accounts/BrandCreditHistoryPage";
 import { LedgerPage } from "./pages/accounts/LedgerPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
@@ -124,14 +125,7 @@ export default function App() {
                   }
                 />
                 <Route path="/accounts/analytics" element={<Navigate to="/analytics" replace />} />
-                <Route
-                  path="/accounts/reports"
-                  element={
-                    <ModuleRoute module="accounts">
-                      <ClientReportsIndexPage />
-                    </ModuleRoute>
-                  }
-                />
+                <Route path="/accounts/reports" element={<Navigate to="/accounts/reports/revenue" replace />} />
                 <Route
                   path="/accounts/reports/revenue"
                   element={
@@ -169,6 +163,31 @@ export default function App() {
                   element={
                     <ModuleRoute module="accounts">
                       <InvoiceHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/analytics/service-outcomes"
+                  element={
+                    <ModuleRoute module="analytics">
+                      <AccountsServiceDashboardPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/analytics/brand-credit-history"
+                  element={
+                    <ModuleRoute module="analytics">
+                      <BrandCreditHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route path="/accounts/service-dashboard" element={<Navigate to="/analytics/service-outcomes" replace />} />
+                <Route
+                  path="/accounts/brand-credit-history"
+                  element={
+                    <ModuleRoute module="accounts">
+                      <BrandCreditHistoryPage />
                     </ModuleRoute>
                   }
                 />

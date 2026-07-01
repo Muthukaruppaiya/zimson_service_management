@@ -4,6 +4,19 @@ type MessageAlertModalProps = {
   message: string;
   onClose: () => void;
   confirmLabel?: string;
+  variant?: "success" | "error" | "info";
+};
+
+const headerClass: Record<NonNullable<MessageAlertModalProps["variant"]>, string> = {
+  success: "border-b border-emerald-200 bg-emerald-50",
+  error: "border-b border-red-200 bg-red-50",
+  info: "border-b border-sky-200 bg-sky-50",
+};
+
+const titleClass: Record<NonNullable<MessageAlertModalProps["variant"]>, string> = {
+  success: "text-base font-bold text-emerald-900",
+  error: "text-base font-bold text-red-900",
+  info: "text-base font-bold text-sky-900",
 };
 
 export function MessageAlertModal({
@@ -12,12 +25,13 @@ export function MessageAlertModal({
   message,
   onClose,
   confirmLabel = "OK",
+  variant = "error",
 }: MessageAlertModalProps) {
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="message-alert-title"
@@ -28,8 +42,8 @@ export function MessageAlertModal({
         className="w-full max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-stone-200"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-red-200 bg-red-50 px-5 py-4">
-          <h2 id="message-alert-title" className="text-base font-bold text-red-900">
+        <div className={`px-5 py-4 ${headerClass[variant]}`}>
+          <h2 id="message-alert-title" className={titleClass[variant]}>
             {title}
           </h2>
         </div>

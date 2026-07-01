@@ -3,7 +3,9 @@ import { Link } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useSrfJobs } from "../../context/SrfJobsContext";
+import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { apiJson } from "../../lib/api";
 import { formatInr } from "../../lib/formatInr";
 
@@ -33,11 +35,8 @@ function attachmentUrl(meta: Record<string, unknown> | null | undefined): string
   return path.startsWith("/") ? path : `/uploads/${path}`;
 }
 
-function proposedAmountLabel(row: BrandCreditNoteRow): string {
-  if (row.brandCouponValueInr != null && Number.isFinite(row.brandCouponValueInr)) {
-    return formatInr(row.brandCouponValueInr);
-  }
-  return "—";
+function hasSupervisorProposedAmount(row: BrandCreditNoteRow): boolean {
+  return row.brandCouponValueInr != null && Number.isFinite(row.brandCouponValueInr) && row.brandCouponValueInr > 0;
 }
 
 type EditableAmountProps = {
@@ -112,13 +111,20 @@ export function BrandCreditNotesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [feedback, setFeedback] = useState<Record<string, string>>({});
   const [valueByJob, setValueByJob] = useState<Record<string, string>>({});
   const [validUntilByJob, setValidUntilByJob] = useState<Record<string, string>>({});
   const [noteByJob, setNoteByJob] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedPendingId, setSelectedPendingId] = useState<string | null>(null);
   const [amountEditingId, setAmountEditingId] = useState<string | null>(null);
+  const [approvalSuccess, setApprovalSuccess] = useState<{
+    reference: string;
+    voucherCode: string;
+    valueInr: number;
+    emailSent: boolean;
+    whatsappSent: boolean;
+  } | null>(null);
+  const { showError, alertModal } = useMessageAlert();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -161,9 +167,18 @@ export function BrandCreditNotesPage() {
     );
   }, [rows, query]);
 
-  const pending = filtered.filter((r) => r.status === "brand_credit_note_pending");
+  const pending = filtered.filter(
+    (r) => r.status === "brand_credit_note_pending" && hasSupervisorProposedAmount(r),
+  );
   const approved = filtered.filter((r) => r.status === "closed" && r.brandCreditNoteApprovedAt);
   const selectedPending = pending.find((r) => r.id === selectedPendingId) ?? null;
+
+  useEffect(() => {
+    if (selectedPendingId && !pending.some((r) => r.id === selectedPendingId)) {
+      setSelectedPendingId(null);
+      setAmountEditingId(null);
+    }
+  }, [pending, selectedPendingId]);
 
   function resolveValueInr(job: BrandCreditNoteRow): number | null {
     const raw = (valueByJob[job.id] ?? "").trim() || (job.brandCouponValueInr != null ? String(job.brandCouponValueInr) : "");
@@ -174,10 +189,9 @@ export function BrandCreditNotesPage() {
 
   async function approve(job: BrandCreditNoteRow) {
     setBusyId(job.id);
-    setFeedback((f) => ({ ...f, [job.id]: "" }));
     const valueInr = resolveValueInr(job);
     if (valueInr == null) {
-      setFeedback((f) => ({ ...f, [job.id]: "Enter a valid voucher amount (INR)." }));
+      showError("Enter a valid voucher amount (INR).", "Cannot approve");
       setBusyId(null);
       return;
     }
@@ -187,18 +201,18 @@ export function BrandCreditNotesPage() {
         validUntil: (validUntilByJob[job.id] ?? "").trim() || undefined,
         note: (noteByJob[job.id] ?? "").trim() || undefined,
       });
-      const notifyParts = [
-        `Voucher ${out.voucherCode} issued for ${formatInr(valueInr)}.`,
-        "SRF closed — watch retained at brand (no return dispatch).",
-        out.emailSent ? "Email sent." : "Email not sent (check customer email / SMTP).",
-        out.whatsappSent ? "WhatsApp sent." : "",
-      ].filter(Boolean);
-      setFeedback((f) => ({ ...f, [job.id]: notifyParts.join(" ") }));
-      if (selectedPendingId === job.id) setSelectedPendingId(null);
+      setSelectedPendingId(null);
       setAmountEditingId(null);
+      setApprovalSuccess({
+        reference: job.reference,
+        voucherCode: out.voucherCode,
+        valueInr,
+        emailSent: out.emailSent,
+        whatsappSent: out.whatsappSent,
+      });
       await load();
     } catch (e) {
-      setFeedback((f) => ({ ...f, [job.id]: e instanceof Error ? e.message : "Could not approve." }));
+      showError(e instanceof Error ? e.message : "Could not approve.", "Approval failed");
     } finally {
       setBusyId(null);
     }
@@ -210,12 +224,20 @@ export function BrandCreditNotesPage() {
         title="Brand credit notes"
         description="Review supervisor-proposed voucher amounts, approve to issue a ZIM voucher code, and email the customer."
         actions={
-          <Link
-            to="/accounts/invoice-history"
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Invoice history
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/accounts/brand-credit-history"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Credit note history
+            </Link>
+            <Link
+              to="/accounts/invoice-history"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Invoice history
+            </Link>
+          </div>
         }
       />
 
@@ -239,12 +261,14 @@ export function BrandCreditNotesPage() {
         <p className="text-sm text-stone-600">Loading…</p>
       ) : (
         <div className="space-y-6">
-          <Card title="Pending approval" subtitle="Click an SRF to review — approve as proposed or double-click amount to change">
+          <Card title="Pending approval">
             {pending.length === 0 ? (
-              <p className="text-sm text-stone-600">No credit notes awaiting approval.</p>
+              <p className="text-sm text-stone-600">
+                No credit notes ready for approval. Supervisor must log voucher amount from brand mail first.
+              </p>
             ) : (
               <div className="space-y-3">
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="divide-y divide-amber-100 overflow-hidden rounded-xl border border-amber-200">
                   {pending.map((r) => {
                     const selected = selectedPendingId === r.id;
                     return (
@@ -258,17 +282,19 @@ export function BrandCreditNotesPage() {
                             setValueByJob((prev) => ({ ...prev, [r.id]: String(r.brandCouponValueInr) }));
                           }
                         }}
-                        className={`rounded-2xl border p-4 text-left shadow-sm transition ${
-                          selected
-                            ? "border-amber-400 bg-amber-50/90 ring-2 ring-amber-300"
-                            : "border-amber-200/80 bg-white/90 hover:border-amber-300 hover:bg-amber-50/40"
+                        className={`flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left transition ${
+                          selected ? "bg-amber-50 ring-2 ring-inset ring-amber-400" : "bg-white hover:bg-amber-50/50"
                         }`}
                       >
-                        <p className="font-mono text-sm font-bold text-zimson-900">{r.reference}</p>
-                        <p className="mt-1 text-sm text-stone-800">{r.customerName}</p>
-                        <p className="text-xs text-stone-600">{r.watchBrand} {r.watchModel}</p>
-                        <p className="mt-2 text-sm font-semibold text-emerald-800">{proposedAmountLabel(r)}</p>
-                        <p className="mt-1 text-[11px] text-stone-500">{selected ? "Selected — options below" : "Click to open approval"}</p>
+                        <span className="min-w-[9.5rem] font-mono text-sm font-bold text-zimson-900">{r.reference}</span>
+                        <span className="min-w-[5.5rem] text-sm font-semibold text-emerald-800">
+                          {formatInr(r.brandCouponValueInr ?? 0)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm text-stone-800">{r.customerName}</span>
+                        <span className="hidden text-xs text-stone-500 sm:inline">
+                          {r.watchBrand} {r.watchModel}
+                        </span>
+                        <span className="text-xs font-medium text-amber-800">{selected ? "Open" : "Review →"}</span>
                       </button>
                     );
                   })}
@@ -287,7 +313,8 @@ export function BrandCreditNotesPage() {
                         </p>
                         {selectedPending.brandInvoiceRef ? (
                           <p className="mt-2 text-xs text-stone-600">
-                            Brand mail ref: <span className="font-mono font-semibold">{selectedPending.brandInvoiceRef}</span>
+                            Brand mail ref:{" "}
+                            <span className="font-mono font-semibold">{selectedPending.brandInvoiceRef}</span>
                           </p>
                         ) : null}
                       </div>
@@ -304,7 +331,8 @@ export function BrandCreditNotesPage() {
                     </div>
 
                     <p className="mt-3 text-xs text-stone-500">
-                      Voucher code is auto-generated (<span className="font-mono font-semibold">ZIM</span> + 8 alphanumeric) when you approve.
+                      Voucher code is auto-generated (<span className="font-mono font-semibold">ZIM</span> + 8
+                      alphanumeric) when you approve.
                     </p>
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -326,9 +354,13 @@ export function BrandCreditNotesPage() {
                           className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                           value={
                             validUntilByJob[selectedPending.id] ??
-                            (selectedPending.brandCouponValidUntil ? selectedPending.brandCouponValidUntil.slice(0, 10) : "")
+                            (selectedPending.brandCouponValidUntil
+                              ? selectedPending.brandCouponValidUntil.slice(0, 10)
+                              : "")
                           }
-                          onChange={(e) => setValidUntilByJob((prev) => ({ ...prev, [selectedPending.id]: e.target.value }))}
+                          onChange={(e) =>
+                            setValidUntilByJob((prev) => ({ ...prev, [selectedPending.id]: e.target.value }))
+                          }
                         />
                       </label>
                       <label className="text-xs text-stone-600 sm:col-span-2">
@@ -363,54 +395,96 @@ export function BrandCreditNotesPage() {
                       >
                         Close
                       </button>
-                      {feedback[selectedPending.id] ? (
-                        <p className="w-full text-xs text-stone-600">{feedback[selectedPending.id]}</p>
-                      ) : null}
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-stone-500">Select an SRF above to approve its credit note.</p>
+                  <p className="text-sm text-stone-500">Select an SRF from the list to open the approval screen.</p>
                 )}
               </div>
             )}
           </Card>
 
-          <Card title="Closed with voucher" subtitle="Voucher emailed to customer — SRF closed at HO (watch not returned from brand)">
+          <Card title="Credit note history">
             {approved.length === 0 ? (
-              <p className="text-sm text-stone-600">No approved vouchers yet.</p>
+              <p className="text-sm text-stone-600">
+                No approved vouchers yet.{" "}
+                <Link to="/accounts/brand-credit-history" className="font-semibold text-zimson-800 underline">
+                  View full credit note history
+                </Link>
+              </p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-zimson-200 text-left text-xs uppercase tracking-wide text-stone-500">
-                      <th className="px-3 py-2">SRF</th>
-                      <th className="px-3 py-2">Customer</th>
-                      <th className="px-3 py-2">Watch</th>
-                      <th className="px-3 py-2">Voucher (ZIM)</th>
-                      <th className="px-3 py-2">Value</th>
-                      <th className="px-3 py-2">Approved</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {approved.map((r) => (
-                      <tr key={r.id} className="border-b border-zimson-100">
-                        <td className="px-3 py-2 font-mono font-semibold">{r.reference}</td>
-                        <td className="px-3 py-2">{r.customerName}</td>
-                        <td className="px-3 py-2">{r.watchBrand} {r.watchModel}</td>
-                        <td className="px-3 py-2 font-mono tracking-wider">{r.brandCouponCode ?? "—"}</td>
-                        <td className="px-3 py-2">{formatInr(r.brandCouponValueInr ?? 0)}</td>
-                        <td className="px-3 py-2 text-xs text-stone-600">
-                          {r.brandCreditNoteApprovedAt ? new Date(r.brandCreditNoteApprovedAt).toLocaleString() : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                <div className="divide-y divide-zimson-100 overflow-hidden rounded-xl border border-zimson-200">
+                  {approved.slice(0, 15).map((r) => (
+                    <div
+                      key={r.id}
+                      className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-white px-4 py-3 text-sm"
+                    >
+                      <span className="min-w-[9.5rem] font-mono font-bold text-zimson-900">{r.reference}</span>
+                      <span className="min-w-[5.5rem] font-semibold text-emerald-800">
+                        {formatInr(r.brandCouponValueInr ?? 0)}
+                      </span>
+                      <span className="font-mono text-xs tracking-wider text-violet-900">{r.brandCouponCode ?? "—"}</span>
+                      <span className="min-w-0 flex-1 truncate text-stone-800">{r.customerName}</span>
+                      <span className="text-xs text-stone-500">
+                        {r.brandCreditNoteApprovedAt
+                          ? new Date(r.brandCreditNoteApprovedAt).toLocaleDateString()
+                          : "—"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-stone-500">
+                  Showing latest {Math.min(15, approved.length)} of {approved.length}.{" "}
+                  <Link to="/accounts/brand-credit-history" className="font-semibold text-zimson-800 underline">
+                    Open full credit note history
+                  </Link>{" "}
+                  for complete details and search.
+                </p>
               </div>
             )}
           </Card>
         </div>
       )}
+      {approvalSuccess ? (
+        <ProcessSuccessModal
+          open
+          title="Approved"
+          description={`${approvalSuccess.reference} — voucher issued and SRF closed`}
+          onBackdropClick={() => setApprovalSuccess(null)}
+          actions={
+            <button
+              type="button"
+              onClick={() => setApprovalSuccess(null)}
+              className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 sm:w-auto"
+            >
+              Done
+            </button>
+          }
+        >
+          <dl className="space-y-2 text-sm text-stone-700">
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-stone-500">Voucher code</dt>
+              <dd className="mt-0.5 font-mono text-lg font-bold tracking-wider text-zimson-900">
+                {approvalSuccess.voucherCode}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-stone-500">Amount</dt>
+              <dd className="mt-0.5 font-semibold text-emerald-800">{formatInr(approvalSuccess.valueInr)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-stone-500">Customer notified</dt>
+              <dd className="mt-0.5 text-stone-800">
+                {approvalSuccess.emailSent ? "Email sent." : "Email not sent — check SMTP / customer email."}
+                {approvalSuccess.whatsappSent ? " WhatsApp sent." : ""}
+              </dd>
+            </div>
+            <p className="text-xs text-stone-500">Watch retained at brand — no return dispatch.</p>
+          </dl>
+        </ProcessSuccessModal>
+      ) : null}
+      {alertModal}
     </div>
   );
 }

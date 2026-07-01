@@ -26,6 +26,8 @@ import {
 import { formatEwayEdocMessage, challanCanCreateOrRetryEway, type EdocUiResult } from "../../lib/edocResultMessage";
 import { transferFlowNeedsEway } from "../../lib/ewayBill";
 import { EwayBillModal } from "../../components/service/EwayBillModal";
+import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
+import { useMessageAlert } from "../../hooks/useMessageAlert";
 
 const selectClass =
   "mt-1 w-full rounded-xl border border-rlx-rule bg-white px-3 py-2.5 text-sm outline-none focus:border-rlx-green focus:ring-2 focus:ring-rlx-green/30";
@@ -199,6 +201,12 @@ export function ScLogisticsPage() {
   const [brandDispatchRefInput, setBrandDispatchRefInput] = useState("");
   const [brandDispatchNoteInput, setBrandDispatchNoteInput] = useState("");
   const [brandDispatchSaving, setBrandDispatchSaving] = useState(false);
+  const [brandDispatchSuccess, setBrandDispatchSuccess] = useState<{
+    count: number;
+    ref: string;
+    note: string;
+  } | null>(null);
+  const { showError, alertModal } = useMessageAlert();
   const [outwardMsg, setOutwardMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [outwardQuery, setOutwardQuery] = useState(
     searchParams.get("tab") === "outward" ? searchParams.get("q") ?? "" : "",
@@ -1591,7 +1599,7 @@ export function ScLogisticsPage() {
         />
       ) : null}
       {brandDispatchPopupOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-violet-950">Log brand dispatch</h3>
             {selectedBrandJobIds.length > 0 ? (
@@ -1641,28 +1649,28 @@ export function ScLogisticsPage() {
                   const dispatchRef = brandDispatchRefInput.trim();
                   const note = brandDispatchNoteInput.trim();
                   if (!dispatchRef || !note) {
-                    setOutwardMsg({ type: "err", text: "AWB/ref and remark are required." });
+                    showError("AWB/ref and remark are required.", "Cannot save dispatch");
                     return;
                   }
                   if (selectedBrandJobIds.length === 0) {
-                    setOutwardMsg({ type: "err", text: "Select at least one watch." });
+                    showError("Select at least one watch.", "Cannot save dispatch");
                     return;
                   }
                   setBrandDispatchSaving(true);
                   void clerkLogBrandDispatchBatch(selectedBrandJobIds, { dispatchRef, note })
                     .then((out) => {
                       setBrandDispatchPopupOpen(false);
+                      setBrandDispatchRefInput("");
+                      setBrandDispatchNoteInput("");
                       setSelectedBrandOut({});
-                      setOutwardMsg({
-                        type: "ok",
-                        text: `Brand dispatch logged for ${out.updated} watch${out.updated === 1 ? "" : "es"}. Supervisor can log estimate on brand desk.`,
-                      });
+                      setOutwardMsg(null);
+                      setBrandDispatchSuccess({ count: out.updated, ref: dispatchRef, note });
                     })
                     .catch((e: unknown) => {
-                      setOutwardMsg({
-                        type: "err",
-                        text: e instanceof Error ? e.message : "Could not log brand dispatch.",
-                      });
+                      showError(
+                        e instanceof Error ? e.message : "Could not log brand dispatch.",
+                        "Dispatch failed",
+                      );
                     })
                     .finally(() => setBrandDispatchSaving(false));
                 }}
@@ -1674,6 +1682,35 @@ export function ScLogisticsPage() {
           </div>
         </div>
       ) : null}
+      {brandDispatchSuccess ? (
+        <ProcessSuccessModal
+          open
+          title="Brand dispatch logged"
+          description={`${brandDispatchSuccess.count} watch${brandDispatchSuccess.count === 1 ? "" : "es"} sent to brand desk`}
+          onBackdropClick={() => setBrandDispatchSuccess(null)}
+          actions={
+            <button
+              type="button"
+              onClick={() => setBrandDispatchSuccess(null)}
+              className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 sm:w-auto"
+            >
+              Done
+            </button>
+          }
+        >
+          <dl className="space-y-2 text-sm text-stone-700">
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-stone-500">Dispatch ref / AWB</dt>
+              <dd className="mt-0.5 font-mono font-semibold text-zimson-900">{brandDispatchSuccess.ref}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-stone-500">Remark</dt>
+              <dd className="mt-0.5 text-stone-800">{brandDispatchSuccess.note}</dd>
+            </div>
+          </dl>
+        </ProcessSuccessModal>
+      ) : null}
+      {alertModal}
     </div>
   );
 }
