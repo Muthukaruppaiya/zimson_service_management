@@ -61,11 +61,14 @@ export function ChronoKpiIcon({ variant, size, className = "" }: { variant: KpiI
   if (variant === "logistics") {
     return (
       <svg className={base} viewBox="0 0 56 56" fill="none" aria-hidden {...dimProps}>
-        <rect x="8" y="22" width="28" height="18" rx="2" fill="#E8EDF8" stroke="#1B3A8F" strokeWidth="1" />
-        <path d="M36 28h8l4 6v6h-12V28z" fill="#F5E9B8" stroke="#C9A227" strokeWidth="1" />
-        <circle cx="16" cy="42" r="3" fill="#374151" />
-        <circle cx="42" cy="42" r="3" fill="#374151" />
-        <path d="M14 30h16M14 34h10" stroke="#1B3A8F" strokeWidth="1.2" strokeLinecap="round" />
+        <rect x="9" y="23" width="24" height="18" rx="2" fill="#E8EDF8" stroke="#1B3A8F" strokeWidth="1" />
+        <path d="M9 30h24" stroke="#1B3A8F" strokeWidth="1" />
+        <path d="M21 23v18" stroke="#1B3A8F" strokeWidth="1" />
+        <path d="M9 23l12 8 12-8" stroke="#1B3A8F" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M35 19h8M39 15l4 4-4 4" stroke="#1B3A8F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M35 27h6M35 31h10" stroke="#C9A227" strokeWidth="1.6" strokeLinecap="round" />
+        <circle cx="38" cy="39" r="5" fill="#F5E9B8" stroke="#C9A227" strokeWidth="1" />
+        <path d="M38 36.8v2.8l1.8 1.2" stroke="#1B3A8F" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }

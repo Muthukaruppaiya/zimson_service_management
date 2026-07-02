@@ -5,9 +5,10 @@ import { useRegions } from "../context/RegionsContext";
 import { useToast } from "../components/ui/Toast";
 import { ROLE_MODULE_ACCESS } from "../config/moduleAccess";
 import {
+  isValidUsername,
   sanitizeAlphanumericInput,
   sanitizeEmailInput,
-  sanitizeTextInput,
+  sanitizeUsernameInput,
 } from "../lib/inputSanitize";
 import { ROLE_CREATION_META, creatableRolesForActor, isStoreRole } from "../lib/userCreationPolicy";
 import { UserModuleAccessEditor } from "../components/users/UserModuleAccessEditor";
@@ -69,7 +70,11 @@ function UserEditModal({
   }, [user, regions]);
 
   async function handleSave() {
-    if (!displayName.trim()) { setErr("Employee name is required."); return; }
+    if (!displayName.trim()) { setErr("Username is required."); return; }
+    if (!isValidUsername(displayName)) {
+      setErr("Username must contain only letters and digits (no spaces or special characters).");
+      return;
+    }
     if (useCustomModules && selectedModules.length === 0) {
       setErr("Custom module list is empty — select at least one module.");
       return;
@@ -112,15 +117,16 @@ function UserEditModal({
 
         {/* Body */}
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-1">
-          <label htmlFor="edit-employee-name" className={labelCls}>Employee Name *</label>
+          <label htmlFor="edit-username" className={labelCls}>Username *</label>
           <input
-            id="edit-employee-name"
+            id="edit-username"
             className={inputCls}
             value={displayName}
-            onChange={(e) => setDisplayName(sanitizeTextInput(e.target.value, 240))}
-            placeholder="Full name of the employee"
-            autoComplete="name"
+            onChange={(e) => setDisplayName(sanitizeUsernameInput(e.target.value, 32))}
+            placeholder="e.g. jsmith"
+            autoComplete="off"
           />
+          <p className="mt-1 text-[11px] text-stone-400">Letters and digits only — no spaces or special characters.</p>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -323,7 +329,7 @@ export function UsersListPage() {
           <table className="w-full min-w-[860px] text-left text-sm">
             <thead>
               <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
-                <th className="px-4 py-3">Employee Name</th>
+                <th className="px-4 py-3">Username</th>
                 <th className="px-4 py-3">Employee No</th>
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Role</th>

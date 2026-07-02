@@ -139,6 +139,68 @@ export function findInterHoArchivedSenderForReceiver(
   return undefined;
 }
 
+/** Repair HO user who may act on receiver-local inter-HO SRFs (brand desk, return dispatch). */
+export function isRepairHoUserForInterHoReceiverJob(
+  job: Pick<
+    SrfJob,
+    "reference" | "transferSourceReference" | "requiresLocalConversion" | "status" | "regionId" | "transferSourceRegionId"
+  >,
+  user: SessionUser,
+): boolean {
+  if (!isInterHoReceiverLocal(job)) return true;
+  if (user.role === "super_admin" || user.role === "admin") {
+    if (!user.regionId) return true;
+    return user.regionId === (job.regionId ?? "").trim();
+  }
+  return user.regionId === (job.regionId ?? "").trim();
+}
+
+/** Sender HO user viewing a receiver-local inter-HO row (read-only brand desk leg). */
+export function isInterHoSenderHoViewingReceiverJob(
+  job: Pick<
+    SrfJob,
+    "reference" | "transferSourceReference" | "requiresLocalConversion" | "status" | "transferSourceRegionId"
+  >,
+  user: SessionUser,
+): boolean {
+  if (!isInterHoReceiverLocal(job)) return false;
+  if (user.role === "super_admin" || user.role === "admin") return false;
+  return user.regionId === (job.transferSourceRegionId ?? "").trim();
+}
+
+/** Hide receiver-local brand desk rows from sender HO after sender-facing handshake ends. */
+export function shouldHideReceiverBrandDeskFromSenderHo(job: SrfJob, user: SessionUser): boolean {
+  if (!isInterHoReceiverLocal(job)) return false;
+  if (user.role === "super_admin" || user.role === "admin") return false;
+  if (user.regionId !== (job.transferSourceRegionId ?? "").trim()) return false;
+  if (job.brandReturnWithoutRepair) return true;
+  if (
+    job.status === "brand_estimate_pending" &&
+    job.customerReestimateResponse === "rejected"
+  ) {
+    return true;
+  }
+  return !isInterHoBrandEstimateHandshakeActive(job);
+}
+
+/** Live receiver SRF for a sender HO archived `sent_to_other_ho` row. */
+export function findInterHoReceiverForArchivedSender(
+  archivedSender: Pick<SrfJob, "id" | "interHoReestimateReceiverSrfId" | "reference" | "transferSourceReference">,
+  allJobs: Iterable<SrfJob>,
+): SrfJob | undefined {
+  const linkedId = (archivedSender.interHoReestimateReceiverSrfId ?? "").trim();
+  if (linkedId) {
+    const direct = [...allJobs].find((j) => j.id === linkedId);
+    if (direct) return direct;
+  }
+  const root = rootSrfBookingReference(archivedSender);
+  for (const j of allJobs) {
+    if (!isInterHoReceiverLocal(j)) continue;
+    if (rootSrfBookingReference(j) === root) return j;
+  }
+  return undefined;
+}
+
 /** Logged-in user belongs to the originating (sender) HO for this inter-HO chain. */
 export function isSenderHoUserForInterHoJob(
   job: Pick<SrfJob, "regionId" | "transferSourceRegionId" | "reference" | "transferSourceReference" | "requiresLocalConversion" | "status">,

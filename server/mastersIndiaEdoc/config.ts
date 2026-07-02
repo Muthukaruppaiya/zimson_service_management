@@ -1,6 +1,7 @@
 import { getResolvedEdocConfig } from "../edocSettingsStore";
 import type { EdocParty, MastersIndiaEdocConfig } from "./types";
 import { isValidGstin, SANDBOX_EDOC_TEST_GSTIN } from "./types";
+import { defaultPincodeForState, gstinStateCode, stateNameFromCode } from "./gstState";
 
 export type { MastersIndiaEdocConfig } from "./types";
 export { isValidGstin, SANDBOX_EDOC_TEST_GSTIN } from "./types";
@@ -58,25 +59,37 @@ export function alignSandboxEdocSellerParty(
   };
 }
 
-/** Sandbox e-way: use configured / region GSTIN. MI test GSTIN 09… only when nothing else is set. */
+/** Sandbox e-way: use configured / region GSTIN. If missing, use the known sandbox e-way GSTIN. */
 export function alignSandboxEdocEwayParties(
   consignor: EdocParty,
   consignee: EdocParty,
-  _cfg: MastersIndiaEdocConfig,
+  cfg: MastersIndiaEdocConfig,
 ): { consignor: EdocParty; consignee: EdocParty } {
-  return { consignor, consignee };
+  if (!isSandboxEdocApi(cfg)) return { consignor, consignee };
+  const userGstin = resolveEdocEwayUserGstin(consignor.gstin, cfg);
+  // NIC sandbox expects userGstin === gstin_of_consignor for outward e-way.
+  const normalizedConsignor: EdocParty = {
+    ...consignor,
+    gstin: userGstin,
+    stateCode: gstinStateCode(userGstin),
+    pincode: defaultPincodeForState(gstinStateCode(userGstin)),
+    location: stateNameFromCode(gstinStateCode(userGstin)),
+  };
+  return { consignor: normalizedConsignor, consignee };
 }
 
 export function resolveEdocEwayUserGstin(
   consignorGstin: string,
   cfg: MastersIndiaEdocConfig,
 ): string {
+  // Sandbox NIC e-way credentials are mapped to a specific test GSTIN.
+  // Force that GSTIN so e-way works even if invoice/seller GSTIN differs.
+  if (isSandboxEdocApi(cfg)) return "05AAABC0181E1ZE";
   const configured = String(cfg.ewayUserGstin ?? "").trim().toUpperCase();
   if (configured && isValidGstin(configured)) return configured;
   const fromParty = String(consignorGstin ?? "").trim().toUpperCase();
   if (isValidGstin(fromParty)) return fromParty;
   const sellerOverride = String(cfg.sellerGstinOverride ?? "").trim().toUpperCase();
   if (sellerOverride && isValidGstin(sellerOverride)) return sellerOverride;
-  if (isSandboxEdocApi(cfg)) return SANDBOX_EDOC_TEST_GSTIN;
   return "05AAABC0181E1ZE";
 }

@@ -6,13 +6,13 @@ import { sendPasswordResetEmail } from "./messaging/passwordResetEmail";
 import { buildPasswordResetSpaUrl, buildPasswordResetUrl, getAppBaseUrl } from "./publicAppUrl";
 import {
   isLoginEmailIdentifier,
-  normalizeLoginDisplayName,
   normalizeLoginEmail,
+  normalizeLoginUsername,
 } from "../src/lib/authLoginMatch";
 
 const RESET_TTL_MS = 60 * 60 * 1000;
 const GENERIC_OK_MESSAGE =
-  "If an account exists for that email or employee name, we sent password reset instructions. Check your inbox and spam folder.";
+  "If an account exists for that email or username, we sent password reset instructions. Check your inbox and spam folder.";
 
 const DEMO_OK_MESSAGE =
   "SMTP is not configured (or email failed). Use the reset link shown below to test — configure Settings → SMS, email & WhatsApp when ready.";
@@ -61,11 +61,11 @@ async function findUserForPasswordReset(pool: Pool, loginId: string): Promise<Re
     );
     return rows[0] ?? null;
   }
-  const nameNorm = normalizeLoginDisplayName(raw);
+  const nameNorm = normalizeLoginUsername(raw);
   const { rows } = await pool.query<ResetUserRow>(
     `SELECT id, email, display_name, can_login
      FROM app_users
-     WHERE LOWER(REGEXP_REPLACE(BTRIM(display_name), '\\s+', ' ', 'g')) = $1
+     WHERE LOWER(REGEXP_REPLACE(BTRIM(display_name), '[^a-zA-Z0-9]', '', 'g')) = $1
      LIMIT 2`,
     [nameNorm],
   );
@@ -113,7 +113,7 @@ export function registerPasswordResetRoutes(
     }
     const loginId = String(req.body?.loginId ?? req.body?.email ?? "").trim();
     if (!loginId) {
-      res.status(400).json({ ok: false, message: "Enter your work email or employee name." });
+      res.status(400).json({ ok: false, message: "Enter your work email or username." });
       return;
     }
     const demoUi = shouldExposePasswordResetInUi();

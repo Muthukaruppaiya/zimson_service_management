@@ -9,6 +9,8 @@ export type EdocSettingsDb = {
   failOpen?: boolean;
   username?: string;
   password?: string;
+  ewayUsername?: string;
+  ewayPassword?: string;
   apiBase?: string;
   ewayApiBase?: string;
   tokenUrl?: string;
@@ -34,6 +36,8 @@ export type EdocSettingsPublic = {
   ewayAutoEnabled: boolean;
   username: string;
   hasPassword: boolean;
+  ewayUsername: string;
+  hasEwayPassword: boolean;
   configured: boolean;
   configuredFromDatabase: boolean;
   envFallbackActive: boolean;
@@ -124,6 +128,8 @@ function resolveMerged(db: EdocSettingsDb): {
     failOpen: db.failOpen ?? defaults.failOpen ?? true,
     username,
     password,
+    ewayUsername: str(db.ewayUsername) || username,
+    ewayPassword: str(db.ewayPassword) || password,
     apiBase,
     ewayApiBase: normalizeEwayApiBase(apiBase, str(db.ewayApiBase) || apiBase),
     tokenUrl: str(db.tokenUrl) || `${apiBase}/api/v1/token-auth/`,
@@ -211,6 +217,8 @@ export function toPublicEdocSettings(): EdocSettingsPublic {
     ewayAutoEnabled: cfg?.ewayAutoEnabled ?? db.ewayAutoEnabled ?? defaults.ewayAutoEnabled ?? false,
     username: cfg?.username ?? str(db.username),
     hasPassword: Boolean(cfg?.password || db.password),
+    ewayUsername: cfg?.ewayUsername ?? (str(db.ewayUsername) || (cfg?.username ?? str(db.username))),
+    hasEwayPassword: Boolean(cfg?.ewayPassword || db.ewayPassword || cfg?.password || db.password),
     configured: Boolean(cfg),
     configuredFromDatabase,
     envFallbackActive: false,
@@ -231,6 +239,8 @@ export async function saveEdocSettings(patch: EdocSettingsDb, updatedBy: string)
   if (patch.failOpen !== undefined) next.failOpen = patch.failOpen;
   if (patch.username !== undefined) next.username = patch.username.trim().slice(0, 200);
   if (patch.password !== undefined && patch.password.trim()) next.password = patch.password.trim().slice(0, 500);
+  if (patch.ewayUsername !== undefined) next.ewayUsername = patch.ewayUsername.trim().slice(0, 200);
+  if (patch.ewayPassword !== undefined && patch.ewayPassword.trim()) next.ewayPassword = patch.ewayPassword.trim().slice(0, 500);
   if (patch.apiBase !== undefined) next.apiBase = trimBase(patch.apiBase.trim()).slice(0, 500);
   if (patch.ewayApiBase !== undefined) next.ewayApiBase = trimBase(patch.ewayApiBase.trim()).slice(0, 500);
   if (patch.tokenUrl !== undefined) next.tokenUrl = patch.tokenUrl.trim().slice(0, 500);

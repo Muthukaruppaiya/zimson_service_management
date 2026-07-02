@@ -18,6 +18,7 @@ import {
 } from "./buildPayload";
 import { generateEinvoice, generateEwayBill } from "./client";
 import {
+  alignSandboxEdocEwayParties,
   alignSandboxEdocSellerParty,
   getMastersIndiaEdocConfig,
   isValidGstin,
@@ -164,6 +165,7 @@ function totalsFromGstResult(
     sgst: gstResult.sgst,
     igst: gstResult.igst,
     total: netPayable,
+    roundOff: gstResult.roundOffInr ?? 0,
     isInterstate: gstResult.isInterstate,
   };
 }
@@ -370,7 +372,7 @@ export async function tryGenerateEinvoiceForQuickBill(
     spareGstLookup: (spareId) => (spareId ? spareGstMap.get(spareId) ?? null : null),
   });
 
-  const netPayable = customerPayableInr(subtotalInr, gstResult.totalTax, pricesTaxInclusive);
+  const netPayable = customerPayableInr(subtotalInr, gstResult.totalTax, pricesTaxInclusive, gstResult.grossTaxable);
   const totals = totalsFromGstResult(gstResult, netPayable);
   const flagsByHsn = new Map(resolvedQbLines.map((r) => [r.hsnSac, r.isService]));
   const descriptions = gstResult.lines.map((ln, i) => {
@@ -558,7 +560,7 @@ export async function tryGenerateEinvoiceForSrfClose(
     billTotalInr: subtotalInr,
     spareGstLookup: (spareId) => (spareId ? spareGstMap.get(spareId) ?? null : null),
   });
-  const netPayable = customerPayableInr(subtotalInr, gstResult.totalTax, pricesTaxInclusive);
+  const netPayable = customerPayableInr(subtotalInr, gstResult.totalTax, pricesTaxInclusive, gstResult.grossTaxable);
   const totals = totalsFromGstResult(gstResult, netPayable);
   const flagsByHsn = new Map(billLines.map((r) => [r.hsnSac, r.isService]));
   const descriptions = gstResult.lines.map((ln, i) => {
@@ -930,6 +932,7 @@ export async function tryGenerateEwayForChallan(
 
   let consignor = partyFromTransferBlock(printMeta.from, "");
   let consignee = partyFromTransferBlock(printMeta.to, consignor.gstin);
+  ({ consignor, consignee } = alignSandboxEdocEwayParties(consignor, consignee, cfg));
   if (!isValidGstin(consignor.gstin) || !isValidGstin(consignee.gstin)) {
     const r = skip("Consignor and consignee GSTIN required for e-way");
     await saveDeliveryChallanEdoc(pool, dcId, r);
@@ -1040,7 +1043,7 @@ export async function tryGenerateEwayForBrandSend(
   const client = await pool.connect();
   try {
     const from = await loadRegionHoPartyForEway(client, row.region_id);
-    const consignor = partyFromTransferBlock(from, resolveEdocEwayUserGstin("", cfg));
+    let consignor = partyFromTransferBlock(from, resolveEdocEwayUserGstin("", cfg));
     if (!isValidGstin(consignor.gstin)) {
       const r = skip("Consignor HO GSTIN required for e-way");
       await saveSrfEwayEdoc(pool, srfId, r);
@@ -1053,7 +1056,7 @@ export async function tryGenerateEwayForBrandSend(
       await saveSrfEwayEdoc(pool, srfId, r);
       return r;
     }
-    const consignee = buildPartyFromBillFields({
+    let consignee = buildPartyFromBillFields({
       gstin: consigneeGstin,
       legalName: input?.consigneeLegalName?.trim() || `Brand — ${row.watch_brand}`,
       address: input?.consigneeAddress,
@@ -1064,6 +1067,7 @@ export async function tryGenerateEwayForBrandSend(
       if (Number.isFinite(pin) && pin > 0) consignee.pincode = pin;
     }
 
+    ({ consignor, consignee } = alignSandboxEdocEwayParties(consignor, consignee, cfg));
     const userGstin = resolveEdocEwayUserGstin(consignor.gstin, cfg);
     const interstate = consignor.stateCode !== consignee.stateCode;
     const nominal = resolveEwayTotals(cfg.ewayNominalValueInr, interstate, input);
@@ -1177,6 +1181,7 @@ export async function tryGenerateEwayForOnlineSpareOrder(
     const to = await loadRegionHoPartyForEway(client, row.from_region_id);
     let consignor = partyFromTransferBlock(from, "");
     let consignee = partyFromTransferBlock(to, consignor.gstin);
+    ({ consignor, consignee } = alignSandboxEdocEwayParties(consignor, consignee, cfg));
     if (!isValidGstin(consignor.gstin) || !isValidGstin(consignee.gstin)) {
       const r = skip("Consignor and consignee GSTIN required for e-way");
       await saveInterHoSpareOrderEwayEdoc(pool, orderId, r);

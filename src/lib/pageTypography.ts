@@ -12,9 +12,9 @@ export const uiPageTitleOnDarkClass =
 
 /** Card / panel section headers (green band). */
 export const uiCardTitleClass =
-  "text-sm font-bold uppercase tracking-[0.14em] text-white md:text-base";
+  "text-base font-bold uppercase tracking-[0.14em] text-white md:text-lg";
 
 export const uiCardSubtitleClass =
-  "mt-0.5 text-xs font-semibold uppercase tracking-[0.12em] text-rlx-gold/90";
+  "mt-0.5 text-sm font-semibold uppercase tracking-[0.12em] text-rlx-gold/90";
 
 export const uiGoldAccentBarClass = "h-11 w-1 shrink-0 bg-rlx-gold";

@@ -1,4 +1,5 @@
 import { getActiveTemplateByKind, loadDocumentTemplateStore } from "./documentTemplates";
+import { documentBarcodeImageSrc } from "./invoiceScanCodes";
 import type { DocumentKind } from "../types/documentTemplate";
 
 type PartyBlock = {
@@ -29,8 +30,11 @@ function esc(v: string): string {
 }
 
 function barcode(ref: string): string {
-  const q = encodeURIComponent(ref);
-  return `<img src="https://bwipjs-api.metafloor.com/?bcid=code128&text=${q}&scale=2&includetext=true&textxalign=center" alt="BARCODE ${esc(ref)}" style="border:1px solid #111;padding:4px;background:#fff;max-width:240px" />`;
+  const src = documentBarcodeImageSrc(ref, { scale: 2, height: 10 });
+  return `<div style="text-align:right">
+    <img src="${src}" alt="Barcode ${esc(ref)}" style="border:1px solid #111;padding:4px;background:#fff;max-width:260px;height:52px;object-fit:contain;display:inline-block" />
+    <p style="margin:5px 0 0;font-family:Consolas,'Courier New',monospace;font-size:11px;font-weight:700;letter-spacing:0.05em;color:#0d1b2a">${esc(ref)}</p>
+  </div>`;
 }
 
 function activeConfig(kind: DocumentKind) {

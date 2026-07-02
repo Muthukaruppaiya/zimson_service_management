@@ -4,7 +4,7 @@ import { ApiError, apiJson } from "../lib/api";
 import { sanitizeLoginIdInput } from "../lib/inputSanitize";
 
 const fieldCls =
-  "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-sm text-rlx-ink placeholder-rlx-ink-muted/50 outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
+  "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-base text-rlx-ink placeholder-rlx-ink-muted/50 outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
 
 type ForgotPasswordResponse = {
   ok: boolean;
@@ -48,25 +48,25 @@ export function ForgotPasswordPage() {
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
         <div className="mb-8 flex flex-col items-center gap-4 text-center">
           <img src="/zimson-logo.png" alt="Zimson" className="h-12 w-auto object-contain" />
-          <p className="text-[9px] font-bold uppercase tracking-[0.45em]" style={{ color: "#C9A227" }}>
+          <p className="text-[11px] font-bold uppercase tracking-[0.45em]" style={{ color: "#C9A227" }}>
             Reset password
           </p>
         </div>
 
         <div className="w-full max-w-sm bg-white shadow-[0_32px_96px_-16px_rgba(0,0,0,0.6)]" style={{ borderTop: "3px solid #C9A227" }}>
           <div className="px-7 py-5" style={{ background: "#1B3A8F" }}>
-            <h2 className="text-sm font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
+            <h2 className="text-base font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
               Forgot password
             </h2>
-            <p className="mt-1 text-xs text-white/70">
-              Enter the work email or employee name on your account. We will email a reset link when available.
+            <p className="mt-1 text-sm text-white/70">
+              Enter the username or work email on your account. We will email a reset link when available.
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 px-7 py-6">
             <div>
-              <label htmlFor="forgot-login" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
-                Work email or employee name
+              <label htmlFor="forgot-login" className="text-[13px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
+                Username or work email
               </label>
               <input
                 id="forgot-login"
@@ -75,16 +75,16 @@ export function ForgotPasswordPage() {
                 value={loginId}
                 onChange={(e) => setLoginId(sanitizeLoginIdInput(e.target.value))}
                 className={fieldCls}
-                placeholder="you@zimson.net or full name"
+                placeholder="jsmith or you@zimson.net"
                 required
               />
             </div>
 
             {error ? (
-              <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">{error}</div>
+              <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">{error}</div>
             ) : null}
             {success ? (
-              <div className="border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">{success}</div>
+              <div className="border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900">{success}</div>
             ) : null}
             {demoResetUrl ? (
               <div className="rounded-lg border border-zimson-200 bg-zimson-50 px-3 py-3 text-xs text-zimson-900">

@@ -7,10 +7,11 @@ import { ROLE_MODULE_ACCESS } from "../../config/moduleAccess";
 import type { ModuleKey, UserRole } from "../../types/user";
 import {
   isValidEmail,
+  isValidUsername,
   sanitizeAlphanumericInput,
   sanitizeEmailInput,
   sanitizePasswordInput,
-  sanitizeTextInput,
+  sanitizeUsernameInput,
 } from "../../lib/inputSanitize";
 import {
   ALL_MODULE_KEYS,
@@ -137,7 +138,14 @@ export function UserCreationPanel() {
       return;
     }
     if (!displayName.trim()) {
-      setFormMessage({ type: "err", text: "Employee name is required." });
+      setFormMessage({ type: "err", text: "Username is required." });
+      return;
+    }
+    if (!isValidUsername(displayName)) {
+      setFormMessage({
+        type: "err",
+        text: "Username must contain only letters and digits (no spaces or special characters).",
+      });
       return;
     }
     if (!email.trim() || !isValidEmail(email)) {
@@ -147,7 +155,7 @@ export function UserCreationPanel() {
     if (canLogin && (!employeeCode.trim() || password.length < 4)) {
       setFormMessage({
         type: "err",
-        text: "Login-enabled users need an employee number (internal reference), password (min 4 chars). They sign in with work email or display name.",
+        text: "Login-enabled users need an employee number (internal reference), password (min 4 chars). They sign in with username or work email.",
       });
       return;
     }
@@ -367,16 +375,17 @@ export function UserCreationPanel() {
 
           <div className="ui-form-grid">
             <div className="ui-span-full">
-              <label htmlFor="uc-employee-name" className={labelCls}>Employee Name *</label>
+              <label htmlFor="uc-username" className={labelCls}>Username *</label>
               <input
-                id="uc-employee-name"
+                id="uc-username"
                 required
                 value={displayName}
-                onChange={(e) => setDisplayName(sanitizeTextInput(e.target.value, 240))}
+                onChange={(e) => setDisplayName(sanitizeUsernameInput(e.target.value, 32))}
                 className={inputCls}
-                placeholder="Full name of the employee"
-                autoComplete="name"
+                placeholder="e.g. jsmith"
+                autoComplete="off"
               />
+              <p className="mt-1 text-[11px] text-stone-400">Letters and digits only — no spaces or special characters.</p>
             </div>
 
             <div className="ui-span-full">
@@ -424,7 +433,7 @@ export function UserCreationPanel() {
                     autoComplete="off"
                     placeholder="EMP001"
                   />
-                  <p className="mt-1 text-[11px] text-stone-400">Sign in with work email or employee name (not employee number).</p>
+                  <p className="mt-1 text-[11px] text-stone-400">Sign in with username or work email (not employee number).</p>
                 </div>
                 <div>
                   <label htmlFor="uc-password" className={labelCls}>Initial Password *</label>
@@ -442,7 +451,7 @@ export function UserCreationPanel() {
               </>
             ) : (
               <div className="ui-span-full border border-dashed border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-500">
-                Directory-only profile — no employee number or password yet. Enable login later to allow sign-in with work email or employee name.
+                Directory-only profile — no employee number or password yet. Enable login later to allow sign-in with username or work email.
               </div>
             )}
           </div>

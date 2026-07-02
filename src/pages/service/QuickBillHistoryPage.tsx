@@ -81,9 +81,25 @@ function paymentDetailText(inv: QuickBillInvoice): string {
     }
     const coins = Number(inv.paymentDetails.cash.coinsInr);
     if (Number.isFinite(coins) && coins > 0) parts.push(`Coins: ₹${coins.toFixed(2)}`);
-    const sum = sumAdvanceCashDenominations(inv.paymentDetails.cash);
-    if (parts.length === 0) return sum > 0 ? `Cash total ₹${sum.toFixed(2)}` : "—";
-    return `${parts.join(" · ")} (total ₹${sum.toFixed(2)})`;
+    const tender = sumAdvanceCashDenominations(inv.paymentDetails.cash);
+    const change = sumAdvanceCashDenominations(inv.paymentDetails.changeReturned);
+    const changeParts: string[] = [];
+    if (inv.paymentDetails.changeReturned) {
+      for (const { key, face, label } of ADVANCE_CASH_DENOMS) {
+        const qty = Number(inv.paymentDetails.changeReturned[key]);
+        if (Number.isFinite(qty) && qty > 0) changeParts.push(`${label} ${qty} → ₹${(qty * face).toFixed(2)}`);
+      }
+      const changeCoins = Number(inv.paymentDetails.changeReturned.coinsInr);
+      if (Number.isFinite(changeCoins) && changeCoins > 0) changeParts.push(`Coins: ₹${changeCoins.toFixed(2)}`);
+    }
+    const received =
+      parts.length === 0 ? (tender > 0 ? `Cash received ₹${tender.toFixed(2)}` : "—") : `${parts.join(" · ")} (received ₹${tender.toFixed(2)})`;
+    if (change > 0) {
+      const changeLine =
+        changeParts.length > 0 ? changeParts.join(" · ") : `Change ₹${change.toFixed(2)}`;
+      return `${received} · Change returned: ${changeLine} (₹${change.toFixed(2)})`;
+    }
+    return received;
   }
   const ref = inv.paymentDetails?.reference?.trim();
   return ref || "—";

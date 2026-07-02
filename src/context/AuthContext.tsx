@@ -9,8 +9,9 @@ import {
 } from "react";
 import { SEED_USERS } from "../data/seed";
 import { ApiError, apiJson, useApiMode } from "../lib/api";
-import { userMatchesLoginId } from "../lib/authLoginMatch";
+import { userMatchesLoginId, normalizeLoginUsername } from "../lib/authLoginMatch";
 import { createId } from "../lib/id";
+import { isValidUsername } from "../lib/inputSanitize";
 import { STORAGE_EXTRA_USERS, STORAGE_SESSION_USER_ID } from "../lib/storageKeys";
 import type { DemoUser, ModuleKey, SessionUser, UserRole } from "../types/user";
 
@@ -243,7 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               };
             }
           }
-          const msg = e instanceof ApiError ? e.message : "Invalid email, employee name, or password.";
+          const msg = e instanceof ApiError ? e.message : "Invalid username or password.";
           return { ok: false, message: msg };
         }
       }
@@ -257,7 +258,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }
       const found = loginMatches.find((u) => u.password === pwd);
-      if (!found) return { ok: false, message: "Invalid email, employee name, or password." };
+      if (!found) return { ok: false, message: "Invalid username or password." };
       if (found.canLogin === false) {
         return { ok: false, message: "This profile is directory-only and cannot sign in." };
       }
@@ -306,7 +307,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const email = input.email.trim().toLowerCase();
       const employeeCode = input.employeeCode.trim().toUpperCase();
-      if (!input.displayName.trim()) return { ok: false, message: "Display name is required." };
+      const username = input.displayName.trim();
+      if (!username) return { ok: false, message: "Username is required." };
+      if (!isValidUsername(username)) {
+        return { ok: false, message: "Username must contain only letters and digits (no spaces or special characters)." };
+      }
+      const usernameNorm = normalizeLoginUsername(username);
+      if (allWithPassword.some((u) => normalizeLoginUsername(u.displayName) === usernameNorm)) {
+        return { ok: false, message: "An account with this username already exists." };
+      }
       if (input.canLogin) {
         if (!employeeCode) return { ok: false, message: "Employee number is required for login-enabled users." };
         if (input.password.length < 4) return { ok: false, message: "Password must be at least 4 characters." };
@@ -353,7 +362,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         employeeCode: employeeCode || createId("emp").toUpperCase(),
         email: email || `${createId("user")}@directory.local`,
         password: input.password || createId("pwd"),
-        displayName: input.displayName.trim(),
+        displayName: username,
         role: input.role,
         regionId: input.regionId,
         storeId:

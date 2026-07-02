@@ -52,6 +52,9 @@ export function EdocSettingsPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [hasPassword, setHasPassword] = useState(false);
+  const [ewayUsername, setEwayUsername] = useState("");
+  const [ewayPassword, setEwayPassword] = useState("");
+  const [hasEwayPassword, setHasEwayPassword] = useState(false);
   const [apiBase, setApiBase] = useState("https://sandb-api.mastersindia.co");
   const [ewayApiBase, setEwayApiBase] = useState("https://sandb-api.mastersindia.co");
   const [tokenUrl, setTokenUrl] = useState("");
@@ -68,6 +71,8 @@ export function EdocSettingsPage() {
     setFailOpen(s.failOpen);
     setUsername(s.username);
     setHasPassword(s.hasPassword);
+    setEwayUsername(s.ewayUsername || s.username);
+    setHasEwayPassword(s.hasEwayPassword || s.hasPassword);
     setApiBase(s.apiBase);
     setEwayApiBase(s.ewayApiBase);
     setTokenUrl(s.tokenUrl);
@@ -112,6 +117,8 @@ export function EdocSettingsPage() {
           failOpen,
           username,
           password: password.trim() || undefined,
+          ewayUsername: ewayUsername.trim() || undefined,
+          ewayPassword: ewayPassword.trim() || undefined,
           apiBase,
           ewayApiBase,
           tokenUrl,
@@ -125,6 +132,7 @@ export function EdocSettingsPage() {
       });
       applySettings(data.settings);
       setPassword("");
+      setEwayPassword("");
       setSavedMsg("E-doc settings saved.");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not save e-doc settings.");
@@ -302,6 +310,28 @@ export function EdocSettingsPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={hasPassword ? "••••••••" : "Password"}
+                />
+              </div>
+              <div>
+                <span className={labelClass}>E-way portal username (optional override)</span>
+                <input
+                  className={inputClass}
+                  value={ewayUsername}
+                  onChange={(e) => setEwayUsername(e.target.value)}
+                  placeholder={username || "Fallbacks to portal username"}
+                />
+              </div>
+              <div>
+                <span className={labelClass}>
+                  E-way portal password {hasEwayPassword ? "(saved — leave blank to keep)" : ""}
+                </span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  className={inputClass}
+                  value={ewayPassword}
+                  onChange={(e) => setEwayPassword(e.target.value)}
+                  placeholder={hasEwayPassword ? "••••••••" : "Fallbacks to portal password"}
                 />
               </div>
               <div>

@@ -79,6 +79,21 @@
   text-align: right;
 }
 
+/* Quick Bill only — golden header banner (SRF / service bill keep blue) */
+.service-invoice-print-root.inv-doc.inv-quick-bill .inv-banner {
+  background: #c9a227;
+  color: #1a1408;
+}
+
+.service-invoice-print-root.inv-doc.inv-quick-bill .inv-banner-title {
+  color: #1a1408;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.service-invoice-print-root.inv-doc.inv-quick-bill .inv-banner-sub {
+  color: #2c2208;
+}
+
 .service-invoice-print-root.inv-doc .inv-top-row {
   display: table;
   width: 100%;

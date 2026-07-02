@@ -4833,8 +4833,10 @@ export function registerSrfRoutes(
         transfer_source_region_id: string | null;
         transfer_source_reference: string | null;
         requires_local_conversion: boolean;
+        brand_return_without_repair: boolean;
       }>(
-        `SELECT status, reference, region_id, transfer_source_region_id, transfer_source_reference, requires_local_conversion
+        `SELECT status, reference, region_id, transfer_source_region_id, transfer_source_reference,
+                requires_local_conversion, brand_return_without_repair
          FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
@@ -4849,10 +4851,14 @@ export function registerSrfRoutes(
         res.status(403).json({ error: "Only the repair HO can return the watch to sender HO." });
         return;
       }
-      if (recv.status !== "customer_rejected") {
+      const fromCustomerRejected = recv.status === "customer_rejected";
+      const fromBrandReturnReceived =
+        recv.status === "received_from_brand" && recv.brand_return_without_repair;
+      if (!fromCustomerRejected && !fromBrandReturnReceived) {
         await client.query("ROLLBACK");
         res.status(400).json({
-          error: "Only customer-rejected SRFs can be returned to sender HO without repair.",
+          error:
+            "Return to sender HO without repair is allowed after customer declined re-estimate, or after brand return without repair is received at repair HO.",
         });
         return;
       }
@@ -4887,7 +4893,9 @@ export function registerSrfRoutes(
         "ready_for_outward",
         actor.id,
         note ||
-          "Customer declined re-estimate — repair HO returning watch un-repaired to sender HO (no billing).",
+          (fromBrandReturnReceived
+            ? "Brand return without repair received — repair HO returning watch un-repaired to sender HO (no billing)."
+            : "Customer declined re-estimate — repair HO returning watch un-repaired to sender HO (no billing)."),
       );
       await recordSupervisorFollowup(client, srfId, {
         followup: "move_to_odc",
@@ -6260,54 +6268,79 @@ export function registerSrfRoutes(
     }
     const srfId = String(req.params.srfId ?? "").trim();
     const note = String(req.body?.note ?? "").trim();
+    const client = await pool.connect();
     try {
-      const upd = await pool.query(
+      await client.query("BEGIN");
+      const prior = await client.query<{
+        status: string;
+        region_id: string;
+        reference: string;
+        transfer_source_reference: string | null;
+        requires_local_conversion: boolean;
+      }>(
+        `SELECT status, region_id, reference, transfer_source_reference, requires_local_conversion
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const row = prior.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (
+        isInterHoReceiverLocalRow(row) &&
+        actor &&
+        actor.role !== "super_admin" &&
+        actor.role !== "admin" &&
+        actor.regionId !== row.region_id
+      ) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only the repair HO can mark receipt from brand for inter-HO SRFs." });
+        return;
+      }
+      if (!["brand_approved", "brand_repair_in_progress"].includes(row.status)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "SRF must be in brand_approved/brand_repair_in_progress state." });
+        return;
+      }
+      await client.query(
         `UPDATE srf_jobs
          SET status = 'received_from_brand',
              brand_return_received_at = now(),
              brand_inward_ref = COALESCE(brand_inward_ref, brand_odc_number),
              updated_at = now(),
              modified_by = $2
-         WHERE id = $1::uuid
-           AND status IN ('brand_approved', 'brand_repair_in_progress')`,
+         WHERE id = $1::uuid`,
         [srfId, actor?.id ?? null],
       );
-      if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "SRF must be in brand_approved/brand_repair_in_progress state." });
-        return;
-      }
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        const r = await client.query<{ brand_odc_number: string | null }>(
-          `SELECT brand_odc_number FROM srf_jobs WHERE id = $1::uuid`,
-          [srfId],
-        );
-        const ref = r.rows[0]?.brand_odc_number ?? null;
-        await appendStatusHistory(
-          client,
-          srfId,
-          "received_from_brand",
-          actor?.id ?? null,
-          note || `Watch received back from brand against DC ${ref ?? "-"}.`,
-        );
-        await appendActionLog(client, srfId, {
-          action: "brand_return_received",
-          description: "Watch received at HO from brand.",
-          actor: actor ?? undefined,
-          referenceDoc: ref,
-          details: { note, inwardAgainstDc: ref },
-        });
-        await client.query("COMMIT");
-      } catch {
-        await client.query("ROLLBACK").catch(() => {});
-      } finally {
-        client.release();
-      }
+      const r = await client.query<{ brand_odc_number: string | null }>(
+        `SELECT brand_odc_number FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const ref = r.rows[0]?.brand_odc_number ?? null;
+      await appendStatusHistory(
+        client,
+        srfId,
+        "received_from_brand",
+        actor?.id ?? null,
+        note || `Watch received back from brand against DC ${ref ?? "-"}.`,
+      );
+      await appendActionLog(client, srfId, {
+        action: "brand_return_received",
+        description: "Watch received at HO from brand.",
+        actor: actor ?? undefined,
+        referenceDoc: ref,
+        details: { note, inwardAgainstDc: ref },
+      });
+      await client.query("COMMIT");
       res.json({ ok: true });
     } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
       console.error(e);
       res.status(400).json({ error: "Could not mark brand return receipt." });
+    } finally {
+      client.release();
     }
   });
 
@@ -6471,31 +6504,53 @@ export function registerSrfRoutes(
     const returnMeta = attachmentPath
       ? mergeBrandAttachmentMeta({}, attachmentPath, toJsonMeta(req.body?.attachmentMeta))
       : null;
+    const client = await pool.connect();
     try {
-      const prior = await pool.query<{
+      await client.query("BEGIN");
+      const prior = await client.query<{
         status: string;
         customer_reestimate_response: string | null;
+        reference: string;
+        region_id: string;
+        transfer_source_reference: string | null;
+        transfer_source_region_id: string | null;
+        requires_local_conversion: boolean;
       }>(
-        `SELECT status, customer_reestimate_response
-         FROM srf_jobs WHERE id = $1::uuid`,
+        `SELECT status, customer_reestimate_response, reference, region_id,
+                transfer_source_reference, transfer_source_region_id, requires_local_conversion
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
       const row = prior.rows[0];
       if (!row) {
+        await client.query("ROLLBACK");
         res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      const interHoReceiver = isInterHoReceiverLocalRow(row);
+      if (
+        interHoReceiver &&
+        actor &&
+        actor.role !== "super_admin" &&
+        actor.role !== "admin" &&
+        actor.regionId !== row.region_id
+      ) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only the repair HO can mark brand return without repair for inter-HO SRFs." });
         return;
       }
       const fromSent = row.status === "sent_to_brand";
       const fromDeclinedEstimate =
         row.status === "brand_estimate_pending" && row.customer_reestimate_response === "rejected";
       if (!fromSent && !fromDeclinedEstimate) {
+        await client.query("ROLLBACK");
         res.status(400).json({
           error:
             "Return without repair is allowed when watch is at brand (sent_to_brand) or after customer declined brand estimate.",
         });
         return;
       }
-      const upd = await pool.query(
+      const upd = await client.query(
         `UPDATE srf_jobs
          SET status = 'brand_repair_in_progress',
              brand_return_without_repair = true,
@@ -6508,35 +6563,75 @@ export function registerSrfRoutes(
         [srfId, actor?.id ?? null, row.status, returnMeta ? JSON.stringify(returnMeta) : null],
       );
       if ((upd.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
         res.status(400).json({ error: "Could not update SRF for brand return without repair." });
         return;
       }
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await appendStatusHistory(
-          client,
-          srfId,
-          "brand_repair_in_progress",
-          actor?.id ?? null,
-          note || "Brand cannot repair — watch will return to HO without repair.",
+      await appendStatusHistory(
+        client,
+        srfId,
+        "brand_repair_in_progress",
+        actor?.id ?? null,
+        note || "Brand cannot repair — watch will return to HO without repair.",
+      );
+      await appendActionLog(client, srfId, {
+        action: "brand_return_without_repair",
+        description: "Brand return without repair — awaiting physical return from brand workshop.",
+        actor: actor ?? undefined,
+        details: { note, returnMeta },
+      });
+      let senderRegionId: string | null = null;
+      if (interHoReceiver) {
+        const arch = await findInterHoArchivedSenderRow(client, srfId);
+        if (arch) {
+          await client.query(
+            `UPDATE srf_jobs
+             SET inter_ho_brand_estimate_phase = 'customer_rejected',
+                 updated_at = now(),
+                 modified_by = $2
+             WHERE id = $1::uuid`,
+            [arch.id, actor?.id ?? null],
+          );
+          await appendActionLog(client, arch.id, {
+            action: "inter_ho_brand_return_without_repair",
+            description:
+              "Repair HO marked brand return without repair after customer declined brand estimate. Sender HO will inward when return DC arrives.",
+            actor: actor ?? undefined,
+            details: { receiverSrfId: srfId, note },
+          });
+        }
+        senderRegionId = (row.transfer_source_region_id ?? "").trim() || null;
+      }
+      await client.query("COMMIT");
+      if (pushInApp && senderRegionId) {
+        const { rows: notifyRows } = await pool.query<{ id: string }>(
+          `SELECT id FROM app_users
+           WHERE region_id = $1::text
+             AND role IN (
+               'service_centre_supervisor',
+               'service_centre_clerk',
+               'ho_manager',
+               'admin',
+               'super_admin'
+             )`,
+          [senderRegionId],
         );
-        await appendActionLog(client, srfId, {
-          action: "brand_return_without_repair",
-          description: "Brand return without repair — awaiting physical return from brand workshop.",
-          actor: actor ?? undefined,
-          details: { note, returnMeta },
-        });
-        await client.query("COMMIT");
-      } catch {
-        await client.query("ROLLBACK").catch(() => {});
-      } finally {
-        client.release();
+        await pushInApp(
+          notifyRows.map((r) => r.id),
+          {
+            title: "Inter-HO brand return without repair",
+            message: `SRF ${row.reference}: repair HO is returning the watch from brand without repair after customer declined the estimate. Inward when the return DC arrives from repair HO.`,
+            category: "service_srf",
+          },
+        );
       }
       res.json({ ok: true });
     } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
       console.error(e);
       res.status(400).json({ error: "Could not mark brand return without repair." });
+    } finally {
+      client.release();
     }
   });
 
@@ -6605,6 +6700,28 @@ export function registerSrfRoutes(
     const srfId = String(req.params.srfId ?? "").trim();
     const note = String(req.body?.note ?? "").trim();
     try {
+      const prior = await pool.query<{
+        reference: string;
+        transfer_source_reference: string | null;
+        requires_local_conversion: boolean;
+        status: string;
+      }>(
+        `SELECT reference, transfer_source_reference, requires_local_conversion, status
+         FROM srf_jobs WHERE id = $1::uuid`,
+        [srfId],
+      );
+      const row = prior.rows[0];
+      if (!row) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (isInterHoReceiverLocalRow(row)) {
+        res.status(400).json({
+          error:
+            "Inter-HO SRFs must use return to sender HO (no repair) — not direct store dispatch from brand desk.",
+        });
+        return;
+      }
       const upd = await pool.query(
         `UPDATE srf_jobs
          SET status = 'ready_for_outward',

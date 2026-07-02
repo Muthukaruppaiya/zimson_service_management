@@ -38,7 +38,8 @@ import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { appendStockHistory } from "./db/stockHistory";
 import { SEED_USERS, type SeedRegion, type SeedStore } from "../src/data/seed";
-import { userMatchesLoginId } from "../src/lib/authLoginMatch";
+import { userMatchesLoginId, normalizeLoginUsername } from "../src/lib/authLoginMatch";
+import { isValidUsername } from "../src/lib/inputSanitize";
 import { createId } from "../src/lib/id";
 import type { CustomerKind, CustomerRecord } from "../src/types/customer";
 import type { AppNotification } from "../src/types/notification";
@@ -617,7 +618,7 @@ app.post("/api/auth/login", async (req, res) => {
   const password = String(req.body?.password ?? "").trim();
   const selectedStoreId = String(req.body?.storeId ?? "").trim() || null;
   if (!loginId) {
-    res.status(400).json({ ok: false, message: "Enter your work email or employee name." });
+    res.status(400).json({ ok: false, message: "Enter your username." });
     return;
   }
   const users = await allUsers();
@@ -627,13 +628,13 @@ app.post("/api/auth/login", async (req, res) => {
     res.status(401).json({
       ok: false,
       message:
-        "More than one account matches this name. Sign in with your work email address instead.",
+        "More than one account matches this username. Contact your administrator.",
     });
     return;
   }
   const found = loginMatches.find((u) => u.password === passwordHash) ?? null;
   if (!found) {
-    res.status(401).json({ ok: false, message: "Invalid email, employee name, or password." });
+    res.status(401).json({ ok: false, message: "Invalid username or password." });
     return;
   }
   if (found.canLogin === false) {
@@ -771,11 +772,15 @@ app.post("/api/users", requireAuth, async (req, res) => {
   };
   const canLogin = input.canLogin !== false;
   const employeeCode = normalizeEmployeeCode(String(input.employeeCode ?? ""));
-  const email = normalizeEmail(String(input.email ?? ""));
-  if (!input.displayName.trim()) {
-    res.status(400).json({ ok: false, message: "Display name is required." });
+  const displayName = String(input.displayName ?? "").trim();
+  if (!isValidUsername(displayName)) {
+    res.status(400).json({
+      ok: false,
+      message: "Username must contain only letters and digits (no spaces or special characters).",
+    });
     return;
   }
+  const email = normalizeEmail(String(input.email ?? ""));
   if (!email || !isValidEmail(email)) {
     res.status(400).json({ ok: false, message: "A valid email address is required (must be unique)." });
     return;
@@ -791,6 +796,11 @@ app.post("/api/users", requireAuth, async (req, res) => {
     }
   }
   const existingUsers = await allUsers();
+  const usernameNorm = normalizeLoginUsername(displayName);
+  if (existingUsers.some((u) => normalizeLoginUsername(u.displayName) === usernameNorm)) {
+    res.status(400).json({ ok: false, message: "An account with this username already exists." });
+    return;
+  }
   if (existingUsers.some((u) => normalizeEmail(u.email) === email)) {
     res.status(400).json({ ok: false, message: "An account with this email already exists." });
     return;
@@ -850,7 +860,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
     employeeCode: employeeCode || normalizeEmployeeCode(createId("emp")),
     email,
     password: hashPassword(plainPwd),
-    displayName: input.displayName.trim(),
+    displayName: displayName,
     role: input.role as UserRole,
     regionId: input.regionId,
     storeId: STORE_ROLES.has(input.role) ? requestedStoreIds[0] ?? null : null,
@@ -925,7 +935,22 @@ app.patch("/api/users/:userId", requireAuth, async (req, res) => {
 
     const push = (col: string, val: unknown) => { params.push(val); sets.push(`${col} = $${params.length}`); };
 
-    if ("displayName" in body) push("display_name", String(body.displayName ?? "").trim());
+    if ("displayName" in body) {
+      const nextName = String(body.displayName ?? "").trim();
+      if (!isValidUsername(nextName)) {
+        res.status(400).json({ error: "Username must contain only letters and digits (no spaces or special characters)." });
+        return;
+      }
+      const nextNorm = normalizeLoginUsername(nextName);
+      const dupName = (await allUsers()).some(
+        (u) => u.id !== targetId && normalizeLoginUsername(u.displayName) === nextNorm,
+      );
+      if (dupName) {
+        res.status(400).json({ error: "An account with this username already exists." });
+        return;
+      }
+      push("display_name", nextName);
+    }
     if ("email" in body) {
       const nextEmail = normalizeEmail(String(body.email ?? ""));
       if (!nextEmail || !isValidEmail(nextEmail)) {

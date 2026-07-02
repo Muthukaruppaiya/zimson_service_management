@@ -109,5 +109,7 @@ export type QuickBillEdocInfo = {
   ackNo?: string | null;
   ackDate?: string | null;
   qrUrl?: string | null;
+  /** IRP e-invoice PDF URL when returned by Masters India / GST portal. */
+  pdfUrl?: string | null;
   error?: string | null;
 };

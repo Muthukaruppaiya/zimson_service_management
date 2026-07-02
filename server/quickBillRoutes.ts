@@ -956,6 +956,7 @@ export function registerQuickBillRoutes(
       subtotalInr,
       gstResult.totalTax,
       pricesTaxInclusive,
+      gstResult.grossTaxable,
     );
 
     const paymentNorm = normalizePaymentForTotal(

@@ -306,7 +306,7 @@ export function Sidebar() {
           end
           onClick={closeNav}
           className={({ isActive }) =>
-            `group flex items-center gap-2.5 px-2.5 py-2 text-[11px] font-semibold transition-all duration-150 ${
+            `group flex items-center gap-2.5 px-2.5 py-2 text-[13px] font-semibold transition-all duration-150 ${
               isActive
                 ? "bg-white/15 text-white"
                 : "text-white/70 hover:bg-white/8 hover:text-white"
@@ -327,7 +327,7 @@ export function Sidebar() {
         {/* Section label */}
         <div className="mx-3 my-3 flex items-center gap-2">
           <div className="h-px flex-1 bg-white/12" />
-          <span className="text-[9px] font-bold uppercase tracking-[0.3em] text-white/40">Modules</span>
+          <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/40">Modules</span>
           <div className="h-px flex-1 bg-white/12" />
         </div>
 
@@ -342,7 +342,7 @@ export function Sidebar() {
                 <button
                   type="button"
                   onClick={() => setOpenSection((prev) => prev === section.title ? null : section.title)}
-                  className={`group relative flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-[11px] font-semibold transition-all duration-150 ${
+                  className={`group relative flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-[13px] font-semibold transition-all duration-150 ${
                     isOpen || hasActiveChild
                       ? "bg-white/15 text-white"
                       : "text-white/70 hover:bg-white/8 hover:text-white"
@@ -376,7 +376,7 @@ export function Sidebar() {
                             to={item.to}
                             end={item.to === "/service/srf" || item.to === "/service/quick-bill" || item.to === "/service/billing"}
                             onClick={closeNav}
-                            className={`relative block px-3 py-1.5 text-[12.5px] font-medium transition-all duration-150 ${
+                            className={`relative block px-3 py-1.5 text-[14px] font-medium transition-all duration-150 ${
                               active
                                 ? "bg-white/15 text-white font-semibold before:absolute before:-left-3 before:top-1/2 before:h-1.5 before:w-1.5 before:-translate-y-1/2 before:rounded-full before:bg-rlx-gold before:content-['']"
                                 : "text-white/60 hover:bg-white/8 hover:text-white/90"
@@ -398,12 +398,12 @@ export function Sidebar() {
       {/* ── User footer ─────────────────────────────── */}
       <div className="relative shrink-0 border-t border-white/10 p-3">
         <div className="flex items-center gap-3 px-2 py-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rlx-gold text-[12px] font-bold text-rlx-green-deep shadow-sm">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rlx-gold text-[14px] font-bold text-rlx-green-deep shadow-sm">
             {initials}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-[12.5px] font-semibold text-white">{user?.displayName ?? "Guest"}</p>
-            <p className="truncate text-[10px] font-medium uppercase tracking-wide text-white/50">{roleLabelStr}</p>
+            <p className="truncate text-[14px] font-semibold text-white">{user?.displayName ?? "Guest"}</p>
+            <p className="truncate text-[12px] font-medium uppercase tracking-wide text-white/50">{roleLabelStr}</p>
           </div>
           <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-blue-400 shadow-[0_0_0_3px_rgba(59,130,246,0.25)]" />
         </div>

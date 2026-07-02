@@ -181,6 +181,8 @@ function buildGstLines(
   igst: number;
   tax: number;
   net: number;
+  roundOffInr: number;
+  preRoundOffPayable: number;
   totalQty: number;
   isInterstate: boolean;
 } {
@@ -241,6 +243,8 @@ function buildGstLines(
     sgst: gstResult.sgst,
     igst: gstResult.igst,
     tax: gstResult.totalTax,
+    preRoundOffPayable: gstResult.preRoundOffPayable ?? gstResult.netPayable,
+    roundOffInr: gstResult.roundOffInr ?? 0,
     net: gstResult.netPayable,
     totalQty,
     isInterstate: gstResult.isInterstate,
@@ -396,8 +400,8 @@ export function buildDemoServiceInvoiceViewModel(
         "—",
     },
     lines: gst.lines,
-    totalAmount: input.total,
-    amountInWords: inrAmountToWords(input.total),
+    totalAmount: gst.net,
+    amountInWords: inrAmountToWords(gst.net),
     paymentMode: input.paymentMode,
     bankDetailsLines: [],
     notes: input.notes.trim() || undefined,
@@ -407,10 +411,12 @@ export function buildDemoServiceInvoiceViewModel(
     totalSgst: gst.sgst,
     totalIgst: gst.igst,
     totalTax: gst.tax,
+    roundOffInr: gst.roundOffInr,
+    preRoundOffPayable: gst.preRoundOffPayable,
     netPayable: gst.net,
     totalQty: gst.totalQty,
     advanceAmount: 0,
-    amountPaid: input.total,
+    amountPaid: gst.net,
     paymentRemarks: input.notes.trim() || undefined,
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
@@ -552,6 +558,8 @@ export function mapQuickBillInvoiceToViewModel(
     totalSgst: gst.sgst,
     totalIgst: gst.igst,
     totalTax: gst.tax,
+    roundOffInr: gst.roundOffInr,
+    preRoundOffPayable: gst.preRoundOffPayable,
     totalQty: gst.totalQty,
     paymentRemarks: inv.notes?.trim() || undefined,
     taxBreakdownRows: gst.taxRows,
@@ -714,6 +722,8 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     totalSgst: gst.sgst,
     totalIgst: gst.igst,
     totalTax: gst.tax,
+    roundOffInr: gst.roundOffInr,
+    preRoundOffPayable: gst.preRoundOffPayable,
     totalQty: gst.totalQty,
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,

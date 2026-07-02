@@ -1,15 +1,21 @@
 import type { MastersIndiaEdocConfig } from "./types";
 
-let tokenCache: { token: string; expMs: number } | null = null;
+const tokenCache = new Map<string, { token: string; expMs: number }>();
+
+function cacheKey(cfg: MastersIndiaEdocConfig): string {
+  return `${cfg.tokenUrl}|${cfg.username}`;
+}
 
 export function clearEdocTokenCache(): void {
-  tokenCache = null;
+  tokenCache.clear();
 }
 
 export async function getEdocAccessToken(cfg: MastersIndiaEdocConfig): Promise<string> {
   const now = Date.now();
-  if (tokenCache && tokenCache.expMs > now + 120_000) {
-    return tokenCache.token;
+  const key = cacheKey(cfg);
+  const hit = tokenCache.get(key);
+  if (hit && hit.expMs > now + 120_000) {
+    return hit.token;
   }
 
   const res = await fetch(cfg.tokenUrl, {
@@ -46,6 +52,7 @@ export async function getEdocAccessToken(cfg: MastersIndiaEdocConfig): Promise<s
 
   const expiresIn =
     typeof json.expires_in === "number" && json.expires_in > 60 ? json.expires_in : 86_400;
-  tokenCache = { token: String(token), expMs: now + expiresIn * 1000 };
-  return tokenCache.token;
+  const entry = { token: String(token), expMs: now + expiresIn * 1000 };
+  tokenCache.set(key, entry);
+  return entry.token;
 }

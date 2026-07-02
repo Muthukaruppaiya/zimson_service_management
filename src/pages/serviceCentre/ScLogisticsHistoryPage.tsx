@@ -29,13 +29,23 @@ type DeliveryChallanHistoryRow = {
   edocError?: string | null;
 };
 
+type HistoryModule = "dcOdc" | "eway" | "brand";
+
 const actionBtn =
   "rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-950 transition hover:bg-amber-100 disabled:opacity-50";
+
+const moduleBtn = (active: boolean) =>
+  `rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+    active
+      ? "border-rlx-green bg-rlx-green text-white"
+      : "border-rlx-gold bg-rlx-green-light text-rlx-green hover:bg-rlx-green-light/80"
+  }`;
 
 export function ScLogisticsHistoryPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
   const { jobs } = useSrfJobs();
+  const [historyModule, setHistoryModule] = useState<HistoryModule>("dcOdc");
   const [selectedJob, setSelectedJob] = useState<SrfJob | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "waiting_inward" | "after_inward" | "outward_done">("all");
   const [fromDate, setFromDate] = useState("");
@@ -44,8 +54,10 @@ export function ScLogisticsHistoryPage() {
   const [dcRows, setDcRows] = useState<DeliveryChallanHistoryRow[]>([]);
   const [dcLoading, setDcLoading] = useState(false);
   const [dcMsg, setDcMsg] = useState<string | null>(null);
+  const [brandMsg, setBrandMsg] = useState<string | null>(null);
   const [edocEnabled, setEdocEnabled] = useState(false);
   const [ewayDcId, setEwayDcId] = useState<string | null>(null);
+  const [ewayBrandJobId, setEwayBrandJobId] = useState<string | null>(null);
   const [ewayBusyId, setEwayBusyId] = useState<string | null>(null);
   const pageSize = 10;
 
@@ -73,6 +85,29 @@ export function ScLogisticsHistoryPage() {
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [allVisibleJobs]);
+
+  const sendToBrandHistoryRows = useMemo(() => {
+    if (!user) return [];
+    const historyStatuses: ReadonlySet<SrfJob["status"]> = new Set([
+      "brand_dispatch_pending",
+      "sent_to_brand",
+      "brand_estimate_pending",
+      "brand_estimate_customer_pending",
+      "brand_estimate_customer_accepted",
+      "brand_approved",
+      "brand_repair_in_progress",
+      "received_from_brand",
+      "brand_credit_note_pending",
+      "brand_credit_note_active",
+    ]);
+    return allVisibleJobs
+      .filter((j) => historyStatuses.has(j.status) || !!j.brandDispatchRef || !!j.brandDispatchClerkAt)
+      .sort((a, b) => {
+        const bTs = new Date(b.brandDispatchClerkAt ?? b.brandSentAt ?? b.createdAt).getTime();
+        const aTs = new Date(a.brandDispatchClerkAt ?? a.brandSentAt ?? a.createdAt).getTime();
+        return bTs - aTs;
+      });
+  }, [allVisibleJobs, user]);
 
   const filteredRows = useMemo(() => {
     const from = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : null;
@@ -138,11 +173,23 @@ export function ScLogisticsHistoryPage() {
     void loadDcHistory();
   }
 
+  function onBrandEwaySuccess(edoc: EdocUiResult) {
+    setBrandMsg(formatEwayEdocMessage(edoc) ?? (edoc?.ok ? "E-way bill generated." : "Could not generate e-way bill."));
+    setEwayBrandJobId(null);
+  }
+
+  function switchModule(next: HistoryModule) {
+    setHistoryModule(next);
+    setHistoryPage(1);
+    setDcMsg(null);
+    setBrandMsg(null);
+  }
+
   return (
     <div>
       <PageHeader
-        title="DC / ODC history"
-        description=""
+        title="Logistics history"
+        description="DC / ODC lifecycle, delivery challans with e-way, and send-to-brand dispatch records."
         actions={
           <Link
             to="/service-centre/logistics"
@@ -153,8 +200,23 @@ export function ScLogisticsHistoryPage() {
         }
       />
 
-      {edocEnabled ? (
+      <div className="mb-4 flex flex-wrap gap-2 rounded-xl border border-rlx-rule/70 bg-white p-2">
+        <button type="button" onClick={() => switchModule("dcOdc")} className={moduleBtn(historyModule === "dcOdc")}>
+          DC / ODC history ({dcOdcHistoryRows.length})
+        </button>
+        <button type="button" onClick={() => switchModule("eway")} className={moduleBtn(historyModule === "eway")}>
+          Delivery challans & e-way ({dcRows.length})
+        </button>
+        <button type="button" onClick={() => switchModule("brand")} className={moduleBtn(historyModule === "brand")}>
+          Send to brand ({sendToBrandHistoryRows.length})
+        </button>
+      </div>
+
+      {historyModule === "eway" ? (
         <Card title={`Delivery challans & e-way (${dcRows.length})`} subtitle="">
+          {!edocEnabled ? (
+            <p className="text-sm text-stone-600">E-doc is not enabled. Enable it in settings to create or retry e-way bills.</p>
+          ) : null}
           {dcMsg ? (
             <p className="mb-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-950 ring-1 ring-sky-200">{dcMsg}</p>
           ) : null}
@@ -223,138 +285,203 @@ export function ScLogisticsHistoryPage() {
         </Card>
       ) : null}
 
-      <Card title={`DC / ODC history (${filteredRows.length})`}>
-        <div className="mb-4 grid gap-2 md:grid-cols-4">
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value as typeof statusFilter);
-              setHistoryPage(1);
-            }}
-            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-          >
-            <option value="all">All statuses</option>
-            <option value="waiting_inward">Waiting for inward</option>
-            <option value="after_inward">After inward</option>
-            <option value="outward_done">Outward done</option>
-          </select>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => {
-              setFromDate(e.target.value);
-              setHistoryPage(1);
-            }}
-            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => {
-              setToDate(e.target.value);
-              setHistoryPage(1);
-            }}
-            className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              setStatusFilter("all");
-              setFromDate("");
-              setToDate("");
-              setHistoryPage(1);
-            }}
-            className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
-          >
-            All / Reset
-          </button>
-        </div>
-        {filteredRows.length === 0 ? (
-          <div className="min-h-[2rem]" aria-hidden />
-        ) : (
-          <div className="space-y-3">
-            <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+      {historyModule === "dcOdc" ? (
+        <Card title={`DC / ODC history (${filteredRows.length})`}>
+          <div className="mb-4 grid gap-2 md:grid-cols-4">
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as typeof statusFilter);
+                setHistoryPage(1);
+              }}
+              className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+            >
+              <option value="all">All statuses</option>
+              <option value="waiting_inward">Waiting for inward</option>
+              <option value="after_inward">After inward</option>
+              <option value="outward_done">Outward done</option>
+            </select>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => {
+                setFromDate(e.target.value);
+                setHistoryPage(1);
+              }}
+              className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+            />
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => {
+                setToDate(e.target.value);
+                setHistoryPage(1);
+              }}
+              className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter("all");
+                setFromDate("");
+                setToDate("");
+                setHistoryPage(1);
+              }}
+              className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+            >
+              All / Reset
+            </button>
+          </div>
+          {filteredRows.length === 0 ? (
+            <div className="min-h-[2rem]" aria-hidden />
+          ) : (
+            <div className="space-y-3">
+              <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                    <tr>
+                      <th className="px-3 py-2">Lifecycle status</th>
+                      <th className="px-3 py-2">Date</th>
+                      <th className="px-3 py-2">SRF</th>
+                      <th className="px-3 py-2">DC</th>
+                      <th className="px-3 py-2">ODC</th>
+                      <th className="px-3 py-2">Customer</th>
+                      <th className="px-3 py-2">Store</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedRows.map((j) => (
+                      <tr
+                        key={`history-${j.id}`}
+                        onClick={() => setSelectedJob(j)}
+                        className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
+                      >
+                        <td className="px-3 py-2">
+                          {j.lifecycle === "waiting_inward" ? (
+                            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
+                              Waiting for inward
+                            </span>
+                          ) : j.lifecycle === "after_inward" ? (
+                            <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-900">
+                              After inward
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
+                              Outward done
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleString()}</td>
+                        <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.dcNumber ?? "-"}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.outwardDcNumber ?? "-"}</td>
+                        <td className="px-3 py-2">{j.customerName}</td>
+                        <td className="px-3 py-2 text-xs text-stone-600">
+                          {(() => {
+                            if (j.requiresLocalConversion && j.transferTargetRegionId) {
+                              const reg = regions.find((r) => r.id === j.transferTargetRegionId);
+                              return `HO: ${reg?.name ?? j.transferTargetRegionId}`;
+                            }
+                            const destId = j.destinationStoreId || j.transferSourceStoreId || j.storeId;
+                            const loc = storeById.get(destId);
+                            return loc ? (loc.regionName ? `HO: ${loc.regionName} · ` : "") + `Store: ${loc.storeName}` : destId;
+                          })()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-stone-600">
+                  Showing page {currentPage} of {totalPages}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                    className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setHistoryPage((p) => Math.min(totalPages, p + 1))}
+                    className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+      ) : null}
+
+      {historyModule === "brand" ? (
+        <Card title={`Send to brand (${sendToBrandHistoryRows.length})`}>
+          {brandMsg ? (
+            <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-950 ring-1 ring-violet-200">{brandMsg}</p>
+          ) : null}
+          {sendToBrandHistoryRows.length === 0 ? (
+            <p className="text-sm text-stone-600">No send-to-brand history yet.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-violet-100">
               <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                <thead className="border-b border-violet-300 bg-violet-50 text-xs font-semibold uppercase tracking-wide text-violet-900">
                   <tr>
-                    <th className="px-3 py-2">Lifecycle status</th>
-                    <th className="px-3 py-2">Date</th>
+                    <th className="px-3 py-2">Logged at</th>
                     <th className="px-3 py-2">SRF</th>
-                    <th className="px-3 py-2">DC</th>
-                    <th className="px-3 py-2">ODC</th>
-                    <th className="px-3 py-2">Customer</th>
-                    <th className="px-3 py-2">Store</th>
+                    <th className="px-3 py-2">Watch / customer</th>
+                    <th className="px-3 py-2">Dispatch ref</th>
+                    <th className="px-3 py-2">Dispatch note</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2 text-center">E-way</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedRows.map((j) => (
-                    <tr
-                      key={`history-${j.id}`}
-                      onClick={() => setSelectedJob(j)}
-                      className="cursor-pointer border-b border-zimson-100 hover:bg-zimson-50/60 last:border-0"
-                    >
-                      <td className="px-3 py-2">
-                        {j.lifecycle === "waiting_inward" ? (
-                          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-                            Waiting for inward
-                          </span>
-                        ) : j.lifecycle === "after_inward" ? (
-                          <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-900">
-                            After inward
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
-                            Outward done
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-stone-600">{new Date(j.createdAt).toLocaleString()}</td>
-                      <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.dcNumber ?? "-"}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.outwardDcNumber ?? "-"}</td>
-                      <td className="px-3 py-2">{j.customerName}</td>
+                  {sendToBrandHistoryRows.map((j) => (
+                    <tr key={`brand-h-${j.id}`} className="border-b border-violet-100 last:border-0">
                       <td className="px-3 py-2 text-xs text-stone-600">
-                        {(() => {
-                          if (j.requiresLocalConversion && j.transferTargetRegionId) {
-                            const reg = regions.find((r) => r.id === j.transferTargetRegionId);
-                            return `HO: ${reg?.name ?? j.transferTargetRegionId}`;
-                          }
-                          const destId = j.destinationStoreId || j.transferSourceStoreId || j.storeId;
-                          const loc = storeById.get(destId);
-                          return loc ? (loc.regionName ? `HO: ${loc.regionName} · ` : "") + `Store: ${loc.storeName}` : destId;
-                        })()}
+                        {new Date(j.brandDispatchClerkAt ?? j.brandSentAt ?? j.createdAt).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs font-semibold text-violet-950">{j.reference}</td>
+                      <td className="px-3 py-2 text-stone-700">
+                        {j.watchBrand} {j.watchModel}
+                        <span className="mt-0.5 block text-xs text-stone-500">{j.customerName}</span>
+                      </td>
+                      <td className="px-3 py-2 text-xs font-semibold text-violet-900">
+                        {j.brandDispatchRef?.trim() || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-stone-600">
+                        {j.brandDispatchClerkNote?.trim() || j.brandDispatchNote?.trim() || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
+                        {j.status.replaceAll("_", " ")}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {edocEnabled ? (
+                          <button
+                            type="button"
+                            onClick={() => setEwayBrandJobId(j.id)}
+                            className="rounded-lg border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-100"
+                          >
+                            Create e-way bill
+                          </button>
+                        ) : (
+                          <span className="text-xs text-stone-500">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-stone-600">
-                Showing page {currentPage} of {totalPages}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={currentPage <= 1}
-                  onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
-                  className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setHistoryPage((p) => Math.min(totalPages, p + 1))}
-                  className="rounded-lg border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </Card>
+          )}
+        </Card>
+      ) : null}
 
       {selectedJob ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -446,6 +573,16 @@ export function ScLogisticsHistoryPage() {
             setEwayDcId(null);
             setEwayBusyId(null);
           }}
+        />
+      ) : null}
+
+      {ewayBrandJobId ? (
+        <EwayBillModal
+          open
+          kind="brand"
+          resourceId={ewayBrandJobId}
+          onClose={() => setEwayBrandJobId(null)}
+          onSuccess={onBrandEwaySuccess}
         />
       ) : null}
     </div>

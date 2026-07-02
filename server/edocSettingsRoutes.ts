@@ -29,6 +29,8 @@ function bodyToDb(body: Record<string, unknown>): EdocSettingsDb {
     failOpen: parseBool(body.failOpen),
     username: String(body.username ?? "").trim().slice(0, 200) || undefined,
     password: String(body.password ?? "").trim().slice(0, 500) || undefined,
+    ewayUsername: String(body.ewayUsername ?? "").trim().slice(0, 200) || undefined,
+    ewayPassword: String(body.ewayPassword ?? "").trim().slice(0, 500) || undefined,
     apiBase: String(body.apiBase ?? "").trim().slice(0, 500) || undefined,
     ewayApiBase: String(body.ewayApiBase ?? "").trim().slice(0, 500) || undefined,
     tokenUrl: String(body.tokenUrl ?? "").trim().slice(0, 500) || undefined,

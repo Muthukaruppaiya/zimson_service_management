@@ -420,9 +420,10 @@ export function StoreBillingPage() {
       billSubtotalBeforeAdvance,
       taxPreview?.totalTax ?? 0,
       STORE_BILLING_PRICES_TAX_INCLUSIVE,
+      taxPreview?.grossTaxable,
     );
     return Number.isFinite(payable) ? payable : billSubtotalBeforeAdvance;
-  }, [billSubtotalBeforeAdvance, taxPreview?.totalTax]);
+  }, [billSubtotalBeforeAdvance, taxPreview?.totalTax, taxPreview?.grossTaxable]);
 
   const standardBillingTotal = useMemo(() => {
     const due = invoiceTotalInr - advanceAmount;
@@ -1207,6 +1208,18 @@ export function StoreBillingPage() {
                       <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">GST</th>
                       <td className="px-3 py-2 font-semibold text-zimson-900">
                         INR {(taxPreview.totalTax ?? 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {taxPreview && (taxPreview.roundOffInr ?? 0) !== 0 ? (
+                    <tr className="border-b border-zimson-100">
+                      <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Round off</th>
+                      <td className="px-3 py-2 font-semibold text-zimson-900">
+                        {(taxPreview.roundOffInr ?? 0).toLocaleString(undefined, {
+                          style: "currency",
+                          currency: "INR",
+                          signDisplay: "exceptZero",
+                        })}
                       </td>
                     </tr>
                   ) : null}

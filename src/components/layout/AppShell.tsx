@@ -8,7 +8,7 @@ function AppShellInner() {
   const { navOpen, closeNav } = useNavLayout();
 
   return (
-    <div className="app-shell flex h-dvh min-h-0 bg-rlx-bg text-[0.75rem] leading-snug">
+    <div className="app-shell flex h-dvh min-h-0 bg-rlx-bg leading-normal">
       <SessionLoginAlertModal />
       {navOpen ? (
         <button

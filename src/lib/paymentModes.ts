@@ -30,7 +30,10 @@ export type AdvanceCashDenominations = {
 export type AdvancePaymentDetails = {
   /** UPI UTR, card auth ref, bank transfer ref, etc. */
   reference?: string;
+  /** Cash received from customer (tender). */
   cash?: AdvanceCashDenominations;
+  /** Notes/coins returned to customer when tender exceeds bill amount. */
+  changeReturned?: AdvanceCashDenominations;
 };
 
 function parseCount(raw: string): number {
@@ -73,6 +76,89 @@ export function emptyCashDenomStrings(): Record<keyof AdvanceCashDenominations, 
   };
 }
 
+/** Greedy note breakdown for a target INR amount (remainder goes to coins). */
+export function suggestCashDenominationsForAmount(amountInr: number): AdvanceCashDenominations {
+  let remaining = Math.round(Math.max(0, amountInr) * 100) / 100;
+  const result: AdvanceCashDenominations = {};
+  for (const { key, face } of ADVANCE_CASH_DENOMS) {
+    const count = Math.floor(remaining / face);
+    if (count > 0) {
+      (result as Record<string, number>)[key] = count;
+      remaining = Math.round((remaining - count * face) * 100) / 100;
+    }
+  }
+  if (remaining > 0) {
+    result.coinsInr = remaining;
+  }
+  return result;
+}
+
+export function cashDenomStringsFromBreakdown(
+  cash: AdvanceCashDenominations,
+): Record<keyof AdvanceCashDenominations, string> {
+  const strings = emptyCashDenomStrings();
+  for (const { key } of ADVANCE_CASH_DENOMS) {
+    const qty = Number(cash[key]);
+    if (Number.isFinite(qty) && qty > 0) strings[key] = String(qty);
+  }
+  const coins = Number(cash.coinsInr);
+  if (Number.isFinite(coins) && coins > 0) {
+    strings.coinsInr = coins % 1 === 0 ? String(coins) : coins.toFixed(2);
+  }
+  return strings;
+}
+
+/** Human-readable suggestion, e.g. "1 × ₹200, 1 × ₹50". */
+export function formatCashDenomSuggestionText(cash: AdvanceCashDenominations): string {
+  const parts: string[] = [];
+  for (const { key, face } of ADVANCE_CASH_DENOMS) {
+    const qty = Number(cash[key]);
+    if (Number.isFinite(qty) && qty > 0) parts.push(`${qty} × ₹${face}`);
+  }
+  const coins = Number(cash.coinsInr);
+  if (Number.isFinite(coins) && coins > 0) {
+    parts.push(`coins ₹${coins.toFixed(2)}`);
+  }
+  return parts.length > 0 ? parts.join(", ") : "—";
+}
+
+export function formatCashDenomStringsText(
+  strings: Record<keyof AdvanceCashDenominations, string>,
+): string {
+  return formatCashDenomSuggestionText(advanceDetailsFromFormStrings("Cash", strings, "").cash ?? {});
+}
+
+/** Sum of enabled payment modes except one (default Cash). */
+export function otherPaymentModesTotal(
+  form: MultiPaymentFormState,
+  exclude: AppPaymentMode = "Cash",
+): number {
+  let sum = 0;
+  for (const mode of APP_PAYMENT_MODES) {
+    if (mode === exclude || !form[mode].enabled) continue;
+    const n = Number.parseFloat(form[mode].amount);
+    if (Number.isFinite(n) && n > 0) sum += n;
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+/** Cash leg of the bill (bill total minus other payment modes). */
+export function cashBillTargetInr(form: MultiPaymentFormState, totalInr: number): number {
+  if (!form.Cash.enabled) return 0;
+  const fromBill = Math.round(Math.max(0, totalInr - otherPaymentModesTotal(form, "Cash")) * 100) / 100;
+  const enabledCount = APP_PAYMENT_MODES.filter((m) => form[m].enabled).length;
+  const onlyCash = enabledCount === 1;
+  if (onlyCash) return fromBill;
+  const entered = Number.parseFloat(form.Cash.amount);
+  if (Number.isFinite(entered) && entered > 0) return Math.round(entered * 100) / 100;
+  return fromBill;
+}
+
+/** Net cash retained after returning change (for bank deposit). */
+export function netCashAfterChangeInr(tenderInr: number, changeInr: number): number {
+  return Math.round(Math.max(0, tenderInr - changeInr) * 100) / 100;
+}
+
 export function advanceDetailsFromFormStrings(
   mode: AppPaymentMode,
   cashStrings: Record<keyof AdvanceCashDenominations, string>,
@@ -97,7 +183,10 @@ export type PaymentSplit = {
   mode: AppPaymentMode;
   amountInr: number;
   reference?: string;
+  /** Cash tendered by customer. */
   cash?: AdvanceCashDenominations;
+  /** Change returned to customer (denomination breakdown). */
+  changeReturned?: AdvanceCashDenominations;
 };
 
 export type MultiPaymentDetails = AdvancePaymentDetails & {
@@ -109,6 +198,7 @@ export type PaymentModeFormRow = {
   amount: string;
   reference: string;
   cashStrings: Record<keyof AdvanceCashDenominations, string>;
+  changeReturnedStrings: Record<keyof AdvanceCashDenominations, string>;
 };
 
 export type MultiPaymentFormState = Record<AppPaymentMode, PaymentModeFormRow>;
@@ -122,6 +212,7 @@ export function emptyMultiPaymentForm(defaultEnabled: AppPaymentMode = "Cash"): 
         amount: "",
         reference: "",
         cashStrings: emptyCashDenomStrings(),
+        changeReturnedStrings: emptyCashDenomStrings(),
       },
     ]),
   ) as MultiPaymentFormState;
@@ -142,13 +233,16 @@ export function paymentSplitsFromDetails(
   }
   const mode = APP_PAYMENT_MODES.find((m) => m === paymentMode);
   if (!mode) return [];
-  const amountInr =
-    mode === "Cash" && details?.cash
-      ? sumAdvanceCashDenominations(details.cash)
-      : Math.round((totalInr ?? 0) * 100) / 100;
   if (mode === "Cash" && details?.cash) {
-    return [{ mode, amountInr, cash: details.cash }];
+    const tender = sumAdvanceCashDenominations(details.cash);
+    const change = sumAdvanceCashDenominations(details.changeReturned);
+    const amountInr =
+      totalInr != null && Number.isFinite(totalInr)
+        ? Math.round(totalInr * 100) / 100
+        : Math.round((tender - change) * 100) / 100;
+    return [{ mode, amountInr, cash: details.cash, changeReturned: details.changeReturned }];
   }
+  const amountInr = Math.round((totalInr ?? 0) * 100) / 100;
   if (details?.reference?.trim()) {
     return [{ mode, amountInr, reference: details.reference.trim() }];
   }
@@ -167,6 +261,61 @@ export function sumMultiPaymentFormAmounts(form: MultiPaymentFormState): number 
 
 export function cashTotalFromFormRow(row: PaymentModeFormRow): number {
   return sumAdvanceCashDenominations(advanceDetailsFromFormStrings("Cash", row.cashStrings, "").cash);
+}
+
+export function changeTotalFromFormRow(row: PaymentModeFormRow): number {
+  return sumAdvanceCashDenominations(
+    advanceDetailsFromFormStrings("Cash", row.changeReturnedStrings, "").cash,
+  );
+}
+
+/** Change due when customer tenders more cash than the bill leg amount. */
+export function cashChangeDueInr(tenderSumInr: number, billAmountInr: number): number {
+  return Math.round(Math.max(0, tenderSumInr - billAmountInr) * 100) / 100;
+}
+
+function validateCashLeg(
+  amountInr: number,
+  cash: AdvanceCashDenominations | undefined,
+  changeReturned: AdvanceCashDenominations | undefined,
+): { ok: true } | { ok: false; error: string } {
+  const cashSum = sumAdvanceCashDenominations(cash);
+  const changeSum = sumAdvanceCashDenominations(changeReturned);
+  const net = Math.round((cashSum - changeSum) * 100) / 100;
+
+  if (cashSum > amountInr + 0.02) {
+    const due = cashChangeDueInr(cashSum, amountInr);
+    if (changeSum <= 0) {
+      return {
+        ok: false,
+        error: `Customer paid INR ${cashSum.toFixed(2)} in cash but bill cash leg is INR ${amountInr.toFixed(2)}. Record INR ${due.toFixed(2)} change returned.`,
+      };
+    }
+    if (Math.abs(changeSum - due) > 0.02) {
+      return {
+        ok: false,
+        error: `Change returned must total INR ${due.toFixed(2)} (current: INR ${changeSum.toFixed(2)}).`,
+      };
+    }
+    if (Math.abs(net - amountInr) > 0.02) {
+      return {
+        ok: false,
+        error: `Cash tender minus change must equal INR ${amountInr.toFixed(2)} (tender INR ${cashSum.toFixed(2)}, change INR ${changeSum.toFixed(2)}).`,
+      };
+    }
+    return { ok: true };
+  }
+
+  if (Math.abs(cashSum - amountInr) > 0.02) {
+    return {
+      ok: false,
+      error: `Cash denominations must total INR ${amountInr.toFixed(2)} (current: INR ${cashSum.toFixed(2)}).`,
+    };
+  }
+  if (changeSum > 0.02) {
+    return { ok: false, error: "Change return is not needed when cash tender matches the bill amount." };
+  }
+  return { ok: true };
 }
 
 export function buildMultiPaymentPayload(
@@ -191,13 +340,18 @@ export function buildMultiPaymentPayload(
 
     if (mode === "Cash") {
       const cash = advanceDetailsFromFormStrings("Cash", row.cashStrings, "").cash;
-      const cashSum = sumAdvanceCashDenominations(cash);
-      if (Math.abs(cashSum - amountInr) > 0.02) {
-        return {
-          error: `Cash denominations for ${mode} must total INR ${amountInr.toFixed(2)} (current: INR ${cashSum.toFixed(2)}).`,
-        };
+      const changeReturned = advanceDetailsFromFormStrings("Cash", row.changeReturnedStrings, "").cash;
+      const validation = validateCashLeg(amountInr, cash, changeReturned);
+      if (!validation.ok) {
+        return { error: validation.error };
       }
-      splits.push({ mode, amountInr, cash: cash ?? undefined });
+      const changeSum = sumAdvanceCashDenominations(changeReturned);
+      splits.push({
+        mode,
+        amountInr,
+        cash: cash ?? undefined,
+        changeReturned: changeSum > 0 ? changeReturned : undefined,
+      });
     } else {
       const ref = row.reference.trim();
       if (ref.length > 500) {
@@ -218,7 +372,13 @@ export function buildMultiPaymentPayload(
   if (enabled.length === 1) {
     const only = splits[0]!;
     if (only.mode === "Cash") {
-      return { paymentMode: only.mode, paymentDetails: { cash: only.cash } };
+      return {
+        paymentMode: only.mode,
+        paymentDetails: {
+          cash: only.cash,
+          ...(only.changeReturned ? { changeReturned: only.changeReturned } : {}),
+        },
+      };
     }
     return {
       paymentMode: only.mode,
@@ -269,14 +429,18 @@ export function normalizePaymentForTotal(
       sum += amountInr;
       if (mode === "Cash") {
         const cash = (row as PaymentSplit).cash;
-        const cashSum = sumAdvanceCashDenominations(cash);
-        if (Math.abs(cashSum - amountInr) > 0.02) {
-          return {
-            ok: false,
-            error: `Cash denominations must total INR ${amountInr.toFixed(2)} for the Cash leg.`,
-          };
+        const changeReturned = (row as PaymentSplit).changeReturned;
+        const validation = validateCashLeg(amountInr, cash, changeReturned);
+        if (!validation.ok) {
+          return { ok: false, error: validation.error };
         }
-        splits.push({ mode, amountInr, cash: cash ?? undefined });
+        const changeSum = sumAdvanceCashDenominations(changeReturned);
+        splits.push({
+          mode,
+          amountInr,
+          cash: cash ?? undefined,
+          changeReturned: changeSum > 0 ? changeReturned : undefined,
+        });
       } else {
         const ref = String((row as PaymentSplit).reference ?? "").trim();
         if (ref.length > 500) {
@@ -312,16 +476,16 @@ export function normalizePaymentForTotal(
   const mode = paymentMode as AppPaymentMode;
 
   if (mode === "Cash") {
-    const cashSum = sumAdvanceCashDenominations(pd.cash);
-    if (Math.abs(cashSum - target) > 0.02) {
-      return {
-        ok: false,
-        error: `Cash denominations must total INR ${target.toFixed(2)} (current: INR ${cashSum.toFixed(2)}).`,
-      };
+    const validation = validateCashLeg(target, pd.cash, pd.changeReturned);
+    if (!validation.ok) {
+      return { ok: false, error: validation.error };
     }
+    const details: MultiPaymentDetails = {};
+    if (pd.cash) details.cash = pd.cash;
+    if (pd.changeReturned) details.changeReturned = pd.changeReturned;
     return {
       ok: true,
-      value: { paymentMode: mode, paymentDetails: pd.cash ? { cash: pd.cash } : {} },
+      value: { paymentMode: mode, paymentDetails: details },
     };
   }
   const ref = String(pd.reference ?? "").trim();
@@ -336,9 +500,25 @@ export function normalizePaymentForTotal(
 
 function legacyDetailsFromSplit(split: PaymentSplit): MultiPaymentDetails {
   if (split.mode === "Cash") {
-    return split.cash ? { cash: split.cash } : {};
+    const details: MultiPaymentDetails = {};
+    if (split.cash) details.cash = split.cash;
+    if (split.changeReturned) details.changeReturned = split.changeReturned;
+    return details;
   }
   return split.reference ? { reference: split.reference } : {};
+}
+
+function formatCashPaymentLine(amountInr: number, cash?: AdvanceCashDenominations, changeReturned?: AdvanceCashDenominations): string {
+  const base = `Cash: ₹${amountInr.toFixed(2)}`;
+  const tender = sumAdvanceCashDenominations(cash);
+  const change = sumAdvanceCashDenominations(changeReturned);
+  if (change > 0) {
+    return `${base} (tendered ₹${tender.toFixed(2)}, change ₹${change.toFixed(2)})`;
+  }
+  if (tender > 0 && Math.abs(tender - amountInr) > 0.02) {
+    return `${base} (tendered ₹${tender.toFixed(2)})`;
+  }
+  return base;
 }
 
 export function validateMultiPaymentForm(
@@ -358,14 +538,21 @@ export function formatPaymentSummary(
   if (Array.isArray(splits) && splits.length > 0) {
     return splits
       .map((s) => {
+        if (s.mode === "Cash") return formatCashPaymentLine(s.amountInr, s.cash, s.changeReturned);
         const base = `${s.mode}: ₹${s.amountInr.toFixed(2)}`;
-        if (s.mode === "Cash") return base;
         return s.reference?.trim() ? `${base} (${s.reference.trim()})` : base;
       })
       .join(" · ");
   }
   if (paymentMode === "Cash" && details?.cash) {
-    return `Cash: ₹${sumAdvanceCashDenominations(details.cash).toFixed(2)}`;
+    const amount =
+      details.changeReturned != null
+        ? Math.round(
+            (sumAdvanceCashDenominations(details.cash) - sumAdvanceCashDenominations(details.changeReturned)) *
+              100,
+          ) / 100
+        : sumAdvanceCashDenominations(details.cash);
+    return formatCashPaymentLine(amount, details.cash, details.changeReturned);
   }
   const ref = details?.reference?.trim();
   return ref ? `${paymentMode} — ${ref}` : paymentMode;

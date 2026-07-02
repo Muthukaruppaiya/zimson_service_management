@@ -77,6 +77,9 @@ export type ServiceInvoiceViewModel = {
   totalSgst?: number;
   totalIgst?: number;
   totalTax?: number;
+  /** Round-off to whole rupees (e.g. -0.01). */
+  roundOffInr?: number;
+  preRoundOffPayable?: number;
   netPayable?: number;
   totalQty?: number;
   advanceAmount?: number;

@@ -12,6 +12,8 @@ export type EdocSettings = {
   ewayAutoEnabled: boolean;
   username: string;
   hasPassword: boolean;
+  ewayUsername: string;
+  hasEwayPassword: boolean;
   configured: boolean;
   configuredFromDatabase: boolean;
   envFallbackActive: boolean;

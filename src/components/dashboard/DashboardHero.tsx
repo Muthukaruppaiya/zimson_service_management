@@ -20,7 +20,7 @@ function scopeLabel(user: SessionUser | null): string {
 function WatchHeroWatermark() {
   return (
     <svg
-      className="dashboard-hero-watermark pointer-events-none absolute right-[-70px] top-1/2 -translate-y-1/2 text-white/[0.2]"
+      className="dashboard-hero-watermark pointer-events-none absolute right-[-36px] top-1/2 -translate-y-1/2 text-white/[0.18]"
       viewBox="0 0 460 220"
       fill="none"
       aria-hidden

@@ -11,6 +11,14 @@ function fmt(n: number): string {
   return n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtSigned(n: number): string {
+  const abs = Math.abs(n);
+  const body = abs.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n < 0) return `-${body}`;
+  if (n > 0) return `+${body}`;
+  return body;
+}
+
 /** Strip leading "1." / "1)" so <ol> does not show "1. 1." */
 function normalizeTermLine(text: string): string {
   return text.replace(/^\s*\d+[\).\]:-]+\s*/, "").trim();
@@ -19,6 +27,7 @@ function normalizeTermLine(text: string): string {
 export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
   const rootId = `${idPrefix}-service-invoice-print-root`;
   const pb = data.productBlock;
+  const isQuickBill = data.invoiceType === "Quick Bill";
 
   const FALLBACK_LOGO = "/zimson-logo.png";
   const logoSrc = data.sellerLogoUrl || FALLBACK_LOGO;
@@ -29,7 +38,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
   return (
     <div
       id={rootId}
-      className="service-invoice-print-root inv-doc"
+      className={`service-invoice-print-root inv-doc${isQuickBill ? " inv-quick-bill" : ""}`}
       data-expect-einvoice-qr={data.irn || data.einvoiceQr ? "1" : undefined}
     >
       <div className="inv-sheet inv-page-main">
@@ -348,6 +357,14 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
                     <td className="inv-total-label">Tax Amount</td>
                     <td className="inv-total-value">₹ {fmt(data.totalTax ?? 0)}</td>
                   </tr>
+                  {(data.roundOffInr ?? 0) !== 0 ? (
+                    <tr>
+                      <td className="inv-total-label">Round off</td>
+                      <td className="inv-total-value">
+                        ₹ {fmtSigned(data.roundOffInr ?? 0)}
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
               <table className="inv-net-box">

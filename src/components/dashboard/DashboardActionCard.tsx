@@ -46,7 +46,7 @@ export function DashboardActionCard({ item }: Props) {
             className={`cs-status-blinker ${item.urgent ? "cs-status-blinker-urgent" : "cs-status-blinker-action"}`}
             aria-hidden
           />
-          {item.urgent ? "Urgent" : "Action"}
+          {item.urgent ? "Pending" : "Action"}
         </span>
       ) : null}
 

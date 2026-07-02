@@ -128,7 +128,7 @@ export function TopBar() {
             onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = DEFAULT_APP_LOGO_URL; }}
             className="h-8 w-auto max-w-[120px] object-contain md:h-7 md:max-w-[100px]"
           />
-          <span className="hidden text-[11px] font-medium text-[#9CA3AF] lg:inline">| Service Portal</span>
+          <span className="hidden text-[13px] font-medium text-[#9CA3AF] lg:inline">| Service Portal</span>
         </div>
 
         <div className="hidden min-w-0 flex-1 md:block md:max-w-2xl md:px-2 lg:px-6">
@@ -175,7 +175,7 @@ export function TopBar() {
                     <button
                       type="button"
                       onClick={() => void markAllRead()}
-                      className="text-[11px] font-semibold text-rlx-gold transition hover:text-white"
+                      className="text-[13px] font-semibold text-rlx-gold transition hover:text-white"
                     >
                       Mark all read
                     </button>
@@ -191,7 +191,7 @@ export function TopBar() {
                         >
                           <p className="text-xs font-semibold text-rlx-ink">{n.title}</p>
                           <p className="mt-0.5 text-xs text-rlx-ink-muted">{n.message}</p>
-                          <p className="mt-1 text-[10px] text-rlx-ink-muted/70">{new Date(n.createdAt).toLocaleString()}</p>
+                          <p className="mt-1 text-[12px] text-rlx-ink-muted/70">{new Date(n.createdAt).toLocaleString()}</p>
                         </div>
                       ))
                     )}
@@ -205,10 +205,10 @@ export function TopBar() {
                 <WatchAvatarIcon />
               </span>
               <div className="hidden flex-col text-right leading-tight md:flex">
-                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#111827]">
+                <span className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#111827]">
                   {roleLabel(user.role)}
                 </span>
-                <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-[#9CA3AF]">
+                <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#9CA3AF]">
                   {user.displayName}
                 </span>
               </div>
@@ -217,7 +217,7 @@ export function TopBar() {
             <button
               type="button"
               onClick={handleLogout}
-              className="rounded border border-[#d1d5db] bg-white px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#111827] transition hover:border-[#1B3A8F] hover:text-[#1B3A8F] md:px-4"
+              className="rounded border border-[#d1d5db] bg-white px-3 py-1.5 text-[12px] font-bold uppercase tracking-[0.1em] text-[#111827] transition hover:border-[#1B3A8F] hover:text-[#1B3A8F] md:px-4"
             >
               Sign out
             </button>

@@ -178,6 +178,7 @@ export function ScLogisticsPage() {
   } | null>(null);
 
   const [ewayModalOpen, setEwayModalOpen] = useState(false);
+  const [ewayBrandJobId, setEwayBrandJobId] = useState<string | null>(null);
   const [edocEnabled, setEdocEnabled] = useState(false);
 
   useEffect(() => {
@@ -214,6 +215,7 @@ export function ScLogisticsPage() {
   const [outwardFromDate, setOutwardFromDate] = useState("");
   const [outwardToDate, setOutwardToDate] = useState("");
   const [onlineSpareRows, setOnlineSpareRows] = useState<OnlineSpareOrderRow[]>([]);
+  const [outwardModule, setOutwardModule] = useState<"online" | "brand" | "create">("online");
 
   useEffect(() => {
     const q = searchParams.get("q");
@@ -316,6 +318,29 @@ export function ScLogisticsPage() {
     () => brandOutwardQueue.filter((j) => selectedBrandOut[j.id]).map((j) => j.id),
     [brandOutwardQueue, selectedBrandOut],
   );
+  const sendToBrandHistoryRows = useMemo(() => {
+    if (!user) return [];
+    const historyStatuses: ReadonlySet<SrfJob["status"]> = new Set([
+      "brand_dispatch_pending",
+      "sent_to_brand",
+      "brand_estimate_pending",
+      "brand_estimate_customer_pending",
+      "brand_estimate_customer_accepted",
+      "brand_approved",
+      "brand_repair_in_progress",
+      "received_from_brand",
+      "brand_credit_note_pending",
+      "brand_credit_note_active",
+    ]);
+    return jobs
+      .filter((j) => jobVisibleToServiceCentre(j, user))
+      .filter((j) => historyStatuses.has(j.status) || !!j.brandDispatchRef || !!j.brandDispatchClerkAt)
+      .sort((a, b) => {
+        const bTs = new Date(b.brandDispatchClerkAt ?? b.brandSentAt ?? b.createdAt).getTime();
+        const aTs = new Date(a.brandDispatchClerkAt ?? a.brandSentAt ?? a.createdAt).getTime();
+        return bTs - aTs;
+      });
+  }, [jobs, user]);
 
   function toggleBrand(id: string) {
     setSelectedBrandOut((s) => ({ ...s, [id]: !s[id] }));
@@ -676,6 +701,12 @@ export function ScLogisticsPage() {
     setOutwardMsg({ type: edoc?.ok ? "ok" : "err", text: msg ?? "Could not generate e-way bill." });
   }
 
+  function onBrandEwaySuccess(edoc: EdocUiResult) {
+    const msg = formatEwayEdocMessage(edoc);
+    setOutwardMsg({ type: edoc?.ok ? "ok" : "err", text: msg ?? "Could not generate e-way bill." });
+    setEwayBrandJobId(null);
+  }
+
   if (user && !canPostDcInward && !canCreateOdc) {
     return (
       <div>
@@ -884,6 +915,43 @@ export function ScLogisticsPage() {
         </>
       ) : (
         <>
+          <div className="mb-4 flex flex-wrap gap-2 rounded-xl border border-rlx-rule/70 bg-white p-2">
+            <button
+              type="button"
+              onClick={() => setOutwardModule("online")}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                outwardModule === "online"
+                  ? "border-rlx-green bg-rlx-green text-white"
+                  : "border-rlx-gold bg-rlx-green-light text-rlx-green hover:bg-rlx-green-light/80"
+              }`}
+            >
+              Online spare ODC
+            </button>
+            <button
+              type="button"
+              onClick={() => setOutwardModule("brand")}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                outwardModule === "brand"
+                  ? "border-rlx-green bg-rlx-green text-white"
+                  : "border-rlx-gold bg-rlx-green-light text-rlx-green hover:bg-rlx-green-light/80"
+              }`}
+            >
+              Send to brand
+            </button>
+            <button
+              type="button"
+              onClick={() => setOutwardModule("create")}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                outwardModule === "create"
+                  ? "border-rlx-green bg-rlx-green text-white"
+                  : "border-rlx-gold bg-rlx-green-light text-rlx-green hover:bg-rlx-green-light/80"
+              }`}
+            >
+              Create internal outward
+            </button>
+          </div>
+
+          {outwardModule === "online" ? <section id="module-online-spare-odc">
           <Card
             title="Online spare ODC pending (sender HO)"
           >
@@ -927,6 +995,9 @@ export function ScLogisticsPage() {
               </div>
             )}
           </Card>
+          </section> : null}
+
+          {outwardModule === "brand" ? <section id="module-send-to-brand">
           <Card title={`Send to brand (front desk) · ${brandOutwardQueue.length}`}>
             {outwardMsg ? (
               <p
@@ -1013,6 +1084,62 @@ export function ScLogisticsPage() {
               </>
             )}
           </Card>
+          <Card title={`Send to brand history (${sendToBrandHistoryRows.length})`} className="mt-4">
+            {sendToBrandHistoryRows.length === 0 ? (
+              <p className="text-sm text-stone-600">No send-to-brand history yet.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-violet-100">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-violet-300 bg-violet-50 text-xs font-semibold uppercase tracking-wide text-violet-900">
+                    <tr>
+                      <th className="px-3 py-2">Logged at</th>
+                      <th className="px-3 py-2">SRF</th>
+                      <th className="px-3 py-2">Watch / customer</th>
+                      <th className="px-3 py-2">Dispatch ref</th>
+                      <th className="px-3 py-2">Dispatch note</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2 text-center">E-way</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sendToBrandHistoryRows.map((j) => (
+                      <tr key={`brand-h-${j.id}`} className="border-b border-violet-100 last:border-0">
+                        <td className="px-3 py-2 text-xs text-stone-600">
+                          {new Date(j.brandDispatchClerkAt ?? j.brandSentAt ?? j.createdAt).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs font-semibold text-violet-950">{j.reference}</td>
+                        <td className="px-3 py-2 text-stone-700">
+                          {j.watchBrand} {j.watchModel}
+                          <span className="mt-0.5 block text-xs text-stone-500">{j.customerName}</span>
+                        </td>
+                        <td className="px-3 py-2 text-xs font-semibold text-violet-900">
+                          {j.brandDispatchRef?.trim() || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-stone-600">
+                          {j.brandDispatchClerkNote?.trim() || j.brandDispatchNote?.trim() || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
+                          {j.status.replaceAll("_", " ")}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setEwayBrandJobId(j.id)}
+                            className="rounded-lg border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-100"
+                          >
+                            Create e-way bill
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+          </section> : null}
+
+          {outwardModule === "create" ? <section id="module-create-outward">
           <Card title="Create internal outward transfer">
             {outwardMsg ? (
               <p
@@ -1202,6 +1329,7 @@ export function ScLogisticsPage() {
               </>
             )}
           </Card>
+          </section> : null}
         </>
       )}
       {selectedJob ? (
@@ -1596,6 +1724,15 @@ export function ScLogisticsPage() {
           resourceId={outwardAck.dcId}
           onClose={() => setEwayModalOpen(false)}
           onSuccess={onOutwardEwaySuccess}
+        />
+      ) : null}
+      {ewayBrandJobId ? (
+        <EwayBillModal
+          open
+          kind="brand"
+          resourceId={ewayBrandJobId}
+          onClose={() => setEwayBrandJobId(null)}
+          onSuccess={onBrandEwaySuccess}
         />
       ) : null}
       {brandDispatchPopupOpen ? (

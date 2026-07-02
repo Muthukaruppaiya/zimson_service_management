@@ -9,6 +9,7 @@ type Props = {
   srfReference: string;
   srfId: string;
   customerEmail?: string;
+  onPrintSrf?: () => void;
 };
 
 const btnPrimary =
@@ -16,7 +17,12 @@ const btnPrimary =
 const btnSecondary =
   "inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto";
 
-export function SrfBookingSuccessOverlay({ srfReference, srfId, customerEmail = "" }: Props) {
+export function SrfBookingSuccessOverlay({
+  srfReference,
+  srfId,
+  customerEmail = "",
+  onPrintSrf,
+}: Props) {
   const [note, setNote] = useState<string | null>(null);
   const { runWhatsAppSend, whatsappSending } = useMessagingSend();
   const { runEmailSend, emailSending } = useEmailSend();
@@ -64,6 +70,16 @@ export function SrfBookingSuccessOverlay({ srfReference, srfId, customerEmail = 
       title="SRF booked successfully"
       actions={
         <>
+          {onPrintSrf ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onPrintSrf}
+              className={btnPrimary}
+            >
+              Print SRF document
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={busy}

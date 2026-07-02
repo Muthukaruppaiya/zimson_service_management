@@ -55,6 +55,7 @@ export type EdocValueTotals = {
   sgst: number;
   igst: number;
   total: number;
+  roundOff?: number;
   isInterstate: boolean;
 };
 
@@ -139,6 +140,8 @@ export type MastersIndiaEdocConfig = {
   failOpen: boolean;
   username: string;
   password: string;
+  ewayUsername: string;
+  ewayPassword: string;
   apiBase: string;
   ewayApiBase: string;
   tokenUrl: string;

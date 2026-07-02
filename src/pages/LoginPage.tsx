@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { ApiError, apiJson } from "../lib/api";
 import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
 import { AppBootLoader } from "../components/ui/AppBootLoader";
+import { LoginStorePickerModal } from "../components/auth/LoginStorePickerModal";
 
 const LOGIN_BOOT_MIN_MS = 700;
 
@@ -23,6 +24,8 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [storeId, setStoreId] = useState("");
   const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
+  const [storePickerOpen, setStorePickerOpen] = useState(false);
+  const [storePickerBusy, setStorePickerBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [alreadyLoggedIn, setAlreadyLoggedIn] = useState(false);
   const [signOutAllBusy, setSignOutAllBusy] = useState(false);
@@ -34,29 +37,50 @@ export function LoginPage() {
     return <AppBootLoader message="Checking session…" />;
   }
 
+  async function finishLogin(selectedStoreId: string | null) {
+    const result = await login(loginId, password, selectedStoreId);
+    if (result.ok) {
+      setAlreadyLoggedIn(false);
+      setStorePickerOpen(false);
+      setStoreOptions([]);
+      navigate(from === "/login" ? "/" : from, { replace: true });
+      return true;
+    }
+    if ("code" in result && result.code === "STORE_SELECTION_REQUIRED" && result.stores) {
+      setStoreOptions(result.stores);
+      setStorePickerOpen(true);
+      setError(null);
+      setAlreadyLoggedIn(false);
+      return false;
+    }
+    setStoreOptions([]);
+    setStorePickerOpen(false);
+    setError(result.message);
+    setAlreadyLoggedIn("code" in result && result.code === "ALREADY_LOGGED_IN");
+    return false;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSignOutAllNote(null);
-    const result = await login(loginId, password, storeId || null);
-    if (result.ok) {
-      setAlreadyLoggedIn(false);
-      navigate(from === "/login" ? "/" : from, { replace: true });
-    } else if ("code" in result && result.code === "STORE_SELECTION_REQUIRED" && result.stores) {
-      setStoreOptions(result.stores);
-      setStoreId("");
-      setError(result.message);
-      setAlreadyLoggedIn(false);
-    } else {
-      setStoreOptions([]);
-      setError(result.message);
-      setAlreadyLoggedIn("code" in result && result.code === "ALREADY_LOGGED_IN");
+    await finishLogin(storeId || null);
+  }
+
+  async function handleStorePickFromModal(pickedStoreId: string) {
+    setStoreId(pickedStoreId);
+    setStorePickerBusy(true);
+    setError(null);
+    try {
+      await finishLogin(pickedStoreId);
+    } finally {
+      setStorePickerBusy(false);
     }
   }
 
   async function handleSignOutAllDevices() {
     if (!loginId.trim() || !password) {
-      setSignOutAllNote("Enter your email or employee name and password first.");
+      setSignOutAllNote("Enter your username and password first.");
       return;
     }
     setSignOutAllBusy(true);
@@ -80,7 +104,7 @@ export function LoginPage() {
   }
 
   const fieldCls =
-    "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-sm text-rlx-ink placeholder-rlx-ink-muted/50 outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
+    "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-base text-rlx-ink placeholder-rlx-ink-muted/50 outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
 
   return (
     <div className="flex min-h-dvh flex-col" style={{ background: "linear-gradient(160deg, #0D1B5E 0%, #1B3A8F 50%, #102570 100%)" }}>
@@ -95,7 +119,7 @@ export function LoginPage() {
           </div>
           <div>
             <div className="mx-auto h-[1.5px] w-24" style={{ background: "linear-gradient(90deg, transparent, #C9A227, transparent)" }} />
-            <p className="mt-2 text-[9px] font-bold uppercase tracking-[0.45em]" style={{ color: "#C9A227" }}>
+            <p className="mt-2 text-[11px] font-bold uppercase tracking-[0.45em]" style={{ color: "#C9A227" }}>
               Service Management Suite
             </p>
           </div>
@@ -103,15 +127,15 @@ export function LoginPage() {
 
         <div className="w-full max-w-sm bg-white shadow-[0_32px_96px_-16px_rgba(0,0,0,0.6)]" style={{ borderTop: "3px solid #C9A227" }}>
           <div className="px-7 py-5" style={{ background: "#1B3A8F" }}>
-            <h2 className="text-sm font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
+            <h2 className="text-base font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
               Sign in
             </h2>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 px-7 py-6">
             <div>
-              <label htmlFor="login-emp" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
-                employee name
+              <label htmlFor="login-emp" className="text-[13px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
+                Username
               </label>
               <input
                 id="login-emp"
@@ -123,42 +147,18 @@ export function LoginPage() {
                   setAlreadyLoggedIn(false);
                 }}
                 className={fieldCls}
-               // placeholder="you@zimson.net or full name as in HR"
+                placeholder="e.g. jsmith"
               />
             </div>
 
-            {storeOptions.length > 0 ? (
-              <div>
-                <label htmlFor="login-store" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
-                  Select store
-                </label>
-                <select
-                  id="login-store"
-                  value={storeId}
-                  onChange={(e) => setStoreId(e.target.value)}
-                  className={fieldCls}
-                >
-                  <option value="">Choose a store…</option>
-                  {storeOptions.map((store) => (
-                    <option key={store.id} value={store.id}>
-                      {store.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1.5 text-xs text-rlx-ink-muted">
-                  Multiple store access detected. Choose one store to proceed.
-                </p>
-              </div>
-            ) : null}
-
             <div>
               <div className="flex items-end justify-between gap-2">
-                <label htmlFor="login-password" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
+                <label htmlFor="login-password" className="text-[13px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
                   Password
                 </label>
                 <Link
                   to="/login/forgot-password"
-                  className="text-[10px] font-semibold text-rlx-green hover:underline"
+                  className="text-[12px] font-semibold text-rlx-green hover:underline"
                 >
                   Forgot password?
                 </Link>
@@ -208,8 +208,7 @@ export function LoginPage() {
 
             <button
               type="submit"
-              disabled={storeOptions.length > 0 && !storeId}
-              className="mt-1 w-full py-3 text-xs font-bold uppercase tracking-[0.25em] transition disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-1 w-full py-3 text-sm font-bold uppercase tracking-[0.25em] transition disabled:cursor-not-allowed disabled:opacity-60"
               style={{ background: "linear-gradient(135deg, #A8850F, #C9A227)", color: "#003a22" }}
             >
               Sign in →
@@ -217,7 +216,7 @@ export function LoginPage() {
           </form>
 
           <div className="border-t border-rlx-rule bg-rlx-bg px-7 py-3">
-            <p className="text-[10px] text-rlx-ink-muted">
+            <p className="text-[12px] text-rlx-ink-muted">
               Having trouble?{" "}
               <Link to="/" className="font-semibold text-rlx-green hover:underline">
                 Go to home
@@ -226,6 +225,17 @@ export function LoginPage() {
           </div>
         </div>
       </div>
+
+      <LoginStorePickerModal
+        open={storePickerOpen}
+        stores={storeOptions}
+        busy={storePickerBusy}
+        onClose={() => {
+          if (storePickerBusy) return;
+          setStorePickerOpen(false);
+        }}
+        onConfirm={(id) => void handleStorePickFromModal(id)}
+      />
     </div>
   );
 }

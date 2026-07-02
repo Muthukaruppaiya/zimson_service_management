@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @import "./styles/service-invoice.css";
 
+/* Use a reliable ₹ glyph source globally without changing regular text font. */
+@font-face {
+  font-family: "RupeeFix";
+  src: local("Segoe UI Symbol"), local("Noto Sans"), local("Arial Unicode MS"), local("DejaVu Sans");
+  unicode-range: U+20B9;
+}
+
 @theme {
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   /** Luxury / editorial headlines (quick bill history & similar surfaces) */
@@ -48,8 +55,9 @@
   body {
     background-color: var(--color-rlx-bg);
     color: var(--color-rlx-ink);
-    font-size: 0.75rem;
-    line-height: 1.4;
+    font-size: 1rem;
+    line-height: 1.5;
+    font-family: "RupeeFix", var(--font-sans);
     @apply font-sans antialiased;
   }
 
@@ -88,10 +96,10 @@
   ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); }
 }
 
-/* App shell — compact density (matches Quick bill history) */
+/* App shell — readable density (+2 steps vs prior compact scale) */
 .app-shell {
-  font-size: 0.75rem;
-  line-height: 1.4;
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
 .app-main-content {
@@ -101,55 +109,55 @@
   line-height: inherit;
 }
 
-/* Normalize Tailwind text steps inside the app */
+/* Normalize Tailwind text steps inside the app (+2 sizes) */
 .app-shell .text-xs {
-  font-size: 0.6875rem !important;
+  font-size: 0.9375rem !important;
 }
 
 .app-shell .text-sm {
-  font-size: 0.75rem !important;
-}
-
-.app-shell .text-base {
-  font-size: 0.8125rem !important;
-}
-
-.app-shell .text-lg {
-  font-size: 0.875rem !important;
-}
-
-.app-shell .text-xl {
   font-size: 1rem !important;
 }
 
-.app-shell .text-2xl {
+.app-shell .text-base {
+  font-size: 1.0625rem !important;
+}
+
+.app-shell .text-lg {
   font-size: 1.125rem !important;
-  line-height: 1.3 !important;
+}
+
+.app-shell .text-xl {
+  font-size: 1.25rem !important;
+}
+
+.app-shell .text-2xl {
+  font-size: 1.375rem !important;
+  line-height: 1.35 !important;
 }
 
 .app-shell .text-3xl {
-  font-size: 1.25rem !important;
-  line-height: 1.25 !important;
+  font-size: 1.5rem !important;
+  line-height: 1.3 !important;
 }
 
 /* Form controls on entry pages (Quick bill, SRF, customers, inventory, settings) */
 .app-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="color"]),
 .app-shell select,
 .app-shell textarea {
-  font-size: 0.75rem !important;
-  line-height: 1.35 !important;
-  padding: 0.375rem 0.5rem !important;
+  font-size: 1rem !important;
+  line-height: 1.45 !important;
+  padding: 0.5rem 0.625rem !important;
 }
 
 .app-shell label {
-  font-size: 0.6875rem;
-  line-height: 1.3;
+  font-size: 0.9375rem;
+  line-height: 1.4;
 }
 
 /* Compact buttons unless explicitly opted out */
 .app-shell button:not(.no-ui-compact),
 .app-shell a.rounded-xl:not(.no-ui-compact) {
-  font-size: 0.75rem;
+  font-size: 1rem;
 }
 
 .app-shell .ui-field {
@@ -157,41 +165,46 @@
 }
 
 .app-main-content .ui-table-dense {
-  font-size: 0.6875rem;
+  font-size: 0.9375rem;
 }
 
 .app-main-content .ui-table-dense th {
-  padding: 0.375rem 0.5rem;
-  font-size: 0.6875rem;
+  padding: 0.5rem 0.625rem;
+  font-size: 0.9375rem;
   font-weight: 700;
 }
 
 .ui-page-bleed table thead th,
 .app-main-content table thead th {
-  font-size: 0.6875rem !important;
+  font-size: 0.9375rem !important;
   font-weight: 700 !important;
 }
 
 .app-main-content .ui-table-dense td {
-  padding: 0.3125rem 0.5rem;
+  padding: 0.4375rem 0.625rem;
+  font-size: 0.9375rem;
 }
 
-/* Legacy Card + table pages — compact until migrated to ListPageShell */
+.app-main-content table tbody td {
+  font-size: 0.9375rem;
+}
+
+/* Legacy Card + table pages — readable until migrated to ListPageShell */
 .app-shell section.border.border-rlx-rule table {
-  font-size: 0.6875rem;
+  font-size: 0.9375rem;
 }
 
 .app-shell section.border.border-rlx-rule table th,
 .app-shell section.border.border-rlx-rule table td {
-  padding: 0.3125rem 0.5rem;
+  padding: 0.4375rem 0.625rem;
 }
 
 .app-shell section.border.border-rlx-rule table thead tr:first-child th {
   background: var(--color-rlx-green);
   color: #fff;
-  font-size: 0.6875rem;
+  font-size: 0.9375rem;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -268,10 +281,10 @@
 .ui-field-label {
   display: block;
   margin-bottom: 0.25rem;
-  font-size: 0.6875rem;
+  font-size: 0.9375rem;
   font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: 0.1em;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-rlx-ink-muted);
 }
@@ -281,9 +294,9 @@
   min-width: 0;
   border: 1px solid var(--color-rlx-rule);
   background: #ffffff;
-  padding: 0.375rem 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1.35;
+  padding: 0.5rem 0.625rem;
+  font-size: 1rem;
+  line-height: 1.45;
   color: var(--color-rlx-ink);
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -300,11 +313,11 @@
 
 .ui-btn-secondary {
   width: 100%;
-  min-height: 2.125rem;
+  min-height: 2.375rem;
   border: 1px solid var(--color-rlx-rule);
   background: #ffffff;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.75rem;
+  padding: 0.5625rem 0.875rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -565,37 +578,39 @@
     linear-gradient(90deg, rgba(101, 114, 132, 0.18) 0%, rgba(101, 114, 132, 0) 28%),
     linear-gradient(135deg, #1f2d40 0%, #2f3f56 55%, #2a394f 100%);
   color: #ffffff;
-  padding: 28px 32px;
+  padding: 14px 20px;
   animation: dashboard-fade-in 0.45s ease-out;
 }
 
 .dashboard-hero-watermark {
-  width: 430px;
+  width: 260px;
   height: auto;
-  opacity: 0.78;
+  opacity: 0.72;
 }
 
 .dashboard-hero-title {
   position: relative;
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 1.75rem;
+  font-size: 1.25rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  line-height: 1.2;
 }
 
 @media (min-width: 768px) {
   .dashboard-hero-title {
-    font-size: 2.25rem;
+    font-size: 1.5rem;
   }
 }
 
 .dashboard-hero-sub {
   position: relative;
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.78);
+  margin: 4px 0 0;
+  font-size: 0.9375rem;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.35;
 }
 
 /* ── Shared card base ───────────────────────────────────────────────────── */
@@ -617,7 +632,7 @@
 
 /* ── KPI status labels ──────────────────────────────────────────────────── */
 .cs-status-label {
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   padding: 2px 6px;
@@ -725,7 +740,7 @@
 .cs-kpi-label {
   margin: 0;
   padding-right: 4.5rem;
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -743,15 +758,15 @@
 
 .cs-kpi-sub {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: 0.8125rem;
   font-weight: 500;
   color: var(--cs-text-muted);
   line-height: 1.3;
 }
 
 .dashboard-kpi-illustration {
-  width: 52px;
-  height: 52px;
+  width: 62px;
+  height: 62px;
   flex-shrink: 0;
   opacity: 0.95;
 }
@@ -855,7 +870,7 @@
 }
 
 .cs-action-label {
-  font-size: 11px;
+  font-size: 0.8125rem;
   font-weight: 600;
   line-height: 1.25;
   color: var(--cs-primary-navy);

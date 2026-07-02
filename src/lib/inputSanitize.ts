@@ -21,6 +21,16 @@ export function sanitizeAlphanumericInput(value: string, maxLen?: number): strin
   return maxLen != null ? s.slice(0, maxLen) : s;
 }
 
+/** Login username: letters and digits only (no spaces or special characters). */
+export function sanitizeUsernameInput(value: string, maxLen = 32): string {
+  return sanitizeAlphanumericInput(value, maxLen);
+}
+
+export function isValidUsername(value: string): boolean {
+  const s = value.trim();
+  return s.length > 0 && s.length <= 32 && /^[a-zA-Z0-9]+$/.test(s);
+}
+
 /** Email: allow @ and common email characters. */
 export function sanitizeEmailInput(value: string, maxLen = 200): string {
   return value.replace(/[^a-zA-Z0-9@._+\-]/g, "").slice(0, maxLen);
@@ -32,12 +42,13 @@ export function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
-/** Login: work email or employee display name (letters, digits, spaces, @ . _ - + '). */
-export function sanitizeLoginIdInput(value: string, maxLen = 240): string {
-  return value
-    .replace(/[^a-zA-Z0-9@._+\-' ]/g, "")
-    .replace(/\s+/g, " ")
-    .slice(0, maxLen);
+/** Login: username (letters and digits only). Email sign-in still supported when @ is present. */
+export function sanitizeLoginIdInput(value: string, maxLen = 32): string {
+  const raw = String(value).trim();
+  if (raw.includes("@")) {
+    return sanitizeEmailInput(raw, maxLen);
+  }
+  return sanitizeUsernameInput(raw, maxLen);
 }
 
 /** Mobile / PIN: digits only. */

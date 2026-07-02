@@ -270,6 +270,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
       billSubtotal,
       taxPreview?.totalTax ?? 0,
       pricesTaxInclusive,
+      taxPreview?.grossTaxable,
     );
     const standardDue = Math.max(Math.round((invoiceTotalInr - advance) * 100) / 100, 0);
     const collectionAmount =
@@ -343,6 +344,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
     billSubtotal,
     taxPreview?.totalTax ?? 0,
     pricesTaxInclusive,
+    taxPreview?.grossTaxable,
   );
   const standardDue = Math.max(Math.round((invoiceTotalInr - advance) * 100) / 100, 0);
   const collectionAmount =

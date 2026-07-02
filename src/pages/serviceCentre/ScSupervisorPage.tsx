@@ -22,7 +22,11 @@ import {
   isInterHoSenderBrandEstimateRow,
   isInterHoSenderActionRow,
   findInterHoArchivedSenderForReceiver,
+  findInterHoReceiverForArchivedSender,
+  isInterHoSenderHoViewingReceiverJob,
+  isRepairHoUserForInterHoReceiverJob,
   isSenderHoUserForInterHoJob,
+  shouldHideReceiverBrandDeskFromSenderHo,
 } from "../../lib/srfAccess";
 import { printAssignmentSlip, printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
 import type { SrfJob } from "../../types/srfJob";
@@ -139,6 +143,64 @@ type BrandSuccessAck = {
   detail: string;
   interHoInvoiceJobId?: string;
 };
+
+function ActionSendIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
+      <path d="M4 12h13" strokeLinecap="round" />
+      <path d="M13 7l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 7h5M4 17h5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ActionMailIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
+      <rect x="3.5" y="6.5" width="17" height="11" rx="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 8l8 6 8-6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ActionOrderIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
+      <path d="M4 6h2l1.8 9h9.4l1.8-7H7.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="10" cy="18.2" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="17" cy="18.2" r="1.3" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function ActionHistoryIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
+      <path d="M4 12a8 8 0 108-8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 7v5h5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 9v4l2.5 1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ActionSearchIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
+      <circle cx="10.5" cy="10.5" r="5.5" />
+      <path d="M15 15l4.5 4.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ActionPrintIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
+      <path d="M7 8V4h10v4" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="5" y="8" width="14" height="8" rx="2" />
+      <path d="M7 16h10v4H7z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export function ScSupervisorPage() {
   const navigate = useNavigate();
@@ -332,7 +394,8 @@ export function ScSupervisorPage() {
           j.status === "received_from_brand" ||
           j.status === "brand_credit_note_pending" ||
           j.status === "inter_ho_brand_estimate_pending_sender") &&
-        jobVisibleToServiceCentre(j, user),
+        jobVisibleToServiceCentre(j, user) &&
+        !shouldHideReceiverBrandDeskFromSenderHo(j, user),
     );
   }, [jobs, user]);
   const brandDeskView = useMemo(
@@ -981,7 +1044,9 @@ export function ScSupervisorPage() {
         title: "Return without repair",
         description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
         reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
-        detail: "Awaiting watch return from brand. Mark received when the watch arrives at HO.",
+        detail: isInterHoReceiverLocal(jobs.find((j) => j.id === jobId) ?? { reference: "", transferSourceReference: null, requiresLocalConversion: false, status: "" })
+          ? "Sender HO notified. Repair HO: mark received when the watch returns from brand, then dispatch return to sender HO."
+          : "Awaiting watch return from brand. Mark received when the watch arrives at HO.",
       });
     } catch (e) {
       setFeedback((f) => ({
@@ -994,13 +1059,8 @@ export function ScSupervisorPage() {
   }
 
   async function confirmCustomerAcceptedBrandEstimateLater(jobId: string) {
-    const note = window.prompt(
-      "Optional note — customer accepted brand estimate after follow-up:",
-      "Customer accepted brand repair estimate on phone.",
-    );
-    if (note === null) return;
     try {
-      await supervisorCustomerAcceptedBrandEstimateLater(jobId, note.trim() || undefined);
+      await supervisorCustomerAcceptedBrandEstimateLater(jobId);
       setBrandSuccessAck({
         title: "Customer accepted estimate",
         description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
@@ -2176,20 +2236,28 @@ export function ScSupervisorPage() {
                       </button>
                       {customerDeclinedBrandEstimate(j) ? (
                         <>
-                          <button
-                            type="button"
-                            onClick={() => void confirmCustomerAcceptedBrandEstimateLater(j.id)}
-                            className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                          >
-                            Customer accepted estimate (later)
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openBrandReturnPopup(j.id)}
-                            className="rounded-xl border border-stone-400 bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-200"
-                          >
-                            Return from brand without repair
-                          </button>
+                          {(!isInterHoReceiverLocal(j) || (user && isRepairHoUserForInterHoReceiverJob(j, user))) ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void confirmCustomerAcceptedBrandEstimateLater(j.id)}
+                                className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                              >
+                                Customer accepted estimate (later)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openBrandReturnPopup(j.id)}
+                                className="rounded-xl border border-stone-400 bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-200"
+                              >
+                                Return from brand without repair
+                              </button>
+                            </>
+                          ) : user && isInterHoSenderHoViewingReceiverJob(j, user) ? (
+                            <p className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-800">
+                              Customer declined brand estimate — repair HO will return the watch from brand without repair. You will inward when repair HO dispatches the return DC.
+                            </p>
+                          ) : null}
                         </>
                       ) : null}
                     </>
@@ -2257,33 +2325,60 @@ export function ScSupervisorPage() {
                     <>
                       {j.brandReturnWithoutRepair ? (
                         <p className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3 py-2 text-xs text-stone-800">
-                          Awaiting return from brand <span className="font-semibold">without repair</span> — mark received when the watch arrives, then send to store.
+                          {isInterHoReceiverLocal(j) && user && isInterHoSenderHoViewingReceiverJob(j, user)
+                            ? "Repair HO is awaiting return from brand without repair. You will inward when repair HO dispatches the watch back to sender HO."
+                            : (
+                              <>
+                                Awaiting return from brand <span className="font-semibold">without repair</span>
+                                {isInterHoReceiverLocal(j)
+                                  ? " — repair HO marks received when the watch arrives, then dispatches return to sender HO."
+                                  : " — mark received when the watch arrives, then send to store."}
+                              </>
+                            )}
                         </p>
                       ) : null}
-                      <button
-                      type="button"
-                      onClick={() =>
-                        setBrandConfirmPopup({
-                          kind: "receive_from_brand",
-                          jobId: j.id,
-                          note: "Watch received from brand.",
-                        })
-                      }
-                      className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800"
-                    >
-                      Mark received from brand
-                    </button>
+                      {user && isRepairHoUserForInterHoReceiverJob(j, user) ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBrandConfirmPopup({
+                              kind: "receive_from_brand",
+                              jobId: j.id,
+                              note: "Watch received from brand.",
+                            })
+                          }
+                          className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800"
+                        >
+                          Mark received from brand
+                        </button>
+                      ) : isInterHoReceiverLocal(j) && user && isInterHoSenderHoViewingReceiverJob(j, user) ? (
+                        <p className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                          Only repair HO marks receipt from brand. Sender HO will inward after repair HO completes the return leg.
+                        </p>
+                      ) : null}
                     </>
                   ) : null}
                   {j.status === "received_from_brand" ? (
                     j.brandReturnWithoutRepair ? (
-                      <button
-                        type="button"
-                        onClick={() => void confirmBrandOutwardNoRepair(j.id)}
-                        className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                      >
-                        Send to store (no repair)
-                      </button>
+                      isInterHoReceiverLocal(j) ? (
+                        user && isRepairHoUserForInterHoReceiverJob(j, user) ? (
+                          <button
+                            type="button"
+                            onClick={() => openMoveToOdcPopup(j.id)}
+                            className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                          >
+                            Return to sender HO (no repair)
+                          </button>
+                        ) : null
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void confirmBrandOutwardNoRepair(j.id)}
+                          className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                        >
+                          Send to store (no repair)
+                        </button>
+                      )
                     ) : (
                       <button
                         type="button"
@@ -2353,6 +2448,7 @@ export function ScSupervisorPage() {
             {transferredView.map((j) => {
               const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
               const localRepair = user ? findLocalRepairSrfForRoot(mainRef, jobs, user) : undefined;
+              const receiverJob = j.status === "sent_to_other_ho" ? findInterHoReceiverForArchivedSender(j, jobs) : undefined;
               return (
               <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2392,6 +2488,22 @@ export function ScSupervisorPage() {
                     {j.interHoReestimatePhase === "customer_rejected" ? (
                       <p className="mt-2 text-xs font-semibold text-rose-800">
                         Customer rejected — negotiate and send a revised amount via tracking link.
+                      </p>
+                    ) : null}
+                    {receiverJob?.brandReturnWithoutRepair &&
+                    (receiverJob.status === "brand_repair_in_progress" || receiverJob.status === "brand_approved") ? (
+                      <p className="mt-2 text-xs font-semibold text-stone-800">
+                        Repair HO marked brand return without repair — awaiting physical return from brand. You will inward when repair HO dispatches the return DC to sender HO.
+                      </p>
+                    ) : null}
+                    {receiverJob?.brandReturnWithoutRepair && receiverJob.status === "received_from_brand" ? (
+                      <p className="mt-2 text-xs font-semibold text-stone-800">
+                        Repair HO received watch from brand — awaiting return dispatch to sender HO. Inward in Logistics when the return DC arrives.
+                      </p>
+                    ) : null}
+                    {receiverJob?.interHoReturnWithoutRepair && receiverJob.status === "ready_for_outward" ? (
+                      <p className="mt-2 text-xs font-semibold text-emerald-800">
+                        Return without repair queued at repair HO — inward the return DC in Service Centre Logistics, then dispatch to store for customer handover (no billing).
                       </p>
                     ) : null}
                   </div>
@@ -2633,9 +2745,10 @@ export function ScSupervisorPage() {
                     <button
                       type="button"
                       onClick={() => openTransferPopup(j.id)}
-                      className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
+                      className="inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 hover:bg-sky-100"
                     >
-                      Send to other HO
+                      <ActionSendIcon />
+                      Send to region
                     </button>
                   ) : null}
                   {(j.status === "assigned" ||
@@ -2647,8 +2760,9 @@ export function ScSupervisorPage() {
                     <button
                       type="button"
                       onClick={() => openSendToBrandPopup(j.id)}
-                      className="rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100"
+                      className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-semibold text-fuchsia-900 hover:bg-fuchsia-100"
                     >
+                      <ActionMailIcon />
                       Send to brand
                     </button>
                   ) : null}
@@ -2656,30 +2770,34 @@ export function ScSupervisorPage() {
                     <button
                       type="button"
                       onClick={() => openRequestSparesPopup(j.id)}
-                      className="rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-900 hover:bg-cyan-100"
+                      className="inline-flex items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-900 hover:bg-teal-100"
                     >
-                      Order spares from other HO
+                      <ActionOrderIcon />
+                      Online order
                     </button>
                   ) : null}
                   <button
                     type="button"
                     onClick={() => void toggleHistory(j.id)}
-                    className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
                   >
+                    <ActionHistoryIcon />
                     {historyByJob[j.id] ? "Hide history" : "Show history"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setTraceJobId(j.id)}
-                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                    className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-900 hover:bg-orange-100"
                   >
+                    <ActionSearchIcon />
                     View full trace
                   </button>
                   <button
                     type="button"
                     onClick={() => printEstimateDocument(j)}
-                    className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                    className="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-200"
                   >
+                    <ActionPrintIcon />
                     Print estimate
                   </button>
                 </div>
@@ -2766,10 +2884,9 @@ export function ScSupervisorPage() {
           <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Add used spares from inventory</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Select spares and quantity, then save. Repair is marked complete and the watch moves to front desk for outward.
               {repairPopupJob?.watchBrand ? (
                 <span className="block mt-1 text-xs text-stone-500">
-                  Selling prices use watch brand <strong>{repairPopupJob.watchBrand}</strong> from spare catalogue.
+                  {/* Selling prices use watch brand <strong>{repairPopupJob.watchBrand}</strong> from spare catalogue. */}
                 </span>
               ) : null}
             </p>
@@ -2885,7 +3002,6 @@ export function ScSupervisorPage() {
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Queue send to brand</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Supervisor approves sending the watch to brand. Front desk logs courier / AWB in Logistics — estimate flow starts on brand desk.
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
@@ -3178,11 +3294,10 @@ export function ScSupervisorPage() {
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Send SRF to other HO</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Choose destination HO region. SRF moves to outward queue; logistics will create DC for HO inward.
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
-                Destination HO region
+                Destination region
                 <select
                   className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                   value={transferTargetRegionId}
@@ -3224,17 +3339,16 @@ export function ScSupervisorPage() {
           <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Online spare sales order</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Raise spare requirement against this SRF (spare + qty only). Destination HO invoice price will be used after fulfill/inward.
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
-                Supplier HO region
+                Supplier region
                 <select
                   className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                   value={requestSparesTargetRegionId}
                   onChange={(e) => setRequestSparesTargetRegionId(e.target.value)}
                 >
-                  <option value="">Select supplier HO</option>
+                  <option value="">Select supplier region</option>
                   {transferRegionOptions.map((x) => (
                     <option key={x.id} value={x.id}>
                       {x.label}
@@ -3452,7 +3566,7 @@ export function ScSupervisorPage() {
             </h3>
             <p className="mt-1 text-sm text-stone-600">
               {moveToOdcInterHo
-                ? "Use this after the customer declined the re-estimate and will not proceed. Repair HO returns the watch un-repaired to sender HO. Sender HO will inward, dispatch to store, and the store hands over to the customer without billing."
+                ? "Repair HO returns the watch un-repaired to sender HO (e.g. after customer declined estimate or brand return without repair). Sender HO will inward the return DC, dispatch to store, and the store hands over to the customer without billing."
                 : "Use this only after speaking with the customer and confirming they do not want the repair. The watch will be returned to store via internal outward transfer and handed over without billing."}
             </p>
             <div className="mt-4 grid gap-3">

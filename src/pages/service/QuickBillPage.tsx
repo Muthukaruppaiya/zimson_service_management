@@ -35,6 +35,10 @@ import {
   validateMultiPaymentForm,
 } from "../../lib/paymentModes";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import {
+  QuickBillEinvoiceActions,
+  QuickBillEinvoiceStatus,
+} from "../../components/service/QuickBillEinvoicePanel";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import {
@@ -343,6 +347,7 @@ export function QuickBillPage() {
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
   const [billPostActionNote, setBillPostActionNote] = useState<string | null>(null);
   const [isSavingBill, setIsSavingBill] = useState(false);
+  const [edocRetryBusy, setEdocRetryBusy] = useState(false);
   const autoWhatsAppSentRef = useRef<string | null>(null);
 
   const [spareOptions, setSpareOptions] = useState<QuickBillSpareOption[]>([]);
@@ -1525,9 +1530,12 @@ export function QuickBillPage() {
         total,
         taxPreview?.totalTax ?? 0,
         QUICK_BILL_PRICES_TAX_INCLUSIVE,
+        taxPreview?.grossTaxable,
       ),
     [total, taxPreview],
   );
+
+  const roundOffInr = taxPreview?.roundOffInr ?? 0;
 
   const serviceHsnGstRate = labourGstPercent;
 
@@ -1673,6 +1681,50 @@ export function QuickBillPage() {
     [email, customerName, runEmailSend, invoiceVmOptions],
   );
 
+  const retrySuccessEinvoice = useCallback(async (billId: string) => {
+    setEdocRetryBusy(true);
+    setBillPostActionNote("Contacting GST e-invoice portal (IRP)…");
+    try {
+      const out = await apiJson<{ edoc: QuickBillEdocInfo }>(
+        `/api/edoc/quick-bills/${encodeURIComponent(billId)}/generate-einvoice`,
+        { method: "POST", json: {} },
+      );
+      setCompletion((prev) => {
+        if (prev?.mode !== "api") return prev;
+        const edoc = out.edoc;
+        return {
+          ...prev,
+          edoc,
+          invoice: {
+            ...prev.invoice,
+            edocIrn: edoc?.irn ?? prev.invoice.edocIrn,
+            edocAckNo: edoc?.ackNo ?? prev.invoice.edocAckNo,
+            edocQr: edoc?.qrUrl ?? prev.invoice.edocQr,
+            edocStatus: edoc?.ok
+              ? "SUCCESS"
+              : edoc?.pending
+                ? "PENDING"
+                : edoc?.skipped
+                  ? "SKIPPED"
+                  : "FAILED",
+            edocError: edoc?.error ?? edoc?.skipReason ?? prev.invoice.edocError,
+          },
+        };
+      });
+      if (out.edoc?.ok && out.edoc.irn) {
+        setBillPostActionNote(`E-invoice registered. IRN: ${out.edoc.irn}`);
+      } else if (out.edoc?.pending) {
+        setBillPostActionNote("E-invoice submitted — waiting for GST portal (IRP) response.");
+      } else {
+        setBillPostActionNote(out.edoc?.error ?? out.edoc?.skipReason ?? "E-invoice could not be registered.");
+      }
+    } catch (e) {
+      setBillPostActionNote(e instanceof ApiError ? e.message : "Could not generate e-invoice.");
+    } finally {
+      setEdocRetryBusy(false);
+    }
+  }, []);
+
   if (completion?.mode === "api") {
     const inv = completion.invoice;
     const edoc = completion.edoc;
@@ -1707,6 +1759,15 @@ export function QuickBillPage() {
               >
                 {whatsappSending ? "Sending on WhatsApp…" : "Send invoice on WhatsApp"}
               </button>
+              {inv.customerType === "B2B" ? (
+                <QuickBillEinvoiceActions
+                  edoc={edoc}
+                  storedIrn={inv.edocIrn}
+                  actionBtnClass={qbSuccessBtnSecondary}
+                  generating={edocRetryBusy}
+                  onGenerate={() => void retrySuccessEinvoice(inv.id)}
+                />
+              ) : null}
               <Link to="/service" className={`${qbSuccessBtnOutline} no-underline`}>
                 Home
               </Link>
@@ -1716,39 +1777,8 @@ export function QuickBillPage() {
             </>
           }
         >
-          {inv.customerType === "B2B" && edoc ? (
-            <div
-              className={`mt-3 rounded-lg px-3 py-2 text-xs ring-1 ${
-                edoc.ok
-                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
-                  : edoc.skipped
-                    ? "bg-stone-50 text-stone-700 ring-stone-200"
-                    : edoc.pending
-                      ? "bg-sky-50 text-sky-950 ring-sky-200"
-                      : "bg-amber-50 text-amber-950 ring-amber-200"
-              }`}
-            >
-              {edoc.ok ? (
-                <>
-                  <strong>E-invoice registered.</strong> IRN: <span className="font-mono break-all">{edoc.irn}</span>
-                  {edoc.ackNo ? <> · Ack: {edoc.ackNo}</> : null}
-                </>
-              ) : edoc.skipped ? (
-                <>
-                  <strong>E-invoice skipped:</strong> {edoc.skipReason ?? "Not applicable."}
-                </>
-              ) : edoc.pending ? (
-                <>
-                  <strong>E-invoice pending.</strong> Masters India IRP is slow or down — the app retries automatically
-                  every 90 seconds. Bill is saved; IRN will appear in history when IRP responds.
-                </>
-              ) : (
-                <>
-                  <strong>E-invoice not generated:</strong> {edoc.error ?? edoc.skipReason ?? "IRP error."} Bill is saved;
-                  you can retry from quick bill history.
-                </>
-              )}
-            </div>
+          {inv.customerType === "B2B" ? (
+            <QuickBillEinvoiceStatus edoc={edoc} storedIrn={inv.edocIrn} />
           ) : null}
           {billPostActionNote ? (
             <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
@@ -2661,8 +2691,20 @@ export function QuickBillPage() {
                       })}
                     </dd>
                   </div>
+                  {roundOffInr !== 0 ? (
+                    <div>
+                      <dt className="text-stone-500">Round off</dt>
+                      <dd className="font-semibold">
+                        {roundOffInr.toLocaleString(undefined, {
+                          style: "currency",
+                          currency: "INR",
+                          signDisplay: "exceptZero",
+                        })}
+                      </dd>
+                    </div>
+                  ) : null}
                   <div>
-                    <dt className="text-stone-500">Gross total</dt>
+                    <dt className="text-stone-500">Payable total</dt>
                     <dd className="font-semibold">
                       {payableTotal.toLocaleString(undefined, {
                         style: "currency",

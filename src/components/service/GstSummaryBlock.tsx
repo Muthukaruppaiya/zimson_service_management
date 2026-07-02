@@ -15,13 +15,26 @@ export function GstSummaryBlock({
   advanceInr: number;
   standardTotalInr: number;
 }) {
-  const payable = customerPayableInr(billSubtotalInr, taxPreview.totalTax, pricesTaxInclusive);
+  const payable = customerPayableInr(billSubtotalInr, taxPreview.totalTax, pricesTaxInclusive, taxPreview.grossTaxable);
+  const roundOffInr = taxPreview.roundOffInr ?? 0;
   const afterAdvance = Math.max(payable - advanceInr, 0);
   return (
     <div className="space-y-2.5 rounded-lg border border-stone-200 bg-stone-50/80 px-4 py-4 text-base text-stone-800">
       {!pricesTaxInclusive && taxPreview.totalTax > 0 ? (
         <p className="leading-snug">
           Subtotal (excl. GST): <strong className="text-lg text-zimson-900">{formatInr(billSubtotalInr)}</strong>
+        </p>
+      ) : null}
+      {roundOffInr !== 0 ? (
+        <p className="leading-snug text-sm text-stone-700">
+          Round off:{" "}
+          <strong>
+            {roundOffInr.toLocaleString(undefined, {
+              style: "currency",
+              currency: "INR",
+              signDisplay: "exceptZero",
+            })}
+          </strong>
         </p>
       ) : null}
       <p className="leading-snug">

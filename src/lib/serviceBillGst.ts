@@ -2,6 +2,7 @@ import { isNatureOfRepairTaxable } from "./natureOfRepair";
 import { normalizeHsnCode, formatSacForBilling, gstRateFromHsn } from "./hsnGst";
 import { isInterstateSupply, splitGstAmount } from "./gstSupply";
 import type { ServiceInvoiceTaxRow } from "../types/serviceInvoice";
+import { invoicePayableFromGstParts } from "./invoiceRoundOff";
 
 export const DEFAULT_LINE_GST_PERCENT = 18;
 
@@ -22,6 +23,10 @@ export type ServiceBillGstResult = {
   igst: number;
   totalTax: number;
   netPayable: number;
+  /** Pre round-off total (taxable + tax). */
+  preRoundOffPayable?: number;
+  /** Round-off adjustment to whole rupees (e.g. -0.01). */
+  roundOffInr?: number;
 };
 
 function round2(n: number): number {
@@ -194,6 +199,8 @@ export function computeServiceBillGst(params: {
     igst += r.igst;
   }
 
+  const payable = invoicePayableFromGstParts(grossTaxable, totalTax);
+
   return {
     isInterstate: interstate,
     lines: previewLines,
@@ -203,6 +210,8 @@ export function computeServiceBillGst(params: {
     sgst: round2(sgst),
     igst: round2(igst),
     totalTax: round2(totalTax),
-    netPayable,
+    preRoundOffPayable: payable.preRoundOffInr,
+    roundOffInr: payable.roundOffInr,
+    netPayable: payable.netPayableInr,
   };
 }

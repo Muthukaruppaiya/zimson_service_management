@@ -1,11 +1,16 @@
-/** Shared login identifier rules (email or employee display name — not employee code). */
+/** Shared login identifier rules (email or username — not employee code). */
 
 export function normalizeLoginEmail(value: string): string {
   return String(value).trim().toLowerCase();
 }
 
+export function normalizeLoginUsername(value: string): string {
+  return String(value).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** @deprecated Use normalizeLoginUsername */
 export function normalizeLoginDisplayName(value: string): string {
-  return String(value).trim().toLowerCase().replace(/\s+/g, " ");
+  return normalizeLoginUsername(value);
 }
 
 export function isLoginEmailIdentifier(value: string): boolean {
@@ -21,5 +26,5 @@ export function userMatchesLoginId(
   if (isLoginEmailIdentifier(raw)) {
     return normalizeLoginEmail(user.email) === normalizeLoginEmail(raw);
   }
-  return normalizeLoginDisplayName(user.displayName) === normalizeLoginDisplayName(raw);
+  return normalizeLoginUsername(user.displayName) === normalizeLoginUsername(raw);
 }

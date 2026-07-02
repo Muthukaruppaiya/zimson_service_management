@@ -1125,7 +1125,7 @@ export function SrfBookingV2Page() {
     }
   }
 
-  function reprintSrfAndEstimate() {
+  function printSrfOnly() {
     if (!srfRef) return;
     const advancePay = advanceTotal > 0 ? buildMultiPaymentPayload(advancePaymentForm, advanceTotal) : null;
     const resolvedAdvanceMode = advancePay && !("error" in advancePay) ? advancePay.paymentMode : null;
@@ -1189,6 +1189,11 @@ export function SrfBookingV2Page() {
         dialHands: repDialHands,
       },
     });
+  }
+
+  function reprintSrfAndEstimate() {
+    printSrfOnly();
+    if (!srfRef) return;
     printEstimateDocument(
       {
         id: finalizedSrfId ?? "",
@@ -1238,6 +1243,7 @@ export function SrfBookingV2Page() {
         srfReference={srfRef}
         srfId={finalizedSrfId}
         customerEmail={email}
+        onPrintSrf={printSrfOnly}
       />
     );
   }

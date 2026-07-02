@@ -140,7 +140,7 @@ export function buildEinvoicePayload(input: EinvoicingBuildInput): Record<string
       total_invoice_value: round2(totals.total),
       total_cess_value: 0,
       total_discount: 0,
-      round_off_amount: 0,
+      round_off_amount: round2(totals.roundOff ?? 0),
     },
   };
 }
@@ -149,13 +149,18 @@ export function buildEwayPayload(input: EwayBuildInput): Record<string, unknown>
   const consignorState = stateNameFromCode(input.consignor.stateCode);
   const consigneeState = stateNameFromCode(input.consignee.stateCode);
   const sameGstin = input.consignor.gstin === input.consignee.gstin;
+  const documentType = input.documentType ?? "Delivery Challan";
+  // NIC rejects Delivery Challan with "Supply" in some outward cases.
+  // For internal movement / brand send we should send "Others".
+  const subSupplyType =
+    /delivery\s*challan/i.test(documentType) || sameGstin ? "Others" : "Supply";
 
   return {
     userGstin: input.userGstin,
     supply_type: "outward",
-    sub_supply_type: sameGstin ? "Others" : "Supply",
+    sub_supply_type: subSupplyType,
     sub_supply_description: input.subSupplyDescription?.slice(0, 100) || "Inter-location goods movement",
-    document_type: input.documentType ?? "Delivery Challan",
+    document_type: documentType,
     document_number: input.documentNumber.slice(0, 50),
     document_date: formatDocumentDate(input.documentDate),
     gstin_of_consignor: input.consignor.gstin,

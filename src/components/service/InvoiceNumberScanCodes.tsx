@@ -20,8 +20,8 @@ export function InvoiceNumberScanCodes({ invoiceNumber, className = "" }: Props)
         src={invoiceBarcodeImageSrc(code, 200)}
         alt={`Barcode ${code}`}
         width={200}
-        height={56}
-        className="block rounded border border-stone-200 bg-white p-0.5 print:max-h-[48px] print:w-[180px]"
+        height={52}
+        className="block rounded border border-stone-200 bg-white p-0.5 print:max-h-[52px] print:w-[180px]"
         loading="eager"
         decoding="async"
       />
@@ -36,7 +36,9 @@ export function InvoiceNumberScanCodes({ invoiceNumber, className = "" }: Props)
         decoding="async"
       />
       */}
-      <p className="max-w-[200px] text-center font-mono text-[9px] text-stone-500 print:text-[7pt]">{code}</p>
+      <p className="max-w-[220px] text-center font-mono text-[11px] font-bold tracking-wide text-stone-800 print:text-[9pt]">
+        {code}
+      </p>
     </div>
   );
 }

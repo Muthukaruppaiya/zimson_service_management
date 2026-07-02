@@ -1,3 +1,4 @@
+import { documentBarcodeImageSrc } from "./invoiceScanCodes";
 import { openPrintDocument } from "./inventoryDocuments";
 import { getAppLogoUrl } from "./appBranding";
 import { ADVANCE_CASH_DENOMS, type AdvancePaymentDetails } from "./paymentModes";
@@ -34,9 +35,10 @@ function base(title: string, body: string): string {
 }
 
 function barcodeBlock(reference: string): string {
-  const q = encodeURIComponent(reference);
-  return `<div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-    <img src="https://bwipjs-api.metafloor.com/?bcid=code128&text=${q}&scale=2&includetext=true&textxalign=center" alt="BARCODE ${reference}" style="border:1px solid #111;padding:4px;background:#fff;max-width:240px"/>
+  const src = documentBarcodeImageSrc(reference, { scale: 2, height: 10 });
+  return `<div style="display:flex;flex-direction:column;align-items:flex-end;margin-bottom:8px">
+    <img src="${src}" alt="Barcode ${escHtml(reference)}" style="border:1px solid #111;padding:4px;background:#fff;max-width:260px;height:52px;object-fit:contain;display:block"/>
+    <p style="margin:5px 0 0;font-family:Consolas,'Courier New',monospace;font-size:11px;font-weight:700;letter-spacing:0.05em;color:#0d1b2a">${escHtml(reference)}</p>
   </div>`;
 }
 
@@ -234,8 +236,11 @@ function buildRepairLines(repairs?: SrfSuggestedRepairs): string[] {
 const SRF_SPARE_ROWS = 5;
 
 function srfBarcode(reference: string): string {
-  const q = encodeURIComponent(reference);
-  return `<img src="https://bwipjs-api.metafloor.com/?bcid=code128&text=${q}&scale=1.35&height=7&includetext=true&textxalign=center" alt="${escHtml(reference)}" class="srf-barcode" />`;
+  const src = documentBarcodeImageSrc(reference, { scale: 2, height: 10 });
+  return `<div class="doc-barcode-stack">
+    <img src="${src}" alt="${escHtml(reference)}" class="doc-barcode-img" />
+    <p class="doc-barcode-label">${escHtml(reference)}</p>
+  </div>`;
 }
 
 function technicianSpareRows(count = SRF_SPARE_ROWS): string {
@@ -323,7 +328,18 @@ const SRF_PRINT_CSS = `
   }
   .srf-top-cell:last-child { border-right: none; }
   .srf-barcode-wrap { text-align: center; vertical-align: middle; }
-  .srf-barcode { max-width: 100%; height: 48px; object-fit: contain; }
+  .doc-barcode-stack { text-align: center; }
+  .doc-barcode-img { max-width: 100%; height: 52px; width: auto; object-fit: contain; display: block; margin: 0 auto; }
+  .doc-barcode-label {
+    margin: 5px 0 0;
+    padding: 0;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #0d1b2a;
+    line-height: 1.2;
+  }
   .srf-logo-wrap { text-align: right; vertical-align: middle; }
   .srf-logo {
     height: 56px;
@@ -729,7 +745,6 @@ const TRANSFER_PRINT_CSS = `
   .xfer-top-cell { display: table-cell; vertical-align: top; padding: 10px 12px; border-right: 1px solid #d8dff0; width: 33.33%; }
   .xfer-top-cell:last-child { border-right: none; }
   .xfer-barcode-wrap { text-align: center; vertical-align: middle; }
-  .xfer-barcode { max-width: 100%; height: 48px; object-fit: contain; }
   .xfer-logo-wrap { text-align: right; vertical-align: middle; }
   .xfer-logo { height: 56px; max-width: 180px; object-fit: contain; display: inline-block; }
   .xfer-meta-box { border: 1px solid #1b3a8f; background: #f4f6fb; padding: 6px 8px; font-size: 9.5px; }

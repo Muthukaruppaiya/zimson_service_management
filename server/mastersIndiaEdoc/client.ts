@@ -479,7 +479,12 @@ export async function generateEwayBill(
   payload: Record<string, unknown>,
 ): Promise<EdocResult> {
   try {
-    const json = await postEdoc(cfg, cfg.ewayApiBase, cfg.ewayPath, payload);
+    const ewayCfg: MastersIndiaEdocConfig = {
+      ...cfg,
+      username: cfg.ewayUsername || cfg.username,
+      password: cfg.ewayPassword || cfg.password,
+    };
+    const json = await postEdoc(ewayCfg, cfg.ewayApiBase, cfg.ewayPath, payload);
     return parseEwayResponse(json);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "E-way request failed";
