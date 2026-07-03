@@ -1,15 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson } from "../../lib/api";
-import type { EdocSettings } from "../../types/edocSettings";
+import type { EdocGlobalSettings, RegionEdocSettings } from "../../types/edocSettings";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 placeholder:text-stone-400 focus:ring-2";
 
 const labelClass = "block text-xs font-semibold uppercase tracking-wide text-stone-600";
+
+const regionTabBtn = (active: boolean) =>
+  `rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+    active
+      ? "border-rlx-green bg-rlx-green text-white"
+      : "border-rlx-gold bg-rlx-green-light text-rlx-green hover:bg-rlx-green-light/80"
+  }`;
 
 function Toggle({
   checked,
@@ -33,56 +40,91 @@ function Toggle({
   );
 }
 
+type RegionForm = {
+  enabled: boolean;
+  username: string;
+  password: string;
+  hasPassword: boolean;
+  ewayUsername: string;
+  ewayPassword: string;
+  hasEwayPassword: boolean;
+  apiBase: string;
+  ewayApiBase: string;
+  tokenUrl: string;
+  einvoicePath: string;
+  ewayPath: string;
+  sellerGstinOverride: string;
+  ewayUserGstin: string;
+};
+
+function regionToForm(r: RegionEdocSettings): RegionForm {
+  return {
+    enabled: r.enabled,
+    username: r.username,
+    password: "",
+    hasPassword: r.hasPassword,
+    ewayUsername: r.ewayUsername || r.username,
+    ewayPassword: "",
+    hasEwayPassword: r.hasEwayPassword,
+    apiBase: r.apiBase,
+    ewayApiBase: r.ewayApiBase,
+    tokenUrl: r.tokenUrl,
+    einvoicePath: r.einvoicePath,
+    ewayPath: r.ewayPath,
+    sellerGstinOverride: r.sellerGstinOverride,
+    ewayUserGstin: r.ewayUserGstin,
+  };
+}
+
 export function EdocSettingsPage() {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingGlobal, setSavingGlobal] = useState(false);
+  const [savingRegion, setSavingRegion] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testingEway, setTestingEway] = useState(false);
   const [testingEinvoice, setTestingEinvoice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [testMsg, setTestMsg] = useState<string | null>(null);
-  const [meta, setMeta] = useState<EdocSettings | null>(null);
 
-  const [enabled, setEnabled] = useState(true);
+  const [globalMeta, setGlobalMeta] = useState<EdocGlobalSettings | null>(null);
+  const [regions, setRegions] = useState<RegionEdocSettings[]>([]);
+  const [activeRegionId, setActiveRegionId] = useState("");
+  const [regionForm, setRegionForm] = useState<RegionForm | null>(null);
+
   const [failOpen, setFailOpen] = useState(true);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [hasPassword, setHasPassword] = useState(false);
-  const [ewayUsername, setEwayUsername] = useState("");
-  const [ewayPassword, setEwayPassword] = useState("");
-  const [hasEwayPassword, setHasEwayPassword] = useState(false);
-  const [apiBase, setApiBase] = useState("https://sandb-api.mastersindia.co");
-  const [ewayApiBase, setEwayApiBase] = useState("https://sandb-api.mastersindia.co");
-  const [tokenUrl, setTokenUrl] = useState("");
-  const [einvoicePath, setEinvoicePath] = useState("/api/v1/einvoice/");
-  const [ewayPath, setEwayPath] = useState("/api/v1/ewayBillsGenerate/");
-  const [sellerGstinOverride, setSellerGstinOverride] = useState("");
-  const [ewayUserGstin, setEwayUserGstin] = useState("");
-  const [ewayNominalValueInr, setEwayNominalValueInr] = useState("1000");
   const [ewayAutoEnabled, setEwayAutoEnabled] = useState(false);
+  const [ewayNominalValueInr, setEwayNominalValueInr] = useState("1000");
 
-  const applySettings = useCallback((s: EdocSettings) => {
-    setMeta(s);
-    setEnabled(s.enabled);
-    setFailOpen(s.failOpen);
-    setUsername(s.username);
-    setHasPassword(s.hasPassword);
-    setEwayUsername(s.ewayUsername || s.username);
-    setHasEwayPassword(s.hasEwayPassword || s.hasPassword);
-    setApiBase(s.apiBase);
-    setEwayApiBase(s.ewayApiBase);
-    setTokenUrl(s.tokenUrl);
-    setEinvoicePath(s.einvoicePath);
-    setEwayPath(s.ewayPath);
-    setSellerGstinOverride(s.sellerGstinOverride);
-    setEwayUserGstin(s.ewayUserGstin);
-    setEwayNominalValueInr(String(s.ewayNominalValueInr));
-    setEwayAutoEnabled(s.ewayAutoEnabled);
+  const activeRegion = useMemo(
+    () => regions.find((r) => r.regionId === activeRegionId) ?? null,
+    [regions, activeRegionId],
+  );
+
+  const load = useCallback(async () => {
+    const data = await apiJson<{ global: EdocGlobalSettings; regions: RegionEdocSettings[] }>("/api/settings/edoc");
+    setGlobalMeta(data.global);
+    setFailOpen(data.global.failOpen);
+    setEwayAutoEnabled(data.global.ewayAutoEnabled);
+    setEwayNominalValueInr(String(data.global.ewayNominalValueInr));
+    setRegions(data.regions);
+    const first = data.regions[0];
+    if (first) {
+      setActiveRegionId((prev) => prev || first.regionId);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!activeRegionId || !regions.length) {
+      setRegionForm(null);
+      return;
+    }
+    const row = regions.find((r) => r.regionId === activeRegionId);
+    if (row) setRegionForm(regionToForm(row));
+  }, [activeRegionId, regions]);
 
   useEffect(() => {
     if (!isSuperAdmin) {
@@ -92,8 +134,7 @@ export function EdocSettingsPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const data = await apiJson<{ settings: EdocSettings }>("/api/settings/edoc");
-        if (!cancelled) applySettings(data.settings);
+        await load();
       } catch (e) {
         if (!cancelled) setError(e instanceof ApiError ? e.message : "Could not load e-doc settings.");
       } finally {
@@ -103,90 +144,102 @@ export function EdocSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [isSuperAdmin, applySettings]);
+  }, [isSuperAdmin, load]);
 
-  async function save() {
-    setSaving(true);
+  async function saveGlobal() {
+    setSavingGlobal(true);
     setError(null);
     setSavedMsg(null);
     try {
-      const data = await apiJson<{ settings: EdocSettings }>("/api/settings/edoc", {
+      const data = await apiJson<{ global: EdocGlobalSettings }>("/api/settings/edoc/global", {
         method: "PUT",
         json: {
-          enabled,
           failOpen,
-          username,
-          password: password.trim() || undefined,
-          ewayUsername: ewayUsername.trim() || undefined,
-          ewayPassword: ewayPassword.trim() || undefined,
-          apiBase,
-          ewayApiBase,
-          tokenUrl,
-          einvoicePath,
-          ewayPath,
-          sellerGstinOverride,
-          ewayUserGstin,
-          ewayNominalValueInr: Number(ewayNominalValueInr) || 1000,
           ewayAutoEnabled,
+          ewayNominalValueInr: Number(ewayNominalValueInr) || 1000,
         },
       });
-      applySettings(data.settings);
-      setPassword("");
-      setEwayPassword("");
-      setSavedMsg("E-doc settings saved.");
+      setGlobalMeta(data.global);
+      setSavedMsg("Global e-doc options saved.");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not save e-doc settings.");
+      setError(e instanceof ApiError ? e.message : "Could not save global settings.");
     } finally {
-      setSaving(false);
+      setSavingGlobal(false);
     }
   }
 
-  async function testToken() {
-    setTesting(true);
+  async function saveRegion() {
+    if (!activeRegionId || !regionForm) return;
+    setSavingRegion(true);
+    setError(null);
+    setSavedMsg(null);
+    try {
+      await apiJson(`/api/settings/edoc/regions/${encodeURIComponent(activeRegionId)}`, {
+        method: "PUT",
+        json: {
+          enabled: regionForm.enabled,
+          username: regionForm.username,
+          password: regionForm.password.trim() || undefined,
+          ewayUsername: regionForm.ewayUsername.trim() || undefined,
+          ewayPassword: regionForm.ewayPassword.trim() || undefined,
+          apiBase: regionForm.apiBase,
+          ewayApiBase: regionForm.ewayApiBase,
+          tokenUrl: regionForm.tokenUrl,
+          einvoicePath: regionForm.einvoicePath,
+          ewayPath: regionForm.ewayPath,
+          sellerGstinOverride: regionForm.sellerGstinOverride,
+          ewayUserGstin: regionForm.ewayUserGstin,
+        },
+      });
+      await load();
+      setRegionForm((f) => (f ? { ...f, password: "", ewayPassword: "" } : f));
+      setSavedMsg(`Masters India account saved for ${activeRegion?.regionName ?? "region"}.`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not save region settings.");
+    } finally {
+      setSavingRegion(false);
+    }
+  }
+
+  async function runTest(kind: "token" | "einvoice" | "eway") {
+    if (!activeRegionId) return;
+    const path =
+      kind === "token" ? "/api/edoc/test-token" : kind === "einvoice" ? "/api/edoc/test-einvoice" : "/api/edoc/test-eway";
+    const setBusy = kind === "token" ? setTesting : kind === "einvoice" ? setTestingEinvoice : setTestingEway;
+    setBusy(true);
     setTestMsg(null);
     setError(null);
     try {
-      await apiJson("/api/edoc/test-token", { method: "POST" });
-      setTestMsg("Masters India token OK — credentials are valid.");
+      await apiJson(path, { method: "POST", json: { regionId: activeRegionId } });
+      if (kind === "token") setTestMsg("Masters India token OK for selected region.");
+      else if (kind === "einvoice") setTestMsg("E-invoice IRP reachable for selected region.");
+      else setTestMsg("E-way test OK for selected region.");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Token test failed.");
+      setError(e instanceof ApiError ? e.message : "Test failed.");
     } finally {
-      setTesting(false);
+      setBusy(false);
     }
   }
 
-  async function testEway() {
-    setTestingEway(true);
-    setTestMsg(null);
-    setError(null);
-    try {
-      await apiJson("/api/edoc/test-eway", { method: "POST" });
-      setTestMsg("E-way test bill generated — NIC credentials are working.");
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "E-way test failed.");
-    } finally {
-      setTestingEway(false);
-    }
+  function applySandboxApi() {
+    if (!regionForm) return;
+    setRegionForm({
+      ...regionForm,
+      apiBase: "https://sandb-api.mastersindia.co",
+      ewayApiBase: "https://sandb-api.mastersindia.co",
+      tokenUrl: "https://sandb-api.mastersindia.co/api/v1/token-auth/",
+    });
   }
 
-  async function testEinvoice() {
-    setTestingEinvoice(true);
-    setTestMsg(null);
-    setError(null);
-    try {
-      await apiJson("/api/edoc/test-einvoice", { method: "POST" });
-      const gstin = meta?.effectiveEinvoiceGstin ?? "09AAAPG7885R002";
-      setTestMsg(`E-invoice IRP reachable — sandbox uses test GSTIN ${gstin}.`);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "E-invoice IRP check failed.");
-    } finally {
-      setTestingEinvoice(false);
-    }
+  function applyProductionApi() {
+    if (!regionForm) return;
+    setRegionForm({
+      ...regionForm,
+      apiBase: "https://router.mastersindia.co",
+      ewayApiBase: "https://router.mastersindia.co",
+      tokenUrl: "https://router.mastersindia.co/api/v1/token-auth/",
+    });
   }
-
-  const sandboxMode = meta?.sandboxMode ?? /sandb-api/i.test(apiBase);
-  const effectiveEwayGstin = meta?.effectiveEwayGstin ?? "";
-  const effectiveEinvoiceGstin = meta?.effectiveEinvoiceGstin ?? "";
 
   if (!isSuperAdmin) {
     return (
@@ -201,13 +254,17 @@ export function EdocSettingsPage() {
     <div>
       <PageHeader
         title="E-invoice & e-way (Masters India)"
-        description="GST e-invoice (IRN) for B2B quick bills and e-way for inter-location transfers. Credentials are stored in the database — not hardcoded."
+        description="Each HO region has its own GSTIN and Masters India portal account. Configure credentials separately per region."
       />
       <p className="mb-4 text-sm text-stone-600">
         <Link to="/settings/tax" className="font-semibold text-zimson-700 underline">
           Tax & billing
         </Link>{" "}
-        controls GST rates and HSN/SAC. This page connects to Masters India IRP.
+        controls GST rates.{" "}
+        <Link to="/settings/brand-eway-consignees" className="font-semibold text-zimson-700 underline">
+          Brand e-way consignees
+        </Link>{" "}
+        stores brand service centre addresses for send-to-brand e-way.
       </p>
 
       {loading ? <p className="text-sm text-stone-500">Loading…</p> : null}
@@ -216,181 +273,21 @@ export function EdocSettingsPage() {
       {testMsg ? <p className="mb-4 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900 ring-1 ring-sky-200">{testMsg}</p> : null}
 
       {!loading ? (
-        <Card className="p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-zimson-900">Masters India e-doc</h2>
-              {meta ? (
-                <p className="mt-1 text-xs text-stone-500">
-                  {meta.configured ? "Configured" : "Not configured"} ·{" "}
-                  {meta.configuredFromDatabase ? "database credentials" : "not configured — save Masters India settings below"}
-                  {meta.updatedBy ? ` · last saved by ${meta.updatedBy}` : ""}
-                </p>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={testing || testingEway || testingEinvoice || saving}
-                onClick={() => void testToken()}
-                className="rounded-xl border border-zimson-400 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50 disabled:opacity-60"
-              >
-                {testing ? "Testing…" : "Test token"}
-              </button>
-              <button
-                type="button"
-                disabled={testing || testingEway || testingEinvoice || saving}
-                onClick={() => void testEinvoice()}
-                className="rounded-xl border border-emerald-400 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-60"
-              >
-                {testingEinvoice ? "Testing…" : "Test e-invoice IRP"}
-              </button>
-              <button
-                type="button"
-                disabled={testing || testingEway || testingEinvoice || saving}
-                onClick={() => void testEway()}
-                className="rounded-xl border border-violet-400 bg-white px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-50 disabled:opacity-60"
-              >
-                {testingEway ? "Testing…" : "Test e-way"}
-              </button>
-            </div>
-          </div>
-
-          {sandboxMode ? (
-            <p className="mt-4 text-sm font-semibold text-amber-950">Sandbox</p>
-          ) : (
-            <p className="mt-4 text-sm font-semibold text-emerald-950">Production</p>
-          )}
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-50"
-              onClick={() => {
-                setApiBase("https://sandb-api.mastersindia.co");
-                setEwayApiBase("https://sandb-api.mastersindia.co");
-                setTokenUrl("https://sandb-api.mastersindia.co/api/v1/token-auth/");
-              }}
-            >
-              Use sandbox API
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-emerald-500 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-950 hover:bg-emerald-50"
-              onClick={() => {
-                setApiBase("https://router.mastersindia.co");
-                setEwayApiBase("https://router.mastersindia.co");
-                setTokenUrl("https://router.mastersindia.co/api/v1/token-auth/");
-              }}
-            >
-              Use production API
-            </button>
-          </div>
-
-          <div className="mt-4 space-y-4">
-            <Toggle checked={enabled} onChange={setEnabled} label="E-doc enabled (generate IRN for B2B quick bills)" />
-            <Toggle
-              checked={failOpen}
-              onChange={setFailOpen}
-              label="Fail open — save bill even if IRP rejects (error stored on bill)"
-            />
-            <Toggle checked={ewayAutoEnabled} onChange={setEwayAutoEnabled} label="Auto e-way on inter-GSTIN dispatch challans" />
-
-            <div className="ui-form-grid">
-              <div>
-                <span className={labelClass}>Portal username</span>
-                <input className={inputClass} value={username} onChange={(e) => setUsername(e.target.value)} />
-              </div>
-              <div>
-                <span className={labelClass}>Portal password {hasPassword ? "(saved — leave blank to keep)" : ""}</span>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  className={inputClass}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={hasPassword ? "••••••••" : "Password"}
-                />
-              </div>
-              <div>
-                <span className={labelClass}>E-way portal username (optional override)</span>
-                <input
-                  className={inputClass}
-                  value={ewayUsername}
-                  onChange={(e) => setEwayUsername(e.target.value)}
-                  placeholder={username || "Fallbacks to portal username"}
-                />
-              </div>
-              <div>
-                <span className={labelClass}>
-                  E-way portal password {hasEwayPassword ? "(saved — leave blank to keep)" : ""}
-                </span>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  className={inputClass}
-                  value={ewayPassword}
-                  onChange={(e) => setEwayPassword(e.target.value)}
-                  placeholder={hasEwayPassword ? "••••••••" : "Fallbacks to portal password"}
-                />
-              </div>
-              <div>
-                <span className={labelClass}>E-invoice API base URL</span>
-                <input className={inputClass} value={apiBase} onChange={(e) => setApiBase(e.target.value)} />
-              </div>
-              <div>
-                <span className={labelClass}>E-way API base URL</span>
-                <input className={inputClass} value={ewayApiBase} onChange={(e) => setEwayApiBase(e.target.value)} />
-              </div>
-              <div className="sm:col-span-2">
-                <span className={labelClass}>Token URL</span>
-                <input className={inputClass} value={tokenUrl} onChange={(e) => setTokenUrl(e.target.value)} placeholder="https://sandb-api.mastersindia.co/api/v1/token-auth/" />
-              </div>
-              <div>
-                <span className={labelClass}>E-invoice path</span>
-                <input className={inputClass} value={einvoicePath} onChange={(e) => setEinvoicePath(e.target.value)} />
-              </div>
-              <div>
-                <span className={labelClass}>E-way path</span>
-                <input className={inputClass} value={ewayPath} onChange={(e) => setEwayPath(e.target.value)} />
-                <p className="mt-1 text-xs text-stone-500">
-                  Must be <span className="font-mono">/api/v1/ewayBillsGenerate/</span> (Bills with an s). Wrong path
-                  returns &quot;Invalid Product&quot;.
-                </p>
-              </div>
-              <div>
-                <span className={labelClass}>Seller GSTIN override (production)</span>
-                <input
-                  className={inputClass}
-                  value={sellerGstinOverride}
-                  onChange={(e) => setSellerGstinOverride(e.target.value.toUpperCase())}
-                  placeholder="33AAACZ0566D1ZN"
-                />
-                {sandboxMode ? (
-                  <p className="mt-1 text-xs text-amber-800">
-                    Not used for sandbox e-invoice — IRP always uses{" "}
-                    <span className="font-mono">{effectiveEinvoiceGstin || "09AAAPG7885R002"}</span>. Used for production
-                    e-invoice and as e-way fallback.
-                  </p>
-                ) : null}
-              </div>
-              <div>
-                <span className={labelClass}>E-way user GSTIN</span>
-                <input
-                  className={inputClass}
-                  value={ewayUserGstin}
-                  onChange={(e) => setEwayUserGstin(e.target.value.toUpperCase())}
-                  placeholder="05AAABC0181E1ZE"
-                />
-                {sandboxMode ? (
-                  <p className="mt-1 text-xs text-amber-800">
-                    Used as e-way userGstin when region GSTIN is missing. Current effective:{" "}
-                    <span className="font-mono">{effectiveEwayGstin || "—"}</span>
-                  </p>
-                ) : null}
-              </div>
-              <div>
-                <span className={labelClass}>E-way nominal value (INR)</span>
+        <>
+          <Card title="Global options" className="mb-4 p-5">
+            <p className="mb-3 text-xs text-stone-600">
+              Shared behaviour for all regions. Credentials are configured per region below.
+              {globalMeta?.updatedBy ? ` Last saved by ${globalMeta.updatedBy}.` : ""}
+            </p>
+            <div className="space-y-4">
+              <Toggle checked={failOpen} onChange={setFailOpen} label="Fail open — save bill even if IRP rejects (error stored on bill)" />
+              <Toggle
+                checked={ewayAutoEnabled}
+                onChange={setEwayAutoEnabled}
+                label="Auto e-way on dispatch challans — intra-state & inter-state (when region account is configured)"
+              />
+              <label className={labelClass}>
+                E-way nominal value (INR)
                 <input
                   className={inputClass}
                   type="number"
@@ -398,19 +295,181 @@ export function EdocSettingsPage() {
                   value={ewayNominalValueInr}
                   onChange={(e) => setEwayNominalValueInr(e.target.value)}
                 />
-              </div>
+              </label>
+              <button
+                type="button"
+                disabled={savingGlobal}
+                onClick={() => void saveGlobal()}
+                className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700 disabled:opacity-60"
+              >
+                {savingGlobal ? "Saving…" : "Save global options"}
+              </button>
+            </div>
+          </Card>
+
+          <Card title="Per-region Masters India accounts" className="p-5">
+            <p className="mb-3 text-sm text-stone-600">
+              Select a region and enter the Masters India portal login tied to that region&apos;s GSTIN. E-invoice and e-way for bills/challans in that region use this account.
+            </p>
+
+            <div className="mb-4 flex flex-wrap gap-2">
+              {regions.map((r) => (
+                <button
+                  key={r.regionId}
+                  type="button"
+                  onClick={() => setActiveRegionId(r.regionId)}
+                  className={regionTabBtn(activeRegionId === r.regionId)}
+                >
+                  {r.regionName}
+                  {r.configured ? "" : " (not set)"}
+                </button>
+              ))}
             </div>
 
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => void save()}
-              className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700 disabled:opacity-60"
-            >
-              {saving ? "Saving…" : "Save e-doc settings"}
-            </button>
-          </div>
-        </Card>
+            {activeRegion && regionForm ? (
+              <>
+                <div className="mb-4 rounded-xl border border-zimson-200 bg-zimson-50/60 px-3 py-2.5 text-xs text-stone-700">
+                  <p>
+                    <span className="font-semibold">Region GSTIN:</span>{" "}
+                    <span className="font-mono">{activeRegion.regionGstin || "—"}</span>
+                  </p>
+                  <p className="mt-1">
+                    <span className="font-semibold">Status:</span>{" "}
+                    {activeRegion.configured ? "Configured" : "Not configured"}
+                    {activeRegion.sandboxMode ? " · Sandbox" : activeRegion.configured ? " · Production" : ""}
+                  </p>
+                  {activeRegion.configured ? (
+                    <p className="mt-1">
+                      Effective e-invoice GSTIN: <span className="font-mono">{activeRegion.effectiveEinvoiceGstin || "—"}</span>
+                      {" · "}
+                      E-way user GSTIN: <span className="font-mono">{activeRegion.effectiveEwayGstin || "—"}</span>
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={testing || testingEway || testingEinvoice}
+                    onClick={() => void runTest("token")}
+                    className="rounded-xl border border-zimson-400 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50 disabled:opacity-60"
+                  >
+                    {testing ? "Testing…" : "Test token"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={testing || testingEway || testingEinvoice}
+                    onClick={() => void runTest("einvoice")}
+                    className="rounded-xl border border-emerald-400 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-60"
+                  >
+                    {testingEinvoice ? "Testing…" : "Test e-invoice"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={testing || testingEway || testingEinvoice}
+                    onClick={() => void runTest("eway")}
+                    className="rounded-xl border border-violet-400 bg-white px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-50 disabled:opacity-60"
+                  >
+                    {testingEway ? "Testing…" : "Test e-way"}
+                  </button>
+                </div>
+
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <button type="button" className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-50" onClick={applySandboxApi}>
+                    Use sandbox API
+                  </button>
+                  <button type="button" className="rounded-lg border border-emerald-500 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-950 hover:bg-emerald-50" onClick={applyProductionApi}>
+                    Use production API
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <Toggle checked={regionForm.enabled} onChange={(v) => setRegionForm((f) => (f ? { ...f, enabled: v } : f))} label="E-doc enabled for this region" />
+
+                  <div className="ui-form-grid">
+                    <div>
+                      <span className={labelClass}>E-invoice portal username</span>
+                      <input className={inputClass} value={regionForm.username} onChange={(e) => setRegionForm((f) => (f ? { ...f, username: e.target.value } : f))} />
+                    </div>
+                    <div>
+                      <span className={labelClass}>E-invoice portal password {regionForm.hasPassword ? "(saved — leave blank to keep)" : ""}</span>
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        className={inputClass}
+                        value={regionForm.password}
+                        onChange={(e) => setRegionForm((f) => (f ? { ...f, password: e.target.value } : f))}
+                      />
+                    </div>
+                    <div>
+                      <span className={labelClass}>E-way portal username</span>
+                      <input className={inputClass} value={regionForm.ewayUsername} onChange={(e) => setRegionForm((f) => (f ? { ...f, ewayUsername: e.target.value } : f))} placeholder={regionForm.username || "Same as e-invoice username"} />
+                    </div>
+                    <div>
+                      <span className={labelClass}>E-way portal password {regionForm.hasEwayPassword ? "(saved — leave blank to keep)" : ""}</span>
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        className={inputClass}
+                        value={regionForm.ewayPassword}
+                        onChange={(e) => setRegionForm((f) => (f ? { ...f, ewayPassword: e.target.value } : f))}
+                      />
+                    </div>
+                    <div>
+                      <span className={labelClass}>E-invoice API base URL</span>
+                      <input className={inputClass} value={regionForm.apiBase} onChange={(e) => setRegionForm((f) => (f ? { ...f, apiBase: e.target.value } : f))} />
+                    </div>
+                    <div>
+                      <span className={labelClass}>E-way API base URL</span>
+                      <input className={inputClass} value={regionForm.ewayApiBase} onChange={(e) => setRegionForm((f) => (f ? { ...f, ewayApiBase: e.target.value } : f))} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <span className={labelClass}>Token URL</span>
+                      <input className={inputClass} value={regionForm.tokenUrl} onChange={(e) => setRegionForm((f) => (f ? { ...f, tokenUrl: e.target.value } : f))} />
+                    </div>
+                    <div>
+                      <span className={labelClass}>E-invoice path</span>
+                      <input className={inputClass} value={regionForm.einvoicePath} onChange={(e) => setRegionForm((f) => (f ? { ...f, einvoicePath: e.target.value } : f))} />
+                    </div>
+                    <div>
+                      <span className={labelClass}>E-way path</span>
+                      <input className={inputClass} value={regionForm.ewayPath} onChange={(e) => setRegionForm((f) => (f ? { ...f, ewayPath: e.target.value } : f))} />
+                    </div>
+                    <div>
+                      <span className={labelClass}>Seller GSTIN override (production)</span>
+                      <input
+                        className={inputClass}
+                        value={regionForm.sellerGstinOverride}
+                        onChange={(e) => setRegionForm((f) => (f ? { ...f, sellerGstinOverride: e.target.value.toUpperCase() } : f))}
+                        placeholder={activeRegion.regionGstin || "Uses region GSTIN if blank"}
+                      />
+                    </div>
+                    <div>
+                      <span className={labelClass}>E-way user GSTIN</span>
+                      <input
+                        className={inputClass}
+                        value={regionForm.ewayUserGstin}
+                        onChange={(e) => setRegionForm((f) => (f ? { ...f, ewayUserGstin: e.target.value.toUpperCase() } : f))}
+                        placeholder={activeRegion.regionGstin || "05AAABC0181E1ZE"}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={savingRegion}
+                    onClick={() => void saveRegion()}
+                    className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700 disabled:opacity-60"
+                  >
+                    {savingRegion ? "Saving…" : `Save ${activeRegion.regionName} account`}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-stone-600">No regions found.</p>
+            )}
+          </Card>
+        </>
       ) : null}
     </div>
   );

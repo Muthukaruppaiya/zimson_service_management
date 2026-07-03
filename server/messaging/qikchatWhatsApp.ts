@@ -291,12 +291,14 @@ export type SendSiteVisitApprovalWhatsAppInput = {
   srfNumber: string;
   approvalReason: string;
   trackingUrl: string;
+  /** Public HTTPS URL for template document header (required when template has a header). */
+  documentUrl?: string;
+  documentFilename?: string;
 };
 
 /**
- * Text-only template — `site_visit_approval` (customer must approve re-estimate / site visit via tracking link).
- * Body: Hi {{1}}, your service request {{2}} needs your approval for a site visit by our technician.
- * Reason: {{3}}. Please review and respond here: {{4}} Thank you for choosing Zimson.
+ * `site_visit_approval` — customer approves re-estimate / brand estimate via tracking link.
+ * When the approved Meta template includes a document header, pass `documentUrl` (SRF / estimate PDF).
  */
 export async function sendSiteVisitApprovalWhatsAppTemplate(
   input: SendSiteVisitApprovalWhatsAppInput,
@@ -316,26 +318,51 @@ export async function sendSiteVisitApprovalWhatsAppTemplate(
   const templateName = cfg.approvalTemplateName;
   const language = cfg.templateLanguage?.trim() || "en";
 
+  const components: Record<string, unknown>[] = [];
+  const documentUrlRaw = input.documentUrl?.trim();
+  if (documentUrlRaw) {
+    const documentUrl = resolvePublicHttpsDocumentUrl(documentUrlRaw);
+    await verifyPublicInvoicePdfUrl(documentUrl);
+    const filename = sanitizeFilename(input.documentFilename ?? `Zimson-Estimate-${srfNumber}`);
+    components.push({
+      type: "header",
+      parameters: [
+        {
+          type: "document",
+          document: { link: documentUrl, filename },
+        },
+      ],
+    });
+  }
+
+  components.push({
+    type: "body",
+    parameters: [
+      { type: "text", text: customerName },
+      { type: "text", text: srfNumber },
+      { type: "text", text: approvalReason },
+      { type: "text", text: trackingUrl },
+    ],
+  });
+
   const payload = {
     to_contact: to,
     type: "template",
     template: {
       name: templateName,
       language,
-      components: [
-        {
-          type: "body",
-          parameters: [
-            { type: "text", text: customerName },
-            { type: "text", text: srfNumber },
-            { type: "text", text: approvalReason },
-            { type: "text", text: trackingUrl },
-          ],
-        },
-      ],
+      components,
     },
   };
 
-  console.log("[qikchat] template", templateName, "| to=", to, "| approval srf=", srfNumber);
+  console.log(
+    "[qikchat] template",
+    templateName,
+    "| to=",
+    to,
+    "| approval srf=",
+    srfNumber,
+    documentUrlRaw ? `| doc=${resolvePublicHttpsDocumentUrl(documentUrlRaw)}` : "| body only",
+  );
   return postQikchatMessage(cfg.apiKey, payload);
 }

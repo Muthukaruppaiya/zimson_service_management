@@ -19,14 +19,103 @@ function fmtSigned(n: number): string {
   return body;
 }
 
-/** Strip leading "1." / "1)" so <ol> does not show "1. 1." */
+/** Strip leading list markers so <ol> does not show "1. 1." / "2. 2." */
 function normalizeTermLine(text: string): string {
-  return text.replace(/^\s*\d+[\).\]:-]+\s*/, "").trim();
+  return text
+    .replace(/^\s*\d+[\).\]:-]+\s*/, "")
+    .replace(/^\s*\d+\s+/, "")
+    .trim();
+}
+
+/** Two explicit columns — html2canvas/PDF cannot reliably render CSS column-count. */
+function TermsColumns({ terms }: { terms: string[] }) {
+  const lines = terms.map(normalizeTermLine).filter(Boolean);
+  if (lines.length === 0) return null;
+  const splitAt = Math.ceil(lines.length / 2);
+  const colA = lines.slice(0, splitAt);
+  const colB = lines.slice(splitAt);
+  return (
+    <div className="inv-terms-columns">
+      <ol className="inv-terms-col">
+        {colA.map((t, i) => (
+          <li key={i}>{t}</li>
+        ))}
+      </ol>
+      {colB.length > 0 ? (
+        <ol className="inv-terms-col" start={splitAt + 1}>
+          {colB.map((t, i) => (
+            <li key={i}>{t}</li>
+          ))}
+        </ol>
+      ) : (
+        <div className="inv-terms-col inv-terms-col--empty" aria-hidden />
+      )}
+    </div>
+  );
+}
+
+function buildProductInfoRows(
+  pb: ServiceInvoiceViewModel["productBlock"],
+  serviceMeta: ServiceInvoiceViewModel["serviceMeta"],
+): { label: string; value: string }[] {
+  const rows: { label: string; value: string }[] = [];
+  const seen = new Set<string>();
+  const push = (label: string, value: string) => {
+    const key = label.trim().toLowerCase();
+    if (seen.has(key)) return;
+    const v = String(value ?? "").trim();
+    if (!v) return;
+    seen.add(key);
+    rows.push({ label, value: v });
+  };
+  if (pb) {
+    push("Brand Name", pb.brandName);
+    push("Brand Model", pb.brandModel);
+    push("Brand / Model Number", pb.modelOrSerial);
+    push("Nature of Repair", pb.natureOfRepair);
+  }
+  for (const row of serviceMeta) {
+    push(row.label, row.value);
+  }
+  return rows;
+}
+
+function pairMetaRows(rows: { label: string; value: string }[]): { label: string; value: string }[][] {
+  const pairs: { label: string; value: string }[][] = [];
+  for (let i = 0; i < rows.length; i += 2) {
+    pairs.push(rows.slice(i, i + 2));
+  }
+  return pairs;
+}
+
+function ProductInfoTable({ rows }: { rows: { label: string; value: string }[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <table className="inv-field-table inv-product-table inv-bill-to-table">
+      <colgroup>
+        <col className="inv-col-label" />
+        <col className="inv-col-value" />
+        <col className="inv-col-label" />
+        <col className="inv-col-value" />
+      </colgroup>
+      <tbody>
+        {pairMetaRows(rows).map((pair, idx) => (
+          <tr key={`${pair[0]?.label ?? idx}-${pair[1]?.label ?? ""}`}>
+            <td className="inv-field-label">{pair[0]?.label ?? ""}</td>
+            <td className="inv-field-value">{pair[0]?.value ?? ""}</td>
+            <td className="inv-field-label">{pair[1]?.label ?? ""}</td>
+            <td className="inv-field-value">{pair[1]?.value ?? ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
   const rootId = `${idPrefix}-service-invoice-print-root`;
   const pb = data.productBlock;
+  const productInfoRows = buildProductInfoRows(pb, data.serviceMeta);
   const isQuickBill = data.invoiceType === "Quick Bill";
 
   const FALLBACK_LOGO = "/zimson-logo.png";
@@ -153,35 +242,39 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           <div className="inv-party-col">
             <div className="inv-section-head">Bill To (Customer)</div>
             <div className="inv-party-body">
-              <table className="inv-field-table">
+              <table className="inv-field-table inv-bill-to-table">
+                <colgroup>
+                  <col className="inv-col-bill-label" />
+                  <col className="inv-col-bill-value" />
+                </colgroup>
                 <tbody>
                   <tr>
                     <td className="inv-field-label">Customer Name</td>
-                    <td className="inv-field-value">: {data.billTo.name}</td>
+                    <td className="inv-field-value">{data.billTo.name}</td>
                   </tr>
                   <tr>
                     <td className="inv-field-label">Customer ID</td>
-                    <td className="inv-field-value mono">: {data.billTo.customerCode || "—"}</td>
+                    <td className="inv-field-value mono">{data.billTo.customerCode || "—"}</td>
                   </tr>
                   <tr>
                     <td className="inv-field-label">Mobile Number</td>
-                    <td className="inv-field-value">: {data.billTo.phone || "—"}</td>
+                    <td className="inv-field-value">{data.billTo.phone || "—"}</td>
                   </tr>
                   <tr>
                     <td className="inv-field-label">Email ID</td>
-                    <td className="inv-field-value">: {data.billTo.email || "—"}</td>
+                    <td className="inv-field-value">{data.billTo.email || "—"}</td>
                   </tr>
                   <tr>
                     <td className="inv-field-label">GSTIN Number</td>
-                    <td className="inv-field-value mono">: {data.billTo.gstin || "—"}</td>
+                    <td className="inv-field-value mono">{data.billTo.gstin || "—"}</td>
                   </tr>
                   <tr>
                     <td className="inv-field-label">Pan Number</td>
-                    <td className="inv-field-value mono">: {data.billTo.pan || "—"}</td>
+                    <td className="inv-field-value mono">{data.billTo.pan || "—"}</td>
                   </tr>
                   <tr>
                     <td className="inv-field-label">Billing Address</td>
-                    <td className="inv-field-value">: {data.billTo.address || "—"}</td>
+                    <td className="inv-field-value">{data.billTo.address || "—"}</td>
                   </tr>
                 </tbody>
               </table>
@@ -190,60 +283,10 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
         </div>
 
         {/* Product information */}
-        {pb ? (
+        {productInfoRows.length > 0 ? (
           <div className="inv-product-panel">
-            <div className="inv-section-head" style={{ margin: "0 -10px 8px", borderTop: "none" }}>
-              Product Information
-            </div>
-            <table className="inv-field-table inv-product-fields">
-              <colgroup>
-                <col className="inv-col-label" />
-                <col className="inv-col-value" />
-                <col className="inv-col-label" />
-                <col className="inv-col-value" />
-              </colgroup>
-              <tbody>
-                <tr>
-                  <td className="inv-field-label">Brand Name</td>
-                  <td className="inv-field-value">: {pb.brandName}</td>
-                  <td className="inv-field-label">Brand Model</td>
-                  <td className="inv-field-value">: {pb.brandModel}</td>
-                </tr>
-                <tr>
-                  <td className="inv-field-label">Brand / Model Number</td>
-                  <td className="inv-field-value">: {pb.modelOrSerial}</td>
-                  <td className="inv-field-label">Nature of Repair</td>
-                  <td className="inv-field-value">: {pb.natureOfRepair}</td>
-                </tr>
-              </tbody>
-            </table>
-            {data.serviceMeta.length > 0 ? (
-              <table className="inv-field-table" style={{ marginTop: 6 }}>
-                <tbody>
-                  {data.serviceMeta.map((row) => (
-                    <tr key={row.label}>
-                      <td className="inv-field-label">{row.label}</td>
-                      <td className="inv-field-value" colSpan={3}>
-                        : {row.value}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : null}
-          </div>
-        ) : data.serviceMeta.length > 0 ? (
-          <div className="inv-product-panel">
-            <table className="inv-field-table">
-              <tbody>
-                {data.serviceMeta.map((row) => (
-                  <tr key={row.label}>
-                    <td className="inv-field-label">{row.label}</td>
-                    <td className="inv-field-value">: {row.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="inv-section-head inv-product-section-head">Product Information</div>
+            <ProductInfoTable rows={productInfoRows} />
           </div>
         ) : null}
 
@@ -450,7 +493,9 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             ) : null}
           </div>
           <div className="inv-footer-right">
-            <div className="inv-sign-line">Authorised Signatory</div>
+            <div className="inv-sign-wrap">
+              <div className="inv-sign-line">Authorised Signatory</div>
+            </div>
           </div>
         </div>
 
@@ -458,27 +503,22 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           This is a computer-generated document. Signature may not be required subject to company
           policy. Subject to jurisdiction at Chennai, Tamil Nadu, E. &amp; O.E.
         </div>
-      </div>
 
-      {/* Terms — always on page 2 (print / PDF) */}
-      {data.footerTerms && data.footerTerms.length > 0 ? (
-        <div className="inv-sheet inv-page-terms">
-          <div className="inv-terms-page-head">
-            <span className="inv-terms-page-title">Terms and Conditions</span>
-            <span className="inv-terms-page-ref mono">
-              {data.invoiceNumber}
-              {data.invoiceDate ? ` · ${data.invoiceDate}` : ""}
-            </span>
+        {data.footerTerms && data.footerTerms.length > 0 ? (
+          <div className="inv-terms-block">
+            <div className="inv-terms-page-head">
+              <span className="inv-terms-page-title">Terms and Conditions</span>
+              <span className="inv-terms-page-ref mono">
+                {data.invoiceNumber}
+                {data.invoiceDate ? ` · ${data.invoiceDate}` : ""}
+              </span>
+            </div>
+            <div className="inv-terms">
+              <TermsColumns terms={data.footerTerms} />
+            </div>
           </div>
-          <div className="inv-terms">
-            <ol>
-              {data.footerTerms.map((t, i) => (
-                <li key={i}>{normalizeTermLine(t)}</li>
-              ))}
-            </ol>
-          </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

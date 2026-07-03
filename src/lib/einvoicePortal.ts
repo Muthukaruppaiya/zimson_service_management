@@ -9,3 +9,11 @@ export function resolveEinvoiceDocumentUrl(args: {
   const pdf = String(args.pdfUrl ?? "").trim();
   return /^https?:\/\//i.test(pdf) ? pdf : null;
 }
+
+/** Masters India / NIC e-way bill PDF when returned on generate. */
+export function resolveEwayDocumentUrl(args: {
+  pdfUrl?: string | null;
+}): string | null {
+  const pdf = String(args.pdfUrl ?? "").trim();
+  return /^https?:\/\//i.test(pdf) ? pdf : null;
+}

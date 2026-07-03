@@ -95,6 +95,8 @@ export type QuickBillInvoice = {
   edocIrn?: string | null;
   edocAckNo?: string | null;
   edocQr?: string | null;
+  /** IRP / Masters India e-invoice PDF URL from GST response. */
+  edocPdfUrl?: string | null;
   edocStatus?: string | null;
   edocError?: string | null;
 };

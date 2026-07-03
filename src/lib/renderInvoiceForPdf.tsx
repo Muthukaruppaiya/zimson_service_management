@@ -1,19 +1,35 @@
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { ServiceInvoiceTemplate } from "../components/service/ServiceInvoiceTemplate";
 import type { ServiceInvoiceViewModel } from "../types/serviceInvoice";
 import { captureInvoicePdfBlob } from "./captureInvoicePdf";
 
-async function waitForInvoiceLayout(root: HTMLElement): Promise<void> {
-  const expectQr = root.querySelector("[data-expect-einvoice-qr='1']") != null;
-  const deadline = Date.now() + 4000;
+const LAYOUT_POLL_MS = 80;
+const LAYOUT_DEADLINE_MS = 8000;
+
+async function waitForInvoiceLayout(root: HTMLElement): Promise<HTMLElement> {
+  const deadline = Date.now() + LAYOUT_DEADLINE_MS;
+  let printRoot: HTMLElement | null = null;
+
   while (Date.now() < deadline) {
-    const imgs = Array.from(root.querySelectorAll("img"));
-    const pending = imgs.some((img) => !img.complete);
-    const qrReady = !expectQr || root.querySelector("[data-einvoice-qr-ready='true']") != null;
-    if (!pending && qrReady) break;
-    await new Promise<void>((resolve) => setTimeout(resolve, 80));
+    const candidate = root.querySelector(".service-invoice-print-root");
+    if (candidate instanceof HTMLElement) {
+      printRoot = candidate;
+      const expectQr = printRoot.querySelector("[data-expect-einvoice-qr='1']") != null;
+      const imgs = Array.from(printRoot.querySelectorAll("img"));
+      const pending = imgs.some((img) => !img.complete);
+      const qrReady =
+        !expectQr || printRoot.querySelector("[data-einvoice-qr-ready='true']") != null;
+      if (!pending && qrReady) break;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, LAYOUT_POLL_MS));
   }
-  const imgs = Array.from(root.querySelectorAll("img"));
+
+  if (!(printRoot instanceof HTMLElement)) {
+    throw new Error("Could not render invoice for PDF.");
+  }
+
+  const imgs = Array.from(printRoot.querySelectorAll("img"));
   await Promise.all(
     imgs.map(
       (img) =>
@@ -29,6 +45,7 @@ async function waitForInvoiceLayout(root: HTMLElement): Promise<void> {
   await new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   });
+  return printRoot;
 }
 
 /** Renders the formal invoice off-screen and returns a PDF blob (table-row download). */
@@ -48,13 +65,10 @@ export async function captureInvoicePdfFromViewModel(
 
   const root = createRoot(host);
   try {
-    root.render(<ServiceInvoiceTemplate data={data} idPrefix={idPrefix} />);
-    await waitForInvoiceLayout(host);
-
-    const printRoot = host.querySelector(".service-invoice-print-root");
-    if (!(printRoot instanceof HTMLElement)) {
-      throw new Error("Could not render invoice for PDF.");
-    }
+    flushSync(() => {
+      root.render(<ServiceInvoiceTemplate data={data} idPrefix={idPrefix} />);
+    });
+    const printRoot = await waitForInvoiceLayout(host);
     return await captureInvoicePdfBlob(printRoot);
   } finally {
     root.unmount();

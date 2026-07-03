@@ -8,6 +8,7 @@ export {
   tryGenerateEinvoiceForQuickBill,
   tryGenerateEinvoiceForInterHoInvoice,
   tryGenerateEinvoiceForSrfClose,
+  resolveQuickBillEinvoicePdfUrl,
   tryGenerateEwayForChallan,
   tryGenerateEwayForChallanId,
   tryGenerateEwayForBrandSend,

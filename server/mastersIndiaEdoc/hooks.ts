@@ -1,4 +1,6 @@
 import type { Pool } from "pg";
+import { loadBrandEwayConsigneeOptions } from "../brandEwayConsigneeRoutes";
+import { edocAnyRegionConfigured } from "../edocSettingsStore";
 import { computeServiceBillGst } from "../../src/lib/serviceBillGst";
 import {
   resolveCustomerSupplyStateCode,
@@ -16,7 +18,7 @@ import {
   nominalEwayTotals,
   partyFromTransferBlock,
 } from "./buildPayload";
-import { generateEinvoice, generateEwayBill } from "./client";
+import { generateEinvoice, generateEwayBill, fetchIrnByDocument } from "./client";
 import {
   alignSandboxEdocEwayParties,
   alignSandboxEdocSellerParty,
@@ -25,7 +27,7 @@ import {
   resolveEdocEwayUserGstin,
   resolveEdocSellerGstin,
 } from "./config";
-import { defaultPincodeForState, gstinStateCode, edocPartyLocation, parsePincode, stateNameFromCode } from "./gstState";
+import { defaultPincodeForState, gstinStateCode, edocPartyLocation, parsePincode, stateNameFromCode, formatDocumentDate } from "./gstState";
 import { loadSpareGstById } from "../hsnGstRates";
 import {
   isServiceSacCode,
@@ -86,8 +88,14 @@ function flowLabelFromMeta(printMeta: TransferPrintMeta): string {
   return printMeta.flow.replace(/_/g, " ");
 }
 
+/** GST e-way applies to intra-state and inter-state goods movement (all transfer flows). */
 export function transferFlowNeedsEway(flow: TransferPrintMeta["flow"]): boolean {
-  return flow === "ho_to_ho_dispatch" || flow === "ho_to_ho_return";
+  return (
+    flow === "store_to_ho" ||
+    flow === "ho_to_store" ||
+    flow === "ho_to_ho_dispatch" ||
+    flow === "ho_to_ho_return"
+  );
 }
 
 async function loadStoreGstinForEdoc(
@@ -252,13 +260,59 @@ async function resolveStoreBillingEdocLines(
   });
 }
 
+/** Load GST e-invoice PDF URL — from DB or Masters India get-einvoice-bydoc (for older bills). */
+export async function resolveQuickBillEinvoicePdfUrl(
+  pool: Pool,
+  billId: string,
+): Promise<{ irn: string | null; pdfUrl: string | null }> {
+  const billRes = await pool.query<{
+    edoc_irn: string | null;
+    edoc_pdf_url: string | null;
+    invoice_number: string | null;
+    bill_number: string;
+    created_at: Date;
+    store_id: string | null;
+    region_id: string | null;
+  }>(
+    `SELECT edoc_irn, edoc_pdf_url, invoice_number, bill_number, created_at, store_id, region_id
+     FROM quick_bills WHERE id = $1::uuid`,
+    [billId],
+  );
+  const bill = billRes.rows[0];
+  if (!bill) return { irn: null, pdfUrl: null };
+
+  const irn = String(bill.edoc_irn ?? "").trim() || null;
+  const storedPdf = String(bill.edoc_pdf_url ?? "").trim();
+  if (/^https?:\/\//i.test(storedPdf)) {
+    return { irn, pdfUrl: storedPdf };
+  }
+  if (!irn) return { irn: null, pdfUrl: null };
+
+  const cfg = getMastersIndiaEdocConfig(bill.region_id);
+  if (!cfg?.enabled) return { irn, pdfUrl: null };
+
+  const taxRow = await loadTaxSettings(pool);
+  let storeGstin = await loadStoreGstinForEdoc(pool, bill.store_id, bill.region_id);
+  if (!storeGstin) storeGstin = String(taxRow?.invoice_store_gstin ?? "").trim();
+  const sellerGstin = resolveEdocSellerGstin(storeGstin, taxRow?.invoice_store_gstin, cfg);
+  if (!sellerGstin) return { irn, pdfUrl: null };
+
+  const docNo = String(bill.invoice_number ?? bill.bill_number).trim();
+  if (!docNo) return { irn, pdfUrl: null };
+  const docDate = formatDocumentDate(new Date(bill.created_at));
+
+  const fromIrp = await fetchIrnByDocument(cfg, sellerGstin, docNo, docDate);
+  const pdfUrl = String(fromIrp?.pdfUrl ?? "").trim() || null;
+  if (pdfUrl) {
+    await pool.query(`UPDATE quick_bills SET edoc_pdf_url = $2 WHERE id = $1::uuid`, [billId, pdfUrl]);
+  }
+  return { irn, pdfUrl };
+}
+
 export async function tryGenerateEinvoiceForQuickBill(
   pool: Pool,
   billId: string,
 ): Promise<EdocResult> {
-  const cfg = getMastersIndiaEdocConfig();
-  if (!cfg?.enabled) return skip("E-doc not configured");
-
   const billRes = await pool.query<{
     customer_type: string;
     gst: string | null;
@@ -286,7 +340,18 @@ export async function tryGenerateEinvoiceForQuickBill(
   );
   const bill = billRes.rows[0];
   if (!bill) return skip("Quick bill not found");
-  if (bill.edoc_irn) return { ok: true, irn: bill.edoc_irn, skipped: true, skipReason: "IRN already exists" };
+  const cfg = getMastersIndiaEdocConfig(bill.region_id);
+  if (!cfg?.enabled) return skip("E-doc not configured");
+  if (bill.edoc_irn) {
+    const pdf = await resolveQuickBillEinvoicePdfUrl(pool, billId);
+    return {
+      ok: true,
+      irn: bill.edoc_irn,
+      skipped: true,
+      skipReason: "IRN already exists",
+      pdfUrl: pdf.pdfUrl,
+    };
+  }
   if (bill.customer_type !== "B2B") {
     const r = skip("E-invoice applies to B2B only");
     await saveQuickBillEdoc(pool, billId, r);
@@ -442,9 +507,6 @@ export async function tryGenerateEinvoiceForSrfClose(
   pool: Pool,
   srfId: string,
 ): Promise<EdocResult> {
-  const cfg = getMastersIndiaEdocConfig();
-  if (!cfg?.enabled) return skip("E-doc not configured");
-
   const jobRes = await pool.query<{
     customer_kind: string;
     company: string | null;
@@ -454,18 +516,21 @@ export async function tryGenerateEinvoiceForSrfClose(
     reference: string;
     closed_at: Date | null;
     store_id: string;
+    region_id: string;
     destination_store_id: string | null;
     store_billing_snapshot: unknown;
     nature_of_repair: string | null;
     edoc_irn: string | null;
   }>(
     `SELECT customer_kind, company, customer_name, phone, invoice_number, reference, closed_at,
-            store_id, destination_store_id, store_billing_snapshot, nature_of_repair, edoc_irn
+            store_id, region_id, destination_store_id, store_billing_snapshot, nature_of_repair, edoc_irn
      FROM srf_jobs WHERE id = $1::uuid`,
     [srfId],
   );
   const job = jobRes.rows[0];
   if (!job) return skip("SRF not found");
+  const cfg = getMastersIndiaEdocConfig(job.region_id);
+  if (!cfg?.enabled) return skip("E-doc not configured");
   if (job.edoc_irn) return { ok: true, irn: job.edoc_irn, skipped: true, skipReason: "IRN already exists" };
   if (job.customer_kind !== "B2B") {
     const r = skip("E-invoice applies to B2B only");
@@ -677,9 +742,6 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
   pool: Pool,
   invoiceId: string,
 ): Promise<EdocResult> {
-  const cfg = getMastersIndiaEdocConfig();
-  if (!cfg?.enabled) return skip("E-doc not configured");
-
   const invRes = await pool.query<{
     id: string;
     invoice_number: string;
@@ -703,6 +765,9 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
   );
   const inv = invRes.rows[0];
   if (!inv) return skip("Invoice not found");
+  const repairRegionId = String(inv.region_id ?? "").trim();
+  const cfg = getMastersIndiaEdocConfig(repairRegionId);
+  if (!cfg?.enabled) return skip("E-doc not configured");
   if (inv.source_type !== "inter_ho_repair") {
     const r = skip("E-invoice applies to inter-HO repair invoices only");
     await saveServiceInvoiceEdoc(pool, invoiceId, r);
@@ -712,7 +777,6 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
     return { ok: true, irn: inv.edoc_irn, skipped: true, skipReason: "IRN already exists" };
   }
 
-  const repairRegionId = String(inv.region_id ?? "").trim();
   const snap =
     inv.snapshot_json && typeof inv.snapshot_json === "object"
       ? (inv.snapshot_json as Record<string, unknown>)
@@ -861,13 +925,13 @@ export async function getEwayPrefillForChallan(pool: Pool, dcId: string): Promis
   if (!rebuilt) return null;
   const { printMeta } = rebuilt;
 
-  const cfg = getMastersIndiaEdocConfig();
-  const dcRes = await pool.query<{ dc_number: string; edoc_eway_bill_no: string | null }>(
-    `SELECT dc_number, edoc_eway_bill_no FROM delivery_challans WHERE id = $1::uuid`,
+  const dcRes = await pool.query<{ dc_number: string; edoc_eway_bill_no: string | null; region_id: string }>(
+    `SELECT dc_number, edoc_eway_bill_no, region_id FROM delivery_challans WHERE id = $1::uuid`,
     [dcId],
   );
   const dc = dcRes.rows[0];
   if (!dc) return null;
+  const cfg = getMastersIndiaEdocConfig(dc.region_id);
 
   const vehicleRes = await pool.query<{ brand_dispatch_ref: string | null }>(
     `SELECT j.brand_dispatch_ref
@@ -910,24 +974,19 @@ export async function tryGenerateEwayForChallan(
   printMeta: TransferPrintMeta,
   lineCount: number,
   input?: EwayGenerateInput,
+  manualRequest = false,
+  regionId?: string | null,
 ): Promise<EdocResult> {
-  const cfg = getMastersIndiaEdocConfig();
-  if (!cfg?.enabled) return skip("E-doc not configured");
-
-  const dcRes = await pool.query<{ dc_number: string; created_at: Date; edoc_eway_bill_no: string | null }>(
-    `SELECT dc_number, created_at, edoc_eway_bill_no FROM delivery_challans WHERE id = $1::uuid`,
+  const dcRes = await pool.query<{ dc_number: string; created_at: Date; edoc_eway_bill_no: string | null; region_id: string }>(
+    `SELECT dc_number, created_at, edoc_eway_bill_no, region_id FROM delivery_challans WHERE id = $1::uuid`,
     [dcId],
   );
   const dc = dcRes.rows[0];
   if (!dc) return skip("Challan not found");
+  const cfg = getMastersIndiaEdocConfig(regionId ?? dc.region_id);
+  if (!cfg?.enabled) return skip("E-doc not configured");
   if (dc.edoc_eway_bill_no && !input?.forceRegenerate) {
     return { ok: true, ewayBillNo: dc.edoc_eway_bill_no, skipped: true, skipReason: "E-way already exists" };
-  }
-
-  if (!transferFlowNeedsEway(printMeta.flow)) {
-    const r = skip("E-way is required only for inter-HO transfer (not store dispatch).");
-    await saveDeliveryChallanEdoc(pool, dcId, r);
-    return r;
   }
 
   let consignor = partyFromTransferBlock(printMeta.from, "");
@@ -974,11 +1033,10 @@ export async function tryGenerateEwayForChallanId(
 ): Promise<EdocResult> {
   const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
   if (!rebuilt) return skip("Challan not found or has no lines");
-  return tryGenerateEwayForChallan(pool, dcId, rebuilt.printMeta, rebuilt.lineCount, input);
+  return tryGenerateEwayForChallan(pool, dcId, rebuilt.printMeta, rebuilt.lineCount, input, true);
 }
 
 export async function getEwayPrefillForBrandSend(pool: Pool, srfId: string): Promise<EwayPrefill | null> {
-  const cfg = getMastersIndiaEdocConfig();
   const { rows } = await pool.query<{
     brand_odc_number: string | null;
     brand_dispatch_ref: string | null;
@@ -992,6 +1050,7 @@ export async function getEwayPrefillForBrandSend(pool: Pool, srfId: string): Pro
   );
   const row = rows[0];
   if (!row?.brand_odc_number) return null;
+  const cfg = getMastersIndiaEdocConfig(row.region_id);
 
   const { rows: regRows } = await pool.query<{ name: string; gst: string | null }>(
     `SELECT name, gst FROM regions WHERE id = $1::text`,
@@ -999,19 +1058,39 @@ export async function getEwayPrefillForBrandSend(pool: Pool, srfId: string): Pro
   );
   const reg = regRows[0];
   const consignorGstin = String(reg?.gst ?? "").trim().toUpperCase();
+  const brandConsignees = await loadBrandEwayConsigneeOptions(pool, row.watch_brand);
+  const defaultConsignee = brandConsignees[0] ?? null;
 
   return {
     documentNumber: row.brand_odc_number,
     flowLabel: `Send to brand (${row.watch_brand})`,
     fromLabel: reg?.name ? `HO / Service Centre: ${reg.name}` : "Service centre HO",
-    toLabel: `Brand service centre — ${row.watch_brand}`,
+    toLabel: defaultConsignee
+      ? `${defaultConsignee.brandName} — ${defaultConsignee.locationName}`
+      : `Brand service centre — ${row.watch_brand}`,
     consignorGstin,
-    consigneeGstin: "",
+    consigneeGstin: defaultConsignee?.gstin ?? "",
     vehicleNumber: String(row.brand_dispatch_ref ?? "").trim(),
     defaultValueInr: cfg?.ewayNominalValueInr ?? 1000,
-    interstate: true,
+    interstate:
+      consignorGstin && defaultConsignee?.gstin
+        ? gstinStateCode(consignorGstin) !== gstinStateCode(defaultConsignee.gstin)
+        : false,
     existingEwayBillNo: row.edoc_eway_bill_no,
     requiresConsigneeInput: true,
+    watchBrand: row.watch_brand,
+    brandConsignees: brandConsignees.map((c) => ({
+      id: c.id,
+      brandId: c.brandId,
+      brandName: c.brandName,
+      locationName: c.locationName,
+      legalName: c.legalName,
+      gstin: c.gstin,
+      address: c.address,
+      city: c.city,
+      pincode: c.pincode,
+    })),
+    defaultConsigneeId: defaultConsignee?.id ?? null,
   };
 }
 
@@ -1020,9 +1099,6 @@ export async function tryGenerateEwayForBrandSend(
   srfId: string,
   input?: EwayGenerateInput,
 ): Promise<EdocResult> {
-  const cfg = getMastersIndiaEdocConfig();
-  if (!cfg?.enabled) return skip("E-doc not configured");
-
   const { rows } = await pool.query<{
     brand_odc_number: string | null;
     brand_sent_at: Date | null;
@@ -1036,6 +1112,8 @@ export async function tryGenerateEwayForBrandSend(
   );
   const row = rows[0];
   if (!row?.brand_odc_number) return skip("Brand ODC not found — send to brand first.");
+  const cfg = getMastersIndiaEdocConfig(row.region_id);
+  if (!cfg?.enabled) return skip("E-doc not configured");
   if (row.edoc_eway_bill_no && !input?.forceRegenerate) {
     return { ok: true, ewayBillNo: row.edoc_eway_bill_no, skipped: true, skipReason: "E-way already exists" };
   }
@@ -1103,7 +1181,6 @@ async function loadRegionHoPartyForEway(client: import("pg").PoolClient, regionI
 }
 
 export async function getEwayPrefillForOnlineSpareOrder(pool: Pool, orderId: string): Promise<EwayPrefill | null> {
-  const cfg = getMastersIndiaEdocConfig();
   const { rows } = await pool.query<{
     order_number: string;
     from_region_id: string;
@@ -1120,6 +1197,7 @@ export async function getEwayPrefillForOnlineSpareOrder(pool: Pool, orderId: str
   );
   const row = rows[0];
   if (!row?.dispatched_at) return null;
+  const cfg = getMastersIndiaEdocConfig(row.to_region_id);
 
   const { rows: regions } = await pool.query<{ id: string; name: string; gst: string | null }>(
     `SELECT id, name, gst FROM regions WHERE id = ANY($1::text[])`,
@@ -1152,9 +1230,6 @@ export async function tryGenerateEwayForOnlineSpareOrder(
   orderId: string,
   input?: EwayGenerateInput,
 ): Promise<EdocResult> {
-  const cfg = getMastersIndiaEdocConfig();
-  if (!cfg?.enabled) return skip("E-doc not configured");
-
   const { rows } = await pool.query<{
     order_number: string;
     from_region_id: string;
@@ -1171,6 +1246,8 @@ export async function tryGenerateEwayForOnlineSpareOrder(
   );
   const row = rows[0];
   if (!row?.dispatched_at) return skip("Complete outward dispatch before generating e-way.");
+  const cfg = getMastersIndiaEdocConfig(row.to_region_id);
+  if (!cfg?.enabled) return skip("E-doc not configured");
   if (row.edoc_eway_bill_no && !input?.forceRegenerate) {
     return { ok: true, ewayBillNo: row.edoc_eway_bill_no, skipped: true, skipReason: "E-way already exists" };
   }
@@ -1222,9 +1299,11 @@ export async function tryGenerateEwayForOnlineSpareOrder(
   }
 }
 
-export function edocEnabled(): boolean {
-  const cfg = getMastersIndiaEdocConfig();
-  return Boolean(cfg?.enabled);
+export function edocEnabled(regionId?: string | null): boolean {
+  const cfg = getMastersIndiaEdocConfig(regionId);
+  if (cfg?.enabled) return true;
+  if (!regionId) return edocAnyRegionConfigured();
+  return false;
 }
 
 export function edocEwayAutoEnabled(): boolean {

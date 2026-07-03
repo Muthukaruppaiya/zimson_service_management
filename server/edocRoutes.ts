@@ -7,6 +7,7 @@ import {
   testEwayConnection,
   tryGenerateEinvoiceForQuickBill,
   tryGenerateEinvoiceForSrfClose,
+  resolveQuickBillEinvoicePdfUrl,
   tryGenerateEwayForChallanId,
   tryGenerateEwayForBrandSend,
   tryGenerateEwayForOnlineSpareOrder,
@@ -15,7 +16,7 @@ import {
   getEwayPrefillForOnlineSpareOrder,
   parseEwayGenerateInput,
 } from "./mastersIndiaEdoc";
-import { toPublicEdocSettings, refreshEdocSettingsCache } from "./edocSettingsStore";
+import { edocAnyRegionConfigured, toPublicEdocSettings, refreshEdocSettingsCache } from "./edocSettingsStore";
 
 type Authed = Request & { userId: string };
 
@@ -27,7 +28,7 @@ export function registerEdocRoutes(
   app.get("/api/edoc/status", requireAuth, (_req, res) => {
     const publicSettings = toPublicEdocSettings();
     res.json({
-      configured: publicSettings.configured,
+      configured: publicSettings.configured || edocAnyRegionConfigured(),
       enabled: publicSettings.enabled,
       failOpen: publicSettings.failOpen,
       apiBase: publicSettings.apiBase,
@@ -38,14 +39,20 @@ export function registerEdocRoutes(
       sandboxMode: publicSettings.sandboxMode ?? /sandb-api/i.test(publicSettings.apiBase),
       effectiveEwayGstin: publicSettings.effectiveEwayGstin || null,
       effectiveEinvoiceGstin: publicSettings.effectiveEinvoiceGstin || null,
+      perRegionAccounts: true,
     });
   });
 
-  app.post("/api/edoc/test-token", requireAuth, async (_req, res) => {
+  function regionIdFromBody(req: Request): string {
+    return String((req.body as { regionId?: string })?.regionId ?? req.query.regionId ?? "").trim();
+  }
+
+  app.post("/api/edoc/test-token", requireAuth, async (req, res) => {
     await refreshEdocSettingsCache();
-    const cfg = getMastersIndiaEdocConfig();
+    const regionId = regionIdFromBody(req);
+    const cfg = getMastersIndiaEdocConfig(regionId || undefined);
     if (!cfg) {
-      res.status(400).json({ error: "Set Masters India e-doc username and password in Settings → E-invoice & e-way." });
+      res.status(400).json({ error: "Set Masters India credentials for this region in Settings → E-invoice & e-way." });
       return;
     }
     const result = await testEdocConnection(cfg);
@@ -56,11 +63,12 @@ export function registerEdocRoutes(
     res.json({ ok: true });
   });
 
-  app.post("/api/edoc/test-einvoice", requireAuth, async (_req, res) => {
+  app.post("/api/edoc/test-einvoice", requireAuth, async (req, res) => {
     await refreshEdocSettingsCache();
-    const cfg = getMastersIndiaEdocConfig();
+    const regionId = regionIdFromBody(req);
+    const cfg = getMastersIndiaEdocConfig(regionId || undefined);
     if (!cfg) {
-      res.status(400).json({ error: "Set Masters India e-doc username and password in Settings → E-invoice & e-way." });
+      res.status(400).json({ error: "Set Masters India credentials for this region in Settings → E-invoice & e-way." });
       return;
     }
     const result = await testEinvoiceConnection(cfg);
@@ -71,11 +79,12 @@ export function registerEdocRoutes(
     res.json({ ok: true });
   });
 
-  app.post("/api/edoc/test-eway", requireAuth, async (_req, res) => {
+  app.post("/api/edoc/test-eway", requireAuth, async (req, res) => {
     await refreshEdocSettingsCache();
-    const cfg = getMastersIndiaEdocConfig();
+    const regionId = regionIdFromBody(req);
+    const cfg = getMastersIndiaEdocConfig(regionId || undefined);
     if (!cfg) {
-      res.status(400).json({ error: "Set Masters India e-doc username and password in Settings → E-invoice & e-way." });
+      res.status(400).json({ error: "Set Masters India credentials for this region in Settings → E-invoice & e-way." });
       return;
     }
     const result = await testEwayConnection(cfg);
@@ -94,6 +103,27 @@ export function registerEdocRoutes(
     }
     const result = await tryGenerateEinvoiceForQuickBill(pool, billId);
     res.status(result.ok ? 200 : 400).json({ edoc: result });
+  });
+
+  app.get("/api/edoc/quick-bills/:billId/einvoice-pdf-url", requireAuth, async (req, res) => {
+    const billId = String(req.params.billId ?? "").trim();
+    if (!billId) {
+      res.status(400).json({ error: "billId required" });
+      return;
+    }
+    try {
+      const out = await resolveQuickBillEinvoicePdfUrl(pool, billId);
+      if (!out.irn) {
+        res.status(404).json({ error: "No e-invoice (IRN) on this quick bill." });
+        return;
+      }
+      res.json({ irn: out.irn, pdfUrl: out.pdfUrl });
+    } catch (e) {
+      console.error("[edoc] resolve quick bill einvoice pdf:", e);
+      res.status(500).json({
+        error: e instanceof Error ? e.message : "Could not load GST e-invoice PDF from IRP.",
+      });
+    }
   });
 
   app.post("/api/edoc/srf-jobs/:srfId/generate-einvoice", requireAuth, async (req, res) => {

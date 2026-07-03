@@ -195,15 +195,12 @@ async function notifyCustomerBrandVoucher(
   let whatsappSent = false;
   let whatsappReason: string | undefined;
   if (trackingUrl) {
-    const wa = await sendSiteVisitApprovalLink({
-      phone: row.phone,
-      name: row.customer_name,
-      srfReference: row.reference,
+    const approvalNotify = await notifyCustomerSiteVisitApproval(req, pool, srfId, {
       approvalReason,
-      trackingUrl,
+      srfReference: row.reference,
     }).catch(() => ({ sent: false, reason: "WhatsApp send failed." }));
-    whatsappSent = wa.sent;
-    whatsappReason = wa.reason;
+    whatsappSent = approvalNotify.sent;
+    whatsappReason = approvalNotify.reason;
   } else {
     whatsappReason = "Tracking URL unavailable for WhatsApp.";
   }
@@ -956,6 +953,22 @@ async function notifyCustomerSiteVisitApproval(
   if (!row?.phone?.trim()) {
     return { sent: false, reason: "No customer phone on file." };
   }
+  let documentUrl: string | undefined;
+  let documentFilename: string | undefined;
+  try {
+    const doc = await publishSrfDocumentForWhatsApp(req, pool, srfId);
+    documentUrl = doc.documentUrl;
+    documentFilename = doc.documentFilename;
+  } catch (e) {
+    console.error("[APPROVAL LINK] SRF PDF publish failed", e);
+  }
+  if (!documentUrl) {
+    return {
+      sent: false,
+      reason:
+        "Could not prepare SRF PDF for WhatsApp. The approval template requires a document header — check PUBLIC_BASE_URL / Work Drive settings.",
+    };
+  }
   try {
     const trackingUrl = await resolveCustomerTrackingUrl(req, pool, row.phone);
     return sendSiteVisitApprovalLink({
@@ -964,6 +977,8 @@ async function notifyCustomerSiteVisitApproval(
       srfReference: params.srfReference?.trim() || row.reference,
       approvalReason: params.approvalReason,
       trackingUrl,
+      documentUrl,
+      documentFilename,
     });
   } catch (e) {
     console.error("[APPROVAL LINK] notify failed", e);
@@ -1075,6 +1090,8 @@ export function registerSrfRoutes(
                 j.edoc_error AS "edocError",
                 j.edoc_qr AS "edocQr",
                 j.edoc_generated_at AS "edocGeneratedAt",
+                j.edoc_eway_bill_no AS "edocEwayBillNo",
+                j.edoc_eway_valid_upto AS "edocEwayValidUpto",
                 j.completed_at_sc AS "completedAtSc",
                 j.ready_for_outward_at AS "readyForOutwardAt",
                 j.destination_store_id AS "destinationStoreId",
@@ -2905,6 +2922,52 @@ export function registerSrfRoutes(
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Could not load delivery challan history." });
+    }
+  });
+
+  app.get("/api/service/delivery-challans/:dcId/print-package", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const dcId = String(req.params.dcId ?? "").trim();
+    if (!dcId) {
+      res.status(400).json({ error: "dcId required." });
+      return;
+    }
+    try {
+      const dcRes = await pool.query<{ region_id: string; created_at: Date }>(
+        `SELECT region_id, created_at FROM delivery_challans WHERE id = $1::uuid`,
+        [dcId],
+      );
+      const dc = dcRes.rows[0];
+      if (!dc) {
+        res.status(404).json({ error: "Delivery challan not found." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== dc.region_id) {
+        res.status(403).json({ error: "Region mismatch." });
+        return;
+      }
+      const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
+      if (!rebuilt) {
+        res.status(404).json({ error: "Print data not available for this challan." });
+        return;
+      }
+      const linesRes = await pool.query<{ srf_id: string }>(
+        `SELECT srf_id FROM delivery_challan_lines WHERE dc_id = $1::uuid ORDER BY srf_id`,
+        [dcId],
+      );
+      res.json({
+        printMeta: rebuilt.printMeta,
+        srfIds: linesRes.rows.map((r) => r.srf_id),
+        seriesCode: rebuilt.printMeta.printKind === "dc" ? "DC" : "TD",
+        createdAt: dc.created_at.toISOString(),
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load delivery challan print data." });
     }
   });
 

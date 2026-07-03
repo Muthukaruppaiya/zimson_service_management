@@ -240,7 +240,7 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
       .join("");
     openPrintDocument(
       `SRF trace ${trace.job.reference}`,
-      `<div style="font-family:Arial,sans-serif;padding:20px;color:#111">
+      `<div style="font-family:Poppins,ui-sans-serif,system-ui,sans-serif;padding:20px;color:#111">
         <h2 style="margin:0 0 12px">SRF traceability — ${trace.job.reference}</h2>
         <p>${trace.job.customerName} · ${trace.job.phone}</p>
         <p>${trace.job.watchBrand} ${trace.job.watchModel} · ${trace.job.serial}</p>

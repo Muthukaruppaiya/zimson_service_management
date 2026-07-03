@@ -90,6 +90,29 @@ export function transferNumberLabel(printKind: TransferPrintKind, seriesCode?: s
   return printKind === "dc" ? "DC / Challan No." : "Transfer No. (TD)";
 }
 
+/** Default logistics direction for a transfer print (override when reprinting at inward). */
+export function transferFlowDirection(flow: TransferFlow): "IN" | "OUT" {
+  return flow === "ho_to_ho_return" ? "IN" : "OUT";
+}
+
+export function transferMovementLabel(printKind: TransferPrintKind, flow: TransferFlow): string {
+  if (flow === "store_to_ho" || flow === "ho_to_store") {
+    return "Internal Transfer (Store ↔ HO)";
+  }
+  if (printKind === "dc") {
+    return "Delivery Challan (Inter-HO / GST differs)";
+  }
+  return "Internal Transfer (same GSTIN)";
+}
+
+export function transferDocumentTypeLabel(
+  direction: "IN" | "OUT",
+  printKind: TransferPrintKind,
+  flow: TransferFlow,
+): string {
+  return `${direction} · ${transferMovementLabel(printKind, flow)}`;
+}
+
 /** Store → HO is always an internal transfer document (not a GST delivery challan). */
 export function resolveStoreToHoPrint(
   store: SeedStore,

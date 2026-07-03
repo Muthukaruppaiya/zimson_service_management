@@ -9,7 +9,7 @@ import { apiJson } from "../../lib/api";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import type { SeedRegion } from "../../data/seed";
 import type { SrfJob } from "../../types/srfJob";
-import { printScInwardAckDocument, printTransferFromMeta, type TransferPrintMeta } from "../../lib/serviceDocuments";
+import { printScInwardAckDocument, printBrandDispatchDocument, printTransferFromMeta, type TransferPrintMeta } from "../../lib/serviceDocuments";
 import {
   resolveHoToHoPrint,
   resolveHoToStorePrint,
@@ -24,8 +24,8 @@ import {
   type ScInwardDocumentKind,
 } from "../../lib/srfLogisticsDocs";
 import { formatEwayEdocMessage, challanCanCreateOrRetryEway, type EdocUiResult } from "../../lib/edocResultMessage";
-import { transferFlowNeedsEway } from "../../lib/ewayBill";
 import { EwayBillModal } from "../../components/service/EwayBillModal";
+import { EwayBillSuccessModal } from "../../components/service/EwayBillSuccessModal";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 
@@ -179,6 +179,7 @@ export function ScLogisticsPage() {
 
   const [ewayModalOpen, setEwayModalOpen] = useState(false);
   const [ewayBrandJobId, setEwayBrandJobId] = useState<string | null>(null);
+  const [ewayAutoSuccess, setEwayAutoSuccess] = useState<EdocUiResult | null>(null);
   const [edocEnabled, setEdocEnabled] = useState(false);
 
   useEffect(() => {
@@ -656,7 +657,9 @@ export function ScLogisticsPage() {
         edoc: result.edoc ?? null,
         printOpts,
       });
-      if (
+      if (result.edoc?.ewayBillNo) {
+        setEwayAutoSuccess(result.edoc);
+      } else if (
         challanCanCreateOrRetryEway({
           flow: printMeta.flow,
           edocEnabled,
@@ -695,6 +698,17 @@ export function ScLogisticsPage() {
     setEwayModalOpen(true);
   }
 
+  function printOutwardAckDocument() {
+    if (!outwardAck) return;
+    printTransferFromMeta(outwardAck.printMeta, outwardAck.rows, {
+      seriesCode: outwardAck.documentKind === "DC" ? "DC" : "TD",
+      hoInvoiceRef: outwardAck.printOpts.hoInvoiceRef,
+      storeInvoiceRef: outwardAck.printOpts.storeInvoiceRef,
+      preparedBy: user?.displayName?.trim() || user?.email?.trim(),
+      transferDate: outwardAck.dispatchedAt,
+    });
+  }
+
   function onOutwardEwaySuccess(edoc: EdocUiResult) {
     setOutwardAck((prev) => (prev ? { ...prev, edoc } : prev));
     const msg = formatEwayEdocMessage(edoc);
@@ -704,7 +718,6 @@ export function ScLogisticsPage() {
   function onBrandEwaySuccess(edoc: EdocUiResult) {
     const msg = formatEwayEdocMessage(edoc);
     setOutwardMsg({ type: edoc?.ok ? "ok" : "err", text: msg ?? "Could not generate e-way bill." });
-    setEwayBrandJobId(null);
   }
 
   if (user && !canPostDcInward && !canCreateOdc) {
@@ -1122,13 +1135,19 @@ export function ScLogisticsPage() {
                           {j.status.replaceAll("_", " ")}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          <button
-                            type="button"
-                            onClick={() => setEwayBrandJobId(j.id)}
-                            className="rounded-lg border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-100"
-                          >
-                            Create e-way bill
-                          </button>
+                          {j.edocEwayBillNo?.trim() ? (
+                            <span className="text-[10px] font-semibold uppercase text-emerald-700">EWB {j.edocEwayBillNo}</span>
+                          ) : edocEnabled ? (
+                            <button
+                              type="button"
+                              onClick={() => setEwayBrandJobId(j.id)}
+                              className="rounded-lg border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-100"
+                            >
+                              Create e-way bill
+                            </button>
+                          ) : (
+                            <span className="text-xs text-stone-500">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1459,7 +1478,7 @@ export function ScLogisticsPage() {
                   <dd className="font-medium text-stone-900">{user?.displayName ?? "—"}</dd>
                 </div>
               </dl>
-              {transferFlowNeedsEway(outwardAck.printMeta.flow) ? (
+              {edocEnabled && outwardAck.dcId ? (
                 <div className="mt-4 rounded-xl border border-rlx-gold/40 bg-gradient-to-br from-rlx-green-light/80 to-rlx-gold-light/40 px-4 py-3 text-sm">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-rlx-green">E-way bill (Masters India)</p>
                   {outwardAck.edoc?.ewayBillNo ? (
@@ -1669,6 +1688,7 @@ export function ScLogisticsPage() {
                             seriesCode: "TD",
                             preparedBy: user?.displayName?.trim() || user?.email?.trim(),
                             transferDate: inwardAck.receivedAt,
+                            direction: "IN",
                           },
                         );
                         return;
@@ -1717,13 +1737,14 @@ export function ScLogisticsPage() {
         </div>
       ) : null}
 
-      {outwardAck?.dcId && transferFlowNeedsEway(outwardAck.printMeta.flow) ? (
+      {outwardAck?.dcId && edocEnabled ? (
         <EwayBillModal
           open={ewayModalOpen}
           kind="challan"
           resourceId={outwardAck.dcId}
           onClose={() => setEwayModalOpen(false)}
           onSuccess={onOutwardEwaySuccess}
+          onPrintDocument={printOutwardAckDocument}
         />
       ) : null}
       {ewayBrandJobId ? (
@@ -1733,6 +1754,19 @@ export function ScLogisticsPage() {
           resourceId={ewayBrandJobId}
           onClose={() => setEwayBrandJobId(null)}
           onSuccess={onBrandEwaySuccess}
+          onPrintDocument={() => {
+            const job = jobs.find((j) => j.id === ewayBrandJobId);
+            if (job) printBrandDispatchDocument(job);
+          }}
+        />
+      ) : null}
+      {ewayAutoSuccess && outwardAck ? (
+        <EwayBillSuccessModal
+          open
+          edoc={ewayAutoSuccess}
+          documentNumber={outwardAck.odcNumber}
+          onPrintDocument={printOutwardAckDocument}
+          onClose={() => setEwayAutoSuccess(null)}
         />
       ) : null}
       {brandDispatchPopupOpen ? (

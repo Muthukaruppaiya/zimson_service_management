@@ -58,6 +58,7 @@ import { UsersListPage } from "./pages/UsersListPage";
 import { ServiceTaxSettingsPage } from "./pages/settings/ServiceTaxSettingsPage";
 import { MessagingSettingsPage } from "./pages/settings/MessagingSettingsPage";
 import { EdocSettingsPage } from "./pages/settings/EdocSettingsPage";
+import { BrandEwayConsigneesSettingsPage } from "./pages/settings/BrandEwayConsigneesSettingsPage";
 import { ActiveSessionsPage } from "./pages/settings/ActiveSessionsPage";
 import { DocumentTemplatesPage } from "./pages/settings/DocumentTemplatesPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
@@ -718,6 +719,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="settings">
                       <EdocSettingsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/settings/brand-eway-consignees"
+                  element={
+                    <ModuleRoute module="settings">
+                      <BrandEwayConsigneesSettingsPage />
                     </ModuleRoute>
                   }
                 />

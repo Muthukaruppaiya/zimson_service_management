@@ -154,6 +154,9 @@ export function buildEwayPayload(input: EwayBuildInput): Record<string, unknown>
   // For internal movement / brand send we should send "Others".
   const subSupplyType =
     /delivery\s*challan/i.test(documentType) || sameGstin ? "Others" : "Supply";
+  // Regular outward (consignor → consignee). Do not use type 2/4 unless bill-to/ship-to
+  // or dispatch-from parties are supplied — NIC error 608 otherwise.
+  const transactionType = 1;
 
   return {
     userGstin: input.userGstin,
@@ -179,7 +182,7 @@ export function buildEwayPayload(input: EwayBuildInput): Record<string, unknown>
     pincode_of_consignee: input.consignee.pincode,
     state_of_supply: consigneeState,
     actual_to_state_name: consigneeState,
-    transaction_type: sameGstin ? 1 : 4,
+    transaction_type: transactionType,
     other_value: 0,
     total_invoice_value: round2(input.totalInvoiceValue),
     taxable_amount: round2(input.taxableAmount),

@@ -1,6 +1,7 @@
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import { invoiceWhatsAppResultMessage, isValidIndianMobile10 } from "../../lib/whatsappInvoiceUi";
 import { useMessagingSend } from "../messaging/WhatsAppSendProvider";
+import { IconSpinner, IconWhatsApp } from "./invoicePreviewIcons";
 
 type Props = {
   phone: string;
@@ -13,6 +14,7 @@ type Props = {
   onResult?: (message: string, ok: boolean) => void;
   /** When set, uses this PDF instead of capturing `.service-invoice-print-root` on the page. */
   resolvePdfBlob?: () => Promise<Blob>;
+  iconOnly?: boolean;
 };
 
 export function SendInvoiceWhatsAppButton({
@@ -25,6 +27,7 @@ export function SendInvoiceWhatsAppButton({
   busyLabel = "Sending…",
   onResult,
   resolvePdfBlob,
+  iconOnly = false,
 }: Props) {
   const { runWhatsAppSend, whatsappSending } = useMessagingSend();
 
@@ -64,8 +67,16 @@ export function SendInvoiceWhatsAppButton({
       disabled={disabled || whatsappSending}
       onClick={() => void handleClick()}
       className={className}
+      aria-label={label}
+      title={label}
     >
-      {whatsappSending ? busyLabel : label}
+      {whatsappSending ? (
+        iconOnly ? <IconSpinner /> : busyLabel
+      ) : iconOnly ? (
+        <IconWhatsApp />
+      ) : (
+        label
+      )}
     </button>
   );
 }

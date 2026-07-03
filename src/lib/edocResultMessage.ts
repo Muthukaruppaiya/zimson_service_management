@@ -1,5 +1,4 @@
 import type { TransferFlow } from "./transferDocumentKind";
-import { transferFlowNeedsEway } from "./ewayBill";
 
 export type EdocUiResult = {
   ok?: boolean;
@@ -22,18 +21,14 @@ export function formatEwayEdocMessage(edoc: EdocUiResult | null | undefined): st
   return null;
 }
 
-/** E-way is not required (same GSTIN, store leg, etc.). */
+/** E-way could not be generated (missing GSTIN, e-doc off, etc.) — not a flow-type exemption. */
 export function challanEwayNotApplicable(skipReason?: string | null, edocError?: string | null): boolean {
   const msg = String(skipReason ?? edocError ?? "").toLowerCase();
-  return (
-    msg.includes("same gstin") ||
-    msg.includes("store dispatch") ||
-    msg.includes("not required only for inter-ho transfer")
-  );
+  return msg.includes("e-doc not configured") || msg.includes("gstin required for e-way");
 }
 
 export function challanCanCreateOrRetryEway(args: {
-  flow: TransferFlow;
+  flow?: TransferFlow;
   edocEnabled: boolean;
   ewayBillNo?: string | null;
   edocStatus?: string | null;
@@ -43,9 +38,24 @@ export function challanCanCreateOrRetryEway(args: {
 }): boolean {
   if (!args.edocEnabled) return false;
   if (String(args.ewayBillNo ?? "").trim()) return false;
-  /** Inter-HO dispatch/return: e-way is mandatory even when both HOs share one GSTIN. */
-  if (transferFlowNeedsEway(args.flow)) return true;
-  return false;
+  return true;
+}
+
+export function renderChallanEwayStatus(row: {
+  edocEwayBillNo?: string | null;
+  edocStatus?: string | null;
+  edocError?: string | null;
+}): { label: string; className: string; title?: string } {
+  if (row.edocEwayBillNo?.trim()) {
+    return { label: `EWB ${row.edocEwayBillNo}`, className: "text-emerald-700" };
+  }
+  if (row.edocStatus === "SKIPPED") {
+    return { label: "Skipped", className: "text-stone-500", title: row.edocError ?? undefined };
+  }
+  if (row.edocStatus === "FAILED") {
+    return { label: "Failed", className: "text-rose-700", title: row.edocError ?? undefined };
+  }
+  return { label: "Pending", className: "text-amber-700" };
 }
 
 /** History table: allow manual retry whenever no e-way number exists yet. */

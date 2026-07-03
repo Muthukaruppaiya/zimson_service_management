@@ -188,7 +188,8 @@ export function InventorySpareCatalogPage() {
   <head>
     <title>Spare Barcode - ${target.sku}</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+      @import url("https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap");
+      body { font-family: "Poppins", ui-sans-serif, system-ui, sans-serif; margin: 24px; color: #111827; }
       .label { border: 1px solid #d1d5db; border-radius: 12px; padding: 16px; width: 320px; }
       .name { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
       .sku { font-family: monospace; font-size: 12px; margin-bottom: 8px; color: #374151; }

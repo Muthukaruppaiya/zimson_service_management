@@ -108,8 +108,10 @@ If your template name is different, set `QIKCHAT_TRACKING_TEMPLATE_NAME` in serv
 
 ### Re-estimate / site visit approval template (`site_visit_approval`)
 
-Sent when a **re-estimate** is raised (store, supervisor, technician, or inter-HO sender forwarding to customer).  
+Sent when a **re-estimate** or **brand estimate** is forwarded to the customer (supervisor, technician, inter-HO, resend from bookings).  
 Template name: `site_visit_approval` (override with `QIKCHAT_APPROVAL_TEMPLATE_NAME` in server `.env`).
+
+**Header:** Document (PDF) — the app publishes the SRF acknowledgment PDF (same as the tracking link) and attaches it in the template header. Your Meta/Qikchat template must match: **header type = document**.
 
 | Variable | Content |
 |----------|---------|

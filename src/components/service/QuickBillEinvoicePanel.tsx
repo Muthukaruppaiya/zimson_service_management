@@ -4,6 +4,7 @@ import { resolveEinvoiceDocumentUrl } from "../../lib/einvoicePortal";
 type Props = {
   edoc: QuickBillEdocInfo | null | undefined;
   storedIrn?: string | null;
+  storedPdfUrl?: string | null;
   /** Primary action button classes (modal footer). */
   actionBtnClass: string;
   onGenerate?: () => void;
@@ -61,12 +62,13 @@ export function QuickBillEinvoiceStatus({ edoc, storedIrn }: Pick<Props, "edoc" 
 export function QuickBillEinvoiceActions({
   edoc,
   storedIrn,
+  storedPdfUrl,
   actionBtnClass,
   onGenerate,
   generating,
 }: Props) {
   const irn = (edoc?.irn ?? storedIrn)?.trim() || null;
-  const docUrl = resolveEinvoiceDocumentUrl({ pdfUrl: edoc?.pdfUrl });
+  const docUrl = resolveEinvoiceDocumentUrl({ pdfUrl: edoc?.pdfUrl ?? storedPdfUrl });
   const canGenerate = Boolean(onGenerate) && !irn && !edoc?.skipped && !edoc?.pending;
 
   if (!irn && !canGenerate) return null;

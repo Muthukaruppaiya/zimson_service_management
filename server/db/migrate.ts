@@ -1424,4 +1424,39 @@ export async function runMigrations(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_srf_billing_handover_expiry
       ON srf_billing_handover_sessions (expires_at);
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS brand_eway_consignees (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      brand_id UUID NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+      location_name VARCHAR(160) NOT NULL,
+      legal_name VARCHAR(200) NOT NULL,
+      gstin VARCHAR(15) NOT NULL,
+      address TEXT NOT NULL,
+      city VARCHAR(120) NOT NULL,
+      pincode VARCHAR(6) NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (brand_id, location_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_brand_eway_consignees_brand
+      ON brand_eway_consignees (brand_id, is_active, sort_order);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS region_edoc_settings (
+      region_id TEXT PRIMARY KEY REFERENCES regions(id) ON DELETE CASCADE,
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by VARCHAR(200)
+    );
+  `);
+
+  await pool.query(`
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_pdf_url TEXT;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_pdf_url TEXT;
+    ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_pdf_url TEXT;
+  `);
 }

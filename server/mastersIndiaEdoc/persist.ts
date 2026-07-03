@@ -19,6 +19,7 @@ export async function saveQuickBillEdoc(db: Db, billId: string, result: EdocResu
          edoc_status = $5,
          edoc_error = $6,
          edoc_qr = $8,
+         edoc_pdf_url = COALESCE($9, edoc_pdf_url),
          edoc_generated_at = CASE WHEN $7::boolean THEN now() ELSE edoc_generated_at END
      WHERE id = $1::uuid`,
     [
@@ -30,6 +31,7 @@ export async function saveQuickBillEdoc(db: Db, billId: string, result: EdocResu
       result.error ?? result.skipReason ?? null,
       result.ok,
       result.qrUrl ?? null,
+      result.pdfUrl ?? null,
     ],
   );
 }

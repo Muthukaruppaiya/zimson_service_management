@@ -9,9 +9,8 @@
 }
 
 @theme {
-  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
-  /** Luxury / editorial headlines (quick bill history & similar surfaces) */
-  --font-display: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman", serif;
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Poppins", ui-sans-serif, system-ui, sans-serif;
 
   /* Zimson Royal Blue + Gold premium palette */
   --color-rlx-green:       #1B3A8F;   /* Royal Blue — primary brand colour */
@@ -82,6 +81,10 @@
   .dashboard-quick-tile,
   .chrono-dashboard .cs-action-tile {
     border-radius: 1.25rem !important;
+  }
+
+  input, select, textarea, button {
+    font-family: inherit;
   }
 
   /* ── Global form primitives ───────────────────────── */
@@ -516,18 +519,15 @@
     -webkit-print-color-adjust: exact;
   }
 
-  .service-invoice-print-root .inv-page-terms {
-    page-break-before: always;
-    break-before: page;
-    margin-top: 0;
+  .service-invoice-print-root .inv-terms-block {
+    page-break-before: auto;
+    break-before: auto;
+    margin-top: 4px;
   }
 
-  .service-invoice-print-root .inv-page-terms .inv-terms {
-    break-inside: avoid;
+  .service-invoice-print-root .inv-terms-block .inv-terms {
     max-height: none;
     overflow: visible;
-    column-count: 2;
-    column-gap: 5mm;
   }
 }
 

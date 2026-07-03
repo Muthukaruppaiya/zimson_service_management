@@ -10,6 +10,15 @@ import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { SendInvoiceWhatsAppButton } from "../../components/service/SendInvoiceWhatsAppButton";
 import { SendInvoiceEmailButton } from "../../components/service/SendInvoiceEmailButton";
 import {
+  IconClose,
+  IconDownload,
+  IconGstEinvoice,
+  IconPrint,
+  IconSpinner,
+  invoicePreviewIconBtn,
+} from "../../components/service/invoicePreviewIcons";
+import { resolveEinvoiceDocumentUrl } from "../../lib/einvoicePortal";
+import {
   captureQuickBillInvoicePdf,
   downloadQuickBillInvoicePdf,
 } from "../../lib/quickBillInvoiceDownload";
@@ -123,6 +132,7 @@ export function QuickBillHistoryPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [downloadBusyId, setDownloadBusyId] = useState<string | null>(null);
   const [detailDownloadBusy, setDetailDownloadBusy] = useState(false);
+  const [gstEinvoiceBusy, setGstEinvoiceBusy] = useState(false);
   const [whatsappNote, setWhatsappNote] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -276,6 +286,11 @@ export function QuickBillHistoryPage() {
     [detailInvoice, invoiceVmOptions],
   );
 
+  const gstEinvoicePdfUrl = useMemo(
+    () => resolveEinvoiceDocumentUrl({ pdfUrl: detailInvoice?.edocPdfUrl }),
+    [detailInvoice?.edocPdfUrl],
+  );
+
   const invoicePrintIdPrefix = detailInvoice ? `qbh-${detailInvoice.id.replace(/-/g, "").slice(0, 12)}` : "qbh";
 
   const resolveDetailInvoicePdfBlob = useCallback(async () => {
@@ -335,6 +350,37 @@ export function QuickBillHistoryPage() {
     }
   }
 
+  async function handleOpenGstEinvoice() {
+    if (!detailInvoice?.edocIrn?.trim()) return;
+    let url = gstEinvoicePdfUrl;
+    if (!url) {
+      setGstEinvoiceBusy(true);
+      try {
+        const data = await apiJson<{ pdfUrl: string | null }>(
+          `/api/edoc/quick-bills/${encodeURIComponent(detailInvoice.id)}/einvoice-pdf-url`,
+        );
+        url = resolveEinvoiceDocumentUrl({ pdfUrl: data.pdfUrl });
+        if (url) {
+          setDetailInvoice((prev) =>
+            prev?.id === detailInvoice.id ? { ...prev, edocPdfUrl: data.pdfUrl } : prev,
+          );
+        }
+      } catch (e) {
+        setWhatsappNote(e instanceof ApiError ? e.message : "Could not load GST e-invoice PDF.");
+        return;
+      } finally {
+        setGstEinvoiceBusy(false);
+      }
+    }
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    setWhatsappNote(
+      "GST e-invoice PDF could not be loaded from IRP. Check Masters India / GST portal settings, or try Retry e-invoice.",
+    );
+  }
+
   async function handleDownloadDetail() {
     if (!detailInvoice || !detailInvoiceVm) return;
     setDetailDownloadBusy(true);
@@ -370,7 +416,10 @@ export function QuickBillHistoryPage() {
           await load();
           if (selected?.id === row.id) {
             const data = await apiJson<{ invoice: QuickBillInvoice }>(`/api/service/quick-bills/${row.id}`);
-            setDetailInvoice(data.invoice);
+            setDetailInvoice({
+              ...data.invoice,
+              edocPdfUrl: data.invoice.edocPdfUrl ?? out.edoc.pdfUrl ?? null,
+            });
           }
           return;
         }
@@ -674,23 +723,29 @@ export function QuickBillHistoryPage() {
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-rlx-ink/70 backdrop-blur-sm sm:items-center sm:p-4 print:static print:inset-auto print:z-0 print:bg-white print:p-0 print:backdrop-blur-none">
           <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] print:max-h-none print:max-w-none print:shadow-none">
 
-            {/* modal header — Rolex-green top bar */}
-            <div className="sticky top-0 z-20 flex flex-col gap-3 bg-rlx-green px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 print:hidden">
+            {/* modal header — Quick Bill golden bar */}
+            <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-rlx-gold-dark bg-rlx-gold px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 print:hidden">
               <div className="min-w-0">
-                <p className="text-[9px] font-semibold uppercase tracking-[0.45em] text-rlx-gold">Invoice preview</p>
-                <h3 className="truncate font-sans text-xl font-semibold tracking-normal text-white sm:text-2xl">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.45em] text-rlx-green-deep/80">
+                  Invoice preview
+                </p>
+                <h3 className="truncate font-sans text-xl font-semibold tracking-normal text-rlx-green-deep sm:text-2xl">
                   {selected.billNumber}
                 </h3>
-                <p className="mt-0.5 text-xs text-white/60">{new Date(selected.createdAt).toLocaleString()}</p>
+                <p className="mt-0.5 text-xs text-rlx-green-deep/65">
+                  {new Date(selected.createdAt).toLocaleString()}
+                </p>
               </div>
               <div className="flex flex-wrap items-stretch gap-2 sm:items-center">
                 {detailInvoiceVm ? (
                   <button
                     type="button"
                     onClick={() => printServiceInvoice()}
-                    className="flex-1 bg-rlx-gold px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-rlx-green-deep transition hover:bg-rlx-gold-dark sm:flex-none sm:px-5"
+                    aria-label="Print invoice"
+                    title="Print invoice"
+                    className={`${invoicePreviewIconBtn} flex-1 bg-rlx-green-deep text-rlx-gold transition hover:bg-rlx-green sm:flex-none`}
                   >
-                    Print
+                    <IconPrint />
                   </button>
                 ) : null}
                 {detailInvoice && detailInvoiceVm ? (
@@ -698,9 +753,27 @@ export function QuickBillHistoryPage() {
                     type="button"
                     disabled={detailDownloadBusy}
                     onClick={() => void handleDownloadDetail()}
-                    className="flex-1 border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-white/20 disabled:opacity-50 sm:flex-none sm:px-5"
+                    aria-label="Download PDF"
+                    title="Download PDF"
+                    className={`${invoicePreviewIconBtn} flex-1 border border-rlx-green-deep/35 bg-white/50 text-rlx-green-deep transition hover:bg-white/70 sm:flex-none`}
                   >
-                    {detailDownloadBusy ? "Preparing…" : "Download PDF"}
+                    {detailDownloadBusy ? <IconSpinner /> : <IconDownload />}
+                  </button>
+                ) : null}
+                {detailInvoice?.edocIrn?.trim() ? (
+                  <button
+                    type="button"
+                    disabled={gstEinvoiceBusy}
+                    onClick={() => void handleOpenGstEinvoice()}
+                    aria-label="Download GST e-invoice"
+                    title={
+                      gstEinvoicePdfUrl
+                        ? "Download GST e-invoice (IRP PDF)"
+                        : "Open GST e-invoice PDF from IRP"
+                    }
+                    className={`${invoicePreviewIconBtn} flex-1 border border-rlx-green-deep/35 bg-rlx-green-deep text-rlx-gold transition hover:bg-rlx-green disabled:opacity-50 sm:flex-none`}
+                  >
+                    {gstEinvoiceBusy ? <IconSpinner /> : <IconGstEinvoice />}
                   </button>
                 ) : null}
                 {detailInvoice && apiMode ? (
@@ -734,7 +807,8 @@ export function QuickBillHistoryPage() {
                       disabled={!detailInvoiceVm}
                       label="Send email"
                       busyLabel="Sending…"
-                      className="flex-1 border border-sky-300/80 bg-sky-700 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-sky-800 disabled:opacity-50 sm:flex-none sm:px-5"
+                      iconOnly
+                      className={`${invoicePreviewIconBtn} flex-1 border border-sky-300/80 bg-sky-700 text-white transition hover:bg-sky-800 sm:flex-none`}
                       onResult={(msg) => setWhatsappNote(msg)}
                       resolvePdfBlob={resolveDetailInvoicePdfBlob}
                     />
@@ -749,7 +823,8 @@ export function QuickBillHistoryPage() {
                       disabled={!detailInvoiceVm}
                       label="Resend WhatsApp"
                       busyLabel="Sending…"
-                      className="flex-1 border border-emerald-300/80 bg-emerald-600 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-50 sm:flex-none sm:px-5"
+                      iconOnly
+                      className={`${invoicePreviewIconBtn} flex-1 border border-emerald-300/80 bg-emerald-600 text-white transition hover:bg-emerald-700 sm:flex-none`}
                       onResult={(msg) => setWhatsappNote(msg)}
                       resolvePdfBlob={resolveDetailInvoicePdfBlob}
                     />
@@ -758,9 +833,11 @@ export function QuickBillHistoryPage() {
                 <button
                   type="button"
                   onClick={() => setSelected(null)}
-                  className="w-full border border-white/20 px-4 py-2.5 text-xs font-semibold text-white/80 transition hover:bg-white/10 sm:w-auto sm:px-5"
+                  aria-label="Close preview"
+                  title="Close"
+                  className={`${invoicePreviewIconBtn} w-full border border-rlx-green-deep/35 bg-white/40 text-rlx-green-deep transition hover:bg-white/60 sm:w-auto`}
                 >
-                  ✕ Close
+                  <IconClose />
                 </button>
               </div>
             </div>

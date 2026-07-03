@@ -40,9 +40,7 @@ import {
   sparePriceCacheKey,
 } from "../../lib/spareSellingPrice";
 import { inputClassReadOnly } from "../../lib/uiForm";
-import { EwayBillModal } from "../../components/service/EwayBillModal";
 import { BrandMailAttachmentField } from "../../components/service/BrandMailAttachmentField";
-import { formatEwayEdocMessage, type EdocUiResult } from "../../lib/edocResultMessage";
 import { brandMailMetaFromAttachment, uploadBrandMailAttachment } from "../../lib/brandMailUpload";
 
 type InterHoSpareOrder = {
@@ -300,7 +298,6 @@ export function ScSupervisorPage() {
   const [orderDetailsId, setOrderDetailsId] = useState<string | null>(null);
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [sendBrandPopupJobId, setSendBrandPopupJobId] = useState<string | null>(null);
-  const [ewayBrandJobId, setEwayBrandJobId] = useState<string | null>(null);
   const [sendBrandReason, setSendBrandReason] = useState("Cannot be repaired at HO");
   const [brandEstimatePopupJobId, setBrandEstimatePopupJobId] = useState<string | null>(null);
   const [brandEstimateAmountInput, setBrandEstimateAmountInput] = useState("");
@@ -317,6 +314,9 @@ export function ScSupervisorPage() {
   const [brandInvoiceRefInput, setBrandInvoiceRefInput] = useState("");
   const [brandInvoiceAmountInput, setBrandInvoiceAmountInput] = useState("");
   const [brandInvoiceNoteInput, setBrandInvoiceNoteInput] = useState("");
+  const [brandInvoiceAttachmentFile, setBrandInvoiceAttachmentFile] = useState<File | null>(null);
+  const [brandInvoiceAttachmentError, setBrandInvoiceAttachmentError] = useState<string | null>(null);
+  const [brandInvoiceSaving, setBrandInvoiceSaving] = useState(false);
   const [brandCreditPopupJobId, setBrandCreditPopupJobId] = useState<string | null>(null);
   const [brandCreditNoteRefInput, setBrandCreditNoteRefInput] = useState("");
   const [brandCreditValueInput, setBrandCreditValueInput] = useState("");
@@ -1151,9 +1151,22 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({ ...f, [jobId]: "Brand invoice amount is required." }));
       return;
     }
+    setBrandInvoiceSaving(true);
     try {
-      await supervisorLogBrandInvoice(jobId, { invoiceRef, invoiceAmountInr, note });
+      let invoiceMeta: Record<string, unknown> | undefined;
+      if (brandInvoiceAttachmentFile) {
+        const att = await uploadBrandMailAttachment(jobId, brandInvoiceAttachmentFile);
+        invoiceMeta = brandMailMetaFromAttachment(att);
+      }
+      await supervisorLogBrandInvoice(jobId, {
+        invoiceRef,
+        invoiceAmountInr,
+        note,
+        ...(invoiceMeta ? { invoiceMeta } : {}),
+      });
       setBrandInvoicePopupJobId(null);
+      setBrandInvoiceAttachmentFile(null);
+      setBrandInvoiceAttachmentError(null);
       const job = jobs.find((j) => j.id === jobId);
       const interHo = job ? needsInterHoSenderInvoice(job) : false;
       setBrandSuccessAck({
@@ -1170,6 +1183,8 @@ export function ScSupervisorPage() {
       }
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand invoice." }));
+    } finally {
+      setBrandInvoiceSaving(false);
     }
   }
 
@@ -1628,7 +1643,7 @@ export function ScSupervisorPage() {
   function printHistory(jobRef: string, rows: Array<{ id: string; status: string; note: string; changedAt: string }>) {
     openPrintDocument(
       `SRF History ${jobRef}`,
-      `<div style="font-family:Arial,sans-serif;padding:20px;color:#111">
+      `<div style="font-family:Poppins,ui-sans-serif,system-ui,sans-serif;padding:20px;color:#111">
         <h2 style="margin:0 0 12px">SRF status history</h2>
         <p><strong>Reference:</strong> ${jobRef}</p>
         <table border="1" cellspacing="0" cellpadding="6" style="width:100%;border-collapse:collapse;margin-top:12px">
@@ -2161,13 +2176,6 @@ export function ScSupervisorPage() {
                       </p>
                       <button
                         type="button"
-                        onClick={() => setEwayBrandJobId(j.id)}
-                        className="rounded-xl border border-rlx-gold bg-white px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light"
-                      >
-                        Create e-way bill
-                      </button>
-                      <button
-                        type="button"
                         onClick={() => {
                           setBrandEstimatePopupJobId(j.id);
                           setBrandEstimateAmountInput("");
@@ -2387,6 +2395,8 @@ export function ScSupervisorPage() {
                           setBrandInvoiceRefInput("");
                           setBrandInvoiceAmountInput(j.brandEstimateInr ? String(Number(j.brandEstimateInr).toFixed(2)) : "");
                           setBrandInvoiceNoteInput("");
+                          setBrandInvoiceAttachmentFile(null);
+                          setBrandInvoiceAttachmentError(null);
                         }}
                         className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
                       >
@@ -3116,20 +3126,33 @@ export function ScSupervisorPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand invoice</h3>
+            <p className="mt-1 text-sm text-stone-600">Enter the invoice reference and amount from brand mail. Upload the brand invoice PDF or image if available.</p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">Brand invoice reference *
-                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandInvoiceRefInput} onChange={(e) => setBrandInvoiceRefInput(e.target.value)} />
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandInvoiceRefInput} onChange={(e) => setBrandInvoiceRefInput(e.target.value)} disabled={brandInvoiceSaving} autoFocus />
               </label>
               <label className="text-sm">Brand invoice amount (main amount) *
-                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandInvoiceAmountInput} onChange={(e) => setBrandInvoiceAmountInput(e.target.value)} />
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandInvoiceAmountInput} onChange={(e) => setBrandInvoiceAmountInput(e.target.value)} disabled={brandInvoiceSaving} />
               </label>
+              <BrandMailAttachmentField
+                file={brandInvoiceAttachmentFile}
+                onChange={(file) => {
+                  setBrandInvoiceAttachmentFile(file);
+                  setBrandInvoiceAttachmentError(null);
+                }}
+                disabled={brandInvoiceSaving}
+                hint="Upload brand invoice PDF or image from mail."
+                error={brandInvoiceAttachmentError}
+              />
               <label className="text-sm">Note (optional)
-                <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={2} value={brandInvoiceNoteInput} onChange={(e) => setBrandInvoiceNoteInput(e.target.value)} />
+                <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={2} value={brandInvoiceNoteInput} onChange={(e) => setBrandInvoiceNoteInput(e.target.value)} disabled={brandInvoiceSaving} />
               </label>
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setBrandInvoicePopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
-              <button type="button" onClick={() => void confirmBrandInvoice()} className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Save and move outward</button>
+              <button type="button" disabled={brandInvoiceSaving} onClick={() => setBrandInvoicePopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-50">Cancel</button>
+              <button type="button" disabled={brandInvoiceSaving} onClick={() => void confirmBrandInvoice()} className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                {brandInvoiceSaving ? "Saving…" : "Save and move outward"}
+              </button>
             </div>
           </div>
         </div>
@@ -4158,23 +4181,6 @@ export function ScSupervisorPage() {
       ) : null}
 
       {traceJobId ? <SrfTraceModal srfId={traceJobId} onClose={() => setTraceJobId(null)} /> : null}
-
-      {ewayBrandJobId ? (
-        <EwayBillModal
-          open={Boolean(ewayBrandJobId)}
-          kind="brand"
-          resourceId={ewayBrandJobId}
-          onClose={() => setEwayBrandJobId(null)}
-          onSuccess={(edoc: EdocUiResult) => {
-            if (ewayBrandJobId) {
-              setFeedback((f) => ({
-                ...f,
-                [ewayBrandJobId]: formatEwayEdocMessage(edoc) ?? "E-way bill generated.",
-              }));
-            }
-          }}
-        />
-      ) : null}
     </div>
   );
 }

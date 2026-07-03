@@ -188,7 +188,7 @@ async function postEdocEinvoice(
   throw new Error(lastErr);
 }
 
-async function fetchIrnByDocument(
+export async function fetchIrnByDocument(
   cfg: MastersIndiaEdocConfig,
   userGstin: string,
   documentNumber: string,

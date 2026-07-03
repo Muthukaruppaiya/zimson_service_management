@@ -4,6 +4,11 @@ import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcr
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useApiMode } from "../../lib/api";
+import {
+  BULK_IMPORT_PRICES_COLUMNS,
+  BULK_IMPORT_SPARES_COLUMNS,
+  BULK_IMPORT_STOCK_COLUMNS,
+} from "../../lib/inventoryBulkImportColumns";
 
 // ── Column reference data ────────────────────────────────────────────────────
 
@@ -12,41 +17,22 @@ const SHEETS = [
     name: "Spares",
     color: "bg-rlx-green text-white",
     badge: "Sheet 1",
-    desc: "Master spare parts catalogue — one row per SKU.",
-    columns: [
-      { col: "sku", req: true, note: "Unique identifier, e.g. SP-GLASS-001" },
-      { col: "name", req: true, note: "Short display name" },
-      { col: "description", req: false, note: "Long description (optional)" },
-      { col: "category", req: true, note: "Glass / Battery / Crown / Strap / Movement / Other…" },
-      { col: "hsn", req: false, note: "HSN tariff code" },
-      { col: "mrp_inr", req: false, note: "Maximum retail price in INR" },
-      { col: "is_active", req: true, note: "yes / no — controls catalogue visibility" },
-    ],
+    desc: "Master spare parts catalogue — one row per product code.",
+    columns: BULK_IMPORT_SPARES_COLUMNS,
   },
   {
     name: "Prices",
     color: "bg-rlx-gold text-rlx-green",
     badge: "Sheet 2",
     desc: "Region + brand specific selling prices.",
-    columns: [
-      { col: "sku", req: true, note: "Must match a SKU in the Spares sheet" },
-      { col: "region_name", req: true, note: "Exact region name (e.g. COIMBATORE HO)" },
-      { col: "watch_brand", req: true, note: "Brand name the price applies to" },
-      { col: "price_inr", req: true, note: "Selling price in INR (numeric)" },
-    ],
+    columns: BULK_IMPORT_PRICES_COLUMNS,
   },
   {
     name: "Stock",
     color: "bg-stone-700 text-white",
     badge: "Sheet 3",
     desc: "Opening / adjustment stock per location.",
-    columns: [
-      { col: "sku", req: true, note: "Must match a SKU in the Spares sheet" },
-      { col: "location_type", req: true, note: "HO or STORE" },
-      { col: "region_name", req: true, note: "Region name (e.g. COIMBATORE HO)" },
-      { col: "store_name", req: false, note: "Required when location_type = STORE" },
-      { col: "quantity", req: true, note: "Integer quantity (positive to add stock)" },
-    ],
+    columns: BULK_IMPORT_STOCK_COLUMNS,
   },
 ];
 
@@ -483,10 +469,10 @@ export function InventoryBulkImportPage() {
                 </thead>
                 <tbody>
                   {sheet.columns.map((c, i) => (
-                    <tr key={c.col} className={`border-t border-rlx-rule ${i % 2 === 0 ? "bg-white" : "bg-stone-50/60"}`}>
-                      <td className="px-4 py-2 font-mono font-semibold text-stone-800">{c.col}</td>
+                    <tr key={c.key} className={`border-t border-rlx-rule ${i % 2 === 0 ? "bg-white" : "bg-stone-50/60"}`}>
+                      <td className="px-4 py-2 font-semibold text-stone-800">{c.label}</td>
                       <td className="px-3 py-2 text-center">
-                        {c.req ? (
+                        {c.required ? (
                           <span className="text-rlx-green font-bold">✓</span>
                         ) : (
                           <span className="text-stone-300">—</span>

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "../../lib/api";
 import { formatEwayEdocMessage, type EdocUiResult } from "../../lib/edocResultMessage";
 import {
@@ -7,6 +8,8 @@ import {
   type EwayBillKind,
   type EwayPrefill,
 } from "../../lib/ewayBill";
+import type { BrandEwayConsigneeOption } from "../../types/brandEwayConsignee";
+import { EwayBillSuccessModal } from "./EwayBillSuccessModal";
 import { inputClass } from "../../lib/uiForm";
 
 type Props = {
@@ -15,27 +18,51 @@ type Props = {
   resourceId: string;
   onClose: () => void;
   onSuccess: (edoc: EdocUiResult) => void;
+  /** Print delivery challan / ODC after successful e-way generation. */
+  onPrintDocument?: () => void;
+  documentLabel?: string;
+};
+
+const DOCUMENT_LABEL_BY_KIND: Record<EwayBillKind, string> = {
+  challan: "Delivery challan / ODC",
+  brand: "Brand dispatch ODC",
+  online_order: "Delivery challan",
 };
 
 const TRANSPORT_MODES = ["Road", "Rail", "Air", "Ship"] as const;
 
-export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Props) {
+function consigneeLabel(c: BrandEwayConsigneeOption): string {
+  return `${c.brandName} — ${c.locationName}`;
+}
+
+export function EwayBillModal({
+  open,
+  kind,
+  resourceId,
+  onClose,
+  onSuccess,
+  onPrintDocument,
+  documentLabel,
+}: Props) {
   const [prefill, setPrefill] = useState<EwayPrefill | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
+  const [successEdoc, setSuccessEdoc] = useState<EdocUiResult | null>(null);
 
   const [valueInr, setValueInr] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [distanceKm, setDistanceKm] = useState("0");
   const [transportMode, setTransportMode] = useState<(typeof TRANSPORT_MODES)[number]>("Road");
   const [transporterName, setTransporterName] = useState("");
-  const [consigneeGstin, setConsigneeGstin] = useState("");
-  const [consigneeName, setConsigneeName] = useState("");
-  const [consigneeAddress, setConsigneeAddress] = useState("");
-  const [consigneePlace, setConsigneePlace] = useState("");
-  const [consigneePincode, setConsigneePincode] = useState("");
+  const [selectedConsigneeId, setSelectedConsigneeId] = useState("");
   const [sandboxNote, setSandboxNote] = useState<string | null>(null);
+
+  const brandConsignees = prefill?.brandConsignees ?? [];
+  const selectedConsignee = useMemo(
+    () => brandConsignees.find((c) => c.id === selectedConsigneeId) ?? null,
+    [brandConsignees, selectedConsigneeId],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -58,6 +85,8 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
     let cancelled = false;
     setLoadErr(null);
     setPrefill(null);
+    setSuccessEdoc(null);
+    setSelectedConsigneeId("");
     void apiJson<{ prefill: EwayPrefill }>(ewayPrefillPath(kind, resourceId))
       .then((out) => {
         if (cancelled) return;
@@ -68,11 +97,11 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
         setDistanceKm("0");
         setTransportMode("Road");
         setTransporterName("");
-        setConsigneeGstin(p.consigneeGstin);
-        setConsigneeName("");
-        setConsigneeAddress("");
-        setConsigneePlace("");
-        setConsigneePincode("");
+        if (p.requiresConsigneeInput && p.brandConsignees?.length) {
+          const pick =
+            p.brandConsignees.find((c) => c.id === p.defaultConsigneeId) ?? p.brandConsignees[0] ?? null;
+          setSelectedConsigneeId(pick?.id ?? "");
+        }
         setSubmitErr(null);
       })
       .catch((e) => {
@@ -86,6 +115,26 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
 
   if (!open) return null;
 
+  const resolvedDocumentLabel = documentLabel ?? DOCUMENT_LABEL_BY_KIND[kind];
+
+  function handleSuccessClose() {
+    setSuccessEdoc(null);
+    onClose();
+  }
+
+  if (successEdoc?.ewayBillNo) {
+    return (
+      <EwayBillSuccessModal
+        open
+        edoc={successEdoc}
+        documentNumber={prefill?.documentNumber}
+        documentLabel={resolvedDocumentLabel}
+        onPrintDocument={onPrintDocument}
+        onClose={handleSuccessClose}
+      />
+    );
+  }
+
   async function handleSubmit() {
     if (!prefill) return;
     const taxableAmountInr = Number(valueInr);
@@ -93,9 +142,15 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
       setSubmitErr("Enter a valid goods / invoice value (INR).");
       return;
     }
-    if (prefill.requiresConsigneeInput && !consigneeGstin.trim()) {
-      setSubmitErr("Brand consignee GSTIN is required.");
-      return;
+    if (prefill.requiresConsigneeInput) {
+      if (!brandConsignees.length) {
+        setSubmitErr("No brand locations configured. Add consignees in Settings → Brand e-way consignees.");
+        return;
+      }
+      if (!selectedConsignee) {
+        setSubmitErr("Select brand and location for the consignee.");
+        return;
+      }
     }
     setBusy(true);
     setSubmitErr(null);
@@ -109,16 +164,21 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
           transportationMode: transportMode,
           transporterName: transporterName.trim() || undefined,
           forceRegenerate: Boolean(prefill.existingEwayBillNo),
-          consigneeGstin: consigneeGstin.trim() || undefined,
-          consigneeLegalName: consigneeName.trim() || undefined,
-          consigneeAddress: consigneeAddress.trim() || undefined,
-          consigneePlace: consigneePlace.trim() || undefined,
-          consigneePincode: consigneePincode.trim() || undefined,
+          consigneeGstin: (selectedConsignee?.gstin ?? prefill.consigneeGstin.trim()) || undefined,
+          consigneeLegalName: selectedConsignee?.legalName ?? undefined,
+          consigneeAddress: selectedConsignee?.address ?? undefined,
+          consigneePlace: selectedConsignee?.city ?? undefined,
+          consigneePincode: selectedConsignee?.pincode ?? undefined,
         },
       });
       const edoc = out.edoc ?? {};
       if (!edoc.ok && !edoc.skipped) {
         setSubmitErr(formatEwayEdocMessage(edoc) ?? edoc.error ?? "Could not generate e-way bill.");
+        return;
+      }
+      if (edoc.ewayBillNo) {
+        setSuccessEdoc(edoc);
+        onSuccess(edoc);
         return;
       }
       onSuccess(edoc);
@@ -174,7 +234,8 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
                 <span className="font-semibold text-stone-900">From:</span> {prefill.fromLabel}
               </p>
               <p className="mt-1">
-                <span className="font-semibold text-stone-900">To:</span> {prefill.toLabel}
+                <span className="font-semibold text-stone-900">To:</span>{" "}
+                {selectedConsignee ? consigneeLabel(selectedConsignee) : prefill.toLabel}
               </p>
               {!prefill.requiresConsigneeInput ? (
                 <p className="mt-1 text-stone-500">
@@ -182,6 +243,10 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
                   {prefill.interstate ? " (inter-state)" : " (intra-state)"}
                 </p>
               ) : null}
+              <p className="mt-2 text-stone-500">
+                Under GST, e-way bills apply to both intra-state and inter-state movement of goods when the consignment
+                value meets the threshold — not only for state-to-state transfers.
+              </p>
               {sandboxNote ? <p className="mt-2 text-amber-800">{sandboxNote}</p> : null}
               {prefill.existingEwayBillNo ? (
                 <p className="mt-2 font-mono text-amber-800">Existing: {prefill.existingEwayBillNo} — submit to regenerate.</p>
@@ -239,28 +304,64 @@ export function EwayBillModal({ open, kind, resourceId, onClose, onSuccess }: Pr
             {prefill.requiresConsigneeInput ? (
               <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/50 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">Brand destination (consignee)</p>
-                <label className="block">
-                  Consignee GSTIN
-                  <input className={inputClass} value={consigneeGstin} onChange={(e) => setConsigneeGstin(e.target.value.toUpperCase())} />
-                </label>
-                <label className="block">
-                  Legal name
-                  <input className={inputClass} value={consigneeName} onChange={(e) => setConsigneeName(e.target.value)} />
-                </label>
-                <label className="block">
-                  Address
-                  <input className={inputClass} value={consigneeAddress} onChange={(e) => setConsigneeAddress(e.target.value)} />
-                </label>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    Place / city
-                    <input className={inputClass} value={consigneePlace} onChange={(e) => setConsigneePlace(e.target.value)} />
-                  </label>
-                  <label className="block">
-                    Pincode
-                    <input className={inputClass} value={consigneePincode} onChange={(e) => setConsigneePincode(e.target.value)} />
-                  </label>
-                </div>
+                {prefill.watchBrand ? (
+                  <p className="text-xs text-violet-900">
+                    Watch brand: <span className="font-semibold">{prefill.watchBrand}</span>
+                  </p>
+                ) : null}
+                {brandConsignees.length === 0 ? (
+                  <p className="text-xs text-amber-900">
+                    No brand locations configured.{" "}
+                    <Link to="/settings/brand-eway-consignees" className="font-semibold underline" onClick={onClose}>
+                      Add brand e-way consignees
+                    </Link>{" "}
+                    in Settings first.
+                  </p>
+                ) : (
+                  <>
+                    <label className="block text-xs font-semibold text-violet-900">
+                      Brand & location
+                      <select
+                        className={inputClass}
+                        value={selectedConsigneeId}
+                        onChange={(e) => setSelectedConsigneeId(e.target.value)}
+                      >
+                        <option value="">Select brand and location…</option>
+                        {brandConsignees.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {consigneeLabel(c)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {selectedConsignee ? (
+                      <dl className="grid gap-2 rounded-lg border border-violet-100 bg-white/80 p-3 text-xs text-stone-700">
+                        <div>
+                          <dt className="font-semibold text-stone-500">Legal name</dt>
+                          <dd className="mt-0.5 text-stone-900">{selectedConsignee.legalName}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold text-stone-500">GSTIN</dt>
+                          <dd className="mt-0.5 font-mono text-stone-900">{selectedConsignee.gstin}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold text-stone-500">Address</dt>
+                          <dd className="mt-0.5 text-stone-900">{selectedConsignee.address}</dd>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div>
+                            <dt className="font-semibold text-stone-500">City / place</dt>
+                            <dd className="mt-0.5 text-stone-900">{selectedConsignee.city}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-stone-500">Pincode</dt>
+                            <dd className="mt-0.5 text-stone-900">{selectedConsignee.pincode}</dd>
+                          </div>
+                        </div>
+                      </dl>
+                    ) : null}
+                  </>
+                )}
               </div>
             ) : null}
 

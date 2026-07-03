@@ -1,5 +1,6 @@
 import { sendInvoiceEmail } from "../../lib/sendInvoiceEmail";
 import { useEmailSend } from "../messaging/WhatsAppSendProvider";
+import { IconEmail, IconSpinner } from "./invoicePreviewIcons";
 
 type Props = {
   email: string;
@@ -13,6 +14,7 @@ type Props = {
   onResult?: (message: string, ok: boolean) => void;
   /** When set, uses this PDF instead of capturing `.service-invoice-print-root` on the page. */
   resolvePdfBlob?: () => Promise<Blob>;
+  iconOnly?: boolean;
 };
 
 function isValidEmail(value: string): boolean {
@@ -31,6 +33,7 @@ export function SendInvoiceEmailButton({
   busyLabel = "Sending…",
   onResult,
   resolvePdfBlob,
+  iconOnly = false,
 }: Props) {
   const { runEmailSend, emailSending } = useEmailSend();
 
@@ -70,8 +73,16 @@ export function SendInvoiceEmailButton({
       disabled={disabled || emailSending}
       onClick={() => void handleClick()}
       className={className}
+      aria-label={label}
+      title={label}
     >
-      {emailSending ? busyLabel : label}
+      {emailSending ? (
+        iconOnly ? <IconSpinner /> : busyLabel
+      ) : iconOnly ? (
+        <IconEmail />
+      ) : (
+        label
+      )}
     </button>
   );
 }

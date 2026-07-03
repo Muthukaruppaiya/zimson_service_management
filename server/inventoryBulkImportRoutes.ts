@@ -3,6 +3,16 @@ import multer from "multer";
 import type { Pool, PoolClient } from "pg";
 import * as XLSX from "xlsx";
 import type { DemoUser } from "../src/types/user";
+import {
+  BULK_IMPORT_PRICES_COLUMNS,
+  BULK_IMPORT_SPARES_COLUMNS,
+  BULK_IMPORT_STOCK_COLUMNS,
+  bulkImportColumnKeys,
+  bulkImportColumnLabel,
+  bulkImportHeaderLabels,
+  canonicalBulkImportHeader,
+  type BulkImportColumn,
+} from "../src/lib/inventoryBulkImportColumns";
 import { appendStockHistory } from "./db/stockHistory";
 
 type Authed = Request & { userId: string };
@@ -12,9 +22,9 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
 });
 
-const SPARES_HEADERS = ["sku", "name", "description", "category", "hsn", "mrp_inr", "is_active"] as const;
-const PRICES_HEADERS = ["sku", "region_name", "watch_brand", "price_inr"] as const;
-const STOCK_HEADERS = ["sku", "location_type", "region_name", "store_name", "quantity"] as const;
+const SPARES_HEADER_LABELS = bulkImportHeaderLabels(BULK_IMPORT_SPARES_COLUMNS);
+const PRICES_HEADER_LABELS = bulkImportHeaderLabels(BULK_IMPORT_PRICES_COLUMNS);
+const STOCK_HEADER_LABELS = bulkImportHeaderLabels(BULK_IMPORT_STOCK_COLUMNS);
 
 type SpareRow = {
   rowNum: number;
@@ -45,10 +55,7 @@ type StockRow = {
 };
 
 function normHeader(h: unknown): string {
-  return String(h ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "_");
+  return canonicalBulkImportHeader(h);
 }
 
 function cellStr(v: unknown): string {
@@ -110,17 +117,17 @@ function parseSpares(rows: Record<string, unknown>[], baseRow: number): { rows: 
     const description = cellStr(r.description);
     const category = cellStr(r.category);
     const rowErrs: string[] = [];
-    if (!name) rowErrs.push(`Spares row ${rowNum}: name is required for SKU "${sku}".`);
-    if (!description) rowErrs.push(`Spares row ${rowNum}: description is required for SKU "${sku}".`);
-    if (!category) rowErrs.push(`Spares row ${rowNum}: category is required for SKU "${sku}".`);
+    if (!name) rowErrs.push(`Spares row ${rowNum}: Product Name is required for product code "${sku}".`);
+    if (!description) rowErrs.push(`Spares row ${rowNum}: Product Description is required for product code "${sku}".`);
+    if (!category) rowErrs.push(`Spares row ${rowNum}: Category is required for product code "${sku}".`);
     const hsnRaw = cellStr(r.hsn);
     const mrp = parseNum(r.mrp_inr);
     if (r.mrp_inr != null && cellStr(r.mrp_inr) !== "" && mrp == null) {
-      rowErrs.push(`Spares row ${rowNum}: mrp_inr must be a number for SKU "${sku}".`);
+      rowErrs.push(`Spares row ${rowNum}: MRP (INR) must be a number for product code "${sku}".`);
     }
     const activeP = parseBool(r.is_active);
     if (activeP === null && cellStr(r.is_active) !== "") {
-      rowErrs.push(`Spares row ${rowNum}: is_active must be Y/N or true/false for SKU "${sku}".`);
+      rowErrs.push(`Spares row ${rowNum}: Active must be Y/N or true/false for product code "${sku}".`);
     }
     errors.push(...rowErrs);
     if (rowErrs.length > 0) return;
@@ -150,10 +157,10 @@ function parsePrices(rows: Record<string, unknown>[], baseRow: number): { rows: 
     const watchBrand = cellStr(r.watch_brand);
     const price = parseNum(r.price_inr);
     const rowErrs: string[] = [];
-    if (!regionName) rowErrs.push(`Prices row ${rowNum}: region_name is required for SKU "${sku}".`);
-    if (!watchBrand) rowErrs.push(`Prices row ${rowNum}: watch_brand is required for SKU "${sku}".`);
+    if (!regionName) rowErrs.push(`Prices row ${rowNum}: Region Name is required for product code "${sku}".`);
+    if (!watchBrand) rowErrs.push(`Prices row ${rowNum}: Watch Brand is required for product code "${sku}".`);
     if (price == null || price < 0) {
-      rowErrs.push(`Prices row ${rowNum}: price_inr must be a non-negative number for SKU "${sku}".`);
+      rowErrs.push(`Prices row ${rowNum}: Price (INR) must be a non-negative number for product code "${sku}".`);
     }
     errors.push(...rowErrs);
     if (rowErrs.length > 0) return;
@@ -175,17 +182,17 @@ function parseStock(rows: Record<string, unknown>[], baseRow: number): { rows: S
     const qty = parseNum(r.quantity);
     const rowErrs: string[] = [];
     if (lt !== "HO" && lt !== "STORE") {
-      rowErrs.push(`Stock row ${rowNum}: location_type must be HO or STORE for SKU "${sku}".`);
+      rowErrs.push(`Stock row ${rowNum}: Location Type must be HO or STORE for product code "${sku}".`);
     }
-    if (!regionName) rowErrs.push(`Stock row ${rowNum}: region_name is required for SKU "${sku}".`);
+    if (!regionName) rowErrs.push(`Stock row ${rowNum}: Region Name is required for product code "${sku}".`);
     if (lt === "STORE" && !storeNameRaw) {
-      rowErrs.push(`Stock row ${rowNum}: store_name is required when location_type is STORE for SKU "${sku}".`);
+      rowErrs.push(`Stock row ${rowNum}: Store Name is required when Location Type is STORE for product code "${sku}".`);
     }
     if (lt === "HO" && storeNameRaw) {
-      rowErrs.push(`Stock row ${rowNum}: store_name must be empty for HO for SKU "${sku}".`);
+      rowErrs.push(`Stock row ${rowNum}: Store Name must be empty for HO for product code "${sku}".`);
     }
     if (qty == null || qty < 0) {
-      rowErrs.push(`Stock row ${rowNum}: quantity must be a non-negative number for SKU "${sku}".`);
+      rowErrs.push(`Stock row ${rowNum}: Quantity must be a non-negative number for product code "${sku}".`);
     }
     errors.push(...rowErrs);
     if (rowErrs.length > 0) return;
@@ -474,16 +481,19 @@ async function commitImport(
   return { sparesUpserted, pricesUpserted, stockUpserted };
 }
 
-function assertHeaders(sheet: XLSX.WorkSheet | undefined, expected: readonly string[], sheetLabel: string): string[] {
+function assertHeaders(sheet: XLSX.WorkSheet | undefined, columns: BulkImportColumn[], sheetLabel: string): string[] {
   if (!sheet) return [`Missing ${sheetLabel} sheet.`];
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
   if (rows.length < 1) return [`${sheetLabel}: sheet is empty.`];
   const headerRaw = rows[0] as unknown[];
   const headers = headerRaw.map((h) => normHeader(h)).filter(Boolean);
-  const missing = expected.filter((e) => !headers.includes(e));
+  const expectedKeys = bulkImportColumnKeys(columns);
+  const missing = expectedKeys.filter((e) => !headers.includes(e));
   if (missing.length) {
+    const missingLabels = missing.map((k) => bulkImportColumnLabel(columns, k));
+    const expectedLabels = bulkImportHeaderLabels(columns);
     return [
-      `${sheetLabel}: missing column(s): ${missing.join(", ")}. First row must be headers exactly as in the template (${expected.join(", ")}).`,
+      `${sheetLabel}: missing column(s): ${missingLabels.join(", ")}. First row must be headers exactly as in the template (${expectedLabels.join(", ")}).`,
     ];
   }
   return [];
@@ -542,38 +552,38 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
     ["4. Save as .xlsx and upload on the Bulk Import page."],
     [""],
     ["SHEET: Spares"],
-    ["  sku          – Unique code (stored uppercase). Required."],
-    ["  name         – Short display name. Required."],
-    ["  description  – Longer description. Required."],
-    ["  category     – Battery / Glass / Crown / Gasket / Strap / Movement / Stem / Lubricant / Tool / Consumable / Other"],
-    ["  hsn          – HSN tariff code (optional)."],
-    ["  mrp_inr      – Max retail price in INR (optional number)."],
-    ["  is_active    – Y or N (default Y)."],
+    ["  Product Code          – Unique code (stored uppercase). Required."],
+    ["  Product Name          – Short display name. Required."],
+    ["  Product Description   – Longer description. Required."],
+    ["  Category              – Battery / Glass / Crown / Gasket / Strap / Movement / Stem / Lubricant / Tool / Consumable / Other"],
+    ["  HSN                   – HSN tariff code (optional)."],
+    ["  MRP (INR)             – Max retail price in INR (optional number)."],
+    ["  Active                – Y or N (default Y)."],
     [""],
     ["SHEET: Prices"],
-    ["  sku          – Must match a SKU in the Spares sheet or already in DB."],
-    ["  region_name  – Exact region name from your system (e.g. COIMBATORE HO)."],
-    ["  watch_brand  – Active brand name (e.g. Citizen)."],
-    ["  price_inr    – Selling price in INR (number)."],
+    ["  Product Code          – Must match a product code in the Spares sheet or already in DB."],
+    ["  Region Name           – Exact region name from your system (e.g. COIMBATORE HO)."],
+    ["  Watch Brand           – Active brand name (e.g. Citizen)."],
+    ["  Price (INR)           – Selling price in INR (number)."],
     [""],
     ["SHEET: Stock"],
-    ["  sku           – Must match a SKU."],
-    ["  location_type – HO or STORE (uppercase)."],
-    ["  region_name   – Exact region name."],
-    ["  store_name    – Required when location_type = STORE; leave empty for HO."],
-    ["  quantity      – Non-negative integer."],
+    ["  Product Code          – Must match a product code."],
+    ["  Location Type         – HO or STORE (uppercase)."],
+    ["  Region Name           – Exact region name."],
+    ["  Store Name            – Required when Location Type = STORE; leave empty for HO."],
+    ["  Quantity              – Non-negative integer."],
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(readme), "README");
 
   // ── Spares sheet ─────────────────────────────────────────────────────────
   XLSX.utils.book_append_sheet(
     wb,
-    XLSX.utils.aoa_to_sheet([[...SPARES_HEADERS], ...SEED_SPARES]),
+    XLSX.utils.aoa_to_sheet([SPARES_HEADER_LABELS, ...SEED_SPARES]),
     "Spares",
   );
 
   // ── Prices sheet — one row per spare × region × brand ───────────────────
-  const priceRows: string[][] = [[...PRICES_HEADERS]];
+  const priceRows: string[][] = [PRICES_HEADER_LABELS];
   for (const spare of SEED_SPARES) {
     const sku = spare[0];
     const mrpStr = spare[5] ?? "";
@@ -588,7 +598,7 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(priceRows), "Prices");
 
   // ── Stock sheet — HO stock + first store per region ──────────────────────
-  const stockRows: string[][] = [[...STOCK_HEADERS]];
+  const stockRows: string[][] = [STOCK_HEADER_LABELS];
   for (const spare of SEED_SPARES) {
     const sku = spare[0];
     for (const region of regions) {
@@ -645,9 +655,9 @@ export function registerInventoryBulkImportRoutes(
     try {
       const wb = XLSX.read(req.file.buffer, { type: "buffer" });
       const headerErrors = [
-        ...assertHeaders(findSheet(wb, "Spares"), SPARES_HEADERS, "Spares"),
-        ...assertHeaders(findSheet(wb, "Prices"), PRICES_HEADERS, "Prices"),
-        ...assertHeaders(findSheet(wb, "Stock"), STOCK_HEADERS, "Stock"),
+        ...assertHeaders(findSheet(wb, "Spares"), BULK_IMPORT_SPARES_COLUMNS, "Spares"),
+        ...assertHeaders(findSheet(wb, "Prices"), BULK_IMPORT_PRICES_COLUMNS, "Prices"),
+        ...assertHeaders(findSheet(wb, "Stock"), BULK_IMPORT_STOCK_COLUMNS, "Stock"),
       ];
       if (headerErrors.length) {
         res.status(400).json({ ok: false, errors: headerErrors });
@@ -688,9 +698,9 @@ export function registerInventoryBulkImportRoutes(
     try {
       const wb = XLSX.read(req.file.buffer, { type: "buffer" });
       const headerErrors = [
-        ...assertHeaders(findSheet(wb, "Spares"), SPARES_HEADERS, "Spares"),
-        ...assertHeaders(findSheet(wb, "Prices"), PRICES_HEADERS, "Prices"),
-        ...assertHeaders(findSheet(wb, "Stock"), STOCK_HEADERS, "Stock"),
+        ...assertHeaders(findSheet(wb, "Spares"), BULK_IMPORT_SPARES_COLUMNS, "Spares"),
+        ...assertHeaders(findSheet(wb, "Prices"), BULK_IMPORT_PRICES_COLUMNS, "Prices"),
+        ...assertHeaders(findSheet(wb, "Stock"), BULK_IMPORT_STOCK_COLUMNS, "Stock"),
       ];
       if (headerErrors.length) {
         res.status(400).json({ ok: false, errors: headerErrors });

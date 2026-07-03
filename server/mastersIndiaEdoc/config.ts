@@ -1,4 +1,4 @@
-import { getResolvedEdocConfig } from "../edocSettingsStore";
+import { getResolvedEdocConfig, getResolvedEdocConfigForRegion } from "../edocSettingsStore";
 import type { EdocParty, MastersIndiaEdocConfig } from "./types";
 import { isValidGstin, SANDBOX_EDOC_TEST_GSTIN } from "./types";
 import { defaultPincodeForState, gstinStateCode, stateNameFromCode } from "./gstState";
@@ -6,7 +6,10 @@ import { defaultPincodeForState, gstinStateCode, stateNameFromCode } from "./gst
 export type { MastersIndiaEdocConfig } from "./types";
 export { isValidGstin, SANDBOX_EDOC_TEST_GSTIN } from "./types";
 
-export function getMastersIndiaEdocConfig(): MastersIndiaEdocConfig | null {
+export function getMastersIndiaEdocConfig(regionId?: string | null): MastersIndiaEdocConfig | null {
+  if (regionId?.trim()) {
+    return getResolvedEdocConfigForRegion(regionId.trim());
+  }
   return getResolvedEdocConfig();
 }
 

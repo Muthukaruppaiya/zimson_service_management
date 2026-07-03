@@ -10,10 +10,13 @@ import { apiJson } from "../../lib/api";
 import {
   challanShowEwayHistoryRetry,
   formatEwayEdocMessage,
+  renderChallanEwayStatus,
   type EdocUiResult,
 } from "../../lib/edocResultMessage";
 import type { TransferFlow } from "../../lib/transferDocumentKind";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
+import { printBrandDispatchDocument } from "../../lib/serviceDocuments";
+import { printDeliveryChallanById } from "../../lib/printDeliveryChallanById";
 import type { SrfJob } from "../../types/srfJob";
 
 type DeliveryChallanHistoryRow = {
@@ -44,7 +47,7 @@ const moduleBtn = (active: boolean) =>
 export function ScLogisticsHistoryPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
-  const { jobs } = useSrfJobs();
+  const { jobs, refreshJobs } = useSrfJobs();
   const [historyModule, setHistoryModule] = useState<HistoryModule>("dcOdc");
   const [selectedJob, setSelectedJob] = useState<SrfJob | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "waiting_inward" | "after_inward" | "outward_done">("all");
@@ -73,6 +76,12 @@ export function ScLogisticsHistoryPage() {
     if (!user) return [];
     return jobs.filter((j) => jobVisibleToServiceCentre(j, user));
   }, [jobs, user]);
+
+  const dcByNumber = useMemo(() => {
+    const m = new Map<string, DeliveryChallanHistoryRow>();
+    for (const row of dcRows) m.set(row.dcNumber, row);
+    return m;
+  }, [dcRows]);
 
   const dcOdcHistoryRows = useMemo(() => {
     return allVisibleJobs
@@ -175,7 +184,35 @@ export function ScLogisticsHistoryPage() {
 
   function onBrandEwaySuccess(edoc: EdocUiResult) {
     setBrandMsg(formatEwayEdocMessage(edoc) ?? (edoc?.ok ? "E-way bill generated." : "Could not generate e-way bill."));
-    setEwayBrandJobId(null);
+    void refreshJobs();
+  }
+
+  function renderEwayCell(challan?: DeliveryChallanHistoryRow | null, dcKey?: string) {
+    if (!challan) {
+      return <span className="text-stone-400">—</span>;
+    }
+    const status = renderChallanEwayStatus(challan);
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <span className={`text-[10px] font-semibold uppercase ${status.className}`} title={status.title}>
+          {status.label}
+        </span>
+        {dcCanRetry(challan) ? (
+          <button
+            type="button"
+            disabled={ewayBusyId === (dcKey ?? challan.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setEwayBusyId(dcKey ?? challan.id);
+              setEwayDcId(challan.id);
+            }}
+            className={actionBtn}
+          >
+            {ewayBusyId === (dcKey ?? challan.id) ? "…" : ewayActionLabel(challan)}
+          </button>
+        ) : null}
+      </div>
+    );
   }
 
   function switchModule(next: HistoryModule) {
@@ -245,21 +282,14 @@ export function ScLogisticsHistoryPage() {
                         {row.srfReferences.join(", ") || "—"}
                       </td>
                       <td className="px-3 py-2 text-[10px] font-semibold uppercase">
-                        {row.edocEwayBillNo?.trim() ? (
-                          <span className="text-emerald-700">EWB {row.edocEwayBillNo}</span>
-                        ) : row.edocStatus === "SKIPPED" ? (
-                          <span className="text-stone-500" title={row.edocError ?? undefined}>
-                            Skipped
-                          </span>
-                        ) : row.edocStatus === "FAILED" ? (
-                          <span className="text-rose-700" title={row.edocError ?? undefined}>
-                            Failed
-                          </span>
-                        ) : !row.needsEway ? (
-                          <span className="text-stone-500">No e-way</span>
-                        ) : (
-                          <span className="text-amber-700">Pending</span>
-                        )}
+                        {(() => {
+                          const status = renderChallanEwayStatus(row);
+                          return (
+                            <span className={status.className} title={status.title}>
+                              {status.label}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2 text-center">
                         {dcCanRetry(row) ? (
@@ -287,6 +317,9 @@ export function ScLogisticsHistoryPage() {
 
       {historyModule === "dcOdc" ? (
         <Card title={`DC / ODC history (${filteredRows.length})`}>
+          {dcMsg ? (
+            <p className="mb-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-950 ring-1 ring-sky-200">{dcMsg}</p>
+          ) : null}
           <div className="mb-4 grid gap-2 md:grid-cols-4">
             <select
               value={statusFilter}
@@ -345,6 +378,8 @@ export function ScLogisticsHistoryPage() {
                       <th className="px-3 py-2">SRF</th>
                       <th className="px-3 py-2">DC</th>
                       <th className="px-3 py-2">ODC</th>
+                      <th className="px-3 py-2">Inward DC e-way</th>
+                      <th className="px-3 py-2">Outward ODC e-way</th>
                       <th className="px-3 py-2">Customer</th>
                       <th className="px-3 py-2">Store</th>
                     </tr>
@@ -375,6 +410,14 @@ export function ScLogisticsHistoryPage() {
                         <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
                         <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.dcNumber ?? "-"}</td>
                         <td className="px-3 py-2 font-mono text-xs text-zimson-900">{j.outwardDcNumber ?? "-"}</td>
+                        <td className="px-3 py-2">
+                          {j.dcNumber ? renderEwayCell(dcByNumber.get(j.dcNumber), `in-${j.id}-${j.dcNumber}`) : "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          {j.outwardDcNumber
+                            ? renderEwayCell(dcByNumber.get(j.outwardDcNumber), `out-${j.id}-${j.outwardDcNumber}`)
+                            : "—"}
+                        </td>
                         <td className="px-3 py-2">{j.customerName}</td>
                         <td className="px-3 py-2 text-xs text-stone-600">
                           {(() => {
@@ -436,9 +479,10 @@ export function ScLogisticsHistoryPage() {
                     <th className="px-3 py-2">SRF</th>
                     <th className="px-3 py-2">Watch / customer</th>
                     <th className="px-3 py-2">Dispatch ref</th>
-                    <th className="px-3 py-2">Dispatch note</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2 text-center">E-way</th>
+                      <th className="px-3 py-2">Dispatch note</th>
+                      <th className="px-3 py-2">Brand ODC</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2 text-center">E-way</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -458,11 +502,14 @@ export function ScLogisticsHistoryPage() {
                       <td className="px-3 py-2 text-xs text-stone-600">
                         {j.brandDispatchClerkNote?.trim() || j.brandDispatchNote?.trim() || "—"}
                       </td>
+                      <td className="px-3 py-2 font-mono text-xs text-violet-900">{j.brandOdcNumber ?? "—"}</td>
                       <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
                         {j.status.replaceAll("_", " ")}
                       </td>
                       <td className="px-3 py-2 text-center">
-                        {edocEnabled ? (
+                        {j.edocEwayBillNo?.trim() ? (
+                          <span className="text-[10px] font-semibold uppercase text-emerald-700">EWB {j.edocEwayBillNo}</span>
+                        ) : edocEnabled ? (
                           <button
                             type="button"
                             onClick={() => setEwayBrandJobId(j.id)}
@@ -570,8 +617,11 @@ export function ScLogisticsHistoryPage() {
           }}
           onSuccess={(edoc) => {
             onEwaySuccess(edoc);
-            setEwayDcId(null);
-            setEwayBusyId(null);
+          }}
+          onPrintDocument={() => {
+            void printDeliveryChallanById(ewayDcId, jobs, {
+              preparedBy: user?.displayName?.trim() || user?.email?.trim(),
+            });
           }}
         />
       ) : null}
@@ -583,6 +633,10 @@ export function ScLogisticsHistoryPage() {
           resourceId={ewayBrandJobId}
           onClose={() => setEwayBrandJobId(null)}
           onSuccess={onBrandEwaySuccess}
+          onPrintDocument={() => {
+            const job = jobs.find((j) => j.id === ewayBrandJobId);
+            if (job) printBrandDispatchDocument(job);
+          }}
         />
       ) : null}
     </div>

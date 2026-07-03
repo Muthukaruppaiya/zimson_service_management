@@ -1,12 +1,14 @@
 import { documentBarcodeImageSrc } from "./invoiceScanCodes";
 import { openPrintDocument } from "./inventoryDocuments";
 import { getAppLogoUrl } from "./appBranding";
+import { POPPINS_FONT_CSS, POPPINS_GOOGLE_HEAD } from "./appFonts";
 import { ADVANCE_CASH_DENOMS, type AdvancePaymentDetails } from "./paymentModes";
 import { repairRouteLabel, type SrfRepairRoute } from "./srfRepairRoute";
 import type { SrfJob } from "../types/srfJob";
 import {
   transferDocumentTitle,
   transferNumberLabel,
+  transferFlowDirection,
   type TransferFlow,
   type TransferPartyBlock,
   type TransferPrintKind,
@@ -26,9 +28,9 @@ function base(title: string, body: string): string {
   const baseHref = typeof window !== "undefined" ? window.location.origin : "";
   return `<!doctype html>
   <html>
-    <head><meta charset="utf-8"/><title>${title}</title></head>
+    <head><meta charset="utf-8"/>${POPPINS_GOOGLE_HEAD}<title>${title}</title></head>
     <base href="${baseHref}/" />
-    <body style="font-family:Arial,sans-serif;padding:24px;color:#111">
+    <body style="font-family:${POPPINS_FONT_CSS};padding:24px;color:#111">
       ${body}
     </body>
   </html>`;
@@ -202,7 +204,7 @@ function resolveSrfLogoUrl(): string {
 function srfLogoImgHtml(): string {
   const primary = resolveSrfLogoUrl();
   const fallback = absoluteAssetUrl(SRF_FALLBACK_LOGO);
-  return `<img class="srf-logo" src="${escHtml(primary)}" alt="Zimson" onerror="this.onerror=null;this.src='${escHtml(fallback)}';" />`;
+  return `<img class="xfer-logo srf-logo" src="${escHtml(primary)}" alt="Zimson" onerror="this.onerror=null;this.src='${escHtml(fallback)}';" />`;
 }
 
 function bookingCenterBlock(store?: SrfPrintStoreInfo): string {
@@ -273,7 +275,7 @@ const SRF_PRINT_CSS = `
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
-    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    font-family: ${POPPINS_FONT_CSS};
     font-size: 10px;
     line-height: 1.35;
     color: #0d1b2a;
@@ -515,6 +517,7 @@ export function printSrfDocument(job: SrfPrintInput): void {
 <html>
 <head>
   <meta charset="utf-8"/>
+  ${POPPINS_GOOGLE_HEAD}
   <base href="${escHtml(baseHref)}/" />
   <title>SRF ${escHtml(job.reference)}</title>
   <style>${SRF_PRINT_CSS}</style>
@@ -718,7 +721,7 @@ const TRANSFER_PRINT_CSS = `
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
-    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    font-family: ${POPPINS_FONT_CSS};
     font-size: 10px;
     line-height: 1.35;
     color: #0d1b2a;
@@ -741,51 +744,102 @@ const TRANSFER_PRINT_CSS = `
   }
   .xfer-banner-sub { display: table-cell; vertical-align: middle; padding: 10px 14px; font-size: 10px; text-align: right; }
   .xfer-accent { height: 4px; background: linear-gradient(90deg, #c9a227 0%, #e8d48a 50%, #c9a227 100%); }
-  .xfer-top-row { display: table; width: 100%; border-bottom: 1px solid #1b3a8f; }
-  .xfer-top-cell { display: table-cell; vertical-align: top; padding: 10px 12px; border-right: 1px solid #d8dff0; width: 33.33%; }
+  .xfer-top-row { display: table; width: 100%; table-layout: fixed; border-bottom: 1px solid #1b3a8f; }
+  .xfer-top-cell { display: table-cell; vertical-align: top; padding: 8px 10px; border-right: 1px solid #d8dff0; }
   .xfer-top-cell:last-child { border-right: none; }
-  .xfer-barcode-wrap { text-align: center; vertical-align: middle; }
-  .xfer-logo-wrap { text-align: right; vertical-align: middle; }
-  .xfer-logo { height: 56px; max-width: 180px; object-fit: contain; display: inline-block; }
+  .xfer-top-cell--meta { width: 38%; vertical-align: top; }
+  .xfer-top-cell--barcode { width: 34%; vertical-align: middle; text-align: center; }
+  .xfer-top-cell--logo { width: 28%; vertical-align: middle; text-align: right; }
+  .doc-barcode-stack { text-align: center; margin: 0 auto; max-width: 220px; }
+  .doc-barcode-img { display: block; width: 100%; max-width: 220px; height: 48px; margin: 0 auto; object-fit: contain; }
+  .doc-barcode-label {
+    margin: 4px 0 0;
+    padding: 0;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #0d1b2a;
+    line-height: 1.2;
+    text-align: center;
+  }
+  .xfer-logo, .srf-logo {
+    height: 52px;
+    max-width: 160px;
+    width: auto;
+    object-fit: contain;
+    display: inline-block;
+    vertical-align: middle;
+  }
   .xfer-meta-box { border: 1px solid #1b3a8f; background: #f4f6fb; padding: 6px 8px; font-size: 9.5px; }
-  .xfer-meta-box div { margin-bottom: 3px; }
-  .xfer-meta-box strong { color: #1b3a8f; }
-  .xfer-body { padding: 0 12px 14px; }
-  .xfer-party-grid { display: table; width: 100%; border-bottom: 1px solid #1b3a8f; }
+  .xfer-meta-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .xfer-meta-table td { padding: 3px 0; vertical-align: top; line-height: 1.35; }
+  .xfer-meta-table td.lbl {
+    width: 44%;
+    font-weight: 600;
+    color: #4a5568;
+    padding-right: 10px;
+    white-space: nowrap;
+  }
+  .xfer-meta-table td.val {
+    width: 56%;
+    font-weight: 700;
+    color: #0d1b2a;
+    word-break: break-word;
+  }
+  .xfer-meta-table td.val.mono { font-family: Consolas, "Courier New", monospace; font-size: 9px; }
+  .xfer-meta-table tr + tr td { border-top: 1px solid #e8edf8; }
+  .xfer-body { padding: 0; }
+  .xfer-pad { padding: 0 12px; }
+  .xfer-party-grid + .xfer-body .sec-title { margin-top: 0; }
+  .xfer-party-grid { display: table; width: 100%; table-layout: fixed; border-bottom: 1px solid #1b3a8f; }
   .xfer-party-col { display: table-cell; width: 50%; vertical-align: top; padding: 0; border-right: 1px solid #d8dff0; }
   .xfer-party-col:last-child { border-right: none; }
   .xfer-party-head {
     background: #e8edf8; color: #1b3a8f; font-size: 10px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.06em; padding: 5px 10px; border-bottom: 1px solid #1b3a8f;
   }
-  .xfer-party-body { padding: 8px 10px; font-size: 9.5px; line-height: 1.4; min-height: 88px; }
-  .xfer-party-body .name { font-weight: 700; font-size: 10px; margin-bottom: 4px; color: #0d1b2a; }
-  .xfer-party-body .loc { color: #c9a227; font-weight: 600; font-size: 9px; margin-bottom: 4px; }
+  .xfer-party-body { padding: 8px 10px; font-size: 9.5px; line-height: 1.45; min-height: 88px; }
+  .xfer-party-body .name { font-weight: 700; font-size: 10px; margin: 0 0 4px; color: #0d1b2a; }
+  .xfer-party-body .loc { color: #c9a227; font-weight: 600; font-size: 9px; margin: 0 0 6px; }
+  .xfer-party-body .addr { margin: 0 0 4px; }
+  .xfer-party-body .contact { margin: 0; }
   .sec-title {
     background: #e8edf8; color: #1b3a8f; font-size: 10px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.06em; padding: 5px 10px; margin: 8px 0 4px;
-    border: 1px solid #1b3a8f; border-bottom-width: 2px;
+    text-transform: uppercase; letter-spacing: 0.06em; padding: 5px 10px; margin: 8px 0 0;
+    border-top: 1px solid #1b3a8f; border-bottom: 2px solid #1b3a8f;
   }
-  .xfer-watches { width: 100%; border-collapse: collapse; font-size: 9px; }
+  .xfer-watches { width: 100%; border-collapse: collapse; font-size: 9px; table-layout: fixed; }
   .xfer-watches th {
     background: #1b3a8f; color: #c9a227; font-weight: 700; text-align: center;
     padding: 4px 5px; border: 1px solid #1b3a8f; font-size: 8px; text-transform: uppercase;
   }
-  .xfer-watches td { border: 1px solid #d8dff0; padding: 4px 5px; vertical-align: top; }
-  .xfer-watches td.c { text-align: center; width: 24px; background: #f4f6fb; font-weight: 600; }
+  .xfer-watches td { border: 1px solid #d8dff0; padding: 4px 5px; vertical-align: top; word-wrap: break-word; }
+  .xfer-watches td.c { text-align: center; width: 28px; background: #f4f6fb; font-weight: 600; }
   .xfer-watches td.mono { font-family: Consolas, monospace; font-weight: 600; }
   .xfer-watches tfoot td { font-weight: 700; background: #e8edf8; color: #1b3a8f; border: 1px solid #1b3a8f; }
-  .xfer-refs { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 9px; margin: 4px 0 8px; color: #4a5568; }
+  .xfer-watches tfoot td.xfer-total-label { text-align: right; padding-right: 8px; }
+  .xfer-watches tfoot td.xfer-total-val { text-align: center; width: 15%; }
+  .xfer-refs { font-size: 9px; margin: 6px 0 0; color: #4a5568; }
+  .xfer-refs span { display: inline-block; margin: 0 16px 4px 0; }
   .xfer-refs b { color: #1b3a8f; }
   .sign-row {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    display: table; width: 100%; table-layout: fixed;
     margin-top: 10px; padding-top: 8px; border-top: 1px solid #1b3a8f;
   }
-  .sign-lbl { font-size: 8px; font-weight: 700; color: #1b3a8f; text-transform: uppercase; margin-bottom: 16px; }
-  .sign-line { border-bottom: 1px solid #1b3a8f; min-height: 1px; }
+  .sign-cell { display: table-cell; vertical-align: bottom; width: 33.33%; padding-right: 10px; }
+  .sign-cell:last-child { padding-right: 0; }
+  .sign-lbl { font-size: 8px; font-weight: 700; color: #1b3a8f; text-transform: uppercase; margin-bottom: 14px; }
+  .sign-line { border-bottom: 1px solid #1b3a8f; min-height: 1px; max-width: 100%; }
+  .xfer-footnote { font-size: 8px; color: #4a5568; margin: 8px 0 0; line-height: 1.35; }
+  .xfer-footer { padding: 0 12px 14px; }
   @media print { body { background: #fff; } .doc { width: 100%; min-height: auto; margin: 0; } }
   @media screen { body { padding: 12px 0; } }
 `;
+
+function xferMetaRow(label: string, value: string, mono = false): string {
+  return `<tr><td class="lbl">${escHtml(label)}</td><td class="val${mono ? " mono" : ""}">${escHtml(value)}</td></tr>`;
+}
 
 function xferPartyHtml(head: string, party: TransferPartyBlock): string {
   return `<div class="xfer-party-col">
@@ -793,9 +847,10 @@ function xferPartyHtml(head: string, party: TransferPartyBlock): string {
     <div class="xfer-party-body">
       <div class="loc">${escHtml(party.locationLabel)}</div>
       <div class="name">${escHtml(party.legalName)}</div>
-      ${escHtml(party.address).replace(/\n/g, "<br/>")}<br/>
-      <strong>Ph:</strong> ${escHtml(party.phone)} &nbsp; <strong>Email:</strong> ${escHtml(party.email)}<br/>
-      <strong>GSTIN:</strong> ${escHtml(party.gstin)}
+      <div class="addr">${escHtml(party.address).replace(/\n/g, "<br/>")}</div>
+      <div class="contact"><strong>Ph:</strong> ${escHtml(party.phone)}</div>
+      <div class="contact"><strong>Email:</strong> ${escHtml(party.email)}</div>
+      <div class="contact"><strong>GSTIN:</strong> ${escHtml(party.gstin)}</div>
     </div>
   </div>`;
 }
@@ -821,6 +876,8 @@ export type TransferPrintInput = {
   transferNumber: string;
   printKind: TransferPrintKind;
   flow: TransferFlow;
+  /** OUT = dispatch / outward; IN = inward receipt copy. Defaults from flow. */
+  direction?: "IN" | "OUT";
   transferDate?: Date | string;
   from: TransferPartyBlock;
   to: TransferPartyBlock;
@@ -834,12 +891,8 @@ export type TransferPrintInput = {
 export function printTransferDocument(input: TransferPrintInput): void {
   const title = transferDocumentTitle(input.printKind, input.flow);
   const numLabel = transferNumberLabel(input.printKind, input.seriesCode);
-  const docTypeLabel =
-    input.flow === "store_to_ho" || input.flow === "ho_to_store"
-      ? "Internal Transfer (Store ↔ HO)"
-      : input.printKind === "dc"
-        ? "Delivery Challan (Inter-HO / GST differs)"
-        : "Internal Transfer (same GSTIN)";
+  const direction = input.direction ?? transferFlowDirection(input.flow);
+  const docTypeLabel = direction;
   const when = input.transferDate
     ? input.transferDate instanceof Date
       ? input.transferDate.toLocaleString("en-IN", { hour12: false })
@@ -857,6 +910,7 @@ export function printTransferDocument(input: TransferPrintInput): void {
 <html>
 <head>
   <meta charset="utf-8"/>
+  ${POPPINS_GOOGLE_HEAD}
   <base href="${escHtml(baseHref)}/" />
   <title>${escHtml(title)} ${escHtml(input.transferNumber)}</title>
   <style>${TRANSFER_PRINT_CSS}</style>
@@ -869,27 +923,35 @@ export function printTransferDocument(input: TransferPrintInput): void {
     </div>
     <div class="xfer-accent" aria-hidden="true"></div>
     <div class="xfer-top-row">
-      <div class="xfer-top-cell">
+      <div class="xfer-top-cell xfer-top-cell--meta">
         <div class="xfer-meta-box">
-          <div><strong>${escHtml(numLabel)}</strong> ${escHtml(input.transferNumber)}</div>
-          <div><strong>Transfer date:</strong> ${escHtml(when)}</div>
-          <div><strong>Total watches:</strong> ${input.jobs.length}</div>
-          <div><strong>Document type:</strong> ${escHtml(docTypeLabel)}</div>
-          <div><strong>From GSTIN:</strong> ${escHtml(input.from.gstin)}</div>
-          <div><strong>To GSTIN:</strong> ${escHtml(input.to.gstin)}</div>
+          <table class="xfer-meta-table">
+            <tbody>
+              ${xferMetaRow(numLabel, input.transferNumber, true)}
+              ${xferMetaRow("Transfer date", when)}
+              ${xferMetaRow("Total items", String(input.jobs.length))}
+              ${xferMetaRow("Document type", docTypeLabel)}
+              ${xferMetaRow("From GSTIN", input.from.gstin)}
+              ${xferMetaRow("To GSTIN", input.to.gstin)}
+            </tbody>
+          </table>
         </div>
       </div>
-      <div class="xfer-top-cell xfer-barcode-wrap">${barcode}</div>
-      <div class="xfer-top-cell xfer-logo-wrap">${logoHtml}</div>
+      <div class="xfer-top-cell xfer-top-cell--barcode xfer-barcode-wrap">${barcode}</div>
+      <div class="xfer-top-cell xfer-top-cell--logo xfer-logo-wrap">${logoHtml}</div>
+    </div>
+    <div class="xfer-party-grid">
+      ${xferPartyHtml("From (Sender)", input.from)}
+      ${xferPartyHtml("To (Receiver)", input.to)}
     </div>
     <div class="xfer-body">
-      <div class="xfer-party-grid">
-        ${xferPartyHtml("From (Sender)", input.from)}
-        ${xferPartyHtml("To (Receiver)", input.to)}
-      </div>
-      ${refsBlock}
-      <div class="sec-title">Watches in this transfer (${input.jobs.length})</div>
+      ${refsBlock ? `<div class="xfer-pad">${refsBlock}</div>` : ""}
+      <div class="sec-title">Items in this transfer (${input.jobs.length})</div>
       <table class="xfer-watches">
+        <colgroup>
+          <col class="c-no" /><col class="c-srf" /><col class="c-cust" /><col class="c-mob" />
+          <col class="c-brand" /><col class="c-model" /><col class="c-serial" />
+        </colgroup>
         <thead>
           <tr>
             <th>#</th>
@@ -904,23 +966,25 @@ export function printTransferDocument(input: TransferPrintInput): void {
         <tbody>${xferWatchRows(input.jobs) || '<tr><td colspan="7">No watches listed</td></tr>'}</tbody>
         <tfoot>
           <tr>
-            <td colspan="6" style="text-align:right">Total watches</td>
-            <td style="text-align:center">${input.jobs.length}</td>
+            <td colspan="6" class="xfer-total-label">Total</td>
+            <td class="xfer-total-val">${input.jobs.length}</td>
           </tr>
         </tfoot>
       </table>
-      <div class="sign-row">
-        <div><div class="sign-lbl">Dispatched by</div><div class="sign-line"></div>${input.preparedBy ? `<div style="font-size:8px;margin-top:4px">${escHtml(input.preparedBy)}</div>` : ""}</div>
-        <div><div class="sign-lbl">Received by</div><div class="sign-line"></div></div>
-        <div><div class="sign-lbl">Date &amp; stamp</div><div class="sign-line"></div></div>
+      <div class="xfer-footer">
+        <div class="sign-row">
+          <div class="sign-cell"><div class="sign-lbl">Dispatched by</div><div class="sign-line"></div>${input.preparedBy ? `<div style="font-size:8px;margin-top:4px">${escHtml(input.preparedBy)}</div>` : ""}</div>
+          <div class="sign-cell"><div class="sign-lbl">Received by</div><div class="sign-line"></div></div>
+          <div class="sign-cell"><div class="sign-lbl">Date &amp; stamp</div><div class="sign-line"></div></div>
+        </div>
+        <p class="xfer-footnote">
+          ${input.flow === "store_to_ho" || input.flow === "ho_to_store"
+            ? "Internal transfer between store and regional service centre (HO). Not a GST delivery challan."
+            : input.printKind === "dc"
+              ? "Delivery Challan for inter-HO movement or when sender and receiver GSTIN differ."
+              : "Internal transfer document when sender and receiver share the same GSTIN."}
+        </p>
       </div>
-      <p style="font-size:8px;color:#4a5568;margin-top:8px">
-        ${input.flow === "store_to_ho" || input.flow === "ho_to_store"
-          ? "Internal transfer between store and regional service centre (HO). Not a GST delivery challan."
-          : input.printKind === "dc"
-            ? "Delivery Challan for inter-HO movement or when sender and receiver GSTIN differ."
-            : "Internal transfer document when sender and receiver share the same GSTIN."}
-      </p>
     </div>
   </div>
 </body>
@@ -932,12 +996,20 @@ export function printTransferDocument(input: TransferPrintInput): void {
 export function printTransferFromMeta(
   meta: TransferPrintMeta,
   jobs: SrfJob[],
-  opts?: { seriesCode?: string; hoInvoiceRef?: string; storeInvoiceRef?: string; preparedBy?: string; transferDate?: Date },
+  opts?: {
+    seriesCode?: string;
+    hoInvoiceRef?: string;
+    storeInvoiceRef?: string;
+    preparedBy?: string;
+    transferDate?: Date;
+    direction?: "IN" | "OUT";
+  },
 ): void {
   printTransferDocument({
     transferNumber: meta.transferNumber,
     printKind: meta.printKind,
     flow: meta.flow,
+    direction: opts?.direction,
     from: meta.from,
     to: meta.to,
     jobs,
@@ -1063,7 +1135,7 @@ export function printSrfInwardReceiptDocument(payload: SrfInwardReceiptInput): v
   const logoHtml = srfLogoImgHtml();
   const baseHref = typeof window !== "undefined" ? window.location.origin : "";
   const seriesNote = input.transferSeries
-    ? `<div><strong>Transfer series:</strong> ${escHtml(input.transferSeries)}</div>`
+    ? xferMetaRow("Transfer series", input.transferSeries)
     : "";
   const receivedDetail = input.receivedAtDetail?.trim()
     ? `<br/>${escHtml(input.receivedAtDetail).replace(/\n/g, "<br/>")}`
@@ -1099,6 +1171,7 @@ export function printSrfInwardReceiptDocument(payload: SrfInwardReceiptInput): v
 <html>
 <head>
   <meta charset="utf-8"/>
+  ${POPPINS_GOOGLE_HEAD}
   <base href="${escHtml(baseHref)}/" />
   <title>${escHtml(input.documentTitle)} ${escHtml(input.inwardNumber)}</title>
   <style>${TRANSFER_PRINT_CSS}${INWARD_RECEIPT_EXTRA_CSS}</style>
@@ -1111,26 +1184,34 @@ export function printSrfInwardReceiptDocument(payload: SrfInwardReceiptInput): v
     </div>
     <div class="xfer-accent" aria-hidden="true"></div>
     <div class="xfer-top-row">
-      <div class="xfer-top-cell">
+      <div class="xfer-top-cell xfer-top-cell--meta">
         <div class="xfer-meta-box">
-          <div><strong>${escHtml(input.numberLabel)}</strong> ${escHtml(input.inwardNumber)}</div>
-          <div><strong>Received at:</strong> ${escHtml(input.receivedAtLocation)}</div>
-          <div><strong>${escHtml(input.fromLocationLabel)}:</strong> ${escHtml(input.fromLocationName)}</div>
-          <div><strong>Inward date &amp; time:</strong> ${escHtml(when)}</div>
-          <div><strong>Received by:</strong> ${escHtml(input.receivedBy)}</div>
-          <div><strong>Total SRF watches:</strong> ${input.jobs.length}</div>
-          ${seriesNote}
+          <table class="xfer-meta-table">
+            <tbody>
+              ${xferMetaRow(input.numberLabel, input.inwardNumber, true)}
+              ${xferMetaRow("Document type", "IN")}
+              ${xferMetaRow("Received at", input.receivedAtLocation)}
+              ${xferMetaRow(input.fromLocationLabel, input.fromLocationName)}
+              ${xferMetaRow("Inward date & time", when)}
+              ${xferMetaRow("Received by", input.receivedBy)}
+              ${xferMetaRow("Total SRF watches", String(input.jobs.length))}
+              ${seriesNote}
+            </tbody>
+          </table>
         </div>
       </div>
-      <div class="xfer-top-cell xfer-barcode-wrap">${barcode}</div>
-      <div class="xfer-top-cell xfer-logo-wrap">${logoHtml}</div>
+      <div class="xfer-top-cell xfer-top-cell--barcode xfer-barcode-wrap">${barcode}</div>
+      <div class="xfer-top-cell xfer-top-cell--logo xfer-logo-wrap">${logoHtml}</div>
     </div>
+    ${partyBlock}
     <div class="xfer-body">
-      ${partyBlock}
-      <div class="inward-received-banner">SRF received at: ${escHtml(input.receivedAtLocation)}</div>
-      <p style="font-size:9px;color:#4a5568;margin:0 0 6px">${escHtml(input.documentSubtitle)}</p>
+      <div class="xfer-pad">
+        <div class="inward-received-banner">SRF received at: ${escHtml(input.receivedAtLocation)}</div>
+        <p style="font-size:9px;color:#4a5568;margin:0 0 6px">${escHtml(input.documentSubtitle)}</p>
+      </div>
       <div class="sec-title">SRF details received (${input.jobs.length})</div>
-      <table class="xfer-watches inward-srf-table">
+      <div class="xfer-pad">
+        <table class="xfer-watches inward-srf-table">
         <thead>
           <tr>
             <th>#</th>
@@ -1149,20 +1230,23 @@ export function printSrfInwardReceiptDocument(payload: SrfInwardReceiptInput): v
         <tbody>${inwardReceiptWatchRows(input.jobs, input.receivedAtLocation) || '<tr><td colspan="11">No SRF rows</td></tr>'}</tbody>
         <tfoot>
           <tr>
-            <td colspan="10" style="text-align:right">Total watches inwarded</td>
+            <td colspan="10" style="text-align:right">Total items inwarded</td>
             <td style="text-align:center">${input.jobs.length}</td>
           </tr>
         </tfoot>
       </table>
-      <div class="sign-row">
-        <div><div class="sign-lbl">Received by</div><div class="sign-line"></div><div style="font-size:8px;margin-top:4px">${escHtml(input.receivedBy)}</div></div>
-        <div><div class="sign-lbl">Verified by (supervisor)</div><div class="sign-line"></div></div>
-        <div><div class="sign-lbl">Date &amp; stamp</div><div class="sign-line"></div></div>
       </div>
-      <p style="font-size:8px;color:#4a5568;margin-top:8px">
-        This document confirms physical receipt of the SRF watch(es) at ${escHtml(input.receivedAtLocation)} against ${escHtml(input.numberLabel)} ${escHtml(input.inwardNumber)}.
-        Retain for store/HO records and customer traceability.
-      </p>
+      <div class="xfer-footer">
+        <div class="sign-row">
+          <div class="sign-cell"><div class="sign-lbl">Received by</div><div class="sign-line"></div><div style="font-size:8px;margin-top:4px">${escHtml(input.receivedBy)}</div></div>
+          <div class="sign-cell"><div class="sign-lbl">Verified by (supervisor)</div><div class="sign-line"></div></div>
+          <div class="sign-cell"><div class="sign-lbl">Date &amp; stamp</div><div class="sign-line"></div></div>
+        </div>
+        <p class="xfer-footnote">
+          This document confirms physical receipt of the SRF watch(es) at ${escHtml(input.receivedAtLocation)} against ${escHtml(input.numberLabel)} ${escHtml(input.inwardNumber)}.
+          Retain for store/HO records and customer traceability.
+        </p>
+      </div>
     </div>
   </div>
 </body>
@@ -1354,6 +1438,7 @@ export function printAssignmentSlip(
 <html>
 <head>
   <meta charset="utf-8"/>
+  ${POPPINS_GOOGLE_HEAD}
   <base href="${escHtml(baseHref)}/" />
   <title>Technician Notes ${escHtml(job.reference)}</title>
   <style>${TRANSFER_PRINT_CSS}${TECH_NOTES_PRINT_EXTRA_CSS}</style>
@@ -1366,7 +1451,7 @@ export function printAssignmentSlip(
     </div>
     <div class="xfer-accent" aria-hidden="true"></div>
     <div class="xfer-top-row">
-      <div class="xfer-top-cell">
+      <div class="xfer-top-cell xfer-top-cell--meta">
         <div class="xfer-meta-box">
           <div><strong>SRF No.:</strong> ${escHtml(job.reference)}</div>
           <div><strong>Technician:</strong> ${escHtml(technicianLabel)}</div>
@@ -1376,8 +1461,8 @@ export function printAssignmentSlip(
           <div><strong>Est. finish:</strong> ${escHtml(estFinish)}</div>
         </div>
       </div>
-      <div class="xfer-top-cell xfer-barcode-wrap">${barcode}</div>
-      <div class="xfer-top-cell xfer-logo-wrap">${logoHtml}</div>
+      <div class="xfer-top-cell xfer-top-cell--barcode xfer-barcode-wrap">${barcode}</div>
+      <div class="xfer-top-cell xfer-top-cell--logo xfer-logo-wrap">${logoHtml}</div>
     </div>
     <div class="xfer-body">
       <div class="sec-title">SRF / watch details</div>
@@ -1450,6 +1535,7 @@ export function printBrandDispatchDocument(job: SrfJob, payload?: { dispatchRef?
 <html>
 <head>
   <meta charset="utf-8"/>
+  ${POPPINS_GOOGLE_HEAD}
   <base href="${escHtml(baseHref)}/" />
   <title>Brand Dispatch ${escHtml(job.reference)}</title>
   <style>${TRANSFER_PRINT_CSS}${TECH_NOTES_PRINT_EXTRA_CSS}</style>
@@ -1462,7 +1548,7 @@ export function printBrandDispatchDocument(job: SrfJob, payload?: { dispatchRef?
     </div>
     <div class="xfer-accent" aria-hidden="true"></div>
     <div class="xfer-top-row">
-      <div class="xfer-top-cell">
+      <div class="xfer-top-cell xfer-top-cell--meta">
         <div class="xfer-meta-box">
           <div><strong>SRF No.:</strong> ${escHtml(job.reference)}</div>
           <div><strong>Dispatch ODC:</strong> ${escHtml(job.brandOdcNumber ?? "—")}</div>
@@ -1471,8 +1557,8 @@ export function printBrandDispatchDocument(job: SrfJob, payload?: { dispatchRef?
           <div><strong>Booking centre:</strong> ${escHtml(bookingCenter)}</div>
         </div>
       </div>
-      <div class="xfer-top-cell xfer-barcode-wrap">${barcode}</div>
-      <div class="xfer-top-cell xfer-logo-wrap">${logoHtml}</div>
+      <div class="xfer-top-cell xfer-top-cell--barcode xfer-barcode-wrap">${barcode}</div>
+      <div class="xfer-top-cell xfer-top-cell--logo xfer-logo-wrap">${logoHtml}</div>
     </div>
     <div class="xfer-body">
       <div class="sec-title">Customer &amp; product</div>

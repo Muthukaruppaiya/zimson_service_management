@@ -167,6 +167,8 @@ type SiteVisitApprovalPayload = {
   srfReference: string;
   approvalReason: string;
   trackingUrl: string;
+  documentUrl?: string;
+  documentFilename?: string;
 };
 
 type SiteVisitApprovalSendResult = {
@@ -212,6 +214,8 @@ export async function sendSiteVisitApprovalLink(
       srfNumber,
       approvalReason,
       trackingUrl,
+      documentUrl: payload.documentUrl,
+      documentFilename: payload.documentFilename,
     });
     console.log(`[APPROVAL LINK] WhatsApp template sent | template=${templateName} | id=${messageId ?? "—"}`);
     return { sent: true };

@@ -120,6 +120,19 @@ export type EwayPrefill = {
   interstate: boolean;
   existingEwayBillNo?: string | null;
   requiresConsigneeInput?: boolean;
+  watchBrand?: string;
+  brandConsignees?: Array<{
+    id: string;
+    brandId: string;
+    brandName: string;
+    locationName: string;
+    legalName: string;
+    gstin: string;
+    address: string;
+    city: string;
+    pincode: string;
+  }>;
+  defaultConsigneeId?: string | null;
 };
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;

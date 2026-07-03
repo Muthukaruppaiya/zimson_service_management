@@ -1,5 +1,6 @@
 import { getActiveTemplateByKind, loadDocumentTemplateStore } from "./documentTemplates";
 import { documentBarcodeImageSrc } from "./invoiceScanCodes";
+import { POPPINS_FONT_CSS, POPPINS_GOOGLE_HEAD } from "./appFonts";
 import type { DocumentKind } from "../types/documentTemplate";
 
 type PartyBlock = {
@@ -49,7 +50,7 @@ function lbl(labels: Record<string, string>, key: string, fallback: string): str
 
 function baseStyle(): string {
   return `
-  body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 20px; color: #0D1B2A; background: #fff; }
+  body { font-family: ${POPPINS_FONT_CSS}; margin: 0; padding: 20px; color: #0D1B2A; background: #fff; }
   .doc { max-width: 980px; margin: 0 auto; border: 1px solid #1B3A8F; padding: 18px; background: #fff; }
   .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
   .title { font-size: 34px; font-weight: 800; letter-spacing: 0.5px; margin: 0; text-transform: uppercase; color: #1B3A8F; }
@@ -85,6 +86,7 @@ export function openPrintDocument(title: string, html: string): void {
   <html>
     <head>
       <meta charset="utf-8" />
+      ${POPPINS_GOOGLE_HEAD}
       <title>${esc(title)}</title>
       <style>
         .print-preview-toolbar {
@@ -98,7 +100,7 @@ export function openPrintDocument(title: string, html: string): void {
           padding: 10px 14px;
           border-bottom: 1px solid #d6d3d1;
           background: #ffffff;
-          font-family: Arial, Helvetica, sans-serif;
+          font-family: ${POPPINS_FONT_CSS};
         }
         .print-preview-toolbar__left {
           font-size: 13px;

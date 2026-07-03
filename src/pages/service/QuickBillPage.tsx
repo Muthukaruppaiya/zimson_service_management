@@ -1361,6 +1361,7 @@ export function QuickBillPage() {
           edocIrn: edoc?.irn ?? invoice.edocIrn,
           edocAckNo: edoc?.ackNo ?? invoice.edocAckNo,
           edocQr: edoc?.qrUrl ?? invoice.edocQr,
+          edocPdfUrl: edoc?.pdfUrl ?? invoice.edocPdfUrl,
           edocStatus: edoc?.ok ? "SUCCESS" : edoc?.pending ? "PENDING" : edoc?.skipped ? "SKIPPED" : edoc ? "FAILED" : invoice.edocStatus,
           edocError: edoc?.error ?? edoc?.skipReason ?? invoice.edocError,
         };
@@ -1700,6 +1701,7 @@ export function QuickBillPage() {
             edocIrn: edoc?.irn ?? prev.invoice.edocIrn,
             edocAckNo: edoc?.ackNo ?? prev.invoice.edocAckNo,
             edocQr: edoc?.qrUrl ?? prev.invoice.edocQr,
+            edocPdfUrl: edoc?.pdfUrl ?? prev.invoice.edocPdfUrl,
             edocStatus: edoc?.ok
               ? "SUCCESS"
               : edoc?.pending
@@ -1763,6 +1765,7 @@ export function QuickBillPage() {
                 <QuickBillEinvoiceActions
                   edoc={edoc}
                   storedIrn={inv.edocIrn}
+                  storedPdfUrl={inv.edocPdfUrl}
                   actionBtnClass={qbSuccessBtnSecondary}
                   generating={edocRetryBusy}
                   onGenerate={() => void retrySuccessEinvoice(inv.id)}

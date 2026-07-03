@@ -32,6 +32,7 @@ import { registerMessagingSettingsRoutes } from "./messagingSettingsRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
 import { registerEdocRoutes } from "./edocRoutes";
+import { registerBrandEwayConsigneeRoutes } from "./brandEwayConsigneeRoutes";
 import { registerEdocSettingsRoutes } from "./edocSettingsRoutes";
 import { registerTechnicianRoutes } from "./technicianRoutes";
 import { runMigrations } from "./db/migrate";
@@ -3922,6 +3923,7 @@ async function main() {
   registerSrfBillingHandoverRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerEdocRoutes(app, dbPool, requireAuth);
+  registerBrandEwayConsigneeRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   await initEdocSettings(dbPool);
   startEdocRetryWorker(dbPool);
   registerEdocSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

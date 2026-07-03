@@ -71,7 +71,7 @@ export async function captureInvoicePdfBlob(
         },
       },
       jsPDF: { unit: "in", format: "a4", orientation: "portrait" },
-      pagebreak: { mode: ["css", "legacy"], before: ".inv-page-terms" },
+      pagebreak: { mode: ["css", "legacy"], avoid: [".inv-footer"] },
     })
     .from(root);
 

@@ -188,6 +188,8 @@ export type SrfJob = {
   edocError?: string | null;
   edocQr?: string | null;
   edocGeneratedAt?: string | null;
+  edocEwayBillNo?: string | null;
+  edocEwayValidUpto?: string | null;
   createdBy?: string | null;
   modifiedBy?: string | null;
   updatedAt?: string;
