@@ -539,13 +539,13 @@ export function ScLogisticsPage() {
       (j) =>
         j.interHoReestimatePhase === "customer_declined_final" &&
         !j.transferSourceRegionId &&
-        (j.status !== "ready_for_outward" || !(j.hoSparesBillRef ?? "").trim()),
+        j.status !== "ready_for_outward",
     );
     if (notReadyForStoreDispatch.length > 0) {
       const refs = notReadyForStoreDispatch.map((j) => j.reference).join(", ");
       setOutwardMsg({
         type: "err",
-        text: `Supervisor must verify and move to outward (after logistics invoice) for: ${refs}.`,
+        text: `Supervisor must verify and move to outward first for: ${refs}.`,
       });
       return;
     }
@@ -1303,13 +1303,9 @@ export function ScLogisticsPage() {
                           </td>
                           <td className="px-3 py-2 align-top">
                             {(!j.requiresLocalConversion && !!j.transferSourceRegionId) ? (
-                              j.interHoReestimatePhase === "customer_declined_final" ? (
+                              j.interHoReestimatePhase === "customer_declined_final" || j.interHoReturnWithoutRepair ? (
                                 <p className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-900">
-                                  Return DC + e-way — logistics invoice at sender HO
-                                </p>
-                              ) : j.interHoReturnWithoutRepair ? (
-                                <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-900">
-                                  No repair return — invoice not required
+                                  Return to sender HO — DC + e-way
                                 </p>
                               ) : j.hoSparesBillRef ? (
                                 <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
@@ -1321,15 +1317,9 @@ export function ScLogisticsPage() {
                                 </p>
                               )
                             ) : j.interHoReestimatePhase === "customer_declined_final" ? (
-                              j.hoSparesBillRef ? (
-                                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
-                                  Logistics: {j.hoSparesBillRef}
-                                </p>
-                              ) : (
-                                <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">
-                                  Log logistics invoice, then dispatch to store
-                                </p>
-                              )
+                              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+                                Supervisor moved to outward — dispatch to store
+                              </p>
                             ) : (
                               <span className="text-xs text-stone-500">Not required</span>
                             )}

@@ -232,6 +232,7 @@ export function ScSupervisorPage() {
     interHoEstimateNotAccepted,
     logLogisticsInvoiceRef,
     supervisorVerifyMoveToOutward,
+    interHoReceiverSendToOutward,
     technicianSendToBrand,
     supervisorTransferToOtherHo,
     submitSparesSlip,
@@ -435,7 +436,7 @@ export function ScSupervisorPage() {
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
-  /** Sender HO: after return inward — log logistics invoice, then verify & move to outward. */
+  /** Sender HO: after return inward — supervisor verifies and moves to outward (no invoice step). */
   const returnVerifyQueue = useMemo(() => {
     if (!user) return [];
     return jobs.filter(
@@ -446,14 +447,18 @@ export function ScSupervisorPage() {
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
-  const logisticsInvoiceQueue = useMemo(
-    () => returnVerifyQueue.filter((j) => !(j.hoSparesBillRef ?? "").trim()),
-    [returnVerifyQueue],
-  );
-  const verifyMoveToOutwardQueue = useMemo(
-    () => returnVerifyQueue.filter((j) => !!(j.hoSparesBillRef ?? "").trim()),
-    [returnVerifyQueue],
-  );
+  /** Repair HO: sender marked estimate not accepted — supervisor must send to outward. */
+  const receiverSendToOutwardQueue = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter(
+      (j) =>
+        isInterHoReceiverLocal(j) &&
+        j.interHoReestimatePhase === "customer_declined_final" &&
+        j.status === "customer_rejected" &&
+        jobVisibleToServiceCentre(j, user) &&
+        isRepairHoUserForInterHoReceiverJob(j, user),
+    );
+  }, [jobs, user]);
   const transferredQueue = useMemo(() => {
     if (!user) return [];
     return jobs.filter(
@@ -1037,6 +1042,22 @@ export function ScSupervisorPage() {
     }
   }
 
+  async function confirmReceiverSendToOutward(jobId: string) {
+    try {
+      await interHoReceiverSendToOutward(jobId);
+      setFeedback((f) => ({
+        ...f,
+        [jobId]:
+          "SRF moved to outward. Front desk: create return DC + e-way to sender HO.",
+      }));
+    } catch (e) {
+      setFeedback((f) => ({
+        ...f,
+        [jobId]: e instanceof Error ? e.message : "Could not send SRF to outward.",
+      }));
+    }
+  }
+
   function closeEstimateNotAcceptedPopup() {
     setEstimateNotAcceptedPopupJobId(null);
     setEstimateNotAcceptedNote("");
@@ -1052,7 +1073,7 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({
         ...f,
         [jobId]:
-          "Estimate not accepted recorded. Repair HO front desk: return DC + e-way. Sender HO: inward → log logistics invoice → supervisor Verify & move to outward → front desk HO→store → store billing.",
+          "Estimate not accepted recorded. Repair HO supervisor must click Send to outward, then front desk return DC + e-way. Sender HO: inward → Verify & move to outward → HO→store → store billing.",
       }));
       closeEstimateNotAcceptedPopup();
     } catch (e) {
@@ -1895,15 +1916,18 @@ export function ScSupervisorPage() {
       return "re-estimate sent to customer";
     }
     if (job.interHoReestimatePhase === "customer_declined_final") {
+      if (job.status === "customer_rejected" && isInterHoReceiverLocal(job)) {
+        return "estimate not accepted — send to outward";
+      }
       if (job.status === "received_at_sc" && !(job.transferSourceRegionId ?? "").trim()) {
-        return job.hoSparesBillRef?.trim()
-          ? "verified pending — move to outward"
-          : "return inwarded — log logistics invoice";
+        return "return inwarded — verify & move to outward";
       }
-      if (job.status === "ready_for_outward" && !(job.transferSourceRegionId ?? "").trim()) {
-        return "outward queue — dispatch to store";
+      if (job.status === "ready_for_outward") {
+        return !(job.transferSourceRegionId ?? "").trim()
+          ? "outward queue — dispatch to store"
+          : "outward queue — return DC to sender HO";
       }
-      return "estimate not accepted — repair HO return DC + e-way";
+      return "estimate not accepted — awaiting repair HO";
     }
     if (job.interHoReestimatePhase === "customer_rejected" || job.status === "customer_rejected") {
       return "customer rejected — negotiate or decline";
@@ -2069,7 +2093,7 @@ export function ScSupervisorPage() {
                         ) : null}
                         {senderReestimate && j.interHoReestimatePhase === "customer_declined_final" ? (
                           <span className="rounded-lg border border-stone-300 bg-stone-50 px-3 py-1.5 text-xs font-semibold text-stone-700">
-                            Waiting repair HO return DC + e-way
+                            Waiting repair HO Send to outward → return DC
                           </span>
                         ) : null}
                         {senderReestimate &&
@@ -2101,52 +2125,62 @@ export function ScSupervisorPage() {
         </Card>
       ) : null}
 
+      {receiverSendToOutwardQueue.length > 0 &&
+      (!srfId || receiverSendToOutwardQueue.some((j) => j.id === srfId)) ? (
+        <Card
+          title="Send to outward (customer declined estimate)"
+          subtitle="Sender HO confirmed customer will not accept. Click Send to outward — then front desk creates return DC + e-way."
+          className="mb-6"
+        >
+          {(srfId ? receiverSendToOutwardQueue.filter((j) => j.id === srfId) : receiverSendToOutwardQueue).map((j) => (
+            <div key={j.id} className="mb-3 rounded-2xl border border-rose-200/80 bg-white/90 p-4 shadow-sm last:mb-0">
+              <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+              <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
+              <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
+              <p className="mt-2 text-xs text-rose-900">
+                Only after you click Send to outward will this SRF appear in logistics outward for return DC + e-way.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void confirmReceiverSendToOutward(j.id)}
+                  className="rounded-xl bg-rose-700 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-800"
+                >
+                  Send to outward
+                </button>
+              </div>
+              {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
+            </div>
+          ))}
+        </Card>
+      ) : null}
+
       {returnVerifyQueue.length > 0 && (!srfId || returnVerifyQueue.some((j) => j.id === srfId)) ? (
         <Card
           title="Return verify → outward (customer declined estimate)"
-          subtitle="1) Inward done  2) Log logistics invoice  3) Supervisor moves to outward  4) Front desk HO→store  5) Store billing"
+          subtitle="Return DC inwarded. Supervisor verifies and moves to outward — only then front desk HO→store, then store billing."
           className="mb-6"
         >
-          {(srfId ? returnVerifyQueue.filter((j) => j.id === srfId) : returnVerifyQueue).map((j) => {
-            const hasInvoice = !!(j.hoSparesBillRef ?? "").trim();
-            return (
-              <div key={j.id} className="mb-3 rounded-2xl border border-amber-200/80 bg-white/90 p-4 shadow-sm last:mb-0">
-                <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
-                <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
-                <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
-                <p className="mt-2 text-xs text-amber-900">
-                  {hasInvoice
-                    ? `Logistics invoice ${j.hoSparesBillRef}. Verify and move to outward — only then front desk can dispatch to store.`
-                    : "Return DC inwarded. Log logistics invoice, then verify and move to outward."}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {!hasInvoice ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLogisticsInvoicePopupJobId(j.id);
-                        setLogisticsInvoiceRefInput("");
-                        setLogisticsInvoiceNote("");
-                        setLogisticsInvoiceSaving(false);
-                      }}
-                      className="rounded-xl border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-100"
-                    >
-                      Log logistics invoice
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void confirmVerifyMoveToOutward(j.id)}
-                      className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-800"
-                    >
-                      Verify & move to outward
-                    </button>
-                  )}
-                </div>
-                {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
+          {(srfId ? returnVerifyQueue.filter((j) => j.id === srfId) : returnVerifyQueue).map((j) => (
+            <div key={j.id} className="mb-3 rounded-2xl border border-emerald-200/80 bg-white/90 p-4 shadow-sm last:mb-0">
+              <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+              <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
+              <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
+              <p className="mt-2 text-xs text-emerald-900">
+                Verify the SRF and move to outward. Front desk can then dispatch to store; store bills the customer.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void confirmVerifyMoveToOutward(j.id)}
+                  className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-800"
+                >
+                  Verify & move to outward
+                </button>
               </div>
-            );
-          })}
+              {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
+            </div>
+          ))}
         </Card>
       ) : null}
 
@@ -4002,8 +4036,8 @@ export function ScSupervisorPage() {
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-rose-900">Estimate not accepted by customer</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Confirm the customer will not accept this estimate. Next: repair HO return DC + e-way → sender HO inward →
-              logistics invoice → supervisor Verify &amp; move to outward → HO→store → store billing.
+              Confirm the customer will not accept this estimate. Next: repair HO supervisor Send to outward → front desk
+              return DC + e-way → sender HO inward → supervisor Verify &amp; move to outward → HO→store → store billing.
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">

@@ -170,6 +170,8 @@ type SrfJobsContextValue = {
   logLogisticsInvoiceRef: (jobId: string, payload: { invoiceRef: string; note?: string }) => Promise<void>;
   /** Sender HO supervisor: verify inwarded return and move to outward queue. */
   supervisorVerifyMoveToOutward: (jobId: string, note?: string) => Promise<void>;
+  /** Repair HO supervisor: send declined-estimate SRF to outward for return DC. */
+  interHoReceiverSendToOutward: (jobId: string, note?: string) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
@@ -572,6 +574,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
 
   const supervisorVerifyMoveToOutward = useCallback(async (jobId: string, note?: string) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/verify-move-to-outward`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const interHoReceiverSendToOutward = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/send-to-outward`, {
       method: "POST",
       json: { note: note ?? "" },
     });
@@ -989,6 +999,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       interHoEstimateNotAccepted,
       logLogisticsInvoiceRef,
       supervisorVerifyMoveToOutward,
+      interHoReceiverSendToOutward,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
@@ -1055,6 +1066,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       interHoEstimateNotAccepted,
       logLogisticsInvoiceRef,
       supervisorVerifyMoveToOutward,
+      interHoReceiverSendToOutward,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
