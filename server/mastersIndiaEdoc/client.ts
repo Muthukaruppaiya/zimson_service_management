@@ -381,6 +381,29 @@ function tryParseDuplicateIrnFromInfo(infoDtls: string | undefined, errorHint: s
   return null;
 }
 
+/** Masters India returns PDF as host path without scheme (e.g. sandb-api.mastersindia.co/api/v1/detailPrintPdf/…). */
+export function normalizeMastersIndiaDocumentUrl(raw: string | null | undefined): string | null {
+  const pdf = String(raw ?? "").trim();
+  if (!pdf) return null;
+  if (/^https?:\/\//i.test(pdf)) return pdf;
+  if (pdf.startsWith("//")) return `https:${pdf}`;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}\//i.test(pdf) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(pdf)) {
+    return `https://${pdf}`;
+  }
+  return null;
+}
+
+function pickEwayPdfUrl(msg: Record<string, unknown>): string | null {
+  const candidates = [msg.url, msg.EwayBillPdf, msg.ewayBillPdf, msg.pdfUrl, msg.pdf_url, msg.PdfUrl];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) {
+      const normalized = normalizeMastersIndiaDocumentUrl(c);
+      if (normalized) return normalized;
+    }
+  }
+  return null;
+}
+
 function parseEwayResponse(json: unknown): EdocResult {
   const root = json as {
     results?: {
@@ -395,6 +418,10 @@ function parseEwayResponse(json: unknown): EdocResult {
             ewayBillDate?: string;
             validUpto?: string;
             url?: string;
+            EwayBillPdf?: string;
+            ewayBillPdf?: string;
+            pdfUrl?: string;
+            pdf_url?: string;
             error?: boolean | string;
           };
     };
@@ -434,7 +461,7 @@ function parseEwayResponse(json: unknown): EdocResult {
     ewayBillNo,
     ewayValidUpto: msg.validUpto ?? null,
     ackDate: msg.ewayBillDate ?? null,
-    pdfUrl: msg.url ?? null,
+    pdfUrl: pickEwayPdfUrl(msg as Record<string, unknown>),
     requestId: root.results?.requestId ?? null,
     rawStatus: root.results?.status ?? null,
   };

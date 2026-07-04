@@ -1,4 +1,5 @@
 import type { TransferFlow } from "./transferDocumentKind";
+import { documentNeedsEway, transferFlowNeedsEway } from "./ewayBill";
 
 export type EdocUiResult = {
   ok?: boolean;
@@ -29,6 +30,9 @@ export function challanEwayNotApplicable(skipReason?: string | null, edocError?:
 
 export function challanCanCreateOrRetryEway(args: {
   flow?: TransferFlow;
+  documentNumber?: string | null;
+  printKind?: "dc" | "transfer" | string | null;
+  documentKind?: "DC" | "TD" | string | null;
   edocEnabled: boolean;
   ewayBillNo?: string | null;
   edocStatus?: string | null;
@@ -36,6 +40,16 @@ export function challanCanCreateOrRetryEway(args: {
   skipped?: boolean;
   skipReason?: string | null;
 }): boolean {
+  if (
+    !documentNeedsEway({
+      flow: args.flow,
+      documentNumber: args.documentNumber,
+      printKind: args.printKind,
+      documentKind: args.documentKind,
+    })
+  ) {
+    return false;
+  }
   if (!args.edocEnabled) return false;
   if (String(args.ewayBillNo ?? "").trim()) return false;
   return true;
@@ -58,12 +72,13 @@ export function renderChallanEwayStatus(row: {
   return { label: "Pending", className: "text-amber-700" };
 }
 
-/** History table: allow manual retry whenever no e-way number exists yet. */
+/** History table: allow manual retry whenever no e-way number exists yet and flow requires e-way. */
 export function challanShowEwayHistoryRetry(
   edocEnabled: boolean,
   ewayBillNo?: string | null,
+  needsEway = true,
 ): boolean {
-  return edocEnabled && !String(ewayBillNo ?? "").trim();
+  return needsEway && edocEnabled && !String(ewayBillNo ?? "").trim();
 }
 
 export function formatEinvoiceEdocMessage(edoc: {

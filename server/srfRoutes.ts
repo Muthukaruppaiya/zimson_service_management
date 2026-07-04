@@ -850,15 +850,26 @@ function parseReestimateEntry(
   changedAt: string,
 ): { amountInr: number | null; note: string; requestedAt: string } {
   const raw = String(note ?? "").trim();
-  const m = raw.match(/^Re-estimate INR\s+([0-9]+(?:\.[0-9]+)?)\s*:\s*(.*)$/i);
-  if (!m) {
-    return { amountInr: null, note: raw, requestedAt: changedAt };
+  // Classic: "Re-estimate INR 1234.00: remark"
+  let m = raw.match(/^Re-estimate INR\s+([0-9]+(?:\.[0-9]+)?)\s*:\s*(.*)$/i);
+  if (m) {
+    return {
+      amountInr: Number(m[1]),
+      note: String(m[2] ?? "").trim(),
+      requestedAt: changedAt,
+    };
   }
-  return {
-    amountInr: Number(m[1]),
-    note: String(m[2] ?? "").trim(),
-    requestedAt: changedAt,
-  };
+  // Inter-HO / other: "... re-estimate INR 28000.00 to customer: needed"
+  m = raw.match(/re-estimate\s+INR\s+([0-9]+(?:\.[0-9]+)?)/i);
+  if (m) {
+    return { amountInr: Number(m[1]), note: raw, requestedAt: changedAt };
+  }
+  // Fallback: first INR amount in the note
+  m = raw.match(/INR\s+([0-9]+(?:\.[0-9]+)?)/i);
+  if (m) {
+    return { amountInr: Number(m[1]), note: raw, requestedAt: changedAt };
+  }
+  return { amountInr: null, note: raw, requestedAt: changedAt };
 }
 
 function canManageInterHoSpareOrders(actor: DemoUser | null): boolean {
@@ -937,6 +948,37 @@ function formatApprovalReason(amountInr: number, note: string): string {
   if (remark) return remark;
   if (amount) return `Revised estimate ${amount} requires your approval.`;
   return "Site visit / service approval required.";
+}
+
+type BrandInvoiceLineItemInput = {
+  spare: string;
+  hsn: string;
+  quantity: number;
+  priceInr: number;
+};
+
+function parseBrandInvoiceLineItems(raw: unknown): { lines: BrandInvoiceLineItemInput[]; error?: string } {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { lines: [], error: "At least one invoice line item is required." };
+  }
+  const lines: BrandInvoiceLineItemInput[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const row = raw[i] as Record<string, unknown>;
+    const spare = String(row.spare ?? "").trim();
+    const hsn = String(row.hsn ?? "").trim().replace(/\D/g, "");
+    const quantity = Number(row.quantity);
+    const priceInr = Number(row.priceInr);
+    if (!spare) return { lines: [], error: `Line ${i + 1}: spare / part name is required.` };
+    if (!hsn) return { lines: [], error: `Line ${i + 1}: HSN is required.` };
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return { lines: [], error: `Line ${i + 1}: quantity must be greater than zero.` };
+    }
+    if (!Number.isFinite(priceInr) || priceInr < 0) {
+      return { lines: [], error: `Line ${i + 1}: price must be zero or more.` };
+    }
+    lines.push({ spare, hsn, quantity, priceInr });
+  }
+  return { lines };
 }
 
 async function notifyCustomerSiteVisitApproval(
@@ -1092,6 +1134,7 @@ export function registerSrfRoutes(
                 j.edoc_generated_at AS "edocGeneratedAt",
                 j.edoc_eway_bill_no AS "edocEwayBillNo",
                 j.edoc_eway_valid_upto AS "edocEwayValidUpto",
+                j.edoc_eway_pdf_url AS "edocEwayPdfUrl",
                 j.completed_at_sc AS "completedAtSc",
                 j.ready_for_outward_at AS "readyForOutwardAt",
                 j.destination_store_id AS "destinationStoreId",
@@ -2840,7 +2883,7 @@ export function registerSrfRoutes(
       const printMeta = await buildStoreToHoPrintMeta(client, storeId, regionId, dcNumber);
       await client.query("COMMIT");
       let edoc = null;
-      if (edocEwayAutoEnabled() && dcId) {
+      if (edocEwayAutoEnabled() && dcId && transferFlowNeedsEway(printMeta.flow)) {
         edoc = await tryGenerateEwayForChallan(pool, dcId, printMeta, moved);
       }
       res.json({ dcNumber, moved, printMeta, edoc });
@@ -2880,6 +2923,7 @@ export function registerSrfRoutes(
         created_at: Date;
         edoc_eway_bill_no: string | null;
         edoc_eway_valid_upto: string | null;
+        edoc_eway_pdf_url: string | null;
         edoc_status: string | null;
         edoc_error: string | null;
         srf_references: string[];
@@ -2889,14 +2933,20 @@ export function registerSrfRoutes(
                 dc.created_at,
                 dc.edoc_eway_bill_no,
                 dc.edoc_eway_valid_upto,
+                dc.edoc_eway_pdf_url,
                 dc.edoc_status,
                 dc.edoc_error,
-                COALESCE(array_agg(DISTINCT j.reference ORDER BY j.reference), ARRAY[]::text[]) AS srf_references
+                COALESCE(
+                  array_agg(DISTINCT j.reference ORDER BY j.reference)
+                    FILTER (WHERE j.reference IS NOT NULL AND j.reference NOT LIKE '%-ARCH-%'),
+                  ARRAY[]::text[]
+                ) AS srf_references
          FROM delivery_challans dc
          JOIN delivery_challan_lines l ON l.dc_id = dc.id
          JOIN srf_jobs j ON j.id = l.srf_id
          ${where}
          GROUP BY dc.id
+         HAVING COUNT(*) FILTER (WHERE j.reference IS NOT NULL AND j.reference NOT LIKE '%-ARCH-%') > 0
          ORDER BY dc.created_at DESC
          LIMIT 200`,
         params,
@@ -2904,16 +2954,24 @@ export function registerSrfRoutes(
       const out = [];
       for (const row of rows) {
         const rebuilt = await rebuildPrintMetaForChallan(pool, row.id);
-        const flow = rebuilt?.printMeta.flow ?? "ho_to_store";
+        const flow = rebuilt?.printMeta.flow ?? "store_to_ho";
+        const printKind = rebuilt?.printMeta.printKind ?? "transfer";
+        const direction = flow === "store_to_ho" ? ("inward" as const) : ("outward" as const);
+        const srfCount = (row.srf_references ?? []).length;
         out.push({
           id: row.id,
           dcNumber: row.dc_number,
           createdAt: row.created_at.toISOString(),
           flow,
+          printKind,
+          direction,
+          documentSeries: printKind === "dc" ? ("DC" as const) : ("TD" as const),
           needsEway: transferFlowNeedsEway(flow),
           srfReferences: row.srf_references ?? [],
+          srfCount,
           edocEwayBillNo: row.edoc_eway_bill_no,
           edocEwayValidUpto: row.edoc_eway_valid_upto,
+          edocEwayPdfUrl: row.edoc_eway_pdf_url,
           edocStatus: row.edoc_status,
           edocError: row.edoc_error,
         });
@@ -3074,20 +3132,24 @@ export function registerSrfRoutes(
             );
             recoveredDestinationStoreId = parentRows[0]?.destination_store_id ?? null;
           }
-          // Defensive: explicitly normalize region_id / store_id to the inwarding HO (sender HO).
-          // This guarantees the SRF appears in the sender HO outward queue regardless of any
-          // upstream state drift (region_id always reflects the DC's destination region;
-          // store_id reflects the inwarding HO store so logistics filters line up).
-          // destination_store_id prefers the parent-recovered booking store so legacy SRFs
-          // (where the original convert-local set destination to NULL or a receiver-HO store)
-          // are auto-healed at inward time.
+          // Read phase before clearing transfer fields.
+          const phaseRes = await client.query<{ inter_ho_reestimate_phase: string | null }>(
+            `SELECT inter_ho_reestimate_phase FROM srf_jobs WHERE id = $1::uuid`,
+            [line.srf_id],
+          );
+          const needsSupervisorVerify =
+            phaseRes.rows[0]?.inter_ho_reestimate_phase === "customer_declined_final";
+
+          // Customer declined estimate: inward only → supervisor verifies → then outward.
+          // Other inter-HO returns: ready for store dispatch immediately.
+          const nextStatus = needsSupervisorVerify ? "received_at_sc" : "ready_for_outward";
           const updReturn = await client.query(
             `UPDATE srf_jobs
-             SET status = 'ready_for_outward',
+             SET status = $6,
                  region_id = $3::text,
                  store_id = COALESCE($4::text, store_id),
                  inward_at = now(),
-                 ready_for_outward_at = now(),
+                 ready_for_outward_at = CASE WHEN $6 = 'ready_for_outward' THEN now() ELSE NULL END,
                  destination_store_id = COALESCE($5::text, destination_store_id, transfer_source_store_id),
                  requires_local_conversion = false,
                  transfer_target_region_id = NULL,
@@ -3097,21 +3159,30 @@ export function registerSrfRoutes(
                  updated_at = now(),
                  modified_by = $2
              WHERE id = $1::uuid AND status = 'in_transit_sc'`,
-            [line.srf_id, actor.id, dc.region_id, actor.storeId ?? dc.from_store_id ?? null, recoveredDestinationStoreId],
+            [
+              line.srf_id,
+              actor.id,
+              dc.region_id,
+              actor.storeId ?? dc.from_store_id ?? null,
+              recoveredDestinationStoreId,
+              nextStatus,
+            ],
           );
           if ((updReturn.rowCount ?? 0) > 0) {
-            await appendStatusHistory(
-              client,
-              line.srf_id,
-              "ready_for_outward",
-              actor.id,
-              `Inwarded return DC ${dcNumber}. Sender HO can now dispatch to store.`,
-            );
+            const inwardNote = needsSupervisorVerify
+              ? `Inwarded return DC ${dcNumber}. Supervisor must verify, log logistics invoice, then move to outward.`
+              : `Inwarded return DC ${dcNumber}. Sender HO can now dispatch to store.`;
+            await appendStatusHistory(client, line.srf_id, nextStatus, actor.id, inwardNote);
             await appendActionLog(client, line.srf_id, {
               action: "sender_ho_inward_return_dc",
-              description: `Sender HO inwarded the return DC ${dcNumber} after repair at other HO. Ready to dispatch to store.`,
+              description: needsSupervisorVerify
+                ? `Sender HO inwarded return DC ${dcNumber} after customer declined estimate. Awaiting supervisor verify and move to outward.`
+                : `Sender HO inwarded the return DC ${dcNumber} after repair at other HO. Ready to dispatch to store.`,
               actor,
               referenceDoc: dcNumber,
+              details: needsSupervisorVerify
+                ? { logisticsInvoiceRequired: true, supervisorVerifyRequired: true }
+                : undefined,
             });
             updated += 1;
           }
@@ -4878,6 +4949,361 @@ export function registerSrfRoutes(
     }
   });
 
+  /**
+   * Sender HO: customer will not accept the inter-HO estimate after negotiation.
+   * Repair HO must return the watch with a logistics/service invoice (not no-billing).
+   */
+  app.post("/api/service/srf-jobs/:srfId/inter-ho/estimate-not-accepted", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can mark estimate not accepted." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      let arch = await client.query<{
+        id: string;
+        status: string;
+        transfer_source_region_id: string | null;
+        inter_ho_reestimate_phase: string | null;
+        inter_ho_reestimate_receiver_srf_id: string | null;
+        reference: string;
+        customer_name: string;
+      }>(
+        `SELECT id, status, transfer_source_region_id, inter_ho_reestimate_phase,
+                inter_ho_reestimate_receiver_srf_id, reference, customer_name
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      let archRow = arch.rows[0];
+      let receiverId = "";
+      if (archRow?.status === "sent_to_other_ho") {
+        const recv = await findInterHoReceiverRow(client, srfId);
+        if (!recv) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Linked repair HO SRF not found." });
+          return;
+        }
+        receiverId = recv.id;
+      } else {
+        const archLink = await findInterHoArchivedSenderRow(client, srfId);
+        if (!archLink) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Inter-HO sender archived SRF not found." });
+          return;
+        }
+        arch = await client.query<{
+          id: string;
+          status: string;
+          transfer_source_region_id: string | null;
+          inter_ho_reestimate_phase: string | null;
+          inter_ho_reestimate_receiver_srf_id: string | null;
+          reference: string;
+          customer_name: string;
+        }>(
+          `SELECT id, status, transfer_source_region_id, inter_ho_reestimate_phase,
+                  inter_ho_reestimate_receiver_srf_id, reference, customer_name
+           FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+          [archLink.id],
+        );
+        archRow = arch.rows[0];
+        receiverId = srfId;
+      }
+      if (!archRow || archRow.status !== "sent_to_other_ho") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        return;
+      }
+      const senderRegion = (archRow.transfer_source_region_id ?? "").trim();
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only sender HO can mark estimate not accepted by customer." });
+        return;
+      }
+      const phase = archRow.inter_ho_reestimate_phase ?? "";
+      if (phase !== "customer_rejected" && phase !== "customer_declined_final") {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "Customer must have rejected the estimate first. Use negotiate, or mark not accepted only after rejection.",
+        });
+        return;
+      }
+
+      const recvLock = await client.query<{
+        id: string;
+        status: string;
+        region_id: string;
+        reference: string;
+      }>(
+        `SELECT id, status, region_id, reference FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [receiverId],
+      );
+      const recv = recvLock.rows[0];
+      if (!recv) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Repair HO SRF not found." });
+        return;
+      }
+
+      const declineNote =
+        note ||
+        "Customer will not accept the inter-HO estimate after negotiation. Repair HO front desk: create return DC + e-way to sender HO. Sender HO will inward, raise logistics invoice, then dispatch to store for customer billing.";
+
+      await client.query(
+        `UPDATE srf_jobs
+         SET inter_ho_reestimate_phase = 'customer_declined_final',
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid`,
+        [archRow.id, actor.id],
+      );
+      // inter_ho_return_without_repair = true so repair HO can create return DC + e-way
+      // without a repair invoice. Logistics invoice is raised at sender HO after inward.
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'ready_for_outward',
+             inter_ho_reestimate_phase = 'customer_declined_final',
+             inter_ho_return_without_repair = true,
+             completed_at_sc = COALESCE(completed_at_sc, now()),
+             ready_for_outward_at = COALESCE(ready_for_outward_at, now()),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid`,
+        [receiverId, actor.id],
+      );
+      await appendStatusHistory(
+        client,
+        receiverId,
+        "ready_for_outward",
+        actor.id,
+        declineNote,
+      );
+      await appendActionLog(client, receiverId, {
+        action: "inter_ho_estimate_not_accepted",
+        description: declineNote,
+        actor,
+        details: {
+          senderArchivedSrfId: archRow.id,
+          repairHoReturnDcOnly: true,
+          logisticsInvoiceAtSenderHo: true,
+        },
+      });
+      await appendActionLog(client, archRow.id, {
+        action: "inter_ho_estimate_not_accepted",
+        description: declineNote,
+        actor,
+        details: {
+          receiverSrfId: receiverId,
+          repairHoReturnDcOnly: true,
+          logisticsInvoiceAtSenderHo: true,
+        },
+      });
+      await client.query("COMMIT");
+
+      if (pushInApp && recv.region_id) {
+        const { rows: notifyRows } = await pool.query<{ id: string }>(
+          `SELECT id FROM app_users
+           WHERE region_id = $1::text
+             AND role IN (
+               'service_centre_supervisor',
+               'service_centre_clerk',
+               'ho_manager',
+               'admin',
+               'super_admin'
+             )`,
+          [recv.region_id],
+        );
+        await pushInApp(
+          notifyRows.map((r) => r.id),
+          {
+            title: "Return to sender HO (customer declined)",
+            message: `SRF ${recv.reference} (${archRow.reference}): customer will not accept estimate. Front desk: create return DC + e-way to sender HO. Sender HO will raise logistics invoice after inward.`,
+            category: "service_srf",
+          },
+        );
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not mark estimate not accepted." });
+    } finally {
+      client.release();
+    }
+  });
+
+  /** Sender HO: log logistics invoice after customer declined estimate and return DC was inwarded. */
+  app.post("/api/service/srf-jobs/:srfId/logistics-invoice-ref", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can log logistics invoice." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const invoiceRef = String(req.body?.invoiceRef ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    if (!invoiceRef) {
+      res.status(400).json({ error: "Logistics invoice reference is required." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const lock = await client.query<{
+        status: string;
+        region_id: string;
+        reference: string;
+        inter_ho_reestimate_phase: string | null;
+        ho_spares_bill_ref: string | null;
+      }>(
+        `SELECT status, region_id, reference, inter_ho_reestimate_phase, ho_spares_bill_ref
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const row = lock.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== row.region_id) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only the current HO can log logistics invoice for this SRF." });
+        return;
+      }
+      if (row.status !== "received_at_sc" && row.status !== "ready_for_outward") {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "SRF must be inwarded at sender HO (received) before logging logistics invoice.",
+        });
+        return;
+      }
+      if (row.inter_ho_reestimate_phase !== "customer_declined_final") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Logistics invoice applies only when customer declined the inter-HO estimate." });
+        return;
+      }
+      await client.query(
+        `UPDATE srf_jobs
+         SET ho_spares_bill_ref = $2,
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid`,
+        [srfId, invoiceRef, actor.id],
+      );
+      await appendActionLog(client, srfId, {
+        action: "logistics_invoice_logged",
+        description:
+          note ||
+          `Logistics invoice ${invoiceRef} logged at sender HO. Supervisor can move SRF to outward.`,
+        actor,
+        referenceDoc: invoiceRef,
+        details: { invoiceRef, note: note || null },
+      });
+      await appendStatusHistory(
+        client,
+        srfId,
+        row.status,
+        actor.id,
+        `Logistics invoice ${invoiceRef} logged. Supervisor: verify and move to outward.`,
+      );
+      await client.query("COMMIT");
+      res.json({ ok: true, invoiceRef });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not log logistics invoice." });
+    } finally {
+      client.release();
+    }
+  });
+
+  /**
+   * Sender HO supervisor: after return inward (customer declined estimate),
+   * verify SRF and move to outward queue for store dispatch.
+   */
+  app.post("/api/service/srf-jobs/:srfId/supervisor/verify-move-to-outward", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can verify and move to outward." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const lock = await client.query<{
+        status: string;
+        region_id: string;
+        reference: string;
+        inter_ho_reestimate_phase: string | null;
+        ho_spares_bill_ref: string | null;
+        destination_store_id: string | null;
+      }>(
+        `SELECT status, region_id, reference, inter_ho_reestimate_phase, ho_spares_bill_ref, destination_store_id
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const row = lock.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== row.region_id) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only the current HO can move this SRF to outward." });
+        return;
+      }
+      if (row.status !== "received_at_sc") {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "SRF must be inwarded at sender HO (status received) before supervisor moves it to outward.",
+        });
+        return;
+      }
+      if (row.inter_ho_reestimate_phase === "customer_declined_final" && !(row.ho_spares_bill_ref ?? "").trim()) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Log logistics invoice first, then move to outward." });
+        return;
+      }
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'ready_for_outward',
+             ready_for_outward_at = now(),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid`,
+        [srfId, actor.id],
+      );
+      const msg =
+        note ||
+        "Supervisor verified return SRF and moved to outward queue for store dispatch.";
+      await appendStatusHistory(client, srfId, "ready_for_outward", actor.id, msg);
+      await appendActionLog(client, srfId, {
+        action: "supervisor_verify_move_to_outward",
+        description: msg,
+        actor,
+        details: {
+          logisticsInvoiceRef: row.ho_spares_bill_ref,
+          destinationStoreId: row.destination_store_id,
+        },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not move SRF to outward." });
+    } finally {
+      client.release();
+    }
+  });
+
   app.post("/api/service/srf-jobs/:srfId/inter-ho/return-without-repair", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
@@ -6417,6 +6843,12 @@ export function registerSrfRoutes(
     const invoiceRef = String(req.body?.invoiceRef ?? "").trim();
     const invoiceAmountInr = Number(req.body?.invoiceAmountInr ?? 0);
     const note = String(req.body?.note ?? "").trim();
+    const parsedLines = parseBrandInvoiceLineItems(req.body?.lineItems);
+    if (parsedLines.error) {
+      res.status(400).json({ error: parsedLines.error });
+      return;
+    }
+    const lineTotal = parsedLines.lines.reduce((sum, line) => sum + line.quantity * line.priceInr, 0);
     if (!invoiceRef) {
       res.status(400).json({ error: "Brand invoice reference is required." });
       return;
@@ -6425,6 +6857,16 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "Valid brand invoice amount is required." });
       return;
     }
+    if (Math.abs(lineTotal - invoiceAmountInr) > 0.02) {
+      res.status(400).json({
+        error: `Invoice amount (INR ${invoiceAmountInr.toFixed(2)}) must match line items total (INR ${lineTotal.toFixed(2)}).`,
+      });
+      return;
+    }
+    const invoiceMeta = {
+      ...toJsonMeta(req.body?.invoiceMeta),
+      lineItems: parsedLines.lines,
+    };
     try {
       const upd = await pool.query(
         `UPDATE srf_jobs
@@ -6440,7 +6882,7 @@ export function registerSrfRoutes(
              modified_by = $5
          WHERE id = $1::uuid
            AND status = 'received_from_brand'`,
-        [srfId, invoiceRef, invoiceAmountInr, JSON.stringify(toJsonMeta(req.body?.invoiceMeta)), actor?.id ?? null],
+        [srfId, invoiceRef, invoiceAmountInr, JSON.stringify(invoiceMeta), actor?.id ?? null],
       );
       if ((upd.rowCount ?? 0) === 0) {
         res.status(400).json({ error: "SRF must be in received_from_brand state." });
@@ -6456,7 +6898,7 @@ export function registerSrfRoutes(
           actor: actor ?? undefined,
           amountInr: invoiceAmountInr,
           referenceDoc: invoiceRef,
-          details: { note, invoiceMeta: toJsonMeta(req.body?.invoiceMeta) },
+          details: { note, invoiceMeta, lineItems: parsedLines.lines },
         });
         await client.query("COMMIT");
       } catch {
@@ -7252,8 +7694,44 @@ export function registerSrfRoutes(
         req.body?.taxJson != null && typeof req.body.taxJson === "object" && !Array.isArray(req.body.taxJson)
           ? req.body.taxJson
           : {};
+      const bodyLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+      const billLines = bodyLines
+        .map((raw: unknown) => {
+          if (!raw || typeof raw !== "object") return null;
+          const l = raw as Record<string, unknown>;
+          const name = String(l.description ?? l.name ?? "").trim();
+          const qty = Number(l.qty ?? 0);
+          const unitPriceInr = Number(l.unitPriceInr ?? l.rate ?? 0);
+          const hsn = String(l.hsn ?? "").trim().replace(/\D/g, "");
+          if (!name || qty <= 0 || unitPriceInr <= 0) return null;
+          return {
+            name,
+            qty,
+            unitPriceInr,
+            spareId: typeof l.spareId === "string" ? l.spareId : undefined,
+            hsn: hsn || undefined,
+            gstPercent:
+              l.gstPercent != null && Number.isFinite(Number(l.gstPercent))
+                ? Number(l.gstPercent)
+                : undefined,
+          };
+        })
+        .filter((l: { name: string } | null): l is NonNullable<typeof l> => l != null);
+      if (billLines.length === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Add at least one invoice line with description, qty, rate and HSN." });
+        return;
+      }
+      const missingHsn = billLines.filter((l) => !String(l.hsn ?? "").trim());
+      if (missingHsn.length > 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "HSN is required on every invoice line for GST e-invoice." });
+        return;
+      }
       const computedTotal =
-        Number.isFinite(totalInr) && totalInr > 0 ? totalInr : sumUsedSparesTotal(row.used_spares);
+        Number.isFinite(totalInr) && totalInr > 0
+          ? totalInr
+          : billLines.reduce((s, l) => s + l.qty * l.unitPriceInr, 0);
       const invoiceId = await createServiceInvoice(client, {
         invoiceNumber: invoiceRef,
         sourceType: "inter_ho_repair",
@@ -7264,7 +7742,8 @@ export function registerSrfRoutes(
         totalInr: computedTotal,
         taxJson: taxJson as Record<string, unknown>,
         snapshotJson: {
-          usedSpares: row.used_spares,
+          usedSpares: billLines,
+          billLines,
           note,
           transferSourceRegionId: row.transfer_source_region_id,
           transferSourceReference: row.transfer_source_reference,
@@ -7274,10 +7753,8 @@ export function registerSrfRoutes(
         postSalesLedger: true,
       });
       await client.query("COMMIT");
-      let edoc = null;
-      if (edocEnabled()) {
-        edoc = await tryGenerateEinvoiceForInterHoInvoice(pool, invoiceId);
-      }
+      // Always attempt GST e-invoice for inter-HO B2B invoices.
+      const edoc = await tryGenerateEinvoiceForInterHoInvoice(pool, invoiceId);
       res.json({ ok: true, invoiceId, edoc });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
@@ -7326,11 +7803,13 @@ export function registerSrfRoutes(
         transfer_source_store_id: string | null;
         transfer_source_reference: string | null;
         inter_ho_return_without_repair: boolean;
+        inter_ho_reestimate_phase: string | null;
+        reference: string;
       }>(
         `SELECT id, status, region_id, store_id, ho_spares_bill_ref, destination_store_id, requires_local_conversion,
                 transfer_target_region_id, transfer_target_store_id,
                 transfer_source_region_id, transfer_source_store_id, transfer_source_reference,
-                inter_ho_return_without_repair
+                inter_ho_return_without_repair, inter_ho_reestimate_phase, reference
          FROM srf_jobs
          WHERE id = ANY($1::uuid[])`,
         [items.map((x: { srfId: string }) => x.srfId)],
@@ -7363,6 +7842,20 @@ export function registerSrfRoutes(
       ) {
         await client.query("ROLLBACK");
         res.status(400).json({ error: "Create repair HO invoice first (or provide invoice ref) before return-to-sender dispatch." });
+        return;
+      }
+      // After customer declined estimate: sender HO must log logistics invoice before store dispatch.
+      const missingLogisticsInvoice = normalCandidates.filter(
+        (r) =>
+          r.status === "ready_for_outward" &&
+          r.inter_ho_reestimate_phase === "customer_declined_final" &&
+          !(r.ho_spares_bill_ref ?? "").trim(),
+      );
+      if (missingLogisticsInvoice.length > 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: `Log logistics invoice first for: ${missingLogisticsInvoice.map((r) => r.reference).join(", ")}. Then dispatch to store.`,
+        });
         return;
       }
       // For RETURN legs, recover the correct sender HO context from the original parent SRF
@@ -7612,18 +8105,31 @@ export function registerSrfRoutes(
       const destStoreForMeta =
         items.find((it: { destinationStoreId: string }) => it.destinationStoreId)?.destinationStoreId ??
         fromStoreId;
-      const printMeta = await buildHoOutwardPrintMeta(client, {
+      // Inter-HO DC always needs a target HO region (e-way applies only to HO↔HO, not HO↔store).
+      const resolvedInterHoTarget =
+        interHoTargetRegionId ??
+        firstTransfer?.transfer_target_region_id ??
+        firstTransfer?.transfer_source_region_id ??
+        null;
+      let printMeta = await buildHoOutwardPrintMeta(client, {
         fromRegionId: regionId,
         destinationStoreId: destStoreForMeta,
         transferNumber: dcNumber,
-        isInterHoBatch,
-        interHoTargetRegionId: interHoTargetRegionId ?? null,
+        isInterHoBatch: Boolean(isInterHoBatch && resolvedInterHoTarget),
+        interHoTargetRegionId: resolvedInterHoTarget,
         isReturnLeg: isReturnToSenderBatch,
       });
       await client.query("COMMIT");
+      // If inter-HO DC was mis-tagged as HO→store, rebuild from committed lines (DC series).
+      if (dcId && isInterHoBatch && !transferFlowNeedsEway(printMeta.flow)) {
+        const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
+        if (rebuilt) printMeta = rebuilt.printMeta;
+      }
       let edoc = null;
-      if (edocEwayAutoEnabled() && dcId) {
-        edoc = await tryGenerateEwayForChallan(pool, dcId, printMeta, moved);
+      if (dcId && (transferFlowNeedsEway(printMeta.flow) || /^DC/i.test(dcNumber))) {
+        if (edocEwayAutoEnabled()) {
+          edoc = await tryGenerateEwayForChallan(pool, dcId, printMeta, moved);
+        }
       }
       res.json({
         odcNumber: dcNumber,
@@ -8060,6 +8566,22 @@ export function registerSrfRoutes(
             )
           : { rows: [] as Array<{ id: string; srf_id: string; status: string; note: string; changed_at: string }> };
 
+      const attemptRows =
+        allJobIds.length > 0
+          ? await pool.query<{
+              srf_id: string;
+              amount_inr: number | string | null;
+              remark: string | null;
+              raised_at: Date | string;
+            }>(
+              `SELECT srf_id, amount_inr::float8 AS amount_inr, remark, raised_at
+               FROM srf_reestimate_attempts
+               WHERE srf_id = ANY($1::uuid[])
+               ORDER BY attempt_no ASC`,
+              [allJobIds],
+            )
+          : { rows: [] as Array<{ srf_id: string; amount_inr: number | string | null; remark: string | null; raised_at: Date | string }> };
+
       const historyBySrf = new Map<string, Array<{ id: string; status: string; note: string; changedAt: string }>>();
       for (const h of historyRows.rows) {
         const list = historyBySrf.get(h.srf_id) ?? [];
@@ -8067,14 +8589,39 @@ export function registerSrfRoutes(
         historyBySrf.set(h.srf_id, list);
       }
 
-      const jobs = jobsRes.rows.map((j) => ({
-        ...j,
-        timeline: historyBySrf.get(j.id) ?? [],
-        reestimateHistory: (historyBySrf.get(j.id) ?? [])
+      const attemptsBySrf = new Map<string, Array<{ amountInr: number | null; note: string; requestedAt: string }>>();
+      for (const a of attemptRows.rows) {
+        const list = attemptsBySrf.get(a.srf_id) ?? [];
+        const amount = Number(a.amount_inr);
+        list.push({
+          amountInr: Number.isFinite(amount) && amount > 0 ? amount : null,
+          note: String(a.remark ?? "").trim() || "Re-estimate",
+          requestedAt: a.raised_at instanceof Date ? a.raised_at.toISOString() : String(a.raised_at),
+        });
+        attemptsBySrf.set(a.srf_id, list);
+      }
+
+      const jobs = jobsRes.rows.map((j) => {
+        const fromAttempts = attemptsBySrf.get(j.id) ?? [];
+        const fromHistory = (historyBySrf.get(j.id) ?? [])
           .filter((h) => h.status === "reestimate_required")
           .map((h) => parseReestimateEntry(h.note, h.changedAt))
-          .reverse(),
-      }));
+          .reverse();
+        // Prefer attempt rows (stored amount_inr); fall back to status-history notes.
+        const reestimateHistory =
+          fromAttempts.length > 0
+            ? fromAttempts.map((a) => ({
+                amountInr: a.amountInr,
+                note: a.note,
+                requestedAt: a.requestedAt,
+              }))
+            : fromHistory;
+        return {
+          ...j,
+          timeline: historyBySrf.get(j.id) ?? [],
+          reestimateHistory,
+        };
+      });
 
       /* Keep backward-compat: also send `job` = latest job */
       const job = jobs[0] ?? null;

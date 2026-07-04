@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
@@ -8,7 +8,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
-import { ApiError, apiJson } from "../../lib/api";
+import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { srfReestimateNotifyMessage } from "../../lib/srfApprovalWhatsApp";
 import {
   findLocalRepairSrfForRoot,
@@ -41,7 +41,16 @@ import {
 } from "../../lib/spareSellingPrice";
 import { inputClassReadOnly } from "../../lib/uiForm";
 import { BrandMailAttachmentField } from "../../components/service/BrandMailAttachmentField";
+import { BrandInvoiceLineItemsEditor } from "../../components/service/BrandInvoiceLineItemsEditor";
 import { brandMailMetaFromAttachment, uploadBrandMailAttachment } from "../../lib/brandMailUpload";
+import {
+  brandInvoiceLinesTotal,
+  emptyBrandInvoiceLine,
+  normalizeBrandInvoiceLines,
+  validateBrandInvoiceLines,
+  type BrandInvoiceLineItem,
+} from "../../types/brandInvoice";
+import type { HsnMasterRow } from "../../types/hsnMaster";
 
 type InterHoSpareOrder = {
   id: string;
@@ -220,6 +229,9 @@ export function ScSupervisorPage() {
     interHoForwardBrandEstimateToCustomer,
     interHoApproveBrandEstimateForReceiver,
     interHoReturnWithoutRepair,
+    interHoEstimateNotAccepted,
+    logLogisticsInvoiceRef,
+    supervisorVerifyMoveToOutward,
     technicianSendToBrand,
     supervisorTransferToOtherHo,
     submitSparesSlip,
@@ -282,6 +294,13 @@ export function ScSupervisorPage() {
   const [moveToOdcPopupJobId, setMoveToOdcPopupJobId] = useState<string | null>(null);
   const [moveToOdcInterHo, setMoveToOdcInterHo] = useState(false);
   const [moveToOdcNote, setMoveToOdcNote] = useState("");
+  const [estimateNotAcceptedPopupJobId, setEstimateNotAcceptedPopupJobId] = useState<string | null>(null);
+  const [estimateNotAcceptedNote, setEstimateNotAcceptedNote] = useState("");
+  const [estimateNotAcceptedSaving, setEstimateNotAcceptedSaving] = useState(false);
+  const [logisticsInvoicePopupJobId, setLogisticsInvoicePopupJobId] = useState<string | null>(null);
+  const [logisticsInvoiceRefInput, setLogisticsInvoiceRefInput] = useState("");
+  const [logisticsInvoiceNote, setLogisticsInvoiceNote] = useState("");
+  const [logisticsInvoiceSaving, setLogisticsInvoiceSaving] = useState(false);
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
   const [spareOrderRows, setSpareOrderRows] = useState<InterHoSpareOrder[]>([]);
   const [spareOrderMsg, setSpareOrderMsg] = useState("");
@@ -317,6 +336,10 @@ export function ScSupervisorPage() {
   const [brandInvoiceAttachmentFile, setBrandInvoiceAttachmentFile] = useState<File | null>(null);
   const [brandInvoiceAttachmentError, setBrandInvoiceAttachmentError] = useState<string | null>(null);
   const [brandInvoiceSaving, setBrandInvoiceSaving] = useState(false);
+  const [brandInvoiceLines, setBrandInvoiceLines] = useState<BrandInvoiceLineItem[]>([emptyBrandInvoiceLine()]);
+  const [brandInvoiceLinesError, setBrandInvoiceLinesError] = useState<string | null>(null);
+  const [hsnMasterOptions, setHsnMasterOptions] = useState<HsnMasterRow[]>([]);
+  const apiMode = useApiMode();
   const [brandCreditPopupJobId, setBrandCreditPopupJobId] = useState<string | null>(null);
   const [brandCreditNoteRefInput, setBrandCreditNoteRefInput] = useState("");
   const [brandCreditValueInput, setBrandCreditValueInput] = useState("");
@@ -412,6 +435,25 @@ export function ScSupervisorPage() {
         jobVisibleToServiceCentre(j, user),
     );
   }, [jobs, user]);
+  /** Sender HO: after return inward — log logistics invoice, then verify & move to outward. */
+  const returnVerifyQueue = useMemo(() => {
+    if (!user) return [];
+    return jobs.filter(
+      (j) =>
+        j.status === "received_at_sc" &&
+        j.interHoReestimatePhase === "customer_declined_final" &&
+        !(j.transferSourceRegionId ?? "").trim() &&
+        jobVisibleToServiceCentre(j, user),
+    );
+  }, [jobs, user]);
+  const logisticsInvoiceQueue = useMemo(
+    () => returnVerifyQueue.filter((j) => !(j.hoSparesBillRef ?? "").trim()),
+    [returnVerifyQueue],
+  );
+  const verifyMoveToOutwardQueue = useMemo(
+    () => returnVerifyQueue.filter((j) => !!(j.hoSparesBillRef ?? "").trim()),
+    [returnVerifyQueue],
+  );
   const transferredQueue = useMemo(() => {
     if (!user) return [];
     return jobs.filter(
@@ -471,7 +513,8 @@ export function ScSupervisorPage() {
         if (
           rePhase === "pending_sender" ||
           rePhase === "customer_accepted" ||
-          rePhase === "customer_rejected"
+          rePhase === "customer_rejected" ||
+          rePhase === "customer_declined_final"
         ) {
           return true;
         }
@@ -480,6 +523,7 @@ export function ScSupervisorPage() {
           j.interHoReestimatePhase === "customer_pending" ||
           j.interHoReestimatePhase === "customer_accepted" ||
           j.interHoReestimatePhase === "customer_rejected" ||
+          j.interHoReestimatePhase === "customer_declined_final" ||
           j.interHoBrandEstimatePhase === "customer_pending" ||
           ((j.status === "reestimate_required" || j.status === "customer_rejected") &&
             (!!j.transferSourceRegionId || !!j.transferTargetRegionId || !!j.transferSourceReference)) ||
@@ -515,11 +559,40 @@ export function ScSupervisorPage() {
     });
   }, [jobs, user]);
   const interHoSenderReestimateView = useMemo(() => {
-    const base = senderApprovalOnlyView
-      ? interHoSenderFallbackQueue
-      : interHoSenderActionQueue;
-    return srfId ? base.filter((j) => j.id === srfId) : base;
-  }, [interHoSenderActionQueue, interHoSenderFallbackQueue, senderApprovalOnlyView, srfId]);
+    if (srfId) {
+      // Prefer sender archived row (root SRF). Never require the receiver local id here.
+      const fromQueues = [...interHoSenderActionQueue, ...interHoSenderFallbackQueue].filter(
+        (j) => j.id === srfId,
+      );
+      if (fromQueues[0]) return [fromQueues[0]];
+      const job = jobs.find((j) => j.id === srfId);
+      if (
+        job &&
+        user &&
+        jobVisibleToServiceCentre(job, user) &&
+        (isInterHoSenderActionRow(job, user, jobs) ||
+          job.status === "sent_to_other_ho" ||
+          !!job.interHoReestimatePhase ||
+          !!job.interHoBrandEstimatePhase)
+      ) {
+        return [job];
+      }
+      // If URL has receiver local id, resolve back to sender archived row for sender HO.
+      if (job && user && isInterHoReceiverLocal(job) && isSenderHoUserForInterHoJob(job, user)) {
+        const arch = findInterHoArchivedSenderForReceiver(job, jobs);
+        if (arch) return [arch];
+      }
+      return [];
+    }
+    return senderApprovalOnlyView ? interHoSenderFallbackQueue : interHoSenderActionQueue;
+  }, [
+    interHoSenderActionQueue,
+    interHoSenderFallbackQueue,
+    senderApprovalOnlyView,
+    srfId,
+    jobs,
+    user,
+  ]);
   const transferredView = useMemo(
     () => (srfId ? transferredQueue.filter((j) => j.id === srfId) : transferredQueue),
     [transferredQueue, srfId],
@@ -586,18 +659,63 @@ export function ScSupervisorPage() {
     };
   }, [listDetailJob, jobs, user]);
 
-  /** Archived / superseded sender rows → open the live local repair SRF when possible. */
+  /**
+   * Only auto-redirect ARCH/superseded rows to a *local* repair SRF at this HO.
+   * Never redirect sender-HO root (`sent_to_other_ho`) to the receiver HO converted SRF —
+   * that leaves sender HO on an empty decision queue.
+   */
   useEffect(() => {
     if (!srfId || !user) return;
     const job = jobs.find((j) => j.id === srfId);
     if (!job || !jobVisibleToServiceCentre(job, user)) return;
+    // Sender HO inter-HO handshake: stay on root / archived sender row.
+    if (
+      isInterHoSenderActionRow(job, user, jobs) ||
+      (job.status === "sent_to_other_ho" &&
+        (!!job.interHoReestimatePhase || !!job.interHoBrandEstimatePhase))
+    ) {
+      return;
+    }
+    // Receiver local opened by sender HO → show sender archived row instead.
+    if (isInterHoReceiverLocal(job) && isSenderHoUserForInterHoJob(job, user)) {
+      const arch = findInterHoArchivedSenderForReceiver(job, jobs);
+      if (arch && arch.id !== job.id) {
+        navigate(`/service-centre/supervisor/srf/${encodeURIComponent(arch.id)}`, { replace: true });
+      }
+      return;
+    }
     const rootRef = rootSrfBookingReference(job);
     const local = findLocalRepairSrfForRoot(rootRef, jobs, user);
     if (!local || local.id === job.id) return;
+    // Only jump to local repair when this HO owns the live repair row (not other HO).
+    if (user.regionId && local.regionId && user.regionId !== local.regionId) return;
     if (isArchivedSrfJob(job) || !shouldShowInSupervisorSrfList(job, jobs)) {
       navigate(`/service-centre/supervisor/srf/${encodeURIComponent(local.id)}`, { replace: true });
     }
   }, [srfId, jobs, user, navigate]);
+
+  const reloadHsnMaster = useCallback(async () => {
+    if (!apiMode) return;
+    try {
+      const data = await apiJson<{ rows: HsnMasterRow[] }>("/api/hsn-master");
+      setHsnMasterOptions(data.rows);
+    } catch {
+      setHsnMasterOptions([]);
+    }
+  }, [apiMode]);
+
+  useEffect(() => {
+    if (!brandInvoicePopupJobId || !apiMode) return;
+    void reloadHsnMaster();
+  }, [brandInvoicePopupJobId, apiMode, reloadHsnMaster]);
+
+  useEffect(() => {
+    if (!brandInvoicePopupJobId) return;
+    const total = brandInvoiceLinesTotal(brandInvoiceLines);
+    if (total > 0) {
+      setBrandInvoiceAmountInput(total.toFixed(2));
+    }
+  }, [brandInvoiceLines, brandInvoicePopupJobId]);
 
   const repairHoInvoiceView = useMemo(
     () => (srfId ? repairHoInvoiceQueue.filter((j) => j.id === srfId) : repairHoInvoiceQueue),
@@ -891,6 +1009,61 @@ export function ScSupervisorPage() {
     }
   }
 
+  function openEstimateNotAcceptedPopup(jobId: string) {
+    setEstimateNotAcceptedPopupJobId(jobId);
+    setEstimateNotAcceptedNote("");
+    setEstimateNotAcceptedSaving(false);
+    setFeedback((f) => {
+      if (!f[jobId]) return f;
+      const next = { ...f };
+      delete next[jobId];
+      return next;
+    });
+  }
+
+  async function confirmVerifyMoveToOutward(jobId: string) {
+    try {
+      await supervisorVerifyMoveToOutward(jobId);
+      setFeedback((f) => ({
+        ...f,
+        [jobId]:
+          "SRF verified and moved to outward. Front desk can create HO → store transfer. Store will receive and bill the customer.",
+      }));
+    } catch (e) {
+      setFeedback((f) => ({
+        ...f,
+        [jobId]: e instanceof Error ? e.message : "Could not move SRF to outward.",
+      }));
+    }
+  }
+
+  function closeEstimateNotAcceptedPopup() {
+    setEstimateNotAcceptedPopupJobId(null);
+    setEstimateNotAcceptedNote("");
+    setEstimateNotAcceptedSaving(false);
+  }
+
+  async function confirmEstimateNotAccepted() {
+    if (!estimateNotAcceptedPopupJobId) return;
+    const jobId = estimateNotAcceptedPopupJobId;
+    setEstimateNotAcceptedSaving(true);
+    try {
+      await interHoEstimateNotAccepted(jobId, estimateNotAcceptedNote.trim());
+      setFeedback((f) => ({
+        ...f,
+        [jobId]:
+          "Estimate not accepted recorded. Repair HO front desk: return DC + e-way. Sender HO: inward → log logistics invoice → supervisor Verify & move to outward → front desk HO→store → store billing.",
+      }));
+      closeEstimateNotAcceptedPopup();
+    } catch (e) {
+      setFeedback((f) => ({
+        ...f,
+        [jobId]: e instanceof Error ? e.message : "Could not mark estimate not accepted.",
+      }));
+      setEstimateNotAcceptedSaving(false);
+    }
+  }
+
   function openSendToBrandPopup(jobId: string) {
     setSendBrandPopupJobId(jobId);
     setSendBrandDispatchRef("");
@@ -1151,6 +1324,17 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({ ...f, [jobId]: "Brand invoice amount is required." }));
       return;
     }
+    const lineErr = validateBrandInvoiceLines(brandInvoiceLines);
+    if (lineErr) {
+      setBrandInvoiceLinesError(lineErr);
+      return;
+    }
+    const normalizedLines = normalizeBrandInvoiceLines(brandInvoiceLines);
+    const linesTotal = brandInvoiceLinesTotal(normalizedLines);
+    if (Math.abs(linesTotal - invoiceAmountInr) > 0.02) {
+      setBrandInvoiceLinesError("Invoice amount must match the line items total.");
+      return;
+    }
     setBrandInvoiceSaving(true);
     try {
       let invoiceMeta: Record<string, unknown> | undefined;
@@ -1162,11 +1346,14 @@ export function ScSupervisorPage() {
         invoiceRef,
         invoiceAmountInr,
         note,
+        lineItems: normalizedLines,
         ...(invoiceMeta ? { invoiceMeta } : {}),
       });
       setBrandInvoicePopupJobId(null);
       setBrandInvoiceAttachmentFile(null);
       setBrandInvoiceAttachmentError(null);
+      setBrandInvoiceLines([emptyBrandInvoiceLine()]);
+      setBrandInvoiceLinesError(null);
       const job = jobs.find((j) => j.id === jobId);
       const interHo = job ? needsInterHoSenderInvoice(job) : false;
       setBrandSuccessAck({
@@ -1707,8 +1894,19 @@ export function ScSupervisorPage() {
     if (job.interHoReestimatePhase === "customer_pending") {
       return "re-estimate sent to customer";
     }
+    if (job.interHoReestimatePhase === "customer_declined_final") {
+      if (job.status === "received_at_sc" && !(job.transferSourceRegionId ?? "").trim()) {
+        return job.hoSparesBillRef?.trim()
+          ? "verified pending — move to outward"
+          : "return inwarded — log logistics invoice";
+      }
+      if (job.status === "ready_for_outward" && !(job.transferSourceRegionId ?? "").trim()) {
+        return "outward queue — dispatch to store";
+      }
+      return "estimate not accepted — repair HO return DC + e-way";
+    }
     if (job.interHoReestimatePhase === "customer_rejected" || job.status === "customer_rejected") {
-      return "customer rejected - negotiate";
+      return "customer rejected — negotiate or decline";
     }
     if (job.interHoReestimatePhase === "customer_accepted" || job.status === "inter_ho_reestimate_customer_accepted") {
       return "customer accepted - awaiting sender approval";
@@ -1794,7 +1992,16 @@ export function ScSupervisorPage() {
                   return (
                   <tr key={j.id} className="border-b border-zimson-100 last:border-0">
                     <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">
-                      {displayMainRef}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)
+                        }
+                        className="text-left font-mono text-xs font-semibold text-zimson-900 underline decoration-zimson-400 underline-offset-2 hover:text-zimson-700"
+                        title="Open full SRF"
+                      >
+                        {displayMainRef}
+                      </button>
                       {senderReestimate ? (
                         <span className="mt-0.5 block text-[10px] font-semibold text-indigo-700">
                           Inter-HO re-estimate (sender action)
@@ -1851,6 +2058,20 @@ export function ScSupervisorPage() {
                               : "Forward to customer"}
                           </button>
                         ) : null}
+                        {senderReestimate && j.interHoReestimatePhase === "customer_rejected" ? (
+                          <button
+                            type="button"
+                            onClick={() => openEstimateNotAcceptedPopup(j.id)}
+                            className="rounded-lg border border-rose-500 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-950 hover:bg-rose-100"
+                          >
+                            Estimate not accepted by customer
+                          </button>
+                        ) : null}
+                        {senderReestimate && j.interHoReestimatePhase === "customer_declined_final" ? (
+                          <span className="rounded-lg border border-stone-300 bg-stone-50 px-3 py-1.5 text-xs font-semibold text-stone-700">
+                            Waiting repair HO return DC + e-way
+                          </span>
+                        ) : null}
                         {senderReestimate &&
                         (j.interHoReestimatePhase === "customer_accepted" ||
                           j.status === "inter_ho_reestimate_customer_accepted") ? (
@@ -1877,6 +2098,55 @@ export function ScSupervisorPage() {
               </tbody>
             </table>
           </div>
+        </Card>
+      ) : null}
+
+      {returnVerifyQueue.length > 0 && (!srfId || returnVerifyQueue.some((j) => j.id === srfId)) ? (
+        <Card
+          title="Return verify → outward (customer declined estimate)"
+          subtitle="1) Inward done  2) Log logistics invoice  3) Supervisor moves to outward  4) Front desk HO→store  5) Store billing"
+          className="mb-6"
+        >
+          {(srfId ? returnVerifyQueue.filter((j) => j.id === srfId) : returnVerifyQueue).map((j) => {
+            const hasInvoice = !!(j.hoSparesBillRef ?? "").trim();
+            return (
+              <div key={j.id} className="mb-3 rounded-2xl border border-amber-200/80 bg-white/90 p-4 shadow-sm last:mb-0">
+                <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
+                <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
+                <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
+                <p className="mt-2 text-xs text-amber-900">
+                  {hasInvoice
+                    ? `Logistics invoice ${j.hoSparesBillRef}. Verify and move to outward — only then front desk can dispatch to store.`
+                    : "Return DC inwarded. Log logistics invoice, then verify and move to outward."}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {!hasInvoice ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLogisticsInvoicePopupJobId(j.id);
+                        setLogisticsInvoiceRefInput("");
+                        setLogisticsInvoiceNote("");
+                        setLogisticsInvoiceSaving(false);
+                      }}
+                      className="rounded-xl border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+                    >
+                      Log logistics invoice
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void confirmVerifyMoveToOutward(j.id)}
+                      className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-800"
+                    >
+                      Verify & move to outward
+                    </button>
+                  )}
+                </div>
+                {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
+              </div>
+            );
+          })}
         </Card>
       ) : null}
 
@@ -2035,11 +2305,13 @@ export function ScSupervisorPage() {
                   ) : null}
                   {j.interHoReestimatePhase === "customer_rejected" ? (
                     <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900">
-                      Customer rejected — negotiate and send a revised amount via tracking link.
+                      Customer rejected. Negotiate a revised amount and forward via tracking link, or mark estimate not
+                      accepted so repair HO returns the watch with a logistics invoice.
                     </p>
                   ) : null}
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {(j.interHoBrandEstimatePhase === "pending_sender" || j.interHoBrandEstimatePhase === "customer_rejected") ? (
+                    {(j.interHoBrandEstimatePhase === "pending_sender" ||
+                      j.interHoBrandEstimatePhase === "customer_rejected") ? (
                       <button
                         type="button"
                         onClick={() => openSenderForwardPopup(j.id)}
@@ -2050,7 +2322,8 @@ export function ScSupervisorPage() {
                           : "Forward estimate to customer"}
                       </button>
                     ) : null}
-                    {(j.interHoReestimatePhase === "pending_sender" || j.interHoReestimatePhase === "customer_rejected") ? (
+                    {(j.interHoReestimatePhase === "pending_sender" ||
+                      j.interHoReestimatePhase === "customer_rejected") ? (
                       <button
                         type="button"
                         onClick={() => openSenderForwardPopup(j.id)}
@@ -2059,6 +2332,15 @@ export function ScSupervisorPage() {
                         {j.interHoReestimatePhase === "customer_rejected"
                           ? "Negotiate & forward to customer"
                           : "Update price & forward to customer"}
+                      </button>
+                    ) : null}
+                    {j.interHoReestimatePhase === "customer_rejected" ? (
+                      <button
+                        type="button"
+                        onClick={() => openEstimateNotAcceptedPopup(j.id)}
+                        className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800"
+                      >
+                        Estimate not accepted by customer
                       </button>
                     ) : null}
                     {j.interHoReestimatePhase === "customer_accepted" ? (
@@ -2159,21 +2441,6 @@ export function ScSupervisorPage() {
                   ) : null}
                   {isBrandSentToWorkshop(j) ? (
                     <>
-                      <p className="w-full rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
-                        Watch at brand
-                        {j.brandDispatchRef ? (
-                          <>
-                            {" "}
-                            — dispatch ref <span className="font-mono font-semibold">{j.brandDispatchRef}</span>
-                            {j.brandDispatchClerkNote ? ` (${j.brandDispatchClerkNote})` : ""}
-                          </>
-                        ) : (
-                          " — log estimate, credit note, or return path when brand responds."
-                        )}
-                        {j.brandOdcNumber ? (
-                          <span className="mt-1 block font-mono text-[11px] text-violet-800">ODC {j.brandOdcNumber}</span>
-                        ) : null}
-                      </p>
                       <button
                         type="button"
                         onClick={() => {
@@ -2397,6 +2664,15 @@ export function ScSupervisorPage() {
                           setBrandInvoiceNoteInput("");
                           setBrandInvoiceAttachmentFile(null);
                           setBrandInvoiceAttachmentError(null);
+                          setBrandInvoiceLines([
+                            {
+                              spare: "Brand repair charges",
+                              hsn: "",
+                              quantity: 1,
+                              priceInr: Number(j.brandEstimateInr ?? 0) || 0,
+                            },
+                          ]);
+                          setBrandInvoiceLinesError(null);
                         }}
                         className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
                       >
@@ -2497,7 +2773,22 @@ export function ScSupervisorPage() {
                     ) : null}
                     {j.interHoReestimatePhase === "customer_rejected" ? (
                       <p className="mt-2 text-xs font-semibold text-rose-800">
-                        Customer rejected — negotiate and send a revised amount via tracking link.
+                        Customer rejected. Negotiate a revised amount and forward via tracking link, or mark estimate not
+                        accepted so repair HO returns the watch with a logistics invoice.
+                      </p>
+                    ) : null}
+                    {j.interHoReestimatePhase === "customer_declined_final" ? (
+                      <p className="mt-2 text-xs font-semibold text-rose-900">
+                        Estimate not accepted. Repair HO front desk: return DC + e-way. After you inward, log logistics
+                        invoice, dispatch to store, then store bills the customer.
+                      </p>
+                    ) : null}
+                    {receiverJob?.interHoReestimatePhase === "customer_declined_final" &&
+                    receiverJob.status === "ready_for_outward" &&
+                    !!(receiverJob.transferSourceRegionId ?? "").trim() ? (
+                      <p className="mt-2 text-xs font-semibold text-amber-900">
+                        Repair HO queued return — inward return DC in Logistics (DC + e-way). Then log logistics invoice
+                        and dispatch to store.
                       </p>
                     ) : null}
                     {receiverJob?.brandReturnWithoutRepair &&
@@ -2518,7 +2809,8 @@ export function ScSupervisorPage() {
                     ) : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {j.interHoReestimatePhase === "pending_sender" || j.interHoReestimatePhase === "customer_rejected" ? (
+                    {(j.interHoReestimatePhase === "pending_sender" ||
+                      j.interHoReestimatePhase === "customer_rejected") ? (
                       <button
                         type="button"
                         onClick={() => openSenderForwardPopup(j.id)}
@@ -2527,6 +2819,15 @@ export function ScSupervisorPage() {
                         {j.interHoReestimatePhase === "customer_rejected"
                           ? "Negotiate & forward to customer"
                           : "Update price & forward to customer"}
+                      </button>
+                    ) : null}
+                    {j.interHoReestimatePhase === "customer_rejected" ? (
+                      <button
+                        type="button"
+                        onClick={() => openEstimateNotAcceptedPopup(j.id)}
+                        className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800"
+                      >
+                        Estimate not accepted by customer
                       </button>
                     ) : null}
                     {j.interHoReestimatePhase === "customer_accepted" ? (
@@ -2589,9 +2890,13 @@ export function ScSupervisorPage() {
       <Card title="Supervisor decision queue" subtitle="From supervisor login: mark repaired or need re-estimate" className="mt-8">
         {decisionView.length === 0 ? (
           <p className="text-sm text-stone-600">
-            {receivedView.length > 0 || repairHoInvoiceView.length > 0
-              ? "No decision-pending SRFs for this item yet."
-              : "No assigned SRFs pending decision."}
+            {interHoSenderReestimateView.length > 0
+              ? "This is an inter-HO sender action (root SRF). Use the Inter-HO customer approvals section above — not the local decision queue."
+              : receivedView.length > 0 || repairHoInvoiceView.length > 0 || transferredView.length > 0
+                ? "No decision-pending SRFs for this item yet."
+                : srfId
+                  ? "No supervisor actions for this SRF at your HO. Check root vs converted local SRF, or return to the list."
+                  : "No assigned SRFs pending decision."}
           </p>
         ) : (
           <div className="space-y-4">
@@ -3124,15 +3429,38 @@ export function ScSupervisorPage() {
       ) : null}
       {brandInvoicePopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand invoice</h3>
-            <p className="mt-1 text-sm text-stone-600">Enter the invoice reference and amount from brand mail. Upload the brand invoice PDF or image if available.</p>
+            <p className="mt-1 text-sm text-stone-600">
+              Enter line items from the brand invoice. HSN codes are managed in{" "}
+              <Link to="/inventory/hsn-master" className="font-semibold text-violet-800 hover:underline">
+                Inventory → HSN master
+              </Link>
+              .
+            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">Brand invoice reference *
                 <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandInvoiceRefInput} onChange={(e) => setBrandInvoiceRefInput(e.target.value)} disabled={brandInvoiceSaving} autoFocus />
               </label>
-              <label className="text-sm">Brand invoice amount (main amount) *
-                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandInvoiceAmountInput} onChange={(e) => setBrandInvoiceAmountInput(e.target.value)} disabled={brandInvoiceSaving} />
+              <BrandInvoiceLineItemsEditor
+                lines={brandInvoiceLines}
+                hsnOptions={hsnMasterOptions}
+                apiMode={apiMode}
+                onHsnOptionsUpdated={() => void reloadHsnMaster()}
+                disabled={brandInvoiceSaving}
+                error={brandInvoiceLinesError}
+                onChange={(next) => {
+                  setBrandInvoiceLines(next);
+                  setBrandInvoiceLinesError(null);
+                }}
+              />
+              <label className="text-sm">Brand invoice amount (total) *
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm font-semibold tabular-nums"
+                  value={brandInvoiceAmountInput}
+                  readOnly
+                  title="Auto-calculated from line items"
+                />
               </label>
               <BrandMailAttachmentField
                 file={brandInvoiceAttachmentFile}
@@ -3581,6 +3909,140 @@ export function ScSupervisorPage() {
           </div>
         </div>
       ) : null}
+      {logisticsInvoicePopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-amber-950">Log logistics invoice</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Enter the logistics invoice reference. Then use Verify &amp; move to outward so front desk can create HO →
+              store transfer. Customer is billed at the store.
+            </p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Logistics invoice reference *
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={logisticsInvoiceRefInput}
+                  onChange={(e) => setLogisticsInvoiceRefInput(e.target.value)}
+                  placeholder="e.g. LOG-INV-001"
+                  disabled={logisticsInvoiceSaving}
+                  autoFocus
+                />
+              </label>
+              <label className="text-sm">
+                Note (optional)
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={2}
+                  value={logisticsInvoiceNote}
+                  onChange={(e) => setLogisticsInvoiceNote(e.target.value)}
+                  disabled={logisticsInvoiceSaving}
+                />
+              </label>
+            </div>
+            {feedback[logisticsInvoicePopupJobId] ? (
+              <p className="mt-2 text-xs text-rose-800">{feedback[logisticsInvoicePopupJobId]}</p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={logisticsInvoiceSaving}
+                onClick={() => {
+                  setLogisticsInvoicePopupJobId(null);
+                  setLogisticsInvoiceRefInput("");
+                  setLogisticsInvoiceNote("");
+                  setLogisticsInvoiceSaving(false);
+                }}
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={logisticsInvoiceSaving || !logisticsInvoiceRefInput.trim()}
+                onClick={() => {
+                  void (async () => {
+                    if (!logisticsInvoicePopupJobId) return;
+                    const jobId = logisticsInvoicePopupJobId;
+                    setLogisticsInvoiceSaving(true);
+                    try {
+                      await logLogisticsInvoiceRef(jobId, {
+                        invoiceRef: logisticsInvoiceRefInput.trim(),
+                        note: logisticsInvoiceNote.trim(),
+                      });
+                      setFeedback((f) => ({
+                        ...f,
+                        [jobId]:
+                          "Logistics invoice logged. Click Verify & move to outward, then front desk dispatches to store.",
+                      }));
+                      setLogisticsInvoicePopupJobId(null);
+                      setLogisticsInvoiceRefInput("");
+                      setLogisticsInvoiceNote("");
+                    } catch (e) {
+                      setFeedback((f) => ({
+                        ...f,
+                        [jobId]: e instanceof Error ? e.message : "Could not log logistics invoice.",
+                      }));
+                    } finally {
+                      setLogisticsInvoiceSaving(false);
+                    }
+                  })();
+                }}
+                className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
+              >
+                {logisticsInvoiceSaving ? "Saving…" : "Save logistics invoice"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {estimateNotAcceptedPopupJobId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-rose-900">Estimate not accepted by customer</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Confirm the customer will not accept this estimate. Next: repair HO return DC + e-way → sender HO inward →
+              logistics invoice → supervisor Verify &amp; move to outward → HO→store → store billing.
+            </p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Note (optional)
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={3}
+                  value={estimateNotAcceptedNote}
+                  onChange={(e) => setEstimateNotAcceptedNote(e.target.value)}
+                  placeholder="e.g. Customer declined all revised estimates after follow-up calls."
+                  disabled={estimateNotAcceptedSaving}
+                />
+              </label>
+            </div>
+            {feedback[estimateNotAcceptedPopupJobId] ? (
+              <p className="mt-2 text-xs text-rose-800">{feedback[estimateNotAcceptedPopupJobId]}</p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={estimateNotAcceptedSaving}
+                onClick={closeEstimateNotAcceptedPopup}
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={estimateNotAcceptedSaving}
+                onClick={() => void confirmEstimateNotAccepted()}
+                className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-50"
+              >
+                {estimateNotAcceptedSaving ? "Saving…" : "Confirm — estimate not accepted"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {moveToOdcPopupJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">

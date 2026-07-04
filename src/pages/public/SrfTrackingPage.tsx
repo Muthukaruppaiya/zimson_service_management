@@ -321,7 +321,15 @@ export function SrfTrackingPage() {
                             <ul className="mt-2 space-y-2">
                               {(j.reestimateHistory ?? []).map((x, idx) => (
                                 <li key={`${x.requestedAt}-${idx}`} className="border border-rlx-rule border-l-4 border-l-rlx-gold bg-white px-3 py-3 text-sm">
-                                  <p className="font-semibold text-rlx-ink">Estimate {idx + 1}: {formatInr(Number(x.amountInr ?? 0))}</p>
+                                  <p className="font-semibold text-rlx-ink">
+                                    Estimate {idx + 1}:{" "}
+                                    {Number(x.amountInr ?? 0) > 0
+                                      ? formatInr(Number(x.amountInr))
+                                      : (() => {
+                                          const m = String(x.note ?? "").match(/INR\s+([0-9]+(?:\.[0-9]+)?)/i);
+                                          return m ? formatInr(Number(m[1])) : formatInr(0);
+                                        })()}
+                                  </p>
                                   <p className="mt-1 text-rlx-ink-muted">{x.note || "—"}</p>
                                   <p className="mt-1 text-[11px] text-rlx-ink-muted/80">{new Date(x.requestedAt).toLocaleString()}</p>
                                 </li>

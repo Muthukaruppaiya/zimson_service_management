@@ -10,10 +10,19 @@ export function resolveEinvoiceDocumentUrl(args: {
   return /^https?:\/\//i.test(pdf) ? pdf : null;
 }
 
-/** Masters India / NIC e-way bill PDF when returned on generate. */
+/**
+ * Masters India often returns e-way PDF as a host path without scheme, e.g.
+ * `sandb-api.mastersindia.co/api/v1/detailPrintPdf/...` — not a GST portal link.
+ */
 export function resolveEwayDocumentUrl(args: {
   pdfUrl?: string | null;
 }): string | null {
   const pdf = String(args.pdfUrl ?? "").trim();
-  return /^https?:\/\//i.test(pdf) ? pdf : null;
+  if (!pdf) return null;
+  if (/^https?:\/\//i.test(pdf)) return pdf;
+  if (pdf.startsWith("//")) return `https:${pdf}`;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}\//i.test(pdf) || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(pdf)) {
+    return `https://${pdf}`;
+  }
+  return null;
 }

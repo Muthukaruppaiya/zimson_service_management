@@ -29,6 +29,7 @@ import { initMessagingSettings } from "./messagingSettingsStore";
 import { initEdocSettings } from "./edocSettingsStore";
 import { startEdocRetryWorker } from "./edocRetryWorker";
 import { registerMessagingSettingsRoutes } from "./messagingSettingsRoutes";
+import { registerHsnMasterRoutes } from "./hsnMasterRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
 import { registerEdocRoutes } from "./edocRoutes";
@@ -3930,6 +3931,7 @@ async function main() {
   await initMessagingSettings(dbPool);
   registerMessagingSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerHsnMasterRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
   registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerMessagingRoutes(app, requireAuth);

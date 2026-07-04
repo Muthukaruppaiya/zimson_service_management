@@ -164,6 +164,12 @@ type SrfJobsContextValue = {
   ) => Promise<SrfReestimateNotifyResult>;
   interHoApproveBrandEstimateForReceiver: (jobId: string, note?: string) => Promise<void>;
   interHoReturnWithoutRepair: (jobId: string, note?: string) => Promise<void>;
+  /** Sender HO: customer will not accept estimate — repair HO returns DC; logistics invoice at sender HO. */
+  interHoEstimateNotAccepted: (jobId: string, note?: string) => Promise<void>;
+  /** Sender HO: log logistics invoice after return inward (customer declined estimate). */
+  logLogisticsInvoiceRef: (jobId: string, payload: { invoiceRef: string; note?: string }) => Promise<void>;
+  /** Sender HO supervisor: verify inwarded return and move to outward queue. */
+  supervisorVerifyMoveToOutward: (jobId: string, note?: string) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
@@ -209,7 +215,13 @@ type SrfJobsContextValue = {
   supervisorReceiveFromBrand: (jobId: string, payload?: { note?: string }) => Promise<void>;
   supervisorLogBrandInvoice: (
     jobId: string,
-    payload: { invoiceRef: string; invoiceAmountInr: number; note?: string; invoiceMeta?: Record<string, unknown> },
+    payload: {
+      invoiceRef: string;
+      invoiceAmountInr: number;
+      note?: string;
+      invoiceMeta?: Record<string, unknown>;
+      lineItems?: Array<{ spare: string; hsn: string; quantity: number; priceInr: number }>;
+    },
   ) => Promise<void>;
   supervisorLogBrandCreditNote: (
     jobId: string,
@@ -539,6 +551,33 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
+  const interHoEstimateNotAccepted = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/inter-ho/estimate-not-accepted`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const logLogisticsInvoiceRef = useCallback(
+    async (jobId: string, payload: { invoiceRef: string; note?: string }) => {
+      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/logistics-invoice-ref`, {
+        method: "POST",
+        json: payload,
+      });
+      await refreshJobs();
+    },
+    [refreshJobs],
+  );
+
+  const supervisorVerifyMoveToOutward = useCallback(async (jobId: string, note?: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/verify-move-to-outward`, {
+      method: "POST",
+      json: { note: note ?? "" },
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
   const supervisorApproveReestimate = useCallback(async (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate-approve`, {
       method: "POST",
@@ -753,7 +792,13 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
 
   const supervisorLogBrandInvoice = useCallback(async (
     jobId: string,
-    payload: { invoiceRef: string; invoiceAmountInr: number; note?: string; invoiceMeta?: Record<string, unknown> },
+    payload: {
+      invoiceRef: string;
+      invoiceAmountInr: number;
+      note?: string;
+      invoiceMeta?: Record<string, unknown>;
+      lineItems?: Array<{ spare: string; hsn: string; quantity: number; priceInr: number }>;
+    },
   ) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/invoice`, {
       method: "POST",
@@ -941,6 +986,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       interHoForwardBrandEstimateToCustomer,
       interHoApproveBrandEstimateForReceiver,
       interHoReturnWithoutRepair,
+      interHoEstimateNotAccepted,
+      logLogisticsInvoiceRef,
+      supervisorVerifyMoveToOutward,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
@@ -1004,6 +1052,9 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       interHoForwardBrandEstimateToCustomer,
       interHoApproveBrandEstimateForReceiver,
       interHoReturnWithoutRepair,
+      interHoEstimateNotAccepted,
+      logLogisticsInvoiceRef,
+      supervisorVerifyMoveToOutward,
       supervisorApproveReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,

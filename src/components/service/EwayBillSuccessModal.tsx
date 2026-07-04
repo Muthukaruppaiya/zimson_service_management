@@ -36,15 +36,15 @@ export function EwayBillSuccessModal({
       onBackdropClick={onClose}
       actions={
         <>
+          {ewayPdfUrl ? (
+            <a href={ewayPdfUrl} target="_blank" rel="noopener noreferrer" className={btnPrimary}>
+              Open GST e-way bill PDF
+            </a>
+          ) : null}
           {onPrintDocument ? (
-            <button type="button" className={btnPrimary} onClick={onPrintDocument}>
+            <button type="button" className={ewayPdfUrl ? btnSecondary : btnPrimary} onClick={onPrintDocument}>
               Print {documentLabel.toLowerCase()}
             </button>
-          ) : null}
-          {ewayPdfUrl ? (
-            <a href={ewayPdfUrl} target="_blank" rel="noopener noreferrer" className={btnSecondary}>
-              Open e-way bill (PDF)
-            </a>
           ) : null}
           <button type="button" className={btnSecondary} onClick={onClose}>
             Done
@@ -59,20 +59,27 @@ export function EwayBillSuccessModal({
           <p className="mt-2 text-xs text-stone-600">Valid until {edoc.ewayValidUpto}</p>
         ) : null}
       </div>
-      {!ewayPdfUrl ? (
+      {ewayPdfUrl ? (
+        <div className="mt-3 overflow-hidden rounded-xl border border-emerald-200 bg-stone-50">
+          <iframe
+            title="GST e-way bill PDF"
+            src={ewayPdfUrl}
+            className="h-72 w-full bg-white"
+          />
+          <p className="border-t border-emerald-100 px-3 py-2 text-center text-[11px] text-stone-600">
+            GST e-way bill PDF from Masters India. Use{" "}
+            <a href={ewayPdfUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-rlx-green underline">
+              Open GST e-way bill PDF
+            </a>{" "}
+            if the preview does not load.
+          </p>
+        </div>
+      ) : (
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-          E-way PDF was not returned by the portal. You can retrieve it from the{" "}
-          <a
-            href="https://ewaybillgst.gov.in/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-semibold underline"
-          >
-            GST e-way bill portal
-          </a>{" "}
-          using the bill number above.
+          E-way bill number was generated, but the GST e-way bill PDF was not included in the API response. Generate
+          again or check Masters India e-doc settings.
         </p>
-      ) : null}
+      )}
     </ProcessSuccessModal>
   );
 }

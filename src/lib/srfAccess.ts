@@ -64,6 +64,7 @@ export function shouldShowInSrfBookingRegister(job: SrfJob, allJobs: Iterable<Sr
 export function shouldShowInSupervisorSrfList(job: SrfJob, allJobs: Iterable<SrfJob>): boolean {
   if (isArchivedSrfJob(job)) return false;
   if (job.status === "sent_to_other_ho") {
+    if (job.interHoReestimatePhase === "customer_declined_final") return true;
     if (job.interHoReestimatePhase) return true;
     if (job.interHoBrandEstimatePhase) return true;
     if ((job.transferSourceRegionId ?? "").trim()) return true;

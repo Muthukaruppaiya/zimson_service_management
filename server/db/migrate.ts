@@ -1458,5 +1458,39 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS edoc_pdf_url TEXT;
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_pdf_url TEXT;
     ALTER TABLE service_invoices ADD COLUMN IF NOT EXISTS edoc_pdf_url TEXT;
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS edoc_eway_pdf_url TEXT;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS edoc_eway_pdf_url TEXT;
+    ALTER TABLE srf_inter_ho_spare_orders ADD COLUMN IF NOT EXISTS edoc_eway_pdf_url TEXT;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS hsn_master (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      code VARCHAR(16) NOT NULL UNIQUE,
+      description VARCHAR(255) NOT NULL DEFAULT '',
+      gst_percent NUMERIC(5, 2),
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_hsn_master_active_sort ON hsn_master (is_active, sort_order, code);
+  `);
+
+  await pool.query(`
+    INSERT INTO hsn_master (code, description, gst_percent, sort_order)
+    SELECT v.code, v.description, v.gst_percent, v.sort_order
+    FROM (VALUES
+      ('85069000', 'Batteries', 18::numeric, 10),
+      ('70159000', 'Watch glass / crystal', 18::numeric, 20),
+      ('91149000', 'Crown / stem / watch parts', 18::numeric, 30),
+      ('84849000', 'Gaskets / seals', 18::numeric, 40),
+      ('42050090', 'Leather straps', 18::numeric, 50),
+      ('40169910', 'Rubber / silicone straps', 18::numeric, 60),
+      ('34039100', 'Lubricants', 18::numeric, 70),
+      ('90158090', 'Tools', 18::numeric, 80),
+      ('63079090', 'Cleaning consumables', 18::numeric, 90)
+    ) AS v(code, description, gst_percent, sort_order)
+    WHERE NOT EXISTS (SELECT 1 FROM hsn_master LIMIT 1);
   `);
 }

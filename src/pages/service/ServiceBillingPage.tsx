@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { HsnPicker } from "../../components/service/HsnPicker";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
@@ -10,6 +11,7 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { canAccessModule } from "../../config/moduleAccess";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
+import type { HsnMasterRow } from "../../types/hsnMaster";
 import { downloadServiceInvoicePdfFromPage, triggerBlobDownload } from "../../lib/captureInvoicePdf";
 import { phoneLast10 } from "../../lib/customerLookup";
 import {
@@ -125,6 +127,7 @@ export function ServiceBillingPage() {
   const [interHoInvoicePreviewOpen, setInterHoInvoicePreviewOpen] = useState(false);
   const [interHoInvoicePdfBusy, setInterHoInvoicePdfBusy] = useState(false);
   const [interHoEdoc, setInterHoEdoc] = useState<QuickBillEdocInfo | null>(null);
+  const [hsnMasterOptions, setHsnMasterOptions] = useState<HsnMasterRow[]>([]);
 
   const customerIdParam = searchParams.get("customerId");
   const onlineOrderIdParam = searchParams.get("onlineOrderId");
@@ -189,6 +192,21 @@ export function ServiceBillingPage() {
     };
   }, [onlineOrderIdParam]);
 
+  const reloadHsnMaster = useCallback(async () => {
+    if (!apiMode) return;
+    try {
+      const data = await apiJson<{ rows: HsnMasterRow[] }>("/api/hsn-master");
+      setHsnMasterOptions(data.rows);
+    } catch {
+      setHsnMasterOptions([]);
+    }
+  }, [apiMode]);
+
+  useEffect(() => {
+    if (!isInterHoSrfInvoiceFlow || !apiMode) return;
+    void reloadHsnMaster();
+  }, [isInterHoSrfInvoiceFlow, apiMode, reloadHsnMaster]);
+
   useEffect(() => {
     if (!isInterHoSrfInvoiceFlow || !srfIdParam) return;
     let cancelled = false;
@@ -218,7 +236,20 @@ export function ServiceBillingPage() {
           gstPercent: l.gstPercent != null && Number.isFinite(Number(l.gstPercent)) ? String(l.gstPercent) : undefined,
           hsn: l.hsn?.trim() || undefined,
         }));
-        setLines(prefillLines.length > 0 ? prefillLines : [emptyLine()]);
+        // No spare lines (e.g. customer declined estimate / logistics only) — start with an editable charge line.
+        setLines(
+          prefillLines.length > 0
+            ? prefillLines
+            : [
+                {
+                  ...emptyLine(),
+                  description: "Logistics / handling charges",
+                  qty: "1",
+                  rate: "",
+                  hsn: "9987",
+                },
+              ],
+        );
         setPhase("bill");
         setError(null);
       } catch (e) {
@@ -520,6 +551,13 @@ export function ServiceBillingPage() {
       );
       return;
     }
+    if (isInterHoSrfInvoiceFlow) {
+      const missingHsn = validLines.filter((l) => !String(l.hsn ?? "").replace(/\D/g, "").trim());
+      if (missingHsn.length > 0) {
+        setError("Select HSN on every invoice line (required for GST e-invoice).");
+        return;
+      }
+    }
     const generatedRef = nextBillRef();
     try {
       if (onlineOrder && onlineOrderIdParam) {
@@ -557,6 +595,18 @@ export function ServiceBillingPage() {
                     igst: interHoGst.igst,
                   }
                 : undefined,
+              lines: validLines.map((l) => ({
+                description: l.description.trim(),
+                name: l.description.trim(),
+                qty: Number.parseFloat(l.qty) || 0,
+                unitPriceInr: Number.parseFloat(l.rate) || 0,
+                rate: Number.parseFloat(l.rate) || 0,
+                spareId: l.spareId,
+                hsn: String(l.hsn ?? "").replace(/\D/g, ""),
+                gstPercent: l.gstPercent?.trim()
+                  ? Number.parseFloat(l.gstPercent)
+                  : Number.parseFloat(taxPercent) || 18,
+              })),
             },
           },
         );
@@ -1003,34 +1053,60 @@ export function ServiceBillingPage() {
               title="Line items"
               subtitle="Quantity × rate"
               action={
-                isInterHoSrfInvoiceFlow ? null : (
-                  <button
-                    type="button"
-                    onClick={addLine}
-                    className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
-                  >
-                    Add line
-                  </button>
-                )
+                <button
+                  type="button"
+                  onClick={addLine}
+                  className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
+                >
+                  Add line
+                </button>
               }
             >
               <div className="space-y-3">
-                {lines.map((line) => (
+                {lines.map((line) => {
+                  const spareLocked = Boolean(line.spareId?.trim());
+                  return (
                   <div
                     key={line.id}
                     className="grid gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-12 sm:items-end"
                   >
-                    <div className={isInterHoSrfInvoiceFlow ? "sm:col-span-4" : "sm:col-span-5"}>
+                    <div className={isInterHoSrfInvoiceFlow ? "sm:col-span-3" : "sm:col-span-5"}>
                       <span className="text-xs font-medium text-stone-600">Description</span>
                       <input
                         value={line.description}
                         onChange={(e) => updateLine(line.id, { description: e.target.value })}
-                        readOnly={isInterHoSrfInvoiceFlow}
+                        readOnly={spareLocked}
                         className={inputClass}
-                        placeholder="Service / part"
+                        placeholder="Service / part / logistics"
                       />
                     </div>
-                    <div className="sm:col-span-2">
+                    {isInterHoSrfInvoiceFlow ? (
+                      <div className="sm:col-span-3">
+                        <span className="text-xs font-medium text-stone-600">HSN *</span>
+                        <div className="mt-1">
+                          <HsnPicker
+                            idPrefix={`inter-ho-hsn-${line.id}`}
+                            value={line.hsn ?? ""}
+                            onChange={(code) => {
+                              const match = hsnMasterOptions.find((h) => h.code === code);
+                              updateLine(line.id, {
+                                hsn: code,
+                                ...(match?.gstPercent != null && !line.gstPercent?.trim()
+                                  ? { gstPercent: String(match.gstPercent) }
+                                  : {}),
+                              });
+                            }}
+                            options={hsnMasterOptions}
+                            apiMode={apiMode}
+                            onOptionsUpdated={() => void reloadHsnMaster()}
+                            compact
+                            required
+                            canSaveNew
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="sm:col-span-1">
                       <span className="text-xs font-medium text-stone-600">Qty</span>
                       <input
                         type="number"
@@ -1038,7 +1114,7 @@ export function ServiceBillingPage() {
                         step={0.01}
                         value={line.qty}
                         onChange={(e) => updateLine(line.id, { qty: e.target.value })}
-                        readOnly={isInterHoSrfInvoiceFlow}
+                        readOnly={spareLocked}
                         className={inputClass}
                       />
                     </div>
@@ -1050,23 +1126,27 @@ export function ServiceBillingPage() {
                         step={0.01}
                         value={line.rate}
                         onChange={(e) => updateLine(line.id, { rate: e.target.value })}
-                        readOnly={isInterHoSrfInvoiceFlow}
                         className={inputClass}
+                        placeholder="0.00"
                       />
                     </div>
                     {isInterHoSrfInvoiceFlow ? (
-                      <div className="sm:col-span-2">
+                      <div className="sm:col-span-1">
                         <span className="text-xs font-medium text-stone-600">GST %</span>
                         <input
-                          value={line.gstPercent?.trim() ? line.gstPercent : "—"}
-                          readOnly
+                          value={line.gstPercent?.trim() ? line.gstPercent : taxPercent}
+                          onChange={(e) => updateLine(line.id, { gstPercent: e.target.value })}
+                          readOnly={spareLocked && Boolean(line.gstPercent?.trim())}
                           className={inputClass}
+                          placeholder={taxPercent}
                         />
                       </div>
                     ) : null}
                     <div className={`${isInterHoSrfInvoiceFlow ? "sm:col-span-2" : "sm:col-span-2"} flex sm:justify-end`}>
-                      {isInterHoSrfInvoiceFlow ? (
-                        <span className="px-3 py-2 text-xs font-medium text-stone-400">Locked</span>
+                      {spareLocked ? (
+                        <span className="px-3 py-2 text-xs font-medium text-stone-400" title="Spare from catalogue">
+                          Catalogue
+                        </span>
                       ) : (
                         <button
                           type="button"
@@ -1079,15 +1159,17 @@ export function ServiceBillingPage() {
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               {isInterHoSrfInvoiceFlow ? (
                 <div className="mt-4 space-y-3">
                   <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_220px]">
                     <div>
-                      <label className="text-xs font-medium text-stone-600">Tax (per spare GST from catalogue)</label>
+                      <label className="text-xs font-medium text-stone-600">Tax</label>
                       <p className="mt-1 rounded-xl border border-zimson-200/80 bg-zimson-50/40 px-3 py-2.5 text-sm text-stone-700">
-                        Each line uses the spare&apos;s GST % from Inventory (not the global 18% default).
+                        Catalogue spare lines use inventory GST %. Manual lines (logistics / service) use the GST % you
+                        enter (default {taxPercent}%).
                       </p>
                     </div>
                     <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3 text-sm">

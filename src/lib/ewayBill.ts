@@ -20,14 +20,27 @@ export type EwayPrefill = {
 
 export type EwayBillKind = "challan" | "brand" | "online_order";
 
-/** GST e-way applies to intra-state and inter-state goods movement (all transfer flows). */
+/**
+ * E-way for transfer DCs:
+ * - HO → HO dispatch / return: yes
+ * - Store ↔ HO (TD): no
+ * Brand send and online spare orders use kind "brand" / "online_order" separately.
+ */
 export function transferFlowNeedsEway(flow: TransferFlow): boolean {
-  return (
-    flow === "store_to_ho" ||
-    flow === "ho_to_store" ||
-    flow === "ho_to_ho_dispatch" ||
-    flow === "ho_to_ho_return"
-  );
+  return flow === "ho_to_ho_dispatch" || flow === "ho_to_ho_return";
+}
+
+/** True when this delivery document should offer / generate e-way. */
+export function documentNeedsEway(args: {
+  flow?: TransferFlow | null;
+  documentNumber?: string | null;
+  printKind?: "dc" | "transfer" | string | null;
+  documentKind?: "DC" | "TD" | string | null;
+}): boolean {
+  if (args.flow && transferFlowNeedsEway(args.flow)) return true;
+  if (args.printKind === "dc" || args.documentKind === "DC") return true;
+  const no = String(args.documentNumber ?? "").trim();
+  return /^DC/i.test(no);
 }
 
 export function ewayPrefillPath(kind: EwayBillKind, resourceId: string): string {

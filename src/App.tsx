@@ -78,6 +78,7 @@ import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPa
 import { InventoryStockAdjustmentPage } from "./pages/inventory/InventoryStockAdjustmentPage";
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
+import { InventoryHsnMasterPage } from "./pages/inventory/InventoryHsnMasterPage";
 import { SrfPhotoCapturePage } from "./pages/public/SrfPhotoCapturePage";
 import { SrfBillingHandoverCapturePage } from "./pages/public/SrfBillingHandoverCapturePage";
 import { QuickBillCapturePage } from "./pages/public/QuickBillCapturePage";
@@ -650,6 +651,16 @@ export default function App() {
                     <ModuleRoute module="inventory">
                       <InventorySupervisorGuard>
                         <InventoryBulkImportPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/hsn-master"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryHsnMasterPage />
                       </InventorySupervisorGuard>
                     </ModuleRoute>
                   }

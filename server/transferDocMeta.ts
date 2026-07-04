@@ -202,25 +202,36 @@ export async function buildHoOutwardPrintMeta(
   };
 }
 
-/** Rebuild transfer print meta for an existing delivery challan (e-way retry). */
+/** Rebuild transfer print meta for an existing delivery challan (e-way retry / history). */
 export async function rebuildPrintMetaForChallan(
   pool: Pool | PoolClient,
   dcId: string,
 ): Promise<{ printMeta: TransferPrintMeta; lineCount: number } | null> {
-  const dcRes = await pool.query<{ dc_number: string; region_id: string; from_store_id: string }>(
-    `SELECT dc_number, region_id, from_store_id FROM delivery_challans WHERE id = $1::uuid`,
+  const dcRes = await pool.query<{
+    dc_number: string;
+    region_id: string;
+    from_store_id: string;
+    to_location: string;
+    status: string;
+  }>(
+    `SELECT dc_number, region_id, from_store_id, to_location, status
+     FROM delivery_challans WHERE id = $1::uuid`,
     [dcId],
   );
   const dc = dcRes.rows[0];
   if (!dc) return null;
 
   const linesRes = await pool.query<{
+    region_id: string;
     requires_local_conversion: boolean;
     transfer_target_region_id: string | null;
     transfer_source_region_id: string | null;
     destination_store_id: string | null;
+    dc_number: string | null;
+    outward_dc_number: string | null;
   }>(
-    `SELECT j.requires_local_conversion, j.transfer_target_region_id, j.transfer_source_region_id, j.destination_store_id
+    `SELECT j.region_id, j.requires_local_conversion, j.transfer_target_region_id, j.transfer_source_region_id,
+            j.destination_store_id, j.dc_number, j.outward_dc_number
      FROM delivery_challan_lines l
      JOIN srf_jobs j ON j.id = l.srf_id
      WHERE l.dc_id = $1::uuid`,
@@ -229,21 +240,81 @@ export async function rebuildPrintMetaForChallan(
   const lineCount = linesRes.rows.length;
   if (lineCount === 0) return null;
 
-  const first = linesRes.rows[0];
-  const isInterHo =
-    (first.requires_local_conversion && first.transfer_target_region_id) ||
-    (!first.requires_local_conversion && first.transfer_source_region_id);
-  const isReturnLeg = isInterHo && !first.requires_local_conversion;
-  const interHoTargetRegionId = first.requires_local_conversion
-    ? first.transfer_target_region_id
-    : first.transfer_source_region_id;
+  const docNo = String(dc.dc_number ?? "").trim();
+  const asOutwardToStore = linesRes.rows.some((r) => String(r.outward_dc_number ?? "").trim() === docNo);
+  const seriesIsTd = /^TD/i.test(docNo);
+  const seriesIsDc = /^DC/i.test(docNo);
+  const first = linesRes.rows[0]!;
+
+  // Inter-HO DCs also set jobs.dc_number (not outward_dc_number). Never treat DC series as store→HO.
+  // TD + SERVICE_CENTRE without store outward = store → HO inward (no e-way).
+  const isStoreToHoInward =
+    seriesIsTd &&
+    !asOutwardToStore &&
+    (dc.to_location === "SERVICE_CENTRE" || dc.status === "CREATED" || dc.status === "INWARDED");
+
+  if (isStoreToHoInward) {
+    const printMeta = await buildStoreToHoPrintMeta(
+      pool as PoolClient,
+      dc.from_store_id,
+      dc.region_id,
+      docNo,
+    );
+    return { printMeta, lineCount };
+  }
+
+  // HO → store internal TD (no e-way).
+  if (seriesIsTd && (asOutwardToStore || dc.to_location === "STORE")) {
+    const printMeta = await buildHoOutwardPrintMeta(pool as PoolClient, {
+      fromRegionId: dc.region_id,
+      destinationStoreId: first.destination_store_id ?? dc.from_store_id,
+      transferNumber: docNo,
+      isInterHoBatch: false,
+      interHoTargetRegionId: null,
+      isReturnLeg: false,
+    });
+    return { printMeta, lineCount };
+  }
+
+  // Inter-HO DC: sender HO → receiver HO, or return receiver → sender.
+  // Note: delivery_challans.region_id is the *target* HO for inter-HO inserts.
+  const isReturnLeg =
+    !first.requires_local_conversion && !!String(first.transfer_source_region_id ?? "").trim();
+  const toRegionId = isReturnLeg
+    ? String(first.transfer_source_region_id).trim()
+    : String(first.transfer_target_region_id ?? dc.region_id).trim();
+  const fromRegionId = isReturnLeg
+    ? String(first.region_id !== toRegionId ? first.region_id : dc.region_id).trim() || toRegionId
+    : String(
+        first.transfer_source_region_id && first.transfer_source_region_id !== toRegionId
+          ? first.transfer_source_region_id
+          : first.region_id !== toRegionId
+            ? first.region_id
+            : dc.region_id,
+      ).trim();
+
+  // Prefer explicit opposite region when from/to collapsed to the same id after job move.
+  let resolvedFrom = fromRegionId || dc.region_id;
+  let resolvedTo = toRegionId || dc.region_id;
+  if (seriesIsDc && resolvedFrom === resolvedTo) {
+    if (isReturnLeg && first.transfer_source_region_id) {
+      resolvedTo = first.transfer_source_region_id;
+      resolvedFrom = first.region_id !== resolvedTo ? first.region_id : resolvedFrom;
+    } else if (first.transfer_target_region_id) {
+      resolvedTo = first.transfer_target_region_id;
+      // Sender is not always on the job after move — use DC region only if it differs.
+      if (dc.region_id === resolvedTo && first.region_id !== resolvedTo) {
+        resolvedFrom = first.region_id;
+      }
+    }
+  }
 
   const printMeta = await buildHoOutwardPrintMeta(pool as PoolClient, {
-    fromRegionId: dc.region_id,
+    fromRegionId: resolvedFrom,
     destinationStoreId: first.destination_store_id ?? dc.from_store_id,
-    transferNumber: dc.dc_number,
-    isInterHoBatch: isInterHo,
-    interHoTargetRegionId,
+    transferNumber: docNo,
+    isInterHoBatch: true,
+    interHoTargetRegionId: resolvedTo,
     isReturnLeg,
   });
   return { printMeta, lineCount };

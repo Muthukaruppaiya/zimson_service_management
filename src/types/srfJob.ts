@@ -102,6 +102,8 @@ export type SrfJob = {
     | "customer_pending"
     | "customer_accepted"
     | "customer_rejected"
+    /** Sender HO confirmed customer will not accept — repair HO returns with logistics invoice. */
+    | "customer_declined_final"
     | null;
   interHoReestimateReceiverSrfId?: string | null;
   /** Inter-HO brand estimate handshake phase (receiver ↔ sender ↔ customer). */
@@ -190,6 +192,8 @@ export type SrfJob = {
   edocGeneratedAt?: string | null;
   edocEwayBillNo?: string | null;
   edocEwayValidUpto?: string | null;
+  /** Masters India GST e-way bill PDF URL from generate response. */
+  edocEwayPdfUrl?: string | null;
   createdBy?: string | null;
   modifiedBy?: string | null;
   updatedAt?: string;

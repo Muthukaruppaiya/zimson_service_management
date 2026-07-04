@@ -20,6 +20,8 @@ type SearchableComboboxProps = {
   freeText?: boolean;
   freeTextValue?: string;
   onFreeTextChange?: (text: string) => void;
+  /** Fired on every keystroke in the input (search or free-text). */
+  onInputChange?: (text: string) => void;
 };
 
 export function SearchableCombobox({
@@ -37,6 +39,7 @@ export function SearchableCombobox({
   freeText = false,
   freeTextValue = "",
   onFreeTextChange,
+  onInputChange,
 }: SearchableComboboxProps) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -68,6 +71,7 @@ export function SearchableCombobox({
   const inputDisplay = freeText ? freeTextValue : open ? query : value ? selectedLabel : query;
 
   function handleInputChange(text: string) {
+    onInputChange?.(text);
     if (freeText) {
       onFreeTextChange?.(text);
       return;

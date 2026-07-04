@@ -90,6 +90,7 @@ export async function saveSrfEwayEdoc(db: Db, srfId: string, result: EdocResult)
      SET edoc_eway_bill_no = $2,
          edoc_eway_valid_upto = $3,
          edoc_error = COALESCE($4, edoc_error),
+         edoc_eway_pdf_url = COALESCE($6, edoc_eway_pdf_url),
          edoc_generated_at = CASE WHEN $5::boolean THEN now() ELSE edoc_generated_at END
      WHERE id = $1::uuid`,
     [
@@ -98,6 +99,7 @@ export async function saveSrfEwayEdoc(db: Db, srfId: string, result: EdocResult)
       result.ewayValidUpto ?? null,
       result.error ?? result.skipReason ?? null,
       result.ok,
+      result.pdfUrl ?? null,
     ],
   );
 }
@@ -108,6 +110,7 @@ export async function saveInterHoSpareOrderEwayEdoc(db: Db, orderId: string, res
      SET edoc_eway_bill_no = $2,
          edoc_eway_valid_upto = $3,
          edoc_error = $4,
+         edoc_eway_pdf_url = COALESCE($6, edoc_eway_pdf_url),
          edoc_generated_at = CASE WHEN $5::boolean THEN now() ELSE edoc_generated_at END
      WHERE id = $1::uuid`,
     [
@@ -116,6 +119,7 @@ export async function saveInterHoSpareOrderEwayEdoc(db: Db, orderId: string, res
       result.ewayValidUpto ?? null,
       result.error ?? result.skipReason ?? null,
       result.ok,
+      result.pdfUrl ?? null,
     ],
   );
 }
@@ -127,6 +131,7 @@ export async function saveDeliveryChallanEdoc(db: Db, dcId: string, result: Edoc
          edoc_eway_valid_upto = $3,
          edoc_status = $4,
          edoc_error = $5,
+         edoc_eway_pdf_url = COALESCE($7, edoc_eway_pdf_url),
          edoc_generated_at = CASE WHEN $6::boolean THEN now() ELSE edoc_generated_at END
      WHERE id = $1::uuid`,
     [
@@ -136,6 +141,7 @@ export async function saveDeliveryChallanEdoc(db: Db, dcId: string, result: Edoc
       result.ok ? "SUCCESS" : result.skipped ? "SKIPPED" : result.pending ? "PENDING" : "FAILED",
       result.error ?? result.skipReason ?? null,
       result.ok,
+      result.pdfUrl ?? null,
     ],
   );
 }
