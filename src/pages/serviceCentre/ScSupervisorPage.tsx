@@ -18,6 +18,8 @@ import {
   jobVisibleToServiceCentre,
   rootSrfBookingReference,
   shouldShowInSupervisorSrfList,
+  shouldExcludeFromSupervisorDecisionQueue,
+  isInterHoReestimateHandshakeActive,
   isInterHoSenderReestimateRow,
   isInterHoSenderBrandEstimateRow,
   isInterHoSenderActionRow,
@@ -374,26 +376,33 @@ export function ScSupervisorPage() {
   }, [jobs, user]);
   const decisionQueue = useMemo(() => {
     if (!user) return [];
-    return jobs.filter(
-      (j) =>
-        (j.status === "assigned" ||
-          j.status === "estimate_ok" ||
-          j.status === "reestimate_required" ||
-          j.status === "customer_rejected" ||
+    return jobs.filter((j) => {
+      if (!jobVisibleToServiceCentre(j, user)) return false;
+      // Inter-HO sender approvals have their own section — never also list here.
+      if (isInterHoSenderActionRow(j, user, jobs)) return false;
+      // Receiver is passive while sender owns the re-estimate handshake.
+      if (shouldExcludeFromSupervisorDecisionQueue(j)) return false;
+      if (
+        isInterHoReceiverLocal(j) &&
+        (isInterHoReestimateHandshakeActive(j) ||
           j.status === "inter_ho_reestimate_pending_sender" ||
-          j.status === "inter_ho_reestimate_customer_accepted") &&
-        jobVisibleToServiceCentre(j, user) &&
-        !(
-          isInterHoReceiverLocal(j) &&
-          !!j.interHoReestimatePhase &&
-          (j.interHoReestimatePhase === "pending_sender" ||
-            j.interHoReestimatePhase === "customer_pending" ||
-            j.interHoReestimatePhase === "customer_accepted" ||
-            j.interHoReestimatePhase === "customer_rejected") &&
-          !!user.regionId &&
-          user.regionId === j.transferSourceRegionId
-        ),
-    );
+          j.status === "inter_ho_reestimate_customer_accepted" ||
+          j.interHoReestimatePhase === "customer_declined_final" ||
+          j.interHoReestimatePhase === "pending_sender" ||
+          j.interHoReestimatePhase === "customer_pending" ||
+          j.interHoReestimatePhase === "customer_accepted")
+      ) {
+        return false;
+      }
+      return (
+        j.status === "assigned" ||
+        j.status === "estimate_ok" ||
+        j.status === "reestimate_required" ||
+        j.status === "customer_rejected" ||
+        j.status === "inter_ho_reestimate_pending_sender" ||
+        j.status === "inter_ho_reestimate_customer_accepted"
+      );
+    });
   }, [jobs, user]);
   const decisionView = useMemo(
     () => (srfId ? decisionQueue.filter((j) => j.id === srfId) : decisionQueue),
