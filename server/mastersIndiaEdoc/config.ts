@@ -1,7 +1,7 @@
 import { getResolvedEdocConfig, getResolvedEdocConfigForRegion } from "../edocSettingsStore";
 import type { EdocParty, MastersIndiaEdocConfig } from "./types";
 import { isValidGstin, SANDBOX_EDOC_TEST_GSTIN } from "./types";
-import { defaultPincodeForState, gstinStateCode, stateNameFromCode } from "./gstState";
+import { pincodeForEdocParty } from "./gstState";
 
 export type { MastersIndiaEdocConfig } from "./types";
 export { isValidGstin, SANDBOX_EDOC_TEST_GSTIN } from "./types";
@@ -70,15 +70,24 @@ export function alignSandboxEdocEwayParties(
 ): { consignor: EdocParty; consignee: EdocParty } {
   if (!isSandboxEdocApi(cfg)) return { consignor, consignee };
   const userGstin = resolveEdocEwayUserGstin(consignor.gstin, cfg);
-  // NIC sandbox expects userGstin === gstin_of_consignor for outward e-way.
+  // NIC sandbox requires userGstin on consignor — keep real PIN/location for distance validation.
   const normalizedConsignor: EdocParty = {
     ...consignor,
     gstin: userGstin,
-    stateCode: gstinStateCode(userGstin),
-    pincode: defaultPincodeForState(gstinStateCode(userGstin)),
-    location: stateNameFromCode(gstinStateCode(userGstin)),
   };
-  return { consignor: normalizedConsignor, consignee };
+  let normalizedConsignee: EdocParty = { ...consignee };
+  if (normalizedConsignee.pincode === normalizedConsignor.pincode) {
+    const alt = pincodeForEdocParty({
+      stateCode: normalizedConsignee.stateCode,
+      place: normalizedConsignee.location,
+      legalName: normalizedConsignee.legalName,
+      address: `${normalizedConsignee.address1} ${normalizedConsignee.address2}`,
+    });
+    if (alt !== normalizedConsignor.pincode) {
+      normalizedConsignee = { ...normalizedConsignee, pincode: alt };
+    }
+  }
+  return { consignor: normalizedConsignor, consignee: normalizedConsignee };
 }
 
 export function resolveEdocEwayUserGstin(

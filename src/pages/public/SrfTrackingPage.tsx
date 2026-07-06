@@ -35,6 +35,8 @@ type TrackJob = {
   timeline: TrackHistory[];
 };
 
+type TrackPhoto = { id: string; photoKind?: string; filePath: string };
+
 const STEP_ICONS = ["🧰", "📦", "🔧", "🎁"] as const;
 
 function buildCouponMessage(job: TrackJob): string {
@@ -54,73 +56,48 @@ function estimateAmountLabel(x: { amountInr: number | null; note: string }): str
 function TrackProgress({ activeIndex, steps }: { activeIndex: number; steps: readonly TrackingFlowStep[] }) {
   const pct = steps.length > 1 ? (activeIndex / (steps.length - 1)) * 100 : 0;
   return (
-    <div className="mt-8">
-      {/* Mobile vertical */}
-      <ol className="space-y-0 sm:hidden">
-        {steps.map((step, idx) => {
-          const done = idx <= activeIndex;
-          const current = idx === activeIndex;
-          return (
-            <li key={step.id} className="flex gap-3">
-              <div className="flex flex-col items-center">
-                <div
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-lg shadow-md ${
-                    done
-                      ? "bg-gradient-to-br from-[#c9a227] to-[#8b6914] text-white"
-                      : "border border-[#d4c4a8] bg-white text-[#8a7a5c]"
-                  } ${current ? "ring-4 ring-[#c9a227]/25" : ""}`}
-                >
-                  {STEP_ICONS[idx] ?? "●"}
-                </div>
-                {idx < steps.length - 1 ? (
-                  <div className={`my-1 w-0.5 min-h-8 flex-1 ${done ? "bg-[#c9a227]" : "bg-[#e8dfd0]"}`} />
-                ) : null}
-              </div>
-              <div className={`pb-6 pt-2 ${idx > activeIndex ? "opacity-50" : ""}`}>
-                <p className={`text-sm font-semibold ${current ? "text-[#0a1f3d]" : "text-[#3d4a5c]"}`}>
-                  {step.label}
-                </p>
-                {current ? <p className="mt-0.5 text-xs font-medium text-[#b8860b]">Current stage</p> : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-
-      {/* Desktop horizontal */}
-      <div className="relative hidden px-2 sm:block">
-        <div className="absolute left-[8%] right-[8%] top-[22px] h-1.5 rounded-full bg-[#e8dfd0]" aria-hidden />
+    <div className="mt-4 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="relative min-w-[20rem] px-1 sm:min-w-0 sm:px-2">
         <div
-          className="absolute left-[8%] top-[22px] h-1.5 rounded-full bg-gradient-to-r from-[#c9a227] via-[#d4af37] to-[#8b6914] transition-all duration-700"
-          style={{ width: `calc(${pct}% * 0.84)` }}
+          className="absolute left-[10%] right-[10%] top-[18px] h-1 rounded-full bg-[#e8dfd0] sm:top-[22px] sm:h-1.5"
           aria-hidden
         />
-        <div className="relative z-10 flex justify-between">
+        <div
+          className="absolute left-[10%] top-[18px] h-1 rounded-full bg-gradient-to-r from-[#c9a227] via-[#d4af37] to-[#8b6914] transition-all duration-700 sm:top-[22px] sm:h-1.5"
+          style={{ width: `calc(${pct}% * 0.8)` }}
+          aria-hidden
+        />
+        <ol className="relative z-10 flex justify-between gap-1">
           {steps.map((step, idx) => {
             const done = idx <= activeIndex;
             const current = idx === activeIndex;
             return (
-              <div key={step.id} className="flex w-[22%] flex-col items-center text-center">
+              <li key={step.id} className="flex min-w-0 flex-1 flex-col items-center text-center">
                 <div
-                  className={`flex h-12 w-12 items-center justify-center rounded-2xl text-xl shadow-lg transition-transform ${
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base shadow-md transition-transform sm:h-12 sm:w-12 sm:text-xl sm:shadow-lg ${
                     done
                       ? "bg-gradient-to-br from-[#c9a227] to-[#8b6914] text-white"
                       : "border border-[#d4c4a8] bg-white text-[#8a7a5c]"
-                  } ${current ? "scale-110 ring-4 ring-[#c9a227]/30" : ""}`}
+                  } ${current ? "scale-105 ring-4 ring-[#c9a227]/25 sm:scale-110 sm:ring-[#c9a227]/30" : ""} ${
+                    idx > activeIndex ? "opacity-60" : ""
+                  }`}
                 >
                   {STEP_ICONS[idx] ?? "●"}
                 </div>
                 <p
-                  className={`mt-3 max-w-[7.5rem] text-[11px] font-semibold leading-snug ${
+                  className={`mt-2 max-w-[4.5rem] text-[9px] font-semibold leading-tight sm:mt-3 sm:max-w-[7.5rem] sm:text-[11px] sm:leading-snug ${
                     current ? "text-[#0a1f3d]" : "text-[#6b7280]"
                   }`}
                 >
                   {step.label}
                 </p>
-              </div>
+                {current ? (
+                  <p className="mt-0.5 hidden text-[9px] font-medium text-[#b8860b] sm:block">Current</p>
+                ) : null}
+              </li>
             );
           })}
-        </div>
+        </ol>
       </div>
     </div>
   );
@@ -168,6 +145,7 @@ export function SrfTrackingPage() {
   const [jobs, setJobs] = useState<TrackJob[]>([]);
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [lightboxPhoto, setLightboxPhoto] = useState<TrackPhoto | null>(null);
 
   async function load() {
     if (!token) {
@@ -188,7 +166,7 @@ export function SrfTrackingPage() {
       setCustomer(out.customer ?? null);
       const allJobs = out.jobs ?? (out.job ? [out.job] : []);
       setJobs(allJobs);
-      setOpenJobId(allJobs[0]?.id ?? null);
+      setOpenJobId(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load tracking details.");
     } finally {
@@ -200,6 +178,19 @@ export function SrfTrackingPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  useEffect(() => {
+    if (!lightboxPhoto) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxPhoto(null);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [lightboxPhoto]);
 
   async function respond(jobId: string, accepted: boolean) {
     setBusyId(jobId);
@@ -298,9 +289,9 @@ export function SrfTrackingPage() {
                   key={j.id}
                   className="overflow-hidden rounded-3xl border border-[#e8dfd0] bg-white shadow-[0_10px_40px_rgba(10,31,61,0.07)]"
                 >
-                  <div className="border-b border-[#f0e9dc] bg-gradient-to-r from-white via-white to-[#faf6ef] px-5 py-5 sm:px-8 sm:py-6">
+                  <div className="px-5 py-5 sm:px-8 sm:py-6">
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#8a7a5c]">
                           {jobs.length > 1 ? `Request ${jobIdx + 1} of ${jobs.length}` : "Service reference"}
                         </p>
@@ -319,7 +310,7 @@ export function SrfTrackingPage() {
                         ) : null}
                       </div>
                       <span
-                        className={`rounded-full px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] shadow-sm ${
+                        className={`shrink-0 rounded-full px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] shadow-sm ${
                           pendingReestimate
                             ? "bg-amber-100 text-amber-950 ring-1 ring-amber-300/80"
                             : "bg-[#0a1f3d] text-white"
@@ -329,39 +320,46 @@ export function SrfTrackingPage() {
                       </span>
                     </div>
 
-                    <TrackProgress activeIndex={activeFlow} steps={steps} />
-
                     <button
                       type="button"
                       onClick={() => setOpenJobId((prev) => (prev === j.id ? null : j.id))}
-                      className="mt-8 flex w-full items-center justify-between gap-2 rounded-2xl border border-[#e8dfd0] bg-[#faf6ef] px-4 py-3 text-left text-sm font-semibold text-[#0a1f3d] transition hover:border-[#d4af37]/50 hover:bg-[#f5efe3] sm:w-auto sm:min-w-[14rem]"
+                      className="mt-5 flex w-full items-center justify-between gap-3 rounded-2xl border border-[#e8dfd0] bg-[#faf6ef] px-4 py-3.5 text-left text-sm font-semibold text-[#0a1f3d] transition hover:border-[#d4af37]/50 hover:bg-[#f5efe3]"
+                      aria-expanded={isOpen}
                     >
-                      <span>{isOpen ? "Hide" : "Show"} service details</span>
-                      <span className="text-[#b8860b]" aria-hidden>
-                        {isOpen ? "▲" : "▼"}
+                      <span>{isOpen ? "Hide tracking & details" : "Show tracking & details"}</span>
+                      <span
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-sm text-[#b8860b] shadow-sm transition-transform ${
+                          isOpen ? "rotate-180" : ""
+                        }`}
+                        aria-hidden
+                      >
+                        ▼
                       </span>
                     </button>
                   </div>
 
                   {isOpen ? (
                     <div className="space-y-6 border-t border-[#f0e9dc] px-5 py-6 sm:px-8 sm:py-8">
-                      <dl className="grid gap-4 sm:grid-cols-2">
-                        <div className="rounded-2xl border border-[#e8dfd0] bg-[#faf6ef]/80 px-4 py-4">
+                      <section>
+                        <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#0a1f3d]">
+                          Repair progress
+                        </h2>
+                        <TrackProgress activeIndex={activeFlow} steps={steps} />
+                      </section>
+                      <dl className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl border border-[#e8dfd0] bg-[#faf6ef]/80 px-3 py-3">
                           <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a7a5c]">
                             Original estimate
                           </dt>
-                          <dd
-                            className="mt-2 text-2xl font-semibold text-[#0a1f3d]"
-                            style={{ fontFamily: '"Playfair Display", Georgia, serif' }}
-                          >
+                          <dd className="mt-1.5 text-base font-semibold text-[#0a1f3d] sm:text-lg">
                             {formatInr(j.estimateTotalInr)}
                           </dd>
                         </div>
-                        <div className="rounded-2xl border border-[#e8dfd0] bg-[#faf6ef]/80 px-4 py-4">
+                        <div className="rounded-xl border border-[#e8dfd0] bg-[#faf6ef]/80 px-3 py-3">
                           <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a7a5c]">
                             Complaint
                           </dt>
-                          <dd className="mt-2 text-sm font-medium text-[#1a2332]">
+                          <dd className="mt-1.5 text-xs font-medium leading-snug text-[#1a2332] sm:text-sm">
                             {j.complaint?.trim() || "—"}
                           </dd>
                         </div>
@@ -396,21 +394,24 @@ export function SrfTrackingPage() {
                           <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#0a1f3d]">
                             Watch photos on file
                           </h2>
-                          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                          <p className="mt-1 text-xs text-[#8a7a5c]">Tap a thumbnail to view full size.</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
                             {j.photos.map((p) => (
-                              <figure
+                              <button
                                 key={p.id}
-                                className="overflow-hidden rounded-2xl border border-[#e8dfd0] bg-white shadow-sm"
+                                type="button"
+                                onClick={() => setLightboxPhoto(p)}
+                                className="overflow-hidden rounded-xl border border-[#e8dfd0] bg-white text-left shadow-sm transition hover:border-[#d4af37]/70 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#d4af37]/40"
                               >
                                 <img
                                   src={`/${p.filePath}`}
                                   alt={p.photoKind ?? "Watch photo"}
-                                  className="aspect-square w-full object-cover"
+                                  className="h-14 w-14 object-cover sm:h-16 sm:w-16"
                                 />
-                                <figcaption className="border-t border-[#f0e9dc] bg-[#faf6ef] px-2 py-1.5 text-center text-[10px] font-bold uppercase tracking-wide text-[#0a1f3d]">
+                                <span className="block w-14 truncate border-t border-[#f0e9dc] bg-[#faf6ef] px-1.5 py-1 text-center text-[9px] font-bold uppercase tracking-wide text-[#0a1f3d] sm:w-16">
                                   {p.photoKind ?? "other"}
-                                </figcaption>
-                              </figure>
+                                </span>
+                              </button>
                             ))}
                           </div>
                         </section>
@@ -423,10 +424,7 @@ export function SrfTrackingPage() {
                             A revised estimate is ready. Please accept or reject to continue your repair.
                           </p>
                           {j.reestimateRequestedInr != null && Number(j.reestimateRequestedInr) > 0 ? (
-                            <p
-                              className="mt-3 text-2xl font-semibold text-[#0a1f3d]"
-                              style={{ fontFamily: '"Playfair Display", Georgia, serif' }}
-                            >
+                            <p className="mt-3 text-base font-semibold text-[#0a1f3d] sm:text-lg">
                               Revised amount: {formatInr(Number(j.reestimateRequestedInr))}
                             </p>
                           ) : null}
@@ -524,6 +522,40 @@ export function SrfTrackingPage() {
           </nav>
         </footer>
       </main>
+
+      {lightboxPhoto ? (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={lightboxPhoto.photoKind ?? "Watch photo"}
+          onClick={() => setLightboxPhoto(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxPhoto(null)}
+            className="absolute right-4 top-4 flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm transition hover:bg-white/20"
+          >
+            <span aria-hidden>←</span> Back
+          </button>
+          <img
+            src={`/${lightboxPhoto.filePath}`}
+            alt={lightboxPhoto.photoKind ?? "Watch photo"}
+            className="max-h-[78vh] max-w-full rounded-2xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <p className="mt-4 text-center text-sm font-semibold uppercase tracking-wide text-white/90">
+            {lightboxPhoto.photoKind ?? "Watch photo"}
+          </p>
+          <button
+            type="button"
+            onClick={() => setLightboxPhoto(null)}
+            className="mt-4 rounded-2xl bg-white px-6 py-2.5 text-sm font-bold text-[#0a1f3d] shadow-lg transition hover:bg-[#faf6ef]"
+          >
+            Close
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

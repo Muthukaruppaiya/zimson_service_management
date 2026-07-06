@@ -394,6 +394,7 @@ export function ServiceBillingPage() {
           amountInr: q * r,
           spareId: l.spareId,
           hsnSac: l.hsn,
+          taxInclusive: Boolean(l.spareId?.trim()),
         };
       })
       .filter((l) => l.amountInr > 0);
@@ -502,7 +503,7 @@ export function ServiceBillingPage() {
   ]);
 
   const gstNoteLabel = interHoGst
-    ? "GST per spare (catalogue rates)"
+    ? "Catalogue spares: tax-inclusive MRP"
     : pricesTaxInclusive
       ? "rates tax-inclusive"
       : `${taxPct}% GST on taxable value`;
@@ -1065,6 +1066,9 @@ export function ServiceBillingPage() {
               <div className="space-y-3">
                 {lines.map((line) => {
                   const spareLocked = Boolean(line.spareId?.trim());
+                  const lockedFieldClass = spareLocked
+                    ? `${inputClass} cursor-not-allowed bg-stone-100 text-stone-700`
+                    : inputClass;
                   return (
                   <div
                     key={line.id}
@@ -1076,34 +1080,42 @@ export function ServiceBillingPage() {
                         value={line.description}
                         onChange={(e) => updateLine(line.id, { description: e.target.value })}
                         readOnly={spareLocked}
-                        className={inputClass}
+                        className={lockedFieldClass}
                         placeholder="Service / part / logistics"
                       />
                     </div>
                     {isInterHoSrfInvoiceFlow ? (
                       <div className="sm:col-span-3">
                         <span className="text-xs font-medium text-stone-600">HSN *</span>
-                        <div className="mt-1">
-                          <HsnPicker
-                            idPrefix={`inter-ho-hsn-${line.id}`}
-                            value={line.hsn ?? ""}
-                            onChange={(code) => {
-                              const match = hsnMasterOptions.find((h) => h.code === code);
-                              updateLine(line.id, {
-                                hsn: code,
-                                ...(match?.gstPercent != null && !line.gstPercent?.trim()
-                                  ? { gstPercent: String(match.gstPercent) }
-                                  : {}),
-                              });
-                            }}
-                            options={hsnMasterOptions}
-                            apiMode={apiMode}
-                            onOptionsUpdated={() => void reloadHsnMaster()}
-                            compact
-                            required
-                            canSaveNew
+                        {spareLocked ? (
+                          <input
+                            value={line.hsn ?? "—"}
+                            readOnly
+                            className={`${lockedFieldClass} mt-1`}
                           />
-                        </div>
+                        ) : (
+                          <div className="mt-1">
+                            <HsnPicker
+                              idPrefix={`inter-ho-hsn-${line.id}`}
+                              value={line.hsn ?? ""}
+                              onChange={(code) => {
+                                const match = hsnMasterOptions.find((h) => h.code === code);
+                                updateLine(line.id, {
+                                  hsn: code,
+                                  ...(match?.gstPercent != null && !line.gstPercent?.trim()
+                                    ? { gstPercent: String(match.gstPercent) }
+                                    : {}),
+                                });
+                              }}
+                              options={hsnMasterOptions}
+                              apiMode={apiMode}
+                              onOptionsUpdated={() => void reloadHsnMaster()}
+                              compact
+                              required
+                              canSaveNew
+                            />
+                          </div>
+                        )}
                       </div>
                     ) : null}
                     <div className="sm:col-span-1">
@@ -1115,18 +1127,21 @@ export function ServiceBillingPage() {
                         value={line.qty}
                         onChange={(e) => updateLine(line.id, { qty: e.target.value })}
                         readOnly={spareLocked}
-                        className={inputClass}
+                        className={lockedFieldClass}
                       />
                     </div>
                     <div className={isInterHoSrfInvoiceFlow ? "sm:col-span-2" : "sm:col-span-3"}>
-                      <span className="text-xs font-medium text-stone-600">Rate (INR)</span>
+                      <span className="text-xs font-medium text-stone-600">
+                        {spareLocked ? "Rate (INR, incl. GST)" : "Rate (INR, excl. GST)"}
+                      </span>
                       <input
                         type="number"
                         min={0}
                         step={0.01}
                         value={line.rate}
                         onChange={(e) => updateLine(line.id, { rate: e.target.value })}
-                        className={inputClass}
+                        readOnly={spareLocked}
+                        className={lockedFieldClass}
                         placeholder="0.00"
                       />
                     </div>
@@ -1136,8 +1151,8 @@ export function ServiceBillingPage() {
                         <input
                           value={line.gstPercent?.trim() ? line.gstPercent : taxPercent}
                           onChange={(e) => updateLine(line.id, { gstPercent: e.target.value })}
-                          readOnly={spareLocked && Boolean(line.gstPercent?.trim())}
-                          className={inputClass}
+                          readOnly={spareLocked}
+                          className={lockedFieldClass}
                           placeholder={taxPercent}
                         />
                       </div>
@@ -1168,8 +1183,8 @@ export function ServiceBillingPage() {
                     <div>
                       <label className="text-xs font-medium text-stone-600">Tax</label>
                       <p className="mt-1 rounded-xl border border-zimson-200/80 bg-zimson-50/40 px-3 py-2.5 text-sm text-stone-700">
-                        Catalogue spare lines use inventory GST %. Manual lines (logistics / service) use the GST % you
-                        enter (default {taxPercent}%).
+                        Catalogue spare lines use inventory MRP (tax-inclusive) and cannot be edited. Manual lines
+                        (logistics / service) are excl. GST — enter rate and GST % (default {taxPercent}%).
                       </p>
                     </div>
                     <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3 text-sm">

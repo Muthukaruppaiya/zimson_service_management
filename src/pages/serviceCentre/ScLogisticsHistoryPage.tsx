@@ -29,6 +29,10 @@ type DeliveryChallanHistoryRow = {
   direction?: "inward" | "outward";
   documentSeries?: "DC" | "TD";
   needsEway: boolean;
+  transferTypeLabel?: string;
+  fromName?: string;
+  toName?: string;
+  routeLabel?: string;
   srfReferences: string[];
   srfCount?: number;
   edocEwayBillNo?: string | null;
@@ -159,6 +163,14 @@ export function ScLogisticsHistoryPage() {
   }, [loadDcHistory]);
 
   useEffect(() => {
+    const reload = () => {
+      if (document.visibilityState === "visible") void loadDcHistory();
+    };
+    document.addEventListener("visibilitychange", reload);
+    return () => document.removeEventListener("visibilitychange", reload);
+  }, [loadDcHistory]);
+
+  useEffect(() => {
     let cancelled = false;
     void apiJson<{ enabled?: boolean }>("/api/edoc/status")
       .then((d) => {
@@ -177,15 +189,20 @@ export function ScLogisticsHistoryPage() {
     return row.flow === "store_to_ho" ? "inward" : "outward";
   }
 
-  function dcDirectionLabel(row: DeliveryChallanHistoryRow): string {
-    const series = row.documentSeries ?? (/^DC/i.test(row.dcNumber) ? "DC" : "TD");
-    if (row.flow === "store_to_ho" || row.direction === "inward") {
-      return `Inward · ${series} (store → HO)`;
-    }
-    if (row.flow === "ho_to_store") return `Outward · ${series} (HO → store)`;
-    if (row.flow === "ho_to_ho_dispatch") return `Outward · ${series} (HO → HO)`;
-    if (row.flow === "ho_to_ho_return") return `Outward · ${series} (HO return)`;
-    return `Outward · ${series}`;
+  function transferTypeLabel(row: DeliveryChallanHistoryRow): string {
+    if (row.transferTypeLabel?.trim()) return row.transferTypeLabel;
+    if (row.flow === "store_to_ho") return "Store → HO";
+    if (row.flow === "ho_to_store") return "HO → Store";
+    if (row.flow === "ho_to_ho_dispatch") return "HO → HO (send)";
+    if (row.flow === "ho_to_ho_return") return "HO → HO (return)";
+    return dcDirection(row) === "inward" ? "Inward" : "Outward";
+  }
+
+  function routeLabel(row: DeliveryChallanHistoryRow): string {
+    if (row.routeLabel?.trim()) return row.routeLabel;
+    const from = row.fromName?.trim() || "—";
+    const to = row.toName?.trim() || "—";
+    return `${from} → ${to}`;
   }
 
   function formatDcDate(iso: string): string {
@@ -313,7 +330,7 @@ export function ScLogisticsHistoryPage() {
       {historyModule === "eway" ? (
         <Card title={`Delivery challans & e-way (${documentHistoryRows.length})`}>
           <p className="mb-3 text-xs text-stone-600">
-            Same documents as DC / ODC history. Create e-way only for outward HO → HO (DC). TD store ↔ HO is N/A.
+            E-way applies only to HO → HO (DC). Store ↔ HO (TD) shows N/A.
           </p>
           {!edocEnabled ? (
             <p className="mb-3 text-sm text-stone-600">E-doc is not enabled. Enable it in settings to create or retry e-way bills.</p>
@@ -331,9 +348,9 @@ export function ScLogisticsHistoryPage() {
                 <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
                   <tr>
                     <th className="px-3 py-2">Document</th>
-                    <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2">Time</th>
-                    <th className="px-3 py-2">Inward / Outward</th>
+                    <th className="px-3 py-2">When</th>
+                    <th className="px-3 py-2">Transfer type</th>
+                    <th className="px-3 py-2">Route (from → to)</th>
                     <th className="px-3 py-2">SRFs</th>
                     <th className="px-3 py-2">E-way</th>
                     <th className="px-3 py-2 text-center">Action</th>
@@ -341,8 +358,6 @@ export function ScLogisticsHistoryPage() {
                 </thead>
                 <tbody>
                   {documentHistoryRows.map((row) => {
-                    const direction = dcDirection(row);
-                    const isInward = direction === "inward";
                     const series = row.documentSeries ?? (/^DC/i.test(row.dcNumber) ? "DC" : "TD");
                     const needsEway = documentNeedsEway({
                       flow: row.flow,
@@ -354,24 +369,20 @@ export function ScLogisticsHistoryPage() {
                       <tr key={row.id} className="border-b border-zimson-100 last:border-0">
                         <td className="px-3 py-2">
                           <span className="font-mono text-xs font-semibold text-zimson-900">{row.dcNumber}</span>
-                          <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wide text-stone-500">
-                            {series} document
+                          <span
+                            className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              series === "DC" ? "bg-sky-100 text-sky-900" : "bg-stone-100 text-stone-700"
+                            }`}
+                          >
+                            {series}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-xs font-medium text-stone-800">{formatDcDate(row.createdAt)}</td>
-                        <td className="px-3 py-2 text-xs text-stone-600">{formatDcTime(row.createdAt)}</td>
-                        <td className="px-3 py-2">
-                          {isInward ? (
-                            <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                              Inward
-                            </span>
-                          ) : (
-                            <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-900">
-                              Outward
-                            </span>
-                          )}
-                          <span className="mt-0.5 block text-[10px] text-stone-500">{dcDirectionLabel(row)}</span>
+                        <td className="px-3 py-2 text-xs text-stone-700">
+                          <span className="block font-medium">{formatDcDate(row.createdAt)}</span>
+                          <span className="text-stone-500">{formatDcTime(row.createdAt)}</span>
                         </td>
+                        <td className="px-3 py-2 text-xs font-semibold text-stone-800">{transferTypeLabel(row)}</td>
+                        <td className="px-3 py-2 text-xs text-stone-700">{routeLabel(row)}</td>
                         <td className="px-3 py-2 font-mono text-xs text-stone-700">
                           <span className="mb-0.5 block text-[10px] font-semibold text-stone-500">
                             {srfCount} SRF{srfCount === 1 ? "" : "s"}
@@ -419,12 +430,13 @@ export function ScLogisticsHistoryPage() {
       {historyModule === "dcOdc" ? (
         <Card title={`DC / ODC history (${filteredDocRows.length})`}>
           <p className="mb-3 text-xs text-stone-600">
-            One row per transfer document. TD = store ↔ HO (no e-way). DC = HO ↔ HO (e-way). Archived SRFs are hidden.
+            <strong>TD</strong> = store ↔ HO (no e-way). <strong>DC</strong> = HO ↔ HO (e-way required). Each row is one
+            document. Shows transfers you sent or received at your HO.
           </p>
           {dcMsg ? (
             <p className="mb-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-950 ring-1 ring-sky-200">{dcMsg}</p>
           ) : null}
-          <div className="mb-4 grid gap-2 md:grid-cols-4">
+          <div className="mb-4 grid gap-2 md:grid-cols-5">
             <select
               value={statusFilter}
               onChange={(e) => {
@@ -433,9 +445,9 @@ export function ScLogisticsHistoryPage() {
               }}
               className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
             >
-              <option value="all">All (inward + outward)</option>
-              <option value="inward">Inward only (store → HO)</option>
-              <option value="outward">Outward only (HO → store / HO → HO)</option>
+              <option value="all">All transfers</option>
+              <option value="inward">Store → HO only</option>
+              <option value="outward">Outward (HO → Store / HO → HO)</option>
             </select>
             <input
               type="date"
@@ -465,7 +477,15 @@ export function ScLogisticsHistoryPage() {
               }}
               className="rounded-xl border border-zimson-300 px-3 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
             >
-              All / Reset
+              Reset filters
+            </button>
+            <button
+              type="button"
+              disabled={dcLoading}
+              onClick={() => void loadDcHistory()}
+              className="rounded-xl border border-rlx-gold bg-rlx-green-light px-3 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light/80 disabled:opacity-50"
+            >
+              {dcLoading ? "Refreshing…" : "Refresh"}
             </button>
           </div>
           {dcLoading ? (
@@ -479,9 +499,9 @@ export function ScLogisticsHistoryPage() {
                   <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
                     <tr>
                       <th className="px-3 py-2">Document</th>
-                      <th className="px-3 py-2">Date</th>
-                      <th className="px-3 py-2">Time</th>
-                      <th className="px-3 py-2">Inward / Outward</th>
+                      <th className="px-3 py-2">When</th>
+                      <th className="px-3 py-2">Transfer type</th>
+                      <th className="px-3 py-2">Route (from → to)</th>
                       <th className="px-3 py-2">SRFs</th>
                       <th className="px-3 py-2">E-way</th>
                       <th className="px-3 py-2 text-center">Action</th>
@@ -489,8 +509,6 @@ export function ScLogisticsHistoryPage() {
                   </thead>
                   <tbody>
                     {pagedDocRows.map((row) => {
-                      const direction = dcDirection(row);
-                      const isInward = direction === "inward";
                       const series = row.documentSeries ?? (/^DC/i.test(row.dcNumber) ? "DC" : "TD");
                       const needsEway = documentNeedsEway({
                         flow: row.flow,
@@ -506,24 +524,20 @@ export function ScLogisticsHistoryPage() {
                         >
                           <td className="px-3 py-2">
                             <span className="font-mono text-xs font-semibold text-zimson-900">{row.dcNumber}</span>
-                            <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wide text-stone-500">
-                              {series} document
+                            <span
+                              className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                series === "DC" ? "bg-sky-100 text-sky-900" : "bg-stone-100 text-stone-700"
+                              }`}
+                            >
+                              {series}
                             </span>
                           </td>
-                          <td className="px-3 py-2 text-xs font-medium text-stone-800">{formatDcDate(row.createdAt)}</td>
-                          <td className="px-3 py-2 text-xs text-stone-600">{formatDcTime(row.createdAt)}</td>
-                          <td className="px-3 py-2">
-                            {isInward ? (
-                              <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                                Inward
-                              </span>
-                            ) : (
-                              <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-900">
-                                Outward
-                              </span>
-                            )}
-                            <span className="mt-0.5 block text-[10px] text-stone-500">{dcDirectionLabel(row)}</span>
+                          <td className="px-3 py-2 text-xs text-stone-700">
+                            <span className="block font-medium">{formatDcDate(row.createdAt)}</span>
+                            <span className="text-stone-500">{formatDcTime(row.createdAt)}</span>
                           </td>
+                          <td className="px-3 py-2 text-xs font-semibold text-stone-800">{transferTypeLabel(row)}</td>
+                          <td className="px-3 py-2 text-xs text-stone-700">{routeLabel(row)}</td>
                           <td className="px-3 py-2 font-mono text-xs text-stone-700">
                             <span className="mb-0.5 block text-[10px] font-semibold text-stone-500">
                               {srfCount} SRF{srfCount === 1 ? "" : "s"}
@@ -652,7 +666,8 @@ export function ScLogisticsHistoryPage() {
               <div>
                 <h3 className="text-lg font-semibold text-stone-900">Transfer document</h3>
                 <p className="font-mono text-sm font-semibold text-zimson-900">{selectedDoc.dcNumber}</p>
-                <p className="text-xs text-stone-500">{dcDirectionLabel(selectedDoc)}</p>
+                <p className="text-xs font-semibold text-stone-700">{transferTypeLabel(selectedDoc)}</p>
+                <p className="text-xs text-stone-500">{routeLabel(selectedDoc)}</p>
               </div>
               <button type="button" onClick={() => setSelectedDoc(null)} className="rounded-lg border px-3 py-1.5 text-sm">
                 Close
@@ -666,8 +681,12 @@ export function ScLogisticsHistoryPage() {
                 </dd>
               </div>
               <div className="grid grid-cols-[8rem_1fr] border-b border-stone-100">
-                <dt className="bg-stone-50 px-3 py-2 text-xs font-semibold uppercase text-stone-500">Direction</dt>
-                <dd className="px-3 py-2 font-semibold">{dcDirection(selectedDoc) === "inward" ? "Inward" : "Outward"}</dd>
+                <dt className="bg-stone-50 px-3 py-2 text-xs font-semibold uppercase text-stone-500">Route</dt>
+                <dd className="px-3 py-2 text-sm font-medium">{routeLabel(selectedDoc)}</dd>
+              </div>
+              <div className="grid grid-cols-[8rem_1fr] border-b border-stone-100">
+                <dt className="bg-stone-50 px-3 py-2 text-xs font-semibold uppercase text-stone-500">Type</dt>
+                <dd className="px-3 py-2 font-semibold">{transferTypeLabel(selectedDoc)}</dd>
               </div>
               <div className="grid grid-cols-[8rem_1fr] border-b border-stone-100">
                 <dt className="bg-stone-50 px-3 py-2 text-xs font-semibold uppercase text-stone-500">SRFs</dt>

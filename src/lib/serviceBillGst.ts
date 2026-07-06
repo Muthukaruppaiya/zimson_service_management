@@ -11,6 +11,8 @@ export type ServiceBillGstLine = {
   qty?: number;
   hsnSac?: string | null;
   spareId?: string | null;
+  /** When set, overrides global `pricesTaxInclusive` for this line. */
+  taxInclusive?: boolean;
 };
 
 export type ServiceBillGstResult = {
@@ -121,7 +123,8 @@ export function computeServiceBillGst(params: {
     const key = `${hsn}|${effectiveRate}`;
     const g = effectiveRate / 100;
     let taxable = amt;
-    if (pricesTaxInclusive && g > 0) taxable = amt / (1 + g);
+    const lineTaxInclusive = ln.taxInclusive ?? pricesTaxInclusive;
+    if (lineTaxInclusive && g > 0) taxable = amt / (1 + g);
     const prev = buckets.get(key);
     if (prev) prev.taxable += taxable;
     else buckets.set(key, { hsnSac: hsn, ratePercent: effectiveRate, taxable });
@@ -168,8 +171,9 @@ export function computeServiceBillGst(params: {
   let netPayable = round2(grossTaxable + totalTax);
   const target = round2(billTotalInr);
   /** Inclusive pricing: line total already contains GST — align tax with entered total. */
+  const anyInclusive = lines.some((ln) => ln.taxInclusive ?? pricesTaxInclusive);
   if (
-    pricesTaxInclusive &&
+    anyInclusive &&
     Math.abs(netPayable - target) > 0.02 &&
     grossTaxable > 0
   ) {

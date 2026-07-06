@@ -148,7 +148,7 @@ export async function loadRegionHoParty(client: PoolClient, regionId: string): P
     phone: String(row.phone ?? "").trim() || "—",
     email: String(row.email ?? "").trim() || "—",
     gstin: String(row.gst ?? "").trim() || "—",
-    place: city || undefined,
+    place: city || row.name || undefined,
     pincode,
   };
 }
@@ -200,6 +200,14 @@ export async function buildHoOutwardPrintMeta(
     from,
     to,
   };
+}
+
+function nonEmptyText(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
 }
 
 /** Rebuild transfer print meta for an existing delivery challan (e-way retry / history). */
@@ -277,44 +285,73 @@ export async function rebuildPrintMetaForChallan(
   }
 
   // Inter-HO DC: sender HO → receiver HO, or return receiver → sender.
-  // Note: delivery_challans.region_id is the *target* HO for inter-HO inserts.
+  // delivery_challans.region_id = target HO; from_store_id = dispatching HO store.
+  // After return outward, srf_jobs.region_id is already the sender HO — use store region for "from".
   const isReturnLeg =
-    !first.requires_local_conversion && !!String(first.transfer_source_region_id ?? "").trim();
-  const toRegionId = isReturnLeg
-    ? String(first.transfer_source_region_id).trim()
-    : String(first.transfer_target_region_id ?? dc.region_id).trim();
-  const fromRegionId = isReturnLeg
-    ? String(first.region_id !== toRegionId ? first.region_id : dc.region_id).trim() || toRegionId
-    : String(
-        first.transfer_source_region_id && first.transfer_source_region_id !== toRegionId
-          ? first.transfer_source_region_id
-          : first.region_id !== toRegionId
-            ? first.region_id
-            : dc.region_id,
-      ).trim();
+    !first.requires_local_conversion && !!nonEmptyText(first.transfer_source_region_id);
 
-  // Prefer explicit opposite region when from/to collapsed to the same id after job move.
-  let resolvedFrom = fromRegionId || dc.region_id;
-  let resolvedTo = toRegionId || dc.region_id;
-  if (seriesIsDc && resolvedFrom === resolvedTo) {
-    if (isReturnLeg && first.transfer_source_region_id) {
-      resolvedTo = first.transfer_source_region_id;
-      resolvedFrom = first.region_id !== resolvedTo ? first.region_id : resolvedFrom;
-    } else if (first.transfer_target_region_id) {
-      resolvedTo = first.transfer_target_region_id;
-      // Sender is not always on the job after move — use DC region only if it differs.
-      if (dc.region_id === resolvedTo && first.region_id !== resolvedTo) {
-        resolvedFrom = first.region_id;
+  let resolvedFrom = "";
+  let resolvedTo = "";
+
+  if (seriesIsDc) {
+    const { rows: fromStoreRows } = await pool.query<{ region_id: string }>(
+      `SELECT region_id FROM stores WHERE id = $1::text LIMIT 1`,
+      [dc.from_store_id],
+    );
+    const dispatchRegionId = nonEmptyText(fromStoreRows[0]?.region_id);
+
+    resolvedTo = isReturnLeg
+      ? nonEmptyText(first.transfer_source_region_id, dc.region_id)
+      : nonEmptyText(first.transfer_target_region_id, dc.region_id);
+
+    resolvedFrom = nonEmptyText(
+      dispatchRegionId,
+      isReturnLeg && first.region_id !== resolvedTo ? first.region_id : "",
+      !isReturnLeg && first.region_id !== resolvedTo ? first.region_id : "",
+      dc.region_id,
+    );
+
+    if (resolvedFrom && resolvedTo && resolvedFrom === resolvedTo) {
+      if (isReturnLeg) {
+        resolvedTo = nonEmptyText(first.transfer_source_region_id, dc.region_id);
+        resolvedFrom = nonEmptyText(dispatchRegionId, resolvedFrom);
+      } else {
+        resolvedTo = nonEmptyText(first.transfer_target_region_id, dc.region_id);
+        resolvedFrom = nonEmptyText(dispatchRegionId, resolvedFrom);
+      }
+    }
+  } else {
+    resolvedTo = isReturnLeg
+      ? nonEmptyText(first.transfer_source_region_id)
+      : nonEmptyText(first.transfer_target_region_id, dc.region_id);
+    resolvedFrom = isReturnLeg
+      ? nonEmptyText(first.region_id !== resolvedTo ? first.region_id : "", dc.region_id)
+      : nonEmptyText(
+          first.transfer_source_region_id && first.transfer_source_region_id !== resolvedTo
+            ? first.transfer_source_region_id
+            : "",
+          first.region_id !== resolvedTo ? first.region_id : "",
+          dc.region_id,
+        );
+    if (resolvedFrom && resolvedTo && resolvedFrom === resolvedTo) {
+      if (isReturnLeg && first.transfer_source_region_id) {
+        resolvedTo = first.transfer_source_region_id;
+        resolvedFrom = first.region_id !== resolvedTo ? first.region_id : resolvedFrom;
+      } else if (first.transfer_target_region_id) {
+        resolvedTo = first.transfer_target_region_id;
+        if (dc.region_id === resolvedTo && first.region_id !== resolvedTo) {
+          resolvedFrom = first.region_id;
+        }
       }
     }
   }
 
   const printMeta = await buildHoOutwardPrintMeta(pool as PoolClient, {
-    fromRegionId: resolvedFrom,
+    fromRegionId: resolvedFrom || dc.region_id,
     destinationStoreId: first.destination_store_id ?? dc.from_store_id,
     transferNumber: docNo,
     isInterHoBatch: true,
-    interHoTargetRegionId: resolvedTo,
+    interHoTargetRegionId: resolvedTo || dc.region_id,
     isReturnLeg,
   });
   return { printMeta, lineCount };

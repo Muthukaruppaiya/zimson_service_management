@@ -121,6 +121,7 @@ export function buildInterHoRepairInvoiceViewModel(params: {
       edocIrn: params.edocIrn,
       edocAckNo: params.edocAckNo,
       edocQr: params.edocQr,
+      catalogueTaxInclusiveOnly: true,
     },
   );
 }

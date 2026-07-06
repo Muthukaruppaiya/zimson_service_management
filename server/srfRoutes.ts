@@ -316,6 +316,59 @@ async function srfRegionScopeCode(client: PoolClient, regionId: string): Promise
   return scopeCode(String(rows[0]?.code ?? "RGN"), "RGN", 6);
 }
 
+/** Pick first non-blank text; unlike `??`, treats empty strings as missing. */
+function firstNonEmptyText(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function transferFlowTypeLabel(flow: string): string {
+  switch (flow) {
+    case "store_to_ho":
+      return "Store → HO";
+    case "ho_to_store":
+      return "HO → Store";
+    case "ho_to_ho_dispatch":
+      return "HO → HO (send)";
+    case "ho_to_ho_return":
+      return "HO → HO (return)";
+    default:
+      return "Transfer";
+  }
+}
+
+function shortTransferPartyLabel(label: string, legalName?: string | null): string {
+  const legal = String(legalName ?? "").trim();
+  if (legal && legal !== "—") return legal;
+  return String(label ?? "")
+    .trim()
+    .replace(/^HO \/ Service Centre:\s*/i, "")
+    .replace(/^Store:\s*/i, "")
+    .replace(/\s*\(HO:.*\)\s*$/i, "")
+    .trim() || "—";
+}
+
+async function actorCanAccessDeliveryChallan(
+  client: PoolClient,
+  actor: DemoUser,
+  dc: { region_id: string; from_store_id?: string | null },
+): Promise<boolean> {
+  if (actor.role === "super_admin" || actor.role === "admin") return true;
+  const regionId = firstNonEmptyText(actor.regionId);
+  if (!regionId) return false;
+  if (dc.region_id === regionId) return true;
+  const fromStoreId = firstNonEmptyText(dc.from_store_id);
+  if (!fromStoreId) return false;
+  const { rows } = await client.query<{ region_id: string }>(
+    `SELECT region_id FROM stores WHERE id = $1::text LIMIT 1`,
+    [fromStoreId],
+  );
+  return rows[0]?.region_id === regionId;
+}
+
 /** Store → HO internal transfer: scope = store code (e.g. REG01), not region id slug. */
 type InwardDocumentKind = "store_transfer" | "inter_ho_dc" | "inter_ho_return";
 
@@ -2915,7 +2968,15 @@ export function registerSrfRoutes(
           return;
         }
         params.push(actor.regionId);
-        where += ` AND dc.region_id = $${params.length}::text`;
+        const regionParam = `$${params.length}::text`;
+        // Inter-HO DCs store target HO on region_id; dispatching HO is on from_store_id.
+        where += ` AND (
+          dc.region_id = ${regionParam}
+          OR EXISTS (
+            SELECT 1 FROM stores fs
+            WHERE fs.id = dc.from_store_id AND fs.region_id = ${regionParam}
+          )
+        )`;
       }
       const { rows } = await pool.query<{
         id: string;
@@ -2946,7 +3007,7 @@ export function registerSrfRoutes(
          JOIN srf_jobs j ON j.id = l.srf_id
          ${where}
          GROUP BY dc.id
-         HAVING COUNT(*) FILTER (WHERE j.reference IS NOT NULL AND j.reference NOT LIKE '%-ARCH-%') > 0
+         HAVING COUNT(l.srf_id) > 0
          ORDER BY dc.created_at DESC
          LIMIT 200`,
         params,
@@ -2958,6 +3019,12 @@ export function registerSrfRoutes(
         const printKind = rebuilt?.printMeta.printKind ?? "transfer";
         const direction = flow === "store_to_ho" ? ("inward" as const) : ("outward" as const);
         const srfCount = (row.srf_references ?? []).length;
+        const fromName = rebuilt
+          ? shortTransferPartyLabel(rebuilt.printMeta.from.locationLabel, rebuilt.printMeta.from.legalName)
+          : "—";
+        const toName = rebuilt
+          ? shortTransferPartyLabel(rebuilt.printMeta.to.locationLabel, rebuilt.printMeta.to.legalName)
+          : "—";
         out.push({
           id: row.id,
           dcNumber: row.dc_number,
@@ -2967,6 +3034,10 @@ export function registerSrfRoutes(
           direction,
           documentSeries: printKind === "dc" ? ("DC" as const) : ("TD" as const),
           needsEway: transferFlowNeedsEway(flow),
+          transferTypeLabel: transferFlowTypeLabel(flow),
+          fromName,
+          toName,
+          routeLabel: `${fromName} → ${toName}`,
           srfReferences: row.srf_references ?? [],
           srfCount,
           edocEwayBillNo: row.edoc_eway_bill_no,
@@ -2995,8 +3066,8 @@ export function registerSrfRoutes(
       return;
     }
     try {
-      const dcRes = await pool.query<{ region_id: string; created_at: Date }>(
-        `SELECT region_id, created_at FROM delivery_challans WHERE id = $1::uuid`,
+      const dcRes = await pool.query<{ region_id: string; from_store_id: string | null; created_at: Date }>(
+        `SELECT region_id, from_store_id, created_at FROM delivery_challans WHERE id = $1::uuid`,
         [dcId],
       );
       const dc = dcRes.rows[0];
@@ -3004,9 +3075,15 @@ export function registerSrfRoutes(
         res.status(404).json({ error: "Delivery challan not found." });
         return;
       }
-      if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== dc.region_id) {
-        res.status(403).json({ error: "Region mismatch." });
-        return;
+      const client = await pool.connect();
+      try {
+        const allowed = await actorCanAccessDeliveryChallan(client, actor, dc);
+        if (!allowed) {
+          res.status(403).json({ error: "Region mismatch." });
+          return;
+        }
+      } finally {
+        client.release();
       }
       const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
       if (!rebuilt) {
@@ -7965,17 +8042,18 @@ export function registerSrfRoutes(
              FROM srf_jobs
              WHERE reference = $1
                AND id <> $2::uuid
-               AND transfer_source_region_id IS NOT NULL
+               AND NULLIF(TRIM(transfer_source_region_id), '') IS NOT NULL
              ORDER BY created_at ASC
              LIMIT 1`,
             [cand.transfer_source_reference, cand.id],
           );
           const parent = parentRows[0];
-          if (parent && parent.transfer_source_region_id) {
+          const recoveredRegionId = firstNonEmptyText(parent?.transfer_source_region_id);
+          if (parent && recoveredRegionId) {
             returnParentRecovery[cand.id] = {
-              regionId: parent.transfer_source_region_id,
-              storeId: parent.transfer_source_store_id,
-              destinationStoreId: parent.destination_store_id,
+              regionId: recoveredRegionId,
+              storeId: firstNonEmptyText(parent.transfer_source_store_id),
+              destinationStoreId: firstNonEmptyText(parent.destination_store_id),
             };
           }
         }
@@ -7988,11 +8066,46 @@ export function registerSrfRoutes(
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, seriesKey, seriesFallback);
       const dcNumber = await nextDocNumber(client, prefix, suffix, hoScope);
       const interHoTargetRegionId = firstTransfer?.requires_local_conversion
-        ? firstTransfer.transfer_target_region_id
-        : (firstRecovery?.regionId ?? firstTransfer?.transfer_source_region_id);
+        ? firstNonEmptyText(firstTransfer.transfer_target_region_id)
+        : firstNonEmptyText(
+            firstRecovery?.regionId,
+            firstTransfer?.transfer_source_region_id,
+            firstTransfer?.transfer_target_region_id,
+          );
       const interHoFromStoreId = firstTransfer?.requires_local_conversion
-        ? firstTransfer.transfer_target_store_id
-        : (firstRecovery?.storeId ?? firstTransfer?.transfer_source_store_id);
+        ? firstNonEmptyText(firstTransfer.transfer_target_store_id)
+        : firstNonEmptyText(
+            firstRecovery?.storeId,
+            firstTransfer?.transfer_source_store_id,
+            firstTransfer?.transfer_target_store_id,
+          );
+      const resolvedInterHoTarget = isInterHoBatch
+        ? firstNonEmptyText(
+            interHoTargetRegionId,
+            firstTransfer?.transfer_target_region_id,
+            firstTransfer?.transfer_source_region_id,
+            firstRecovery?.regionId,
+          )
+        : null;
+      const dcRegionId = isInterHoBatch ? resolvedInterHoTarget : firstNonEmptyText(regionId);
+      if (!dcRegionId) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: isInterHoBatch
+            ? "Inter-HO target region is missing on this SRF. Check transfer source/target region fields."
+            : "Your login is not mapped to a service centre region.",
+        });
+        return;
+      }
+      const { rows: dcRegionRows } = await client.query<{ id: string }>(
+        `SELECT id FROM regions WHERE id = $1::text LIMIT 1`,
+        [dcRegionId],
+      );
+      if (!dcRegionRows[0]) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: `Unknown region "${dcRegionId}" for outward DC.` });
+        return;
+      }
       let fromStoreId = actor.storeId;
       if (!fromStoreId) {
         const { rows: regionalStores } = await client.query<{ id: string }>(
@@ -8008,7 +8121,7 @@ export function registerSrfRoutes(
          RETURNING id`,
         [
           dcNumber,
-          isInterHoBatch ? interHoTargetRegionId : regionId,
+          dcRegionId,
           fromStoreId,
           isInterHoBatch ? "SERVICE_CENTRE" : "STORE",
           isInterHoBatch ? "CREATED" : "DISPATCHED",
@@ -8089,8 +8202,16 @@ export function registerSrfRoutes(
           // (with wrong/NULL transfer_source_*) still route back to the original sender HO
           // and original booking store. For target-bound leg, recovery is unused.
           const recoveryForRow = movingToTargetHo ? undefined : returnParentRecovery[row.id];
-          const correctedSenderRegionId = recoveryForRow?.regionId ?? row.transfer_source_region_id;
-          const correctedSenderStoreId = recoveryForRow?.storeId ?? row.transfer_source_store_id;
+          const correctedSenderRegionId = firstNonEmptyText(
+            recoveryForRow?.regionId,
+            row.transfer_source_region_id,
+            row.transfer_target_region_id,
+          );
+          const correctedSenderStoreId = firstNonEmptyText(
+            recoveryForRow?.storeId,
+            row.transfer_source_store_id,
+            row.transfer_target_store_id,
+          );
           const correctedDestinationStoreId =
             recoveryForRow?.destinationStoreId ?? row.destination_store_id ?? correctedSenderStoreId ?? it.destinationStoreId;
           await client.query(
@@ -8194,11 +8315,6 @@ export function registerSrfRoutes(
         items.find((it: { destinationStoreId: string }) => it.destinationStoreId)?.destinationStoreId ??
         fromStoreId;
       // Inter-HO DC always needs a target HO region (e-way applies only to HO↔HO, not HO↔store).
-      const resolvedInterHoTarget =
-        interHoTargetRegionId ??
-        firstTransfer?.transfer_target_region_id ??
-        firstTransfer?.transfer_source_region_id ??
-        null;
       let printMeta = await buildHoOutwardPrintMeta(client, {
         fromRegionId: regionId,
         destinationStoreId: destStoreForMeta,

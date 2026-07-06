@@ -7,6 +7,7 @@ import {
   resolveSellerStateCode,
 } from "../../src/lib/gstSupply";
 import { customerPayableInr } from "../../src/lib/quickBillPayable";
+import { buildEwayDistancePrefill } from "../../src/lib/ewayDistance";
 import { billableLineAmount } from "../../src/lib/natureOfRepair";
 import { isValidGstFormat } from "../../src/data/serviceSeed";
 import { validateCustomerB2bGstin } from "../../src/lib/zimsonCompanyGst";
@@ -27,7 +28,7 @@ import {
   resolveEdocEwayUserGstin,
   resolveEdocSellerGstin,
 } from "./config";
-import { defaultPincodeForState, gstinStateCode, edocPartyLocation, parsePincode, stateNameFromCode, formatDocumentDate } from "./gstState";
+import { defaultPincodeForState, gstinStateCode, edocPartyLocation, parsePincode, pincodeForEdocParty, stateNameFromCode, formatDocumentDate } from "./gstState";
 import { loadSpareGstById } from "../hsnGstRates";
 import {
   isServiceSacCode,
@@ -39,6 +40,18 @@ import type { EdocLine, EdocParty, EdocResult, EdocValueTotals, EwayGenerateInpu
 
 function skip(reason: string): EdocResult {
   return { ok: false, skipped: true, skipReason: reason };
+}
+
+function ewayDistanceFields(consignorPin: number, consigneePin: number) {
+  const d = buildEwayDistancePrefill(consignorPin, consigneePin);
+  return {
+    consignorPincode: String(consignorPin),
+    consigneePincode: String(consigneePin),
+    displayDistanceKm: d.displayDistanceKm,
+    distanceForApi: d.distanceForApi,
+    distanceAutoCalculated: true as const,
+    distanceHint: d.distanceHint,
+  };
 }
 
 export function parseEwayGenerateInput(body: unknown): EwayGenerateInput {
@@ -858,6 +871,7 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
       amountInr: l.amountInr,
       spareId: l.spareId,
       hsnSac: l.hsnSac,
+      taxInclusive: Boolean(l.spareId),
     })),
     defaultHsnSac: defaultSacHsn,
     configuredGstPercent: configuredGst,
@@ -948,6 +962,12 @@ export async function getEwayPrefillForChallan(pool: Pool, dcId: string): Promis
   const consigneeGstin = normalizeTransferGstin(printMeta.to.gstin);
   const interstate = gstinStateCode(consignorGstin) !== gstinStateCode(consigneeGstin);
 
+  let consignor = partyFromTransferBlock(printMeta.from, "");
+  let consignee = partyFromTransferBlock(printMeta.to, consignor.gstin);
+  if (cfg) {
+    ({ consignor, consignee } = alignSandboxEdocEwayParties(consignor, consignee, cfg));
+  }
+
   return {
     documentNumber: printMeta.transferNumber || dc.dc_number,
     flowLabel: flowLabelFromMeta(printMeta),
@@ -959,6 +979,7 @@ export async function getEwayPrefillForChallan(pool: Pool, dcId: string): Promis
     defaultValueInr: cfg?.ewayNominalValueInr ?? 1000,
     interstate,
     existingEwayBillNo: dc.edoc_eway_bill_no,
+    ...ewayDistanceFields(consignor.pincode, consignee.pincode),
   };
 }
 
@@ -1005,22 +1026,29 @@ export async function tryGenerateEwayForChallan(
     };
   }
 
-  // DC series is always inter-HO; rebuild if flow was mis-tagged as HO↔store.
+  // DC series is inter-HO — always rebuild from DB so from/to match dispatch store + target HO
+  // (job.region_id may already point at destination after outward).
   let meta = printMeta;
   let lines = lineCount;
   const docNo = String(printMeta.transferNumber || dc.dc_number || "").trim();
-  if (!transferFlowNeedsEway(meta.flow) && /^DC/i.test(docNo)) {
+  if (/^DC/i.test(docNo)) {
     const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
-    if (rebuilt && transferFlowNeedsEway(rebuilt.printMeta.flow)) {
+    if (rebuilt) {
       meta = rebuilt.printMeta;
       lines = rebuilt.lineCount;
-    } else {
+    } else if (!transferFlowNeedsEway(meta.flow)) {
       meta = {
         ...printMeta,
         printKind: "dc",
         flow: "ho_to_ho_dispatch",
         transferNumber: docNo,
       };
+    }
+  } else if (!transferFlowNeedsEway(meta.flow)) {
+    const rebuilt = await rebuildPrintMetaForChallan(pool, dcId);
+    if (rebuilt && transferFlowNeedsEway(rebuilt.printMeta.flow)) {
+      meta = rebuilt.printMeta;
+      lines = rebuilt.lineCount;
     }
   }
 
@@ -1041,6 +1069,9 @@ export async function tryGenerateEwayForChallan(
   const interstate = consignor.stateCode !== consignee.stateCode;
   const nominal = resolveEwayTotals(cfg.ewayNominalValueInr, interstate, input);
   const flowLabel = flowLabelFromMeta(meta);
+
+  // GST NIC auto-calculates distance from PIN codes — manual km causes error 702.
+  const distanceKm = "0";
 
   // Return leg: reference repair HO e-invoice / invoice on the e-way payload.
   let invoiceRefNote = "";
@@ -1078,7 +1109,7 @@ export async function tryGenerateEwayForChallan(
       : `Wrist watches — ${lines} unit(s) — ${flowLabel}`,
     hsnSac: "9113",
     qty: Math.max(1, lines),
-    transportationDistanceKm: input?.transportationDistanceKm ?? "0",
+    transportationDistanceKm: distanceKm,
     subSupplyDescription: invoiceRefNote
       ? `${flowLabel} · ${invoiceRefNote}`.slice(0, 100)
       : flowLabel,
@@ -1127,6 +1158,42 @@ export async function getEwayPrefillForBrandSend(pool: Pool, srfId: string): Pro
   const brandConsignees = await loadBrandEwayConsigneeOptions(pool, row.watch_brand);
   const defaultConsignee = brandConsignees[0] ?? null;
 
+  const client = await pool.connect();
+  let consignorPin = 0;
+  let consigneePin = 0;
+  try {
+    const from = await loadRegionHoPartyForEway(client, row.region_id);
+    let consignor = partyFromTransferBlock(from, consignorGstin);
+    if (cfg) {
+      const stubConsignee = partyFromTransferBlock(
+        {
+          locationLabel: defaultConsignee?.locationName ?? "",
+          legalName: defaultConsignee?.legalName ?? "",
+          address: defaultConsignee?.address ?? "",
+          phone: "—",
+          email: "—",
+          gstin: defaultConsignee?.gstin ?? "",
+          place: defaultConsignee?.city,
+          pincode: defaultConsignee?.pincode ? Number(defaultConsignee.pincode) : undefined,
+        },
+        consignor.gstin,
+      );
+      ({ consignor } = alignSandboxEdocEwayParties(consignor, stubConsignee, cfg));
+    }
+    consignorPin = consignor.pincode;
+    if (defaultConsignee?.pincode) {
+      consigneePin = pincodeForEdocParty({
+        stateCode: gstinStateCode(defaultConsignee.gstin),
+        place: defaultConsignee.city,
+        legalName: defaultConsignee.legalName,
+        address: defaultConsignee.address,
+        explicitPin: Number(defaultConsignee.pincode) || null,
+      });
+    }
+  } finally {
+    client.release();
+  }
+
   return {
     documentNumber: row.brand_odc_number,
     flowLabel: `Send to brand (${row.watch_brand})`,
@@ -1157,6 +1224,7 @@ export async function getEwayPrefillForBrandSend(pool: Pool, srfId: string): Pro
       pincode: c.pincode,
     })),
     defaultConsigneeId: defaultConsignee?.id ?? null,
+    ...(consignorPin && consigneePin ? ewayDistanceFields(consignorPin, consigneePin) : { distanceAutoCalculated: true, distanceForApi: "0" }),
   };
 }
 
@@ -1236,7 +1304,7 @@ export async function tryGenerateEwayForBrandSend(
       itemDescription: `Wrist watch — brand repair — ${row.watch_brand}`,
       hsnSac: "9113",
       qty: 1,
-      transportationDistanceKm: input?.transportationDistanceKm ?? "0",
+      transportationDistanceKm: "0",
       subSupplyDescription: `Send to brand — ${row.watch_brand}`,
       vehicleNumber: input?.vehicleNumber,
       transportationMode: input?.transportationMode,
@@ -1287,6 +1355,24 @@ export async function getEwayPrefillForOnlineSpareOrder(pool: Pool, orderId: str
   const lineTotal = Number(row.line_total ?? 0);
   const defaultValue = lineTotal > 0 ? lineTotal : (cfg?.ewayNominalValueInr ?? 1000);
 
+  const client = await pool.connect();
+  let distanceFields: ReturnType<typeof ewayDistanceFields> | { distanceAutoCalculated: true; distanceForApi: string } = {
+    distanceAutoCalculated: true,
+    distanceForApi: "0",
+  };
+  try {
+    const from = await loadRegionHoPartyForEway(client, row.to_region_id);
+    const to = await loadRegionHoPartyForEway(client, row.from_region_id);
+    let consignor = partyFromTransferBlock(from, "");
+    let consignee = partyFromTransferBlock(to, consignor.gstin);
+    if (cfg) {
+      ({ consignor, consignee } = alignSandboxEdocEwayParties(consignor, consignee, cfg));
+    }
+    distanceFields = ewayDistanceFields(consignor.pincode, consignee.pincode);
+  } finally {
+    client.release();
+  }
+
   return {
     documentNumber: row.order_number,
     flowLabel: "Online store — inter-HO spare dispatch",
@@ -1298,6 +1384,7 @@ export async function getEwayPrefillForOnlineSpareOrder(pool: Pool, orderId: str
     defaultValueInr: defaultValue,
     interstate: gstinStateCode(consignorGstin) !== gstinStateCode(consigneeGstin),
     existingEwayBillNo: row.edoc_eway_bill_no,
+    ...distanceFields,
   };
 }
 
@@ -1360,7 +1447,7 @@ export async function tryGenerateEwayForOnlineSpareOrder(
       itemDescription: "Spare parts — inter-HO online store dispatch",
       hsnSac: "9113",
       qty: 1,
-      transportationDistanceKm: input?.transportationDistanceKm ?? "0",
+      transportationDistanceKm: "0",
       subSupplyDescription: "Online store inter-HO spare dispatch",
       vehicleNumber: input?.vehicleNumber,
       transportationMode: input?.transportationMode,

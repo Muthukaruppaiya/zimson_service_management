@@ -46,6 +46,8 @@ export type ServiceInvoiceMappingOptions = {
   edocIrn?: string | null;
   edocAckNo?: string | null;
   edocQr?: string | null;
+  /** Catalogue spare lines (with spareId) are tax-inclusive; manual lines stay exclusive. */
+  catalogueTaxInclusiveOnly?: boolean;
 };
 
 function resolvedHsnSac(options?: ServiceInvoiceMappingOptions): string {
@@ -172,6 +174,7 @@ function buildGstLines(
   customerStateCode: string,
   spareHsnLookup?: (spareId: string) => string | null | undefined,
   spareGstLookup?: (spareId: string) => number | null | undefined,
+  catalogueTaxInclusiveOnly = false,
 ): {
   lines: ServiceInvoiceLineView[];
   taxRows: ServiceInvoiceTaxRow[];
@@ -193,12 +196,15 @@ function buildGstLines(
       qty: ln.qty,
       spareId: ln.spareId,
       hsnSac: lineHsnForInvoice(ln, defaultHsnSac, spareHsnLookup),
+      taxInclusive: catalogueTaxInclusiveOnly
+        ? Boolean(ln.spareId)
+        : COUNTER_PRICES_TAX_INCLUSIVE,
     })),
     defaultHsnSac,
     spareHsnLookup,
     spareGstLookup,
     defaultSacGstPercent,
-    pricesTaxInclusive: COUNTER_PRICES_TAX_INCLUSIVE,
+    pricesTaxInclusive: catalogueTaxInclusiveOnly ? false : COUNTER_PRICES_TAX_INCLUSIVE,
     natureOfRepair,
     sellerStateCode,
     customerStateCode,
@@ -221,7 +227,10 @@ function buildGstLines(
     });
     const g = rate / 100;
     let taxableLine = lineAmt;
-    if (COUNTER_PRICES_TAX_INCLUSIVE && g > 0) taxableLine = lineAmt / (1 + g);
+    const lineTaxInclusive = catalogueTaxInclusiveOnly
+      ? Boolean(ln.spareId)
+      : COUNTER_PRICES_TAX_INCLUSIVE;
+    if (lineTaxInclusive && g > 0) taxableLine = lineAmt / (1 + g);
     const unitTaxable = taxableLine / qty;
     totalQty += qty;
     outLines.push({
@@ -655,6 +664,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     supply.customerStateCode,
     options?.spareHsnLookup,
     options?.spareGstLookup,
+    Boolean(options?.catalogueTaxInclusiveOnly),
   );
   const serviceMeta: { label: string; value: string }[] = [];
   if (input.complaint.trim()) serviceMeta.push({ label: "Complaint", value: input.complaint.trim() });

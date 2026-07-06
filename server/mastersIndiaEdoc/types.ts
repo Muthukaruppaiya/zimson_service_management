@@ -133,6 +133,15 @@ export type EwayPrefill = {
     pincode: string;
   }>;
   defaultConsigneeId?: string | null;
+  /** PIN codes sent to GST NIC for distance calculation */
+  consignorPincode?: string;
+  consigneePincode?: string;
+  /** Approximate road km shown in UI (read-only) */
+  displayDistanceKm?: number;
+  /** Always "0" — NIC auto-calculates from PIN codes */
+  distanceForApi?: string;
+  distanceAutoCalculated?: boolean;
+  distanceHint?: string;
 };
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;

@@ -100,6 +100,32 @@ export function defaultPincodeForState(stateCode: string): number {
   return STATE_DEFAULT_PIN[c] ?? 600001;
 }
 
+/** Resolve PIN for e-way when region master has no pincode — uses city/name hints before state default. */
+export function pincodeForEdocParty(params: {
+  stateCode: string;
+  place?: string | null;
+  legalName?: string | null;
+  address?: string | null;
+  explicitPin?: number | null;
+}): number {
+  if (params.explicitPin != null && params.explicitPin > 0) return params.explicitPin;
+  const addr = String(params.address ?? "");
+  const fromAddr = addr.match(/\b(\d{6})\b/);
+  if (fromAddr) return Number(fromAddr[1]);
+
+  const hay = [params.place, params.legalName, addr].filter(Boolean).join(" ").toLowerCase();
+  if (/\bcoimbatore\b|\bcbe\b/.test(hay)) return 641018;
+  if (/\bchennai\b|\bmadras\b|\bchn\b/.test(hay)) return 600001;
+  if (/\bbengaluru\b|\bbangalore\b|\bblr\b/.test(hay)) return 560001;
+  if (/\bhyderabad\b/.test(hay)) return 500001;
+  if (/\bmumbai\b/.test(hay)) return 400001;
+  if (/\bdelhi\b|new delhi\b/.test(hay)) return 110001;
+  if (/\bpune\b/.test(hay)) return 411001;
+  if (/\bkolkata\b|\bcalcutta\b/.test(hay)) return 700001;
+
+  return defaultPincodeForState(params.stateCode);
+}
+
 export function parsePincode(text: string, fallback?: number): number {
   const m = text.match(/\b(\d{6})\b/);
   if (m) return Number(m[1]);

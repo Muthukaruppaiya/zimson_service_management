@@ -8,6 +8,7 @@ import {
   type EwayBillKind,
   type EwayPrefill,
 } from "../../lib/ewayBill";
+import { buildEwayDistancePrefill } from "../../lib/ewayDistance";
 import type { BrandEwayConsigneeOption } from "../../types/brandEwayConsignee";
 import { EwayBillSuccessModal } from "./EwayBillSuccessModal";
 import { inputClass } from "../../lib/uiForm";
@@ -52,7 +53,6 @@ export function EwayBillModal({
 
   const [valueInr, setValueInr] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
-  const [distanceKm, setDistanceKm] = useState("0");
   const [transportMode, setTransportMode] = useState<(typeof TRANSPORT_MODES)[number]>("Road");
   const [transporterName, setTransporterName] = useState("");
   const [selectedConsigneeId, setSelectedConsigneeId] = useState("");
@@ -63,6 +63,22 @@ export function EwayBillModal({
     () => brandConsignees.find((c) => c.id === selectedConsigneeId) ?? null,
     [brandConsignees, selectedConsigneeId],
   );
+
+  const distanceDisplay = useMemo(() => {
+    if (!prefill) return { km: 0, hint: "" };
+    if (prefill.requiresConsigneeInput && selectedConsignee && prefill.consignorPincode) {
+      const toPin = Number(selectedConsignee.pincode);
+      const fromPin = Number(prefill.consignorPincode);
+      if (fromPin && toPin) {
+        const d = buildEwayDistancePrefill(fromPin, toPin);
+        return { km: d.displayDistanceKm, hint: d.distanceHint };
+      }
+    }
+    return {
+      km: prefill.displayDistanceKm ?? 0,
+      hint: prefill.distanceHint ?? "",
+    };
+  }, [prefill, selectedConsignee]);
 
   useEffect(() => {
     if (!open) return;
@@ -94,7 +110,6 @@ export function EwayBillModal({
         setPrefill(p);
         setValueInr(String(p.defaultValueInr));
         setVehicleNumber(p.vehicleNumber);
-        setDistanceKm("0");
         setTransportMode("Road");
         setTransporterName("");
         if (p.requiresConsigneeInput && p.brandConsignees?.length) {
@@ -160,7 +175,7 @@ export function EwayBillModal({
         json: {
           taxableAmountInr,
           vehicleNumber: vehicleNumber.trim() || undefined,
-          transportationDistanceKm: distanceKm.trim() || "0",
+          transportationDistanceKm: prefill.distanceForApi ?? "0",
           transportationMode: transportMode,
           transporterName: transporterName.trim() || undefined,
           forceRegenerate: Boolean(prefill.existingEwayBillNo),
@@ -237,6 +252,11 @@ export function EwayBillModal({
                 <span className="font-semibold text-stone-900">To:</span>{" "}
                 {selectedConsignee ? consigneeLabel(selectedConsignee) : prefill.toLabel}
               </p>
+              {!prefill.requiresConsigneeInput && prefill.consignorPincode && prefill.consigneePincode ? (
+                <p className="mt-1 text-stone-500">
+                  E-way PIN: {prefill.consignorPincode} → {prefill.consigneePincode}
+                </p>
+              ) : null}
               {!prefill.requiresConsigneeInput ? (
                 <p className="mt-1 text-stone-500">
                   Consignor GSTIN {prefill.consignorGstin || "—"} → Consignee GSTIN {prefill.consigneeGstin || "—"}
@@ -276,10 +296,21 @@ export function EwayBillModal({
             </label>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                Distance (km)
-                <input className={inputClass} value={distanceKm} onChange={(e) => setDistanceKm(e.target.value)} />
-              </label>
+              {prefill.distanceAutoCalculated !== false ? (
+                <label className="block">
+                  Distance (km, approx.)
+                  <input
+                    className={`${inputClass} cursor-default bg-stone-100 text-stone-700`}
+                    value={String(distanceDisplay.km)}
+                    readOnly
+                    tabIndex={-1}
+                    aria-readonly="true"
+                  />
+                  {distanceDisplay.hint ? (
+                    <span className="mt-1 block text-xs text-stone-500">{distanceDisplay.hint}</span>
+                  ) : null}
+                </label>
+              ) : null}
               <label className="block">
                 Transport mode
                 <select

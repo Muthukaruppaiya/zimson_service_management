@@ -1,10 +1,9 @@
 import type { TransferPartyBlock } from "../transferDocMeta";
 import {
-  defaultPincodeForState,
   formatDocumentDate,
   gstinStateCode,
   edocPartyLocation,
-  parsePincode,
+  pincodeForEdocParty,
   stateNameFromCode,
 } from "./gstState";
 import type {
@@ -56,10 +55,13 @@ export function partyFromTransferBlock(block: TransferPartyBlock, gstinFallback:
   const place =
     block.place?.trim() ||
     edocPartyLocation(addr, null, stateCode);
-  const pincode =
-    block.pincode && block.pincode > 0
-      ? block.pincode
-      : parsePincode(addr, defaultPincodeForState(stateCode));
+  const pincode = pincodeForEdocParty({
+    stateCode,
+    place,
+    legalName: block.legalName,
+    address: addr,
+    explicitPin: block.pincode,
+  });
   return {
     gstin,
     legalName: block.legalName && block.legalName !== "—" ? block.legalName : "Party",

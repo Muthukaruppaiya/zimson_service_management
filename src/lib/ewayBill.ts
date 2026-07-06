@@ -16,6 +16,12 @@ export type EwayPrefill = {
   watchBrand?: string;
   brandConsignees?: BrandEwayConsigneeOption[];
   defaultConsigneeId?: string | null;
+  consignorPincode?: string;
+  consigneePincode?: string;
+  displayDistanceKm?: number;
+  distanceForApi?: string;
+  distanceAutoCalculated?: boolean;
+  distanceHint?: string;
 };
 
 export type EwayBillKind = "challan" | "brand" | "online_order";
