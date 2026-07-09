@@ -110,6 +110,48 @@
 
   .zimson-login-ribbon-content {
     position: relative;
+    display: flex;
+    min-height: 128px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem 1.5rem 2.25rem;
+    text-align: center;
+    font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .zimson-login-ribbon-eyebrow {
+    margin: 0 0 0.4rem;
+    font-size: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    opacity: 0.95;
+  }
+
+  .zimson-login-ribbon-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  .zimson-login-ribbon-title h1 {
+    margin: 0;
+    font-size: 2.25rem;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .zimson-login-ribbon-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 9999px !important;
+    background: rgba(255, 255, 255, 0.85);
+    flex-shrink: 0;
   }
 
   input, select, textarea, button {

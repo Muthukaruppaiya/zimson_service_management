@@ -130,12 +130,12 @@ export function LoginPage() {
         <div className="zimson-login-card rounded-[28px] bg-white shadow-xl overflow-hidden">
           <div className="zimson-login-ribbon-wrap">
             <LoginRibbonBg className="zimson-login-ribbon-bg" />
-            <div className="zimson-login-ribbon-content relative z-10 text-center text-white pt-5 pb-9 px-6">
-              <p className="text-[11px] font-medium tracking-[0.3em] uppercase opacity-95 mb-1">Welcome back</p>
-              <div className="flex items-center justify-center gap-2">
-                <span className="rounded-full w-1 h-1 bg-white/80" />
-                <h1 className="text-2xl font-bold tracking-wide uppercase">Sign in</h1>
-                <span className="rounded-full w-1 h-1 bg-white/80" />
+            <div className="zimson-login-ribbon-content relative z-10 text-white">
+              <p className="zimson-login-ribbon-eyebrow">Welcome back</p>
+              <div className="zimson-login-ribbon-title">
+                <span className="zimson-login-ribbon-dot" aria-hidden="true" />
+                <h1>Sign in</h1>
+                <span className="zimson-login-ribbon-dot" aria-hidden="true" />
               </div>
             </div>
           </div>
