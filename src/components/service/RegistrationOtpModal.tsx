@@ -1,3 +1,4 @@
+import { OTP_LENGTH, otpLengthLabel } from "../../lib/otp";
 import { OtpDigitInput } from "./OtpDigitInput";
 
 type Props = {
@@ -45,7 +46,7 @@ export function RegistrationOtpModal({
               {title}
             </h2>
             <p className="mt-1 text-xs text-stone-600">
-              Enter the 6-digit code sent to{" "}
+              Enter the {otpLengthLabel()} code sent to{" "}
               <strong className="text-zimson-900">{target}</strong>
             </p>
           </div>
@@ -64,7 +65,7 @@ export function RegistrationOtpModal({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={busy || value.length !== 6}
+            disabled={busy || value.length !== OTP_LENGTH}
             className="min-w-[7.5rem] rounded-lg bg-zimson-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? "Verifying…" : "Confirm OTP"}

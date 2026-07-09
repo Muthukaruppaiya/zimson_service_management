@@ -4,6 +4,7 @@ import { useCustomers } from "../../context/CustomersContext";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
 import { sanitizeEmailInput, sanitizePhoneDigits } from "../../lib/inputSanitize";
+import { isValidOtpCode, otpLengthLabel } from "../../lib/otp";
 import { formatOtpSentSubtitle, type OtpSentTarget } from "../../lib/otpSentMessage";
 import { inputClass } from "../../lib/uiForm";
 import { OtpSendingIndicator } from "../ui/OtpSendingIndicator";
@@ -126,8 +127,8 @@ export function CustomerHandoverOtpModal({
       showError("Send OTP first.", "OTP");
       return;
     }
-    if (otpInput.trim().length !== 6) {
-      showError("Enter the 6-digit OTP.", "OTP");
+    if (!isValidOtpCode(otpInput)) {
+      showError(`Enter the ${otpLengthLabel()} OTP.`, "OTP");
       return;
     }
     setBusy(true);

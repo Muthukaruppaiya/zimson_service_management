@@ -17,7 +17,7 @@ import type { ServiceTaxSettings } from "../types/serviceTaxSettings";
 import type { StoreInvoicePrintProfile } from "../types/storeInvoice";
 import type { SrfJob } from "../types/srfJob";
 import type { InvoiceBillLine } from "./serviceBillEditorLines";
-import { editorLinesToInvoiceBillLines } from "./serviceBillEditorLines";
+import { editorLinesToInvoiceBillLines, resolveInvoiceBillLineHsn } from "./serviceBillEditorLines";
 import type { ServiceBillEditorLine } from "./serviceBillEditorLines";
 import {
   normalizeStoreBillingSnapshot,
@@ -30,7 +30,7 @@ export type { StoreBillingSnapshot, StoreBillingSnapshotLine };
 
 export function buildStoreBillingSnapshot(params: {
   job: SrfJob;
-  useQuickBillStyleLines: boolean;
+  useServiceBillLinesCard: boolean;
   billLines: ServiceBillEditorLine[];
   serviceChargeBillable: number;
   additionalCharges: { description: string; amountInr: number; spareId?: string | null }[];
@@ -39,13 +39,15 @@ export function buildStoreBillingSnapshot(params: {
   collectionAmountInr: number;
   collectionPaymentMode: string;
   paymentDetails?: import("./paymentModes").MultiPaymentDetails;
+  spareHsnLookup?: (spareId: string) => string | null | undefined;
 }): StoreBillingSnapshot {
-  const invoiceLines: InvoiceBillLine[] = params.useQuickBillStyleLines
+  const invoiceLines: InvoiceBillLine[] = params.useServiceBillLinesCard
     ? editorLinesToInvoiceBillLines(
         params.billLines,
         params.job.natureOfRepair,
         params.serviceChargeBillable,
         params.defaultSacHsn,
+        params.spareHsnLookup,
       )
     : buildStoreBillingInvoiceLines(
         params.job,
@@ -262,7 +264,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
     const gstLines = invoiceLines.map((l) => ({
       amountInr: l.amountInr,
       spareId: l.spareId ?? null,
-      hsnSac: l.hsnSac?.trim() || hsnSac,
+      hsnSac: resolveInvoiceBillLineHsn(l, hsnSac, options.spareHsnLookup),
     }));
     const taxPreview = computeStoreBillingTaxPreview(job, options, gstLines, billSubtotal);
     const pricesTaxInclusive = STORE_BILLING_PRICES_TAX_INCLUSIVE;
@@ -300,7 +302,12 @@ export function buildStoreBillingInvoiceFromClosedJob(
         estimateTotalInr: billSubtotal,
         advanceInr: advance,
         advancePaymentMode: job.advancePaymentMode,
-        billLines: invoiceLines,
+        billLines: invoiceLines.map((l) => ({
+          description: l.description,
+          amountInr: l.amountInr,
+          spareId: l.spareId ?? null,
+          hsnSac: resolveInvoiceBillLineHsn(l, hsnSac, options.spareHsnLookup),
+        })),
         collectionAmountInr: collectionAmount,
         collectionPaymentMode: snapshot.collectionPaymentMode?.trim() || undefined,
         collectionPaymentDetails:

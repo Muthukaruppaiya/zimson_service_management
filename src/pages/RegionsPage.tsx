@@ -404,7 +404,7 @@ function StoreInvoiceFields({
             className={inputClass}
             value={draft.invoiceNumberStoreCode}
             onChange={(e) => onChange({ invoiceNumberStoreCode: sanitizeAlphanumericInput(e.target.value, 16).toUpperCase() })}
-            placeholder="e.g. CHN01 — used in invoice numbers"
+            placeholder="e.g. CBE01 — used in SRF, transfer (TD), and invoice numbers"
           />
         </label>
         <label className={`${labelClass} sm:col-span-2`}>

@@ -52,6 +52,7 @@ import {
   validateCustomerB2bGstin,
   ZIMSON_COMPANY_GST_ENTRIES,
 } from "../src/lib/zimsonCompanyGst";
+import { generateOtpCode } from "./otp";
 import { shouldExposeMobileOtpInUi } from "./messaging/config";
 import {
   deliverOtpToTargets,
@@ -3172,7 +3173,7 @@ app.post("/api/customers/handover-otp/start", async (req, res) => {
       res.status(400).json({ error: "Enter a valid 10-digit mobile for OTP." });
       return;
     }
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = generateOtpCode();
     const sessionId = crypto.randomUUID();
     const targets: HandoverOtpTarget[] = [{ type: "mobile", label: p10 }];
     handoverOtpSessions.set(sessionId, { code, expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS, targets });
@@ -3193,7 +3194,7 @@ app.post("/api/customers/handover-otp/start", async (req, res) => {
     res.status(400).json({ error: "Enter a valid email for OTP." });
     return;
   }
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const code = generateOtpCode();
   const sessionId = crypto.randomUUID();
   const targets: HandoverOtpTarget[] = [{ type: "email", label: email }];
   handoverOtpSessions.set(sessionId, { code, expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS, targets });
@@ -3223,7 +3224,7 @@ app.post("/api/customers/handover-otp/start-both", async (req, res) => {
     res.status(400).json({ error: "Provide a valid mobile and/or email for OTP." });
     return;
   }
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const code = generateOtpCode();
   const sessionId = crypto.randomUUID();
   handoverOtpSessions.set(sessionId, {
     code,
@@ -3288,7 +3289,7 @@ app.post("/api/customers/register-otp/start-mobile", async (req, res) => {
     res.status(400).json({ error: "Enter a valid 10-digit mobile for OTP (or fill OTP mobile)." });
     return;
   }
-  const mobileCode = String(Math.floor(100000 + Math.random() * 900000));
+  const mobileCode = generateOtpCode();
   const sessionId = crypto.randomUUID();
   customerRegisterOtpSessions.set(sessionId, {
     phoneLast10: p10,
@@ -3360,7 +3361,7 @@ app.post("/api/customers/register-otp/start-email", async (req, res) => {
     res.status(400).json({ error: "Verify mobile OTP before requesting email OTP." });
     return;
   }
-  const emailCode = String(Math.floor(100000 + Math.random() * 900000));
+  const emailCode = generateOtpCode();
   sess.emailNorm = email;
   sess.emailCode = emailCode;
   sess.emailVerified = false;

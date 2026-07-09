@@ -10,6 +10,7 @@ import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
+import { ProcessLoadingOverlay } from "../../components/ui/ProcessLoadingOverlay";
 import { useAuth } from "../../context/AuthContext";
 import { useCustomers } from "../../context/CustomersContext";
 import { useRegions } from "../../context/RegionsContext";
@@ -473,6 +474,7 @@ export function StoreBillingPage() {
   function onHandoverVerified() {
     setHandoverVerified(true);
     setHandoverModalOpen(false);
+    setClosingAfterOtp(true);
     if (billingJob) void finalizeInvoiceAfterOtp(billingJob.id);
   }
 
@@ -559,6 +561,7 @@ export function StoreBillingPage() {
         serviceChargeBillable,
         additionalCharges: previewAdditionalCharges,
         defaultSacHsn: invoiceSacHsn,
+        spareHsnLookup,
         billSubtotalInr: billSubtotalBeforeAdvance,
         collectionAmountInr: finalAmount,
         collectionPaymentMode: payPayload.paymentMode,
@@ -618,6 +621,7 @@ export function StoreBillingPage() {
     } catch (e) {
       const errText = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not close SRF.";
       setMessage({ type: "err", text: errText });
+      setHandoverVerified(false);
     } finally {
       setClosingAfterOtp(false);
     }
@@ -1357,12 +1361,6 @@ export function StoreBillingPage() {
                 >
                   Send OTP to other number / email
                 </button>
-                {handoverVerified ? (
-                  <span className="text-sm font-semibold text-emerald-700">OTP verified — generating invoice…</span>
-                ) : null}
-                {closingAfterOtp ? (
-                  <span className="text-sm font-medium text-stone-600">Saving bill…</span>
-                ) : null}
               </div>
             )}
           </div>
@@ -1496,6 +1494,18 @@ export function StoreBillingPage() {
         contactPhone={billingJob?.phone ?? ""}
         contactEmail={billingCustomerEmail}
         onHandoverVerified={onHandoverVerified}
+      />
+
+      <ProcessLoadingOverlay
+        open={closingAfterOtp}
+        title="Generating SRF invoice"
+        statusMessages={[
+          "Verifying customer handover…",
+          "Saving billing lines…",
+          "Creating tax invoice…",
+          "Registering e-invoice when applicable…",
+          "Almost done…",
+        ]}
       />
 
       {traceJobId ? <SrfTraceModal srfId={traceJobId} onClose={() => setTraceJobId(null)} /> : null}

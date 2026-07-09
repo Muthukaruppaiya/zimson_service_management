@@ -1387,17 +1387,14 @@ export function ScSupervisorPage() {
       const job = jobs.find((j) => j.id === jobId);
       const interHo = job ? needsInterHoSenderInvoice(job) : false;
       setBrandSuccessAck({
-        title: "Brand invoice logged",
+        title: "Brand invoice updated",
         description: job?.reference ?? jobId,
         reference: job?.reference ?? jobId,
         detail: interHo
-          ? `Brand invoice ${invoiceRef} saved. Create invoice to sender HO next.`
-          : `Brand invoice ${invoiceRef} saved. SRF moved to outward queue.`,
+          ? `Brand invoice ${invoiceRef} (INR ${invoiceAmountInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) saved. Create invoice to sender HO next.`
+          : `Brand invoice ${invoiceRef} (INR ${invoiceAmountInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) saved. SRF moved to outward queue.`,
         interHoInvoiceJobId: interHo ? jobId : undefined,
       });
-      if (interHo) {
-        navigate(`/service-centre/inter-ho-invoice?srfId=${encodeURIComponent(jobId)}&invoiceFor=sender-ho`);
-      }
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand invoice." }));
     } finally {

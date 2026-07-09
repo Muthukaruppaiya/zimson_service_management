@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 
-const OTP_LEN = 6;
+import { OTP_LENGTH } from "../../lib/otp";
 
 type Props = {
   value: string;
@@ -27,11 +27,11 @@ export function OtpDigitInput({
   size = "default",
 }: Props) {
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
-  const digits = Array.from({ length: OTP_LEN }, (_, i) => value[i] ?? "");
+  const digits = Array.from({ length: OTP_LENGTH }, (_, i) => value[i] ?? "");
 
   const setDigits = useCallback(
     (next: string[]) => {
-      const joined = next.join("").replace(/\D/g, "").slice(0, OTP_LEN);
+      const joined = next.join("").replace(/\D/g, "").slice(0, OTP_LENGTH);
       onChange(joined);
     },
     [onChange],
@@ -43,13 +43,13 @@ export function OtpDigitInput({
   }, [autoFocus]);
 
   function focusAt(index: number) {
-    const el = inputRefs.current[Math.max(0, Math.min(index, OTP_LEN - 1))];
+    const el = inputRefs.current[Math.max(0, Math.min(index, OTP_LENGTH - 1))];
     el?.focus();
     el?.select();
   }
 
   function applyPaste(raw: string, startIndex: number) {
-    const chars = raw.replace(/\D/g, "").slice(0, OTP_LEN - startIndex).split("");
+    const chars = raw.replace(/\D/g, "").slice(0, OTP_LENGTH - startIndex).split("");
     if (chars.length === 0) return;
     const next = [...digits];
     chars.forEach((ch, offset) => {
@@ -64,7 +64,7 @@ export function OtpDigitInput({
       <div
         className={`flex justify-center ${size === "compact" ? "gap-1.5" : "gap-2 sm:gap-2.5"}`}
         role="group"
-        aria-label="6-digit OTP"
+        aria-label={`${OTP_LENGTH}-digit OTP`}
       >
         {digits.map((digit, index) => (
           <input
@@ -78,7 +78,7 @@ export function OtpDigitInput({
             maxLength={1}
             disabled={disabled}
             value={digit}
-            aria-label={`Digit ${index + 1} of ${OTP_LEN}`}
+            aria-label={`Digit ${index + 1} of ${OTP_LENGTH}`}
             onChange={(e) => {
               const ch = e.target.value.replace(/\D/g, "").slice(-1);
               const next = [...digits];
@@ -102,7 +102,7 @@ export function OtpDigitInput({
               } else if (e.key === "ArrowLeft" && index > 0) {
                 focusAt(index - 1);
                 e.preventDefault();
-              } else if (e.key === "ArrowRight" && index < OTP_LEN - 1) {
+              } else if (e.key === "ArrowRight" && index < OTP_LENGTH - 1) {
                 focusAt(index + 1);
                 e.preventDefault();
               }

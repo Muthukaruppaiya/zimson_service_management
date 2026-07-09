@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { IconLock, IconUser } from "../components/auth/LoginIcons";
+import { LoginRibbonBg } from "../components/auth/LoginRibbon";
+import { LoginStorePickerModal } from "../components/auth/LoginStorePickerModal";
+import { AppBootLoader } from "../components/ui/AppBootLoader";
 import { useAuth } from "../context/AuthContext";
 import { ApiError, apiJson } from "../lib/api";
 import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
-import { AppBootLoader } from "../components/ui/AppBootLoader";
-import { LoginStorePickerModal } from "../components/auth/LoginStorePickerModal";
 
 const LOGIN_BOOT_MIN_MS = 700;
 
@@ -16,12 +18,14 @@ export function LoginPage() {
     const t = window.setTimeout(() => setBootMinElapsed(true), LOGIN_BOOT_MIN_MS);
     return () => window.clearTimeout(t);
   }, []);
+
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "/";
 
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [storeId, setStoreId] = useState("");
   const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
   const [storePickerOpen, setStorePickerOpen] = useState(false);
@@ -88,10 +92,7 @@ export function LoginPage() {
     try {
       const data = await apiJson<{ ok: boolean; message: string }>("/api/auth/sign-out-all-devices", {
         method: "POST",
-        json: {
-          loginId: loginId.trim(),
-          password: password.trim(),
-        },
+        json: { loginId: loginId.trim(), password: password.trim() },
       });
       setAlreadyLoggedIn(false);
       setError(null);
@@ -103,124 +104,143 @@ export function LoginPage() {
     }
   }
 
-  const fieldCls =
-    "mt-1.5 w-full border border-rlx-rule bg-white px-3 py-2.5 text-base text-rlx-ink placeholder-rlx-ink-muted/50 outline-none transition focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/20";
-
   return (
-    <div className="flex min-h-dvh flex-col" style={{ background: "linear-gradient(160deg, #0D1B5E 0%, #1B3A8F 50%, #102570 100%)" }}>
-      <div className="h-[4px] w-full shrink-0" style={{ background: "linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F)" }} />
-      <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
-        <div className="mb-10 flex flex-col items-center gap-5 text-center">
-          <div
-            className="flex items-center justify-center px-6 py-4 shadow-[0_0_0_1px_rgba(201,162,39,0.35),0_12px_48px_rgba(0,0,0,0.6)]"
-            style={{ background: "linear-gradient(135deg, #0D1B5E 0%, #1B3A8F 50%, #102570 100%)" }}
-          >
-            <img src="/zimson-logo.png" alt="Zimson" className="h-14 w-auto object-contain" />
+    <div
+      className="relative min-h-screen flex items-center justify-center overflow-hidden px-4 py-10 bg-[#071d49] bg-cover bg-center bg-no-repeat"
+      style={{ backgroundImage: "url(/LOGIN_BG.png)" }}
+    >
+      <div className="relative w-full max-w-md">
+        <div className="mb-6 flex w-full flex-col items-center">
+          <div className="relative h-14 w-full">
+            <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-10 sm:-translate-y-12">
+              <div className="rounded-md border-4 border-[#d4af37] bg-white px-6 py-2.5 shadow-[0_0_18px_rgba(212,175,55,0.55)]">
+                <img src="/zimson-logo.png" alt="ZIMSON" className="h-10 w-auto object-contain" />
+              </div>
+            </div>
           </div>
-          <div>
-            <div className="mx-auto h-[1.5px] w-24" style={{ background: "linear-gradient(90deg, transparent, #C9A227, transparent)" }} />
-            <p className="mt-2 text-[11px] font-bold uppercase tracking-[0.45em]" style={{ color: "#C9A227" }}>
+          <div className="flex w-full max-w-[320px] items-center justify-center gap-2.5">
+            <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[#d4af37]" />
+            <span className="shrink-0 text-[11px] font-semibold tracking-[0.28em] text-[#d4af37] uppercase whitespace-nowrap">
               Service Management Suite
-            </p>
+            </span>
+            <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[#d4af37]" />
           </div>
         </div>
 
-        <div className="w-full max-w-sm bg-white shadow-[0_32px_96px_-16px_rgba(0,0,0,0.6)]" style={{ borderTop: "3px solid #C9A227" }}>
-          <div className="px-7 py-5" style={{ background: "#1B3A8F" }}>
-            <h2 className="text-base font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
-              Sign in
-            </h2>
+        <div className="zimson-login-card rounded-[28px] bg-white shadow-xl overflow-hidden">
+          <div className="zimson-login-ribbon-wrap">
+            <LoginRibbonBg className="zimson-login-ribbon-bg" />
+            <div className="zimson-login-ribbon-content relative z-10 text-center text-white pt-5 pb-9 px-6">
+              <p className="text-[11px] font-medium tracking-[0.3em] uppercase opacity-95 mb-1">Welcome back</p>
+              <div className="flex items-center justify-center gap-2">
+                <span className="rounded-full w-1 h-1 bg-white/80" />
+                <h1 className="text-2xl font-bold tracking-wide uppercase">Sign in</h1>
+                <span className="rounded-full w-1 h-1 bg-white/80" />
+              </div>
+            </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4 px-7 py-6">
+          <div className="px-7 pt-6 pb-7">
+            <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div>
-              <label htmlFor="login-emp" className="text-[13px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
+              <label htmlFor="login-emp" className="block text-sm font-medium text-gray-700 mb-1">
                 Username
               </label>
-              <input
-                id="login-emp"
-                type="text"
-                autoComplete="username"
-                value={loginId}
-                onChange={(e) => {
-                  setLoginId(sanitizeLoginIdInput(e.target.value));
-                  setAlreadyLoggedIn(false);
-                }}
-                className={fieldCls}
-                placeholder="e.g. jsmith"
-              />
+              <div className="flex items-center gap-3">
+                <span className="rounded-full flex items-center justify-center w-10 h-10 flex-shrink-0 bg-amber-50 border border-amber-200 text-amber-600 [&_svg]:w-5 [&_svg]:h-5">
+                  <IconUser />
+                </span>
+                <input
+                  id="login-emp"
+                  type="text"
+                  autoComplete="username"
+                  value={loginId}
+                  onChange={(e) => {
+                    setLoginId(sanitizeLoginIdInput(e.target.value));
+                    setAlreadyLoggedIn(false);
+                  }}
+                  placeholder="e.g. jsmith"
+                  required
+                  className="zimson-login-input flex-1 min-w-0 border border-gray-300 rounded-full px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
 
             <div>
-              <div className="flex items-end justify-between gap-2">
-                <label htmlFor="login-password" className="text-[13px] font-semibold uppercase tracking-[0.16em] text-rlx-ink-muted">
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="login-password" className="block text-sm font-medium text-gray-700">
                   Password
                 </label>
-                <Link
-                  to="/login/forgot-password"
-                  className="text-[12px] font-semibold text-rlx-green hover:underline"
-                >
+                <Link to="/login/forgot-password" className="text-xs text-blue-600 hover:underline">
                   Forgot password?
                 </Link>
               </div>
-              <input
-                id="login-password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(sanitizePasswordInput(e.target.value));
-                  setAlreadyLoggedIn(false);
-                }}
-                className={fieldCls}
-                placeholder="••••••••"
-              />
+              <div className="flex items-center gap-3">
+                <span className="rounded-full flex items-center justify-center w-10 h-10 flex-shrink-0 bg-amber-50 border border-amber-200 text-amber-600 [&_svg]:w-5 [&_svg]:h-5">
+                  <IconLock />
+                </span>
+                <input
+                  id="login-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(sanitizePasswordInput(e.target.value));
+                    setAlreadyLoggedIn(false);
+                  }}
+                  placeholder="••••••••"
+                  required
+                  className="zimson-login-input flex-1 min-w-0 border border-gray-300 rounded-full px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
 
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+              />
+              Remember me
+            </label>
+
             {alreadyLoggedIn ? (
-              <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-xs text-amber-950">
-                <p className="font-semibold">Account already in use</p>
-                <p className="leading-relaxed">
+              <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                <p className="font-medium">Account already in use</p>
+                <p>
                   {error ??
                     "Someone is already signed in with this account. They must sign out, or you can end all sessions with your password below."}
-                </p>
-                <p className="text-[11px] text-amber-900/90">
-                  The signed-in user will see a popup that another person tried to log in.
                 </p>
                 <button
                   type="button"
                   disabled={signOutAllBusy}
                   onClick={() => void handleSignOutAllDevices()}
-                  className="w-full rounded-lg border border-amber-600 bg-white py-2.5 text-[11px] font-bold uppercase tracking-wide text-amber-950 hover:bg-amber-100 disabled:opacity-60"
+                  className="mt-2 text-sm font-medium text-amber-900 underline disabled:opacity-60"
                 >
                   {signOutAllBusy ? "Signing out all devices…" : "Sign out all devices & try again"}
                 </button>
               </div>
             ) : error ? (
-              <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">{error}</div>
+              <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
             ) : null}
 
             {signOutAllNote ? (
-              <div className="border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
+              <div className="rounded border border-green-300 bg-green-50 p-3 text-sm text-green-700">
                 {signOutAllNote}
               </div>
             ) : null}
 
             <button
               type="submit"
-              className="mt-1 w-full py-3 text-sm font-bold uppercase tracking-[0.25em] transition disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ background: "linear-gradient(135deg, #A8850F, #C9A227)", color: "#003a22" }}
+              className="w-full rounded-full py-2.5 text-sm font-bold tracking-wide uppercase text-[#132b63] shadow-[0_8px_18px_rgba(191,132,5,0.4)] transition hover:brightness-105"
+              style={{ background: "linear-gradient(90deg, #bf8405, #ffd24d)" }}
             >
-              Sign in →
+              Sign in
             </button>
-          </form>
+            </form>
 
-          <div className="border-t border-rlx-rule bg-rlx-bg px-7 py-3">
-            <p className="text-[12px] text-rlx-ink-muted">
-              Having trouble?{" "}
-              <Link to="/" className="font-semibold text-rlx-green hover:underline">
-                Go to home
-              </Link>
+            <p className="mt-4 text-center text-sm text-gray-500">
+              Having trouble? <Link to="/" className="text-blue-600 hover:underline">Go to home</Link>
             </p>
           </div>
         </div>

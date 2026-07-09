@@ -1,3 +1,5 @@
+import { otpLengthLabel } from "../../lib/otp";
+
 type OtpSentSuccessModalProps = {
   open: boolean;
   subtitle?: string;
@@ -32,7 +34,7 @@ export function OtpSentSuccessModal({ open, subtitle, onClose }: OtpSentSuccessM
           OTP sent successfully
         </h2>
         <p id="otp-sent-success-desc" className="mt-2 text-sm leading-relaxed text-stone-600">
-          {subtitle?.trim() || "Check SMS or email for your 6-digit code."}
+          {subtitle?.trim() || `Check SMS or email for your ${otpLengthLabel()} code.`}
         </p>
         <p className="mt-5 text-[11px] font-medium text-stone-400">Tap anywhere to continue</p>
       </div>

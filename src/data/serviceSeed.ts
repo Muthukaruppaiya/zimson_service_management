@@ -49,9 +49,11 @@ export function findPart(id: string): SeedPart | undefined {
   return SEED_PARTS.find((p) => p.id === id);
 }
 
-/** 6-digit demo OTP for counter verification (display + re-type). */
+import { generateOtpCode } from "../lib/otp";
+
+/** Demo OTP for counter verification (display + re-type). */
 export function generateDemoOtp(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return generateOtpCode();
 }
 
 export function nextQuickBillRef() {

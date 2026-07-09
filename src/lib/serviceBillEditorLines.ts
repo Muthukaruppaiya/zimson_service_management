@@ -102,21 +102,40 @@ export type InvoiceBillLine = {
   hsnSac?: string | null;
 };
 
+/** HSN/SAC for printed invoice — prefers saved line code, then spare master, then default SAC. */
+export function resolveInvoiceBillLineHsn(
+  line: { hsnSac?: string | null; spareId?: string | null },
+  defaultSacHsn: string,
+  spareHsnLookup?: (spareId: string) => string | null | undefined,
+): string {
+  const preset = line.hsnSac?.trim();
+  if (preset) return preset;
+  const spareId = line.spareId?.trim();
+  if (spareId && spareHsnLookup) {
+    const fromMaster = spareHsnLookup(spareId)?.trim();
+    if (fromMaster) return fromMaster;
+  }
+  return defaultSacHsn;
+}
+
 export function editorLinesToInvoiceBillLines(
   lines: ServiceBillEditorLine[],
   natureOfRepair: string | null | undefined,
   serviceChargeBillable: number,
   defaultSacHsn = "9987",
+  spareHsnLookup?: (spareId: string) => string | null | undefined,
 ): InvoiceBillLine[] {
   const out: InvoiceBillLine[] = [];
   for (const l of lines) {
     const amt = billableLineAmount(natureOfRepair, editorLineAmountInr(l), l.spareId);
     if (amt > 0 && l.description.trim()) {
+      const spareHsn =
+        l.spareId && spareHsnLookup ? spareHsnLookup(l.spareId)?.trim() || null : null;
       out.push({
         description: l.description.trim(),
         amountInr: amt,
         spareId: l.spareId ?? null,
-        hsnSac: l.hsn?.trim() || (l.spareId ? null : defaultSacHsn),
+        hsnSac: l.hsn?.trim() || spareHsn || (l.spareId ? null : defaultSacHsn),
       });
     }
   }

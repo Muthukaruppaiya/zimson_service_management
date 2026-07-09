@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZIMSON — Sign In</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      crossorigin="anonymous"
+    />
+    <link rel="stylesheet" href="./style.css?v=26" />
+  </head>
+  <body>
+    <div class="zimson-login">
+      <div class="zimson-login__bg" aria-hidden="true">
+        <div class="zimson-login__bg-texture"></div>
+        <svg class="zimson-login__swoosh zimson-login__swoosh--bl" viewBox="0 0 400 80" fill="none">
+          <defs>
+            <linearGradient id="sw-bl" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#B8860B" stop-opacity="0" />
+              <stop offset="40%" stop-color="#C5911B" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#D4A017" stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          <path d="M0 55 C80 20, 160 70, 240 40 S 360 10, 400 35" stroke="url(#sw-bl)" stroke-width="2.5" stroke-linecap="round" />
+        </svg>
+        <svg class="zimson-login__swoosh zimson-login__swoosh--br" viewBox="0 0 400 80" fill="none">
+          <defs>
+            <linearGradient id="sw-br" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#B8860B" stop-opacity="0" />
+              <stop offset="40%" stop-color="#C5911B" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#D4A017" stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          <path d="M0 55 C80 20, 160 70, 240 40 S 360 10, 400 35" stroke="url(#sw-br)" stroke-width="2.5" stroke-linecap="round" />
+        </svg>
+        <div class="zimson-login__watermark">Z</div>
+      </div>
+
+      <main class="zimson-login__main">
+        <header class="zimson-login__brand">
+          <div class="zimson-login__logo-wrap">
+            <img class="zimson-login__logo" src="/zimson-logo.png" alt="ZIMSON" />
+          </div>
+          <div class="zimson-login__tagline-row">
+            <span class="zimson-login__tagline-line"><span class="zimson-login__tagline-dot"></span></span>
+            <span class="zimson-login__tagline-text">Service Management Suite</span>
+            <span class="zimson-login__tagline-line"><span class="zimson-login__tagline-dot"></span></span>
+          </div>
+        </header>
+
+        <section class="zimson-login__card" aria-labelledby="login-title">
+          <div class="zimson-login__ribbon">
+            <p class="zimson-login__welcome">Welcome back</p>
+            <div class="zimson-login__title-row">
+              <span class="zimson-login__ornament"></span>
+              <h1 class="zimson-login__title" id="login-title">Sign in</h1>
+              <span class="zimson-login__ornament zimson-login__ornament--right"></span>
+            </div>
+          </div>
+
+          <div class="zimson-login__body">
+            <form action="/login" method="get" novalidate>
+              <div class="zimson-login__field">
+                <label class="zimson-login__label" for="username">Username</label>
+                <div class="zimson-login__input-row">
+                  <span class="zimson-login__input-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="8" r="3.5"/>
+                      <path d="M5 20c0-3.5 3.13-6 7-6s7 2.5 7 6"/>
+                    </svg>
+                  </span>
+                  <div class="zimson-login__input-box">
+                    <input class="zimson-login__input" type="text" id="username" placeholder="e.g. jsmith" autocomplete="username" required />
+                  </div>
+                </div>
+              </div>
+
+              <div class="zimson-login__field">
+                <div class="zimson-login__field-row">
+                  <label class="zimson-login__label" for="password">Password</label>
+                  <a class="zimson-login__forgot" href="/login/forgot-password">Forgot password?</a>
+                </div>
+                <div class="zimson-login__input-row">
+                  <span class="zimson-login__input-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="6" y="11" width="12" height="9" rx="1.5"/>
+                      <path d="M8 11V8a4 4 0 0 1 8 0v3"/>
+                    </svg>
+                  </span>
+                  <div class="zimson-login__input-box">
+                    <input class="zimson-login__input" type="password" id="password" placeholder="••••••••" autocomplete="current-password" required />
+                  </div>
+                </div>
+              </div>
+
+              <label class="zimson-login__remember">
+                <input type="checkbox" name="remember" />
+                <span>Remember me</span>
+              </label>
+
+              <button class="zimson-login__submit" type="submit">
+                Sign in
+                <svg viewBox="0 0 24 24"><path d="M13.5 5.5 19 11H5v2h14l-5.5 5.5 1.4 1.4L22.8 12l-7.9-7.9-1.4 1.4Z"/></svg>
+              </button>
+
+              <div class="zimson-login__or" aria-hidden="true">or</div>
+            </form>
+          </div>
+
+          <div class="zimson-login__footer">
+            <div class="zimson-login__support">
+              <span class="zimson-login__support-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 3a8 8 0 0 0-8 8v5a3 3 0 0 0 3 3h1v-7H5a6 6 0 1 1 12 0h-3v7h1a3 3 0 0 0 3-3v-5a8 8 0 0 0-8-8Zm-5 13h2a2 2 0 0 1-2 2v2a2 2 0 0 0 2 2h1v-6H7Zm11 0v6h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-1Z"/></svg>
+              </span>
+              <span>Having trouble? <a href="/">Go to home</a></span>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

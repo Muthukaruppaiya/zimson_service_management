@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
+import { generateDemoOtp } from "../../data/serviceSeed";
+import { isValidOtpCode, otpLengthLabel } from "../../lib/otp";
 import { formatOtpSentSubtitlePhoneEmail } from "../../lib/otpSentMessage";
 import { WatchFamilyPicker } from "../../components/service/WatchFamilyPicker";
 import { WatchModelPicker } from "../../components/service/WatchModelPicker";
@@ -1035,7 +1037,7 @@ export function SrfBookingV2Page() {
     setOtpSessionId(null);
     setIssuedOtp(null);
     if (!apiMode) {
-      const demo = String(Math.floor(100000 + Math.random() * 900000));
+      const demo = generateDemoOtp();
       setIssuedOtp(demo);
       setOtpGateOpen(true);
       showOtpSent(formatOtpSentSubtitlePhoneEmail(phone10(phone), undefined));
@@ -1061,8 +1063,8 @@ export function SrfBookingV2Page() {
   async function verifyOtpAndProceed() {
     if (!otpGateOpen) return;
     const entered = otpInput.trim();
-    if (entered.length !== 6) {
-      showOtpError("Enter the 6-digit OTP to continue.", "OTP required");
+    if (!isValidOtpCode(entered)) {
+      showOtpError(`Enter the ${otpLengthLabel()} OTP to continue.`, "OTP required");
       return;
     }
     setOtpBusy(true);

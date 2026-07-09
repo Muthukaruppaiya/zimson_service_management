@@ -637,21 +637,6 @@ async function finalizeClerkBrandDispatch(
   return brandOdcNumber;
 }
 
-function srfStoreScopeCode(storeName: string | null | undefined, storeId: string): string {
-  const normalizedName = String(storeName ?? "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, " ")
-    .trim();
-  const parts = normalizedName.split(/\s+/).filter(Boolean);
-  const preferred = parts.find((p) => /[A-Z]{2,}[0-9]{0,3}/.test(p) && p.length >= 3);
-  if (preferred) return scopeCode(preferred, "STR", 6);
-  const compactName = normalizedName.replace(/\s+/g, "");
-  if (compactName.length >= 3) return scopeCode(compactName, "STR", 6);
-  const idTail = String(storeId ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(-6);
-  if (idTail.length >= 3) return scopeCode(idTail, "STR", 6);
-  return scopeCode("STR", "STR", 6);
-}
-
 function tokenHash(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
@@ -2217,10 +2202,6 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const { rows: storeRows } = await client.query<{ name: string }>(
-        `SELECT name FROM stores WHERE id = $1::text`,
-        [storeId],
-      );
       const { rows: destStoreRows } = await client.query<{ id: string }>(
         `SELECT id FROM stores WHERE id = $1::text LIMIT 1`,
         [destinationStoreId],
@@ -2231,7 +2212,8 @@ export function registerSrfRoutes(
         return;
       }
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
-      const ref = await nextDocNumber(client, prefix, suffix, srfStoreScopeCode(storeRows[0]?.name, storeId));
+      const storeScope = await storeDcScopeCode(client, storeId);
+      const ref = await nextDocNumber(client, prefix, suffix, storeScope);
       const repairRoute = normalizeSrfRepairRoute(req.body?.repairRoute);
       const ins = await client.query<{ id: string }>(
         `INSERT INTO srf_jobs (
@@ -2988,6 +2970,7 @@ export function registerSrfRoutes(
         edoc_status: string | null;
         edoc_error: string | null;
         srf_references: string[];
+        srf_line_count: number;
       }>(
         `SELECT dc.id,
                 dc.dc_number,
@@ -2997,9 +2980,20 @@ export function registerSrfRoutes(
                 dc.edoc_eway_pdf_url,
                 dc.edoc_status,
                 dc.edoc_error,
+                COUNT(DISTINCT l.srf_id)::int AS srf_line_count,
                 COALESCE(
-                  array_agg(DISTINCT j.reference ORDER BY j.reference)
-                    FILTER (WHERE j.reference IS NOT NULL AND j.reference NOT LIKE '%-ARCH-%'),
+                  array_agg(DISTINCT
+                    COALESCE(
+                      NULLIF(TRIM(j.transfer_source_reference), ''),
+                      NULLIF(regexp_replace(TRIM(j.reference), '-ARCH-.*$', ''), ''),
+                      TRIM(j.reference)
+                    )
+                    ORDER BY COALESCE(
+                      NULLIF(TRIM(j.transfer_source_reference), ''),
+                      NULLIF(regexp_replace(TRIM(j.reference), '-ARCH-.*$', ''), ''),
+                      TRIM(j.reference)
+                    )
+                  ) FILTER (WHERE j.id IS NOT NULL),
                   ARRAY[]::text[]
                 ) AS srf_references
          FROM delivery_challans dc
@@ -3018,7 +3012,8 @@ export function registerSrfRoutes(
         const flow = rebuilt?.printMeta.flow ?? "store_to_ho";
         const printKind = rebuilt?.printMeta.printKind ?? "transfer";
         const direction = flow === "store_to_ho" ? ("inward" as const) : ("outward" as const);
-        const srfCount = (row.srf_references ?? []).length;
+        const srfReferences = (row.srf_references ?? []).filter((r) => Boolean(String(r ?? "").trim()));
+        const srfCount = Math.max(row.srf_line_count, srfReferences.length);
         const fromName = rebuilt
           ? shortTransferPartyLabel(rebuilt.printMeta.from.locationLabel, rebuilt.printMeta.from.legalName)
           : "—";
@@ -3038,8 +3033,9 @@ export function registerSrfRoutes(
           fromName,
           toName,
           routeLabel: `${fromName} → ${toName}`,
-          srfReferences: row.srf_references ?? [],
+          srfReferences,
           srfCount,
+          srfLineCount: row.srf_line_count,
           edocEwayBillNo: row.edoc_eway_bill_no,
           edocEwayValidUpto: row.edoc_eway_valid_upto,
           edocEwayPdfUrl: row.edoc_eway_pdf_url,

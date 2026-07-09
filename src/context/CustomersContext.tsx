@@ -10,6 +10,7 @@ import {
 } from "react";
 import { SEED_CUSTOMERS } from "../data/seedCustomers";
 import { apiJson, useApiMode } from "../lib/api";
+import { generateOtpCode } from "../lib/otp";
 import { createId } from "../lib/id";
 import { lookupCustomer as runLookup, type LookupResult } from "../lib/customerLookup";
 import { STORAGE_CUSTOMERS } from "../lib/storageKeys";
@@ -166,7 +167,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       }
       if (!api) {
         const sessionId = `local-${createId("sess")}`;
-        const demoMobileOtp = String(Math.floor(100000 + Math.random() * 900000));
+        const demoMobileOtp = generateOtpCode();
         localOtpSessionsRef.current.set(sessionId, {
           phoneLast10: p10,
           mobileCode: demoMobileOtp,
@@ -216,7 +217,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
           throw new Error("Enter a valid email.");
         }
-        const demoEmailOtp = String(Math.floor(100000 + Math.random() * 900000));
+        const demoEmailOtp = generateOtpCode();
         sess.emailNorm = email;
         sess.emailCode = demoEmailOtp;
         sess.emailVerified = false;
@@ -261,7 +262,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         if (p10.length !== 10) throw new Error("Enter a valid 10-digit mobile for OTP.");
         if (!api) {
           const sessionId = `handover-${createId("sess")}`;
-          const demoOtp = String(Math.floor(100000 + Math.random() * 900000));
+          const demoOtp = generateOtpCode();
           const targets: HandoverOtpTarget[] = [{ type: "mobile", label: p10 }];
           localHandoverOtpSessionsRef.current.set(sessionId, { code: demoOtp, targets });
           return { sessionId, demoOtp, sentTo: targets };
@@ -279,7 +280,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       }
       if (!api) {
         const sessionId = `handover-${createId("sess")}`;
-        const demoOtp = String(Math.floor(100000 + Math.random() * 900000));
+        const demoOtp = generateOtpCode();
         const targets: HandoverOtpTarget[] = [{ type: "email", label: email }];
         localHandoverOtpSessionsRef.current.set(sessionId, { code: demoOtp, targets });
         return { sessionId, demoOtp, sentTo: targets };
@@ -308,7 +309,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       }
       if (!api) {
         const sessionId = `handover-${createId("sess")}`;
-        const demoOtp = String(Math.floor(100000 + Math.random() * 900000));
+        const demoOtp = generateOtpCode();
         localHandoverOtpSessionsRef.current.set(sessionId, { code: demoOtp, targets });
         return { sessionId, demoOtp, sentTo: targets };
       }

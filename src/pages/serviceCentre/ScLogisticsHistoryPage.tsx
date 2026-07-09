@@ -16,6 +16,7 @@ import {
 import type { TransferFlow } from "../../lib/transferDocumentKind";
 import { documentNeedsEway } from "../../lib/ewayBill";
 import { resolveEwayDocumentUrl } from "../../lib/einvoicePortal";
+import { displaySrfReference, normalizeSrfReferenceList } from "../../lib/srfReference";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import { printDeliveryChallanById } from "../../lib/printDeliveryChallanById";
 import type { SrfJob } from "../../types/srfJob";
@@ -35,6 +36,7 @@ type DeliveryChallanHistoryRow = {
   routeLabel?: string;
   srfReferences: string[];
   srfCount?: number;
+  srfLineCount?: number;
   edocEwayBillNo?: string | null;
   edocEwayValidUpto?: string | null;
   edocEwayPdfUrl?: string | null;
@@ -92,14 +94,22 @@ export function ScLogisticsHistoryPage() {
   /** One row per delivery document (not per SRF) — avoids collapsed/duplicate history. */
   const documentHistoryRows = useMemo(() => {
     return dcRows.map((row) => {
-      const refs = (row.srfReferences ?? []).filter((r) => r && !/-ARCH-/i.test(r));
+      let refs = normalizeSrfReferenceList(row.srfReferences ?? []);
+      if (refs.length === 0) {
+        refs = normalizeSrfReferenceList(
+          liveJobs
+            .filter((j) => j.dcNumber === row.dcNumber || j.outwardDcNumber === row.dcNumber)
+            .map((j) => displaySrfReference(j.reference, j.transferSourceReference)),
+        );
+      }
+      const srfCount = Math.max(row.srfLineCount ?? 0, row.srfCount ?? 0, refs.length);
       return {
         ...row,
         srfReferences: refs,
-        srfCount: refs.length,
+        srfCount,
       };
     });
-  }, [dcRows]);
+  }, [dcRows, liveJobs]);
 
   const sendToBrandHistoryRows = useMemo(() => {
     if (!user) return [];

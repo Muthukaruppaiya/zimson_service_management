@@ -9,6 +9,7 @@ import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useCustomers } from "../../context/CustomersContext";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
+import { isValidOtpCode, otpLengthLabel } from "../../lib/otp";
 import { formatOtpSentSubtitlePhoneEmail } from "../../lib/otpSentMessage";
 import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../data/serviceSeed";
 import {
@@ -339,8 +340,8 @@ export function SrfCustomerRegisterPage() {
       showOtpAlert("Tap Verify next to primary mobile to send the mobile OTP first.", "OTP");
       return;
     }
-    if (mobileOtpInput.trim().length !== 6) {
-      showOtpAlert("Enter the 6-digit mobile OTP.", "OTP");
+    if (!isValidOtpCode(mobileOtpInput)) {
+      showOtpAlert(`Enter the ${otpLengthLabel()} mobile OTP.`, "OTP");
       return;
     }
     try {
@@ -395,8 +396,8 @@ export function SrfCustomerRegisterPage() {
       showOtpAlert("Complete mobile verification first.", "OTP");
       return;
     }
-    if (emailOtpInput.trim().length !== 6) {
-      showOtpAlert("Enter the 6-digit email OTP.", "OTP");
+    if (!isValidOtpCode(emailOtpInput)) {
+      showOtpAlert(`Enter the ${otpLengthLabel()} email OTP.`, "OTP");
       return;
     }
     try {

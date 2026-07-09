@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { Card } from "../ui/Card";
+import { OTP_LENGTH, otpLengthLabel } from "../../lib/otp";
 import { OtpDigitInput } from "./OtpDigitInput";
 
 type DemoOtpGateProps = {
@@ -15,7 +16,7 @@ type DemoOtpGateProps = {
   verifyBusy?: boolean;
 };
 
-const OTP_LEN = 6;
+const OTP_LEN = OTP_LENGTH;
 
 export function DemoOtpGate({
   title,
@@ -34,7 +35,7 @@ export function DemoOtpGate({
     <Card title={title}>
       <div>
         <label id={`${baseId}-otp-label`} className="sr-only">
-          Enter 6-digit OTP
+          Enter {otpLengthLabel()} OTP
         </label>
         <OtpDigitInput value={value} onChange={onChange} disabled={verifyBusy} />
       </div>

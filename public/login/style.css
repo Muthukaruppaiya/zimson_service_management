@@ -1,0 +1,637 @@
+/**
+ * ZIMSON — Premium Login Screen (polished)
+ * Royal navy + gold · Poppins · no inline styles
+ */
+
+/* ─── Tokens ────────────────────────────────────────────────────── */
+:root {
+  --z-navy: #0a1f44;
+  --z-navy-deep: #071d49;
+  --z-navy-secondary: #0c2d72;
+  --z-gold-deep: #b8860b;
+  --z-gold: #c5911b;
+  --z-gold-mid: #d4a017;
+  --z-gold-highlight: #e5b13a;
+  --z-gold-glow: rgba(197, 145, 27, 0.55);
+  --z-gold-glow-soft: rgba(197, 145, 27, 0.32);
+  --z-cream: #faf3e4;
+  --z-white: #ffffff;
+  --z-gray-footer: #f5f5f5;
+  --z-text-muted: #6b7280;
+  --z-link: #1d4ed8;
+  --z-radius-card: 32px;
+  --z-radius-input: 14px;
+  --z-radius-btn: 10px;
+  --z-ease: 0.3s ease;
+  --z-font: "Poppins", system-ui, sans-serif;
+  --z-gold-grad: linear-gradient(
+    180deg,
+    var(--z-gold-deep) 0%,
+    var(--z-gold) 38%,
+    var(--z-gold-mid) 72%,
+    var(--z-gold-highlight) 100%
+  );
+  --z-card-width: 480px;
+}
+
+/* ─── Page ──────────────────────────────────────────────────────── */
+.zimson-login {
+  position: relative;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.75rem 1rem 2rem;
+  font-family: var(--z-font);
+  background: linear-gradient(160deg, var(--z-navy-deep) 0%, var(--z-navy) 40%, var(--z-navy-secondary) 100%);
+  overflow: hidden;
+  animation: z-fade-in 0.7s var(--z-ease) both;
+}
+
+/* ─── Background layers ─────────────────────────────────────────── */
+.zimson-login__bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.zimson-login__bg-texture {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+.zimson-login__watermark {
+  position: absolute;
+  right: 0%;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: clamp(16rem, 34vw, 28rem);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--z-white);
+  opacity: 0.06;
+  user-select: none;
+}
+
+.zimson-login__swoosh {
+  position: absolute;
+  width: min(60vw, 620px);
+  height: auto;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 10px var(--z-gold-glow-soft));
+}
+
+.zimson-login__swoosh--bl {
+  bottom: 2%;
+  left: -4%;
+  transform: rotate(-3deg);
+}
+
+.zimson-login__swoosh--br {
+  bottom: 4%;
+  right: -4%;
+  transform: rotate(3deg) scaleX(-1);
+}
+
+/* ─── Main column ───────────────────────────────────────────────── */
+.zimson-login__main {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: var(--z-card-width);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+/* ─── Logo block ────────────────────────────────────────────────── */
+.zimson-login__brand {
+  text-align: center;
+  animation: z-fade-in 0.8s var(--z-ease) 0.05s both;
+}
+
+.zimson-login__logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: min(200px, 62vw);
+  height: 68px;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px !important;
+  background: var(--z-white);
+  border: 3px solid #F3C456;
+  box-shadow:
+    0 0 0 2px rgba(255, 215, 0, 0.4),
+    0 0 24px rgba(255, 215, 0, 0.5),
+    0 0 50px rgba(255, 215, 0, 0.28),
+    0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.zimson-login__logo {
+  max-width: 88%;
+  max-height: 42px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.zimson-login__tagline-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 0.7rem;
+  width: min(380px, 90vw);
+}
+
+.zimson-login__tagline-line {
+  flex: 1;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--z-gold-mid), var(--z-gold), transparent);
+  position: relative;
+}
+
+.zimson-login__tagline-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--z-gold-mid);
+  box-shadow: 0 0 10px var(--z-gold-glow);
+}
+
+.zimson-login__tagline-text {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--z-gold-highlight);
+  text-shadow: 0 0 16px var(--z-gold-glow);
+  white-space: nowrap;
+}
+
+/* ─── Card ──────────────────────────────────────────────────────── */
+.zimson-login__card{
+  width:100%;
+  max-width:430px;
+  margin-top:30px;
+  background:#fff;
+  border:2px solid #d6a126;
+  border-radius:28px;
+  overflow:hidden;
+  box-shadow:0 20px 45px rgba(0,0,0,.22);
+}
+
+/* Ribbon header — plain flat gold banner, no decorative shapes */
+.zimson-login__ribbon {
+  width: 100%;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  color: #fff;
+  background: #c99011;
+}
+
+.zimson-login__welcome {
+  position: relative;
+  z-index: 10;
+  margin: 0;
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  opacity: 0.95;
+}
+
+.zimson-login__title-row {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-top: 0.3rem;
+}
+
+.zimson-login__ornament {
+  flex: 1;
+  max-width: 44px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7));
+  position: relative;
+}
+
+.zimson-login__ornament::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--z-white);
+  opacity: 0.85;
+}
+
+.zimson-login__ornament--right {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.7), transparent);
+}
+
+.zimson-login__ornament--right::after {
+  right: auto;
+  left: 0;
+}
+
+.zimson-login__title {
+  margin: 0;
+  font-size: clamp(1.35rem, 4vw, 1.65rem);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+
+/* ─── Form body ─────────────────────────────────────────────────── */
+.zimson-login__body {
+  padding: 30px 34px 22px;
+}
+
+.zimson-login__field {
+  margin-bottom: 0.85rem;
+  
+}
+
+.zimson-login__label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #132b63;
+}
+
+.zimson-login__field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.zimson-login__field-row .zimson-login__label {
+  margin-bottom: 0;
+}
+
+.zimson-login__forgot {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--z-link);
+  text-decoration: none;
+  transition: color var(--z-ease);
+}
+
+.zimson-login__forgot:hover {
+  text-decoration: underline;
+}
+
+.zimson-login__input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.zimson-login__input-row:focus-within .zimson-login__input-box {
+  border-color: #d4a017;
+  box-shadow: 0 0 8px rgba(212, 160, 23, 0.15);
+}
+
+/* Icon badge — fixed box-sizing so it's always a true circle */
+.zimson-login__input-icon {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  min-width: 42px;
+  min-height: 42px;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50% !important;
+  background: #fcf4e5;
+  border: 1px solid #ead3a0;
+  color: #c18a10;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.zimson-login__input-icon svg {
+  width: 19px;
+  height: 19px;
+  display: block;
+}
+
+.zimson-login__input-box{
+  flex:1;
+  display:flex;
+  align-items:center;
+  height:44px;
+  padding:0 16px;
+  border:1px solid #e5d6bd;
+  border-radius:8px;
+  background:#fff;
+  transition:.3s;
+}
+
+.zimson-login__input-box:hover{
+  border-color:#d4a017;
+}
+
+.zimson-login__input {
+  width: 100% !important;
+  height: 100%;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-family: var(--z-font);
+  font-size: 0.9375rem;
+  line-height: 1;
+  color: #111827;
+  outline: none !important;
+}
+
+.zimson-login__input:focus {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.zimson-login__input::placeholder {
+  color: #9ca3af;
+  font-weight: 300;
+}
+
+/* Remember me */
+.zimson-login__remember {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 18px;
+  margin-bottom: 22px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.zimson-login__remember input {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  border: 2px solid #d1d5db !important;
+  border-radius: 3px !important;
+  background: var(--z-white) !important;
+  cursor: pointer !important;
+  position: relative !important;
+  flex-shrink: 0 !important;
+  transition: all var(--z-ease) !important;
+}
+
+.zimson-login__remember input:checked {
+  border-color: var(--z-gold-deep) !important;
+  background: var(--z-gold-grad) !important;
+  box-shadow: 0 0 10px var(--z-gold-glow-soft) !important;
+}
+
+.zimson-login__remember input:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid var(--z-white);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.zimson-login__remember span {
+  font-size: 14px;
+  color: #23336b;
+}
+
+/* Submit */
+.zimson-login__submit {
+  width: 100%;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: 6px !important;
+  background: linear-gradient(90deg, #bf8405, #ffd24d);
+  color: #09204a;
+  font-family: var(--z-font);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(212, 160, 23, 0.35);
+  transition:
+    filter var(--z-ease),
+    box-shadow var(--z-ease);
+}
+
+.zimson-login__submit svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.zimson-login__submit:hover:not(:disabled) {
+  transform: none;
+  filter: brightness(1.05);
+}
+
+.zimson-login__submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* "or" divider */
+.zimson-login__or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.9rem 0 0;
+  color: #9ca3af;
+  font-size: 0.6875rem;
+  text-transform: lowercase;
+}
+
+.zimson-login__or::before,
+.zimson-login__or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #e5e7eb;
+}
+
+/* Alerts */
+.zimson-login__alert {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.zimson-login__alert--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.zimson-login__alert--warn {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+.zimson-login__alert--success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.zimson-login__alert-title {
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+}
+
+.zimson-login__alert p {
+  margin: 0 0 0.4rem;
+}
+
+.zimson-login__alert p:last-child {
+  margin-bottom: 0;
+}
+
+.zimson-login__alert-btn {
+  margin-top: 0.65rem;
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #d97706;
+  background: var(--z-white);
+  font-family: var(--z-font);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #92400e;
+  cursor: pointer;
+}
+
+/* Footer strip */
+.zimson-login__footer {
+  padding: 18px;
+  background: #f6f6f6;
+  border-top: 1px solid #ececec;
+}
+
+.zimson-login__support {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  font-size: 14px;
+  color: #1d2d62;
+}
+
+.zimson-login__support-icon {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  min-width: 38px;
+  min-height: 38px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50% !important;
+  background: var(--z-cream);
+  border: 1px solid rgba(197, 145, 27, 0.4);
+  color: var(--z-gold-deep);
+}
+
+.zimson-login__support-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: currentColor;
+}
+
+.zimson-login__support a {
+  font-weight: 700;
+  color: #c68d11;
+  text-decoration: none;
+}
+
+.zimson-login__support a:hover {
+  color: var(--z-gold-deep);
+  text-decoration: underline;
+}
+
+.zimson-login__input-icon i,
+.zimson-login__support-icon i {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+/* ─── Animations ────────────────────────────────────────────────── */
+@keyframes z-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes z-slide-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Responsive ────────────────────────────────────────────────── */
+@media (max-width: 767.98px) {
+  .zimson-login { padding: 1.25rem 0.75rem 1.75rem; }
+  .zimson-login__logo-wrap { height: 58px; width: min(170px, 58vw); border-width: 3px; }
+  .zimson-login__logo { max-height: 36px; }
+  .zimson-login__body { padding: 1.6rem 1.15rem 0.85rem; }
+  .zimson-login__ribbon { padding: 18px 18px; }
+  .zimson-login__tagline-text { letter-spacing: 0.2em; font-size: 0.625rem; }
+  .zimson-login__input-box { height: 46px; }
+  .zimson-login__input-icon { width: 42px; height: 42px; min-width: 42px; min-height: 42px; }
+  .zimson-login__input-icon svg { width: 17px; height: 17px; }
+}
+
+@media (max-width: 399.98px) {
+  .zimson-login__field-row { flex-wrap: wrap; }
+  .zimson-login__tagline-row { gap: 0.5rem; }
+  .zimson-login__ribbon { padding: 16px 16px 22px; }
+}
