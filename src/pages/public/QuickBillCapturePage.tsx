@@ -5,6 +5,7 @@ import { publicMediaUrl } from "../../lib/mediaUrl";
 import {
   SRF_DOCUMENT_PHOTO_KIND,
   SRF_MAX_WATCH_PHOTOS,
+  SRF_MIN_WATCH_PHOTOS_REQUIRED,
   normalizeSrfPhotoKind,
   SRF_PHOTO_SLOT_LABELS,
   SRF_WATCH_PHOTO_KINDS,
@@ -185,7 +186,7 @@ export function QuickBillCapturePage() {
       );
       setSession(data);
       setStatus(
-        `Upload up to ${SRF_MAX_WATCH_PHOTOS} watch photos (one per category) and one document (PDF, Word, or photo).`,
+        `Upload at least ${SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos (any categories). Up to ${SRF_MAX_WATCH_PHOTOS} categories and one document (PDF, Word, or photo).`,
       );
       setUploadError(null);
     } catch (e) {
@@ -519,8 +520,8 @@ export function QuickBillCapturePage() {
             Watch photos ({watchPhotoCount} / {SRF_MAX_WATCH_PHOTOS})
           </h2>
           <p className="mt-1 text-xs text-rlx-ink-muted">
-            Pick a category for each photo (damage and other are optional). One photo per category, up to{" "}
-            {SRF_MAX_WATCH_PHOTOS} types.
+            At least {SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos required (any categories). One photo per category, up
+            to {SRF_MAX_WATCH_PHOTOS} types.
           </p>
 
           {!allWatchPhotosDone ? (

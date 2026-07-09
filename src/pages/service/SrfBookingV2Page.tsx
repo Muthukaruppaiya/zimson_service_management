@@ -27,7 +27,12 @@ import {
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
 import { SrfBookingSuccessOverlay } from "../../components/service/SrfBookingSuccessOverlay";
 import { ProcessLoadingOverlay } from "../../components/ui/ProcessLoadingOverlay";
-import { SRF_MIN_WATCH_PHOTOS_REQUIRED, srfMinWatchPhotosFinalizeError } from "../../lib/srfPhotoSlots";
+import {
+  countSrfWatchPhotos,
+  SRF_MIN_WATCH_PHOTOS_REQUIRED,
+  srfMinWatchPhotosFinalizeError,
+  srfPhotoKindLabel,
+} from "../../lib/srfPhotoSlots";
 import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
 import {
   isValidGstFormat,
@@ -116,8 +121,11 @@ const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-10
 type SrfPhotoThumb = { id: string; photoKind?: string; filePath: string };
 
 function photoKindLabel(kind?: string): string {
-  const k = (kind ?? "other").trim();
-  return k ? k.charAt(0).toUpperCase() + k.slice(1) : "Other";
+  return srfPhotoKindLabel(kind);
+}
+
+function watchPhotosReady(photos: SrfPhotoThumb[]): boolean {
+  return countSrfWatchPhotos(photos.map((photo) => photo.photoKind)) >= SRF_MIN_WATCH_PHOTOS_REQUIRED;
 }
 
 function SrfPhotoThumbTile({
@@ -438,8 +446,8 @@ export function SrfBookingV2Page() {
   }
 
   function validateWatch() {
-    if (!watchBrand || !watchFamily.trim() || !watchModel.trim() || !serial.trim()) {
-      setError("Watch brand, family, model, and serial are required.");
+    if (!watchBrand || !watchFamily.trim() || !watchModel.trim()) {
+      setError("Watch brand, family, and model are required.");
       return false;
     }
     return true;
@@ -495,7 +503,6 @@ export function SrfBookingV2Page() {
       !watchBrandValue ||
       !watchFamilyValue ||
       !watchModelValue ||
-      !serialValue ||
       !destinationStoreId
     ) {
       throw new Error("Customer and watch details are required before creating SRF draft.");
@@ -598,8 +605,8 @@ export function SrfBookingV2Page() {
           ...watchServiceDetailsToApiPayload(watchServiceDetails),
         });
       }
-      if (step === 2 && photoCount < SRF_MIN_WATCH_PHOTOS_REQUIRED) {
-        setError(srfMinWatchPhotosFinalizeError(photoCount));
+      if (step === 2 && !watchPhotosReady(photoPreview)) {
+        setError(srfMinWatchPhotosFinalizeError(countSrfWatchPhotos(photoPreview.map((p) => p.photoKind))));
         return;
       }
       if (step === 3 && !validateEstimate()) return;
@@ -858,16 +865,13 @@ export function SrfBookingV2Page() {
           captureUrl: sess.captureUrl,
         });
         setPhotoCount(job.photoCount ?? 0);
-        setPhotoPreview(
-          (job.photos ?? []).map((p) => ({
-            id: p.id,
-            photoKind: p.photoKind,
-            filePath: p.filePath,
-          })),
-        );
-
-        const pc = job.photoCount ?? 0;
-        setStep(pc >= SRF_MIN_WATCH_PHOTOS_REQUIRED ? 3 : 2);
+        const loadedPhotos = (job.photos ?? []).map((p) => ({
+          id: p.id,
+          photoKind: p.photoKind,
+          filePath: p.filePath,
+        }));
+        setPhotoPreview(loadedPhotos);
+        setStep(watchPhotosReady(loadedPhotos) ? 3 : 2);
         /* Do not set srfRef here — it switches the whole page to the post-finalize success view. */
 
         await refreshJobs().catch(() => {});
@@ -1092,8 +1096,8 @@ export function SrfBookingV2Page() {
 
   async function finalizeAndPrint() {
     setError(null);
-    if (photoCount < SRF_MIN_WATCH_PHOTOS_REQUIRED) {
-      setError(srfMinWatchPhotosFinalizeError(photoCount));
+    if (!watchPhotosReady(photoPreview)) {
+      setError(srfMinWatchPhotosFinalizeError(countSrfWatchPhotos(photoPreview.map((p) => p.photoKind))));
       return;
     }
     setIsCreatingSrf(true);
@@ -1580,7 +1584,7 @@ export function SrfBookingV2Page() {
               />
             </div>
             <label className="text-sm">
-              Serial
+              Serial number (optional)
               <input className={inputClass} value={serial} onChange={(e) => setSerial(e.target.value)} />
             </label>
             </div>
@@ -1647,7 +1651,8 @@ export function SrfBookingV2Page() {
             </div>
             <div className="space-y-3">
               <p className="text-sm">
-                Uploaded photos: <strong>{photoCount}</strong>
+                Uploaded photos: <strong>{photoCount}</strong> (at least {SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos
+                from any categories)
               </p>
               {photoMsg ? <p className="rounded-xl bg-rlx-green-light px-3 py-2 text-sm">{photoMsg}</p> : null}
               {photoPreview.length > 0 && !draft ? (

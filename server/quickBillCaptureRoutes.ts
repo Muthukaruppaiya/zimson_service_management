@@ -9,7 +9,11 @@ import type { DemoUser } from "../src/types/user";
 import {
   normalizeSrfPhotoKind,
   SRF_DOCUMENT_PHOTO_KIND,
+  SRF_MAX_WATCH_PHOTOS,
+  SRF_MIN_WATCH_PHOTOS_REQUIRED,
   SRF_WATCH_PHOTO_KINDS,
+  srfMinWatchPhotosFinalizeError,
+  srfWatchPhotoKindsListHint,
   type SrfPhotoKindStored,
 } from "../src/lib/srfPhotoSlots";
 import {
@@ -298,7 +302,7 @@ export function registerQuickBillCaptureRoutes(
     const photoKind = normalizeUploadKind(readUploadPhotoKind(req));
     if (!photoKind) {
       res.status(400).json({
-        error: "Photo category is required (front, back, strap, serial, damage, other, or document).",
+        error: `Photo category is required (${srfWatchPhotoKindsListHint()}).`,
       });
       return;
     }
@@ -336,9 +340,9 @@ export function registerQuickBillCaptureRoutes(
           [row!.id],
         );
         const kinds = new Set(kindRows.map((r) => r.photo_kind));
-        if (!kinds.has(photoKind) && kinds.size >= 6) {
+        if (!kinds.has(photoKind) && kinds.size >= SRF_MAX_WATCH_PHOTOS) {
           res.status(400).json({
-            error: "Maximum 6 watch photos allowed. Each type can be used once.",
+            error: `Maximum ${SRF_MAX_WATCH_PHOTOS} watch photos allowed. Each type can be used once.`,
           });
           return;
         }

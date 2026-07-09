@@ -60,6 +60,13 @@ export function SearchableCombobox({
   }, [options, query]);
 
   useEffect(() => {
+    if (freeText) {
+      setOpen(false);
+      setQuery("");
+    }
+  }, [freeText]);
+
+  useEffect(() => {
     if (!open) return;
     function onDocMouseDown(e: MouseEvent) {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
@@ -100,9 +107,11 @@ export function SearchableCombobox({
         id={id}
         type="text"
         role="combobox"
-        aria-expanded={open}
+        aria-expanded={open && !freeText}
         aria-controls={listId}
-        aria-autocomplete="list"
+        aria-autocomplete={freeText ? "none" : "list"}
+        autoComplete="off"
+        spellCheck={false}
         disabled={disabled}
         required={required && !freeText ? !value : !freeTextValue?.trim()}
         value={inputDisplay}

@@ -181,7 +181,7 @@ export function SrfPhotoCapturePage() {
       }>(`/api/public/srf-photo/session?token=${encodeURIComponent(token)}`);
       setSession(data);
       setStatus(
-        `Add at least ${SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos (any categories). Up to ${SRF_MAX_WATCH_PHOTOS} types — one photo per type.`,
+        `Upload at least ${SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos (any categories). Up to ${SRF_MAX_WATCH_PHOTOS} types — one photo per category.`,
       );
       setUploadError(null);
     } catch (e) {
@@ -499,8 +499,8 @@ export function SrfPhotoCapturePage() {
             Watch photos ({watchPhotoCount} / {SRF_MAX_WATCH_PHOTOS})
           </h2>
           <p className="mt-1 text-xs text-rlx-ink-muted">
-            Minimum {SRF_MIN_WATCH_PHOTOS_REQUIRED} photos required for the store to finalize the SRF. Pick any
-            categories (damage and other are optional). One photo per category, up to {SRF_MAX_WATCH_PHOTOS} types.
+            At least {SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos required before the store can finalize the SRF (any
+            categories). One photo per category, up to {SRF_MAX_WATCH_PHOTOS} types.
           </p>
 
           {!allWatchPhotosDone ? (

@@ -30,6 +30,8 @@ export type AdvanceCashDenominations = {
 export type AdvancePaymentDetails = {
   /** UPI UTR, card auth ref, bank transfer ref, etc. */
   reference?: string;
+  /** If false, denomination capture is intentionally skipped. */
+  denominationNeeded?: boolean;
   /** Cash received from customer (tender). */
   cash?: AdvanceCashDenominations;
   /** Notes/coins returned to customer when tender exceeds bill amount. */
@@ -183,6 +185,8 @@ export type PaymentSplit = {
   mode: AppPaymentMode;
   amountInr: number;
   reference?: string;
+  /** If false, denomination capture is intentionally skipped for this split. */
+  denominationNeeded?: boolean;
   /** Cash tendered by customer. */
   cash?: AdvanceCashDenominations;
   /** Change returned to customer (denomination breakdown). */
@@ -197,6 +201,7 @@ export type PaymentModeFormRow = {
   enabled: boolean;
   amount: string;
   reference: string;
+  denominationNeeded: boolean;
   cashStrings: Record<keyof AdvanceCashDenominations, string>;
   changeReturnedStrings: Record<keyof AdvanceCashDenominations, string>;
 };
@@ -211,6 +216,7 @@ export function emptyMultiPaymentForm(defaultEnabled: AppPaymentMode = "Cash"): 
         enabled: mode === defaultEnabled,
         amount: "",
         reference: "",
+        denominationNeeded: false,
         cashStrings: emptyCashDenomStrings(),
         changeReturnedStrings: emptyCashDenomStrings(),
       },
@@ -278,10 +284,17 @@ function validateCashLeg(
   amountInr: number,
   cash: AdvanceCashDenominations | undefined,
   changeReturned: AdvanceCashDenominations | undefined,
+  requireBreakdown = true,
 ): { ok: true } | { ok: false; error: string } {
   const cashSum = sumAdvanceCashDenominations(cash);
   const changeSum = sumAdvanceCashDenominations(changeReturned);
   const net = Math.round((cashSum - changeSum) * 100) / 100;
+  if (!requireBreakdown) {
+    if (changeSum > 0.02) {
+      return { ok: false, error: "Change return cannot be recorded when denomination capture is set to No need." };
+    }
+    return { ok: true };
+  }
 
   if (cashSum > amountInr + 0.02) {
     const due = cashChangeDueInr(cashSum, amountInr);
@@ -341,7 +354,7 @@ export function buildMultiPaymentPayload(
     if (mode === "Cash") {
       const cash = advanceDetailsFromFormStrings("Cash", row.cashStrings, "").cash;
       const changeReturned = advanceDetailsFromFormStrings("Cash", row.changeReturnedStrings, "").cash;
-      const validation = validateCashLeg(amountInr, cash, changeReturned);
+      const validation = validateCashLeg(amountInr, cash, changeReturned, row.denominationNeeded);
       if (!validation.ok) {
         return { error: validation.error };
       }
@@ -349,8 +362,9 @@ export function buildMultiPaymentPayload(
       splits.push({
         mode,
         amountInr,
-        cash: cash ?? undefined,
-        changeReturned: changeSum > 0 ? changeReturned : undefined,
+        denominationNeeded: row.denominationNeeded,
+        cash: row.denominationNeeded ? cash ?? undefined : undefined,
+        changeReturned: row.denominationNeeded && changeSum > 0 ? changeReturned : undefined,
       });
     } else {
       const ref = row.reference.trim();
@@ -375,7 +389,8 @@ export function buildMultiPaymentPayload(
       return {
         paymentMode: only.mode,
         paymentDetails: {
-          cash: only.cash,
+          denominationNeeded: only.denominationNeeded ?? false,
+          ...(only.cash ? { cash: only.cash } : {}),
           ...(only.changeReturned ? { changeReturned: only.changeReturned } : {}),
         },
       };
@@ -430,7 +445,8 @@ export function normalizePaymentForTotal(
       if (mode === "Cash") {
         const cash = (row as PaymentSplit).cash;
         const changeReturned = (row as PaymentSplit).changeReturned;
-        const validation = validateCashLeg(amountInr, cash, changeReturned);
+        const denominationNeeded = (row as PaymentSplit).denominationNeeded !== false;
+        const validation = validateCashLeg(amountInr, cash, changeReturned, denominationNeeded);
         if (!validation.ok) {
           return { ok: false, error: validation.error };
         }
@@ -438,8 +454,9 @@ export function normalizePaymentForTotal(
         splits.push({
           mode,
           amountInr,
-          cash: cash ?? undefined,
-          changeReturned: changeSum > 0 ? changeReturned : undefined,
+          denominationNeeded,
+          cash: denominationNeeded ? cash ?? undefined : undefined,
+          changeReturned: denominationNeeded && changeSum > 0 ? changeReturned : undefined,
         });
       } else {
         const ref = String((row as PaymentSplit).reference ?? "").trim();
@@ -476,13 +493,15 @@ export function normalizePaymentForTotal(
   const mode = paymentMode as AppPaymentMode;
 
   if (mode === "Cash") {
-    const validation = validateCashLeg(target, pd.cash, pd.changeReturned);
+    const denominationNeeded = pd.denominationNeeded !== false;
+    const validation = validateCashLeg(target, pd.cash, pd.changeReturned, denominationNeeded);
     if (!validation.ok) {
       return { ok: false, error: validation.error };
     }
     const details: MultiPaymentDetails = {};
-    if (pd.cash) details.cash = pd.cash;
-    if (pd.changeReturned) details.changeReturned = pd.changeReturned;
+    details.denominationNeeded = denominationNeeded;
+    if (denominationNeeded && pd.cash) details.cash = pd.cash;
+    if (denominationNeeded && pd.changeReturned) details.changeReturned = pd.changeReturned;
     return {
       ok: true,
       value: { paymentMode: mode, paymentDetails: details },

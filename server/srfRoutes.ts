@@ -14,9 +14,11 @@ import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
 import { validateSrfCustomerPhotoUpload, validateSrfDocumentUpload } from "../src/lib/srfCustomerPhotoUpload";
 import {
   normalizeSrfPhotoKind,
+  SRF_MAX_WATCH_PHOTOS,
   SRF_MIN_WATCH_PHOTOS_REQUIRED,
   SRF_WATCH_PHOTO_KINDS,
   srfMinWatchPhotosFinalizeError,
+  srfWatchPhotoKindsListHint,
 } from "../src/lib/srfPhotoSlots";
 import type { DemoUser, UserRole } from "../src/types/user";
 import { resolveCustomerEmail } from "./messaging/customerContact";
@@ -2195,8 +2197,11 @@ export function registerSrfRoutes(
     const watchFamily = String(req.body?.watchFamily ?? "").trim();
     const watchModel = String(req.body?.watchModel ?? "").trim();
     const serial = String(req.body?.serial ?? "").trim();
-    if (!regionId || !storeId || !destinationStoreId || !customerName || !phone || !watchBrand || !watchFamily || !watchModel || !serial) {
-      res.status(400).json({ error: "regionId, storeId, destinationStoreId, customerName, phone, watchBrand, watchFamily, watchModel, serial are required." });
+    if (!regionId || !storeId || !destinationStoreId || !customerName || !phone || !watchBrand || !watchFamily || !watchModel) {
+      res.status(400).json({
+        error:
+          "regionId, storeId, destinationStoreId, customerName, phone, watchBrand, watchFamily, and watchModel are required.",
+      });
       return;
     }
     const client = await pool.connect();
@@ -2396,7 +2401,7 @@ export function registerSrfRoutes(
       const nextStatus = repairRoute === "store_self" ? "store_self_pending" : "at_store";
       const watchKindIn = SRF_WATCH_PHOTO_KINDS.map((k) => `'${k}'`).join(", ");
       const { rows: watchPhotoCountRows } = await client.query<{ c: number }>(
-        `SELECT COUNT(*)::int AS c
+        `SELECT COUNT(DISTINCT photo_kind)::int AS c
          FROM srf_job_photos
          WHERE srf_id = $1::uuid
            AND photo_kind IN (${watchKindIn})`,
@@ -9185,7 +9190,7 @@ export function registerSrfRoutes(
     const rawKind = readUploadPhotoKind(req);
     const photoKind = normalizeSrfPhotoKind(rawKind);
     if (!photoKind) {
-      res.status(400).json({ error: "Photo category is required (front, back, strap, serial, damage, other, or document)." });
+      res.status(400).json({ error: `Photo category is required (${srfWatchPhotoKindsListHint()}).` });
       return;
     }
     const photoFormatError =
@@ -9253,9 +9258,9 @@ export function registerSrfRoutes(
           [row!.srf_id],
         );
         const kinds = new Set(kindRows.map((r) => r.photo_kind));
-        if (!kinds.has(photoKind) && kinds.size >= 6) {
+        if (!kinds.has(photoKind) && kinds.size >= SRF_MAX_WATCH_PHOTOS) {
           await deleteStoredFile(relPath);
-          res.status(400).json({ error: "Maximum 6 watch photos allowed. Each type can be used once." });
+          res.status(400).json({ error: `Maximum ${SRF_MAX_WATCH_PHOTOS} watch photos allowed. Each type can be used once.` });
           return;
         }
       }

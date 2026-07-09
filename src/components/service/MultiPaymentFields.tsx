@@ -34,6 +34,7 @@ function toggleMode(form: MultiPaymentFormState, mode: AppPaymentMode, on: boole
       ...next[mode],
       amount: "",
       reference: "",
+      denominationNeeded: false,
       cashStrings: emptyCashDenomStrings(),
       changeReturnedStrings: emptyCashDenomStrings(),
     };
@@ -82,6 +83,10 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
   }, [cashRow.enabled, targetInr, enabledModesKey, otherModesAmountKey]);
 
   useEffect(() => {
+    if (!cashRow.denominationNeeded) {
+      autoOpenedForTenderRef.current = null;
+      return;
+    }
     if (!cashRow.enabled || cashBillTarget <= 0 || changeDue <= 0.02) {
       autoOpenedForTenderRef.current = null;
       return;
@@ -90,7 +95,7 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
     if (autoOpenedForTenderRef.current === cashTotal) return;
     autoOpenedForTenderRef.current = cashTotal;
     setChangeModalOpen(true);
-  }, [cashRow.enabled, cashBillTarget, cashTotal, changeDue, changeMatches]);
+  }, [cashRow.enabled, cashRow.denominationNeeded, cashBillTarget, cashTotal, changeDue, changeMatches]);
 
   function fillRemaining(mode: AppPaymentMode) {
     let other = 0;
@@ -179,6 +184,33 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
             {mode === "Cash" ? (
               <div className="mt-3 space-y-3">
                 <div className="rounded-xl border border-zimson-200 bg-white p-3">
+                  <label className="inline-flex items-center gap-2 text-xs font-semibold text-zimson-900">
+                    <input
+                      type="checkbox"
+                      checked={row.denominationNeeded}
+                      onChange={(e) =>
+                        onChange(
+                          patchRow(form, mode, {
+                            denominationNeeded: e.target.checked,
+                            ...(e.target.checked
+                              ? {}
+                              : {
+                                  cashStrings: emptyCashDenomStrings(),
+                                  changeReturnedStrings: emptyCashDenomStrings(),
+                                }),
+                          }),
+                        )
+                      }
+                    />
+                    Denomination needed
+                  </label>
+                  <p className="mt-1 text-xs text-stone-500">
+                    Default is <strong>No need</strong>. Check to capture denomination.
+                  </p>
+                </div>
+
+                {row.denominationNeeded ? (
+                  <div className="rounded-xl border border-zimson-200 bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-semibold text-zimson-900">Cash received from customer</p>
                     <button
@@ -253,9 +285,10 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
                       <span className="ml-2 text-amber-700">(short of bill amount)</span>
                     ) : null}
                   </p>
-                </div>
+                  </div>
+                ) : null}
 
-                {rowChangeDue > 0.02 ? (
+                {row.denominationNeeded && rowChangeDue > 0.02 ? (
                   <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-3">
                     <p className="text-sm font-semibold text-amber-950">
                       Change to return:{" "}
@@ -332,7 +365,7 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
       ) : null}
 
       <CashChangeReturnModal
-        open={changeModalOpen}
+        open={changeModalOpen && cashRow.denominationNeeded}
         billAmountInr={cashBillTarget}
         tenderTotalInr={cashTotal}
         tenderBreakdownText={tenderBreakdownText}

@@ -34,25 +34,16 @@ export function WatchFamilyPicker({
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadingFamilies, setLoadingFamilies] = useState(false);
 
   const prevBrandRef = useRef<string | null>(null);
+  const onFamilyChangeRef = useRef(onFamilyChange);
+  const customFamilyTextRef = useRef(customFamilyText);
+  const editingNewFamilyRef = useRef(false);
+  const hydratedExternalFamilyRef = useRef<string | null>(null);
 
-  function hydrateFromFamilyProp(families: WatchFamilyRow[]) {
-    const f = family.trim();
-    if (!f) {
-      setCatalogFamilyKey("");
-      setCustomFamilyText("");
-      return;
-    }
-    const match = families.find((x) => x.family.trim().toLowerCase() === f.toLowerCase());
-    if (match) {
-      setCatalogFamilyKey(match.family);
-      setCustomFamilyText("");
-      return;
-    }
-    setCatalogFamilyKey("__new__");
-    setCustomFamilyText(f);
-  }
+  onFamilyChangeRef.current = onFamilyChange;
+  customFamilyTextRef.current = customFamilyText;
 
   const catalogFamilies = useMemo(() => {
     const by = new Map<string, WatchFamilyRow>();
@@ -64,19 +55,29 @@ export function WatchFamilyPicker({
     return [...by.values()].sort((a, b) => a.family.localeCompare(b.family));
   }, [dbFamilies]);
 
-  const resolvedFamily = useMemo(() => {
-    if (catalogFamilyKey === "__new__") return customFamilyText.trim();
-    return catalogFamilyKey.trim();
-  }, [catalogFamilyKey, customFamilyText]);
+  const isNewFamilyEntry = catalogFamilyKey === "__new__" || catalogFamilies.length === 0;
+  const fieldClass = inputClass.replace(/\bmt-1\b/g, "").trim();
+  const label = required ? "Family *" : "Family";
 
-  useEffect(() => {
-    if (disableAutoSelect && !resolvedFamily && family.trim()) return;
-    onFamilyChange(resolvedFamily);
-  }, [resolvedFamily, onFamilyChange, disableAutoSelect, family]);
-
-  useEffect(() => {
-    onSelectionModeChange?.(catalogFamilyKey === "__new__" || catalogFamilies.length === 0);
-  }, [catalogFamilyKey, catalogFamilies.length, onSelectionModeChange]);
+  function applyFamilyFromProp(families: WatchFamilyRow[], nextFamily: string) {
+    const f = nextFamily.trim();
+    if (!f) {
+      setCatalogFamilyKey(families.length === 0 ? "__new__" : "");
+      setCustomFamilyText("");
+      editingNewFamilyRef.current = false;
+      return;
+    }
+    const match = families.find((x) => x.family.trim().toLowerCase() === f.toLowerCase());
+    if (match) {
+      setCatalogFamilyKey(match.family);
+      setCustomFamilyText("");
+      editingNewFamilyRef.current = false;
+      return;
+    }
+    setCatalogFamilyKey("__new__");
+    setCustomFamilyText(f);
+    editingNewFamilyRef.current = false;
+  }
 
   const reloadFamilies = useCallback(async () => {
     if (!apiMode || !watchBrand.trim()) {
@@ -90,15 +91,37 @@ export function WatchFamilyPicker({
   }, [apiMode, watchBrand]);
 
   useEffect(() => {
+    onSelectionModeChange?.(isNewFamilyEntry);
+  }, [isNewFamilyEntry, onSelectionModeChange]);
+
+  useEffect(() => {
+    if (!isNewFamilyEntry) {
+      const selected = catalogFamilyKey.trim();
+      if (selected && selected !== family.trim()) {
+        onFamilyChangeRef.current(selected);
+      }
+      return;
+    }
+    if (!editingNewFamilyRef.current) return;
+    const timer = window.setTimeout(() => {
+      onFamilyChangeRef.current(customFamilyTextRef.current.trim());
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [isNewFamilyEntry, catalogFamilyKey, customFamilyText, family]);
+
+  useEffect(() => {
     if (!apiMode || !watchBrand.trim()) {
       setDbFamilies([]);
       setCatalogFamilyKey("__new__");
       setCustomFamilyText("");
+      setLoadingFamilies(false);
+      editingNewFamilyRef.current = false;
+      hydratedExternalFamilyRef.current = null;
       return;
     }
     let cancelled = false;
     setLoadError(null);
-    setDbFamilies([]);
+    setLoadingFamilies(true);
     void apiJson<{ families: WatchFamilyRow[] }>(
       `/api/service/watch-families?brand=${encodeURIComponent(watchBrand)}`,
     )
@@ -111,6 +134,9 @@ export function WatchFamilyPicker({
           setDbFamilies([]);
           setLoadError("Could not load families for this brand.");
         }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingFamilies(false);
       });
     return () => {
       cancelled = true;
@@ -121,28 +147,28 @@ export function WatchFamilyPicker({
     const prev = prevBrandRef.current;
     prevBrandRef.current = watchBrand;
     if (prev !== null && prev !== watchBrand) {
-      if (disableAutoSelect) {
-        setCatalogFamilyKey("");
-        setCustomFamilyText("");
-      } else {
-        setCatalogFamilyKey("__new__");
-        setCustomFamilyText(family.trim() ? family : "");
-      }
+      setCatalogFamilyKey("");
+      setCustomFamilyText("");
+      editingNewFamilyRef.current = false;
+      hydratedExternalFamilyRef.current = null;
+      onFamilyChangeRef.current("");
     }
     setSaveMsg(null);
-  }, [watchBrand, disableAutoSelect, family]);
+  }, [watchBrand]);
 
   useEffect(() => {
     if (!disableAutoSelect) return;
-    if (family.trim() && resolvedFamily !== family.trim()) {
-      hydrateFromFamilyProp(catalogFamilies);
-    }
-  }, [disableAutoSelect, family, catalogFamilies, resolvedFamily]);
+    if (editingNewFamilyRef.current) return;
+    const externalFamily = family.trim();
+    const hydrationKey = `${watchBrand}::${externalFamily}::${catalogFamilies.length}`;
+    if (hydratedExternalFamilyRef.current === hydrationKey) return;
+    hydratedExternalFamilyRef.current = hydrationKey;
+    applyFamilyFromProp(catalogFamilies, externalFamily);
+  }, [disableAutoSelect, family, watchBrand, catalogFamilies]);
 
   useEffect(() => {
     if (disableAutoSelect) return;
-    /** Keep custom entry when user is typing a new family name. */
-    if (catalogFamilyKey === "__new__" && customFamilyText.trim()) return;
+    if (catalogFamilyKey === "__new__") return;
     if (catalogFamilyKey && catalogFamilies.some((f) => f.family === catalogFamilyKey)) return;
     if (catalogFamilies.length === 0) {
       setCatalogFamilyKey("__new__");
@@ -150,25 +176,11 @@ export function WatchFamilyPicker({
     }
     setCatalogFamilyKey(catalogFamilies[0]!.family);
     setCustomFamilyText("");
-  }, [catalogFamilies, catalogFamilyKey, customFamilyText, disableAutoSelect]);
-
-  useEffect(() => {
-    if (disableAutoSelect) return;
-    if (!family.trim() || catalogFamilyKey !== "__new__") return;
-    const match = catalogFamilies.find((f) => f.family.trim().toLowerCase() === family.trim().toLowerCase());
-    if (match) {
-      setCatalogFamilyKey(match.family);
-      setCustomFamilyText("");
-    }
-  }, [family, catalogFamilies, catalogFamilyKey, disableAutoSelect]);
+    editingNewFamilyRef.current = false;
+  }, [catalogFamilies, catalogFamilyKey, disableAutoSelect]);
 
   async function saveNewFamily() {
-    const name =
-      catalogFamilyKey === "__new__"
-        ? customFamilyText.trim()
-        : catalogFamilies.length === 0
-          ? customFamilyText.trim()
-          : "";
+    const name = customFamilyText.trim();
     if (!watchBrand.trim() || !name) return;
     if (!apiMode) {
       setLoadError("Turn on API mode (VITE_USE_API) to save families to the server.");
@@ -185,6 +197,9 @@ export function WatchFamilyPicker({
       await reloadFamilies();
       setCatalogFamilyKey(name);
       setCustomFamilyText("");
+      editingNewFamilyRef.current = false;
+      hydratedExternalFamilyRef.current = `${watchBrand}::${name}::${catalogFamilies.length}`;
+      onFamilyChangeRef.current(name);
       setSaveMsg("Saved — appears in the family list for this brand.");
       window.setTimeout(() => setSaveMsg(null), 4000);
     } catch (e) {
@@ -194,88 +209,106 @@ export function WatchFamilyPicker({
     }
   }
 
-  const label = required ? "Family *" : "Family";
   const comboboxOptions = useMemo(
     () => catalogFamilies.map((f) => ({ value: f.family, label: f.family })),
     [catalogFamilies],
   );
 
-  if (catalogFamilies.length === 0) {
-    return (
-      <div className="min-w-0">
-        <p className="mb-1 text-xs text-amber-900">No saved families for this brand — enter a family name.</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <SearchableCombobox
-            id={`${idPrefix}-family-custom`}
-            label={label}
-            freeText
-            freeTextValue={customFamilyText}
-            onFreeTextChange={(t) => {
-              setCustomFamilyText(sanitizeTextInput(t, 120));
-              setCatalogFamilyKey("__new__");
-              setSaveMsg(null);
-            }}
-            value="__new__"
-            options={[]}
-            onChange={() => {}}
-            inputClass={inputClass}
-            placeholder="Family name *"
-            required={required}
-          />
-          {apiMode ? (
-            <button
-              type="button"
-              disabled={!customFamilyText.trim() || saving}
-              onClick={() => void saveNewFamily()}
-              className="mt-6 shrink-0 border border-rlx-gold/60 bg-white px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
-            >
-              {saving ? "…" : "Save"}
-            </button>
-          ) : null}
-        </div>
-        {saveMsg ? <p className="mt-1.5 text-xs font-medium text-emerald-800">{saveMsg}</p> : null}
-        {loadError ? <p className="mt-1.5 text-xs text-red-800">{loadError}</p> : null}
-      </div>
-    );
-  }
-
   return (
     <div className="min-w-0">
+      {catalogFamilies.length === 0 && !loadingFamilies ? (
+        <p className="mb-1 text-xs text-amber-900">No saved families for this brand — enter a family name.</p>
+      ) : null}
       <div className="flex flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
-          <SearchableCombobox
-            id={`${idPrefix}-family`}
-            label={label}
-            required={required}
-            value={catalogFamilyKey === "__new__" ? "" : catalogFamilyKey}
-            options={comboboxOptions}
-            onChange={(v) => {
-              setSaveMsg(null);
-              if (!v) {
-                setCatalogFamilyKey("");
+          {isNewFamilyEntry ? (
+            <div>
+              <label htmlFor={`${idPrefix}-family-new`} className="text-xs font-medium text-stone-600">
+                {label}
+              </label>
+              <input
+                id={`${idPrefix}-family-new`}
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={customFamilyText}
+                required={required}
+                placeholder="Enter new family name"
+                className={`${fieldClass} mt-1`}
+                onChange={(e) => {
+                  editingNewFamilyRef.current = true;
+                  setCustomFamilyText(sanitizeTextInput(e.target.value, 120));
+                  setCatalogFamilyKey("__new__");
+                  setSaveMsg(null);
+                }}
+                onBlur={(e) => {
+                  editingNewFamilyRef.current = false;
+                  const next = e.target.value.trim();
+                  onFamilyChangeRef.current(next);
+                  hydratedExternalFamilyRef.current = `${watchBrand}::${next}::${catalogFamilies.length}`;
+                }}
+              />
+              {catalogFamilies.length > 0 ? (
+                <button
+                  type="button"
+                  className="mt-1 text-[11px] font-medium text-rlx-green hover:underline"
+                  onClick={() => {
+                    editingNewFamilyRef.current = false;
+                    hydratedExternalFamilyRef.current = null;
+                    setCatalogFamilyKey("");
+                    setCustomFamilyText("");
+                    onFamilyChangeRef.current("");
+                    setSaveMsg(null);
+                  }}
+                >
+                  Pick from saved families
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <SearchableCombobox
+              id={`${idPrefix}-family`}
+              label={label}
+              required={required}
+              value={catalogFamilyKey}
+              options={comboboxOptions}
+              onChange={(v) => {
+                setSaveMsg(null);
+                editingNewFamilyRef.current = false;
+                if (!v) {
+                  setCatalogFamilyKey("");
+                  setCustomFamilyText("");
+                  onFamilyChangeRef.current("");
+                  return;
+                }
+                if (v === "__new__") {
+                  editingNewFamilyRef.current = true;
+                  hydratedExternalFamilyRef.current = null;
+                  setCatalogFamilyKey("__new__");
+                  setCustomFamilyText("");
+                  onFamilyChangeRef.current("");
+                  return;
+                }
+                setCatalogFamilyKey(v);
                 setCustomFamilyText("");
-                return;
-              }
-              setCatalogFamilyKey(v);
-              setCustomFamilyText("");
-            }}
-            inputClass={inputClass}
-            placeholder="Search or select family…"
-            actionOption={{ value: "__new__", label: "+ Add new family…" }}
-            onActionSelect={() => {
-              setCatalogFamilyKey("__new__");
-              setCustomFamilyText("");
-            }}
-            freeText={catalogFamilyKey === "__new__"}
-            freeTextValue={customFamilyText}
-            onFreeTextChange={(t) => {
-              setCustomFamilyText(sanitizeTextInput(t, 120));
-              setCatalogFamilyKey("__new__");
-              setSaveMsg(null);
-            }}
-          />
+                hydratedExternalFamilyRef.current = `${watchBrand}::${v}::${catalogFamilies.length}`;
+                onFamilyChangeRef.current(v);
+              }}
+              inputClass={inputClass}
+              placeholder="Search or select family…"
+              actionOption={{ value: "__new__", label: "+ Add new family…" }}
+              onActionSelect={() => {
+                editingNewFamilyRef.current = true;
+                hydratedExternalFamilyRef.current = null;
+                setCatalogFamilyKey("__new__");
+                setCustomFamilyText("");
+                onFamilyChangeRef.current("");
+                setSaveMsg(null);
+              }}
+            />
+          )}
         </div>
-        {catalogFamilyKey === "__new__" && apiMode ? (
+        {isNewFamilyEntry && apiMode ? (
           <button
             type="button"
             disabled={!customFamilyText.trim() || saving}

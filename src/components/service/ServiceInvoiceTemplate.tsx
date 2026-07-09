@@ -117,6 +117,8 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
   const pb = data.productBlock;
   const productInfoRows = buildProductInfoRows(pb, data.serviceMeta);
   const isQuickBill = data.invoiceType === "Quick Bill";
+  const isB2cCustomer = !String(data.billTo.gstin ?? "").trim();
+  const hasEinvoiceQr = Boolean(data.irn || data.einvoiceQr);
 
   const FALLBACK_LOGO = "/zimson-logo.png";
   const logoSrc = data.sellerLogoUrl || FALLBACK_LOGO;
@@ -187,25 +189,38 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             </div>
           </div>
           <div className="inv-top-cell inv-barcode-wrap" style={{ width: "36%" }}>
-            <div className="inv-logo-above-barcode">
-              <img
-                src={logoSrc}
-                alt="Zimson"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).onerror = null;
-                  (e.currentTarget as HTMLImageElement).src = FALLBACK_LOGO;
-                }}
-              />
-            </div>
+            {!isB2cCustomer ? (
+              <div className="inv-logo-above-barcode">
+                <img
+                  src={logoSrc}
+                  alt="Zimson"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).onerror = null;
+                    (e.currentTarget as HTMLImageElement).src = FALLBACK_LOGO;
+                  }}
+                />
+              </div>
+            ) : null}
             <InvoiceNumberScanCodes invoiceNumber={scanInvoiceNumber} className="mt-1 shrink-0" />
           </div>
           <div className="inv-top-cell inv-qr-wrap" style={{ width: "32%" }}>
-            {data.irn || data.einvoiceQr ? (
+            {hasEinvoiceQr ? (
               <EinvoiceSignedQr
                 signedPayload={data.einvoiceQr}
                 irn={data.irn}
                 className="mt-0"
               />
+            ) : isB2cCustomer ? (
+              <div className="inv-logo-above-barcode" style={{ marginTop: 0 }}>
+                <img
+                  src={logoSrc}
+                  alt="Zimson"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).onerror = null;
+                    (e.currentTarget as HTMLImageElement).src = FALLBACK_LOGO;
+                  }}
+                />
+              </div>
             ) : null}
           </div>
         </div>

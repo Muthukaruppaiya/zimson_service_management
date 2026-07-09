@@ -101,6 +101,7 @@ import {
   normalizeSrfPhotoKind,
   SRF_DOCUMENT_PHOTO_KIND,
   SRF_MAX_WATCH_PHOTOS,
+  SRF_MIN_WATCH_PHOTOS_REQUIRED,
   SRF_PHOTO_SLOT_LABELS,
 } from "../../lib/srfPhotoSlots";
 import { watchAttachmentDisplayName } from "../../lib/watchAttachmentUpload";
@@ -2263,7 +2264,8 @@ export function QuickBillPage() {
             <div className={`${qbField} min-w-0 rounded-xl border border-zimson-200 bg-zimson-50/50 p-3 sm:p-4`}>
               <p className="text-sm font-semibold text-zimson-900">Documents &amp; watch photos (customer link)</p>
               {/* <p className="mt-1 text-xs text-stone-600">
-                Same as SRF: up to {SRF_MAX_WATCH_PHOTOS} watch photo types plus one document (PDF/Word or photo).
+                Same as SRF: at least {SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos (any categories); up to{" "}
+                {SRF_MAX_WATCH_PHOTOS} types plus one document (PDF/Word or photo).
               </p> */}
               {/* <p className="mt-1 text-xs leading-relaxed text-stone-600">
                 Like SRF booking: generate a QR/link for the customer to upload document and watch photo from their phone. Store staff do not upload files here.
