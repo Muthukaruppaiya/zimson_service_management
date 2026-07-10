@@ -40,27 +40,38 @@ export function DashboardActionCard({ item }: Props) {
       to={item.to}
       className={`cs-card cs-kpi-card dashboard-kpi-card group ${blinkClass}`}
     >
-      {isWaiting ? (
-        <span className={`cs-status-label ${item.urgent ? "urgent" : "action"}`}>
-          <span
-            className={`cs-status-blinker ${item.urgent ? "cs-status-blinker-urgent" : "cs-status-blinker-action"}`}
-            aria-hidden
-          />
-          {item.urgent ? "Pending" : "Action"}
-        </span>
-      ) : null}
-
-      <div className="cs-kpi-text min-w-0 flex-1">
-        <p className="cs-kpi-label">{item.label}</p>
-        <div className="flex items-end gap-2">
-          <p className="cs-kpi-value tabular-nums">{item.count}</p>
-          {showDonut ? <ChronoMiniDonut className="mb-1 shrink-0" /> : null}
+      <div className="cs-kpi-card__inner">
+        <div className="cs-kpi-card__header">
+          <p className="cs-kpi-label">{item.label}</p>
+          {isWaiting ? (
+            <span className={`cs-status-label ${item.urgent ? "urgent" : "action"}`}>
+              <span
+                className={`cs-status-blinker ${item.urgent ? "cs-status-blinker-urgent" : "cs-status-blinker-action"}`}
+                aria-hidden
+              />
+              {item.urgent ? "Pending" : "Action"}
+            </span>
+          ) : (
+            <span className="cs-status-label cs-status-label--spacer" aria-hidden />
+          )}
         </div>
-        {showSparkline ? <ChronoSparkline className="mt-0.5" /> : null}
+
+        <div className="cs-kpi-card__body">
+          <div className="cs-kpi-card__metric">
+            <div className="cs-kpi-card__value-row">
+              <p className="cs-kpi-value tabular-nums">{item.count}</p>
+              {showDonut ? <ChronoMiniDonut className="shrink-0" /> : null}
+            </div>
+            <div className="cs-kpi-card__sparkline-slot">
+              {showSparkline ? <ChronoSparkline /> : null}
+            </div>
+          </div>
+
+          <ChronoKpiIcon variant={variant} className="dashboard-kpi-illustration shrink-0" />
+        </div>
+
         <p className="cs-kpi-sub">{kpiSubtext(item)}</p>
       </div>
-
-      <ChronoKpiIcon variant={variant} className="dashboard-kpi-illustration shrink-0" />
     </Link>
   );
 }

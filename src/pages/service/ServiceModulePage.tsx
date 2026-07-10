@@ -8,6 +8,7 @@ const quickLinks = [
   { to: "/service/quick-bill-history", title: "Quick bill history", description: "Past quick bills and reprints." },
   { to: "/service/srf-register", title: "Booking list", description: "Open and in-progress SRF jobs." },
   { to: "/service/srf-master", title: "All SRF records", description: "Filter by status and open full timelines." },
+  { to: "/service/reports", title: "Reports", description: "Stock in hand, aging, pending, and transfer reports." },
 ] as const;
 
 export function ServiceModulePage() {

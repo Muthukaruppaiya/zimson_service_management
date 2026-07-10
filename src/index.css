@@ -76,11 +76,42 @@
     border-radius: 9999px !important;
   }
 
-  /* Dashboard action tiles — smooth rounded corners (ChronoSync) */
-  .cs-action-tile,
-  .dashboard-quick-tile,
-  .chrono-dashboard .cs-action-tile {
+  /* Dashboard — rounded cards & panels (ChronoSync) */
+  .chrono-dashboard .dashboard-hero,
+  .chrono-dashboard .dashboard-kpi-card,
+  .chrono-dashboard a.dashboard-kpi-card,
+  .chrono-dashboard .cs-card,
+  .chrono-dashboard .cs-action-tile,
+  .chrono-dashboard .dashboard-quick-tile,
+  .chrono-dashboard .dashboard-panel,
+  .chrono-dashboard .dashboard-search-panel,
+  .chrono-dashboard .dashboard-quick-links-panel {
     border-radius: 1.25rem !important;
+  }
+
+  .chrono-dashboard .cs-status-label {
+    border-radius: 9999px !important;
+  }
+
+  /* TopBar — rounded notification, panel & sign out */
+  .chrono-topbar .topbar-icon-btn,
+  .chrono-topbar .topbar-signout-btn,
+  .chrono-topbar .topbar-signout-btn__icon,
+  .chrono-topbar .topbar-user-chip,
+  .chrono-topbar .topbar-notif-panel__mark-read {
+    border-radius: 9999px !important;
+  }
+
+  .chrono-topbar .topbar-notif-panel {
+    border-radius: 1.25rem !important;
+  }
+
+  .chrono-topbar .topbar-notif-panel__header {
+    border-radius: 1.25rem 1.25rem 0 0 !important;
+  }
+
+  .chrono-topbar .topbar-notif-panel__body {
+    border-radius: 0 0 1.25rem 1.25rem !important;
   }
 
   /* Login page card — smooth rounded corners */
@@ -621,7 +652,7 @@
   --cs-quickaction-bg: #e0e6ed;
   --cs-spacing-base: 16px;
   --cs-spacing-lg: 24px;
-  --cs-radius-base: 8px;
+  --cs-radius-base: 20px;
   --cs-radius-pill: 40px;
   --cs-shadow-base: 0 4px 12px rgba(0, 0, 0, 0.08);
   --cs-shadow-hover: 0 6px 16px rgba(0, 0, 0, 0.1);
@@ -633,10 +664,10 @@
 .cs-dashboard-container {
   max-width: none;
   margin: 0 auto;
-  padding: 12px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: var(--cs-spacing-base);
+  gap: 20px;
 }
 
 /* ── Welcome banner ─────────────────────────────────────────────────────── */
@@ -644,52 +675,61 @@
 .dashboard-hero {
   position: relative;
   overflow: hidden;
-  border-radius: 12px !important;
+  border-radius: 1.25rem !important;
   background:
-    linear-gradient(90deg, rgba(101, 114, 132, 0.18) 0%, rgba(101, 114, 132, 0) 28%),
-    linear-gradient(135deg, #1f2d40 0%, #2f3f56 55%, #2a394f 100%);
+    linear-gradient(115deg, rgba(201, 162, 39, 0.14) 0%, rgba(201, 162, 39, 0) 42%),
+    linear-gradient(135deg, #102570 0%, #1b3a8f 48%, #243f6e 100%);
   color: #ffffff;
-  padding: 14px 20px;
+  padding: 22px 26px;
+  box-shadow:
+    0 10px 28px rgba(16, 37, 112, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(201, 162, 39, 0.22);
   animation: dashboard-fade-in 0.45s ease-out;
 }
 
+.dashboard-hero::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #a8850f, #c9a227, #f0dc90, #c9a227, #a8850f);
+  pointer-events: none;
+}
+
 .dashboard-hero-watermark {
-  width: 260px;
+  width: 280px;
   height: auto;
-  opacity: 0.72;
+  opacity: 0.55;
 }
 
 .dashboard-hero-title {
   position: relative;
+  z-index: 1;
   margin: 0;
-  font-family: var(--font-sans);
-  font-size: 1.25rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  line-height: 1.2;
+  font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  line-height: 1.35;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.18);
 }
 
 @media (min-width: 768px) {
   .dashboard-hero-title {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
   }
-}
-
-.dashboard-hero-sub {
-  position: relative;
-  margin: 4px 0 0;
-  font-size: 0.9375rem;
-  color: rgba(255, 255, 255, 0.82);
-  line-height: 1.35;
 }
 
 /* ── Shared card base ───────────────────────────────────────────────────── */
 .chrono-dashboard .cs-card:not(.cs-action-tile) {
   background-color: var(--cs-card-bg);
-  border-radius: var(--cs-radius-base) !important;
-  box-shadow: var(--cs-shadow-base);
-  border: 1px solid transparent;
+  border-radius: 1.25rem !important;
+  box-shadow: 0 4px 14px rgba(16, 37, 112, 0.07);
+  border: 1px solid rgba(216, 223, 240, 0.9);
   position: relative;
   box-sizing: border-box;
   transition: box-shadow 0.2s ease, transform 0.2s ease;
@@ -698,24 +738,31 @@
 }
 
 .chrono-dashboard .cs-card:not(.cs-action-tile):hover {
-  box-shadow: var(--cs-shadow-hover);
+  box-shadow: 0 8px 22px rgba(16, 37, 112, 0.11);
 }
 
 /* ── KPI status labels ──────────────────────────────────────────────────── */
 .cs-status-label {
-  font-size: 0.75rem;
-  font-weight: 700;
+  font-size: 0.6875rem;
+  font-weight: 600;
   text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 4px !important;
-  position: absolute;
-  top: 10px;
-  right: 10px;
+  padding: 3px 10px;
+  border-radius: 9999px !important;
+  position: static;
+  flex-shrink: 0;
+  align-self: flex-start;
   pointer-events: none;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.cs-status-label--spacer {
+  visibility: hidden;
+  min-width: 4.75rem;
+  min-height: 1.375rem;
 }
 
 .cs-status-blinker {
@@ -791,15 +838,61 @@
 }
 
 .cs-kpi-card {
+  position: relative;
   display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 8px;
-  min-height: 9rem;
-  padding: var(--cs-spacing-base);
+  flex-direction: column;
+  min-height: 9.5rem;
+  padding: 16px 18px 14px;
   border-radius: 1.25rem !important;
   overflow: hidden;
+  background: linear-gradient(180deg, #ffffff 0%, #fafbfd 100%);
+}
+
+.cs-kpi-card__inner {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.cs-kpi-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 2.35rem;
+}
+
+.cs-kpi-card__body {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  min-height: 4.75rem;
+}
+
+.cs-kpi-card__metric {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+  min-height: 4.75rem;
+}
+
+.cs-kpi-card__value-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.cs-kpi-card__sparkline-slot {
+  display: flex;
+  align-items: flex-end;
+  min-height: 1.35rem;
+  margin-top: 4px;
 }
 
 .cs-kpi-text {
@@ -810,35 +903,40 @@
 
 .cs-kpi-label {
   margin: 0;
-  padding-right: 4.5rem;
-  font-size: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.06em;
   color: var(--cs-text-muted);
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .cs-kpi-value {
-  margin: 4px 0 0;
-  font-size: clamp(2rem, 3.5vw, 3rem);
+  margin: 0;
+  font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(2.125rem, 3.5vw, 3.125rem);
   font-weight: 700;
   line-height: 1;
   color: var(--cs-primary-navy);
 }
 
 .cs-kpi-sub {
-  margin: 4px 0 0;
+  margin: 8px 0 0;
+  font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--cs-text-muted);
-  line-height: 1.3;
+  color: #64748b;
+  line-height: 1.35;
 }
 
 .dashboard-kpi-illustration {
   width: 62px;
   height: 62px;
   flex-shrink: 0;
+  align-self: flex-end;
   opacity: 0.95;
 }
 
@@ -879,7 +977,7 @@
 }
 
 .chrono-dashboard .dashboard-kpi-card {
-  border: 1px solid var(--cs-divider) !important;
+  border: 1px solid rgba(216, 223, 240, 0.95) !important;
 }
 
 .chrono-dashboard .dashboard-kpi-blink-action {
@@ -1082,3 +1180,240 @@
 .dashboard-stat-waiting-urgent {
   /* ring applied via Tailwind on DashboardPage */
 }
+
+/* =============================================================================
+ * ChronoSync BI — enhanced drill-down analytics
+ * ============================================================================= */
+.chrono-bi {
+  --bi-navy: #102570;
+  --bi-gold: #c9a227;
+  --bi-radius: 1.25rem;
+  animation: dashboard-fade-in 0.35s ease-out;
+}
+
+.chrono-bi .bi-hero,
+.chrono-bi .bi-kpi-card,
+.chrono-bi .bi-chart-card,
+.chrono-bi .bi-drill-panel,
+.chrono-bi .bi-executive-strip > *,
+.chrono-bi .rounded-2xl,
+.chrono-bi .rounded-3xl,
+.chrono-bi .rounded-xl {
+  border-radius: var(--bi-radius) !important;
+}
+
+.chrono-bi .bi-hero {
+  position: relative;
+  background: linear-gradient(135deg, #102570 0%, #1b3a8f 55%, #2d5a87 100%);
+  border-color: rgba(201, 162, 39, 0.25);
+}
+
+.chrono-bi .bi-hero__stripe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #a8850f, var(--bi-gold), #f0dc90, var(--bi-gold), #a8850f);
+  pointer-events: none;
+}
+
+.chrono-bi .bi-hero__body {
+  position: relative;
+  z-index: 1;
+}
+
+.chrono-bi .bi-chart-card--drillable {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.chrono-bi .bi-chart-card--drillable:hover {
+  border-color: rgba(45, 90, 135, 0.45);
+  box-shadow: 0 8px 24px rgba(16, 37, 112, 0.1);
+}
+
+.chrono-bi .bi-kpi-card:focus-visible {
+  outline: 2px solid var(--bi-gold);
+  outline-offset: 2px;
+}
+
+.chrono-bi .bi-drill-breadcrumb {
+  min-height: 2rem;
+}
+
+.chrono-bi .bi-executive-strip > .bi-kpi-card {
+  border-radius: 1rem !important;
+}
+
+/* =============================================================================
+ * ChronoSync TopBar — premium header icons & user chip
+ * ============================================================================= */
+.chrono-topbar .topbar-gold-stripe {
+  background: linear-gradient(90deg, #a8850f, #c9a227, #f0dc90, #c9a227, #a8850f);
+}
+
+.chrono-topbar .topbar-icon-btn {
+  border-radius: 9999px !important;
+  border: 1px solid var(--color-rlx-rule);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 1px 2px rgba(16, 37, 112, 0.06);
+}
+
+.chrono-topbar .topbar-icon-btn:hover {
+  border-color: rgba(27, 58, 143, 0.35);
+  color: var(--color-rlx-green);
+  box-shadow: 0 4px 12px rgba(16, 37, 112, 0.1);
+  transform: translateY(-1px);
+}
+
+.chrono-topbar .topbar-icon-btn--active {
+  border-color: var(--color-rlx-green);
+  color: var(--color-rlx-green);
+  background: var(--color-rlx-green-light);
+  box-shadow: inset 0 0 0 1px rgba(27, 58, 143, 0.08);
+}
+
+.chrono-topbar .topbar-notif-badge {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+.chrono-topbar .topbar-notif-panel {
+  border-radius: 1.25rem !important;
+  animation: dashboard-fade-in 0.2s ease-out;
+  box-shadow:
+    0 12px 32px rgba(16, 37, 112, 0.14),
+    0 2px 8px rgba(16, 37, 112, 0.06);
+}
+
+.chrono-topbar .topbar-notif-panel__header {
+  border-radius: 1.25rem 1.25rem 0 0 !important;
+}
+
+.chrono-topbar .topbar-notif-panel__mark-read {
+  border-radius: 9999px !important;
+}
+
+.chrono-topbar .topbar-notif-panel__body {
+  border-radius: 0 0 1.25rem 1.25rem !important;
+}
+
+.chrono-topbar .topbar-user-chip {
+  border-radius: 9999px !important;
+  border: 1px solid var(--color-rlx-rule);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  padding: 0.35rem 0.85rem 0.35rem 0.35rem;
+  box-shadow: 0 1px 3px rgba(16, 37, 112, 0.06);
+}
+
+.chrono-topbar .topbar-avatar-ring {
+  background: linear-gradient(135deg, #f0dc90, #c9a227, #a8850f);
+  box-shadow: 0 2px 8px rgba(201, 162, 39, 0.35);
+}
+
+.chrono-topbar .topbar-signout-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: hidden;
+  border-radius: 9999px !important;
+  border: 1px solid rgba(27, 58, 143, 0.22);
+  background: linear-gradient(180deg, #ffffff 0%, #f4f7fc 100%);
+  padding: 0.4rem 0.55rem 0.4rem 0.4rem;
+  color: var(--color-rlx-green-deep);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow:
+    0 1px 2px rgba(16, 37, 112, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition:
+    border-color 0.2s ease,
+    background 0.25s ease,
+    color 0.2s ease,
+    box-shadow 0.25s ease,
+    transform 0.2s ease;
+}
+
+.chrono-topbar .topbar-signout-btn__icon {
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px !important;
+  background: linear-gradient(145deg, #e8edf8 0%, #dce6f7 100%);
+  color: var(--color-rlx-green);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  transition:
+    background 0.25s ease,
+    color 0.2s ease,
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.chrono-topbar .topbar-signout-btn__label {
+  padding-right: 0.35rem;
+  white-space: nowrap;
+}
+
+.chrono-topbar .topbar-signout-btn__shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 65%
+  );
+  transform: translateX(-120%);
+  transition: transform 0.55s ease;
+  pointer-events: none;
+}
+
+.chrono-topbar .topbar-signout-btn:hover:not(:disabled) {
+  border-color: rgba(16, 37, 112, 0.55);
+  background: linear-gradient(135deg, #102570 0%, #1b3a8f 58%, #243f6e 100%);
+  color: #ffffff;
+  box-shadow:
+    0 6px 18px rgba(16, 37, 112, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+.chrono-topbar .topbar-signout-btn:hover:not(:disabled) .topbar-signout-btn__icon {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.08) 100%);
+  color: #f5e9b8;
+  box-shadow:
+    0 0 0 1px rgba(201, 162, 39, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateX(-1px);
+}
+
+.chrono-topbar .topbar-signout-btn:hover:not(:disabled) .topbar-signout-btn__shine {
+  transform: translateX(120%);
+}
+
+.chrono-topbar .topbar-signout-btn:focus-visible {
+  outline: 2px solid var(--color-rlx-gold);
+  outline-offset: 2px;
+}
+
+.chrono-topbar .topbar-signout-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(16, 37, 112, 0.2);
+}
+
+.chrono-topbar .topbar-signout-btn:disabled {
+  cursor: wait;
+  opacity: 0.85;
+}
+
+@media (min-width: 640px) {
+  .chrono-topbar .topbar-signout-btn {
+    padding: 0.4rem 0.85rem 0.4rem 0.4rem;
+  }
+}
+

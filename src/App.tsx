@@ -83,6 +83,12 @@ import { SrfPhotoCapturePage } from "./pages/public/SrfPhotoCapturePage";
 import { SrfBillingHandoverCapturePage } from "./pages/public/SrfBillingHandoverCapturePage";
 import { QuickBillCapturePage } from "./pages/public/QuickBillCapturePage";
 import { SrfTrackingPage } from "./pages/public/SrfTrackingPage";
+import { ReportsModulePage } from "./pages/reports/ReportsModulePage";
+import { StockInHandReportPage } from "./pages/reports/StockInHandReportPage";
+import { WatchNotReturnedReportPage } from "./pages/reports/WatchNotReturnedReportPage";
+import { AgingReportPage } from "./pages/reports/AgingReportPage";
+import { PendingReportPage } from "./pages/reports/PendingReportPage";
+import { TransferReportPage } from "./pages/reports/TransferReportPage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
   const { search } = useLocation();
@@ -128,6 +134,54 @@ export default function App() {
                 />
                 <Route path="/accounts/analytics" element={<Navigate to="/analytics" replace />} />
                 <Route path="/accounts/reports" element={<Navigate to="/accounts/reports/revenue" replace />} />
+                <Route
+                  path="/reports"
+                  element={
+                    <ModuleRoute module="reports">
+                      <ReportsModulePage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/reports/stock-in-hand"
+                  element={
+                    <ModuleRoute module="reports">
+                      <StockInHandReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/reports/watch-not-returned"
+                  element={
+                    <ModuleRoute module="reports">
+                      <WatchNotReturnedReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/reports/aging"
+                  element={
+                    <ModuleRoute module="reports">
+                      <AgingReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/reports/pending"
+                  element={
+                    <ModuleRoute module="reports">
+                      <PendingReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/reports/transfer"
+                  element={
+                    <ModuleRoute module="reports">
+                      <TransferReportPage />
+                    </ModuleRoute>
+                  }
+                />
                 <Route
                   path="/accounts/reports/revenue"
                   element={
@@ -327,6 +381,12 @@ export default function App() {
                     <ModuleRoute module="service">
                       <WatchInventoryPage />
                     </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/reports"
+                  element={
+                    <Navigate to="/reports" replace />
                   }
                 />
                 <Route

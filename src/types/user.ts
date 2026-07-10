@@ -15,6 +15,7 @@ export type UserRole =
 export type ModuleKey =
   | "dashboard"
   | "service"
+  | "reports"
   | "accounts"
   | "analytics"
   | "regions"

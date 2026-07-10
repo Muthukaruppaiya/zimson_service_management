@@ -29,7 +29,7 @@ export function DashboardRecentLookups() {
   }, [refresh]);
 
   return (
-    <section className="overflow-hidden rounded-lg border border-[#e5e8ef] bg-white">
+    <section className="dashboard-panel overflow-hidden border border-[#e5e8ef] bg-white">
       <div className="border-b border-[#e5e8ef] px-3 py-2.5 md:px-4">
         <h2 className="text-sm font-bold text-[#111827]">Recent Universal Lookups</h2>
       </div>

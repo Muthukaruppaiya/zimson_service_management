@@ -1,5 +1,6 @@
 import type { QuickBillEdocInfo } from "../../types/quickBill";
 import { resolveEinvoiceDocumentUrl } from "../../lib/einvoicePortal";
+import { IconGstEinvoice, IconSpinner } from "./invoicePreviewIcons";
 
 type Props = {
   edoc: QuickBillEdocInfo | null | undefined;
@@ -9,6 +10,7 @@ type Props = {
   actionBtnClass: string;
   onGenerate?: () => void;
   generating?: boolean;
+  iconOnly?: boolean;
 };
 
 export function QuickBillEinvoiceStatus({ edoc, storedIrn }: Pick<Props, "edoc" | "storedIrn">) {
@@ -66,6 +68,7 @@ export function QuickBillEinvoiceActions({
   actionBtnClass,
   onGenerate,
   generating,
+  iconOnly = false,
 }: Props) {
   const irn = (edoc?.irn ?? storedIrn)?.trim() || null;
   const docUrl = resolveEinvoiceDocumentUrl({ pdfUrl: edoc?.pdfUrl ?? storedPdfUrl });
@@ -81,13 +84,28 @@ export function QuickBillEinvoiceActions({
           target="_blank"
           rel="noopener noreferrer"
           className={`${actionBtnClass} no-underline`}
+          aria-label="Open e-invoice"
+          title="Open e-invoice"
         >
-          Open e-invoice
+          {iconOnly ? <IconGstEinvoice /> : "Open e-invoice"}
         </a>
       ) : null}
       {canGenerate ? (
-        <button type="button" className={actionBtnClass} disabled={generating} onClick={onGenerate}>
-          {generating ? "Generating e-invoice…" : "Generate e-invoice"}
+        <button
+          type="button"
+          className={actionBtnClass}
+          disabled={generating}
+          onClick={onGenerate}
+          aria-label="Generate e-invoice"
+          title={generating ? "Generating e-invoice…" : "Generate e-invoice"}
+        >
+          {generating ? (
+            iconOnly ? <IconSpinner /> : "Generating e-invoice…"
+          ) : iconOnly ? (
+            <IconGstEinvoice />
+          ) : (
+            "Generate e-invoice"
+          )}
         </button>
       ) : null}
     </>

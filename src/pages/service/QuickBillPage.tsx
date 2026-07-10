@@ -36,9 +36,12 @@ import {
 } from "../../lib/paymentModes";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
 import {
-  QuickBillEinvoiceActions,
   QuickBillEinvoiceStatus,
 } from "../../components/service/QuickBillEinvoicePanel";
+import {
+  QuickBillSuccessIconActions,
+  QuickBillSuccessIconActionsDemo,
+} from "../../components/service/QuickBillSuccessIconActions";
 import { CustomerLinkQr } from "../../components/service/CustomerLinkQr";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import {
@@ -214,12 +217,6 @@ const qbPairRow = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start"
 const qbField = "min-w-0";
 
 const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
-
-const qbSuccessBtnBase =
-  "inline-flex w-full min-w-0 items-center justify-center rounded-xl px-4 py-2.5 text-center text-sm font-semibold shadow-sm transition sm:w-auto";
-const qbSuccessBtnPrimary = `${qbSuccessBtnBase} bg-zimson-600 text-white hover:bg-zimson-700`;
-const qbSuccessBtnSecondary = `${qbSuccessBtnBase} border border-zimson-400 bg-white text-zimson-900 hover:bg-zimson-50`;
-const qbSuccessBtnOutline = `${qbSuccessBtnBase} border border-stone-300 bg-white text-stone-800 hover:bg-stone-50`;
 
 function QuickBillInvoicePanel({
   viewModel,
@@ -1742,43 +1739,25 @@ export function QuickBillPage() {
           description={`Invoice ${inv.billNumber} · ${totalFmt}`}
           onBackdropClick={() => setBillSuccessModalOpen(false)}
           actions={
-            <>
-              <button type="button" className={qbSuccessBtnPrimary} onClick={() => printServiceInvoice()}>
-                Print invoice
-              </button>
-              <button
-                type="button"
-                className={qbSuccessBtnSecondary}
-                disabled={emailSending || whatsappSending}
-                onClick={() => void handleSendInvoiceEmail(inv)}
-              >
-                {emailSending ? "Sending email…" : "Send invoice by email"}
-              </button>
-              <button
-                type="button"
-                className={qbSuccessBtnSecondary}
-                disabled={whatsappSending || emailSending}
-                onClick={() => void handleSendInvoiceWhatsApp(inv)}
-              >
-                {whatsappSending ? "Sending on WhatsApp…" : "Send invoice on WhatsApp"}
-              </button>
-              {inv.customerType === "B2B" ? (
-                <QuickBillEinvoiceActions
-                  edoc={edoc}
-                  storedIrn={inv.edocIrn}
-                  storedPdfUrl={inv.edocPdfUrl}
-                  actionBtnClass={qbSuccessBtnSecondary}
-                  generating={edocRetryBusy}
-                  onGenerate={() => void retrySuccessEinvoice(inv.id)}
-                />
-              ) : null}
-              <Link to="/service" className={`${qbSuccessBtnOutline} no-underline`}>
-                Home
-              </Link>
-              <button type="button" className={qbSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
-                View invoice below
-              </button>
-            </>
+            <QuickBillSuccessIconActions
+              invoice={inv}
+              edoc={edoc}
+              customerName={
+                inv.customerType === "B2B"
+                  ? inv.company ?? inv.customerName ?? "Customer"
+                  : inv.customerName ?? "Customer"
+              }
+              email={inv.email ?? ""}
+              phone={inv.phone ?? ""}
+              invoiceNumber={inv.invoiceNumber || inv.billNumber}
+              totalInr={inv.totalInr}
+              onPrint={() => printServiceInvoice()}
+              onViewBelow={() => setBillSuccessModalOpen(false)}
+              onPostActionNote={setBillPostActionNote}
+              edocRetryBusy={edocRetryBusy}
+              onRetryEinvoice={inv.customerType === "B2B" ? () => void retrySuccessEinvoice(inv.id) : undefined}
+              showEinvoice={inv.customerType === "B2B"}
+            />
           }
         >
           {inv.customerType === "B2B" ? (
@@ -1862,46 +1841,32 @@ export function QuickBillPage() {
           description={`Reference ${completion.ref} · ${demoTotalFmt}`}
           onBackdropClick={() => setBillSuccessModalOpen(false)}
           actions={
-            <>
-              <button type="button" className={qbSuccessBtnPrimary} onClick={() => printServiceInvoice()}>
-                Print invoice
-              </button>
-              <button
-                type="button"
-                className={qbSuccessBtnSecondary}
-                disabled={
-                  emailSending || !apiMode || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
-                }
-                onClick={() => {
-                  void runEmailSend(async () => {
-                    try {
-                      await sendInvoiceEmail({
-                        email: email.trim(),
-                        customerName: customerName.trim() || "Customer",
-                        invoiceNumber: completion.ref,
-                        totalInr: payableTotal,
-                      });
-                      const msg = "Invoice sent by email successfully.";
-                      setBillPostActionNote(msg);
-                      return { ok: true, message: msg };
-                    } catch (e) {
-                      const msg =
-                        e instanceof Error ? e.message : "Could not send invoice by email.";
-                      setBillPostActionNote(msg);
-                      return { ok: false, message: msg };
-                    }
-                  });
-                }}
-              >
-                {emailSending ? "Sending email…" : "Send invoice by email"}
-              </button>
-              <Link to="/service" className={`${qbSuccessBtnOutline} no-underline`}>
-                Home
-              </Link>
-              <button type="button" className={qbSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
-                View invoice below
-              </button>
-            </>
+            <QuickBillSuccessIconActionsDemo
+              onPrint={() => printServiceInvoice()}
+              onViewBelow={() => setBillSuccessModalOpen(false)}
+              emailSending={emailSending}
+              emailDisabled={!apiMode || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())}
+              onSendEmail={() => {
+                void runEmailSend(async () => {
+                  try {
+                    await sendInvoiceEmail({
+                      email: email.trim(),
+                      customerName: customerName.trim() || "Customer",
+                      invoiceNumber: completion.ref,
+                      totalInr: payableTotal,
+                    });
+                    const msg = "Invoice sent by email successfully.";
+                    setBillPostActionNote(msg);
+                    return { ok: true, message: msg };
+                  } catch (e) {
+                    const msg =
+                      e instanceof Error ? e.message : "Could not send invoice by email.";
+                    setBillPostActionNote(msg);
+                    return { ok: false, message: msg };
+                  }
+                });
+              }}
+            />
           }
         >
           {billPostActionNote ? (

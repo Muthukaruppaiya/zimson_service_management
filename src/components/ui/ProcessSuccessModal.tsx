@@ -45,7 +45,7 @@ export function ProcessSuccessModal({ open, title, description, children, action
         </div>
 
         {/* actions */}
-        <div className="flex flex-col gap-2 border-t border-rlx-rule bg-rlx-bg px-6 py-4 sm:flex-row sm:flex-wrap sm:justify-end">
+        <div className="flex flex-col gap-2 border-t border-rlx-rule bg-rlx-bg px-6 py-4">
           {actions}
         </div>
       </div>

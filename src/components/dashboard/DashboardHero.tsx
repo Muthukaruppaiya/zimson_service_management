@@ -1,20 +1,13 @@
 import type { SessionUser } from "../../types/user";
-import { roleDashboardLabel } from "../../lib/dashboardActionCardStyles";
-import { waitingActionItems, type DashboardActionItem } from "../../lib/dashboardActionItems";
 
 type Props = {
   user: SessionUser | null;
-  actionItems: DashboardActionItem[];
 };
 
-function scopeLabel(user: SessionUser | null): string {
-  if (!user) return "Dashboard";
-  if (user.role === "super_admin" || user.role === "admin") return "All Regions";
-  if (user.role === "store_user" || user.role === "store_manager" || user.role === "store_accounts") {
-    return "Your store";
-  }
-  if (user.regionId) return "Your region";
-  return roleDashboardLabel(user.role);
+function welcomeName(user: SessionUser | null): string {
+  const raw = user?.displayName?.trim().split(/\s+/)[0];
+  if (!raw) return "there";
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 }
 
 function WatchHeroWatermark() {
@@ -60,23 +53,11 @@ function WatchHeroWatermark() {
   );
 }
 
-export function DashboardHero({ user, actionItems }: Props) {
-  const firstName = (user?.displayName?.split(" ")[0] ?? "there").toUpperCase();
-  const waiting = waitingActionItems(actionItems);
-  const statusMessage =
-    waiting.length > 0
-      ? `${waiting.reduce((s, i) => s + i.count, 0)} items need your attention`
-      : "System is up-to-date and performing well";
-
+export function DashboardHero({ user }: Props) {
   return (
     <section id="cs-welcome" className="dashboard-hero">
       <WatchHeroWatermark />
-      <h1 className="dashboard-hero-title">Welcome, {firstName}!</h1>
-      <p className="dashboard-hero-sub">
-        Overview: {scopeLabel(user)}
-        <span className="mx-2 opacity-40">|</span>
-        {statusMessage}
-      </p>
+      <h1 className="dashboard-hero-title">Welcome, {welcomeName(user)}!</h1>
     </section>
   );
 }

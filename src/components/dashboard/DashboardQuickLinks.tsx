@@ -63,7 +63,7 @@ export function DashboardQuickLinks() {
   if (available.length === 0) return null;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-[#e8ebf0] bg-white shadow-[0_2px_10px_rgba(16,37,112,0.05)]">
+    <section className="dashboard-quick-links-panel overflow-hidden border border-[#e8ebf0] bg-white shadow-[0_4px_14px_rgba(16,37,112,0.07)]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e8ebf0] bg-white px-3 py-2.5 md:px-4">
         <h2 className="text-sm font-bold text-[#1B3A8F]">Daily Actions &amp; Quick Create</h2>
         <button

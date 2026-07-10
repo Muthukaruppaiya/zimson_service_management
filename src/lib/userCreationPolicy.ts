@@ -5,6 +5,7 @@ import type { ModuleKey, UserRole } from "../types/user";
 export const ALL_MODULE_KEYS: ModuleKey[] = [
   "dashboard",
   "service",
+  "reports",
   "accounts",
   "analytics",
   "inventory",
@@ -28,6 +29,7 @@ export function isStoreRole(role: UserRole): boolean {
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   dashboard: "Dashboard",
   service: "Service (store)",
+  reports: "Reports",
   accounts: "Accounts",
   analytics: "BI analytics",
   inventory: "Inventory",

@@ -20,13 +20,39 @@ import type { ChartSlice } from "../../../lib/analyticsApi";
 import { formatInr } from "../../../lib/analyticsApi";
 
 const COLORS = ["#1e3a5f", "#2d5a87", "#4a7ab0", "#6b9bc9", "#8fb8d9", "#b8935e", "#c9a66b", "#7d6b5a", "#3d6b4f", "#5a8f6e"];
+const ACTIVE_COLOR = "#b8935e";
 
-function ChartCard({ title, subtitle, children, tall }: { title: string; subtitle?: string; children: ReactNode; tall?: boolean }) {
+type DrillProps = {
+  drillable?: boolean;
+  activeSliceName?: string;
+  onSliceClick?: (slice: ChartSlice) => void;
+};
+
+function ChartCard({
+  title,
+  subtitle,
+  children,
+  tall,
+  drillable,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+  tall?: boolean;
+  drillable?: boolean;
+}) {
   return (
-    <div className="rounded-2xl border border-zimson-200 bg-white p-4 shadow-sm">
-      <div className="mb-3">
-        <h3 className="text-sm font-semibold text-zimson-900">{title}</h3>
-        {subtitle ? <p className="text-xs text-stone-500">{subtitle}</p> : null}
+    <div className={`bi-chart-card rounded-2xl border border-zimson-200 bg-white p-4 shadow-sm ${drillable ? "bi-chart-card--drillable" : ""}`}>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-zimson-900">{title}</h3>
+          {subtitle ? <p className="text-xs text-stone-500">{subtitle}</p> : null}
+        </div>
+        {drillable ? (
+          <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+            Click to drill
+          </span>
+        ) : null}
       </div>
       <div className={tall ? "h-80" : "h-64"}>{children}</div>
     </div>
@@ -37,16 +63,28 @@ function EmptyChart() {
   return <div className="flex h-full items-center justify-center text-sm text-stone-500">No data in selected period</div>;
 }
 
-export function AnalyticsPieChart({ title, data, subtitle }: { title: string; data: ChartSlice[]; subtitle?: string }) {
+function barFill(name: string, activeSliceName?: string) {
+  if (activeSliceName && name === activeSliceName) return ACTIVE_COLOR;
+  return "#2d5a87";
+}
+
+export function AnalyticsPieChart({
+  title,
+  data,
+  subtitle,
+  drillable,
+  activeSliceName,
+  onSliceClick,
+}: { title: string; data: ChartSlice[]; subtitle?: string } & DrillProps) {
   if (data.length === 0) {
     return (
-      <ChartCard title={title} subtitle={subtitle}>
+      <ChartCard title={title} subtitle={subtitle} drillable={drillable}>
         <EmptyChart />
       </ChartCard>
     );
   }
   return (
-    <ChartCard title={title} subtitle={subtitle}>
+    <ChartCard title={title} subtitle={subtitle} drillable={drillable}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -57,9 +95,24 @@ export function AnalyticsPieChart({ title, data, subtitle }: { title: string; da
             cy="50%"
             outerRadius={88}
             label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+            className={drillable ? "cursor-pointer" : undefined}
+            onClick={
+              drillable && onSliceClick
+                ? (_, index) => {
+                    const slice = data[index];
+                    if (slice) onSliceClick(slice);
+                  }
+                : undefined
+            }
           >
-            {data.map((_, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+            {data.map((row, i) => (
+              <Cell
+                key={i}
+                fill={activeSliceName === row.name ? ACTIVE_COLOR : COLORS[i % COLORS.length]}
+                stroke={activeSliceName === row.name ? "#1e3a5f" : undefined}
+                strokeWidth={activeSliceName === row.name ? 2 : 0}
+                className={drillable ? "cursor-pointer transition-opacity hover:opacity-80" : undefined}
+              />
             ))}
           </Pie>
           <Tooltip formatter={(v: number) => formatInr(v)} />
@@ -77,6 +130,9 @@ export function AnalyticsBarChart({
   valueFormatter = formatInr,
   horizontal = true,
   tall,
+  drillable,
+  activeSliceName,
+  onSliceClick,
 }: {
   title: string;
   data: ChartSlice[];
@@ -84,23 +140,38 @@ export function AnalyticsBarChart({
   horizontal?: boolean;
   tall?: boolean;
   valueFormatter?: (n: number) => string;
-}) {
+} & DrillProps) {
   if (data.length === 0) {
     return (
-      <ChartCard title={title} subtitle={subtitle}>
+      <ChartCard title={title} subtitle={subtitle} drillable={drillable}>
         <EmptyChart />
       </ChartCard>
     );
   }
+
+  const handleBarClick = (payload: { name?: string; value?: number }) => {
+    if (!drillable || !onSliceClick || !payload.name) return;
+    onSliceClick({ name: payload.name, value: payload.value ?? 0 });
+  };
+
   return (
-    <ChartCard title={title} subtitle={subtitle} tall={tall ?? data.length > 8}>
+    <ChartCard title={title} subtitle={subtitle} tall={tall ?? data.length > 8} drillable={drillable}>
       <ResponsiveContainer width="100%" height="100%">
         {horizontal ? (
           <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
             <XAxis type="number" tickFormatter={(v) => (valueFormatter === formatInr ? `₹${(v / 1000).toFixed(0)}k` : String(v))} />
             <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10 }} />
             <Tooltip formatter={(v: number) => valueFormatter(v)} />
-            <Bar dataKey="value" fill="#2d5a87" radius={[0, 4, 4, 0]} />
+            <Bar
+              dataKey="value"
+              radius={[0, 4, 4, 0]}
+              className={drillable ? "cursor-pointer" : undefined}
+              onClick={(bar) => handleBarClick(bar as { name?: string; value?: number })}
+            >
+              {data.map((row, i) => (
+                <Cell key={row.name} fill={barFill(row.name, activeSliceName)} className={drillable ? "hover:opacity-80" : undefined} />
+              ))}
+            </Bar>
           </BarChart>
         ) : (
           <BarChart data={data} margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
@@ -108,7 +179,16 @@ export function AnalyticsBarChart({
             <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={56} />
             <YAxis tickFormatter={(v) => (valueFormatter === formatInr ? `₹${(v / 1000).toFixed(0)}k` : String(v))} />
             <Tooltip formatter={(v: number) => valueFormatter(v)} />
-            <Bar dataKey="value" fill="#2d5a87" radius={[4, 4, 0, 0]} />
+            <Bar
+              dataKey="value"
+              radius={[4, 4, 0, 0]}
+              className={drillable ? "cursor-pointer" : undefined}
+              onClick={(bar) => handleBarClick(bar as { name?: string; value?: number })}
+            >
+              {data.map((row, i) => (
+                <Cell key={row.name} fill={barFill(row.name, activeSliceName)} className={drillable ? "hover:opacity-80" : undefined} />
+              ))}
+            </Bar>
           </BarChart>
         )}
       </ResponsiveContainer>

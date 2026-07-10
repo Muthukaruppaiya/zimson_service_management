@@ -8,6 +8,13 @@ import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } fro
 import { mainNav } from "../../navigation";
 import type { AppNotification } from "../../types/notification";
 import { GlobalSearch } from "../dashboard/GlobalSearch";
+import {
+  TopBarBellIcon,
+  TopBarLogoutIcon,
+  TopBarLogoutSpinner,
+  TopBarMenuIcon,
+  userInitials,
+} from "./topBarIcons";
 
 function roleLabel(role: string) {
   const map: Record<string, string> = {
@@ -26,32 +33,6 @@ function roleLabel(role: string) {
   return map[role] ?? role;
 }
 
-function MenuIcon() {
-  return (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-    </svg>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-    </svg>
-  );
-}
-
-function WatchAvatarIcon() {
-  return (
-    <svg className="h-4 w-4 text-[#1B3A8F]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <circle cx="12" cy="12" r="7" />
-      <path d="M12 12V9M12 12l3 2" strokeLinecap="round" />
-      <path d="M9 5h6l1 2H8l1-2z" />
-    </svg>
-  );
-}
-
 export function TopBar() {
   const { user, logout } = useAuth();
   const { toggleNav } = useNavLayout();
@@ -59,6 +40,7 @@ export function TopBar() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [logoUrl, setLogoUrl] = useState(getAppLogoUrl());
+  const [signingOut, setSigningOut] = useState(false);
 
   const items = useMemo(() => {
     if (!user) return [];
@@ -66,8 +48,14 @@ export function TopBar() {
   }, [user]);
 
   async function handleLogout() {
-    await logout();
-    navigate("/login", { replace: true });
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   async function loadNotifications() {
@@ -106,19 +94,20 @@ export function TopBar() {
   }, []);
 
   const unread = notifications.filter((n) => !n.isRead).length;
+  const initials = user ? userInitials(user.displayName) : "U";
 
   return (
-    <header className="print:hidden sticky top-0 z-20 shrink-0 border-b border-rlx-rule bg-white">
-      <div className="h-[2.5px] w-full" style={{ background: "linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F)" }} />
+    <header className="chrono-topbar print:hidden sticky top-0 z-20 shrink-0 border-b border-rlx-rule bg-white/95 backdrop-blur-md">
+      <div className="topbar-gold-stripe h-[3px] w-full" />
 
-      <div className="flex h-[52px] items-center gap-3 px-4 md:gap-4 md:px-6">
+      <div className="flex h-[56px] items-center gap-3 px-4 md:gap-4 md:px-6">
         <button
           type="button"
           onClick={toggleNav}
           aria-label="Open navigation menu"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-rlx-rule bg-white text-rlx-ink transition hover:border-rlx-green hover:text-rlx-green"
+          className="topbar-icon-btn flex h-10 w-10 shrink-0 items-center justify-center text-rlx-ink transition"
         >
-          <MenuIcon />
+          <TopBarMenuIcon />
         </button>
 
         <div className="flex min-w-0 shrink-0 items-center gap-2.5">
@@ -128,7 +117,7 @@ export function TopBar() {
             onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = DEFAULT_APP_LOGO_URL; }}
             className="h-8 w-auto max-w-[120px] object-contain md:h-7 md:max-w-[100px]"
           />
-          <span className="hidden text-[13px] font-medium text-[#9CA3AF] lg:inline">| Service Portal</span>
+          <span className="hidden text-[13px] font-medium text-rlx-ink-muted lg:inline">| Service Portal</span>
         </div>
 
         <div className="hidden min-w-0 flex-1 md:block md:max-w-2xl md:px-2 lg:px-6">
@@ -142,9 +131,9 @@ export function TopBar() {
               to={item.to}
               end={item.to === "/"}
               className={({ isActive }) =>
-                `whitespace-nowrap rounded px-3 py-1.5 text-xs font-semibold transition ${
+                `whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                   isActive
-                    ? "bg-rlx-green text-white"
+                    ? "bg-rlx-green text-white shadow-sm"
                     : "border border-rlx-rule bg-white text-rlx-ink hover:border-rlx-green hover:text-rlx-green"
                 }`
               }
@@ -155,43 +144,51 @@ export function TopBar() {
         </nav>
 
         {user ? (
-          <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
+          <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-2.5">
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setNotifOpen((v) => !v)}
-                className="relative flex h-9 w-9 items-center justify-center rounded border border-rlx-rule bg-white text-rlx-ink-muted transition hover:border-rlx-green hover:text-rlx-green"
+                aria-label={unread > 0 ? `${unread} unread notifications` : "Notifications"}
+                aria-expanded={notifOpen}
+                className={`topbar-icon-btn relative flex h-10 w-10 items-center justify-center text-rlx-ink transition ${
+                  notifOpen ? "topbar-icon-btn--active" : ""
+                }`}
               >
-                <BellIcon />
+                <TopBarBellIcon />
                 {unread > 0 ? (
-                  <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" />
+                  <span className="topbar-notif-badge absolute -right-0.5 -top-0.5 flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none text-white">
+                    {unread > 9 ? "9+" : unread}
+                  </span>
                 ) : null}
               </button>
 
               {notifOpen ? (
-                <div className="absolute right-0 z-30 mt-2 w-[360px] border border-rlx-rule bg-white shadow-lg">
-                  <div className="flex items-center justify-between border-b border-rlx-rule bg-rlx-green px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white">Notifications</p>
+                <div className="topbar-notif-panel absolute right-0 z-30 mt-2 w-[min(360px,calc(100vw-2rem))] overflow-hidden border border-rlx-rule bg-white">
+                  <div className="topbar-notif-panel__header flex items-center justify-between border-b border-rlx-rule bg-gradient-to-r from-rlx-green-deep to-rlx-green px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white">Notifications</p>
                     <button
                       type="button"
                       onClick={() => void markAllRead()}
-                      className="text-[13px] font-semibold text-rlx-gold transition hover:text-white"
+                      className="topbar-notif-panel__mark-read px-3 py-1 text-[12px] font-semibold text-rlx-gold-light transition hover:bg-white/10 hover:text-white"
                     >
                       Mark all read
                     </button>
                   </div>
-                  <div className="max-h-72 overflow-auto">
+                  <div className="topbar-notif-panel__body max-h-72 overflow-auto">
                     {notifications.length === 0 ? (
-                      <p className="px-4 py-6 text-center text-xs text-rlx-ink-muted">No notifications yet.</p>
+                      <p className="px-4 py-8 text-center text-sm text-rlx-ink-muted">No notifications yet.</p>
                     ) : (
                       notifications.map((n) => (
                         <div
                           key={n.id}
-                          className={`border-b border-rlx-rule px-4 py-3 ${n.isRead ? "bg-white" : "bg-rlx-green-light"}`}
+                          className={`border-b border-rlx-rule px-4 py-3 transition hover:bg-rlx-green-light/40 ${
+                            n.isRead ? "bg-white" : "bg-rlx-green-light/70"
+                          }`}
                         >
-                          <p className="text-xs font-semibold text-rlx-ink">{n.title}</p>
-                          <p className="mt-0.5 text-xs text-rlx-ink-muted">{n.message}</p>
-                          <p className="mt-1 text-[12px] text-rlx-ink-muted/70">{new Date(n.createdAt).toLocaleString()}</p>
+                          <p className="text-sm font-semibold text-rlx-ink">{n.title}</p>
+                          <p className="mt-0.5 text-xs leading-relaxed text-rlx-ink-muted">{n.message}</p>
+                          <p className="mt-1.5 text-[11px] text-rlx-ink-muted/80">{new Date(n.createdAt).toLocaleString()}</p>
                         </div>
                       ))
                     )}
@@ -200,26 +197,32 @@ export function TopBar() {
               ) : null}
             </div>
 
-            <div className="hidden items-center gap-2 sm:flex">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#C9A227] shadow-sm">
-                <WatchAvatarIcon />
+            <div className="topbar-user-chip hidden items-center gap-2.5 sm:flex">
+              <span className="topbar-avatar-ring flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-[2px]">
+                <span className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-[#f5e9b8] via-[#e8c96a] to-[#c9a227] text-sm font-bold text-rlx-green-deep shadow-inner">
+                  {initials}
+                </span>
               </span>
-              <div className="hidden flex-col text-right leading-tight md:flex">
-                <span className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#111827]">
-                  {roleLabel(user.role)}
-                </span>
-                <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#9CA3AF]">
-                  {user.displayName}
-                </span>
+              <div className="hidden min-w-0 max-w-[140px] flex-col text-left leading-tight lg:flex">
+                <span className="truncate text-sm font-semibold text-rlx-ink">{roleLabel(user.role)}</span>
+                <span className="truncate text-xs font-medium text-rlx-ink-muted">{user.displayName}</span>
               </div>
             </div>
 
             <button
               type="button"
-              onClick={handleLogout}
-              className="rounded border border-[#d1d5db] bg-white px-3 py-1.5 text-[12px] font-bold uppercase tracking-[0.1em] text-[#111827] transition hover:border-[#1B3A8F] hover:text-[#1B3A8F] md:px-4"
+              onClick={() => void handleLogout()}
+              disabled={signingOut}
+              aria-label="Sign out"
+              className="topbar-signout-btn group"
             >
-              Sign out
+              <span className="topbar-signout-btn__icon" aria-hidden>
+                {signingOut ? <TopBarLogoutSpinner /> : <TopBarLogoutIcon className="h-[17px] w-[17px]" />}
+              </span>
+              <span className="topbar-signout-btn__label hidden sm:inline">
+                {signingOut ? "Signing out…" : "Sign out"}
+              </span>
+              <span className="topbar-signout-btn__shine" aria-hidden />
             </button>
           </div>
         ) : null}

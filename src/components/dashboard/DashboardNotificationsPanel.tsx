@@ -10,7 +10,7 @@ export function DashboardNotificationsPanel() {
   const { notifications, unreadCount, loading, markAllRead } = useAppNotifications();
 
   return (
-    <section className="overflow-hidden rounded-lg border border-[#e5e8ef] bg-white" aria-label="Notifications">
+    <section className="dashboard-panel overflow-hidden border border-[#e5e8ef] bg-white" aria-label="Notifications">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e5e8ef] px-3 py-2.5 md:px-4">
         <h2 className="text-sm font-bold text-[#111827]">System Notifications</h2>
         {unreadCount > 0 ? (

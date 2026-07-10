@@ -17,7 +17,7 @@ export function DashboardPage() {
 
   return (
     <div className="chrono-dashboard cs-dashboard-container -m-2 md:-m-4">
-      <DashboardHero user={user} actionItems={actionItems} />
+      <DashboardHero user={user} />
 
       <section className="cs-kpi-grid grid">
         {actionItems.map((item) => (

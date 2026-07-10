@@ -50,7 +50,7 @@ function NavIcon({ name, className = "" }: { name: IconName; className?: string 
   }
 }
 
-type ModuleKey = "dashboard" | "service" | "accounts" | "analytics" | "inventory" | "regions" | "users" | "settings" | "service_centre";
+type ModuleKey = "dashboard" | "service" | "reports" | "accounts" | "analytics" | "inventory" | "regions" | "users" | "settings" | "service_centre";
 
 type SidebarItem = {
   to: string;
@@ -151,6 +151,11 @@ export function Sidebar() {
           { to: "/accounts/reports/summary-sale", label: "Summary sale", module: "accounts" },
           { to: "/accounts/reports/hsn-purchase", label: "HSN purchase", module: "accounts" },
           { to: "/accounts/reports/sr-returned", label: "SR returned", module: "accounts" },
+          { to: "/reports/stock-in-hand", label: "Stock in hand", module: "reports" },
+          { to: "/reports/watch-not-returned", label: "Watch not returned", module: "reports" },
+          { to: "/reports/aging", label: "Aging", module: "reports" },
+          { to: "/reports/pending", label: "Pending", module: "reports" },
+          { to: "/reports/transfer", label: "Transfer", module: "reports" },
         ],
       },
       {
