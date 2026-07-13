@@ -12,11 +12,13 @@ type Props = {
 };
 
 function kpiSubtext(item: DashboardActionItem): string {
-  if (item.id === "open-srf") return "Active SRF pipeline";
-  if (item.id.includes("approval") || item.id.includes("customer")) return "OTP / Link flow";
-  if (item.id === "at-ho") return "In Repair / Bench";
-  if (item.id.includes("handover")) return "OTP at store";
-  if (item.id.includes("assign") || item.id === "tech-queue") return "In Repair / Bench";
+  if (item.id === "open-srf") return "Pipeline watches";
+  if (item.id.includes("approval") || item.id === "customer-approval") return "Customer OTP / link";
+  if (item.id === "at-ho") return "HO repair bench";
+  if (item.id.includes("handover")) return "Store handover";
+  if (item.id === "store-dispatch") return "Awaiting HO dispatch";
+  if (item.id === "store-odc-inward" || item.id === "sc-dc-inward") return "Transfer document";
+  if (item.id.includes("assign") || item.id === "tech-queue") return "Technician bench";
   if (item.sublabel) return item.sublabel;
   const hint = item.hint;
   if (hint.length <= 40) return hint;

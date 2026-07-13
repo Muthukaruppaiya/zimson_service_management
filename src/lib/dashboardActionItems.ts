@@ -55,7 +55,7 @@ function buildServiceCentreLogisticsItems(jobs: SrfJob[], user: SessionUser): Da
   return [
     {
       id: "sc-dc-inward",
-      label: "DC / TD pending inward",
+      label: "Transfer Inward",
       count: inward.documents,
       sublabel:
         inward.watches > 0
@@ -68,7 +68,7 @@ function buildServiceCentreLogisticsItems(jobs: SrfJob[], user: SessionUser): Da
     },
     {
       id: "sc-odc-outward",
-      label: "ODC outward queue",
+      label: "Store Return Queue",
       count: readyOutward.length,
       sublabel: readyOutward.length > 0 ? "Repaired — ready to dispatch to store" : undefined,
       hint: "Create ODC and send watches back to booking store",
@@ -78,7 +78,7 @@ function buildServiceCentreLogisticsItems(jobs: SrfJob[], user: SessionUser): Da
     },
     {
       id: "sc-brand-dispatch",
-      label: "Brand dispatch pending",
+      label: "Brand Outward",
       count: brandPending.length,
       hint: "Post outward DC to brand workshop",
       to: "/service-centre/logistics?tab=outward",
@@ -102,7 +102,7 @@ function buildSupervisorItems(jobs: SrfJob[], user: SessionUser): DashboardActio
   return [
     {
       id: "sc-assign",
-      label: "Received — assign technician",
+      label: "Assign Technician",
       count: received.length,
       hint: "Watches inwarded at HO awaiting assignment",
       to: "/service-centre/supervisor",
@@ -111,7 +111,7 @@ function buildSupervisorItems(jobs: SrfJob[], user: SessionUser): DashboardActio
     },
     {
       id: "sc-odc-outward",
-      label: "ODC outward queue",
+      label: "Store Return Queue",
       count: readyOutward.length,
       hint: "Repaired watches ready for store dispatch",
       to: "/service-centre/logistics?tab=outward",
@@ -120,7 +120,7 @@ function buildSupervisorItems(jobs: SrfJob[], user: SessionUser): DashboardActio
     },
     {
       id: "sc-brand-dispatch",
-      label: "Brand dispatch pending",
+      label: "Brand Outward",
       count: brandPending.length,
       hint: "Clerk must post brand outward DC",
       to: "/service-centre/logistics?tab=outward",
@@ -148,7 +148,7 @@ function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem
   return [
     {
       id: "store-odc-inward",
-      label: "TD / ODC pending inward",
+      label: "Return Inward",
       count: inward.documents,
       sublabel:
         inward.watches > 0
@@ -161,7 +161,7 @@ function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem
     },
     {
       id: "store-dispatch",
-      label: "Dispatch to HO",
+      label: "Send to Workshop",
       count: atStore.length,
       hint: "Watches at store ready to send for repair",
       to: "/service/store-dispatch",
@@ -170,7 +170,7 @@ function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem
     },
     {
       id: "store-handover",
-      label: "Ready for handover",
+      label: "Pickup Queue",
       count: handover.length,
       hint: "Customer pickup and billing",
       to: "/service/store-billing",
@@ -179,7 +179,7 @@ function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem
     },
     {
       id: "store-approval",
-      label: "Awaiting customer approval",
+      label: "Sign-off Pending",
       count: approval.length,
       hint: "Estimate / re-estimate OTP pending",
       to: "/service/store-assign",
@@ -201,7 +201,7 @@ function buildTechnicianItems(jobs: SrfJob[], user: SessionUser): DashboardActio
   return [
     {
       id: "tech-queue",
-      label: "My repair queue",
+      label: "My Workbench",
       count: queue.length,
       hint: "Assigned SRFs on your workbench",
       to: "/service-centre/technician",
@@ -216,36 +216,36 @@ function buildOverviewItems(jobs: SrfJob[], user: SessionUser): DashboardActionI
   return [
     {
       id: "open-srf",
-      label: "Open Service Requests",
+      label: "SRFs In Progress",
       count: stats.openServiceRequests,
-      hint: "Active SRF pipeline",
+      hint: "Watches moving through pipeline",
       to: "/service/srf-register",
       urgent: false,
       accent: "border-l-amber-400",
     },
     {
       id: "customer-approval",
-      label: "Awaiting Customer Approval",
+      label: "Sign-off Pending",
       count: stats.awaitingCustomerApproval,
-      hint: "OTP / Link flow",
+      hint: "Estimate OTP or link awaiting customer",
       to: "/service/store-assign",
       urgent: false,
       accent: "border-l-violet-400",
     },
     {
       id: "at-ho",
-      label: "At Head Office Workshop",
+      label: "Workshop Queue",
       count: stats.atHeadOffice,
-      hint: "In Repair / Bench",
+      hint: "On HO repair bench",
       to: "/service/watch-inventory",
       urgent: false,
       accent: "border-l-sky-400",
     },
     {
       id: "handover",
-      label: "Ready for Handover",
+      label: "Pickup Queue",
       count: stats.readyForHandover,
-      hint: "OTP at store",
+      hint: "Ready for customer handover",
       to: "/service/store-billing",
       urgent: stats.readyForHandover > 0,
       accent: "border-l-emerald-400",

@@ -29,6 +29,30 @@ type TechnicianProfile = {
   isActive: boolean;
 };
 
+function TechnicianIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.7 6.3a4 4 0 10-4.9 4.9L4 17v3h3l5.8-5.8a4 4 0 004.9-4.9l-2.6 2.6-2-2 2.6-2.6z" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+function AssignCheckIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75l2.25 2.25 6-6.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
 type SpareLineDraft = { spareId: string; qty: string };
 
 function isStoreSelfWorking(job: SrfJob): boolean {
@@ -465,29 +489,40 @@ export function StoreAssignPage() {
           <div className="space-y-3">
             {pending.map((job) => (
               <JobRow key={job.id} job={job} statusLabel={statusDisplay(job.status)}>
-                <label className="block text-xs font-semibold text-stone-700">
-                  Technician
-                  <select
-                    className="mt-1 w-full max-w-xs rounded-xl border border-zimson-200 px-3 py-2 text-sm"
-                    value={techByJob[job.id] ?? ""}
-                    onChange={(e) => setTechByJob((m) => ({ ...m, [job.id]: e.target.value }))}
-                  >
-                    <option value="">Select…</option>
-                    {technicians.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.fullName} ({t.grade})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  disabled={busyId === job.id}
-                  onClick={() => void assign(job)}
-                  className="mt-2 rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  Assign repair
-                </button>
+                <div className="rounded-xl border border-zimson-100 bg-zimson-50/50 p-3 sm:p-3.5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+                    <label className="block flex-1">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-zimson-800">
+                        <TechnicianIcon />
+                        Technician
+                      </span>
+                      <div className="relative">
+                        <select
+                          className="w-full appearance-none rounded-xl border border-zimson-200 bg-white px-3.5 py-2.5 pr-9 text-sm font-medium text-stone-800 shadow-sm transition focus:border-zimson-500 focus:outline-none focus:ring-2 focus:ring-zimson-400/30 sm:max-w-xs"
+                          value={techByJob[job.id] ?? ""}
+                          onChange={(e) => setTechByJob((m) => ({ ...m, [job.id]: e.target.value }))}
+                        >
+                          <option value="">Select technician…</option>
+                          {technicians.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.fullName} ({t.grade})
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+                      </div>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={busyId === job.id}
+                      onClick={() => void assign(job)}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-zimson-500 to-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-zimson-600 hover:to-zimson-700 hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:shrink-0"
+                    >
+                      <AssignCheckIcon />
+                      {busyId === job.id ? "Assigning…" : "Assign repair"}
+                    </button>
+                  </div>
+                </div>
               </JobRow>
             ))}
           </div>
@@ -1052,21 +1087,21 @@ function JobRow({
   statusLabel?: string;
 }) {
   return (
-    <div className="rounded-xl border border-zimson-100 bg-white p-4 text-sm shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="font-mono font-semibold text-zimson-900">{job.reference}</p>
-          <p className="text-stone-700">
-            {job.customerName} · {job.watchBrand} {job.watchModel}
+    <div className="group rounded-2xl border border-zimson-100 bg-white p-4 text-sm shadow-sm transition hover:border-zimson-200 hover:shadow-md sm:p-4.5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-mono text-[13px] font-bold tracking-wide text-zimson-800">{job.reference}</p>
+          <p className="mt-0.5 font-medium text-stone-800">
+            {job.customerName} <span className="text-stone-400">·</span> {job.watchBrand} {job.watchModel}
           </p>
-          <p className="text-xs text-stone-500">{repairRouteLabel(job.repairRoute)}</p>
+          <p className="mt-0.5 text-xs text-stone-500">{repairRouteLabel(job.repairRoute)}</p>
           {extra}
         </div>
-        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-900">
+        <span className="shrink-0 whitespace-nowrap rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-800 ring-1 ring-inset ring-sky-200">
           {statusLabel ?? job.status.replace(/_/g, " ")}
         </span>
       </div>
-      <div className="mt-3 border-t border-stone-100 pt-3">{children}</div>
+      <div className="mt-3.5 border-t border-stone-100 pt-3.5">{children}</div>
     </div>
   );
 }

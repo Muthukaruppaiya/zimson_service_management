@@ -214,12 +214,32 @@ function bookingCenterBlock(store?: SrfPrintStoreInfo): string {
   const phone = store?.phone?.trim() || "—";
   const email = store?.email?.trim() || "—";
   const gstin = store?.gstin?.trim() || "—";
-  return `<div class="srf-center-lines">
-    <span class="srf-center-name">${escHtml(name)}</span>${tagline ? ` <span class="srf-center-tag">${escHtml(tagline)}</span>` : ""}<br/>
-    ${escHtml(address).replace(/\n/g, "<br/>")}<br/>
-    <strong>Ph:</strong> ${escHtml(phone)} &nbsp; <strong>Email:</strong> ${escHtml(email)} &nbsp; <strong>GSTIN:</strong> ${escHtml(gstin)}
-  </div>`;
+  return `<div class="row">${srfIcon(SRF_ICONS.pin)}<span><span class="srf-center-name">${escHtml(name)}</span>${tagline ? ` <span class="srf-center-tag">${escHtml(tagline)}</span>` : ""}<br/>${escHtml(address).replace(/\n/g, "<br/>")}</span></div>
+  <div class="row">${srfIcon(SRF_ICONS.phone)}<strong>${escHtml(phone)}</strong>&nbsp;&nbsp;&nbsp;${srfIcon(SRF_ICONS.mail)}${escHtml(email)}&nbsp;&nbsp;&nbsp;${srfIcon(SRF_ICONS.globe)}<strong>GSTIN:</strong>&nbsp;${escHtml(gstin)}</div>`;
 }
+
+function srfIcon(inner: string, size = 12): string {
+  return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+}
+
+const SRF_ICONS = {
+  fileEntry: `<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8"/>`,
+  calendar: `<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>`,
+  person: `<circle cx="12" cy="7" r="4"/><path d="M4 21v-1a8 8 0 0116 0v1"/>`,
+  phone: `<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0122 16.92z"/>`,
+  pin: `<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1118 0z"/><circle cx="12" cy="10" r="3"/>`,
+  mail: `<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/>`,
+  globe: `<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/>`,
+  box: `<path d="M21 8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/>`,
+  clipboard: `<path d="M9 5h6a2 2 0 012 2v12a2 2 0 01-2 2H9a2 2 0 01-2-2V7a2 2 0 012-2z"/><path d="M9 3h6v4H9z"/><path d="M9 12h6M9 16h6"/>`,
+  wrench: `<path d="M14.7 6.3a4 4 0 10-4.9 4.9L4 17v3h3l5.8-5.8a4 4 0 004.9-4.9l-2.6 2.6-2-2 2.6-2.6z"/>`,
+  wallet: `<path d="M21 12V8a2 2 0 00-2-2H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2v-2"/><path d="M16 12h5v3h-5a1.5 1.5 0 010-3z"/>`,
+  rupee: `<path d="M6 4h11M6 9h11M8 4c3 0 5 1.6 5 3.5S11 11 8 11h-2l7 7"/>`,
+  check: `<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>`,
+  comment: `<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>`,
+  hash: `<path d="M5 9h14M5 15h14M11 4L9 20M15 4l-2 16"/>`,
+  clipboardCheck: `<path d="M9 5h6a2 2 0 012 2v12a2 2 0 01-2 2H9a2 2 0 01-2-2V7a2 2 0 012-2z"/><path d="M9 3h6v4H9z"/><path d="M9 13l2 2 4-4"/>`,
+};
 
 function buildRepairLines(repairs?: SrfSuggestedRepairs): string[] {
   if (!repairs) return [];
@@ -263,13 +283,13 @@ function srfField(label: string, value: string): string {
   return `<div class="field"><span class="field-lbl">${escHtml(label)}</span><span class="field-val">${escHtml(value)}</span></div>`;
 }
 
-function srfRemarksCompact(label: string, value: string): string {
+function srfRemarksCompact(label: string, value: string, icon?: string): string {
   const v = value.trim() || "-";
   const short = v.length > 220 ? `${v.slice(0, 217)}…` : v;
-  return `<div class="remark-chip"><span class="remark-chip-lbl">${escHtml(label)}</span><span class="remark-chip-val">${escHtml(short)}</span></div>`;
+  return `<div class="remark-chip"><span class="remark-chip-lbl">${srfIcon(icon ?? SRF_ICONS.comment)}${escHtml(label)}</span><span class="remark-chip-val">${escHtml(short)}</span></div>`;
 }
 
-/** Invoice-aligned palette — full A4 sheet (210 × 297 mm). */
+/** Invoice-aligned palette — full A4 sheet (210 × 297 mm), premium card layout. */
 const SRF_PRINT_CSS = `
   @page { size: A4 portrait; margin: 8mm; }
   * { box-sizing: border-box; }
@@ -283,55 +303,81 @@ const SRF_PRINT_CSS = `
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  svg.ic { flex-shrink: 0; }
   .doc {
     width: 210mm;
     min-height: 297mm;
     margin: 0 auto;
-    border: 2px solid #1b3a8f;
+    border: 1px solid #d8dff0;
+    border-radius: 14px;
+    overflow: hidden;
     background: #fff;
+    box-shadow: 0 10px 32px rgba(13, 27, 42, 0.1);
     page-break-inside: avoid;
     break-inside: avoid;
   }
   .srf-banner {
+    position: relative;
     display: table;
     width: 100%;
     table-layout: fixed;
-    background: #1b3a8f;
+    background: linear-gradient(120deg, #0c1c56 0%, #1b3a8f 55%, #15308c 100%);
     color: #fff;
+    overflow: hidden;
+  }
+  .srf-banner::after {
+    content: "";
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 130px;
+    background: linear-gradient(135deg, rgba(201,162,39,0) 45%, rgba(201,162,39,0.9) 100%);
+    pointer-events: none;
   }
   .srf-banner-title {
+    position: relative;
+    z-index: 1;
     display: table-cell;
     vertical-align: middle;
-    padding: 10px 14px;
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
+    padding: 13px 16px;
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
   }
   .srf-banner-sub {
+    position: relative;
+    z-index: 1;
     display: table-cell;
     vertical-align: middle;
-    padding: 10px 14px;
-    font-size: 10px;
+    padding: 13px 18px;
+    font-size: 9.5px;
+    line-height: 1.55;
     text-align: right;
+    color: #dbe4fb;
   }
-  .srf-accent { height: 4px; background: linear-gradient(90deg, #c9a227 0%, #e8d48a 50%, #c9a227 100%); }
+  .srf-accent { height: 4px; background: linear-gradient(90deg, #c9a227 0%, #f1de9c 50%, #c9a227 100%); }
   .srf-top-row {
-    display: table;
-    width: 100%;
-    border-bottom: 1px solid #1b3a8f;
+    display: grid;
+    grid-template-columns: 1.55fr 1fr 1fr;
+    gap: 10px;
+    padding: 12px;
+    background: #f6f8fd;
+    border-bottom: 1px solid #e2e8f5;
   }
-  .srf-top-cell {
-    display: table-cell;
-    vertical-align: top;
-    padding: 10px 12px;
-    border-right: 1px solid #d8dff0;
-    width: 33.33%;
+  .srf-card {
+    border: 1px solid #e2e8f5;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(27, 58, 143, 0.07);
+    padding: 9px 12px;
   }
-  .srf-top-cell:last-child { border-right: none; }
-  .srf-barcode-wrap { text-align: center; vertical-align: middle; }
+  .srf-meta-card { display: flex; flex-direction: column; gap: 5px; justify-content: center; }
+  .srf-meta-line { display: flex; align-items: flex-start; gap: 6px; font-size: 9.5px; color: #0d1b2a; }
+  .srf-meta-line .ic { color: #1b3a8f; margin-top: 1px; }
+  .srf-meta-line strong { color: #64748b; font-weight: 600; margin-right: 2px; }
+  .srf-barcode-wrap, .srf-logo-wrap { display: flex; align-items: center; justify-content: center; }
   .doc-barcode-stack { text-align: center; }
-  .doc-barcode-img { max-width: 100%; height: 52px; width: auto; object-fit: contain; display: block; margin: 0 auto; }
+  .doc-barcode-img { max-width: 100%; height: 48px; width: auto; object-fit: contain; display: block; margin: 0 auto; }
   .doc-barcode-label {
     margin: 5px 0 0;
     padding: 0;
@@ -342,69 +388,65 @@ const SRF_PRINT_CSS = `
     color: #0d1b2a;
     line-height: 1.2;
   }
-  .srf-logo-wrap { text-align: right; vertical-align: middle; }
   .srf-logo {
-    height: 56px;
-    max-width: 180px;
+    height: 50px;
+    max-width: 170px;
     object-fit: contain;
     display: inline-block;
+    vertical-align: middle;
   }
-  .srf-meta-box {
-    border: 1px solid #1b3a8f;
-    background: #f4f6fb;
-    padding: 6px 8px;
-    font-size: 9.5px;
-  }
-  .srf-meta-box div { margin-bottom: 3px; }
-  .srf-meta-box strong { color: #1b3a8f; }
-  .srf-center {
-    padding: 8px 12px;
-    border-bottom: 1px solid #d8dff0;
-    background: #fafbfd;
-    font-size: 9.5px;
-    line-height: 1.4;
-  }
-  .srf-center-head {
+  .srf-center { padding: 0 12px 12px; }
+  .sec-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: linear-gradient(90deg, #15308c, #1b3a8f);
+    color: #fff;
     font-size: 10px;
     font-weight: 700;
-    color: #1b3a8f;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 4px;
+    letter-spacing: 0.07em;
+    padding: 6px 14px;
+    border-radius: 8px;
+    margin: 12px 0 8px;
+    box-shadow: 0 2px 6px rgba(27, 58, 143, 0.25);
   }
+  .sec-pill .ic { color: #e8c14e; }
+  .srf-center-body {
+    border: 1px solid #e2e8f5;
+    border-radius: 12px;
+    background: #fafbfe;
+    padding: 9px 12px;
+    font-size: 9.5px;
+    line-height: 1.55;
+  }
+  .srf-center-body .row { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 3px; }
+  .srf-center-body .row:last-child { margin-bottom: 0; }
+  .srf-center-body .ic { color: #1b3a8f; margin-top: 1px; }
   .srf-center-name { font-weight: 700; color: #0d1b2a; }
   .srf-center-tag { font-weight: 600; color: #c9a227; }
-  .srf-body { padding: 0 12px 12px; }
-  .sec-title {
-    background: #e8edf8;
-    color: #1b3a8f;
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 5px 10px;
-    margin: 8px 0 4px;
-    border: 1px solid #1b3a8f;
-    border-bottom-width: 2px;
-  }
-  .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 18px; }
+  .srf-body { padding: 0 12px 14px; }
+  .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 20px; margin-bottom: 4px; }
   .field { display: flex; gap: 6px; margin-bottom: 3px; align-items: baseline; font-size: 9.5px; }
-  .field-lbl { font-weight: 600; color: #4a5568; min-width: 118px; flex-shrink: 0; }
-  .field-val { font-weight: 600; color: #0d1b2a; flex: 1; }
-  .remarks-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 4px 0 6px; }
+  .field-lbl { font-weight: 600; color: #64748b; min-width: 118px; flex-shrink: 0; }
+  .field-val { font-weight: 700; color: #0d1b2a; flex: 1; }
+  .remarks-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 6px 0 8px; }
   .remark-chip {
-    border: 1px solid #d8dff0;
-    background: #f4f6fb;
-    padding: 5px 7px;
-    min-height: 36px;
+    border: 1px solid #e2e8f5;
+    border-radius: 10px;
+    background: #fafbfe;
+    padding: 7px 9px;
+    min-height: 40px;
   }
-  .remark-chip-lbl { display: block; font-weight: 700; color: #1b3a8f; font-size: 8px; text-transform: uppercase; margin-bottom: 2px; }
-  .remark-chip-val { display: block; font-size: 9px; line-height: 1.3; white-space: pre-wrap; }
+  .remark-chip-lbl { display: flex; align-items: center; gap: 4px; font-weight: 700; color: #1b3a8f; font-size: 8px; text-transform: uppercase; margin-bottom: 3px; }
+  .remark-chip-lbl .ic { color: #c9a227; }
+  .remark-chip-val { display: block; font-size: 9px; line-height: 1.35; white-space: pre-wrap; color: #1f2937; }
   .repair-chip {
     border: 1px dashed #c9a227;
+    border-radius: 10px;
     background: #fffdf5;
-    padding: 5px 8px;
-    margin-bottom: 6px;
+    padding: 6px 9px;
+    margin-bottom: 8px;
     font-size: 9px;
     line-height: 1.35;
   }
@@ -412,67 +454,110 @@ const SRF_PRINT_CSS = `
   .amounts {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    margin-bottom: 6px;
+    gap: 8px;
+    margin-bottom: 8px;
   }
   .amount-card {
-    border: 1px solid #1b3a8f;
-    background: linear-gradient(180deg, #f4f6fb 0%, #fff 100%);
-    padding: 6px 8px;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #e2e8f5;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(27, 58, 143, 0.06);
+    padding: 8px 10px;
   }
-  .amount-card-lbl { font-size: 8px; font-weight: 600; color: #4a5568; text-transform: uppercase; display: block; }
-  .amount-card-val { font-size: 11px; font-weight: 700; color: #1b3a8f; display: block; margin-top: 2px; }
-  .advance-note { font-size: 9px; color: #4a5568; margin: 0 0 6px; padding: 4px 8px; background: #f4f6fb; border-left: 3px solid #c9a227; }
+  .amount-ic {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+  }
+  .amount-ic svg { color: #fff; }
+  .amount-ic.blue { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
+  .amount-ic.green { background: linear-gradient(135deg, #22c55e, #15803d); }
+  .amount-ic.orange { background: linear-gradient(135deg, #f97316, #c2410c); }
+  .amount-ic.gold { background: linear-gradient(135deg, #e8c14e, #c9a227); }
+  .amount-card-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .amount-card-lbl { font-size: 7.3px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; }
+  .amount-card-val { font-size: 11.5px; font-weight: 800; color: #1b3a8f; }
+  .advance-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 9px;
+    color: #14532d;
+    margin: 0 0 8px;
+    padding: 6px 10px;
+    background: #ecfdf3;
+    border: 1px solid #bbf0cf;
+    border-radius: 8px;
+  }
+  .advance-note .ic { color: #16a34a; }
   .tech-strip {
     display: flex;
     flex-wrap: wrap;
     gap: 6px 14px;
     font-size: 9px;
-    padding: 4px 0 6px;
+    padding: 2px 0 8px;
     color: #4a5568;
   }
   .tech-strip b { color: #1b3a8f; }
-  .spares-table { width: 100%; border-collapse: collapse; font-size: 9px; }
+  .spares-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 9px; border: 1px solid #1b3a8f; border-radius: 10px; overflow: hidden; }
   .spares-table th {
-    background: #1b3a8f;
-    color: #c9a227;
+    background: linear-gradient(90deg, #15308c, #1b3a8f);
+    color: #e8c14e;
     font-weight: 700;
     text-align: center;
-    padding: 4px 5px;
-    border: 1px solid #1b3a8f;
+    padding: 5px 5px;
     font-size: 8px;
     text-transform: uppercase;
+    border-right: 1px solid rgba(255, 255, 255, 0.14);
   }
+  .spares-table th:last-child { border-right: none; }
   .spares-table td {
-    border: 1px solid #d8dff0;
+    border-right: 1px solid #e2e8f5;
+    border-top: 1px solid #e2e8f5;
     padding: 3px 5px;
     height: 16px;
     vertical-align: middle;
   }
+  .spares-table td:last-child { border-right: none; }
   .spares-table td.c { text-align: center; width: 22px; background: #f4f6fb; font-weight: 600; }
   .spares-table tfoot td {
     font-weight: 700;
-    background: #e8edf8;
+    background: #eef1fa;
     color: #1b3a8f;
-    padding: 3px 5px;
-    border: 1px solid #1b3a8f;
+    padding: 4px 5px;
+    border-top: 1px solid #1b3a8f;
+    border-right: 1px solid #d8dff0;
+  }
+  .spares-table tfoot tr:last-child td {
+    background: linear-gradient(90deg, #f1de9c, #c9a227);
+    color: #16308a;
+    font-size: 10px;
+    border-right: none;
   }
   .sign-row {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin-top: 8px;
-    padding-top: 6px;
-    border-top: 1px solid #1b3a8f;
+    gap: 10px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f5;
   }
-  .sign-lbl { font-size: 8px; font-weight: 700; color: #1b3a8f; text-transform: uppercase; margin-bottom: 14px; }
-  .sign-line { border-bottom: 1px solid #1b3a8f; }
-  .sign-wide { grid-column: 1 / -1; margin-top: 2px; }
+  .sign-lbl { display: flex; align-items: center; gap: 4px; font-size: 8px; font-weight: 700; color: #1b3a8f; text-transform: uppercase; margin-bottom: 16px; }
+  .sign-lbl .ic { color: #c9a227; }
+  .sign-line { border-bottom: 1px solid #c7d2e8; }
+  .sign-wide { grid-column: 1 / -1; margin-top: 4px; }
   .sign-wide .sign-line { min-height: 18px; }
   @media print {
     body { background: #fff; }
-    .doc { width: 100%; min-height: auto; margin: 0; }
+    .doc { width: 100%; min-height: auto; margin: 0; box-shadow: none; }
   }
   @media screen {
     body { padding: 12px 0; }
@@ -505,12 +590,8 @@ export function printSrfDocument(job: SrfPrintInput): void {
   const bookingCenter = bookingCenterBlock(job.storeInfo);
   const logoHtml = srfLogoImgHtml();
   const baseHref = typeof window !== "undefined" ? window.location.origin : "";
-  const advanceNote =
-    advance > 0
-      ? `<div class="advance-note">${formatAdvanceForPrint(job.advanceInr, job.advancePaymentMode, job.advancePaymentDetails ?? null)}</div>`
-      : "";
   const companyLine = job.company?.trim()
-    ? `<div><strong>Company:</strong> ${escHtml(job.company.trim())}</div>`
+    ? `<div class="srf-meta-line">${srfIcon(SRF_ICONS.box)}<strong>Company:</strong> ${escHtml(job.company.trim())}</div>`
     : "";
 
   const html = `<!doctype html>
@@ -531,26 +612,26 @@ export function printSrfDocument(job: SrfPrintInput): void {
     <div class="srf-accent" aria-hidden="true"></div>
 
     <div class="srf-top-row">
-      <div class="srf-top-cell">
-        <div class="srf-meta-box">
-          <div><strong>Service Entry No:</strong> ${escHtml(job.reference)}</div>
-          <div><strong>Booking Date:</strong> ${escHtml(bookingDate)}</div>
-          <div><strong>Customer:</strong> ${escHtml(job.customerName)}</div>
-          <div><strong>Mobile:</strong> ${escHtml(job.phone)}</div>
-          ${companyLine}
-        </div>
+      <div class="srf-card srf-meta-card">
+        <div class="srf-meta-line">${srfIcon(SRF_ICONS.fileEntry)}<strong>Service Entry No:</strong> ${escHtml(job.reference)}</div>
+        <div class="srf-meta-line">${srfIcon(SRF_ICONS.calendar)}<strong>Booking Date:</strong> ${escHtml(bookingDate)}</div>
+        <div class="srf-meta-line">${srfIcon(SRF_ICONS.person)}<strong>Customer:</strong> ${escHtml(job.customerName)}</div>
+        <div class="srf-meta-line">${srfIcon(SRF_ICONS.phone)}<strong>Mobile:</strong> ${escHtml(job.phone)}</div>
+        ${companyLine}
       </div>
-      <div class="srf-top-cell srf-barcode-wrap">${barcode}</div>
-      <div class="srf-top-cell srf-logo-wrap">${logoHtml}</div>
+      <div class="srf-card srf-barcode-wrap">${barcode}</div>
+      <div class="srf-card srf-logo-wrap">${logoHtml}</div>
     </div>
 
     <div class="srf-center">
-      <div class="srf-center-head">Booking Center</div>
-      ${bookingCenter}
+      <div class="sec-pill">${srfIcon(SRF_ICONS.box, 13)}Booking Center</div>
+      <div class="srf-center-body">
+        ${bookingCenter}
+      </div>
     </div>
 
     <div class="srf-body">
-      <div class="sec-title">Product Information</div>
+      <div class="sec-pill">${srfIcon(SRF_ICONS.box, 13)}Product Information</div>
       <div class="cols-2">
         <div>
           ${srfField("Brand / Model No", modelNo)}
@@ -575,21 +656,21 @@ export function printSrfDocument(job: SrfPrintInput): void {
       </div>
       ${repairBlock}
       <div class="remarks-row">
-        ${srfRemarksCompact("Customer Remarks", job.customerRemarks?.trim() || job.complaint || "-")}
-        ${srfRemarksCompact("Receptionist Remarks", job.receptionistRemarks?.trim() || "-")}
-        ${srfRemarksCompact("Comments", comments)}
+        ${srfRemarksCompact("Customer Remarks", job.customerRemarks?.trim() || job.complaint || "-", SRF_ICONS.comment)}
+        ${srfRemarksCompact("Receptionist Remarks", job.receptionistRemarks?.trim() || "-", SRF_ICONS.person)}
+        ${srfRemarksCompact("Comments", comments, SRF_ICONS.clipboard)}
       </div>
 
-      <div class="sec-title">Service Information</div>
+      <div class="sec-pill">${srfIcon(SRF_ICONS.clipboard, 13)}Service Information</div>
       <div class="amounts">
-        <div class="amount-card"><span class="amount-card-lbl">Estd. Delivery</span><span class="amount-card-val">${escHtml(estdDelivery)}</span></div>
-        <div class="amount-card"><span class="amount-card-lbl">Advance Paid (INR)</span><span class="amount-card-val">${advance.toFixed(2)}</span></div>
-        <div class="amount-card"><span class="amount-card-lbl">Est. Service Cost</span><span class="amount-card-val">${estimate.toFixed(2)}</span></div>
-        <div class="amount-card"><span class="amount-card-lbl">Balance (Excl. Tax)</span><span class="amount-card-val">${balance.toFixed(2)}</span></div>
+        <div class="amount-card"><span class="amount-ic blue">${srfIcon(SRF_ICONS.calendar, 13)}</span><span class="amount-card-txt"><span class="amount-card-lbl">Estd. Delivery</span><span class="amount-card-val">${escHtml(estdDelivery)}</span></span></div>
+        <div class="amount-card"><span class="amount-ic green">${srfIcon(SRF_ICONS.wallet, 13)}</span><span class="amount-card-txt"><span class="amount-card-lbl">Advance Paid (INR)</span><span class="amount-card-val">₹${advance.toFixed(2)}</span></span></div>
+        <div class="amount-card"><span class="amount-ic orange">${srfIcon(SRF_ICONS.wrench, 13)}</span><span class="amount-card-txt"><span class="amount-card-lbl">Est. Service Cost</span><span class="amount-card-val">₹${estimate.toFixed(2)}</span></span></div>
+        <div class="amount-card"><span class="amount-ic gold">${srfIcon(SRF_ICONS.rupee, 13)}</span><span class="amount-card-txt"><span class="amount-card-lbl">Balance (Excl. Tax)</span><span class="amount-card-val">₹${balance.toFixed(2)}</span></span></div>
       </div>
-      ${advanceNote}
+      ${advance > 0 ? `<div class="advance-note">${srfIcon(SRF_ICONS.check, 13)}${formatAdvanceForPrint(job.advanceInr, job.advancePaymentMode, job.advancePaymentDetails ?? null)}</div>` : ""}
 
-      <div class="sec-title">Technician Entry — Spares</div>
+      <div class="sec-pill">${srfIcon(SRF_ICONS.wrench, 13)}Technician Entry — Spares</div>
       <div class="tech-strip">
         <span><b>SAF No:</b> ${escHtml(job.reference)}</span>
         <span><b>Brand:</b> ${escHtml(srfDisplay(job.watchBrand))}</span>
@@ -619,11 +700,11 @@ export function printSrfDocument(job: SrfPrintInput): void {
       </table>
 
       <div class="sign-row">
-        <div><div class="sign-lbl">Mechanics Name</div><div class="sign-line"></div></div>
-        <div><div class="sign-lbl">Code</div><div class="sign-line"></div></div>
-        <div><div class="sign-lbl">Serviced Date</div><div class="sign-line"></div></div>
-        <div><div class="sign-lbl">Inspected By</div><div class="sign-line"></div></div>
-        <div class="sign-wide"><div class="sign-lbl">Remarks</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">${srfIcon(SRF_ICONS.person, 11)}Mechanics Name</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">${srfIcon(SRF_ICONS.hash, 11)}Code</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">${srfIcon(SRF_ICONS.calendar, 11)}Serviced Date</div><div class="sign-line"></div></div>
+        <div><div class="sign-lbl">${srfIcon(SRF_ICONS.clipboardCheck, 11)}Inspected By</div><div class="sign-line"></div></div>
+        <div class="sign-wide"><div class="sign-lbl">${srfIcon(SRF_ICONS.comment, 11)}Remarks</div><div class="sign-line"></div></div>
       </div>
     </div>
   </div>

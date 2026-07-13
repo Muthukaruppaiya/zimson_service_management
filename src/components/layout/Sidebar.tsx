@@ -277,34 +277,36 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`print:hidden fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh w-64 shrink-0 flex-col overflow-hidden shadow-2xl transition-transform duration-200 ease-out ${
+      className={`chrono-sidebar print:hidden fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh w-72 shrink-0 flex-col overflow-hidden transition-transform duration-200 ease-out ${
         navOpen ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none"
       }`}
-      style={{ background: "linear-gradient(180deg, #1B3A8F 0%, #102570 100%)" }}
+      style={{ background: "linear-gradient(165deg, #16307d 0%, #102570 45%, #0a1a4d 100%)" }}
       aria-hidden={!navOpen}
     >
 
       {/* subtle texture overlay */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.03]"
+      <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.035]"
         style={{ backgroundImage: "repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 0, transparent 50%)", backgroundSize: "8px 8px" }} />
 
+      {/* ambient gold glow */}
+      <div aria-hidden className="sidebar-glow-orb" />
+
       {/* ── Logo header ─────────────────────────────── */}
-      {/* gold top bar */}
-      <div className="h-[3px] w-full shrink-0" style={{ background: "linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F)" }} />
-      <div className="relative flex h-[60px] shrink-0 items-center justify-center border-b border-white/10 px-4">
+      <div className="sidebar-gold-stripe h-[3px] w-full shrink-0" />
+      <div className="relative flex h-[72px] shrink-0 items-center justify-center px-4">
+        <div className="sidebar-logo-halo" aria-hidden />
         <img
           src={logoUrl}
           alt="Zimson"
           onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = DEFAULT_APP_LOGO_URL; }}
-          className="h-9 w-auto max-w-[160px] object-contain"
-          style={{ filter: "brightness(1.08) saturate(1.05)" }}
+          className="relative z-10 h-10 w-auto max-w-[170px] object-contain"
+          style={{ filter: "brightness(1.08) saturate(1.05) drop-shadow(0 2px 10px rgba(0,0,0,0.35))" }}
         />
-        {/* gold accent bottom */}
-        <div className="absolute bottom-0 left-6 right-6 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(201,162,39,0.4), transparent)" }} />
+        <div className="sidebar-header-divider absolute bottom-0 left-6 right-6 h-px" />
       </div>
 
       {/* ── Navigation ──────────────────────────────── */}
-      <nav className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-4" aria-label="Main">
+      <nav className="sidebar-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-4" aria-label="Main">
 
         {/* Dashboard */}
         <NavLink
@@ -312,33 +314,34 @@ export function Sidebar() {
           end
           onClick={closeNav}
           className={({ isActive }) =>
-            `group flex items-center gap-2.5 px-2.5 py-2 text-[13px] font-semibold transition-all duration-150 ${
-              isActive
-                ? "bg-white/15 text-white"
-                : "text-white/70 hover:bg-white/8 hover:text-white"
+            `sidebar-nav-btn group relative flex items-center gap-3 px-3 py-2.5 text-[13.5px] font-semibold transition-all duration-200 ${
+              isActive ? "sidebar-nav-btn--active text-white" : "text-white/72 hover:text-white"
             }`
           }
         >
           {({ isActive }) => (
             <>
-              {isActive && <span className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-sm bg-rlx-gold" />}
-              <span className={`flex h-7 w-7 items-center justify-center rounded ${isActive ? "bg-white/20 text-white" : "text-white/60 group-hover:text-white"}`}>
+              {isActive && <span className="sidebar-active-bar" />}
+              <span className={`sidebar-icon-badge flex h-8 w-8 shrink-0 items-center justify-center ${isActive ? "sidebar-icon-badge--active" : ""}`}>
                 <NavIcon name="dashboard" />
               </span>
-              <span>Dashboard</span>
+              <span className="tracking-[0.01em]">Dashboard</span>
             </>
           )}
         </NavLink>
 
         {/* Section label */}
-        <div className="mx-3 my-3 flex items-center gap-2">
-          <div className="h-px flex-1 bg-white/12" />
-          <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/40">Modules</span>
-          <div className="h-px flex-1 bg-white/12" />
+        <div className="mx-2 my-4 flex items-center gap-2.5">
+          <div className="sidebar-divider-line h-px flex-1" />
+          <span className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.28em] text-rlx-gold/80">
+            <NavIcon name="sparkle" className="h-3 w-3 text-rlx-gold/70" />
+            Modules
+          </span>
+          <div className="sidebar-divider-line h-px flex-1" />
         </div>
 
         {/* Sections */}
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           {sections.map((section) => {
             const isOpen = openSection === section.title;
             const hasActiveChild = section.items.some((i) => matchItem(i.to, location.pathname, location.search));
@@ -348,32 +351,28 @@ export function Sidebar() {
                 <button
                   type="button"
                   onClick={() => setOpenSection((prev) => prev === section.title ? null : section.title)}
-                  className={`group relative flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-[13px] font-semibold transition-all duration-150 ${
-                    isOpen || hasActiveChild
-                      ? "bg-white/15 text-white"
-                      : "text-white/70 hover:bg-white/8 hover:text-white"
+                  className={`sidebar-nav-btn group relative flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[13.5px] font-semibold transition-all duration-200 ${
+                    isOpen || hasActiveChild ? "sidebar-nav-btn--active text-white" : "text-white/72 hover:text-white"
                   }`}
                 >
-                  {hasActiveChild && (
-                    <span className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-sm bg-rlx-gold" />
-                  )}
+                  {(isOpen || hasActiveChild) && <span className="sidebar-active-bar" />}
                   <span className="flex items-center gap-3">
-                    <span className={`flex h-7 w-7 items-center justify-center rounded ${
-                      isOpen || hasActiveChild ? "bg-rlx-gold/20 text-rlx-gold" : "text-white/60 group-hover:text-white"
+                    <span className={`sidebar-icon-badge flex h-8 w-8 shrink-0 items-center justify-center ${
+                      isOpen || hasActiveChild ? "sidebar-icon-badge--active" : ""
                     }`}>
                       <NavIcon name={section.icon} />
                     </span>
-                    <span>{section.title}</span>
+                    <span className="tracking-[0.01em]">{section.title}</span>
                   </span>
-                  <span className={`text-white/40 transition-transform duration-200 ${isOpen ? "rotate-90 text-rlx-gold" : ""}`}>
+                  <span className={`flex h-5 w-5 items-center justify-center text-white/35 transition-transform duration-200 ${isOpen ? "sidebar-chevron--open" : ""}`}>
                     <NavIcon name="chevron" className="h-3 w-3" />
                   </span>
                 </button>
 
                 {/* Sub-items */}
-                <div className={`grid transition-all duration-200 ease-out ${isOpen ? "mt-0.5 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+                <div className={`grid transition-all duration-200 ease-out ${isOpen ? "mt-1 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
                   <div className="overflow-hidden">
-                    <div className="ml-5 border-l border-white/12 pl-3 pb-1 pt-0.5 space-y-0.5">
+                    <div className="sidebar-subitem-rail ml-[19px] pb-1.5 pl-4 pt-1 space-y-0.5">
                       {section.items.map((item) => {
                         const active = matchItem(item.to, location.pathname, location.search);
                         return (
@@ -382,12 +381,11 @@ export function Sidebar() {
                             to={item.to}
                             end={item.to === "/service/srf" || item.to === "/service/quick-bill" || item.to === "/service/billing"}
                             onClick={closeNav}
-                            className={`relative block px-3 py-1.5 text-[14px] font-medium transition-all duration-150 ${
-                              active
-                                ? "bg-white/15 text-white font-semibold before:absolute before:-left-3 before:top-1/2 before:h-1.5 before:w-1.5 before:-translate-y-1/2 before:rounded-full before:bg-rlx-gold before:content-['']"
-                                : "text-white/60 hover:bg-white/8 hover:text-white/90"
+                            className={`sidebar-subitem relative block px-3 py-1.5 text-[13.5px] font-medium transition-all duration-150 ${
+                              active ? "sidebar-subitem--active text-white font-semibold" : "text-white/58 hover:text-white/95"
                             }`}
                           >
+                            {active && <span className="sidebar-subitem-dot" aria-hidden />}
                             {sidebarItemLabel(item, user?.role ?? "")}
                           </NavLink>
                         );
@@ -402,16 +400,18 @@ export function Sidebar() {
       </nav>
 
       {/* ── User footer ─────────────────────────────── */}
-      <div className="relative shrink-0 border-t border-white/10 p-3">
-        <div className="flex items-center gap-3 px-2 py-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rlx-gold text-[14px] font-bold text-rlx-green-deep shadow-sm">
-            {initials}
+      <div className="sidebar-footer relative shrink-0 p-3">
+        <div className="sidebar-footer-card flex items-center gap-3 px-3 py-2.5">
+          <span className="sidebar-avatar-ring flex h-10 w-10 shrink-0 items-center justify-center">
+            <span className="sidebar-avatar-inner flex h-full w-full items-center justify-center text-[14px] font-bold">
+              {initials}
+            </span>
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13.5px] font-semibold text-white">{user?.displayName ?? "Guest"}</p>
+            <p className="truncate text-[11px] font-semibold uppercase tracking-wider text-rlx-gold/75">{roleLabelStr}</p>
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-[14px] font-semibold text-white">{user?.displayName ?? "Guest"}</p>
-            <p className="truncate text-[12px] font-medium uppercase tracking-wide text-white/50">{roleLabelStr}</p>
-          </div>
-          <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-blue-400 shadow-[0_0_0_3px_rgba(59,130,246,0.25)]" />
+          <span className="sidebar-status-dot shrink-0" />
         </div>
       </div>
     </aside>

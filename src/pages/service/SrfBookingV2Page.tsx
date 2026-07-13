@@ -130,14 +130,12 @@ function watchPhotosReady(photos: SrfPhotoThumb[]): boolean {
 
 function SrfPhotoThumbTile({
   photo,
-  imgClassName,
   wrapperClassName,
   onPreview,
   onRemove,
   removeBusy,
 }: {
   photo: SrfPhotoThumb;
-  imgClassName: string;
   wrapperClassName?: string;
   onPreview: (photo: SrfPhotoThumb) => void;
   onRemove?: (photo: SrfPhotoThumb) => void;
@@ -162,15 +160,28 @@ function SrfPhotoThumbTile({
       <button
         type="button"
         onClick={() => onPreview(photo)}
-        title="Click to preview"
-        className="group w-full cursor-zoom-in text-left transition hover:border-rlx-gold hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-rlx-green"
+        title="Click to view full screen"
+        className="group block w-full max-w-[6.5rem] cursor-zoom-in text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rlx-green"
       >
-        <img
-          src={`/${photo.filePath}`}
-          alt={photo.photoKind ?? "watch photo"}
-          className={`${imgClassName} w-full rounded object-cover`}
-        />
-        <p className="mt-1 text-[11px] capitalize text-stone-600 group-hover:text-rlx-green">{photo.photoKind ?? "other"}</p>
+        <span className="relative block aspect-square w-full overflow-hidden rounded-lg border border-rlx-rule bg-stone-100 transition group-hover:border-rlx-gold group-hover:shadow-md">
+          <img
+            src={`/${photo.filePath}`}
+            alt={photo.photoKind ?? "watch photo"}
+            className="h-full w-full object-cover"
+          />
+          <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+            <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-white drop-shadow" aria-hidden>
+              <path
+                d="M9 4H5a1 1 0 00-1 1v4m11-5h4a1 1 0 011 1v4M4 15v4a1 1 0 001 1h4m11-5v4a1 1 0 01-1 1h-4"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+        </span>
+        <p className="mt-1 truncate text-[10.5px] capitalize text-stone-600 group-hover:text-rlx-green">{photo.photoKind ?? "other"}</p>
       </button>
     </div>
   );
@@ -253,6 +264,14 @@ export function SrfBookingV2Page() {
   const openPhotoPreview = useCallback((photo: SrfPhotoThumb) => {
     setPhotoLightbox({ src: `/${photo.filePath}`, label: photoKindLabel(photo.photoKind) });
   }, []);
+
+  /** Show every error as a popup instead of an inline banner at the top of the page. */
+  useEffect(() => {
+    if (error) {
+      showOtpError(error);
+      setError(null);
+    }
+  }, [error, showOtpError]);
 
   useEffect(() => {
     if (!photoLightbox) return;
@@ -1314,8 +1333,6 @@ export function SrfBookingV2Page() {
       <div className="mb-6 rounded-2xl border border-rlx-rule/80 bg-white/90 p-4 shadow-sm">
         <Stepper steps={[...steps]} activeIndex={step} />
       </div>
-      {error ? <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
-
       <div key={step} className="animate-srf-step-enter">
       {step === 0 ? (
         <Card title="Step 1 — Customer">
@@ -1658,13 +1675,11 @@ export function SrfBookingV2Page() {
               {photoPreview.length > 0 && !draft ? (
                 <div className="rounded-xl border border-rlx-rule bg-white p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Preview</p>
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="mt-2 flex flex-wrap gap-2.5">
                     {photoPreview.map((p) => (
                       <SrfPhotoThumbTile
                         key={p.id}
                         photo={p}
-                        imgClassName="h-28"
-                        wrapperClassName="rounded-lg border border-rlx-rule p-1.5"
                         onPreview={openPhotoPreview}
                         onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
                         removeBusy={photoRemoveBusyId === p.id}
@@ -1686,13 +1701,11 @@ export function SrfBookingV2Page() {
                   {photoPreview.length > 0 ? (
                     <div className="mt-3 rounded-lg border border-rlx-rule bg-white/90 p-2">
                       <p className="text-[10px] font-bold uppercase tracking-wide text-rlx-green">Uploaded image preview</p>
-                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="mt-2 flex flex-wrap gap-2">
                         {photoPreview.map((p) => (
                           <SrfPhotoThumbTile
                             key={`amber-${p.id}`}
                             photo={p}
-                            imgClassName="h-24"
-                            wrapperClassName="rounded-md border border-rlx-rule p-1"
                             onPreview={openPhotoPreview}
                             onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
                             removeBusy={photoRemoveBusyId === p.id}
@@ -1911,13 +1924,11 @@ export function SrfBookingV2Page() {
                   <td className="px-3 py-2 text-stone-800">
                     <p>{photoCount}</p>
                     {photoPreview.length > 0 ? (
-                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="mt-2 flex flex-wrap gap-2">
                         {photoPreview.map((p) => (
                           <SrfPhotoThumbTile
                             key={p.id}
                             photo={p}
-                            imgClassName="h-24"
-                            wrapperClassName="rounded-lg border border-rlx-rule bg-white p-1.5"
                             onPreview={openPhotoPreview}
                             onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
                             removeBusy={photoRemoveBusyId === p.id}
@@ -1960,31 +1971,37 @@ export function SrfBookingV2Page() {
 
       {photoLightbox ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-3 backdrop-blur-sm sm:p-6"
           role="dialog"
           aria-modal="true"
           aria-label={`Photo preview: ${photoLightbox.label}`}
           onClick={() => setPhotoLightbox(null)}
         >
           <div
-            className="relative flex max-h-[92vh] w-full max-w-3xl flex-col"
+            className="relative flex h-full max-h-[96vh] w-full max-w-6xl flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-2 flex items-center justify-between gap-3 text-white">
-              <p className="text-sm font-semibold capitalize">{photoLightbox.label}</p>
+            <div className="mb-3 flex items-center justify-between gap-3 text-white">
+              <p className="rounded-full bg-white/10 px-3 py-1 text-sm font-semibold capitalize">{photoLightbox.label}</p>
               <button
                 type="button"
                 onClick={() => setPhotoLightbox(null)}
-                className="rounded-lg bg-white/15 px-3 py-1.5 text-sm font-semibold hover:bg-white/25"
+                title="Close full screen preview"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
               >
-                Close
+                <svg viewBox="0 0 24 24" fill="none" className="h-4.5 w-4.5" aria-hidden>
+                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                <span className="sr-only">Close</span>
               </button>
             </div>
-            <img
-              src={photoLightbox.src}
-              alt={photoLightbox.label}
-              className="max-h-[calc(92vh-3rem)] w-full rounded-lg object-contain"
-            />
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+              <img
+                src={photoLightbox.src}
+                alt={photoLightbox.label}
+                className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+              />
+            </div>
           </div>
         </div>
       ) : null}

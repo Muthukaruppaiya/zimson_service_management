@@ -117,7 +117,7 @@ export function TopBar() {
             onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = DEFAULT_APP_LOGO_URL; }}
             className="h-8 w-auto max-w-[120px] object-contain md:h-7 md:max-w-[100px]"
           />
-          <span className="hidden text-[13px] font-medium text-rlx-ink-muted lg:inline">| Service Portal</span>
+          {/* <span className="hidden text-[13px] font-medium text-rlx-ink-muted lg:inline">| Service Portal</span> */}
         </div>
 
         <div className="hidden min-w-0 flex-1 md:block md:max-w-2xl md:px-2 lg:px-6">
@@ -197,32 +197,28 @@ export function TopBar() {
               ) : null}
             </div>
 
-            <div className="topbar-user-chip hidden items-center gap-2.5 sm:flex">
-              <span className="topbar-avatar-ring flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-[2px]">
-                <span className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-[#f5e9b8] via-[#e8c96a] to-[#c9a227] text-sm font-bold text-rlx-green-deep shadow-inner">
-                  {initials}
-                </span>
+            <span
+              className="topbar-avatar-btn"
+              title={`${roleLabel(user.role)} · ${user.displayName}`}
+              aria-label={`Signed in as ${roleLabel(user.role)}`}
+            >
+              <span className="topbar-avatar-btn__ring">
+                <span className="topbar-avatar-btn__inner">{initials}</span>
               </span>
-              <div className="hidden min-w-0 max-w-[140px] flex-col text-left leading-tight lg:flex">
-                <span className="truncate text-sm font-semibold text-rlx-ink">{roleLabel(user.role)}</span>
-                <span className="truncate text-xs font-medium text-rlx-ink-muted">{user.displayName}</span>
-              </div>
-            </div>
+            </span>
 
             <button
               type="button"
               onClick={() => void handleLogout()}
               disabled={signingOut}
-              aria-label="Sign out"
+              aria-label={signingOut ? "Signing out" : "Sign out"}
+              title="Sign out"
               className="topbar-signout-btn group"
             >
+              <span className="topbar-signout-btn__glow" aria-hidden />
               <span className="topbar-signout-btn__icon" aria-hidden>
-                {signingOut ? <TopBarLogoutSpinner /> : <TopBarLogoutIcon className="h-[17px] w-[17px]" />}
+                {signingOut ? <TopBarLogoutSpinner className="h-[18px] w-[18px]" /> : <TopBarLogoutIcon className="h-[19px] w-[19px]" />}
               </span>
-              <span className="topbar-signout-btn__label hidden sm:inline">
-                {signingOut ? "Signing out…" : "Sign out"}
-              </span>
-              <span className="topbar-signout-btn__shine" aria-hidden />
             </button>
           </div>
         ) : null}
