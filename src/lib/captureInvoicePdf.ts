@@ -9,13 +9,40 @@ import serviceInvoiceCss from "../styles/service-invoice.css?raw";
 const A4_WIDTH_PX = 794;
 
 function stripNonInvoiceStylesheets(doc: Document): void {
-  doc.querySelectorAll("style, link[rel='stylesheet']").forEach((node) => node.remove());
+  doc.querySelectorAll("style, link[rel='stylesheet']").forEach((node) => {
+    // Keep web-font stylesheets (e.g. Google Fonts / Poppins). Removing them makes
+    // html2canvas measure text with one font but render with a fallback, which causes
+    // letters to drift and overlap ("merge") progressively along each line.
+    const href = node.getAttribute("href") ?? "";
+    if (/fonts\.googleapis\.com|fonts\.gstatic\.com/i.test(href)) return;
+    node.remove();
+  });
 }
+
+// Capture-only safeguard against html2canvas letter drift/overlap ("merging").
+// Forces a stable font stack and neutral spacing on body text so glyph advances
+// are measured and painted consistently. Intentional tracking on the banner and
+// section pills is preserved.
+const CAPTURE_TEXT_SAFEGUARD_CSS = `
+.service-invoice-print-root.inv-pdf-capture,
+.service-invoice-print-root.inv-pdf-capture * {
+  font-family: "Poppins", Arial, "Helvetica Neue", Helvetica, sans-serif !important;
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+}
+.service-invoice-print-root.inv-pdf-capture .inv-banner-title,
+.service-invoice-print-root.inv-pdf-capture .inv-sec-pill,
+.service-invoice-print-root.inv-pdf-capture .inv-sec-pill-txt {
+  letter-spacing: 0.04em !important;
+}
+`;
 
 function injectInvoiceStyles(doc: Document): void {
   const el = doc.createElement("style");
   el.setAttribute("data-invoice-pdf", "true");
-  el.textContent = serviceInvoiceCss;
+  el.textContent = `${serviceInvoiceCss}\n${CAPTURE_TEXT_SAFEGUARD_CSS}`;
   doc.head.appendChild(el);
 }
 
@@ -42,6 +69,16 @@ export async function captureInvoicePdfBlob(
   _styleSource?: HTMLElement,
 ): Promise<Blob> {
   const html2pdf = (await import("html2pdf.js")).default;
+
+  // Ensure web fonts (Poppins) are fully loaded before capture so html2canvas
+  // measures and renders text with the same font metrics (prevents letter overlap).
+  if (typeof document !== "undefined" && "fonts" in document) {
+    try {
+      await (document as Document & { fonts: FontFaceSet }).fonts.ready;
+    } catch {
+      /* font readiness is best-effort */
+    }
+  }
 
   const worker = html2pdf()
     .set({

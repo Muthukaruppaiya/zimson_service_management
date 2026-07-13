@@ -10,7 +10,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError } from "../../lib/api";
-import { ResendClosedSrfInvoiceActions } from "../../components/service/ResendClosedSrfInvoiceActions";
+import { ResendClosedSrfInvoiceActions, IconGstEinvoice, IconSpinner, invoicePreviewIconBtn } from "../../components/service/ResendClosedSrfInvoiceActions";
+import { IconClose, IconPreview, IconPrint } from "../../components/service/invoicePreviewIcons";
 import { useCustomers } from "../../context/CustomersContext";
 import { useSpares } from "../../context/SparesContext";
 import { phoneLast10 } from "../../lib/customerLookup";
@@ -29,8 +30,79 @@ import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import type { SrfJob } from "../../types/srfJob";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
 
-const actionBtn =
-  "rounded-lg border px-2 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
+const iconBtn =
+  "group relative inline-flex h-9 w-9 items-center justify-center rounded-xl border shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm";
+
+const resendIconPreview = `${invoicePreviewIconBtn} rounded-xl border border-sky-200 bg-sky-50 text-sky-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-sky-100 hover:shadow-md`;
+const resendIconPrint = `${invoicePreviewIconBtn} rounded-xl border border-[#1b3a8f]/40 bg-gradient-to-b from-[#1b3a8f] to-[#0c1c56] text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md`;
+const resendIconEinvoice = `${invoicePreviewIconBtn} rounded-xl border border-amber-300 bg-amber-50 text-amber-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-100 hover:shadow-md disabled:opacity-50`;
+const resendIconClose = `${invoicePreviewIconBtn} rounded-xl border border-stone-200 bg-white text-stone-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-stone-50 hover:shadow-md`;
+
+type IconProps = { className?: string };
+
+function DetailsIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4" />
+      <path d="M9 7h6M9 11h6M9 15h3" />
+      <circle cx="18" cy="6" r="3" />
+    </svg>
+  );
+}
+
+function PreviewIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function PrinterIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M6 9V3h12v6" />
+      <path d="M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
+      <rect x="6" y="14" width="12" height="7" rx="1" />
+      <path d="M9 17h6" />
+    </svg>
+  );
+}
+
+function RetryIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v5h-5" />
+    </svg>
+  );
+}
+
+function ResendIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M22 2 11 13" />
+      <path d="M22 2 15 22l-4-9-9-4 20-7Z" />
+    </svg>
+  );
+}
+
+function SpinnerIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg className={`${className} animate-spin`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  );
+}
+
+function ActionTooltip({ label }: { label: string }) {
+  return (
+    <span className="pointer-events-none absolute -top-8 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-md bg-zimson-900 px-2 py-1 text-[10px] font-semibold text-white opacity-0 shadow-lg transition group-hover:opacity-100">
+      {label}
+    </span>
+  );
+}
 
 export function StoreBillingMasterPage() {
   const { user } = useAuth();
@@ -40,6 +112,7 @@ export function StoreBillingMasterPage() {
   const [traceId, setTraceId] = useState<string | null>(null);
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
   const [printInvoiceVm, setPrintInvoiceVm] = useState<ServiceInvoiceViewModel | null>(null);
+  const [previewJob, setPreviewJob] = useState<SrfJob | null>(null);
   const [resendJob, setResendJob] = useState<SrfJob | null>(null);
   const { customers } = useCustomers();
   const { activeSpares } = useSpares();
@@ -112,6 +185,12 @@ export function StoreBillingMasterPage() {
       printServiceInvoice();
       window.setTimeout(() => setPrintInvoiceVm(null), 500);
     }, 80);
+  }
+
+  function handlePrintFromPreview() {
+    const job = previewJob;
+    setPreviewJob(null);
+    if (job) window.setTimeout(() => handlePrintInvoice(job), 60);
   }
 
   function handleResendInvoice(job: SrfJob) {
@@ -272,43 +351,56 @@ export function StoreBillingMasterPage() {
                             <button
                               type="button"
                               onClick={() => setTraceId(j.id)}
-                              className={`${actionBtn} border-indigo-300 bg-indigo-50 text-indigo-900 hover:bg-indigo-100`}
+                              aria-label="View details"
+                              title="View details"
+                              className={`${iconBtn} border-indigo-200 bg-indigo-50 text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100`}
                             >
-                              View details
+                              <DetailsIcon />
+                              <ActionTooltip label="View details" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewJob(j)}
+                              aria-label="Preview invoice"
+                              title="Preview invoice"
+                              className={`${iconBtn} border-sky-200 bg-sky-50 text-sky-700 hover:border-sky-300 hover:bg-sky-100`}
+                            >
+                              <PreviewIcon />
+                              <ActionTooltip label="Preview invoice" />
                             </button>
                             <button
                               type="button"
                               onClick={() => handlePrintInvoice(j)}
                               disabled={!!printInvoiceVm}
-                              className={`${actionBtn} border-zimson-400 bg-zimson-600 text-white hover:bg-zimson-700`}
+                              aria-label="Print invoice"
+                              title="Print invoice"
+                              className={`${iconBtn} border-zimson-500 bg-gradient-to-b from-zimson-500 to-zimson-600 text-white hover:from-zimson-600 hover:to-zimson-700`}
                             >
-                              Print invoice
+                              <PrinterIcon />
+                              <ActionTooltip label="Print invoice" />
                             </button>
-                            {srfNeedsEinvoiceRetry(j, edocEnabled) ? (
+                            {srfNeedsEinvoiceRetry(j, edocEnabled) || srfCanGenerateEinvoice(j, edocEnabled) ? (
                               <button
                                 type="button"
                                 disabled={edocBusyId === j.id}
                                 onClick={() => void retryEinvoice(j)}
-                                className={`${actionBtn} border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100`}
+                                aria-label={srfNeedsEinvoiceRetry(j, edocEnabled) ? "Retry e-invoice" : "Generate e-invoice"}
+                                title={srfNeedsEinvoiceRetry(j, edocEnabled) ? "Retry e-invoice" : "Generate e-invoice"}
+                                className={`${iconBtn} border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100`}
                               >
-                                {edocBusyId === j.id ? "…" : "Retry e-invoice"}
-                              </button>
-                            ) : srfCanGenerateEinvoice(j, edocEnabled) ? (
-                              <button
-                                type="button"
-                                disabled={edocBusyId === j.id}
-                                onClick={() => void retryEinvoice(j)}
-                                className={`${actionBtn} border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100`}
-                              >
-                                {edocBusyId === j.id ? "…" : "Generate e-invoice"}
+                                {edocBusyId === j.id ? <SpinnerIcon /> : <RetryIcon />}
+                                <ActionTooltip label={srfNeedsEinvoiceRetry(j, edocEnabled) ? "Retry e-invoice" : "Generate e-invoice"} />
                               </button>
                             ) : null}
                             <button
                               type="button"
                               onClick={() => handleResendInvoice(j)}
-                              className={`${actionBtn} border-zimson-300 bg-white text-zimson-900 hover:bg-zimson-50`}
+                              aria-label="Resend invoice"
+                              title="Resend invoice"
+                              className={`${iconBtn} border-zimson-300 bg-white text-zimson-700 hover:border-zimson-400 hover:bg-zimson-50`}
                             >
-                              Resend invoice
+                              <ResendIcon />
+                              <ActionTooltip label="Resend invoice" />
                             </button>
                           </div>
                         </td>
@@ -351,9 +443,52 @@ export function StoreBillingMasterPage() {
         </div>
       ) : null}
 
+      {previewJob ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#0c1c56]/70 p-4 backdrop-blur-sm print:hidden"
+          onClick={() => setPreviewJob(null)}
+        >
+          <div
+            className="my-6 w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-[#c9a227]/40 bg-gradient-to-r from-[#0c1c56] via-[#152a72] to-[#1b3a8f] px-4 py-3">
+              <div className="flex items-center gap-2 text-white">
+                <PreviewIcon className="h-4 w-4 text-[#e7c968]" />
+                <span className="text-sm font-bold uppercase tracking-wide">Invoice preview</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrintFromPreview}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-inset ring-white/25 transition hover:bg-white/25"
+                >
+                  <PrinterIcon className="h-3.5 w-3.5" />
+                  Printout
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewJob(null)}
+                  aria-label="Close preview"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 text-white ring-1 ring-inset ring-white/25 transition hover:bg-white/25"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[80vh] overflow-y-auto bg-stone-100 p-4">
+              <ServiceInvoiceTemplate data={invoiceVmForJob(previewJob)} idPrefix="srf-billing-history-preview" />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {resendJob ? (
         <ProcessSuccessModal
           open
+          tone="premium"
           title="Resend invoice"
           description={`Invoice ${resendJob.invoiceNumber ?? ""} · SRF ${resendJob.reference}`}
           onBackdropClick={() => {
@@ -361,65 +496,86 @@ export function StoreBillingMasterPage() {
             setResendNote(null);
           }}
           actions={
-            <>
-              <button
-                type="button"
-                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 sm:w-auto"
-                onClick={() => {
-                  const vm = invoiceVmForJob(resendJob);
-                  setPrintInvoiceVm(vm);
-                  window.setTimeout(() => {
-                    printServiceInvoice();
-                    window.setTimeout(() => setPrintInvoiceVm(null), 500);
-                  }, 80);
-                }}
-              >
-                Print invoice
-              </button>
-              <ResendClosedSrfInvoiceActions
-                job={resendJob}
-                customer={resendCustomer}
-                customerEmail={resendCustomer?.email?.trim() ?? ""}
-                taxSettings={serviceTaxSettings}
-                storeInvoice={storeInvoiceForPrint}
-                generatedBy={user?.displayName?.trim() || user?.email?.trim() || user?.id || null}
-                spareHsnLookup={spareHsnLookup}
-                spareGstLookup={spareGstLookup}
-                onResult={setResendNote}
-              />
-              {srfNeedsEinvoiceRetry(resendJob, edocEnabled) || srfCanGenerateEinvoice(resendJob, edocEnabled) ? (
-                <button
-                  type="button"
-                  className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-950 shadow-sm transition hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
-                  disabled={edocBusyId === resendJob.id}
-                  onClick={() => void retryEinvoice(resendJob)}
-                >
-                  {edocBusyId === resendJob.id
-                    ? "Generating…"
-                    : srfNeedsEinvoiceRetry(resendJob, edocEnabled)
-                      ? "Retry e-invoice"
-                      : "Generate e-invoice"}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition hover:bg-stone-50 sm:w-auto"
-                onClick={() => {
-                  setResendJob(null);
-                  setResendNote(null);
-                }}
-              >
-                Close
-              </button>
-            </>
+            <ResendClosedSrfInvoiceActions
+              layout="icons"
+              job={resendJob}
+              customer={resendCustomer}
+              customerEmail={resendCustomer?.email?.trim() ?? ""}
+              taxSettings={serviceTaxSettings}
+              storeInvoice={storeInvoiceForPrint}
+              generatedBy={user?.displayName?.trim() || user?.email?.trim() || user?.id || null}
+              spareHsnLookup={spareHsnLookup}
+              spareGstLookup={spareGstLookup}
+              onResult={setResendNote}
+              leadingActions={
+                <>
+                  <button
+                    type="button"
+                    className={resendIconPreview}
+                    aria-label="Preview invoice"
+                    title="Preview invoice"
+                    onClick={() => {
+                      const job = resendJob;
+                      setResendJob(null);
+                      setResendNote(null);
+                      setPreviewJob(job);
+                    }}
+                  >
+                    <IconPreview />
+                  </button>
+                  <button
+                    type="button"
+                    className={resendIconPrint}
+                    aria-label="Print invoice"
+                    title="Print invoice"
+                    disabled={!!printInvoiceVm}
+                    onClick={() => handlePrintInvoice(resendJob)}
+                  >
+                    <IconPrint />
+                  </button>
+                </>
+              }
+              trailingActions={
+                <>
+                  {srfNeedsEinvoiceRetry(resendJob, edocEnabled) || srfCanGenerateEinvoice(resendJob, edocEnabled) ? (
+                    <button
+                      type="button"
+                      className={resendIconEinvoice}
+                      aria-label={
+                        srfNeedsEinvoiceRetry(resendJob, edocEnabled) ? "Retry e-invoice" : "Generate e-invoice"
+                      }
+                      title={
+                        srfNeedsEinvoiceRetry(resendJob, edocEnabled) ? "Retry e-invoice" : "Generate e-invoice"
+                      }
+                      disabled={edocBusyId === resendJob.id}
+                      onClick={() => void retryEinvoice(resendJob)}
+                    >
+                      {edocBusyId === resendJob.id ? <IconSpinner /> : <IconGstEinvoice />}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={resendIconClose}
+                    aria-label="Close"
+                    title="Close"
+                    onClick={() => {
+                      setResendJob(null);
+                      setResendNote(null);
+                    }}
+                  >
+                    <IconClose />
+                  </button>
+                </>
+              }
+            />
           }
         >
           {resendJob.customerKind === "B2B" && edocEnabled && !resendJob.edocIrn?.trim() ? (
             <div
-              className={`mb-3 rounded-lg px-3 py-2 text-xs ${
+              className={`mb-3 rounded-xl px-3 py-2.5 text-xs leading-relaxed ${
                 resendJob.edocStatus === "FAILED"
                   ? "bg-amber-50 text-amber-950 ring-1 ring-amber-200"
-                  : "bg-stone-50 text-stone-700 ring-1 ring-stone-200"
+                  : "bg-[#f8faff] text-[#1b3a8f] ring-1 ring-[#e2e8f5]"
               }`}
             >
               {resendJob.edocStatus === "FAILED" ? (
@@ -433,11 +589,11 @@ export function StoreBillingMasterPage() {
             </div>
           ) : null}
           {resendNote ? (
-            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-950 ring-1 ring-emerald-200/80">
+            <p className="rounded-xl bg-emerald-50 px-3 py-2.5 text-xs leading-relaxed text-emerald-950 ring-1 ring-emerald-200/80">
               {resendNote}
             </p>
           ) : (
-            <p className="text-sm text-stone-700">
+            <p className="text-sm leading-relaxed text-stone-700">
               Send the tax invoice as a PDF on WhatsApp and email, or download a copy for the customer.
             </p>
           )}

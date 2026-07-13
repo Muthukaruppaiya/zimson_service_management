@@ -1,7 +1,16 @@
+import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { ServiceInvoiceTemplate } from "./ServiceInvoiceTemplate";
 import { SendInvoiceEmailButton } from "./SendInvoiceEmailButton";
 import { SendInvoiceWhatsAppButton } from "./SendInvoiceWhatsAppButton";
+import {
+  IconDownload,
+  IconEmail,
+  IconGstEinvoice,
+  IconSpinner,
+  IconWhatsApp,
+  invoicePreviewIconBtn,
+} from "./invoicePreviewIcons";
 import { buildStoreBillingInvoiceFromClosedJob } from "../../lib/storeBillingAmounts";
 import { captureInvoicePdfFromViewModel } from "../../lib/renderInvoiceForPdf";
 import { triggerBlobDownload } from "../../lib/captureInvoicePdf";
@@ -21,8 +30,16 @@ type Props = {
   spareGstLookup?: (spareId: string) => number | null | undefined;
   onResult?: (message: string) => void;
   /** Compact buttons for trace modal header */
-  layout?: "modal" | "inline";
+  layout?: "modal" | "inline" | "icons";
+  /** Extra icon buttons shown before download/email/WhatsApp (preview, print, etc.) */
+  leadingActions?: ReactNode;
+  /** Extra icon buttons shown after download/email/WhatsApp (e-invoice, close, etc.) */
+  trailingActions?: ReactNode;
 };
+
+const iconDownload = `${invoicePreviewIconBtn} rounded-xl border border-[#c9a227]/45 bg-white text-[#1b3a8f] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#f8faff] hover:shadow-md`;
+const iconEmail = `${invoicePreviewIconBtn} rounded-xl border border-sky-300/80 bg-sky-700 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-sky-800 hover:shadow-md`;
+const iconWhatsApp = `${invoicePreviewIconBtn} rounded-xl border border-emerald-300/80 bg-emerald-600 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-700 hover:shadow-md`;
 
 export function ResendClosedSrfInvoiceActions({
   job,
@@ -35,6 +52,8 @@ export function ResendClosedSrfInvoiceActions({
   spareGstLookup,
   onResult,
   layout = "modal",
+  leadingActions,
+  trailingActions,
 }: Props) {
   const [downloadBusy, setDownloadBusy] = useState(false);
   const invoiceVm = useMemo(
@@ -80,53 +99,93 @@ export function ResendClosedSrfInvoiceActions({
   const btnModal =
     "inline-flex w-full min-w-0 items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm transition disabled:opacity-50 sm:w-auto";
 
+  const downloadButton =
+    layout === "icons" ? (
+      <button
+        type="button"
+        disabled={downloadBusy || !invoiceNumber}
+        onClick={() => void handleDownloadPdf()}
+        className={iconDownload}
+        aria-label="Download PDF"
+        title="Download PDF"
+      >
+        {downloadBusy ? <IconSpinner /> : <IconDownload />}
+      </button>
+    ) : (
+      <button
+        type="button"
+        disabled={downloadBusy || !invoiceNumber}
+        onClick={() => void handleDownloadPdf()}
+        className={
+          layout === "inline"
+            ? `${btnInline} border-[#1b3a8f]/30 bg-white text-[#1b3a8f] hover:bg-[#f8faff]`
+            : `${btnModal} border border-[#1b3a8f]/30 bg-white text-[#1b3a8f] hover:bg-[#f8faff]`
+        }
+      >
+        {downloadBusy ? "Preparing PDF…" : "Download PDF"}
+      </button>
+    );
+
+  const emailButton = (
+    <SendInvoiceEmailButton
+      email={email}
+      customerName={customerName}
+      invoiceNumber={invoiceNumber}
+      totalInr={invoiceVm.netPayable ?? invoiceVm.totalAmount}
+      resolvePdfBlob={resolvePdfBlob}
+      label="Resend email (PDF)"
+      busyLabel="Sending…"
+      iconOnly={layout === "icons"}
+      className={
+        layout === "icons"
+          ? iconEmail
+          : layout === "inline"
+            ? `${btnInline} border-sky-400 bg-sky-600 text-white hover:bg-sky-700`
+            : `${btnModal} border border-sky-500 bg-sky-600 text-white hover:bg-sky-700`
+      }
+      onResult={(msg) => onResult?.(msg)}
+    />
+  );
+
+  const whatsAppButton = (
+    <SendInvoiceWhatsAppButton
+      phone={phone}
+      customerName={customerName}
+      invoiceNumber={invoiceNumber}
+      resolvePdfBlob={resolvePdfBlob}
+      label="Resend WhatsApp (PDF)"
+      busyLabel="Sending…"
+      iconOnly={layout === "icons"}
+      className={
+        layout === "icons"
+          ? iconWhatsApp
+          : layout === "inline"
+            ? `${btnInline} border-emerald-400 bg-emerald-600 text-white hover:bg-emerald-700`
+            : `${btnModal} border border-emerald-500 bg-emerald-600 text-white hover:bg-emerald-700`
+      }
+      onResult={(msg) => onResult?.(msg)}
+    />
+  );
+
   return (
     <>
       <div className="pointer-events-none fixed -left-[12000px] top-0 opacity-0" aria-hidden>
         <ServiceInvoiceTemplate data={invoiceVm} idPrefix={idPrefix} />
       </div>
-      <div className={layout === "inline" ? "flex flex-wrap items-center gap-2" : "flex flex-col gap-2 sm:flex-row sm:flex-wrap"}>
-        <button
-          type="button"
-          disabled={downloadBusy || !invoiceNumber}
-          onClick={() => void handleDownloadPdf()}
-          className={
-            layout === "inline"
-              ? `${btnInline} border-zimson-300 bg-white text-zimson-900 hover:bg-zimson-50`
-              : `${btnModal} border border-zimson-400 bg-white text-zimson-900 hover:bg-zimson-50`
-          }
-        >
-          {downloadBusy ? "Preparing PDF…" : "Download PDF"}
-        </button>
-        <SendInvoiceEmailButton
-          email={email}
-          customerName={customerName}
-          invoiceNumber={invoiceNumber}
-          totalInr={invoiceVm.netPayable ?? invoiceVm.totalAmount}
-          resolvePdfBlob={resolvePdfBlob}
-          label="Resend email (PDF)"
-          busyLabel="Sending…"
-          className={
-            layout === "inline"
-              ? `${btnInline} border-sky-400 bg-sky-600 text-white hover:bg-sky-700`
-              : `${btnModal} border border-sky-500 bg-sky-600 text-white hover:bg-sky-700`
-          }
-          onResult={(msg) => onResult?.(msg)}
-        />
-        <SendInvoiceWhatsAppButton
-          phone={phone}
-          customerName={customerName}
-          invoiceNumber={invoiceNumber}
-          resolvePdfBlob={resolvePdfBlob}
-          label="Resend WhatsApp (PDF)"
-          busyLabel="Sending…"
-          className={
-            layout === "inline"
-              ? `${btnInline} border-emerald-400 bg-emerald-600 text-white hover:bg-emerald-700`
-              : `${btnModal} border border-emerald-500 bg-emerald-600 text-white hover:bg-emerald-700`
-          }
-          onResult={(msg) => onResult?.(msg)}
-        />
+      <div
+        className={
+          layout === "icons"
+            ? "flex flex-wrap items-center justify-center gap-2"
+            : layout === "inline"
+              ? "flex flex-wrap items-center gap-2"
+              : "flex flex-col gap-2 sm:flex-row sm:flex-wrap"
+        }
+      >
+        {leadingActions}
+        {downloadButton}
+        {emailButton}
+        {whatsAppButton}
+        {trailingActions}
       </div>
     </>
   );
@@ -135,3 +194,5 @@ export function ResendClosedSrfInvoiceActions({
 export function canResendClosedSrfInvoice(job: { status: string; invoiceNumber?: string | null }): boolean {
   return job.status === "closed" && Boolean(String(job.invoiceNumber ?? "").trim());
 }
+
+export { IconGstEinvoice, IconSpinner, invoicePreviewIconBtn };

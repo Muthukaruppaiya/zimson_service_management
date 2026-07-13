@@ -41,6 +41,32 @@ export function validateSrfDocumentFile(file: File): string | null {
   return validateSrfCustomerPhotoFile(file);
 }
 
+/** SRF customer-capture document slot — PDF only (no images). */
+export const SRF_DOCUMENT_PDF_ONLY_ACCEPT = "application/pdf,.pdf";
+
+/** SRF customer-capture document slot — rejects images; PDF only. */
+export function validateSrfDocumentPdfOnlyFile(file: File): string | null {
+  if (file.size > SRF_CUSTOMER_PHOTO_MAX_BYTES) return tooLargeMessage(file);
+  const ext = fileExt(file.name);
+  const mime = (file.type || "").toLowerCase();
+  if (mime === "application/pdf" || ext === ".pdf") return null;
+  return "Only PDF files are allowed for the document. Images are not accepted here.";
+}
+
+/** SRF customer-capture document slot — rejects images; PDF only (server-side). */
+export function validateSrfDocumentPdfOnlyUpload(
+  file: { size: number; mimetype?: string; originalname?: string },
+): string | null {
+  if (file.size > SRF_CUSTOMER_PHOTO_MAX_BYTES) {
+    const mb = (file.size / (1024 * 1024)).toFixed(1);
+    return `File is too large (${mb} MB). Maximum size is ${srfCustomerPhotoMaxSizeLabel()}.`;
+  }
+  const ext = fileExt(file.originalname || "");
+  const mime = (file.mimetype || "").toLowerCase();
+  if (mime === "application/pdf" || ext === ".pdf") return null;
+  return "Only PDF files are allowed for the document. Images are not accepted here.";
+}
+
 /** Optional SRF document slot — PDF preferred; images allowed for store capture. */
 export function validateSrfDocumentUpload(
   file: { size: number; mimetype?: string; originalname?: string },

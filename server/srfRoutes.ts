@@ -11,7 +11,11 @@ import { normalizePaymentForTotal, type AdvancePaymentDetails } from "../src/lib
 import { normalizeSrfRepairRoute } from "../src/lib/srfRepairRoute";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../src/lib/srfTraceLocations";
 import { SRF_CUSTOMER_PHOTO_MAX_BYTES } from "../src/lib/srfPhotoLimits";
-import { validateSrfCustomerPhotoUpload, validateSrfDocumentUpload } from "../src/lib/srfCustomerPhotoUpload";
+import {
+  validateSrfCustomerPhotoUpload,
+  validateSrfDocumentUpload,
+  validateSrfDocumentPdfOnlyUpload,
+} from "../src/lib/srfCustomerPhotoUpload";
 import {
   normalizeSrfPhotoKind,
   SRF_MAX_WATCH_PHOTOS,
@@ -9195,7 +9199,7 @@ export function registerSrfRoutes(
     }
     const photoFormatError =
       photoKind === "document"
-        ? validateSrfDocumentUpload(req.file)
+        ? validateSrfDocumentPdfOnlyUpload(req.file)
         : validateSrfCustomerPhotoUpload(req.file);
     if (photoFormatError) {
       res.status(400).json({ error: photoFormatError });

@@ -1,6 +1,22 @@
+import type { ReactNode } from "react";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import { EinvoiceSignedQr } from "./EinvoiceSignedQr";
 import { InvoiceNumberScanCodes } from "./InvoiceNumberScanCodes";
+import {
+  InvIconBox,
+  InvIconCalendar,
+  InvIconFile,
+  InvIconGstin,
+  InvIconHash,
+  InvIconMail,
+  InvIconPen,
+  InvIconPerson,
+  InvIconPhone,
+  InvIconStore,
+  InvIconTag,
+  InvIconTax,
+  InvIconWallet,
+} from "./invoiceDocumentIcons";
 
 type Props = {
   data: ServiceInvoiceViewModel;
@@ -112,6 +128,31 @@ function ProductInfoTable({ rows }: { rows: { label: string; value: string }[] }
   );
 }
 
+function InvSecPill({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <div className="inv-sec-pill">
+      <span className="inv-sec-pill-ic" aria-hidden>
+        {icon}
+      </span>
+      <span className="inv-sec-pill-txt">{children}</span>
+    </div>
+  );
+}
+
+function InvMetaLine({ icon, label, value, mono }: { icon: ReactNode; label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="inv-meta-line">
+      <span className="inv-meta-ic" aria-hidden>
+        {icon}
+      </span>
+      <span className="inv-meta-txt">
+        <span className="inv-meta-lbl">{label}</span>
+        <span className={`inv-meta-val${mono ? " mono" : ""}`}>{value}</span>
+      </span>
+    </div>
+  );
+}
+
 export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
   const rootId = `${idPrefix}-service-invoice-print-root`;
   const pb = data.productBlock;
@@ -133,7 +174,17 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
       data-expect-einvoice-qr={data.irn || data.einvoiceQr ? "1" : undefined}
     >
       <div className="inv-sheet inv-page-main">
-        {/* Document banner */}
+        <div className="inv-watermark" aria-hidden>
+          <img
+            src={logoSrc}
+            alt=""
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).onerror = null;
+              (e.currentTarget as HTMLImageElement).src = FALLBACK_LOGO;
+            }}
+          />
+        </div>
+
         <div className="inv-banner">
           <div className="inv-banner-title">{data.documentLabel?.trim() || "TAX INVOICE"}</div>
           <div className="inv-banner-sub">
@@ -141,54 +192,31 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             {data.placeOfSupply ? <div>Place of supply: {data.placeOfSupply}</div> : null}
           </div>
         </div>
+        <div className="inv-accent" aria-hidden />
 
-        {/* Header: meta | logo + barcode | e-invoice QR */}
         <div className="inv-top-row">
-          <div className="inv-top-cell" style={{ width: "32%" }}>
-            <div className="inv-meta-box">
-              <table>
-                <tbody>
-                  <tr>
-                    <td className="inv-meta-label">Invoice No</td>
-                    <td className="inv-meta-value mono">: {data.invoiceNumber}</td>
-                  </tr>
-                  <tr>
-                    <td className="inv-meta-label">Invoice Date</td>
-                    <td className="inv-meta-value">: {data.invoiceDate}</td>
-                  </tr>
-          {data.irn ? (
-                    <tr>
-                      <td className="inv-meta-label">IRN</td>
-                      <td className="inv-meta-value mono" style={{ fontSize: "0.65rem", wordBreak: "break-all" }}>
-                        : {data.irn}
-                      </td>
-                    </tr>
-                  ) : null}
-                  {data.ackNo ? (
-                    <tr>
-                      <td className="inv-meta-label">Ack No</td>
-                      <td className="inv-meta-value mono">: {data.ackNo}</td>
-                    </tr>
-                  ) : null}
-                  {data.serviceReference ? (
-                    <tr>
-                      <td className="inv-meta-label">
-                        {data.invoiceType === "Quick Bill" ? "Quick Bill No" : "SR No"}
-                      </td>
-                      <td className="inv-meta-value mono">: {data.serviceReference}</td>
-                    </tr>
-                  ) : null}
-                  {data.invoiceType ? (
-                    <tr>
-                      <td className="inv-meta-label">Invoice Type</td>
-                      <td className="inv-meta-value">: {data.invoiceType}</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+          <div className="inv-top-cell inv-card inv-meta-card">
+            <InvMetaLine icon={<InvIconFile />} label="Invoice No" value={data.invoiceNumber} mono />
+            <InvMetaLine icon={<InvIconCalendar />} label="Invoice Date" value={data.invoiceDate} />
+            {data.serviceReference ? (
+              <InvMetaLine
+                icon={<InvIconHash />}
+                label={data.invoiceType === "Quick Bill" ? "Quick Bill No" : "SR No"}
+                value={data.serviceReference}
+                mono
+              />
+            ) : null}
+            {data.invoiceType ? (
+              <InvMetaLine icon={<InvIconTag />} label="Invoice Type" value={data.invoiceType} />
+            ) : null}
+            {data.irn ? (
+              <InvMetaLine icon={<InvIconFile />} label="IRN" value={data.irn} mono />
+            ) : null}
+            {data.ackNo ? (
+              <InvMetaLine icon={<InvIconHash />} label="Ack No" value={data.ackNo} mono />
+            ) : null}
           </div>
-          <div className="inv-top-cell inv-barcode-wrap" style={{ width: "36%" }}>
+          <div className="inv-top-cell inv-card inv-barcode-wrap">
             {!isB2cCustomer ? (
               <div className="inv-logo-above-barcode">
                 <img
@@ -203,13 +231,9 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             ) : null}
             <InvoiceNumberScanCodes invoiceNumber={scanInvoiceNumber} className="mt-1 shrink-0" />
           </div>
-          <div className="inv-top-cell inv-qr-wrap" style={{ width: "32%" }}>
+          <div className="inv-top-cell inv-card inv-qr-wrap">
             {hasEinvoiceQr ? (
-              <EinvoiceSignedQr
-                signedPayload={data.einvoiceQr}
-                irn={data.irn}
-                className="mt-0"
-              />
+              <EinvoiceSignedQr signedPayload={data.einvoiceQr} irn={data.irn} className="mt-0" />
             ) : isB2cCustomer ? (
               <div className="inv-logo-above-barcode" style={{ marginTop: 0 }}>
                 <img
@@ -225,38 +249,37 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </div>
         </div>
 
-        {/* Bill From / Bill To */}
         <div className="inv-party-grid">
           <div className="inv-party-col">
-            <div className="inv-section-head">Bill From (Seller)</div>
-            <div className="inv-party-body">
-              <p style={{ fontWeight: 700, margin: "0 0 4px" }}>{data.seller.legalName}</p>
+            <InvSecPill icon={<InvIconStore />}>Bill From (Seller)</InvSecPill>
+            <div className="inv-party-body inv-card-body">
+              <p className="inv-party-name">{data.seller.legalName}</p>
               {data.seller.addressLines.map((line) => (
-                <p key={line} style={{ margin: "0 0 2px" }}>
+                <p key={line} className="inv-party-line">
                   {line}
                 </p>
               ))}
               {data.seller.phone ? (
-                <p style={{ margin: "4px 0 0" }}>
-                  <strong>PH:</strong> {data.seller.phone}
+                <p className="inv-party-contact">
+                  <InvIconPhone className="inv-ic inv-ic-inline" />
+                  <span>{data.seller.phone}</span>
                 </p>
               ) : null}
               {data.seller.email ? (
-                <p style={{ margin: 0 }}>
-                  <strong>EMail:</strong> {data.seller.email}
+                <p className="inv-party-contact">
+                  <InvIconMail className="inv-ic inv-ic-inline" />
+                  <span>{data.seller.email}</span>
                 </p>
               ) : null}
-              <p style={{ margin: "4px 0 0" }}>
-                <strong>GSTIN:</strong>{" "}
-                <span className="mono" style={{ fontFamily: "Consolas, monospace" }}>
-                  {data.seller.gstin}
-                </span>
+              <p className="inv-party-contact">
+                <InvIconGstin className="inv-ic inv-ic-inline" />
+                <span className="mono">{data.seller.gstin}</span>
               </p>
             </div>
           </div>
           <div className="inv-party-col">
-            <div className="inv-section-head">Bill To (Customer)</div>
-            <div className="inv-party-body">
+            <InvSecPill icon={<InvIconPerson />}>Bill To (Customer)</InvSecPill>
+            <div className="inv-party-body inv-card-body">
               <table className="inv-field-table inv-bill-to-table">
                 <colgroup>
                   <col className="inv-col-bill-label" />
@@ -297,11 +320,12 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </div>
         </div>
 
-        {/* Product information */}
         {productInfoRows.length > 0 ? (
           <div className="inv-product-panel">
-            <div className="inv-section-head inv-product-section-head">Product Information</div>
-            <ProductInfoTable rows={productInfoRows} />
+            <InvSecPill icon={<InvIconBox />}>Product Information</InvSecPill>
+            <div className="inv-card-body inv-product-body">
+              <ProductInfoTable rows={productInfoRows} />
+            </div>
           </div>
         ) : null}
 
@@ -313,9 +337,9 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
               <th>Spare Code</th>
               <th>Item Name</th>
               <th>HSN/SAC Number</th>
-              <th className="num">Price</th>
+              <th className="num">Price (₹)</th>
               <th className="num">Quantity</th>
-              <th className="num">Gross Value</th>
+              <th className="num">Gross Value (₹)</th>
             </tr>
           </thead>
           <tbody>
@@ -348,62 +372,57 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </tfoot>
         </table>
 
-        {/* Payment + totals */}
         <div className="inv-bottom-grid">
-          <div className="inv-bottom-col" style={{ width: "50%" }}>
-            <div className="inv-section-head" style={{ margin: "-10px -10px 8px", borderTop: "none" }}>
-              Payment Modes
-            </div>
-            <table className="inv-pay-table">
-              <tbody>
-                {(data.advanceAmount ?? 0) > 0 ? (
-                  <tr>
-                    <td className="inv-pay-label">Advance Amount</td>
-                    <td className="inv-pay-value">{fmt(data.advanceAmount ?? 0)}</td>
-                  </tr>
-                ) : null}
-            {data.paymentSplits && data.paymentSplits.length > 0
-              ? data.paymentSplits.map((split) => (
-                      <tr key={split.mode}>
-                        <td className="inv-pay-label">
-                          {(data.advanceAmount ?? 0) > 0 ? `Balance — ${split.mode}` : split.mode}
-                        </td>
-                        <td className="inv-pay-value">
-                          {fmt(split.amountInr)}
-                          {split.reference?.trim() ? ` (${split.reference.trim()})` : ""}
-                        </td>
-                      </tr>
-                ))
-              : (data.balanceCollectedInr ?? 0) > 0 &&
-                  ((data.advanceAmount ?? 0) > 0 || data.paymentMode)
-                ? (
-                        <tr>
+          <div className="inv-bottom-col">
+            <InvSecPill icon={<InvIconWallet />}>Payment Summary</InvSecPill>
+            <div className="inv-pay-card">
+              <table className="inv-pay-table">
+                <tbody>
+                  {(data.advanceAmount ?? 0) > 0 ? (
+                    <tr>
+                      <td className="inv-pay-label">Advance Amount</td>
+                      <td className="inv-pay-value">₹ {fmt(data.advanceAmount ?? 0)}</td>
+                    </tr>
+                  ) : null}
+                  {data.paymentSplits && data.paymentSplits.length > 0
+                    ? data.paymentSplits.map((split) => (
+                        <tr key={split.mode}>
                           <td className="inv-pay-label">
-                            {(data.advanceAmount ?? 0) > 0
-                              ? data.paymentMode
-                                ? `Balance — ${data.paymentMode}`
-                                : "Balance collected"
-                              : data.paymentMode
-                                ? `${data.paymentMode} Payment`
-                                : "Amount paid"}
+                            {(data.advanceAmount ?? 0) > 0 ? `Balance — ${split.mode}` : split.mode}
                           </td>
-                          <td className="inv-pay-value">{fmt(data.balanceCollectedInr ?? 0)}</td>
+                          <td className="inv-pay-value">
+                            ₹ {fmt(split.amountInr)}
+                            {split.reference?.trim() ? ` (${split.reference.trim()})` : ""}
+                          </td>
                         </tr>
-                  )
-                : null}
-                <tr>
-                  <td className="inv-pay-label">Invoice total (incl. GST)</td>
-                  <td className="inv-pay-value">{fmt(data.netPayable ?? data.amountPaid ?? data.totalAmount)}</td>
-                </tr>
-              </tbody>
-            </table>
-            {data.notes ? (
-              <p style={{ marginTop: 8, fontStyle: "italic", color: "#4a5568" }}>
-                Remarks: {data.notes}
-              </p>
-            ) : null}
+                      ))
+                    : (data.balanceCollectedInr ?? 0) > 0 &&
+                        ((data.advanceAmount ?? 0) > 0 || data.paymentMode)
+                      ? (
+                          <tr>
+                            <td className="inv-pay-label">
+                              {(data.advanceAmount ?? 0) > 0
+                                ? data.paymentMode
+                                  ? `Balance — ${data.paymentMode}`
+                                  : "Balance collected"
+                                : data.paymentMode
+                                  ? `${data.paymentMode} Payment`
+                                  : "Amount paid"}
+                            </td>
+                            <td className="inv-pay-value">₹ {fmt(data.balanceCollectedInr ?? 0)}</td>
+                          </tr>
+                        )
+                      : null}
+                  <tr className="inv-pay-total-row">
+                    <td className="inv-pay-label">Invoice total (incl. GST)</td>
+                    <td className="inv-pay-value">₹ {fmt(data.netPayable ?? data.amountPaid ?? data.totalAmount)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              {data.notes ? <p className="inv-pay-notes">Remarks: {data.notes}</p> : null}
+            </div>
           </div>
-          <div className="inv-bottom-col" style={{ width: "50%" }}>
+          <div className="inv-bottom-col">
             <div className="inv-totals-box">
               <table className="inv-totals-table">
                 <tbody>
@@ -418,9 +437,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
                   {(data.roundOffInr ?? 0) !== 0 ? (
                     <tr>
                       <td className="inv-total-label">Round off</td>
-                      <td className="inv-total-value">
-                        ₹ {fmtSigned(data.roundOffInr ?? 0)}
-                      </td>
+                      <td className="inv-total-value">₹ {fmtSigned(data.roundOffInr ?? 0)}</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -437,73 +454,68 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </div>
         </div>
 
-        {/* Tax breakdown */}
         {data.taxBreakdownRows && data.taxBreakdownRows.length > 0 ? (
-          <div className="inv-product-panel">
-            <div className="inv-section-head" style={{ margin: "0 -10px 8px", borderTop: "none" }}>
-              Tax Summary
-            </div>
-            {(() => {
-              const rows = data.taxBreakdownRows;
-              const showIgst = rows.some((r) => r.igst > 0);
-              const showCgstSgst = rows.some((r) => r.cgst > 0 || r.sgst > 0);
-              return (
-                <table className="inv-tax-table">
-                  <thead>
-                    <tr>
-                      <th>Tax Description</th>
-                      <th style={{ textAlign: "right" }}>Taxable Amount</th>
-                      {showCgstSgst ? <th style={{ textAlign: "right" }}>CGST</th> : null}
-                      {showCgstSgst ? <th style={{ textAlign: "right" }}>SGST</th> : null}
-                      {showIgst ? <th style={{ textAlign: "right" }}>IGST</th> : null}
-                      <th style={{ textAlign: "right" }}>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r, idx) => (
-                      <tr key={`${r.description}-${idx}`}>
-                        <td>{r.description}</td>
-                        <td style={{ textAlign: "right" }}>{fmt(r.taxable)}</td>
-                        {showCgstSgst ? <td style={{ textAlign: "right" }}>{fmt(r.cgst)}</td> : null}
-                        {showCgstSgst ? <td style={{ textAlign: "right" }}>{fmt(r.sgst)}</td> : null}
-                        {showIgst ? <td style={{ textAlign: "right" }}>{fmt(r.igst)}</td> : null}
-                        <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(r.total)}</td>
+          <div className="inv-tax-panel">
+            <InvSecPill icon={<InvIconTax />}>Tax Summary</InvSecPill>
+            <div className="inv-card-body inv-tax-body">
+              {(() => {
+                const rows = data.taxBreakdownRows;
+                const showIgst = rows.some((r) => r.igst > 0);
+                const showCgstSgst = rows.some((r) => r.cgst > 0 || r.sgst > 0);
+                return (
+                  <table className="inv-tax-table">
+                    <thead>
+                      <tr>
+                        <th>Tax Description</th>
+                        <th className="num">Taxable Amount</th>
+                        {showCgstSgst ? <th className="num">CGST</th> : null}
+                        {showCgstSgst ? <th className="num">SGST</th> : null}
+                        {showIgst ? <th className="num">IGST</th> : null}
+                        <th className="num">Total</th>
                       </tr>
-                    ))}
-                    <tr style={{ fontWeight: 700, background: "#e8edf8" }}>
-                      <td>Total</td>
-                      <td style={{ textAlign: "right" }}>
-                        {fmt(rows.reduce((s, r) => s + r.taxable, 0))}
-                      </td>
-                      {showCgstSgst ? (
-                        <td style={{ textAlign: "right" }}>{fmt(rows.reduce((s, r) => s + r.cgst, 0))}</td>
-                      ) : null}
-                      {showCgstSgst ? (
-                        <td style={{ textAlign: "right" }}>{fmt(rows.reduce((s, r) => s + r.sgst, 0))}</td>
-                      ) : null}
-                      {showIgst ? (
-                        <td style={{ textAlign: "right" }}>{fmt(rows.reduce((s, r) => s + r.igst, 0))}</td>
-                      ) : null}
-                      <td style={{ textAlign: "right" }}>{fmt(rows.reduce((s, r) => s + r.total, 0))}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              );
-            })()}
+                    </thead>
+                    <tbody>
+                      {rows.map((r, idx) => (
+                        <tr key={`${r.description}-${idx}`}>
+                          <td>{r.description}</td>
+                          <td className="num">{fmt(r.taxable)}</td>
+                          {showCgstSgst ? <td className="num">{fmt(r.cgst)}</td> : null}
+                          {showCgstSgst ? <td className="num">{fmt(r.sgst)}</td> : null}
+                          {showIgst ? <td className="num">{fmt(r.igst)}</td> : null}
+                          <td className="num inv-tax-row-total">{fmt(r.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td>Total</td>
+                        <td className="num">{fmt(rows.reduce((s, r) => s + r.taxable, 0))}</td>
+                        {showCgstSgst ? <td className="num">{fmt(rows.reduce((s, r) => s + r.cgst, 0))}</td> : null}
+                        {showCgstSgst ? <td className="num">{fmt(rows.reduce((s, r) => s + r.sgst, 0))}</td> : null}
+                        {showIgst ? <td className="num">{fmt(rows.reduce((s, r) => s + r.igst, 0))}</td> : null}
+                        <td className="num">{fmt(rows.reduce((s, r) => s + r.total, 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                );
+              })()}
+            </div>
           </div>
         ) : null}
 
-        {/* Footer — page 1 */}
         <div className="inv-footer">
           <div className="inv-footer-left">
             {data.generatedBy ? (
-              <p style={{ margin: 0 }}>
-                <strong>Invoice generated by:</strong> {data.generatedBy}
+              <p className="inv-footer-gen">
+                <InvIconPen className="inv-ic inv-ic-inline" />
+                <span>
+                  <strong>Invoice generated by:</strong> {data.generatedBy}
+                </span>
               </p>
             ) : null}
             {data.invoiceLegalFooter ? (
-              <p style={{ margin: "6px 0 0", fontWeight: 700 }}>
-                For {data.invoiceLegalFooter}
+              <p className="inv-footer-for">
+                For <strong>{data.invoiceLegalFooter}</strong>
               </p>
             ) : null}
           </div>

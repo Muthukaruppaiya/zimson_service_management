@@ -90,6 +90,15 @@ export function IconViewBelow({ className = stroke }: IconProps) {
   );
 }
 
+export function IconPreview({ className = stroke }: IconProps) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function IconSpinner({ className = "h-7 w-7" }: IconProps) {
   return (
     <svg className={`animate-spin ${className}`} fill="none" viewBox="0 0 24 24" aria-hidden>
