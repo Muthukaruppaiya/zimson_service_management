@@ -1254,10 +1254,13 @@ export function QuickBillPage() {
       setError("Bill total must be greater than zero for this nature of repair.");
       return false;
     }
-    const payErr = validateMultiPaymentForm(multiPaymentForm, payableTotal);
-    if (payErr) {
-      setError(payErr);
-      return false;
+    // Zero-value bills (e.g. warranty non-chargeable) collect no payment — skip payment validation.
+    if (payableTotal > 0) {
+      const payErr = validateMultiPaymentForm(multiPaymentForm, payableTotal);
+      if (payErr) {
+        setError(payErr);
+        return false;
+      }
     }
     return true;
   }
@@ -1299,7 +1302,11 @@ export function QuickBillPage() {
         return;
       }
       const tech = technicians.find((t) => t.id === technicianId);
-      const paymentPayload = buildMultiPaymentPayload(multiPaymentForm, payableTotal);
+      // Zero-value bills (warranty non-chargeable) collect no payment — send an empty payment.
+      const paymentPayload =
+        payableTotal > 0
+          ? buildMultiPaymentPayload(multiPaymentForm, payableTotal)
+          : { paymentMode: "", paymentDetails: {} };
       if ("error" in paymentPayload) {
         setError(paymentPayload.error);
         return;

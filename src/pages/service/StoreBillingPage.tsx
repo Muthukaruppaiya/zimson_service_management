@@ -457,10 +457,13 @@ export function StoreBillingPage() {
       setMessage({ type: "err", text: "Enter a valid final billing amount." });
       return false;
     }
-    const payErr = validateMultiPaymentForm(multiPaymentForm, finalBillingAmount);
-    if (payErr) {
-      setMessage({ type: "err", text: payErr });
-      return false;
+    // Zero-value bills (e.g. warranty non-chargeable) collect no payment — skip payment validation.
+    if (finalBillingAmount > 0) {
+      const payErr = validateMultiPaymentForm(multiPaymentForm, finalBillingAmount);
+      if (payErr) {
+        setMessage({ type: "err", text: payErr });
+        return false;
+      }
     }
     return true;
   }
@@ -541,15 +544,21 @@ export function StoreBillingPage() {
       setMessage({ type: "err", text: "Enter a valid final billing amount." });
       return;
     }
-    const payPayload = buildMultiPaymentPayload(multiPaymentForm, finalAmount);
+    // Zero-value bills (warranty non-chargeable) collect no payment — use an empty payment.
+    const payPayload =
+      finalAmount > 0
+        ? buildMultiPaymentPayload(multiPaymentForm, finalAmount)
+        : { paymentMode: "", paymentDetails: {} };
     if ("error" in payPayload) {
       setMessage({ type: "err", text: payPayload.error });
       return;
     }
-    const payErr = validateMultiPaymentForm(multiPaymentForm, finalAmount);
-    if (payErr) {
-      setMessage({ type: "err", text: payErr });
-      return;
+    if (finalAmount > 0) {
+      const payErr = validateMultiPaymentForm(multiPaymentForm, finalAmount);
+      if (payErr) {
+        setMessage({ type: "err", text: payErr });
+        return;
+      }
     }
     setClosingAfterOtp(true);
     setMessage(null);

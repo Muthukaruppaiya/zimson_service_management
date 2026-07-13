@@ -961,17 +961,22 @@ export function registerQuickBillRoutes(
       gstResult.grossTaxable,
     );
 
-    const paymentNorm = normalizePaymentForTotal(
-      totalInr,
-      String(req.body?.paymentMode ?? "Cash"),
-      req.body?.paymentDetails,
-    );
-    if (!paymentNorm.ok) {
-      res.status(400).json({ error: paymentNorm.error });
-      return;
+    // Zero-value bills (e.g. warranty non-chargeable) collect no payment — skip payment normalization.
+    let paymentMode = "";
+    let paymentDetailsToStore: AdvancePaymentDetails = {};
+    if (totalInr > 0) {
+      const paymentNorm = normalizePaymentForTotal(
+        totalInr,
+        String(req.body?.paymentMode ?? "Cash"),
+        req.body?.paymentDetails,
+      );
+      if (!paymentNorm.ok) {
+        res.status(400).json({ error: paymentNorm.error });
+        return;
+      }
+      paymentMode = paymentNorm.value.paymentMode;
+      paymentDetailsToStore = paymentNorm.value.paymentDetails;
     }
-    const paymentMode = paymentNorm.value.paymentMode;
-    const paymentDetailsToStore: AdvancePaymentDetails = paymentNorm.value.paymentDetails;
 
     const client = await pool.connect();
     try {
