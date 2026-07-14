@@ -3878,11 +3878,8 @@ app.put("/api/customers/:id", async (req, res) => {
 if (process.env.NODE_ENV === "production") {
   const dist = join(__dirname, "..", "dist");
   if (existsSync(dist)) {
-    // One login screen only — trailing-slash static folder must not serve a second design.
-    app.get(["/login/", "/login/index.html"], (_req, res) => {
-      res.redirect(301, "/login");
-    });
-    app.use(express.static(dist));
+    // redirect:false — avoid /login ↔ /login/ loop when a static login/ folder exists in dist
+    app.use(express.static(dist, { redirect: false, index: false }));
     app.get(/^(?!\/api).*/, (_req, res) => {
       res.sendFile(join(dist, "index.html"));
     });
