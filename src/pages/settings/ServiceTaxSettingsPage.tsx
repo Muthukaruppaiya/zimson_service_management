@@ -5,6 +5,7 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { applyAppFavicon } from "../../lib/appBranding";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../../lib/hsnGst";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 
 const inputClass =
@@ -27,7 +28,7 @@ export function ServiceTaxSettingsPage() {
   const [cgstRatePercent, setCgstRatePercent] = useState("9");
   const [sgstRatePercent, setSgstRatePercent] = useState("9");
   const [igstRatePercent, setIgstRatePercent] = useState("18");
-  const [defaultSacHsn, setDefaultSacHsn] = useState("9987");
+  const [defaultSacHsn, setDefaultSacHsn] = useState(DEFAULT_SERVICE_SAC);
   const [invoiceNumberTemplate, setInvoiceNumberTemplate] = useState("{CODE}{FY2}-{SEQ}");
   const [invoiceNumberSeqWidth, setInvoiceNumberSeqWidth] = useState("5");
   const [pricesTaxInclusive, setPricesTaxInclusive] = useState(false);
@@ -66,7 +67,7 @@ export function ServiceTaxSettingsPage() {
       setCgstRatePercent(String(s.cgstRatePercent));
       setSgstRatePercent(String(s.sgstRatePercent));
       setIgstRatePercent(String(s.igstRatePercent));
-      setDefaultSacHsn(s.defaultSacHsn);
+      setDefaultSacHsn(formatPrintedHsnSac(s.defaultSacHsn));
       setInvoiceNumberTemplate(s.invoiceNumberTemplate ?? "{CODE}{FY2}-{SEQ}");
       setInvoiceNumberSeqWidth(String(s.invoiceNumberSeqWidth ?? 5));
       setPricesTaxInclusive(s.pricesTaxInclusive);
@@ -112,7 +113,7 @@ export function ServiceTaxSettingsPage() {
         cgstRatePercent: Number.parseFloat(cgstRatePercent),
         sgstRatePercent: Number.parseFloat(sgstRatePercent),
         igstRatePercent: Number.parseFloat(igstRatePercent),
-        defaultSacHsn: defaultSacHsn.trim(),
+        defaultSacHsn: formatPrintedHsnSac(defaultSacHsn.trim()),
         invoiceNumberTemplate: invoiceNumberTemplate.trim(),
         invoiceNumberSeqWidth: Math.min(8, Math.max(4, Math.round(Number.parseInt(invoiceNumberSeqWidth, 10) || 5))),
         pricesTaxInclusive,
@@ -147,7 +148,7 @@ export function ServiceTaxSettingsPage() {
       setCgstRatePercent(String(s.cgstRatePercent));
       setSgstRatePercent(String(s.sgstRatePercent));
       setIgstRatePercent(String(s.igstRatePercent));
-      setDefaultSacHsn(s.defaultSacHsn);
+      setDefaultSacHsn(formatPrintedHsnSac(s.defaultSacHsn));
       setInvoiceNumberTemplate(s.invoiceNumberTemplate ?? "{CODE}{FY2}-{SEQ}");
       setInvoiceNumberSeqWidth(String(s.invoiceNumberSeqWidth ?? 5));
       setPricesTaxInclusive(s.pricesTaxInclusive);
@@ -277,7 +278,7 @@ export function ServiceTaxSettingsPage() {
                   value={defaultSacHsn}
                   onChange={(e) => setDefaultSacHsn(e.target.value)}
                   className={inputClass}
-                  placeholder="9987"
+                  placeholder={DEFAULT_SERVICE_SAC}
                 />
               </div>
               <div className="flex items-end">

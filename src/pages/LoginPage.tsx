@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { IconLock, IconUser } from "../components/auth/LoginIcons";
-import { LoginRibbonBg } from "../components/auth/LoginRibbon";
 import { LoginStorePickerModal } from "../components/auth/LoginStorePickerModal";
 import { AppBootLoader } from "../components/ui/AppBootLoader";
 import { useAuth } from "../context/AuthContext";
 import { ApiError, apiJson } from "../lib/api";
 import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
+import "../styles/zimson-login.css";
 
 const LOGIN_BOOT_MIN_MS = 700;
 
@@ -105,146 +104,195 @@ export function LoginPage() {
   }
 
   return (
-    <div
-      className="relative min-h-screen flex items-center justify-center overflow-hidden px-4 py-10 bg-[#071d49] bg-cover bg-center bg-no-repeat"
-      style={{ backgroundImage: "url(/LOGIN_BG.png)" }}
-    >
-      <div className="relative w-full max-w-md">
-        <div className="mb-6 flex w-full flex-col items-center">
-          <div className="relative h-14 w-full">
-            <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-10 sm:-translate-y-12">
-              <div className="rounded-md border-4 border-[#d4af37] bg-white px-6 py-2.5 shadow-[0_0_18px_rgba(212,175,55,0.55)]">
-                <img src="/zimson-logo.png" alt="ZIMSON" className="h-10 w-auto object-contain" />
-              </div>
-            </div>
-          </div>
-          <div className="flex w-full max-w-[320px] items-center justify-center gap-2.5">
-            <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[#d4af37]" />
-            <span className="shrink-0 text-[11px] font-semibold tracking-[0.28em] text-[#d4af37] uppercase whitespace-nowrap">
-              Service Management Suite
-            </span>
-            <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[#d4af37]" />
-          </div>
-        </div>
-
-        <div className="zimson-login-card rounded-[28px] bg-white shadow-xl overflow-hidden">
-          <div className="zimson-login-ribbon-wrap">
-            <LoginRibbonBg className="zimson-login-ribbon-bg" />
-            <div className="zimson-login-ribbon-content relative z-10 text-white">
-              <p className="zimson-login-ribbon-eyebrow">Welcome back</p>
-              <div className="zimson-login-ribbon-title">
-                <span className="zimson-login-ribbon-dot" aria-hidden="true" />
-                <h1>Sign in</h1>
-                <span className="zimson-login-ribbon-dot" aria-hidden="true" />
-              </div>
-            </div>
-          </div>
-
-          <div className="px-7 pt-6 pb-7">
-            <form onSubmit={handleSubmit} noValidate className="space-y-4">
-            <div>
-              <label htmlFor="login-emp" className="block text-sm font-medium text-gray-700 mb-1">
-                Username
-              </label>
-              <div className="flex items-center gap-3">
-                <span className="rounded-full flex items-center justify-center w-10 h-10 flex-shrink-0 bg-amber-50 border border-amber-200 text-amber-600 [&_svg]:w-5 [&_svg]:h-5">
-                  <IconUser />
-                </span>
-                <input
-                  id="login-emp"
-                  type="text"
-                  autoComplete="username"
-                  value={loginId}
-                  onChange={(e) => {
-                    setLoginId(sanitizeLoginIdInput(e.target.value));
-                    setAlreadyLoggedIn(false);
-                  }}
-                  placeholder="e.g. jsmith"
-                  required
-                  className="zimson-login-input flex-1 min-w-0 border border-gray-300 rounded-full px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label htmlFor="login-password" className="block text-sm font-medium text-gray-700">
-                  Password
-                </label>
-                <Link to="/login/forgot-password" className="text-xs text-blue-600 hover:underline">
-                  Forgot password?
-                </Link>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="rounded-full flex items-center justify-center w-10 h-10 flex-shrink-0 bg-amber-50 border border-amber-200 text-amber-600 [&_svg]:w-5 [&_svg]:h-5">
-                  <IconLock />
-                </span>
-                <input
-                  id="login-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(sanitizePasswordInput(e.target.value));
-                    setAlreadyLoggedIn(false);
-                  }}
-                  placeholder="••••••••"
-                  required
-                  className="zimson-login-input flex-1 min-w-0 border border-gray-300 rounded-full px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-              />
-              Remember me
-            </label>
-
-            {alreadyLoggedIn ? (
-              <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                <p className="font-medium">Account already in use</p>
-                <p>
-                  {error ??
-                    "Someone is already signed in with this account. They must sign out, or you can end all sessions with your password below."}
-                </p>
-                <button
-                  type="button"
-                  disabled={signOutAllBusy}
-                  onClick={() => void handleSignOutAllDevices()}
-                  className="mt-2 text-sm font-medium text-amber-900 underline disabled:opacity-60"
-                >
-                  {signOutAllBusy ? "Signing out all devices…" : "Sign out all devices & try again"}
-                </button>
-              </div>
-            ) : error ? (
-              <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
-            ) : null}
-
-            {signOutAllNote ? (
-              <div className="rounded border border-green-300 bg-green-50 p-3 text-sm text-green-700">
-                {signOutAllNote}
-              </div>
-            ) : null}
-
-            <button
-              type="submit"
-              className="w-full rounded-full py-2.5 text-sm font-bold tracking-wide uppercase text-[#132b63] shadow-[0_8px_18px_rgba(191,132,5,0.4)] transition hover:brightness-105"
-              style={{ background: "linear-gradient(90deg, #bf8405, #ffd24d)" }}
-            >
-              Sign in
-            </button>
-            </form>
-
-            <p className="mt-4 text-center text-sm text-gray-500">
-              Having trouble? <Link to="/" className="text-blue-600 hover:underline">Go to home</Link>
-            </p>
-          </div>
-        </div>
+    <div className="zimson-login">
+      <div className="zimson-login__bg" aria-hidden="true">
+        <div className="zimson-login__bg-texture" />
+        <svg className="zimson-login__swoosh zimson-login__swoosh--bl" viewBox="0 0 400 80" fill="none">
+          <defs>
+            <linearGradient id="sw-bl" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#B8860B" stopOpacity="0" />
+              <stop offset="40%" stopColor="#C5911B" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#D4A017" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M0 55 C80 20, 160 70, 240 40 S 360 10, 400 35"
+            stroke="url(#sw-bl)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+        </svg>
+        <svg className="zimson-login__swoosh zimson-login__swoosh--br" viewBox="0 0 400 80" fill="none">
+          <defs>
+            <linearGradient id="sw-br" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#B8860B" stopOpacity="0" />
+              <stop offset="40%" stopColor="#C5911B" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#D4A017" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M0 55 C80 20, 160 70, 240 40 S 360 10, 400 35"
+            stroke="url(#sw-br)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+        </svg>
+        <div className="zimson-login__watermark">Z</div>
       </div>
+
+      <main className="zimson-login__main">
+        <header className="zimson-login__brand">
+          <div className="zimson-login__logo-wrap">
+            <img className="zimson-login__logo" src="/zimson-logo.png" alt="ZIMSON" />
+          </div>
+          <div className="zimson-login__tagline-row">
+            <span className="zimson-login__tagline-line">
+              <span className="zimson-login__tagline-dot" />
+            </span>
+            <span className="zimson-login__tagline-text">Service Management Suite</span>
+            <span className="zimson-login__tagline-line">
+              <span className="zimson-login__tagline-dot" />
+            </span>
+          </div>
+        </header>
+
+        <section className="zimson-login__card" aria-labelledby="login-title">
+          <div className="zimson-login__ribbon">
+            <p className="zimson-login__welcome">Welcome back</p>
+            <div className="zimson-login__title-row">
+              <span className="zimson-login__ornament" />
+              <h1 className="zimson-login__title" id="login-title">
+                Sign in
+              </h1>
+              <span className="zimson-login__ornament zimson-login__ornament--right" />
+            </div>
+          </div>
+
+          <div className="zimson-login__body">
+            <form onSubmit={handleSubmit} noValidate>
+              <div className="zimson-login__field">
+                <label className="zimson-login__label" htmlFor="login-emp">
+                  Username
+                </label>
+                <div className="zimson-login__input-row">
+                  <span className="zimson-login__input-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="8" r="3.5" />
+                      <path d="M5 20c0-3.5 3.13-6 7-6s7 2.5 7 6" />
+                    </svg>
+                  </span>
+                  <div className="zimson-login__input-box">
+                    <input
+                      className="zimson-login__input"
+                      id="login-emp"
+                      type="text"
+                      autoComplete="username"
+                      value={loginId}
+                      onChange={(e) => {
+                        setLoginId(sanitizeLoginIdInput(e.target.value));
+                        setAlreadyLoggedIn(false);
+                      }}
+                      placeholder="e.g. jsmith"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="zimson-login__field">
+                <div className="zimson-login__field-row">
+                  <label className="zimson-login__label" htmlFor="login-password">
+                    Password
+                  </label>
+                  <Link className="zimson-login__forgot" to="/login/forgot-password">
+                    Forgot password?
+                  </Link>
+                </div>
+                <div className="zimson-login__input-row">
+                  <span className="zimson-login__input-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="6" y="11" width="12" height="9" rx="1.5" />
+                      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                    </svg>
+                  </span>
+                  <div className="zimson-login__input-box">
+                    <input
+                      className="zimson-login__input"
+                      id="login-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(sanitizePasswordInput(e.target.value));
+                        setAlreadyLoggedIn(false);
+                      }}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <label className="zimson-login__remember">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <span>Remember me</span>
+              </label>
+
+              {alreadyLoggedIn ? (
+                <div className="zimson-login__alert zimson-login__alert--warn">
+                  <p className="zimson-login__alert-title">Account already in use</p>
+                  <p>
+                    {error ??
+                      "Someone is already signed in with this account. They must sign out, or you can end all sessions with your password below."}
+                  </p>
+                  <button
+                    type="button"
+                    className="zimson-login__alert-btn"
+                    disabled={signOutAllBusy}
+                    onClick={() => void handleSignOutAllDevices()}
+                  >
+                    {signOutAllBusy ? "Signing out all devices…" : "Sign out all devices & try again"}
+                  </button>
+                </div>
+              ) : error ? (
+                <div className="zimson-login__alert zimson-login__alert--error">{error}</div>
+              ) : null}
+
+              {signOutAllNote ? (
+                <div className="zimson-login__alert zimson-login__alert--success">{signOutAllNote}</div>
+              ) : null}
+
+              <button className="zimson-login__submit" type="submit">
+                Sign in
+                <svg viewBox="0 0 24 24">
+                  <path d="M13.5 5.5 19 11H5v2h14l-5.5 5.5 1.4 1.4L22.8 12l-7.9-7.9-1.4 1.4Z" />
+                </svg>
+              </button>
+
+              <div className="zimson-login__or" aria-hidden="true">
+                or
+              </div>
+            </form>
+          </div>
+
+          <div className="zimson-login__footer">
+            <div className="zimson-login__support">
+              <span className="zimson-login__support-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 3a8 8 0 0 0-8 8v5a3 3 0 0 0 3 3h1v-7H5a6 6 0 1 1 12 0h-3v7h1a3 3 0 0 0 3-3v-5a8 8 0 0 0-8-8Zm-5 13h2a2 2 0 0 1-2 2v2a2 2 0 0 0 2 2h1v-6H7Zm11 0v6h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-1Z" />
+                </svg>
+              </span>
+              <span>
+                Having trouble? <Link to="/">Go to home</Link>
+              </span>
+            </div>
+          </div>
+        </section>
+      </main>
 
       <LoginStorePickerModal
         open={storePickerOpen}

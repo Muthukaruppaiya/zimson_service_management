@@ -41,6 +41,7 @@ import {
   taxSettingsForStoreBilling,
 } from "../../lib/quickBillPricing";
 import { billableServiceChargeInr } from "../../lib/natureOfRepair";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../../lib/hsnGst";
 import {
   editorLinesBillableSubtotal,
   editorLinesToGstLines,
@@ -67,7 +68,6 @@ import { captureInvoicePdfFromViewModel } from "../../lib/renderInvoiceForPdf";
 import type { CustomerRecord } from "../../types/customer";
 import type { QuickBillEdocInfo } from "../../types/quickBill";
 import {
-  ADVANCE_CASH_DENOMS,
   buildMultiPaymentPayload,
   emptyMultiPaymentForm,
   validateMultiPaymentForm,
@@ -226,7 +226,9 @@ export function StoreBillingPage() {
     () => taxSettingsForStoreBilling(serviceTaxSettings),
     [serviceTaxSettings],
   );
-  const invoiceSacHsn = storeBillingTaxSettings?.defaultSacHsn?.trim() || "9987";
+  const invoiceSacHsn = formatPrintedHsnSac(
+    storeBillingTaxSettings?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC,
+  );
 
   const spareGstLookup = useCallback(
     (spareId: string) => {
@@ -1178,26 +1180,10 @@ export function StoreBillingPage() {
                         <span className="font-semibold text-zimson-900">{billingJob.advancePaymentMode}</span>
                         {(() => {
                           const det = billingJob.advancePaymentDetails as AdvancePaymentDetails | null | undefined;
-                          if (!det) return null;
-                          if (billingJob.advancePaymentMode === "Cash" && det.cash) {
-                            const c = det.cash;
-                            const parts: string[] = [];
-                            for (const { key, label } of ADVANCE_CASH_DENOMS) {
-                              const q = Number(c[key]);
-                              if (Number.isFinite(q) && q > 0) parts.push(`${label.replace(" ×", "")}: ${q}`);
-                            }
-                            const coins = Number(c.coinsInr);
-                            if (Number.isFinite(coins) && coins > 0) parts.push(`Coins: INR ${coins.toFixed(2)}`);
-                            return parts.length ? (
-                              <span className="mt-1 block text-xs text-stone-600">{parts.join(" · ")}</span>
-                            ) : null;
-                          }
-                          if (det.reference) {
-                            return (
-                              <span className="mt-1 block text-xs text-stone-600">Ref: {det.reference}</span>
-                            );
-                          }
-                          return null;
+                          if (!det?.reference) return null;
+                          return (
+                            <span className="mt-1 block text-xs text-stone-600">Ref: {det.reference}</span>
+                          );
                         })()}
                       </td>
                     </tr>

@@ -1,4 +1,5 @@
 import { billableLineAmount, billableServiceChargeInr } from "./natureOfRepair";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "./hsnGst";
 import type { ServiceBillGstLine } from "./serviceBillGst";
 import type { SrfJob } from "../types/srfJob";
 
@@ -20,7 +21,7 @@ export function brandInvoiceToEditorLine(job: SrfJob, defaultSacHsn: string): Se
     id: `brand-invoice-${job.id}`,
     description: desc,
     amount: amt > 0 ? String(amt) : "",
-    hsn: defaultSacHsn,
+    hsn: formatPrintedHsnSac(defaultSacHsn || DEFAULT_SERVICE_SAC),
     locked: true,
   };
 }
@@ -109,23 +110,24 @@ export function resolveInvoiceBillLineHsn(
   spareHsnLookup?: (spareId: string) => string | null | undefined,
 ): string {
   const preset = line.hsnSac?.trim();
-  if (preset) return preset;
+  if (preset) return formatPrintedHsnSac(preset);
   const spareId = line.spareId?.trim();
   if (spareId && spareHsnLookup) {
     const fromMaster = spareHsnLookup(spareId)?.trim();
-    if (fromMaster) return fromMaster;
+    if (fromMaster) return formatPrintedHsnSac(fromMaster);
   }
-  return defaultSacHsn;
+  return formatPrintedHsnSac(defaultSacHsn || DEFAULT_SERVICE_SAC);
 }
 
 export function editorLinesToInvoiceBillLines(
   lines: ServiceBillEditorLine[],
   natureOfRepair: string | null | undefined,
   serviceChargeBillable: number,
-  defaultSacHsn = "9987",
+  defaultSacHsn = DEFAULT_SERVICE_SAC,
   spareHsnLookup?: (spareId: string) => string | null | undefined,
 ): InvoiceBillLine[] {
   const out: InvoiceBillLine[] = [];
+  const fallbackSac = formatPrintedHsnSac(defaultSacHsn || DEFAULT_SERVICE_SAC);
   for (const l of lines) {
     const amt = billableLineAmount(natureOfRepair, editorLineAmountInr(l), l.spareId);
     if (amt > 0 && l.description.trim()) {
@@ -135,7 +137,7 @@ export function editorLinesToInvoiceBillLines(
         description: l.description.trim(),
         amountInr: amt,
         spareId: l.spareId ?? null,
-        hsnSac: l.hsn?.trim() || spareHsn || (l.spareId ? null : defaultSacHsn),
+        hsnSac: formatPrintedHsnSac(l.hsn?.trim() || spareHsn || (l.spareId ? null : fallbackSac)),
       });
     }
   }
@@ -144,7 +146,7 @@ export function editorLinesToInvoiceBillLines(
       description: "Service / repair labour",
       amountInr: serviceChargeBillable,
       spareId: null,
-      hsnSac: defaultSacHsn,
+      hsnSac: fallbackSac,
     });
   }
   return out;

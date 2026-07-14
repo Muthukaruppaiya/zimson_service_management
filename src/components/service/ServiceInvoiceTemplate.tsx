@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
+import { formatPrintedHsnSac } from "../../lib/hsnGst";
 import { EinvoiceSignedQr } from "./EinvoiceSignedQr";
 import { InvoiceNumberScanCodes } from "./InvoiceNumberScanCodes";
 import {
@@ -351,7 +352,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
                 </td>
                 <td>{ln.description}</td>
                 <td className="mono" style={{ fontFamily: "Consolas, monospace" }}>
-                  {ln.hsnSac}
+                  {formatPrintedHsnSac(ln.hsnSac)}
                 </td>
                 <td className="num">{fmt(ln.unitPrice)}</td>
                 <td className="num">{ln.qty}</td>

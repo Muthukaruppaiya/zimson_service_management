@@ -10,6 +10,7 @@ import {
 } from "../../lib/gstSupply";
 import { computeServiceBillGst, resolveLineGstPercent } from "../../lib/serviceBillGst";
 import { COUNTER_PRICES_TAX_INCLUSIVE } from "../../lib/quickBillPricing";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../../lib/hsnGst";
 import type { QuickBillInvoice, QuickBillLineInvoice } from "../../types/quickBill";
 import type {
   PaymentSplit,
@@ -51,8 +52,22 @@ export type ServiceInvoiceMappingOptions = {
 };
 
 function resolvedHsnSac(options?: ServiceInvoiceMappingOptions): string {
-  const v = options?.defaultHsnSac?.trim();
-  return v || "9987";
+  const v = options?.defaultHsnSac?.trim() || options?.taxSettings?.defaultSacHsn?.trim();
+  return formatPrintedHsnSac(v || DEFAULT_SERVICE_SAC);
+}
+
+function lineHsnForInvoice(
+  ln: QuickBillLineInvoice & { hsnSac?: string },
+  defaultHsnSac: string,
+  spareHsnLookup?: (spareId: string) => string | null | undefined,
+): string {
+  const preset = ln.hsnSac?.trim();
+  if (preset) return formatPrintedHsnSac(preset);
+  if (ln.spareId && spareHsnLookup) {
+    const h = spareHsnLookup(ln.spareId)?.trim();
+    if (h) return formatPrintedHsnSac(h);
+  }
+  return formatPrintedHsnSac(defaultHsnSac || DEFAULT_SERVICE_SAC);
 }
 
 function watchDetailMetaRows(source: {
@@ -148,20 +163,6 @@ function mergeSellerFromSettings(
     legalFooter,
     footerTerms,
   };
-}
-
-function lineHsnForInvoice(
-  ln: QuickBillLineInvoice & { hsnSac?: string },
-  defaultHsnSac: string,
-  spareHsnLookup?: (spareId: string) => string | null | undefined,
-): string {
-  const preset = ln.hsnSac?.trim();
-  if (preset) return preset;
-  if (ln.spareId && spareHsnLookup) {
-    const h = spareHsnLookup(ln.spareId)?.trim();
-    if (h) return h;
-  }
-  return defaultHsnSac;
 }
 
 function buildGstLines(

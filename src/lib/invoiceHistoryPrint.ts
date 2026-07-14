@@ -13,6 +13,7 @@ import {
 import { phoneLast10 } from "./customerLookup";
 import { buildStoreBillingInvoiceFromClosedJob } from "./storeBillingAmounts";
 import { normalizeStoreBillingSnapshot } from "./storeBillingSnapshot";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "./hsnGst";
 
 export function invoiceHistoryPdfFilename(invoiceNumber: string): string {
   const base = invoiceNumber.replace(/[^\w.-]+/g, "_") || "invoice";
@@ -59,7 +60,7 @@ export function buildInvoiceVmFromHistoryRecord(
   record: ServiceInvoiceRecord,
   ctx: InvoiceHistoryPrintContext,
 ): ServiceInvoiceViewModel | null {
-  const defaultSacHsn = ctx.taxSettings?.defaultSacHsn?.trim() || "9987";
+  const defaultSacHsn = formatPrintedHsnSac(ctx.taxSettings?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC);
   const spareHsnLookup = (spareId: string) => ctx.spares.find((s) => s.id === spareId)?.hsn?.trim() || null;
   const spareGstLookup = (spareId: string) => ctx.spares.find((s) => s.id === spareId)?.gstPercent ?? null;
   const job = ctx.job ?? null;

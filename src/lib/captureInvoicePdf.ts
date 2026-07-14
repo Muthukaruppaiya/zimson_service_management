@@ -26,16 +26,22 @@ function stripNonInvoiceStylesheets(doc: Document): void {
 const CAPTURE_TEXT_SAFEGUARD_CSS = `
 .service-invoice-print-root.inv-pdf-capture,
 .service-invoice-print-root.inv-pdf-capture * {
-  font-family: "Poppins", Arial, "Helvetica Neue", Helvetica, sans-serif !important;
-  letter-spacing: normal !important;
-  word-spacing: normal !important;
+  font-family: Arial, "Helvetica Neue", Helvetica, sans-serif !important;
+  letter-spacing: 0.015em !important;
+  word-spacing: 0.06em !important;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
 }
 .service-invoice-print-root.inv-pdf-capture .inv-banner-title,
 .service-invoice-print-root.inv-pdf-capture .inv-sec-pill,
 .service-invoice-print-root.inv-pdf-capture .inv-sec-pill-txt {
-  letter-spacing: 0.04em !important;
+  letter-spacing: 0.05em !important;
+}
+.service-invoice-print-root.inv-pdf-capture .inv-meta-val.mono,
+.service-invoice-print-root.inv-pdf-capture .mono,
+.service-invoice-print-root.inv-pdf-capture .inv-field-value.mono {
+  font-family: "Courier New", Consolas, monospace !important;
+  letter-spacing: 0.02em !important;
 }
 `;
 

@@ -6,9 +6,12 @@
   margin-right: auto;
   background: #ffffff;
   color: #0d1b2a;
-  font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  /* Arial first — reliable metrics for print + html2canvas (Poppins drifts letters in PDF). */
+  font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
   font-size: 11px;
-  line-height: 1.35;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  word-spacing: 0.04em;
   box-shadow: 0 8px 28px rgba(13, 27, 42, 0.1);
   box-sizing: border-box;
   border-radius: 14px;
@@ -158,13 +161,23 @@
 
 .service-invoice-print-root.inv-doc .inv-party-name {
   font-weight: 700;
-  margin: 0 0 4px;
+  margin: 0 0 6px;
   color: #0d1b2a;
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.015em;
+  word-spacing: 0.06em;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 
 .service-invoice-print-root.inv-doc .inv-party-line {
-  margin: 0 0 2px;
+  margin: 0 0 4px;
   color: #0d1b2a;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  word-spacing: 0.05em;
+  overflow-wrap: anywhere;
 }
 
 .service-invoice-print-root.inv-doc .inv-party-contact {
@@ -561,15 +574,21 @@
   width: 38%;
   font-weight: 600;
   color: #64748b;
-  padding: 2px 6px 2px 0;
+  padding: 3px 10px 3px 0;
   vertical-align: top;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
 .service-invoice-print-root.inv-doc .inv-field-value {
   color: #0d1b2a;
   font-weight: 700;
-  padding: 2px 0;
+  padding: 3px 0 3px 4px;
   vertical-align: top;
+  letter-spacing: 0.01em;
+  word-spacing: 0.05em;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .service-invoice-print-root.inv-doc .inv-field-value.mono {
@@ -584,6 +603,7 @@
   border: 1px solid #1b3a8f;
   border-radius: 10px;
   overflow: hidden;
+  table-layout: fixed;
 }
 
 .service-invoice-print-root.inv-doc .inv-items-table th {
@@ -591,11 +611,12 @@
   color: #e8c14e;
   font-weight: 700;
   text-align: left;
-  padding: 6px 8px;
+  padding: 7px 8px;
   border-right: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: 8.5px;
+  font-size: 8px;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .service-invoice-print-root.inv-doc .inv-items-table th:last-child {
@@ -609,8 +630,44 @@
 
 .service-invoice-print-root.inv-doc .inv-items-table td {
   border: 1px solid #d8dff0;
-  padding: 5px 8px;
+  padding: 6px 8px;
   vertical-align: top;
+  letter-spacing: 0.01em;
+  word-spacing: 0.05em;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* Fixed column widths so HSN/SAC and amounts stay aligned */
+.service-invoice-print-root.inv-doc .inv-items-table th:nth-child(1),
+.service-invoice-print-root.inv-doc .inv-items-table td:nth-child(1) {
+  width: 6%;
+}
+.service-invoice-print-root.inv-doc .inv-items-table th:nth-child(2),
+.service-invoice-print-root.inv-doc .inv-items-table td:nth-child(2) {
+  width: 12%;
+}
+.service-invoice-print-root.inv-doc .inv-items-table th:nth-child(3),
+.service-invoice-print-root.inv-doc .inv-items-table td:nth-child(3) {
+  width: 28%;
+}
+.service-invoice-print-root.inv-doc .inv-items-table th:nth-child(4),
+.service-invoice-print-root.inv-doc .inv-items-table td:nth-child(4) {
+  width: 14%;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.service-invoice-print-root.inv-doc .inv-items-table th:nth-child(5),
+.service-invoice-print-root.inv-doc .inv-items-table td:nth-child(5) {
+  width: 14%;
+}
+.service-invoice-print-root.inv-doc .inv-items-table th:nth-child(6),
+.service-invoice-print-root.inv-doc .inv-items-table td:nth-child(6) {
+  width: 10%;
+}
+.service-invoice-print-root.inv-doc .inv-items-table th:nth-child(7),
+.service-invoice-print-root.inv-doc .inv-items-table td:nth-child(7) {
+  width: 16%;
 }
 
 .service-invoice-print-root.inv-doc .inv-items-table tbody tr:nth-child(even) td {

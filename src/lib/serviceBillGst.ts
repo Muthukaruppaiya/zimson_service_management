@@ -1,5 +1,5 @@
 import { isNatureOfRepairTaxable } from "./natureOfRepair";
-import { normalizeHsnCode, formatSacForBilling, gstRateFromHsn } from "./hsnGst";
+import { formatPrintedHsnSac, gstRateFromHsn } from "./hsnGst";
 import { isInterstateSupply, splitGstAmount } from "./gstSupply";
 import type { ServiceInvoiceTaxRow } from "../types/serviceInvoice";
 import { invoicePayableFromGstParts } from "./invoiceRoundOff";
@@ -40,12 +40,12 @@ function lineHsn(
   defaultHsnSac: string,
   spareHsnLookup?: (spareId: string) => string | null | undefined,
 ): string {
-  if (line.hsnSac?.trim()) return normalizeHsnCode(line.hsnSac);
+  if (line.hsnSac?.trim()) return formatPrintedHsnSac(line.hsnSac);
   if (line.spareId && spareHsnLookup) {
-    const h = normalizeHsnCode(spareHsnLookup(line.spareId));
-    if (h) return h;
+    const h = spareHsnLookup(line.spareId)?.trim();
+    if (h) return formatPrintedHsnSac(h);
   }
-  return formatSacForBilling(defaultHsnSac);
+  return formatPrintedHsnSac(defaultHsnSac);
 }
 
 /** GST % for a billing line — spare catalogue first, else labour SAC default. */

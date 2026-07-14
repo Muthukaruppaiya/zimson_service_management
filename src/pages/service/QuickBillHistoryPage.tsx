@@ -23,7 +23,8 @@ import {
   downloadQuickBillInvoicePdf,
 } from "../../lib/quickBillInvoiceDownload";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
-import { APP_PAYMENT_MODES, ADVANCE_CASH_DENOMS, sumAdvanceCashDenominations } from "../../lib/paymentModes";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../../lib/hsnGst";
+import { APP_PAYMENT_MODES, formatPaymentSummary } from "../../lib/paymentModes";
 import type { AppPaymentMode } from "../../lib/paymentModes";
 import { uiPageTitleOnDarkClass } from "../../lib/pageTypography";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
@@ -82,36 +83,7 @@ function warrantyTableLabel(w: QuickBillHistoryRow["warrantyStatus"]): string {
 }
 
 function paymentDetailText(inv: QuickBillInvoice): string {
-  if (inv.paymentMode === "Cash" && inv.paymentDetails?.cash) {
-    const parts: string[] = [];
-    for (const { key, face, label } of ADVANCE_CASH_DENOMS) {
-      const qty = Number(inv.paymentDetails.cash[key]);
-      if (Number.isFinite(qty) && qty > 0) parts.push(`${label} ${qty} → ₹${(qty * face).toFixed(2)}`);
-    }
-    const coins = Number(inv.paymentDetails.cash.coinsInr);
-    if (Number.isFinite(coins) && coins > 0) parts.push(`Coins: ₹${coins.toFixed(2)}`);
-    const tender = sumAdvanceCashDenominations(inv.paymentDetails.cash);
-    const change = sumAdvanceCashDenominations(inv.paymentDetails.changeReturned);
-    const changeParts: string[] = [];
-    if (inv.paymentDetails.changeReturned) {
-      for (const { key, face, label } of ADVANCE_CASH_DENOMS) {
-        const qty = Number(inv.paymentDetails.changeReturned[key]);
-        if (Number.isFinite(qty) && qty > 0) changeParts.push(`${label} ${qty} → ₹${(qty * face).toFixed(2)}`);
-      }
-      const changeCoins = Number(inv.paymentDetails.changeReturned.coinsInr);
-      if (Number.isFinite(changeCoins) && changeCoins > 0) changeParts.push(`Coins: ₹${changeCoins.toFixed(2)}`);
-    }
-    const received =
-      parts.length === 0 ? (tender > 0 ? `Cash received ₹${tender.toFixed(2)}` : "—") : `${parts.join(" · ")} (received ₹${tender.toFixed(2)})`;
-    if (change > 0) {
-      const changeLine =
-        changeParts.length > 0 ? changeParts.join(" · ") : `Change ₹${change.toFixed(2)}`;
-      return `${received} · Change returned: ${changeLine} (₹${change.toFixed(2)})`;
-    }
-    return received;
-  }
-  const ref = inv.paymentDetails?.reference?.trim();
-  return ref || "—";
+  return formatPaymentSummary(inv.paymentMode, inv.paymentDetails) || "—";
 }
 
 export function QuickBillHistoryPage() {
@@ -136,7 +108,7 @@ export function QuickBillHistoryPage() {
   const [whatsappNote, setWhatsappNote] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
-  const [invoiceHsnSac, setInvoiceHsnSac] = useState("9987");
+  const [invoiceHsnSac, setInvoiceHsnSac] = useState(DEFAULT_SERVICE_SAC);
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
   const [edocSettings, setEdocSettings] = useState<{ enabled?: boolean } | null>(null);
   const [edocBusyId, setEdocBusyId] = useState<string | null>(null);
@@ -226,7 +198,7 @@ export function QuickBillHistoryPage() {
         const data = await apiJson<{ settings: ServiceTaxSettings }>("/api/settings/tax");
         if (cancelled) return;
         const s = data.settings;
-        setInvoiceHsnSac(s.defaultSacHsn.trim() || "9987");
+        setInvoiceHsnSac(formatPrintedHsnSac(s.defaultSacHsn.trim() || DEFAULT_SERVICE_SAC));
         setServiceTaxSettings(s);
       } catch {
         if (!cancelled) setServiceTaxSettings(null);

@@ -14,6 +14,7 @@ import {
 import { buildStoreBillingInvoiceFromClosedJob } from "../../lib/storeBillingAmounts";
 import { captureInvoicePdfFromViewModel } from "../../lib/renderInvoiceForPdf";
 import { triggerBlobDownload } from "../../lib/captureInvoicePdf";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../../lib/hsnGst";
 import type { CustomerRecord } from "../../types/customer";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import type { StoreInvoicePrintProfile } from "../../types/storeInvoice";
@@ -63,7 +64,7 @@ export function ResendClosedSrfInvoiceActions({
         storeInvoice,
         generatedBy,
         customer: customer ?? null,
-        defaultHsnSac: taxSettings?.defaultSacHsn?.trim() || "9987",
+        defaultHsnSac: formatPrintedHsnSac(taxSettings?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC),
         spareHsnLookup,
         spareGstLookup,
       }),

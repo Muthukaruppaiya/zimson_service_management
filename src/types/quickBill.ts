@@ -86,7 +86,7 @@ export type QuickBillInvoice = {
   technicianId: string | null;
   technicianName: string | null;
   paymentMode: string;
-  /** Cash denominations, UPI/card/bank reference, etc. */
+  /** UPI/card/bank reference or multi-payment splits. */
   paymentDetails?: AdvancePaymentDetails | null;
   notes: string;
   totalInr: number;

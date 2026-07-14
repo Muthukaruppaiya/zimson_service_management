@@ -28,6 +28,7 @@ import {
   billableLineAmount,
   billableServiceChargeInr,
 } from "../src/lib/natureOfRepair";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../src/lib/hsnGst";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
 import { loadSpareGstById } from "./hsnGstRates";
@@ -899,7 +900,7 @@ export function registerQuickBillRoutes(
     );
     const taxRow = taxRes.rows[0];
     const configuredGst = Number(taxRow?.gst_rate_percent ?? 18);
-    const defaultSacHsn = String(taxRow?.default_sac_hsn ?? "9987").trim() || "9987";
+    const defaultSacHsn = formatPrintedHsnSac(String(taxRow?.default_sac_hsn ?? DEFAULT_SERVICE_SAC).trim());
     /** Quick bill line amounts are MRP / counter price — GST is included in spare & service charges. */
     const pricesTaxInclusive = true;
 

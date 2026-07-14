@@ -2,7 +2,7 @@ import { documentBarcodeImageSrc } from "./invoiceScanCodes";
 import { openPrintDocument } from "./inventoryDocuments";
 import { getAppLogoUrl } from "./appBranding";
 import { POPPINS_FONT_CSS, POPPINS_GOOGLE_HEAD } from "./appFonts";
-import { ADVANCE_CASH_DENOMS, type AdvancePaymentDetails } from "./paymentModes";
+import type { AdvancePaymentDetails } from "./paymentModes";
 import { repairRouteLabel, type SrfRepairRoute } from "./srfRepairRoute";
 import type { SrfJob } from "../types/srfJob";
 import {
@@ -66,19 +66,7 @@ function formatAdvanceForPrint(
 ): string {
   if (!advanceInr || advanceInr <= 0) return "";
   const parts: string[] = [`<div style="margin-top:8px"><strong>Advance collected:</strong> INR ${advanceInr.toFixed(2)} (${mode ?? "-"})</div>`];
-  if (mode === "Cash" && details?.cash) {
-    const c = details.cash;
-    const lines: string[] = [];
-    for (const { key, face, label } of ADVANCE_CASH_DENOMS) {
-      const q = Number(c[key]);
-      if (Number.isFinite(q) && q > 0) lines.push(`${label.replace(" ×", "")}: ${q} note(s) = INR ${(q * face).toFixed(2)}`);
-    }
-    const coins = Number(c.coinsInr);
-    if (Number.isFinite(coins) && coins > 0) lines.push(`Coins / loose: INR ${coins.toFixed(2)}`);
-    if (lines.length) {
-      parts.push(`<div style="margin-top:4px;font-size:12px"><strong>Cash breakdown:</strong><br/>${lines.join("<br/>")}</div>`);
-    }
-  } else if (details?.reference) {
+  if (details?.reference) {
     parts.push(`<div style="margin-top:4px;font-size:12px"><strong>Payment ref:</strong> ${details.reference}</div>`);
   }
   return parts.join("");
@@ -1817,27 +1805,14 @@ export function printEstimateDocument(
 }
 
 function formatCollectionPaymentForPrint(
-  mode: string,
-  paidAmountInr: number,
+  _mode: string,
+  _paidAmountInr: number,
   details: AdvancePaymentDetails | null | undefined,
 ): string {
-  const parts: string[] = [];
-  if (mode === "Cash" && details?.cash) {
-    const c = details.cash;
-    const lines: string[] = [];
-    for (const { key, face, label } of ADVANCE_CASH_DENOMS) {
-      const q = Number(c[key]);
-      if (Number.isFinite(q) && q > 0) lines.push(`${label.replace(" ×", "")}: ${q} note(s) = INR ${(q * face).toFixed(2)}`);
-    }
-    const coins = Number(c.coinsInr);
-    if (Number.isFinite(coins) && coins > 0) lines.push(`Coins / loose: INR ${coins.toFixed(2)}`);
-    if (lines.length) {
-      parts.push(`<div style="margin-top:8px;font-size:12px"><strong>Collection cash breakdown (INR ${paidAmountInr.toFixed(2)}):</strong><br/>${lines.join("<br/>")}</div>`);
-    }
-  } else if (details?.reference) {
-    parts.push(`<div style="margin-top:8px;font-size:12px"><strong>Collection payment ref:</strong> ${details.reference}</div>`);
+  if (details?.reference) {
+    return `<div style="margin-top:8px;font-size:12px"><strong>Collection payment ref:</strong> ${details.reference}</div>`;
   }
-  return parts.join("");
+  return "";
 }
 
 export function printStoreServiceInvoice(

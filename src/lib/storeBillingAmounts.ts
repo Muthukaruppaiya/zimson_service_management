@@ -18,6 +18,7 @@ import type { StoreInvoicePrintProfile } from "../types/storeInvoice";
 import type { SrfJob } from "../types/srfJob";
 import type { InvoiceBillLine } from "./serviceBillEditorLines";
 import { editorLinesToInvoiceBillLines, resolveInvoiceBillLineHsn } from "./serviceBillEditorLines";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "./hsnGst";
 import type { ServiceBillEditorLine } from "./serviceBillEditorLines";
 import {
   normalizeStoreBillingSnapshot,
@@ -260,7 +261,9 @@ export function buildStoreBillingInvoiceFromClosedJob(
     const billSubtotal =
       snapshot.billSubtotalInr ??
       invoiceLines.reduce((s, l) => s + l.amountInr, 0);
-    const hsnSac = options.defaultHsnSac?.trim() || options.taxSettings?.defaultSacHsn?.trim() || "9987";
+    const hsnSac = formatPrintedHsnSac(
+      options.defaultHsnSac?.trim() || options.taxSettings?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC,
+    );
     const gstLines = invoiceLines.map((l) => ({
       amountInr: l.amountInr,
       spareId: l.spareId ?? null,
@@ -340,7 +343,9 @@ export function buildStoreBillingInvoiceFromClosedJob(
   const billSubtotal =
     amounts.billableBaseAmount +
     additionalCharges.reduce((s, c) => s + (Number.isFinite(c.amountInr) ? c.amountInr : 0), 0);
-  const hsnSac = options.defaultHsnSac?.trim() || options.taxSettings?.defaultSacHsn?.trim() || "9987";
+  const hsnSac = formatPrintedHsnSac(
+    options.defaultHsnSac?.trim() || options.taxSettings?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC,
+  );
   const gstLines = buildStoreBillingGstLines(job, amounts, additionalCharges, hsnSac);
   const taxPreview =
     gstLines.length > 0
@@ -427,7 +432,9 @@ function computeStoreBillingTaxPreview(
   });
   return computeServiceBillGst({
     lines: gstLines,
-    defaultHsnSac: options.defaultHsnSac?.trim() || tax?.defaultSacHsn?.trim() || "9987",
+    defaultHsnSac: formatPrintedHsnSac(
+      options.defaultHsnSac?.trim() || tax?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC,
+    ),
     spareHsnLookup: options.spareHsnLookup,
     spareGstLookup: options.spareGstLookup,
     defaultSacGstPercent: tax?.gstRatePercent ?? 18,

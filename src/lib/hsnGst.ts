@@ -207,5 +207,16 @@ export function formatSacForBilling(sac: string | null | undefined): string {
   return DEFAULT_SERVICE_SAC;
 }
 
+/**
+ * HSN/SAC for printed invoices and GST buckets.
+ * - Service SAC (starts with 99, or missing): always print valid 6-digit SAC (9987 → 998714).
+ * - Goods HSN (does not start with 99): keep inventory digits as stored.
+ */
+export function formatPrintedHsnSac(hsnSac: string | null | undefined): string {
+  const d = normalizeHsnCode(hsnSac).replace(/\D/g, "");
+  if (!d || d.startsWith("99") || d === "9987") return formatSacForBilling(d || DEFAULT_SERVICE_SAC);
+  return d;
+}
+
 /** @deprecated Use BUILTIN_HSN_GST */
 export const HSN_GST = BUILTIN_HSN_GST;

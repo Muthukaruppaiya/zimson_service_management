@@ -22,6 +22,7 @@ import { resolveSellerStateCode } from "../../lib/gstSupply";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { captureInvoicePdfFromViewModel } from "../../lib/renderInvoiceForPdf";
 import { computeServiceBillGst } from "../../lib/serviceBillGst";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../../lib/hsnGst";
 import type { CustomerRecord } from "../../types/customer";
 import type { QuickBillEdocInfo } from "../../types/quickBill";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
@@ -119,7 +120,7 @@ export function ServiceBillingPage() {
   const [lines, setLines] = useState<LineItem[]>([emptyLine()]);
   const [taxPercent, setTaxPercent] = useState("18");
   const [pricesTaxInclusive, setPricesTaxInclusive] = useState(false);
-  const [defaultSacHsn, setDefaultSacHsn] = useState("9987");
+  const [defaultSacHsn, setDefaultSacHsn] = useState(DEFAULT_SERVICE_SAC);
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
   const [billRef, setBillRef] = useState<string | null>(null);
   const [onlineOrder, setOnlineOrder] = useState<OnlineOrderPrefill | null>(null);
@@ -246,7 +247,7 @@ export function ServiceBillingPage() {
                   description: "Logistics / handling charges",
                   qty: "1",
                   rate: "",
-                  hsn: "9987",
+                  hsn: DEFAULT_SERVICE_SAC,
                 },
               ],
         );
@@ -272,7 +273,7 @@ export function ServiceBillingPage() {
         setServiceTaxSettings(data.settings);
         setTaxPercent(String(data.settings.gstRatePercent));
         setPricesTaxInclusive(data.settings.pricesTaxInclusive);
-        setDefaultSacHsn(data.settings.defaultSacHsn.trim() || "9987");
+        setDefaultSacHsn(formatPrintedHsnSac(data.settings.defaultSacHsn.trim() || DEFAULT_SERVICE_SAC));
       } catch (e) {
         if (!cancelled && e instanceof ApiError && e.status !== 401) {
           /* keep local defaults */

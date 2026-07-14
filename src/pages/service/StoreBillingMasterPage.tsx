@@ -18,6 +18,7 @@ import { phoneLast10 } from "../../lib/customerLookup";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
 import { isArchivedSrfJob, jobVisibleToStoreUser } from "../../lib/srfAccess";
 import { buildStoreBillingInvoiceFromClosedJob } from "../../lib/storeBillingAmounts";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../../lib/hsnGst";
 import {
   formatEinvoiceEdocMessage,
   humanizeEinvoiceError,
@@ -172,7 +173,7 @@ export function StoreBillingMasterPage() {
       storeInvoice: storeInvoiceForPrint,
       generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
       customer: cust,
-      defaultHsnSac: serviceTaxSettings?.defaultSacHsn?.trim() || "9987",
+      defaultHsnSac: formatPrintedHsnSac(serviceTaxSettings?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC),
       spareHsnLookup: (spareId) => activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null,
       spareGstLookup: (spareId) => activeSpares.find((s) => s.id === spareId)?.gstPercent ?? null,
     });

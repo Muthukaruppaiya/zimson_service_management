@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Pool } from "pg";
 import type { DemoUser } from "../src/types/user";
+import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../src/lib/hsnGst";
 
 type Authed = Request & { userId: string };
 
@@ -58,7 +59,7 @@ function rowToPayload(row: TaxRow) {
     cgstRatePercent: num(row.cgst_rate_percent),
     sgstRatePercent: num(row.sgst_rate_percent),
     igstRatePercent: num(row.igst_rate_percent),
-    defaultSacHsn: row.default_sac_hsn.trim() || "9987",
+    defaultSacHsn: formatPrintedHsnSac(row.default_sac_hsn.trim() || DEFAULT_SERVICE_SAC),
     pricesTaxInclusive: Boolean(row.prices_tax_inclusive),
     supplierTaxPersonTypes,
     srfPrefix: row.srf_prefix ?? "SRF",
