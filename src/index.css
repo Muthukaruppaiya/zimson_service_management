@@ -76,6 +76,35 @@
     border-radius: 9999px !important;
   }
 
+  /* Login page — restore rounded card, fields, icons, button */
+  .zimson-login__card {
+    border-radius: 28px !important;
+  }
+  .zimson-login__logo-wrap {
+    border-radius: 10px !important;
+  }
+  .zimson-login__input-box {
+    border-radius: 14px !important;
+  }
+  .zimson-login__input-icon,
+  .zimson-login__support-icon {
+    border-radius: 9999px !important;
+  }
+  .zimson-login__submit {
+    border-radius: 12px !important;
+  }
+  .zimson-login__remember input {
+    border-radius: 4px !important;
+  }
+  .zimson-login__alert,
+  .zimson-login__alert-btn {
+    border-radius: 10px !important;
+  }
+  .zimson-login__tagline-dot,
+  .zimson-login__ornament::after {
+    border-radius: 9999px !important;
+  }
+
   /* Dashboard — rounded cards & panels (ChronoSync) */
   .chrono-dashboard .dashboard-hero,
   .chrono-dashboard .dashboard-kpi-card,
