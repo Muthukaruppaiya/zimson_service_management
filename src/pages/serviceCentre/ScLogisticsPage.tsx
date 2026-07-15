@@ -246,7 +246,7 @@ export function ScLogisticsPage() {
 
   const inTransit = useMemo(() => {
     if (!user) return [];
-    return jobs.filter((j) => j.status === "in_transit_sc" && jobVisibleToServiceCentre(j, user));
+    return jobs.filter((j) => j.status === "awaiting_sc_inward" && jobVisibleToServiceCentre(j, user));
   }, [jobs, user]);
 
   /** One row per open DC — HO (region) and originating store are shown separately. */

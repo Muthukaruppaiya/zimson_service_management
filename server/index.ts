@@ -32,6 +32,7 @@ import { registerMessagingSettingsRoutes } from "./messagingSettingsRoutes";
 import { registerHsnMasterRoutes } from "./hsnMasterRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
 import { registerSrfRoutes } from "./srfRoutes";
+import { registerDeliveryHandoffRoutes } from "./deliveryHandoffRoutes";
 import { registerEdocRoutes } from "./edocRoutes";
 import { registerBrandEwayConsigneeRoutes } from "./brandEwayConsigneeRoutes";
 import { registerEdocSettingsRoutes } from "./edocSettingsRoutes";
@@ -219,6 +220,7 @@ type DbUserRow = {
   role: UserRole;
   region_id: string | null;
   store_id: string | null;
+  phone: string | null;
   technician_profile_id: string | null;
   can_login: boolean;
   module_access_override: ModuleKey[] | null;
@@ -314,6 +316,7 @@ function mapDbUser(row: DbUserRow): DemoUser {
     regionId: row.region_id,
     storeId: row.store_id,
     storeIds: Array.isArray(row.store_ids) ? row.store_ids : row.store_id ? [row.store_id] : [],
+    phone: row.phone,
     technicianProfileId: row.technician_profile_id,
     canLogin: row.can_login,
     moduleAccessOverride: normalizeModuleAccessOverride(row.module_access_override as unknown),
@@ -328,7 +331,7 @@ function allUsers(): DemoUser[] {
 
 async function refreshUsersFromDb(): Promise<void> {
   const { rows } = await dbPool.query<DbUserRow>(
-    `SELECT u.id, u.email, u.password_hash, u.display_name, u.role, u.region_id, u.store_id, u.technician_profile_id,
+    `SELECT u.id, u.email, u.password_hash, u.display_name, u.role, u.region_id, u.store_id, u.phone, u.technician_profile_id,
             u.employee_code, u.can_login, u.module_access_override, u.is_seed, u.created_at,
             COALESCE((
               SELECT array_agg(usa.store_id ORDER BY usa.store_id)
@@ -770,10 +773,18 @@ app.post("/api/users", requireAuth, async (req, res) => {
     regionId: string;
     storeId: string | null;
     storeIds?: string[] | null;
+    phone?: string | null;
     canLogin?: boolean;
     moduleAccessOverride?: string[] | null;
   };
-  const canLogin = input.canLogin !== false;
+  const canLogin = input.role === "delivery_boy" ? false : input.canLogin !== false;
+  const phoneRaw = String(input.phone ?? "").replace(/\D/g, "");
+  const phone =
+    phoneRaw.length >= 10 ? phoneRaw.slice(-10) : String(input.phone ?? "").trim() || null;
+  if (input.role === "delivery_boy" && (!phone || phone.replace(/\D/g, "").length < 10)) {
+    res.status(400).json({ ok: false, message: "Delivery boy requires a valid 10-digit mobile number for OTP." });
+    return;
+  }
   const employeeCode = normalizeEmployeeCode(String(input.employeeCode ?? ""));
   const displayName = String(input.displayName ?? "").trim();
   if (!isValidUsername(displayName)) {
@@ -868,6 +879,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
     regionId: input.regionId,
     storeId: STORE_ROLES.has(input.role) ? requestedStoreIds[0] ?? null : null,
     storeIds: STORE_ROLES.has(input.role) ? requestedStoreIds : [],
+    phone,
     technicianProfileId: null,
     canLogin,
     moduleAccessOverride: overrideModules,
@@ -876,10 +888,10 @@ app.post("/api/users", requireAuth, async (req, res) => {
 
   await dbPool.query(
     `INSERT INTO app_users (
-       id, employee_code, email, password_hash, plain_password, display_name, role, region_id, store_id, technician_profile_id,
+       id, employee_code, email, password_hash, plain_password, display_name, role, region_id, store_id, phone, technician_profile_id,
        can_login, module_access_override, is_seed
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, false)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, false)`,
     [
       newUser.id,
       newUser.employeeCode ?? null,
@@ -890,6 +902,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
       newUser.role,
       newUser.regionId,
       newUser.storeId,
+      newUser.phone ?? null,
       newUser.technicianProfileId,
       newUser.canLogin !== false,
       JSON.stringify(newUser.moduleAccessOverride ?? null),
@@ -3935,6 +3948,7 @@ async function main() {
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerHsnMasterRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
+  registerDeliveryHandoffRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerMessagingRoutes(app, requireAuth);
   registerPasswordResetRoutes(app, dbPool, {

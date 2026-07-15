@@ -9,7 +9,8 @@ export type UserRole =
   | "store_user"
   | "store_manager"
   | "store_accounts"
-  | "technician";
+  | "technician"
+  | "delivery_boy";
 
 /** App sections tied to routes; adjust visibility per role in `config/moduleAccess.ts`. */
 export type ModuleKey =
@@ -37,6 +38,8 @@ export type DemoUser = {
   storeId: string | null;
   /** Optional multi-store access for store roles. */
   storeIds?: string[];
+  /** Mobile for OTP (required for delivery_boy). */
+  phone?: string | null;
   /** For technician role — matches `SEED_TECHNICIANS` id */
   technicianProfileId?: string | null;
   /** If false, account is directory-only and cannot sign in (e.g. technicians). */

@@ -41,6 +41,7 @@ import { SrfMasterTablePage } from "./pages/service/SrfMasterTablePage";
 import { StoreBillingPage } from "./pages/service/StoreBillingPage";
 import { StoreBillingMasterPage } from "./pages/service/StoreBillingMasterPage";
 import { StoreDispatchPage } from "./pages/service/StoreDispatchPage";
+import { StoreDeliveryHandoffPage, ScDeliveryHandoffPage } from "./pages/service/DeliveryHandoffPage";
 import { StoreLogisticsHistoryPage } from "./pages/service/StoreLogisticsHistoryPage";
 import { StoreAssignPage } from "./pages/service/StoreAssignPage";
 import { WatchInventoryPage } from "./pages/service/WatchInventoryPage";
@@ -336,6 +337,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service/delivery-handoff"
+                  element={
+                    <ModuleRoute module="service">
+                      <StoreDeliveryHandoffPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service/store-logistics-history"
                   element={
                     <ModuleRoute module="service">
@@ -450,6 +459,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service_centre">
                       <ScLogisticsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service-centre/delivery-handoff"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <ScDeliveryHandoffPage />
                     </ModuleRoute>
                   }
                 />

@@ -115,7 +115,7 @@ export function StoreDispatchPage() {
     if (!user) return [];
     const set = new Set<string>();
     for (const j of jobs) {
-      if (j.status === "dispatched_to_store" && jobVisibleToStoreUser(j, user) && j.outwardDcNumber) {
+      if ((j.status === "awaiting_store_inward" || j.status === "dispatched_to_store") && jobVisibleToStoreUser(j, user) && j.outwardDcNumber) {
         set.add(j.outwardDcNumber);
       }
     }
@@ -127,7 +127,7 @@ export function StoreDispatchPage() {
     return jobs.filter(
       (j) =>
         j.outwardDcNumber === dcNumber &&
-        j.status === "dispatched_to_store" &&
+        (j.status === "awaiting_store_inward" || j.status === "dispatched_to_store") &&
         jobVisibleToStoreUser(j, user),
     );
   }

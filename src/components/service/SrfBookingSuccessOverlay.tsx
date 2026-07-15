@@ -4,6 +4,14 @@ import { ApiError } from "../../lib/api";
 import { resendSrfTrackingWhatsApp } from "../../lib/resendSrfTrackingWhatsApp";
 import { ProcessSuccessModal } from "../ui/ProcessSuccessModal";
 import { useEmailSend, useMessagingSend } from "../messaging/WhatsAppSendProvider";
+import {
+  IconEmail,
+  IconHome,
+  IconPrint,
+  IconSpinner,
+  IconWhatsApp,
+  invoicePreviewIconBtn,
+} from "./invoicePreviewIcons";
 
 type Props = {
   srfReference: string;
@@ -12,10 +20,10 @@ type Props = {
   onPrintSrf?: () => void;
 };
 
-const btnPrimary =
-  "inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto";
-const btnSecondary =
-  "inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto";
+const iconPrimary =
+  `${invoicePreviewIconBtn} rounded-xl bg-rlx-green text-white shadow-sm hover:bg-rlx-green/90`;
+const iconSecondary =
+  `${invoicePreviewIconBtn} rounded-xl border border-rlx-rule bg-white text-stone-700 hover:bg-stone-50`;
 
 export function SrfBookingSuccessOverlay({
   srfReference,
@@ -69,37 +77,43 @@ export function SrfBookingSuccessOverlay({
       open
       title="SRF booked successfully"
       actions={
-        <>
+        <div className="flex flex-wrap items-center justify-center gap-3">
           {onPrintSrf ? (
             <button
               type="button"
               disabled={busy}
               onClick={onPrintSrf}
-              className={btnPrimary}
+              className={iconPrimary}
+              title="Print SRF document"
+              aria-label="Print SRF document"
             >
-              Print SRF document
+              <IconPrint className="h-6 w-6" />
             </button>
           ) : null}
           <button
             type="button"
             disabled={busy}
             onClick={() => void resendWhatsApp()}
-            className={btnPrimary}
+            className={iconPrimary}
+            title={whatsappSending ? "Sending WhatsApp…" : "Resend WhatsApp"}
+            aria-label={whatsappSending ? "Sending WhatsApp" : "Resend WhatsApp"}
           >
-            {whatsappSending ? "Sending…" : "Resend WhatsApp"}
+            {whatsappSending ? <IconSpinner className="h-6 w-6" /> : <IconWhatsApp className="h-6 w-6" />}
           </button>
           <button
             type="button"
             disabled={busy}
             onClick={() => void resendEmail()}
-            className={btnPrimary}
+            className={iconPrimary}
+            title={emailSending ? "Sending email…" : "Resend email"}
+            aria-label={emailSending ? "Sending email" : "Resend email"}
           >
-            {emailSending ? "Sending…" : "Resend email"}
+            {emailSending ? <IconSpinner className="h-6 w-6" /> : <IconEmail className="h-6 w-6" />}
           </button>
-          <Link to="/" className={btnSecondary}>
-            Home
+          <Link to="/" className={iconSecondary} title="Home" aria-label="Home">
+            <IconHome className="h-6 w-6" />
           </Link>
-        </>
+        </div>
       }
     >
       <div className="rounded-xl border-2 border-rlx-green/30 bg-rlx-green/5 px-4 py-3 text-center">

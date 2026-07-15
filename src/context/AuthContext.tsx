@@ -24,6 +24,7 @@ export type CreateUserInput = {
   regionId: string;
   storeId: string | null;
   storeIds?: string[];
+  phone?: string | null;
   canLogin: boolean;
   moduleAccessOverride: ModuleKey[] | null;
 };

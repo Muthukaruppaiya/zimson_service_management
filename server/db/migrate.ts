@@ -1493,4 +1493,28 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ) AS v(code, description, gst_percent, sort_order)
     WHERE NOT EXISTS (SELECT 1 FROM hsn_master LIMIT 1);
   `);
+
+  // ── Delivery boy handoff (Store ↔ HO internal transfers) ────────────────
+  await pool.query(`
+    ALTER TABLE app_users ADD COLUMN IF NOT EXISTS phone VARCHAR(80);
+  `);
+
+  await pool.query(`
+    ALTER TABLE delivery_challans DROP CONSTRAINT IF EXISTS delivery_challans_status_check;
+  `);
+  await pool.query(`
+    ALTER TABLE delivery_challans
+      ADD CONSTRAINT delivery_challans_status_check
+      CHECK (status IN ('CREATED', 'IN_TRANSIT', 'AWAITING_INWARD', 'INWARDED', 'DISPATCHED', 'RECEIVED'));
+  `);
+
+  await pool.query(`
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS delivery_boy_user_id TEXT REFERENCES app_users(id);
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS handed_to_delivery_at TIMESTAMPTZ;
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS delivery_received_at TIMESTAMPTZ;
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_delivery_challans_delivery_boy
+      ON delivery_challans (delivery_boy_user_id, status);
+  `);
 }

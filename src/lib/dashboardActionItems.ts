@@ -26,7 +26,10 @@ function isAwaitingCustomerApproval(job: SrfJob): boolean {
 
 function countScPendingDcInward(jobs: SrfJob[], user: SessionUser) {
   const inTransit = jobs.filter(
-    (j) => j.status === "in_transit_sc" && jobVisibleToServiceCentre(j, user) && j.dcNumber,
+    (j) =>
+      (j.status === "awaiting_sc_inward" || j.status === "in_transit_sc") &&
+      jobVisibleToServiceCentre(j, user) &&
+      j.dcNumber,
   );
   const documents = new Set(inTransit.map((j) => j.dcNumber!));
   return { documents: documents.size, watches: inTransit.length };

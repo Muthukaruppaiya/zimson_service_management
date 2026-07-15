@@ -127,6 +127,13 @@ export const ROLE_CREATION_META: RoleCreationMeta[] = [
     summary: "Store-side accounts, billing views and end-of-day reports.",
     superAdminOnly: false,
   },
+  {
+    value: "delivery_boy",
+    label: "Delivery Boy",
+    group: "ho",
+    summary: "Carries watches Store ↔ HO. Receives OTP for handoff; usually no app login.",
+    superAdminOnly: false,
+  },
 ];
 
 export function creatableRolesForActor(actorRole: UserRole | undefined): RoleCreationMeta[] {

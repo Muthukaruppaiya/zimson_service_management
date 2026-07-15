@@ -11,6 +11,7 @@ import {
   sanitizeAlphanumericInput,
   sanitizeEmailInput,
   sanitizePasswordInput,
+  sanitizePhoneDigits,
   sanitizeUsernameInput,
 } from "../../lib/inputSanitize";
 import {
@@ -56,6 +57,7 @@ export function UserCreationPanel() {
   const [storeIds, setStoreIds] = useState<string[]>([]);
   const [storePickerOpen, setStorePickerOpen] = useState(false);
   const [canLogin, setCanLogin] = useState(true);
+  const [phone, setPhone] = useState("");
   const [useCustomModules, setUseCustomModules] = useState(false);
   const [selectedModules, setSelectedModules] = useState<ModuleKey[]>(() => [...ROLE_MODULE_ACCESS["store_user"]]);
   const [formMessage, setFormMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -75,7 +77,7 @@ export function UserCreationPanel() {
   }, [user?.role, user?.regionId]);
 
   useEffect(() => {
-    if (role === "technician") setCanLogin(false);
+    if (role === "technician" || role === "delivery_boy") setCanLogin(false);
   }, [role]);
 
   useEffect(() => {
@@ -152,6 +154,10 @@ export function UserCreationPanel() {
       setFormMessage({ type: "err", text: "A valid email address is required (must be unique in the system)." });
       return;
     }
+    if (role === "delivery_boy" && sanitizePhoneDigits(phone).replace(/\D/g, "").slice(-10).length !== 10) {
+      setFormMessage({ type: "err", text: "Delivery boy requires a valid 10-digit mobile for OTP." });
+      return;
+    }
     if (canLogin && (!employeeCode.trim() || password.length < 4)) {
       setFormMessage({
         type: "err",
@@ -173,7 +179,8 @@ export function UserCreationPanel() {
       regionId: resolvedRegionId,
       storeId: storeRole ? (storeIds[0] ?? null) : null,
       storeIds: storeRole ? storeIds : [],
-      canLogin,
+      phone: phone.trim() || null,
+      canLogin: role === "delivery_boy" ? false : canLogin,
       moduleAccessOverride: useCustomModules ? selectedModules : null,
     });
 
@@ -189,6 +196,7 @@ export function UserCreationPanel() {
       setEmployeeCode("");
       setDisplayName("");
       setPassword("");
+      setPhone("");
       setStoreId("");
       setStoreIds([]);
       setStorePickerOpen(false);
@@ -420,6 +428,27 @@ export function UserCreationPanel() {
               />
               <p className="mt-1 text-[11px] text-stone-400">Must be unique. Used for sign-in when login is enabled.</p>
             </div>
+
+            {role === "delivery_boy" ? (
+              <div className="ui-span-full">
+                <label htmlFor="uc-phone" className={labelCls}>
+                  Mobile (OTP) *
+                </label>
+                <input
+                  id="uc-phone"
+                  inputMode="numeric"
+                  value={phone}
+                  onChange={(e) => setPhone(sanitizePhoneDigits(e.target.value))}
+                  className={inputCls}
+                  placeholder="10-digit mobile"
+                  maxLength={15}
+                  required
+                />
+                <p className="mt-1 text-[11px] text-stone-400">
+                  OTP for Store ↔ HO handoff is sent to this mobile and the email above.
+                </p>
+              </div>
+            ) : null}
 
             {canLogin ? (
               <>

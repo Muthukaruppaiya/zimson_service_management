@@ -16,6 +16,7 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, ModuleKey[]> = {
   store_manager:            ["dashboard", "service", "reports", "inventory"],
   store_accounts:           ["dashboard", "service", "reports", "accounts", "settings"],
   technician:               ["dashboard"],
+  delivery_boy:             ["dashboard"],
 };
 
 /** Roles from DB / older builds may not exist in the map — avoid crashing the sidebar. */

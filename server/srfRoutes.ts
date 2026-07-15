@@ -2902,7 +2902,7 @@ export function registerSrfRoutes(
         );
         await client.query(
           `UPDATE srf_jobs
-           SET status = 'in_transit_sc',
+           SET status = 'pending_ho_transit',
                dc_number = $2,
                dispatched_to_sc_at = now(),
                updated_at = now(),
@@ -2910,10 +2910,10 @@ export function registerSrfRoutes(
            WHERE id = $1::uuid`,
           [srfId, dcNumber, actor.id],
         );
-        await appendStatusHistory(client, srfId, "in_transit_sc", actor.id, `Dispatched to HO in transfer ${dcNumber}.`);
+        await appendStatusHistory(client, srfId, "pending_ho_transit", actor.id, `Transfer ${dcNumber} created — pending delivery boy handoff.`);
         await appendActionLog(client, srfId, {
           action: "store_dc_dispatch",
-          description: `Watch dispatched to service centre via transfer ${dcNumber}.`,
+          description: `Transfer ${dcNumber} ready — pending delivery boy send to HO.`,
           actor,
           referenceDoc: dcNumber,
         });
@@ -3209,7 +3209,23 @@ export function registerSrfRoutes(
           );
           row.status = "in_transit_sc";
         }
-        if (row.status !== "in_transit_sc") continue;
+        if (row.status !== "in_transit_sc" && row.status !== "awaiting_sc_inward") continue;
+        // Delivery-boy flow: must be awaiting_sc_inward (or legacy in_transit without delivery boy).
+        if (row.status === "in_transit_sc") {
+          const { rows: dcMeta } = await client.query<{ delivery_boy_user_id: string | null; status: string }>(
+            `SELECT delivery_boy_user_id, status FROM delivery_challans WHERE id = $1::uuid`,
+            [dc.id],
+          );
+          const meta = dcMeta[0];
+          if (meta?.delivery_boy_user_id) {
+            // New flow — must receive from delivery boy first
+            continue;
+          }
+        } else if (row.status === "awaiting_sc_inward") {
+          // ok
+        } else {
+          continue;
+        }
         if (updated === 0) documentKind = inwardDocumentKindForJob(row);
         const isReturnToSenderHo = !row.requires_local_conversion && !!row.transfer_source_region_id;
         if (isReturnToSenderHo) {
@@ -3291,7 +3307,7 @@ export function registerSrfRoutes(
                  store_id = CASE WHEN requires_local_conversion THEN $3::text ELSE store_id END,
                  updated_at = now(),
                  modified_by = $2
-             WHERE id = $1::uuid AND status = 'in_transit_sc'`,
+             WHERE id = $1::uuid AND status IN ('awaiting_sc_inward', 'in_transit_sc')`,
             [line.srf_id, actor.id, dc.from_store_id ?? null],
           );
           if ((upd.rowCount ?? 0) > 0) {
@@ -8129,7 +8145,7 @@ export function registerSrfRoutes(
           dcRegionId,
           fromStoreId,
           isInterHoBatch ? "SERVICE_CENTRE" : "STORE",
-          isInterHoBatch ? "CREATED" : "DISPATCHED",
+          isInterHoBatch ? "CREATED" : "CREATED",
           actor.id,
         ],
       );
@@ -8290,7 +8306,7 @@ export function registerSrfRoutes(
           }
           await client.query(
             `UPDATE srf_jobs
-             SET status = 'dispatched_to_store',
+             SET status = 'pending_store_transit',
                  destination_store_id = $2::text,
                  outward_dc_number = $3,
                  store_bill_ref = COALESCE(NULLIF($5, ''), store_bill_ref, ho_spares_bill_ref),
@@ -8300,10 +8316,10 @@ export function registerSrfRoutes(
              WHERE id = $1::uuid`,
             [it.srfId, finalDestinationStoreId, dcNumber, actor.id, storeInvoiceRef],
           );
-          await appendStatusHistory(client, it.srfId, "dispatched_to_store", actor.id, `Dispatched in outward DC ${dcNumber}.`);
+          await appendStatusHistory(client, it.srfId, "pending_store_transit", actor.id, `Outward transfer ${dcNumber} created — pending delivery boy handoff.`);
           await appendActionLog(client, it.srfId, {
             action: "ho_dispatch_to_store",
-            description: `Dispatched to store ${finalDestinationStoreId} via ODC ${dcNumber}${storeInvoiceRef ? ` (Store invoice ref ${storeInvoiceRef})` : ""}.`,
+            description: `Transfer ${dcNumber} ready for store ${finalDestinationStoreId} — pending delivery boy${storeInvoiceRef ? ` (Store invoice ref ${storeInvoiceRef})` : ""}.`,
             actor,
             referenceDoc: dcNumber,
             details: { destinationStoreId: finalDestinationStoreId, storeInvoiceRef },
@@ -8421,7 +8437,7 @@ export function registerSrfRoutes(
                updated_at = now(),
                modified_by = $2
            WHERE id = $1::uuid
-             AND status = 'dispatched_to_store'
+             AND status IN ('awaiting_store_inward', 'dispatched_to_store')
              AND destination_store_id = $3::text`,
           [line.srf_id, actor.id, actor.storeId],
         );
@@ -8446,7 +8462,7 @@ export function registerSrfRoutes(
          FROM delivery_challan_lines l
          JOIN srf_jobs j ON j.id = l.srf_id
          WHERE l.dc_id = $1::uuid
-           AND j.status = 'dispatched_to_store'
+           AND j.status IN ('dispatched_to_store', 'awaiting_store_inward', 'pending_store_transit')
            AND j.destination_store_id = $2::text`,
         [dc.id, actor.storeId],
       );
