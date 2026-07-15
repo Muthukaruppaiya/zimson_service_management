@@ -6,7 +6,21 @@ type Props = {
 export function DashboardActionIcon({ id, className = "h-5 w-5" }: Props) {
   const props = { className, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor", strokeWidth: 1.75, "aria-hidden": true as const };
 
-  if (id.includes("inward") || id === "sc-dc-inward") {
+  if (id.includes("pending-transit")) {
+    return (
+      <svg {...props}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+  }
+  if (id.includes("in-transit")) {
+    return (
+      <svg {...props}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-1.875a1.125 1.125 0 01-1.125-1.125v-.5c0-.621.504-1.125 1.125-1.125h4.378c.492 0 .934.304 1.096.757.313.875.6 1.78.855 2.71M16.5 18.75v-4.5" />
+      </svg>
+    );
+  }
+  if (id.includes("awaiting-inward") || id.includes("inward") || id === "sc-dc-inward") {
     return (
       <svg {...props}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5V18a2 2 0 002 2h14a2 2 0 002-2v-1.5M7 10.5L12 15.5M12 15.5L17 10.5M12 15.5V3" />

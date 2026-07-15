@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import {
+  IconDownload,
+  IconPreview,
+  IconSpinner,
+} from "../../components/service/invoicePreviewIcons";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
@@ -30,23 +35,69 @@ import { invoiceSourceLabel, paymentStatusLabel } from "../../types/serviceInvoi
 
 const PAYMENT_MODES = ["Cash", "Card", "UPI", "Bank transfer", "Cheque", "NEFT/RTGS"];
 
+const btnIcon =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center border transition disabled:cursor-not-allowed disabled:opacity-50";
+const btnIconAction = `${btnIcon} border-rlx-gold/60 bg-white text-rlx-green hover:border-rlx-gold hover:bg-rlx-green-light`;
+const btnIconMuted = `${btnIcon} border-rlx-rule bg-rlx-bg text-rlx-ink-muted hover:border-rlx-ink-muted/30 hover:bg-white`;
+const iconSm = "h-[1.125rem] w-[1.125rem]";
+
+function IconOpen({ className = iconSm }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+      />
+    </svg>
+  );
+}
+
 const statusCls: Record<InvoicePaymentStatus, string> = {
-  paid: "bg-emerald-100 text-emerald-800",
-  partial: "bg-amber-100 text-amber-900",
-  unpaid: "bg-rose-100 text-rose-800",
+  paid: "bg-emerald-100 text-emerald-950 ring-emerald-400/70",
+  partial: "bg-amber-100 text-amber-950 ring-amber-400/70",
+  unpaid: "bg-rose-100 text-rose-950 ring-rose-400/70",
 };
 
 const edocStatusCls: Record<string, string> = {
-  SUCCESS: "bg-emerald-100 text-emerald-800",
-  FAILED: "bg-rose-100 text-rose-800",
-  SKIPPED: "bg-stone-100 text-stone-700",
+  SUCCESS: "bg-emerald-100 text-emerald-950 ring-emerald-400/70",
+  FAILED: "bg-rose-100 text-rose-950 ring-rose-400/70",
+  SKIPPED: "bg-slate-100 text-slate-800 ring-slate-400/70",
+  PENDING: "bg-amber-100 text-amber-950 ring-amber-400/70",
 };
+
+const statusChipBase =
+  "flex h-9 w-full min-w-[5.5rem] items-center justify-center rounded-md px-2.5 text-sm font-semibold leading-none ring-1 ring-inset";
+const edocChipBase =
+  "flex h-9 w-full min-w-[6.5rem] items-center justify-center rounded-md px-2.5 text-sm font-semibold leading-none ring-1 ring-inset";
+
+function formatTableDate(iso: string): { date: string; time: string } {
+  const d = new Date(iso);
+  return {
+    date: d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }),
+    time: d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+  };
+}
 
 function interHoEdocLabel(record: ServiceInvoiceRecord): string {
   if (record.edocIrn?.trim()) return "IRN issued";
-  if (record.edocStatus === "FAILED") return "E-invoice failed";
+  if (record.edocStatus === "FAILED") return "Failed";
   if (record.edocStatus === "SKIPPED") return "Skipped";
-  return "Pending IRN";
+  return "Pending";
+}
+
+function interHoEdocTone(record: ServiceInvoiceRecord): string {
+  if (record.edocIrn?.trim()) return edocStatusCls.SUCCESS;
+  if (record.edocStatus === "FAILED") return edocStatusCls.FAILED;
+  if (record.edocStatus === "SKIPPED") return edocStatusCls.SKIPPED;
+  return edocStatusCls.PENDING;
+}
+
+function recordEdocTitle(record: ServiceInvoiceRecord): string {
+  if (record.edocIrn?.trim()) return `IRN: ${record.edocIrn}`;
+  if (record.edocError?.trim()) return record.edocError;
+  return interHoEdocLabel(record);
 }
 
 function invoiceNeedsEdoc(record: ServiceInvoiceRecord, edocEnabled: boolean): boolean {
@@ -380,78 +431,147 @@ export function InvoiceHistoryPage() {
           </div>
         ) : (
           <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
-            <table className="ui-table-dense w-full min-w-[56rem] text-left text-sm">
-              <thead className="bg-rlx-green text-[9px] font-semibold uppercase tracking-[0.2em] text-white">
-                <tr>
-                  <th>Date</th>
-                  <th>Invoice</th>
-                  <th>Source</th>
-                  <th>Customer</th>
-                  <th>Root SRF</th>
-                  <th>Repair SRF</th>
-                  <th className="text-right">Total</th>
-                  <th className="text-right">Balance</th>
-                  <th>Status</th>
-                  {edocEnabled ? <th>E-invoice</th> : null}
-                  <th />
+            <table className="ui-table-dense w-full min-w-[64rem] text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
+                <tr className="border-b-2 border-sky-300/70">
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Date</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Invoice</th>
+                  <th className="px-3 py-3 text-left font-semibold">Source</th>
+                  <th className="px-3 py-3 text-left font-semibold">Customer</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Root SRF</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Repair SRF</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Total</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Balance</th>
+                  <th className="w-[7.5rem] whitespace-nowrap px-3 py-3 text-left font-semibold">Status</th>
+                  {edocEnabled ? (
+                    <th className="w-[8.5rem] whitespace-nowrap px-3 py-3 text-left font-semibold">E-invoice</th>
+                  ) : null}
+                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r, idx) => (
-                  <tr key={r.id} className={`border-b border-rlx-rule ${idx % 2 ? "bg-rlx-bg" : "bg-white"}`}>
-                    <td className="whitespace-nowrap text-xs text-rlx-ink-muted">{new Date(r.createdAt).toLocaleDateString()}</td>
-                    <td className="font-mono text-[11px] font-semibold text-rlx-green">{r.invoiceNumber}</td>
-                    <td className="text-xs">{invoiceSourceLabel(r.sourceType)}</td>
-                    <td>
-                      <div className="font-medium">{r.customerName}</div>
-                      {r.customerPhone ? <div className="text-[10px] text-rlx-ink-muted">{r.customerPhone}</div> : null}
-                    </td>
-                    <td className="font-mono text-[10px]">{r.rootSrfReference ?? "—"}</td>
-                    <td className="font-mono text-[10px]">
-                      {r.srfReference && r.srfReference !== r.rootSrfReference ? r.srfReference : "—"}
-                    </td>
-                    <td className="text-right font-medium">{r.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}</td>
-                    <td className="text-right">{r.balanceDueInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}</td>
-                    <td>
-                      <span className={`inline-block px-2 py-0.5 text-[10px] font-semibold uppercase ${statusCls[r.paymentStatus]}`}>
-                        {paymentStatusLabel(r.paymentStatus)}
-                      </span>
-                    </td>
-                    {edocEnabled ? (
-                      <td>
-                        {r.sourceType === "inter_ho_repair" || r.sourceType === "srf_store" ? (
-                          <span
-                            className={`inline-block px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                              edocStatusCls[r.edocStatus ?? ""] ?? "bg-amber-100 text-amber-900"
-                            }`}
-                          >
-                            {interHoEdocLabel(r)}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-rlx-ink-muted">—</span>
-                        )}
+                {filtered.map((r, idx) => {
+                  const created = formatTableDate(r.createdAt);
+                  return (
+                    <tr
+                      key={r.id}
+                      className={`border-b border-rlx-rule transition-colors hover:bg-rlx-green-light ${idx % 2 ? "bg-rlx-bg" : "bg-white"}`}
+                    >
+                      <td className="align-middle px-3 py-3">
+                        <span className="block whitespace-nowrap text-sm font-medium leading-snug text-rlx-ink">
+                          {created.date}
+                        </span>
+                        <span className="block whitespace-nowrap text-xs leading-snug text-rlx-ink-muted">
+                          {created.time}
+                        </span>
                       </td>
-                    ) : null}
-                    <td>
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          type="button"
-                          className="ui-btn-secondary text-[10px]"
-                          disabled={pdfBusyId === r.id}
-                          onClick={() => void downloadInvoicePdf(r)}
+                      <td className="align-middle px-3 py-3">
+                        <span
+                          className="block whitespace-nowrap font-mono text-sm font-semibold text-rlx-green"
+                          title={r.invoiceNumber}
                         >
-                          {pdfBusyId === r.id ? "…" : "PDF"}
-                        </button>
-                        <button type="button" className="ui-btn-secondary text-[10px]" onClick={() => openInvoicePreview(r)}>
-                          Preview
-                        </button>
-                        <button type="button" className="ui-btn-secondary text-[10px]" onClick={() => void openDetail(r.id)}>
-                          Open
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {r.invoiceNumber}
+                        </span>
+                      </td>
+                      <td className="align-middle px-3 py-3">
+                        <span className="block max-w-[9rem] truncate text-sm text-rlx-ink" title={invoiceSourceLabel(r.sourceType)}>
+                          {invoiceSourceLabel(r.sourceType)}
+                        </span>
+                      </td>
+                      <td className="align-middle px-3 py-3 max-w-[12rem]">
+                        <span className="block truncate text-sm font-medium leading-snug text-rlx-ink" title={r.customerName}>
+                          {r.customerName}
+                        </span>
+                        {r.customerPhone ? (
+                          <span className="block truncate text-xs leading-snug text-rlx-ink-muted" title={r.customerPhone}>
+                            {r.customerPhone}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="align-middle px-3 py-3">
+                        <span className="block truncate font-mono text-sm text-rlx-ink-muted" title={r.rootSrfReference ?? undefined}>
+                          {r.rootSrfReference ?? "—"}
+                        </span>
+                      </td>
+                      <td className="align-middle px-3 py-3">
+                        <span className="block truncate font-mono text-sm text-rlx-ink-muted">
+                          {r.srfReference && r.srfReference !== r.rootSrfReference ? r.srfReference : "—"}
+                        </span>
+                      </td>
+                      <td className="align-middle px-3 py-3 whitespace-nowrap text-right text-sm font-semibold tabular-nums text-rlx-green">
+                        {r.totalInr.toLocaleString(undefined, {
+                          style: "currency",
+                          currency: "INR",
+                          maximumFractionDigits: 0,
+                        })}
+                      </td>
+                      <td className="align-middle px-3 py-3 whitespace-nowrap text-right text-sm tabular-nums text-rlx-ink">
+                        {r.balanceDueInr.toLocaleString(undefined, {
+                          style: "currency",
+                          currency: "INR",
+                          maximumFractionDigits: 0,
+                        })}
+                      </td>
+                      <td className="w-[7.5rem] align-middle px-3 py-3">
+                        <span className={`${statusChipBase} ${statusCls[r.paymentStatus]}`}>
+                          {paymentStatusLabel(r.paymentStatus)}
+                        </span>
+                      </td>
+                      {edocEnabled ? (
+                        <td className="w-[8.5rem] align-middle px-3 py-3">
+                          {r.sourceType === "inter_ho_repair" || r.sourceType === "srf_store" ? (
+                            <span
+                              className={`${edocChipBase} ${interHoEdocTone(r)}`}
+                              title={
+                                recordEdocTitle(r)
+                              }
+                            >
+                              {interHoEdocLabel(r)}
+                            </span>
+                          ) : (
+                            <span className={`${edocChipBase} bg-stone-50 text-stone-500 ring-stone-200`}>—</span>
+                          )}
+                        </td>
+                      ) : null}
+                      <td className="align-middle px-3 py-3">
+                        <div className="flex flex-nowrap items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            disabled={pdfBusyId === r.id}
+                            onClick={() => void downloadInvoicePdf(r)}
+                            className={btnIconMuted}
+                            title="Download PDF"
+                            aria-label="Download PDF"
+                          >
+                            {pdfBusyId === r.id ? (
+                              <IconSpinner className={iconSm} />
+                            ) : (
+                              <IconDownload className={iconSm} />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openInvoicePreview(r)}
+                            className={btnIconAction}
+                            title="Preview invoice"
+                            aria-label="Preview invoice"
+                          >
+                            <IconPreview className={iconSm} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void openDetail(r.id)}
+                            className={btnIconAction}
+                            title="Open details"
+                            aria-label="Open details"
+                          >
+                            <IconOpen />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

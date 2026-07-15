@@ -13,6 +13,7 @@ import {
   IconClose,
   IconDownload,
   IconGstEinvoice,
+  IconPreview,
   IconPrint,
   IconSpinner,
   invoicePreviewIconBtn,
@@ -51,18 +52,24 @@ const TABLE_HEADERS: { key: string; label: string; align?: "right"; hide?: strin
   { key: "pay", label: "Payment" },
   { key: "notes", label: "Notes", hide: "col-hide-xl" },
   { key: "total", label: "Total", align: "right" },
-  { key: "actions", label: "Actions" },
+  { key: "actions", label: "Actions", align: "right" },
 ];
 
-/** Compact gold-accented table-action button */
-const btnAction =
-  "inline-flex items-center justify-center gap-1 border border-rlx-gold/60 bg-white px-2.5 py-1.5 " +
-  "text-[11px] font-semibold tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light";
+const btnIcon =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center border transition disabled:cursor-not-allowed disabled:opacity-50";
+const btnIconAction = `${btnIcon} border-rlx-gold/60 bg-white text-rlx-green hover:border-rlx-gold hover:bg-rlx-green-light`;
+const btnIconMuted = `${btnIcon} border-rlx-rule bg-rlx-bg text-rlx-ink-muted hover:border-rlx-ink-muted/30 hover:bg-white`;
+const btnIconEinvoice = `${btnIcon} border-amber-400/70 bg-amber-50 text-amber-900 hover:bg-amber-100`;
 
-/** Compact muted secondary action */
-const btnActionMuted =
-  "inline-flex items-center justify-center gap-1 border border-rlx-rule bg-rlx-bg px-2.5 py-1.5 " +
-  "text-[11px] font-semibold text-rlx-ink-muted transition hover:border-rlx-ink-muted/30 hover:bg-white";
+const iconSm = "h-[1.125rem] w-[1.125rem]";
+
+function formatTableDate(iso: string): { date: string; time: string } {
+  const d = new Date(iso);
+  return {
+    date: d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }),
+    time: d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+  };
+}
 
 function customerLabel(row: QuickBillHistoryRow): string {
   if (row.customerType === "B2B") return row.company?.trim() || "—";
@@ -448,7 +455,7 @@ export function QuickBillHistoryPage() {
         <div className="px-4 py-5 md:px-6">
           {/* filter strip */}
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-xs font-semibold uppercase tracking-[0.28em] text-rlx-ink-muted">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-rlx-ink-muted">
               {filtered.length} invoice{filtered.length === 1 ? "" : "s"} found
             </h2>
           </div>
@@ -552,92 +559,121 @@ export function QuickBillHistoryPage() {
           {filtered.length > 0 ? (
             <>
               {/* table */}
-              <p className="mb-2 text-[10px] text-rlx-ink-muted xl:hidden">
+              <p className="mb-2 text-xs text-rlx-ink-muted xl:hidden">
                 Swipe horizontally to see more columns →
               </p>
               <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
-                <table className="ui-table-dense w-full min-w-[36rem] text-left xl:min-w-[1000px]">
-                  <thead className="sticky top-0 z-10 bg-rlx-green text-[9px] font-semibold uppercase tracking-[0.2em] text-white">
-                    <tr>
+                <table className="ui-table-dense w-full min-w-[42rem] text-left text-sm xl:min-w-[1100px]">
+                  <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
+                    <tr className="border-b-2 border-rlx-gold">
                       {TABLE_HEADERS.map((h) => (
                         <th
                           key={h.key}
-                          className={`whitespace-nowrap font-medium ${h.hide ?? ""} ${h.align === "right" ? "text-right" : ""}`}
+                          className={`whitespace-nowrap px-3 py-3 font-semibold ${h.hide ?? ""} ${h.align === "right" ? "text-right" : "text-left"}`}
                         >
                           {h.label}
                         </th>
                       ))}
                     </tr>
-                    {/* gold underline accent */}
-                    <tr aria-hidden>
-                      <td colSpan={15} className="h-[2px] bg-rlx-gold p-0" />
-                    </tr>
                   </thead>
                   <tbody>
-                    {pagedRows.map((r, idx) => (
+                    {pagedRows.map((r, idx) => {
+                      const created = formatTableDate(r.createdAt);
+                      return (
                       <tr
                         key={r.id}
                         onClick={() => setSelected(r)}
                         className={`cursor-pointer border-b border-rlx-rule transition-colors duration-150 hover:bg-rlx-green-light ${idx % 2 === 1 ? "bg-rlx-bg" : "bg-white"}`}
                       >
-                        <td className="whitespace-nowrap text-rlx-ink-muted">
-                          {new Date(r.createdAt).toLocaleString()}
+                        <td className="align-middle px-3 py-3">
+                          <span className="block whitespace-nowrap text-sm font-medium leading-snug text-rlx-ink">{created.date}</span>
+                          <span className="block whitespace-nowrap text-xs leading-snug text-rlx-ink-muted">{created.time}</span>
                         </td>
-                        <td className="whitespace-nowrap font-mono text-xs font-semibold text-rlx-green">
-                          {r.billNumber}
+                        <td className="align-middle px-3 py-3">
+                          <span className="block whitespace-nowrap font-mono text-sm font-semibold text-rlx-green" title={r.billNumber}>
+                            {r.billNumber}
+                          </span>
                         </td>
-                        <td className="max-w-[10rem] truncate font-medium text-rlx-ink" title={customerLabel(r)}>
-                          {customerLabel(r)}
+                        <td className="align-middle px-3 py-3 max-w-[11rem]">
+                          <span className="block truncate text-sm font-medium leading-snug text-rlx-ink" title={customerLabel(r)}>
+                            {customerLabel(r)}
+                          </span>
                         </td>
-                        <td className="col-hide-sm whitespace-nowrap text-rlx-ink-muted">{r.phone ?? "—"}</td>
-                        <td className="col-hide-lg max-w-[8rem] truncate text-rlx-ink-muted" title={r.email ?? ""}>
-                          {r.email ?? "—"}
+                        <td className="col-hide-sm align-middle px-3 py-3 whitespace-nowrap text-sm text-rlx-ink-muted">
+                          {r.phone ?? "—"}
                         </td>
-                        <td className="col-hide-md max-w-[6rem] truncate" title={r.watchBrand}>
-                          {r.watchBrand}
+                        <td className="col-hide-lg align-middle px-3 py-3 max-w-[9rem]">
+                          <span className="block truncate text-sm text-rlx-ink-muted" title={r.email ?? ""}>
+                            {r.email ?? "—"}
+                          </span>
                         </td>
-                        <td className="col-hide-md max-w-[8rem] truncate" title={r.watchModel}>
-                          {r.watchModel}
+                        <td className="col-hide-md align-middle px-3 py-3 max-w-[7rem]">
+                          <span className="block truncate text-sm" title={r.watchBrand}>{r.watchBrand}</span>
                         </td>
-                        <td className="col-hide-xl max-w-[6rem] truncate text-rlx-ink-muted" title={r.watchRef ?? ""}>
-                          {r.watchRef ?? "—"}
+                        <td className="col-hide-md align-middle px-3 py-3 max-w-[9rem]">
+                          <span className="block truncate text-sm" title={r.watchModel}>{r.watchModel}</span>
                         </td>
-                        <td className="col-hide-xl whitespace-nowrap text-rlx-ink-muted">
-                          {warrantyTableLabel(r.warrantyStatus)}
+                        <td className="col-hide-xl align-middle px-3 py-3 max-w-[7rem]">
+                          <span className="block truncate text-sm text-rlx-ink-muted" title={r.watchRef ?? ""}>
+                            {r.watchRef ?? "—"}
+                          </span>
                         </td>
-                        <td className="col-hide-lg max-w-[7rem] truncate" title={r.technicianName ?? ""}>
-                          {r.technicianName ?? "—"}
+                        <td className="col-hide-xl align-middle px-3 py-3">
+                          <span className="inline-flex h-8 items-center rounded px-2.5 text-xs font-semibold ring-1 ring-inset ring-stone-300/80 bg-stone-100 text-stone-800">
+                            {warrantyTableLabel(r.warrantyStatus)}
+                          </span>
+                        </td>
+                        <td className="col-hide-lg align-middle px-3 py-3 max-w-[8rem]">
+                          <span className="block truncate text-sm" title={r.technicianName ?? ""}>
+                            {r.technicianName ?? "—"}
+                          </span>
                         </td>
                         <td
-                          className="col-hide-md max-w-[8rem] truncate text-rlx-ink-muted"
+                          className="col-hide-md align-middle px-3 py-3 max-w-[9rem]"
                           title={r.storeName ?? r.regionName ?? r.regionId}
                         >
-                          {r.storeName ?? r.regionName ?? r.regionId}
+                          <span className="block truncate text-sm text-rlx-ink-muted">
+                            {r.storeName ?? r.regionName ?? r.regionId}
+                          </span>
                         </td>
-                        <td className="whitespace-nowrap">{r.paymentMode}</td>
-                        <td className="col-hide-xl max-w-[7rem] truncate text-rlx-ink-muted" title={r.notes}>
-                          {r.notes?.trim() || "—"}
+                        <td className="align-middle px-3 py-3">
+                          <span className="inline-flex h-8 max-w-[8rem] items-center truncate rounded px-2.5 text-xs font-semibold ring-1 ring-inset ring-sky-300/80 bg-sky-50 text-sky-950" title={r.paymentMode}>
+                            {r.paymentMode}
+                          </span>
                         </td>
-                        <td className="whitespace-nowrap text-right text-xs font-semibold tabular-nums text-rlx-green">
-                          {r.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        <td className="col-hide-xl align-middle px-3 py-3 max-w-[8rem]">
+                          <span className="block truncate text-sm text-rlx-ink-muted" title={r.notes}>
+                            {r.notes?.trim() || "—"}
+                          </span>
                         </td>
-                        <td onClick={(e) => e.stopPropagation()}>
-                          <div className="flex flex-wrap gap-1.5">
+                        <td className="align-middle px-3 py-3 whitespace-nowrap text-right text-sm font-semibold tabular-nums text-rlx-green">
+                          {r.totalInr.toLocaleString(undefined, { style: "currency", currency: "INR", maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="align-middle px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-nowrap items-center justify-end gap-1.5">
                             <button
                               type="button"
                               disabled={!apiMode}
                               onClick={(e) => { e.stopPropagation(); setSelected(r); }}
-                              className={`${btnAction} disabled:opacity-40`}
+                              className={`${btnIconAction} disabled:opacity-40`}
+                              title="Preview invoice"
+                              aria-label="Preview invoice"
                             >
-                              Preview
+                              <IconPreview className={iconSm} />
                             </button>
                             <button
                               type="button"
                               disabled={downloadBusyId === r.id || !apiMode}
                               onClick={(e) => void handleDownloadRow(r, e)}
-                              className={`${btnActionMuted} disabled:opacity-40`}
+                              className={`${btnIconMuted} disabled:opacity-40`}
+                              title="Download PDF"
+                              aria-label="Download PDF"
                             >
-                              {downloadBusyId === r.id ? "…" : "Download"}
+                              {downloadBusyId === r.id ? (
+                                <IconSpinner className={iconSm} />
+                              ) : (
+                                <IconDownload className={iconSm} />
+                              )}
                             </button>
                             {quickBillNeedsEinvoiceRetry(r, edocEnabled) ? (
                               <button
@@ -647,22 +683,29 @@ export function QuickBillHistoryPage() {
                                   e.stopPropagation();
                                   void retryEinvoice(r);
                                 }}
-                                className={`${btnAction} disabled:opacity-40`}
+                                className={`${btnIconEinvoice} disabled:opacity-40`}
+                                title="Retry e-invoice"
+                                aria-label="Retry e-invoice"
                               >
-                                {edocBusyId === r.id ? "Retrying…" : "Retry e-invoice"}
+                                {edocBusyId === r.id ? (
+                                  <IconSpinner className={iconSm} />
+                                ) : (
+                                  <IconGstEinvoice className={iconSm} />
+                                )}
                               </button>
                             ) : null}
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
               {/* pagination */}
               <div className="mt-5 flex flex-col gap-3 border-t border-rlx-rule pt-5 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-rlx-ink-muted">
+                <p className="text-sm text-rlx-ink-muted">
                   Page <span className="font-semibold text-rlx-ink">{currentPage}</span> of{" "}
                   <span className="font-semibold text-rlx-ink">{totalPages}</span>
                 </p>
@@ -695,27 +738,27 @@ export function QuickBillHistoryPage() {
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-rlx-ink/70 backdrop-blur-sm sm:items-center sm:p-4 print:static print:inset-auto print:z-0 print:bg-white print:p-0 print:backdrop-blur-none">
           <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] print:max-h-none print:max-w-none print:shadow-none">
 
-            {/* modal header — Quick Bill golden bar */}
-            <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-rlx-gold-dark bg-rlx-gold px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 print:hidden">
+            {/* modal header */}
+            <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-rlx-gold bg-rlx-green px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 print:hidden">
               <div className="min-w-0">
-                <p className="text-[9px] font-semibold uppercase tracking-[0.45em] text-rlx-green-deep/80">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.35em] text-rlx-gold">
                   Invoice preview
                 </p>
-                <h3 className="truncate font-sans text-xl font-semibold tracking-normal text-rlx-green-deep sm:text-2xl">
+                <h3 className="truncate font-mono text-base font-semibold text-white sm:text-lg">
                   {selected.billNumber}
                 </h3>
-                <p className="mt-0.5 text-xs text-rlx-green-deep/65">
+                <p className="mt-0.5 text-[11px] text-white/65">
                   {new Date(selected.createdAt).toLocaleString()}
                 </p>
               </div>
-              <div className="flex flex-wrap items-stretch gap-2 sm:items-center">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {detailInvoiceVm ? (
                   <button
                     type="button"
                     onClick={() => printServiceInvoice()}
                     aria-label="Print invoice"
                     title="Print invoice"
-                    className={`${invoicePreviewIconBtn} flex-1 bg-rlx-green-deep text-rlx-gold transition hover:bg-rlx-green sm:flex-none`}
+                    className={`${invoicePreviewIconBtn} border-rlx-gold/50 bg-rlx-gold text-rlx-green-deep transition hover:bg-rlx-gold-dark`}
                   >
                     <IconPrint />
                   </button>
@@ -727,7 +770,7 @@ export function QuickBillHistoryPage() {
                     onClick={() => void handleDownloadDetail()}
                     aria-label="Download PDF"
                     title="Download PDF"
-                    className={`${invoicePreviewIconBtn} flex-1 border border-rlx-green-deep/35 bg-white/50 text-rlx-green-deep transition hover:bg-white/70 sm:flex-none`}
+                    className={`${invoicePreviewIconBtn} border-white/30 bg-white/10 text-white transition hover:bg-white/20`}
                   >
                     {detailDownloadBusy ? <IconSpinner /> : <IconDownload />}
                   </button>
@@ -743,7 +786,7 @@ export function QuickBillHistoryPage() {
                         ? "Download GST e-invoice (IRP PDF)"
                         : "Open GST e-invoice PDF from IRP"
                     }
-                    className={`${invoicePreviewIconBtn} flex-1 border border-rlx-green-deep/35 bg-rlx-green-deep text-rlx-gold transition hover:bg-rlx-green disabled:opacity-50 sm:flex-none`}
+                    className={`${invoicePreviewIconBtn} border-rlx-gold/50 bg-rlx-gold text-rlx-green-deep transition hover:bg-rlx-gold-dark disabled:opacity-50`}
                   >
                     {gstEinvoiceBusy ? <IconSpinner /> : <IconGstEinvoice />}
                   </button>
@@ -762,9 +805,11 @@ export function QuickBillHistoryPage() {
                         type="button"
                         disabled={edocBusyId === detailInvoice.id}
                         onClick={() => void retryEinvoice(selected)}
-                        className="flex-1 border border-amber-300/80 bg-amber-600 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-amber-700 disabled:opacity-50 sm:flex-none sm:px-5"
+                        className={`${invoicePreviewIconBtn} border-amber-300/70 bg-amber-600 text-white transition hover:bg-amber-700 disabled:opacity-50`}
+                        title="Retry e-invoice"
+                        aria-label="Retry e-invoice"
                       >
-                        {edocBusyId === detailInvoice.id ? "Retrying…" : "Retry e-invoice"}
+                        {edocBusyId === detailInvoice.id ? <IconSpinner /> : <IconGstEinvoice />}
                       </button>
                     ) : null}
                     <SendInvoiceEmailButton
@@ -780,7 +825,7 @@ export function QuickBillHistoryPage() {
                       label="Send email"
                       busyLabel="Sending…"
                       iconOnly
-                      className={`${invoicePreviewIconBtn} flex-1 border border-sky-300/80 bg-sky-700 text-white transition hover:bg-sky-800 sm:flex-none`}
+                      className={`${invoicePreviewIconBtn} border-sky-300/70 bg-sky-600 text-white transition hover:bg-sky-700`}
                       onResult={(msg) => setWhatsappNote(msg)}
                       resolvePdfBlob={resolveDetailInvoicePdfBlob}
                     />
@@ -796,7 +841,7 @@ export function QuickBillHistoryPage() {
                       label="Resend WhatsApp"
                       busyLabel="Sending…"
                       iconOnly
-                      className={`${invoicePreviewIconBtn} flex-1 border border-emerald-300/80 bg-emerald-600 text-white transition hover:bg-emerald-700 sm:flex-none`}
+                      className={`${invoicePreviewIconBtn} border-emerald-300/70 bg-emerald-600 text-white transition hover:bg-emerald-700`}
                       onResult={(msg) => setWhatsappNote(msg)}
                       resolvePdfBlob={resolveDetailInvoicePdfBlob}
                     />
@@ -807,7 +852,7 @@ export function QuickBillHistoryPage() {
                   onClick={() => setSelected(null)}
                   aria-label="Close preview"
                   title="Close"
-                  className={`${invoicePreviewIconBtn} w-full border border-rlx-green-deep/35 bg-white/40 text-rlx-green-deep transition hover:bg-white/60 sm:w-auto`}
+                  className={`${invoicePreviewIconBtn} border-white/30 bg-white/10 text-white transition hover:bg-white/20`}
                 >
                   <IconClose />
                 </button>

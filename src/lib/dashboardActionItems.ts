@@ -24,29 +24,86 @@ function isAwaitingCustomerApproval(job: SrfJob): boolean {
   return false;
 }
 
+function countByDc(
+  jobs: SrfJob[],
+  getDc: (j: SrfJob) => string | null | undefined,
+): { documents: number; watches: number } {
+  const documents = new Set(
+    jobs.map(getDc).filter((n): n is string => !!n && n.trim().length > 0),
+  );
+  return { documents: documents.size, watches: jobs.length };
+}
+
 function countScPendingDcInward(jobs: SrfJob[], user: SessionUser) {
-  const inTransit = jobs.filter(
+  const waiting = jobs.filter(
     (j) =>
-      (j.status === "awaiting_sc_inward" || j.status === "in_transit_sc") &&
+      j.status === "awaiting_sc_inward" &&
       jobVisibleToServiceCentre(j, user) &&
       j.dcNumber,
   );
-  const documents = new Set(inTransit.map((j) => j.dcNumber!));
-  return { documents: documents.size, watches: inTransit.length };
+  return countByDc(waiting, (j) => j.dcNumber);
+}
+
+function countScInTransitToHo(jobs: SrfJob[], user: SessionUser) {
+  const list = jobs.filter(
+    (j) =>
+      j.status === "in_transit_sc" &&
+      jobVisibleToServiceCentre(j, user) &&
+      j.dcNumber,
+  );
+  return countByDc(list, (j) => j.dcNumber);
+}
+
+function countScPendingStoreTransit(jobs: SrfJob[], user: SessionUser) {
+  const list = jobs.filter(
+    (j) => j.status === "pending_store_transit" && jobVisibleToServiceCentre(j, user),
+  );
+  return countByDc(list, (j) => j.outwardDcNumber);
 }
 
 function countStorePendingInward(jobs: SrfJob[], user: SessionUser) {
-  const inTransit = jobs.filter(
+  const waiting = jobs.filter(
+    (j) =>
+      j.status === "awaiting_store_inward" &&
+      jobVisibleToStoreUser(j, user) &&
+      j.outwardDcNumber,
+  );
+  return countByDc(waiting, (j) => j.outwardDcNumber);
+}
+
+function countStorePendingHoTransit(jobs: SrfJob[], user: SessionUser) {
+  const list = jobs.filter(
+    (j) =>
+      j.status === "pending_ho_transit" &&
+      jobVisibleToStoreUser(j, user) &&
+      j.dcNumber,
+  );
+  return countByDc(list, (j) => j.dcNumber);
+}
+
+function countStoreInTransitToHo(jobs: SrfJob[], user: SessionUser) {
+  const list = jobs.filter(
+    (j) =>
+      j.status === "in_transit_sc" &&
+      jobVisibleToStoreUser(j, user) &&
+      j.dcNumber,
+  );
+  return countByDc(list, (j) => j.dcNumber);
+}
+
+function countStoreInTransitFromHo(jobs: SrfJob[], user: SessionUser) {
+  const list = jobs.filter(
     (j) =>
       j.status === "dispatched_to_store" &&
       jobVisibleToStoreUser(j, user) &&
       j.outwardDcNumber,
   );
-  const documents = new Set(inTransit.map((j) => j.outwardDcNumber!));
-  return { documents: documents.size, watches: inTransit.length };
+  return countByDc(list, (j) => j.outwardDcNumber);
 }
 
 function buildServiceCentreLogisticsItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem[] {
+  const pendingTransit = countScPendingStoreTransit(jobs, user);
+  const inTransit = countScInTransitToHo(jobs, user);
   const inward = countScPendingDcInward(jobs, user);
   const readyOutward = jobs.filter(
     (j) => j.status === "ready_for_outward" && jobVisibleToServiceCentre(j, user),
@@ -57,16 +114,42 @@ function buildServiceCentreLogisticsItems(jobs: SrfJob[], user: SessionUser): Da
 
   return [
     {
-      id: "sc-dc-inward",
-      label: "Transfer Inward",
-      count: inward.documents,
+      id: "sc-pending-transit",
+      label: "Pending transit",
+      count: pendingTransit.watches,
       sublabel:
-        inward.watches > 0
-          ? `${inward.watches} watch${inward.watches === 1 ? "" : "es"} on transfer`
+        pendingTransit.documents > 0
+          ? `${pendingTransit.documents} TD${pendingTransit.documents === 1 ? "" : "s"} — handoff to delivery boy`
           : undefined,
-      hint: "Scan or select transfer document at logistics inward",
+      hint: "Outward TD ready — send with delivery boy OTP",
+      to: "/service-centre/delivery-handoff",
+      urgent: pendingTransit.watches > 0,
+      accent: "border-l-amber-500",
+    },
+    {
+      id: "sc-in-transit",
+      label: "In transit",
+      count: inTransit.watches,
+      sublabel:
+        inTransit.documents > 0
+          ? `${inTransit.documents} TD${inTransit.documents === 1 ? "" : "s"} on the way to HO`
+          : undefined,
+      hint: "With delivery boy — receive OTP at front desk",
+      to: "/service-centre/delivery-handoff",
+      urgent: inTransit.watches > 0,
+      accent: "border-l-blue-500",
+    },
+    {
+      id: "sc-awaiting-inward",
+      label: "Inward pending",
+      count: inward.watches,
+      sublabel:
+        inward.documents > 0
+          ? `${inward.documents} TD${inward.documents === 1 ? "" : "s"} — transit done, inward open`
+          : undefined,
+      hint: "Delivery received — complete logistics inward",
       to: "/service-centre/logistics?tab=inward",
-      urgent: inward.documents > 0,
+      urgent: inward.watches > 0,
       accent: "border-l-orange-500",
     },
     {
@@ -134,7 +217,12 @@ function buildSupervisorItems(jobs: SrfJob[], user: SessionUser): DashboardActio
 }
 
 function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem[] {
+  const pendingTransit = countStorePendingHoTransit(jobs, user);
+  const inTransitToHo = countStoreInTransitToHo(jobs, user);
+  const inTransitFromHo = countStoreInTransitFromHo(jobs, user);
   const inward = countStorePendingInward(jobs, user);
+  const inTransitWatches = inTransitToHo.watches + inTransitFromHo.watches;
+  const inTransitDocs = inTransitToHo.documents + inTransitFromHo.documents;
   const atStore = jobs.filter(
     (j) =>
       j.status === "at_store" &&
@@ -150,16 +238,42 @@ function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem
 
   return [
     {
-      id: "store-odc-inward",
-      label: "Return Inward",
-      count: inward.documents,
+      id: "store-pending-transit",
+      label: "Pending transit",
+      count: pendingTransit.watches,
       sublabel:
-        inward.watches > 0
-          ? `${inward.watches} watch${inward.watches === 1 ? "" : "es"} in transit`
+        pendingTransit.documents > 0
+          ? `${pendingTransit.documents} TD${pendingTransit.documents === 1 ? "" : "s"} — handoff to delivery boy`
           : undefined,
-      hint: "Scan or select return transfer at store dispatch inward",
+      hint: "Dispatch done — send with delivery boy OTP",
+      to: "/service/delivery-handoff",
+      urgent: pendingTransit.watches > 0,
+      accent: "border-l-amber-500",
+    },
+    {
+      id: "store-in-transit",
+      label: "In transit",
+      count: inTransitWatches,
+      sublabel:
+        inTransitDocs > 0
+          ? `${inTransitDocs} TD${inTransitDocs === 1 ? "" : "s"} with delivery boy`
+          : undefined,
+      hint: "On the road Store ↔ HO",
+      to: "/service/delivery-handoff",
+      urgent: inTransitWatches > 0,
+      accent: "border-l-blue-500",
+    },
+    {
+      id: "store-awaiting-inward",
+      label: "Inward pending",
+      count: inward.watches,
+      sublabel:
+        inward.documents > 0
+          ? `${inward.documents} TD${inward.documents === 1 ? "" : "s"} — transit done, inward open`
+          : undefined,
+      hint: "Delivery received — complete store inward",
       to: "/service/store-dispatch",
-      urgent: inward.documents > 0,
+      urgent: inward.watches > 0,
       accent: "border-l-orange-500",
     },
     {
@@ -169,7 +283,7 @@ function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem
       hint: "Watches at store ready to send for repair",
       to: "/service/store-dispatch",
       urgent: atStore.length > 0,
-      accent: "border-l-blue-500",
+      accent: "border-l-sky-500",
     },
     {
       id: "store-handover",

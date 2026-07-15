@@ -13,7 +13,10 @@ export function DashboardPage() {
   const { user } = useAuth();
   const { jobs } = useSrfJobs();
 
-  const actionItems = useMemo(() => computeDashboardActionItems(jobs, user), [jobs, user]);
+  const actionItems = useMemo(
+    () => computeDashboardActionItems(jobs, user),
+    [jobs, user],
+  );
 
   return (
     <div className="chrono-dashboard cs-dashboard-container -m-2 md:-m-4">

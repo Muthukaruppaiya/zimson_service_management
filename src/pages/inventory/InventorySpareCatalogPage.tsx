@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { Card } from "../../components/ui/Card";
+import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useBrands } from "../../context/BrandsContext";
@@ -19,6 +20,68 @@ import type { SparePriceLine } from "../../types/spare";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2";
+
+const btnIcon =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center border border-rlx-gold/60 bg-white text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light";
+const modalIconGhost =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center border border-white/30 bg-white/10 text-white transition hover:bg-white/20";
+
+function eventLabel(eventType: string) {
+  if (eventType === "SPARE_CREATED") return "Spare created";
+  if (eventType === "MANUAL_STOCK_SET") return "Manual stock update";
+  if (eventType === "PURCHASE_IN") return "Purchase inward";
+  if (eventType === "TRANSFER_OUT") return "Transfer out";
+  if (eventType === "TRANSFER_IN") return "Transfer in";
+  return eventType.replace(/_/g, " ");
+}
+
+function IconDetails({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+      />
+    </svg>
+  );
+}
+
+function IconBarcode({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M4 6v12M7 6v12M9 6v12M12 6v12M14 6v12M17 6v12M20 6v12"
+      />
+    </svg>
+  );
+}
+
+function IconLogs({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+      />
+    </svg>
+  );
+}
+
+function IconClose({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
 
 const categories = ["Glass", "Movement", "Battery", "Crown", "Gasket", "Strap", "Dial", "Hands", "Lubricant", "Tool", "Consumable", "Stem", "Other"];
 
@@ -76,13 +139,17 @@ export function InventorySpareCatalogPage() {
   );
   const bulkFileRef = useRef<File | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [logsOpen, setLogsOpen] = useState(false);
+  const [detailsTab, setDetailsTab] = useState<"details" | "logs">("details");
   const [historyRows, setHistoryRows] = useState<SpareHistoryRow[]>([]);
   const [historyErr, setHistoryErr] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [activeFilter, setActiveFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const canCreateSpare = user?.role === "super_admin" || user?.role === "admin";
   const hoOnlyRole =
     user?.role === "service_centre_clerk" || user?.role === "service_centre_supervisor" || user?.role === "technician";
+  const canViewLogs = !hideStockLogsButton;
 
   useEffect(() => {
     if (regions.length > 0 && !regionId) setRegionId(regions[0]!.id);
@@ -117,6 +184,29 @@ export function InventorySpareCatalogPage() {
     () => (selectedId ? spares.find((s) => s.id === selectedId) ?? null : null),
     [spares, selectedId],
   );
+
+  const categoryOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of spares) {
+      if (s.category) set.add(s.category);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [spares]);
+
+  const filteredSpares = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return spares.filter((s) => {
+      if (categoryFilter && s.category !== categoryFilter) return false;
+      if (activeFilter === "ACTIVE" && !s.isActive) return false;
+      if (activeFilter === "INACTIVE" && s.isActive) return false;
+      if (q) {
+        const hay = `${s.sku} ${s.name} ${s.description} ${s.category} ${s.hsn ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [spares, query, categoryFilter, activeFilter]);
+
   const barcodeRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
@@ -281,9 +371,11 @@ export function InventorySpareCatalogPage() {
     }
   }
 
-  function openDetails(spareId: string) {
+  function openDetails(spareId: string, tab: "details" | "logs" = "details") {
     setSelectedId(spareId);
+    setDetailsTab(tab);
     setDetailsOpen(true);
+    if (tab === "logs") void loadHistory(spareId);
   }
 
   async function saveSpareTaxDetails(e: React.FormEvent) {
@@ -307,9 +399,7 @@ export function InventorySpareCatalogPage() {
   }
 
   function openLogs(spareId: string) {
-    setSelectedId(spareId);
-    setLogsOpen(true);
-    void loadHistory(spareId);
+    openDetails(spareId, "logs");
   }
 
   async function downloadBulkTemplate() {
@@ -425,35 +515,22 @@ export function InventorySpareCatalogPage() {
   }
 
   return (
-    <div>
+    <div className="ui-page-bleed px-3 font-sans text-rlx-ink sm:px-4 md:px-5">
       <InventoryBreadcrumb current="Spare catalogue" />
       <PageHeader
         title="Spare master"
-        description=""
+        description="Spare catalogue with tax, prices, barcode, and stock logs."
         actions={
-          <Link
-            to="/inventory"
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Inventory home
-          </Link>
-        }
-      />
-
-      <div className="grid gap-8">
-        <Card
-          title="Spares"
-          subtitle={`${spares.length} row(s)`}
-          action={
-            canCreateSpare ? (
-              <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {canCreateSpare ? (
+              <>
                 <button
                   type="button"
                   onClick={() => {
                     setBulkMsg(null);
                     setBulkImportOpen(true);
                   }}
-                  className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                  className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light"
                 >
                   Bulk import
                 </button>
@@ -463,80 +540,163 @@ export function InventorySpareCatalogPage() {
                     setMsg(null);
                     setAddSpareOpen(true);
                   }}
-                  className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-700"
+                  className="inline-flex border border-rlx-gold/70 bg-rlx-gold px-4 py-2.5 text-sm font-semibold text-rlx-green-deep transition hover:bg-rlx-gold-dark"
                 >
                   Add spare
                 </button>
-              </div>
-            ) : undefined
-          }
-        >
-          <div className="max-h-[480px] overflow-auto rounded-xl border border-zimson-200/80">
-            <table className="min-w-full text-left text-sm">
-              <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase tracking-wide text-stone-600">
-                <tr>
-                  <th className="px-3 py-2">SKU</th>
-                  <th className="px-3 py-2">Name</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2">Category</th>
-                  <th className="px-3 py-2">HSN</th>
-                  <th className="px-3 py-2">GST %</th>
-                  <th className="px-3 py-2">Cost price</th>
-                  <th className="px-3 py-2">Active</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
+              </>
+            ) : null}
+            <Link
+              to="/inventory"
+              className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green no-underline transition hover:border-rlx-green hover:bg-rlx-green-light"
+            >
+              Inventory home
+            </Link>
+          </div>
+        }
+      />
+
+      <section className="mb-5 border border-rlx-rule bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rlx-rule bg-rlx-bg px-3 py-2.5 sm:px-4">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-rlx-ink-muted">
+            Filters · {filteredSpares.length} of {spares.length}
+          </h2>
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              setCategoryFilter("");
+              setActiveFilter("ALL");
+            }}
+            className="ui-btn-secondary"
+          >
+            Reset
+          </button>
+        </div>
+        <div className="ui-filter-grid p-3 sm:p-4">
+          <FilterField label="Search" htmlFor="spare-q" className="ui-filter-span-2-sm min-w-0">
+            <input
+              id="spare-q"
+              className="ui-field"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="SKU, name, description, HSN…"
+            />
+          </FilterField>
+          <FilterField label="Category" htmlFor="spare-cat" className="min-w-0">
+            <select
+              id="spare-cat"
+              className="ui-field"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <option value="">All categories</option>
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="Status" htmlFor="spare-active" className="min-w-0">
+            <select
+              id="spare-active"
+              className="ui-field"
+              value={activeFilter}
+              onChange={(e) => setActiveFilter(e.target.value as typeof activeFilter)}
+            >
+              <option value="ALL">All</option>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+            </select>
+          </FilterField>
+        </div>
+      </section>
+
+      {filteredSpares.length === 0 ? (
+        <p className="border border-rlx-rule bg-white px-4 py-8 text-center text-sm text-rlx-ink-muted">
+          No spares match the current filters.
+        </p>
+      ) : (
+        <>
+          <p className="mb-2 text-xs text-rlx-ink-muted md:hidden">Swipe horizontally to see more columns →</p>
+          <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
+            <table className="ui-table-dense w-full min-w-[40rem] text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
+                <tr className="border-b-2 border-rlx-gold">
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">SKU</th>
+                  <th className="min-w-[14rem] px-3 py-3 text-left font-semibold">Item</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Cost</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Active</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {spares.map((s) => (
+                {filteredSpares.map((s, idx) => (
                   <tr
                     key={s.id}
-                    className="border-b border-zimson-100 last:border-0 hover:bg-zimson-50/80"
+                    onClick={() => openDetails(s.id)}
+                    className={`cursor-pointer border-b border-rlx-rule transition-colors hover:bg-rlx-green-light ${
+                      idx % 2 === 1 ? "bg-rlx-bg" : "bg-white"
+                    }`}
                   >
-                    <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{s.sku}</td>
-                    <td className="max-w-[220px] truncate px-3 py-2 text-stone-800" title={s.name}>{s.name}</td>
-                    <td className="max-w-[260px] truncate px-3 py-2 text-stone-700" title={s.description}>{s.description}</td>
-                    <td className="px-3 py-2 text-stone-600">{s.category}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-stone-600">{s.hsn ?? "-"}</td>
-                    <td className="px-3 py-2 text-stone-700">{s.gstPercent != null ? `${s.gstPercent}%` : "—"}</td>
-                    <td className="px-3 py-2 text-stone-700">
-                      {s.costPriceInr == null ? "-" : s.costPriceInr}
+                    <td className="align-middle px-3 py-3">
+                      <span className="block whitespace-nowrap font-mono text-sm font-semibold text-rlx-green">
+                        {s.sku}
+                      </span>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="align-middle px-3 py-3">
+                      <span className="block break-words text-sm font-medium leading-snug text-rlx-ink">{s.name}</span>
+                      <span className="block text-xs leading-snug text-rlx-ink-muted">
+                        {s.category}
+                        {s.description ? ` · ${s.description}` : ""}
+                      </span>
+                    </td>
+                    <td className="align-middle whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-rlx-ink">
+                      {s.costPriceInr == null ? "—" : s.costPriceInr.toLocaleString()}
+                    </td>
+                    <td className="align-middle px-3 py-3">
                       <span
-                        className={
+                        className={`inline-flex rounded px-2 py-1 text-xs font-semibold ring-1 ring-inset ${
                           s.isActive
-                            ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900"
-                            : "rounded-full bg-stone-200 px-2 py-0.5 text-xs font-medium text-stone-700"
-                        }
+                            ? "bg-emerald-50 text-emerald-900 ring-emerald-300/70"
+                            : "bg-stone-100 text-stone-700 ring-stone-300/70"
+                        }`}
                       >
                         {s.isActive ? "Yes" : "No"}
                       </span>
                     </td>
-                    <td className="px-3 py-2">
-                      <div className="flex justify-end gap-2">
+                    <td className="align-middle px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex flex-nowrap items-center justify-end gap-1.5">
                         <button
                           type="button"
                           onClick={() => openDetails(s.id)}
-                          className="rounded-lg border border-zimson-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                          className={btnIcon}
+                          title="Details"
+                          aria-label="Details"
                         >
-                          Details
+                          <IconDetails />
                         </button>
                         <button
                           type="button"
                           onClick={() => printBarcodeLabel(s)}
-                          className="rounded-lg border border-zimson-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                          className={btnIcon}
+                          title="Print barcode"
+                          aria-label="Print barcode"
                         >
-                          Print barcode
+                          <IconBarcode />
                         </button>
-                        {hideStockLogsButton ? null : (
-                        <button
-                          type="button"
-                          onClick={() => openLogs(s.id)}
-                          className="rounded-lg border border-zimson-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-                        >
-                          Logs
-                        </button>
-                        )}
+                        {canViewLogs ? (
+                          <button
+                            type="button"
+                            onClick={() => openLogs(s.id)}
+                            className={btnIcon}
+                            title="Stock logs"
+                            aria-label="Stock logs"
+                          >
+                            <IconLogs />
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -544,8 +704,8 @@ export function InventorySpareCatalogPage() {
               </tbody>
             </table>
           </div>
-        </Card>
-      </div>
+        </>
+      )}
 
       {addSpareOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -794,195 +954,328 @@ export function InventorySpareCatalogPage() {
       </div>
 
       {detailsOpen && selectedSpare ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-6xl overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-stone-900">Spare details</h3>
-                <p className="text-sm text-stone-600">{selectedSpare.name} · {selectedSpare.sku}</p>
+        <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-rlx-ink/70 p-0 backdrop-blur-sm sm:items-center sm:p-3 md:p-5">
+          <div className="flex h-[100dvh] w-full max-w-[96rem] flex-col overflow-hidden bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] sm:h-[min(96dvh,58rem)] sm:max-h-[96dvh]">
+            <div className="flex shrink-0 items-center justify-between gap-3 bg-rlx-green px-4 py-3 sm:px-6">
+              <div className="min-w-0 flex-1">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.35em] text-rlx-gold">Spare details</p>
+                <h3 className="truncate font-mono text-base font-semibold text-white sm:text-lg">{selectedSpare.sku}</h3>
+                <p className="mt-0.5 truncate text-xs text-white/65 sm:text-sm">
+                  {selectedSpare.name} · {selectedSpare.category}
+                </p>
               </div>
-              <button type="button" onClick={() => setDetailsOpen(false)} className="rounded-lg border px-3 py-1.5 text-sm">
-                Close
-              </button>
-            </div>
-            <div className="mb-5 flex justify-end">
-              <button
-                type="button"
-                onClick={() => printBarcodeLabel()}
-                className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700"
-              >
-                Print barcode
-              </button>
-            </div>
-            <Card title="HSN & GST (billing)" subtitle="Used on Quick Bill, store billing, and GRN">
-              <form onSubmit={(e) => void saveSpareTaxDetails(e)} className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-xs font-medium text-stone-600">HSN / SAC</label>
-                  <input
-                    value={editHsn}
-                    onChange={(e) => setEditHsn(sanitizeAlphanumericInput(e.target.value, 16))}
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-stone-600">GST %</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.01}
-                    value={editGstPercent}
-                    onChange={(e) => setEditGstPercent(sanitizeDecimalInput(e.target.value))}
-                    className={inputClass}
-                    required
-                  />
-                </div>
-                <div className="sm:col-span-2 flex items-center gap-3">
-                  <button
-                    type="submit"
-                    className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-700"
-                  >
-                    Save HSN & GST
-                  </button>
-                  {taxEditMsg ? (
-                    <p className={`text-sm ${taxEditMsg.type === "ok" ? "text-emerald-800" : "text-red-800"}`}>
-                      {taxEditMsg.text}
-                    </p>
-                  ) : null}
-                </div>
-              </form>
-            </Card>
-            <Card title="Master prices" subtitle="Spare master values">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border border-zimson-200 bg-zimson-50/40 px-3 py-2">
-                  <p className="text-xs text-stone-500">Cost price</p>
-                  <p className="text-sm font-semibold text-stone-900">
-                    {selectedSpare.costPriceInr == null ? "-" : selectedSpare.costPriceInr}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-zimson-200 bg-zimson-50/40 px-3 py-2">
-                  <p className="text-xs text-stone-500">Selling price</p>
-                  <p className="text-sm font-semibold text-stone-900">
-                    {selectedSpare.sellingPriceInr ?? selectedSpare.mrpInr ?? "-"}
-                  </p>
-                </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => printBarcodeLabel()}
+                  className={`${modalIconGhost} border-rlx-gold/50 bg-rlx-gold text-rlx-green-deep hover:bg-rlx-gold-dark`}
+                  title="Print barcode"
+                  aria-label="Print barcode"
+                >
+                  <IconBarcode />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen(false)}
+                  className={modalIconGhost}
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <IconClose />
+                </button>
               </div>
-            </Card>
-            <div className="grid gap-8 lg:grid-cols-2">
-          <Card title="Brand price lines" subtitle={`Price lines for ${selectedSpare.sku}`}>
-            <div className="mb-3">
-              <label className="text-xs font-medium text-stone-600">Pricing region</label>
-              <select
-                value={regionId}
-                onChange={(e) => setRegionId(e.target.value)}
-                className={inputClass}
-                disabled={Boolean(user && user.role !== "super_admin")}
-              >
-                <option value="">Select region</option>
-                {regions.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
             </div>
-            <form onSubmit={addPriceLine} className="mb-4 grid gap-3 sm:grid-cols-3">
-              <select value={brand} onChange={(e) => setBrand(e.target.value)} className={inputClass}>
-                {brandOptions.length === 0 ? (
-                  <option value="">No brands — add under Inventory → Brands</option>
-                ) : (
-                  brandOptions.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))
-                )}
-              </select>
-              <input type="number" min={0} step={0.01} value={price} onChange={(e) => setPrice(e.target.value)} className={inputClass} placeholder="Price" />
-              <button type="submit" className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700">Save price</button>
-            </form>
-            {priceErr ? <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{priceErr}</p> : null}
-            <div className="max-h-[360px] overflow-auto rounded-xl border border-zimson-200/80">
-              <table className="min-w-full text-left text-sm">
-                <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-                  <tr><th className="px-3 py-2">Region</th><th className="px-3 py-2">Brand</th><th className="px-3 py-2">Price</th><th className="px-3 py-2">Created</th></tr>
-                </thead>
-                <tbody>
-                  {prices.map((p) => (
-                    <tr key={p.id} className="border-b border-zimson-100">
-                      <td className="px-3 py-2">{regions.find((r) => r.id === p.regionId)?.name ?? p.regionId ?? "-"}</td>
-                      <td className="px-3 py-2">{p.brand}</td>
-                      <td className="px-3 py-2">{p.price}</td>
-                      <td className="px-3 py-2">{new Date(p.createdAt).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
-      {logsOpen && selectedSpare ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[85vh] w-full max-w-5xl overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-stone-900">Spare logs</h3>
-                <p className="text-sm text-stone-600">{selectedSpare.name} · {selectedSpare.sku}</p>
+            {canViewLogs ? (
+              <div className="flex shrink-0 gap-1.5 border-b border-rlx-rule bg-rlx-bg px-4 py-2 sm:px-6">
+                <button
+                  type="button"
+                  onClick={() => setDetailsTab("details")}
+                  className={`px-3 py-1.5 text-xs font-semibold transition ${
+                    detailsTab === "details"
+                      ? "bg-rlx-green text-white"
+                      : "border border-rlx-rule bg-white text-rlx-green hover:bg-rlx-green-light"
+                  }`}
+                >
+                  Details & prices
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetailsTab("logs");
+                    void loadHistory(selectedSpare.id);
+                  }}
+                  className={`px-3 py-1.5 text-xs font-semibold transition ${
+                    detailsTab === "logs"
+                      ? "bg-rlx-green text-white"
+                      : "border border-rlx-rule bg-white text-rlx-green hover:bg-rlx-green-light"
+                  }`}
+                >
+                  Full stock history
+                </button>
               </div>
-              <button type="button" onClick={() => setLogsOpen(false)} className="rounded-lg border px-3 py-1.5 text-sm">
-                Close
-              </button>
-            </div>
-            <div className="mb-3 flex justify-end">
-              <button
-                type="button"
-                onClick={() => void loadHistory(selectedSpare.id)}
-                className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-              >
-                {historyLoading ? "Loading…" : "Refresh"}
-              </button>
-            </div>
-            {historyErr ? <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{historyErr}</p> : null}
-            <div className="max-h-[58vh] overflow-auto rounded-xl border border-zimson-200/80">
-              <table className="min-w-full text-left text-sm">
-                <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
-                  <tr>
-                    <th className="px-3 py-2">Time</th>
-                    <th className="px-3 py-2">Event</th>
-                    <th className="px-3 py-2">Location</th>
-                    <th className="px-3 py-2">Qty change</th>
-                    <th className="px-3 py-2">Balance</th>
-                    <th className="px-3 py-2">By</th>
-                    <th className="px-3 py-2">Note</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historyRows.map((h) => (
-                    <tr key={h.id} className="border-b border-zimson-100">
-                      <td className="whitespace-nowrap px-3 py-2">{new Date(h.createdAt).toLocaleString()}</td>
-                      <td className="px-3 py-2">{h.eventType}</td>
-                      <td className="px-3 py-2">
-                        {[h.locationType ?? "-", h.regionName ?? "-", h.storeName ?? "-"].filter((v, i) => i === 0 || v !== "-").join(" · ")}
-                      </td>
-                      <td className="px-3 py-2">{h.quantityChange ?? "-"}</td>
-                      <td className="px-3 py-2">{h.balanceAfter ?? "-"}</td>
-                      <td className="px-3 py-2">{h.createdBy ?? "-"}</td>
-                      <td className="max-w-[320px] truncate px-3 py-2" title={h.note ?? ""}>{h.note ?? "-"}</td>
-                    </tr>
-                  ))}
-                  {historyRows.length === 0 && !historyLoading ? (
-                    <tr>
-                      <td className="px-3 py-4 text-sm text-stone-500" colSpan={7}>
-                        No logs found.
-                      </td>
-                    </tr>
+            ) : null}
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+              {detailsTab === "details" || !canViewLogs ? (
+                <div className="space-y-5">
+                  <div className="overflow-hidden border border-rlx-rule">
+                    <table className="w-full text-left text-sm">
+                      <tbody className="odd:[&>tr]:bg-white even:[&>tr]:bg-rlx-bg">
+                        <tr className="border-b border-rlx-rule">
+                          <th className="w-40 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                            SKU
+                          </th>
+                          <td className="px-3 py-2.5 font-mono font-semibold text-rlx-green">{selectedSpare.sku}</td>
+                        </tr>
+                        <tr className="border-b border-rlx-rule">
+                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                            Name
+                          </th>
+                          <td className="px-3 py-2.5">{selectedSpare.name}</td>
+                        </tr>
+                        <tr className="border-b border-rlx-rule">
+                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                            Description
+                          </th>
+                          <td className="px-3 py-2.5">{selectedSpare.description || "—"}</td>
+                        </tr>
+                        <tr className="border-b border-rlx-rule">
+                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                            Category
+                          </th>
+                          <td className="px-3 py-2.5">{selectedSpare.category}</td>
+                        </tr>
+                        <tr className="border-b border-rlx-rule">
+                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                            Active
+                          </th>
+                          <td className="px-3 py-2.5">{selectedSpare.isActive ? "Yes" : "No"}</td>
+                        </tr>
+                        <tr className="border-b border-rlx-rule">
+                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                            Cost / Selling
+                          </th>
+                          <td className="px-3 py-2.5">
+                            {selectedSpare.costPriceInr ?? "—"} /{" "}
+                            {selectedSpare.sellingPriceInr ?? selectedSpare.mrpInr ?? "—"}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <Card title="HSN & GST (billing)" subtitle="Used on Quick Bill, store billing, and GRN">
+                    <form onSubmit={(e) => void saveSpareTaxDetails(e)} className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="text-xs font-medium text-stone-600">HSN / SAC</label>
+                        <input
+                          value={editHsn}
+                          onChange={(e) => setEditHsn(sanitizeAlphanumericInput(e.target.value, 16))}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-stone-600">GST %</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.01}
+                          value={editGstPercent}
+                          onChange={(e) => setEditGstPercent(sanitizeDecimalInput(e.target.value))}
+                          className={inputClass}
+                          required
+                        />
+                      </div>
+                      <div className="flex items-center gap-3 sm:col-span-2">
+                        <button
+                          type="submit"
+                          className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-700"
+                        >
+                          Save HSN & GST
+                        </button>
+                        {taxEditMsg ? (
+                          <p className={`text-sm ${taxEditMsg.type === "ok" ? "text-emerald-800" : "text-red-800"}`}>
+                            {taxEditMsg.text}
+                          </p>
+                        ) : null}
+                      </div>
+                    </form>
+                  </Card>
+
+                  <Card title="Brand price lines" subtitle={`Price lines for ${selectedSpare.sku}`}>
+                    <div className="mb-3">
+                      <label className="text-xs font-medium text-stone-600">Pricing region</label>
+                      <select
+                        value={regionId}
+                        onChange={(e) => setRegionId(e.target.value)}
+                        className={inputClass}
+                        disabled={Boolean(user && user.role !== "super_admin")}
+                      >
+                        <option value="">Select region</option>
+                        {regions.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <form onSubmit={addPriceLine} className="mb-4 grid gap-3 sm:grid-cols-3">
+                      <select value={brand} onChange={(e) => setBrand(e.target.value)} className={inputClass}>
+                        {brandOptions.length === 0 ? (
+                          <option value="">No brands — add under Inventory → Brands</option>
+                        ) : (
+                          brandOptions.map((b) => (
+                            <option key={b} value={b}>
+                              {b}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={price}
+                        onChange={(e) => setPrice(e.target.value)}
+                        className={inputClass}
+                        placeholder="Price"
+                      />
+                      <button
+                        type="submit"
+                        className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700"
+                      >
+                        Save price
+                      </button>
+                    </form>
+                    {priceErr ? <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{priceErr}</p> : null}
+                    <div className="max-h-[280px] overflow-auto border border-rlx-rule">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="sticky top-0 bg-rlx-bg text-[11px] font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                          <tr className="border-b border-rlx-rule">
+                            <th className="px-3 py-2">Region</th>
+                            <th className="px-3 py-2">Brand</th>
+                            <th className="px-3 py-2">Price</th>
+                            <th className="px-3 py-2">Created</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {prices.map((p) => (
+                            <tr key={p.id} className="border-b border-rlx-rule">
+                              <td className="px-3 py-2">
+                                {regions.find((r) => r.id === p.regionId)?.name ?? p.regionId ?? "-"}
+                              </td>
+                              <td className="px-3 py-2">{p.brand}</td>
+                              <td className="px-3 py-2">{p.price}</td>
+                              <td className="px-3 py-2 text-xs text-rlx-ink-muted">
+                                {new Date(p.createdAt).toLocaleString()}
+                              </td>
+                            </tr>
+                          ))}
+                          {prices.length === 0 ? (
+                            <tr>
+                              <td className="px-3 py-4 text-sm text-rlx-ink-muted" colSpan={4}>
+                                No brand price lines yet.
+                              </td>
+                            </tr>
+                          ) : null}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Card>
+                </div>
+              ) : (
+                <div>
+                  <div className="mb-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void loadHistory(selectedSpare.id)}
+                      className="border border-rlx-rule bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
+                    >
+                      {historyLoading ? "Loading…" : "Refresh"}
+                    </button>
+                  </div>
+                  {historyErr ? (
+                    <p className="mb-3 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{historyErr}</p>
                   ) : null}
-                </tbody>
-              </table>
+                  {historyLoading && historyRows.length === 0 ? (
+                    <p className="text-sm text-rlx-ink-muted">Loading history…</p>
+                  ) : historyRows.length === 0 ? (
+                    <p className="border border-rlx-rule bg-rlx-bg px-3 py-6 text-center text-sm text-rlx-ink-muted">
+                      No stock history found.
+                    </p>
+                  ) : (
+                    <div className="overflow-auto border border-rlx-rule">
+                      <table className="w-full table-fixed text-left text-sm">
+                        <colgroup>
+                          <col className="w-[9rem]" />
+                          <col className="w-[10rem]" />
+                          <col />
+                          <col className="w-[5rem]" />
+                          <col className="w-[5rem]" />
+                          <col className="w-[8rem]" />
+                        </colgroup>
+                        <thead className="sticky top-0 z-10 bg-rlx-bg text-[11px] font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                          <tr className="border-b border-rlx-rule">
+                            <th className="px-3 py-2.5 text-left">When</th>
+                            <th className="px-3 py-2.5 text-left">Event</th>
+                            <th className="px-3 py-2.5 text-left">Place</th>
+                            <th className="px-3 py-2.5 text-right">Change</th>
+                            <th className="px-3 py-2.5 text-right">Balance</th>
+                            <th className="px-3 py-2.5 text-left">By</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {historyRows.map((h, idx) => {
+                            const change = h.quantityChange;
+                            return (
+                              <tr
+                                key={h.id}
+                                className={`border-b border-rlx-rule ${idx % 2 === 1 ? "bg-rlx-bg" : "bg-white"}`}
+                              >
+                                <td className="px-3 py-2.5 align-top text-xs text-rlx-ink-muted">
+                                  {new Date(h.createdAt).toLocaleString(undefined, {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </td>
+                                <td className="px-3 py-2.5 align-top text-sm">{eventLabel(h.eventType)}</td>
+                                <td className="break-words px-3 py-2.5 align-top text-sm">
+                                  {[h.locationType ?? "Master", h.regionName, h.storeName].filter(Boolean).join(" · ")}
+                                  {h.note ? (
+                                    <span className="mt-0.5 block text-xs text-rlx-ink-muted">{h.note}</span>
+                                  ) : null}
+                                </td>
+                                <td
+                                  className={`px-3 py-2.5 align-top text-right text-sm font-semibold tabular-nums ${
+                                    change == null
+                                      ? "text-rlx-ink-muted"
+                                      : change < 0
+                                        ? "text-rose-700"
+                                        : "text-emerald-700"
+                                  }`}
+                                >
+                                  {change == null ? "—" : change.toLocaleString()}
+                                </td>
+                                <td className="px-3 py-2.5 align-top text-right text-sm font-semibold tabular-nums">
+                                  {h.balanceAfter == null ? "—" : h.balanceAfter.toLocaleString()}
+                                </td>
+                                <td className="break-words px-3 py-2.5 align-top text-xs text-rlx-ink-muted">
+                                  {h.createdBy ?? "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

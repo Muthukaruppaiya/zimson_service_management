@@ -6,6 +6,7 @@ import {
 } from "../../lib/resendSrfTrackingWhatsApp";
 import { isValidIndianMobile10 } from "../../lib/whatsappInvoiceUi";
 import { useMessagingSend } from "../messaging/WhatsAppSendProvider";
+import type { ReactNode } from "react";
 
 type Props = {
   srfId: string;
@@ -15,6 +16,9 @@ type Props = {
   className?: string;
   label?: string;
   busyLabel?: string;
+  title?: string;
+  "aria-label"?: string;
+  children?: ReactNode;
   onResult?: (result: ResendSrfTrackingWhatsAppResult) => void;
 };
 
@@ -26,6 +30,9 @@ export function ResendSrfTrackingWhatsAppButton({
   className,
   label = "Resend to customer",
   busyLabel = "Sending…",
+  title,
+  "aria-label": ariaLabel,
+  children,
   onResult,
 }: Props) {
   const { runWhatsAppSend, whatsappSending } = useMessagingSend();
@@ -65,19 +72,23 @@ export function ResendSrfTrackingWhatsAppButton({
     });
   }
 
+  const tip = title ?? (whatsappSending ? busyLabel : label);
+
   return (
     <button
       type="button"
       disabled={disabled || whatsappSending || !srfId.trim()}
       onClick={() => void handleClick()}
+      title={tip}
+      aria-label={ariaLabel ?? tip}
       className={
         className ??
         "rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
       }
     >
-      {whatsappSending ? busyLabel : label}
+      {children != null ? (whatsappSending ? busyLabel : children) : whatsappSending ? busyLabel : label}
     </button>
   );
 }
 
-export { srfTrackingCustomerNotifyMessage, srfTrackingCustomerNotifyMessage as srfTrackingWhatsAppResultMessage };
+export { srfTrackingCustomerNotifyMessage, srfTrackingWhatsAppResultMessage } from "../../lib/resendSrfTrackingWhatsApp";

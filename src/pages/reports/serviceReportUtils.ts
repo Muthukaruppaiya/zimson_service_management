@@ -17,7 +17,7 @@ export const SERVICE_REPORT_COLUMNS: Record<ServiceReportKey, string[]> = {
   transfer: ["SR No", "Customer", "Watch", "Transfer Ref", "Inbound DC", "Outward DC", "Status", "From", "To", "Age (days)"],
 };
 
-const PENDING_STATUSES = new Set<SrfJob["status"]>([
+export const PENDING_STATUSES = new Set<SrfJob["status"]>([
   "draft",
   "photo_pending",
   "at_store",

@@ -598,26 +598,22 @@ export function AnalyticsDashboardPage() {
 
   return (
     <div className="chrono-bi space-y-6 pb-10">
-      <div className="bi-hero overflow-hidden rounded-3xl border border-zimson-200 shadow-lg">
+      <div className="bi-hero overflow-hidden rounded-2xl border border-zimson-200 shadow-md">
         <div className="bi-hero__stripe" aria-hidden />
-        <div className="bi-hero__body px-6 py-8 text-white sm:px-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="bi-hero__body px-5 py-4 text-white sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Business intelligence</p>
-              <h1 className="mt-2 text-2xl font-bold sm:text-3xl">{activeTopic.label}</h1>
-              <p className="mt-2 max-w-3xl text-sm text-white/80">
-                Interactive drill-down analytics — click charts, KPIs, and table rows to explore deeper. Scoped to {regionLabel}.
-                {data ? ` ${data.compare.label} on KPI cards.` : ""}
-              </p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">Business intelligence</p>
+              <h1 className="mt-0.5 text-xl font-bold sm:text-2xl">{activeTopic.label}</h1>
             </div>
             {data ? (
-              <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-right backdrop-blur-sm">
+              <div className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-right backdrop-blur-sm">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-white/60">Period</p>
-                <p className="mt-1 text-sm font-semibold">{data.filters.from} → {data.filters.to}</p>
+                <p className="mt-0.5 text-sm font-semibold">{data.filters.from} → {data.filters.to}</p>
               </div>
             ) : null}
           </div>
-          <div className="mt-5">
+          <div className="mt-3">
             <BiDrillBreadcrumb path={drillPath} onNavigate={navigateDrill} />
           </div>
         </div>
