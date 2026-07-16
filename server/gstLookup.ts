@@ -21,7 +21,15 @@ export type GstLookupNames = {
   pincode?: string;
 };
 
+export type PanLookupResult = {
+  pan: string;
+  legalName?: string;
+  tradeName?: string;
+  source: "masters_india" | "stub";
+};
+
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 function stubNames(gstin: string): GstLookupNames {
   const panPart = gstin.slice(2, 12);
@@ -441,4 +449,96 @@ export async function lookupGstCompany(gstinRaw: string): Promise<GstLookupNames
   }
 
   return stubNames(gstin);
+}
+
+function panLookupUrl(base: string, pan: string): string {
+  const override = process.env.MASTERS_INDIA_PAN_API_URL?.trim();
+  if (override) {
+    const u = new URL(override);
+    if (!u.searchParams.has("pan")) u.searchParams.set("pan", pan);
+    return u.toString();
+  }
+  const u = new URL(`${base}/commonapis/pandetail`);
+  u.searchParams.set("pan", pan);
+  return u.toString();
+}
+
+function extractMastersIndiaPan(json: unknown, pan: string): PanLookupResult {
+  const root = json as {
+    error?: boolean | string;
+    message?: string;
+    data?: Record<string, unknown>;
+    results?: Record<string, unknown>;
+    result?: Record<string, unknown>;
+  };
+  if (root.error === true || (typeof root.error === "string" && root.error)) {
+    throw new Error(typeof root.error === "string" ? root.error : root.message ?? "Masters India PAN lookup failed.");
+  }
+  const data = (
+    root.data && typeof root.data === "object"
+      ? root.data
+      : root.results && typeof root.results === "object"
+        ? root.results
+        : root.result
+  ) as Record<string, unknown> | undefined;
+  const legalName =
+    typeof data?.legal_name === "string"
+      ? data.legal_name.trim()
+      : typeof data?.lgnm === "string"
+        ? data.lgnm.trim()
+        : typeof data?.name === "string"
+          ? data.name.trim()
+          : "";
+  const tradeName =
+    typeof data?.trade_name === "string"
+      ? data.trade_name.trim()
+      : typeof data?.tradeNam === "string"
+        ? data.tradeNam.trim()
+        : legalName;
+  return {
+    pan,
+    legalName: legalName || undefined,
+    tradeName: tradeName || undefined,
+    source: "masters_india",
+  };
+}
+
+export async function lookupPanProfile(panRaw: string): Promise<PanLookupResult> {
+  const pan = panRaw.trim().toUpperCase();
+  if (!PAN_RE.test(pan)) throw new Error("INVALID_PAN");
+  const mastersCreds = mastersIndiaConfigured();
+  if (mastersCreds) {
+    const token = await getMastersIndiaAccessToken(mastersCreds);
+    const base = mastersIndiaSearchBase();
+    const url = panLookupUrl(base, pan);
+    const doSearch = async (accessToken: string) => {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          client_id: mastersCreds.clientId,
+          Accept: "application/json",
+        },
+      });
+      const json: unknown = await res.json().catch(() => ({}));
+      return { res, json };
+    };
+    let { res, json } = await doSearch(token);
+    if (res.status === 401) {
+      mastersIndiaTokenCache = null;
+      const fresh = await getMastersIndiaAccessToken(mastersCreds);
+      ({ res, json } = await doSearch(fresh));
+    }
+    if (!res.ok) {
+      const err = json as { message?: string; error?: string };
+      throw new Error(err.message ?? err.error ?? `Masters India PAN lookup failed (${res.status}).`);
+    }
+    return extractMastersIndiaPan(json, pan);
+  }
+  return {
+    pan,
+    legalName: `PAN holder (${pan})`,
+    tradeName: undefined,
+    source: "stub",
+  };
 }

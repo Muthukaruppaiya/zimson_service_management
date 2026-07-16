@@ -48,7 +48,7 @@ import type { CustomerKind, CustomerRecord } from "../src/types/customer";
 import type { AppNotification } from "../src/types/notification";
 import type { DemoUser, ModuleKey, SessionUser, UserRole } from "../src/types/user";
 import { readState, stripPassword, writeState, type AppState } from "./persist";
-import { lookupGstCompany } from "./gstLookup";
+import { lookupGstCompany, lookupPanProfile } from "./gstLookup";
 import {
   validateCustomerB2bGstin,
   ZIMSON_COMPANY_GST_ENTRIES,
@@ -3121,6 +3121,7 @@ function phoneLast10(raw: string): string {
 }
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 app.get("/api/countries", (_req, res) => {
   if (!dbPool) {
@@ -3168,6 +3169,31 @@ app.post("/api/gst/lookup", async (req, res) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "GST lookup failed.";
     console.error("[gst/lookup]", msg);
+    res.status(502).json({ error: msg });
+  }
+});
+
+app.post("/api/pan/lookup", async (req, res) => {
+  const pan = String((req.body as { pan?: string })?.pan ?? "")
+    .trim()
+    .toUpperCase();
+  if (!PAN_RE.test(pan)) {
+    res.status(400).json({ error: "Enter a valid 10-character PAN." });
+    return;
+  }
+  try {
+    const out = await lookupPanProfile(pan);
+    res.json(out);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "PAN lookup failed.";
+    console.error("[pan/lookup]", msg);
+    if (/allotted units|subscription does not have this api access/i.test(msg)) {
+      res.status(429).json({
+        error:
+          "MasterIndia PAN API quota exhausted or not enabled for this subscription. Please recharge/enable PAN API access and retry.",
+      });
+      return;
+    }
     res.status(502).json({ error: msg });
   }
 });

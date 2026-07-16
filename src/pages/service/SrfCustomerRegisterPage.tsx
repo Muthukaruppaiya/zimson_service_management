@@ -16,7 +16,7 @@ import {
   validateCustomerB2bGstin,
 } from "../../lib/zimsonCompanyGst";
 import { apiJson, useApiMode } from "../../lib/api";
-import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../lib/gstLookupClient";
+import { companyNameFromGstLookup, lookupCompanyByGstin, lookupPanByNumber } from "../../lib/gstLookupClient";
 import {
   sanitizeEmailInput,
   sanitizeGstPanInput,
@@ -109,6 +109,9 @@ export function SrfCustomerRegisterPage() {
   const [representativeName, setRepresentativeName] = useState("");
   const [gstFetchBusy, setGstFetchBusy] = useState(false);
   const [gstLookupLocked, setGstLookupLocked] = useState(false);
+  const [panVerifyBusy, setPanVerifyBusy] = useState(false);
+  const [panVerifiedValue, setPanVerifiedValue] = useState("");
+  const [panVerifiedName, setPanVerifiedName] = useState("");
 
   const [countries, setCountries] = useState<CountryRow[]>(FALLBACK_COUNTRIES);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -258,6 +261,14 @@ export function SrfCustomerRegisterPage() {
     setPan(derived || "");
   }, [gst, customerKind, gstLookupLocked]);
 
+  useEffect(() => {
+    const current = pan.trim().toUpperCase();
+    if (!current || current !== panVerifiedValue) {
+      setPanVerifiedValue("");
+      setPanVerifiedName("");
+    }
+  }, [pan, panVerifiedValue]);
+
   const shipEffective = useMemo(
     () => (sameShippingAsBilling ? billing : shipping),
     [sameShippingAsBilling, billing, shipping],
@@ -281,6 +292,8 @@ export function SrfCustomerRegisterPage() {
       if (name) setCompany(name);
       const derivedPan = panFromGstin(gst);
       if (derivedPan) setPan(derivedPan);
+      setPanVerifiedValue("");
+      setPanVerifiedName("");
       if (out.address || out.city || out.state || out.pincode) {
         setBilling((prev) => ({
           ...prev,
@@ -295,6 +308,29 @@ export function SrfCustomerRegisterPage() {
       setError(e instanceof Error ? e.message : "Could not fetch company from GSTIN.");
     } finally {
       setGstFetchBusy(false);
+    }
+  }
+
+  async function verifyPanNow(rawPan?: string) {
+    const panValue = (rawPan ?? pan).trim().toUpperCase();
+    if (!isValidPanFormat(panValue)) {
+      setError("Enter a valid 10-character PAN before verification.");
+      return;
+    }
+    setPanVerifyBusy(true);
+    setError(null);
+    try {
+      const out = await lookupPanByNumber(panValue);
+      const holder = (out.tradeName ?? out.legalName ?? "").trim();
+      setPan(panValue);
+      setPanVerifiedValue(panValue);
+      setPanVerifiedName(holder);
+    } catch (e) {
+      setPanVerifiedValue("");
+      setPanVerifiedName("");
+      setError(e instanceof Error ? e.message : "Could not verify PAN.");
+    } finally {
+      setPanVerifyBusy(false);
     }
   }
 
@@ -453,6 +489,10 @@ export function SrfCustomerRegisterPage() {
         setError("Enter a valid 10-character PAN or leave it blank.");
         return false;
       }
+      if (pan.trim() && panVerifiedValue !== pan.trim().toUpperCase()) {
+        setError("Verify PAN before creating the customer.");
+        return false;
+      }
     } else {
       if (!b2bDisplayName.trim()) {
         setError("B2B display name is required.");
@@ -478,6 +518,10 @@ export function SrfCustomerRegisterPage() {
       const panValue = pan.trim() || panFromGstin(gst) || "";
       if (!isValidPanFormat(panValue)) {
         setError("Enter a valid PAN or a GSTIN that contains a valid PAN.");
+        return false;
+      }
+      if (panVerifiedValue !== panValue.toUpperCase()) {
+        setError("Verify PAN from Master India before registering.");
         return false;
       }
     }
@@ -823,13 +867,27 @@ export function SrfCustomerRegisterPage() {
             {customerKind === "B2C" ? (
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium text-stone-600">PAN (optional)</label>
-                <input
-                  value={pan}
-                  onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
-                  className={inputClass}
-                  maxLength={10}
-                  placeholder="10-character PAN if available"
-                />
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <input
+                    value={pan}
+                    onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
+                    className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1`}
+                    maxLength={10}
+                    placeholder="10-character PAN if available"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void verifyPanNow()}
+                    disabled={panVerifyBusy || !isValidPanFormat(pan)}
+                    className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {panVerifyBusy ? "…" : "Verify PAN"}
+                  </button>
+                  {panVerifiedValue && panVerifiedValue === pan.trim().toUpperCase() ? (
+                    <span className={contactVerifyPill}>✓ Verified</span>
+                  ) : null}
+                </div>
+                {panVerifiedName ? <p className="mt-1 text-xs text-stone-600">PAN holder: {panVerifiedName}</p> : null}
               </div>
             ) : null}
           </div>
@@ -998,13 +1056,27 @@ export function SrfCustomerRegisterPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium text-stone-600">PAN *</label>
-                <input
-                  value={pan.trim() || panFromGstin(gst) || ""}
-                  className={inputClassReadOnly}
-                  readOnly
-                  tabIndex={-1}
-                  placeholder="Filled after GST lookup"
-                />
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <input
+                    value={pan.trim() || panFromGstin(gst) || ""}
+                    className={`${inputClassReadOnly.replace("mt-1 ", "")} min-w-0 flex-1`}
+                    readOnly
+                    tabIndex={-1}
+                    placeholder="Filled after GST lookup"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void verifyPanNow(pan.trim() || panFromGstin(gst) || "")}
+                    disabled={panVerifyBusy || !isValidPanFormat(pan.trim() || panFromGstin(gst) || "")}
+                    className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {panVerifyBusy ? "…" : "Verify PAN"}
+                  </button>
+                  {panVerifiedValue && panVerifiedValue === (pan.trim() || panFromGstin(gst) || "").toUpperCase() ? (
+                    <span className={contactVerifyPill}>✓ Verified</span>
+                  ) : null}
+                </div>
+                {panVerifiedName ? <p className="mt-1 text-xs text-stone-600">PAN holder: {panVerifiedName}</p> : null}
                 {/* <p className="mt-1 text-[11px] text-stone-500">
                   Taken from the GST registry or characters 3–12 of the GSTIN.
                 </p> */}
