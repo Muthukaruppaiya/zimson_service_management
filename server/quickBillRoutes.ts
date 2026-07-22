@@ -102,6 +102,8 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
             qb.case_type AS "caseType",
             qb.strap_chain_type AS "strapChainType",
             qb.nature_of_repair AS "natureOfRepair",
+            qb.chain_count_12_phase AS "chainCount12Phase",
+            qb.chain_count_6_phase AS "chainCount6Phase",
             qb.chain_count AS "chainCount",
             qb.customer_remarks AS "customerRemarks",
             qb.warranty_status AS "warrantyStatus",
@@ -177,7 +179,8 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
     caseType: (head.caseType as string | null) ?? "",
     strapChainType: (head.strapChainType as string | null) ?? "",
     natureOfRepair: (head.natureOfRepair as string | null) ?? "",
-    chainCount: (head.chainCount as string | null) ?? "",
+    chainCount12Phase: (head.chainCount12Phase as string | null) ?? (head.chainCount as string | null) ?? "",
+    chainCount6Phase: (head.chainCount6Phase as string | null) ?? "",
     customerRemarks: (head.customerRemarks as string | null) ?? "",
     warrantyStatus: head.warrantyStatus ?? "unspecified",
     watchDocumentPath: head.watchDocumentPath ?? null,
@@ -734,6 +737,23 @@ export function registerQuickBillRoutes(
       res.status(400).json({ error: "watchBrand, watchFamily, and watchModel are required." });
       return;
     }
+    try {
+      const brandSetting = await pool.query<{ serial_number_required: boolean }>(
+        `SELECT serial_number_required
+         FROM brands
+         WHERE is_active = true AND LOWER(TRIM(name)) = LOWER(TRIM($1))
+         LIMIT 1`,
+        [watchBrand],
+      );
+      if (brandSetting.rows[0]?.serial_number_required && !watchRef) {
+        res.status(400).json({ error: `Serial number is required for ${watchBrand}.` });
+        return;
+      }
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not validate the brand serial number setting." });
+      return;
+    }
 
     const persistNewWatchModel = Boolean(req.body?.persistNewWatchModel);
     const persistNewWatchFamily = Boolean(req.body?.persistNewWatchFamily);
@@ -742,7 +762,8 @@ export function registerQuickBillRoutes(
     const caseType = String(req.body?.caseType ?? "").trim();
     const strapChainType = String(req.body?.strapChainType ?? "").trim();
     const natureOfRepair = String(req.body?.natureOfRepair ?? "").trim();
-    const chainCount = String(req.body?.chainCount ?? "").trim();
+    const chainCount12Phase = String(req.body?.chainCount12Phase ?? "").trim();
+    const chainCount6Phase = String(req.body?.chainCount6Phase ?? "").trim();
     const customerRemarks = String(req.body?.customerRemarks ?? "").trim();
     const warrantyStatusRaw = String(req.body?.warrantyStatus ?? "unspecified").trim();
     const unlimitedCharges = isUnlimitedServiceChargeRole(actor.role);
@@ -1006,11 +1027,11 @@ export function registerQuickBillRoutes(
            bill_number, invoice_number, region_id, store_id, customer_type, customer_id, customer_code,
            customer_name, phone, email,
            company, gst, pan, address, city, customer_billing_state, watch_brand, watch_family, watch_model, watch_ref, technician_id, technician_name,
-           payment_mode, notes, watch_remark, case_type, strap_chain_type, nature_of_repair, chain_count, customer_remarks,
+           payment_mode, notes, watch_remark, case_type, strap_chain_type, nature_of_repair, chain_count_12_phase, chain_count_6_phase, customer_remarks,
            warranty_status, watch_document_path, watch_image_path,
            total_inr, payment_details, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35::jsonb, $36)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36::jsonb, $37)
          RETURNING id, created_at`,
         [
           billNumber,
@@ -1041,7 +1062,8 @@ export function registerQuickBillRoutes(
           caseType,
           strapChainType,
           natureOfRepair,
-          chainCount,
+          chainCount12Phase,
+          chainCount6Phase,
           customerRemarks,
           warrantyStatus,
           watchDocumentPath,

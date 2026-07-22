@@ -7,6 +7,7 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
 import { repairRouteLabel } from "../../lib/srfRepairRoute";
+import { formatApproxEstimateCurrency, ESTIMATE_LABEL_APPROX } from "../../lib/formatInr";
 import { jobVisibleToServiceCentre, shouldShowInSupervisorSrfList } from "../../lib/srfAccess";
 import type { SrfJob, SrfJobStatus } from "../../types/srfJob";
 import { uiPageTitleOnDarkClass } from "../../lib/pageTypography";
@@ -211,7 +212,7 @@ export function ScSrfHistoryPage() {
                     <th>Sender HO</th>
                     <th>Customer</th>
                     <th>Technician</th>
-                    <th className="text-right">Estimate</th>
+                    <th className="text-right">{ESTIMATE_LABEL_APPROX}</th>
                     <th>Invoice</th>
                     <th>Actions</th>
                   </tr>
@@ -241,7 +242,7 @@ export function ScSrfHistoryPage() {
                       <td className="text-xs">{j.technicianName?.trim() || "—"}</td>
                       <td className="whitespace-nowrap text-right font-medium">
                         {j.estimateTotalInr != null
-                          ? j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })
+                          ? formatApproxEstimateCurrency(j.estimateTotalInr)
                           : "—"}
                       </td>
                       <td className="font-mono text-[10px]">{j.hoSparesBillRef?.trim() || j.invoiceNumber?.trim() || "—"}</td>

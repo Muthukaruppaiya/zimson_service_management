@@ -12,8 +12,16 @@ import { resolveHoToStorePrint, resolveStoreToHoPrint } from "../../lib/transfer
 import type { SrfJob } from "../../types/srfJob";
 
 type DirectionFilter = "all" | "outward" | "inward";
-type OutwardLifecycle = "in_transit" | "at_ho" | "return_dispatched" | "return_received" | "other";
-type InwardLifecycle = "awaiting_inward" | "received";
+type OutwardLifecycle =
+  | "waiting_delivery_boy"
+  | "in_transit"
+  | "at_ho"
+  | "return_waiting_delivery_boy"
+  | "return_in_transit"
+  | "return_awaiting_inward"
+  | "return_received"
+  | "other";
+type InwardLifecycle = "waiting_delivery_boy" | "in_transit_to_store" | "awaiting_inward" | "received";
 
 type StoreHistoryRow = SrfJob & {
   direction: "outward" | "inward" | "both";
@@ -32,10 +40,13 @@ function transferSeriesLabel(no: string | null | undefined): string {
 }
 
 function outwardLifecycle(job: SrfJob): OutwardLifecycle {
+  if (job.status === "pending_ho_transit") return "waiting_delivery_boy";
   if (job.status === "in_transit_sc") return "in_transit";
   if (job.outwardDcNumber || job.dispatchedToStoreAt) {
     if (job.status === "received_at_store" || job.receivedBackAtStoreAt) return "return_received";
-    return "return_dispatched";
+    if (job.status === "pending_store_transit") return "return_waiting_delivery_boy";
+    if (job.status === "dispatched_to_store") return "return_in_transit";
+    return "return_awaiting_inward";
   }
   if (
     job.inwardAt ||
@@ -56,13 +67,21 @@ function outwardLifecycle(job: SrfJob): OutwardLifecycle {
 
 function inwardLifecycle(job: SrfJob): InwardLifecycle {
   if (job.status === "received_at_store" || job.receivedBackAtStoreAt) return "received";
-  if (job.status === "dispatched_to_store" || job.outwardDcNumber) return "awaiting_inward";
+  if (job.status === "pending_store_transit") return "waiting_delivery_boy";
+  if (job.status === "dispatched_to_store") return "in_transit_to_store";
   return "awaiting_inward";
 }
 
 function lifecycleBadge(row: StoreHistoryRow) {
   if (row.direction === "outward" || row.direction === "both") {
     const lc = row.outwardLifecycle;
+    if (lc === "waiting_delivery_boy") {
+      return (
+        <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
+          Outward to HO · Waiting for delivery boy
+        </span>
+      );
+    }
     if (lc === "in_transit") {
       return (
         <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
@@ -77,7 +96,21 @@ function lifecycleBadge(row: StoreHistoryRow) {
         </span>
       );
     }
-    if (lc === "return_dispatched") {
+    if (lc === "return_waiting_delivery_boy") {
+      return (
+        <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
+          Return from HO · Waiting for delivery boy
+        </span>
+      );
+    }
+    if (lc === "return_in_transit") {
+      return (
+        <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">
+          Return from HO · With delivery boy
+        </span>
+      );
+    }
+    if (lc === "return_awaiting_inward") {
       return (
         <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-900">
           Return from HO · Awaiting store inward
@@ -91,11 +124,32 @@ function lifecycleBadge(row: StoreHistoryRow) {
         </span>
       );
     }
+    if (row.direction === "outward") {
+      return (
+        <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-700">
+          Outward to HO · Pending
+        </span>
+      );
+    }
   }
   if (row.inwardLifecycle === "received") {
     return (
       <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
         Inward from HO · Received
+      </span>
+    );
+  }
+  if (row.inwardLifecycle === "waiting_delivery_boy") {
+    return (
+      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
+        Inward from HO · Waiting for delivery boy
+      </span>
+    );
+  }
+  if (row.inwardLifecycle === "in_transit_to_store") {
+    return (
+      <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">
+        Inward from HO · With delivery boy
       </span>
     );
   }
@@ -116,7 +170,7 @@ export function StoreLogisticsHistoryPage() {
   const [toDate, setToDate] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<SrfJob | null>(null);
+  const [selected, setSelected] = useState<StoreHistoryRow | null>(null);
   const pageSize = 12;
 
   const storeId = user?.storeId ?? "";
@@ -181,8 +235,11 @@ export function StoreLogisticsHistoryPage() {
       if (direction === "inward" && j.direction === "outward") return false;
 
       if (statusFilter !== "all") {
+        if (statusFilter === "waiting_delivery_boy_to_ho" && j.outwardLifecycle !== "waiting_delivery_boy") return false;
         if (statusFilter === "in_transit" && j.outwardLifecycle !== "in_transit") return false;
         if (statusFilter === "at_ho" && j.outwardLifecycle !== "at_ho") return false;
+        if (statusFilter === "waiting_delivery_boy" && j.inwardLifecycle !== "waiting_delivery_boy") return false;
+        if (statusFilter === "in_transit_to_store" && j.inwardLifecycle !== "in_transit_to_store") return false;
         if (statusFilter === "awaiting_inward" && j.inwardLifecycle !== "awaiting_inward") return false;
         if (statusFilter === "received" && j.inwardLifecycle !== "received") return false;
       }
@@ -345,8 +402,11 @@ export function StoreLogisticsHistoryPage() {
             className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
           >
             <option value="all">All statuses</option>
+            {direction !== "inward" ? <option value="waiting_delivery_boy_to_ho">Waiting for delivery boy to HO</option> : null}
             {direction !== "inward" ? <option value="in_transit">In transit to HO</option> : null}
             {direction !== "inward" ? <option value="at_ho">At service centre</option> : null}
+            {direction !== "outward" ? <option value="waiting_delivery_boy">Waiting for delivery boy</option> : null}
+            {direction !== "outward" ? <option value="in_transit_to_store">With delivery boy to store</option> : null}
             {direction !== "outward" ? <option value="awaiting_inward">Awaiting store inward</option> : null}
             {direction !== "outward" ? <option value="received">Received at store</option> : null}
           </select>
@@ -462,77 +522,110 @@ export function StoreLogisticsHistoryPage() {
       </Card>
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex shrink-0 items-start justify-between border-b border-zimson-100 px-5 py-4">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-widest text-stone-500">SRF details</p>
-                <h3 className="font-mono text-lg font-bold text-zimson-900">{selected.reference}</h3>
-                <p className="text-sm text-stone-600">{selected.status.replace(/_/g, " ")}</p>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`SRF details ${selected.reference}`}
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="relative flex shrink-0 items-start justify-between overflow-hidden bg-gradient-to-r from-[#0c1c56] via-[#173786] to-[#24499c] px-5 py-5 text-white sm:px-7">
+              <div className="absolute inset-x-0 top-0 h-1 bg-rlx-gold" />
+              <div className="relative">
+                <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-blue-100">SRF logistics details</p>
+                <h3 className="mt-1 font-mono text-xl font-bold tracking-wide">{selected.reference}</h3>
+                <div className="mt-2">{lifecycleBadge(selected)}</div>
               </div>
               <button
                 type="button"
                 onClick={() => setSelected(null)}
-                className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-semibold text-stone-700"
+                className="relative flex h-9 w-9 items-center justify-center rounded-full border border-white/25 bg-white/10 text-xl text-white transition hover:bg-white/20"
+                title="Close"
+                aria-label="Close"
               >
-                Close
+                ×
               </button>
             </div>
-            <div className="overflow-y-auto px-5 py-4">
-              <table className="min-w-full text-left text-sm">
-                <tbody>
-                  <tr className="border-b border-zimson-100">
-                    <th className="w-48 bg-zimson-50/70 px-3 py-2">Customer</th>
-                    <td className="px-3 py-2">
-                      {selected.customerName} · {selected.phone}
-                    </td>
-                  </tr>
-                  <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2">Watch</th>
-                    <td className="px-3 py-2">
-                      {selected.watchBrand} {selected.watchModel} · S/N {selected.serial || "—"}
-                    </td>
-                  </tr>
-                  <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2">Outward transfer (TD)</th>
-                    <td className="px-3 py-2 font-mono">{selected.dcNumber ?? "—"}</td>
-                  </tr>
-                  <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2">Return transfer (TD)</th>
-                    <td className="px-3 py-2 font-mono">{selected.outwardDcNumber ?? "—"}</td>
-                  </tr>
-                  <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2">Timeline</th>
-                    <td className="px-3 py-2 text-xs text-stone-700">
-                      Sent to HO:{" "}
-                      {selected.dispatchedToScAt ? new Date(selected.dispatchedToScAt).toLocaleString() : "—"}
-                      <br />
-                      HO inward: {selected.inwardAt ? new Date(selected.inwardAt).toLocaleString() : "—"}
-                      <br />
-                      HO dispatch to store:{" "}
-                      {selected.dispatchedToStoreAt
-                        ? new Date(selected.dispatchedToStoreAt).toLocaleString()
-                        : "—"}
-                      <br />
-                      Store inward:{" "}
-                      {selected.receivedBackAtStoreAt
-                        ? new Date(selected.receivedBackAtStoreAt).toLocaleString()
-                        : "—"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th className="bg-zimson-50/70 px-3 py-2">Complaint</th>
-                    <td className="px-3 py-2">{selected.complaint || "—"}</td>
-                  </tr>
-                </tbody>
-              </table>
+            <div className="overflow-y-auto bg-slate-50 px-5 py-5 sm:px-7">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Customer</p>
+                  <p className="mt-2 font-semibold text-slate-900">{selected.customerName}</p>
+                  <p className="mt-0.5 text-sm text-slate-600">{selected.phone || "No mobile number"}</p>
+                </section>
+                <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Watch</p>
+                  <p className="mt-2 font-semibold text-slate-900">
+                    {selected.watchBrand} {selected.watchModel}
+                  </p>
+                  <p className="mt-0.5 text-sm text-slate-600">Serial number: {selected.serial || "—"}</p>
+                </section>
+              </div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <section className="rounded-xl border border-blue-200 bg-blue-50/70 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-700">Outward transfer to HO</p>
+                  <p className="mt-2 font-mono text-sm font-bold text-blue-950">{selected.dcNumber ?? "Not created"}</p>
+                </section>
+                <section className="rounded-xl border border-violet-200 bg-violet-50/70 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-700">Return transfer to store</p>
+                  <p className="mt-2 font-mono text-sm font-bold text-violet-950">
+                    {selected.outwardDcNumber ?? "Not created"}
+                  </p>
+                </section>
+              </div>
+
+              <section className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Movement timeline</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                  {[
+                    { label: "Sent to HO", at: selected.dispatchedToScAt },
+                    { label: "HO inward", at: selected.inwardAt },
+                    { label: "Sent to store", at: selected.dispatchedToStoreAt },
+                    { label: "Store inward", at: selected.receivedBackAtStoreAt },
+                  ].map((item, index) => {
+                    const done = Boolean(item.at);
+                    return (
+                      <div key={item.label} className="relative flex gap-3 sm:block">
+                        <div className="flex flex-col items-center sm:flex-row">
+                          <span
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                              done ? "bg-emerald-600 text-white" : "border-2 border-slate-300 bg-white text-slate-400"
+                            }`}
+                          >
+                            {done ? "✓" : index + 1}
+                          </span>
+                          {index < 3 ? (
+                            <span className={`hidden h-0.5 flex-1 sm:block ${done ? "bg-emerald-300" : "bg-slate-200"}`} />
+                          ) : null}
+                        </div>
+                        <div className="sm:mt-2">
+                          <p className={`text-xs font-semibold ${done ? "text-slate-900" : "text-slate-500"}`}>{item.label}</p>
+                          <p className="mt-0.5 text-[10px] leading-4 text-slate-500">
+                            {item.at ? new Date(item.at).toLocaleString() : "Pending"}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-800">Customer complaint</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-800">{selected.complaint || "No complaint recorded."}</p>
+              </section>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2 border-t border-zimson-100 px-5 py-4">
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-slate-200 bg-white px-5 py-4 sm:px-7">
               {selected.dcNumber ? (
                 <button
                   type="button"
                   onClick={() => printTransferForJob(selected, selected.dcNumber!, "store_to_ho")}
-                  className="rounded-xl border border-zimson-300 bg-zimson-50 px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-100"
+                  className="rounded-xl bg-[#173786] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0c1c56]"
                 >
                   Reprint outward transfer
                 </button>
@@ -543,11 +636,18 @@ export function StoreLogisticsHistoryPage() {
                   onClick={() =>
                     printTransferForJob(selected, selected.outwardDcNumber!, "ho_to_store")
                   }
-                  className="rounded-xl border border-zimson-300 bg-zimson-50 px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-100"
+                  className="rounded-xl bg-[#173786] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0c1c56]"
                 >
                   Reprint return transfer
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="ml-auto rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

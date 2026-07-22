@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
@@ -18,6 +18,7 @@ import { useCustomers } from "../../context/CustomersContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError, useApiMode } from "../../lib/api";
+import { publicMediaUrl } from "../../lib/mediaUrl";
 import {
   buildMultiPaymentPayload,
   emptyMultiPaymentForm,
@@ -38,7 +39,7 @@ import {
   isValidGstFormat,
   isValidPanFormat,
 } from "../../data/serviceSeed";
-import type { CustomerAddressBlock } from "../../types/customer";
+import type { CustomerAddressBlock, CustomerRecord } from "../../types/customer";
 import type { SrfJob } from "../../types/srfJob";
 import {
   isFullyOtpVerified,
@@ -49,6 +50,7 @@ import {
   isPhonePendingRegistration,
   setPendingRegisterPhone,
 } from "../../lib/pendingRegisterPhone";
+import { clearPendingResumeCustomer, peekPendingResumeCustomer } from "../../lib/pendingResumeCustomer";
 import {
   WatchServiceDetailFields,
   emptyWatchServiceDetailValues,
@@ -58,10 +60,12 @@ import {
 } from "../../components/service/WatchServiceDetailFields";
 import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
 import { sanitizeDecimalInput } from "../../lib/inputSanitize";
-import { formatInr } from "../../lib/formatInr";
+import { formatInr, formatApproxEstimateInr, ESTIMATE_AMOUNT_LABEL_APPROX, ESTIMATE_LABEL_APPROX } from "../../lib/formatInr";
 import { natureOfRepairLabel } from "../../lib/natureOfRepair";
 import {
   SRF_REPAIR_ROUTE_OPTIONS,
+  SRF_ROUTE_LABEL_INSTORE,
+  SRF_ROUTE_LABEL_SEND_TO_SC,
   normalizeSrfRepairRoute,
   type SrfRepairRoute,
 } from "../../lib/srfRepairRoute";
@@ -141,6 +145,8 @@ function SrfPhotoThumbTile({
   onRemove?: (photo: SrfPhotoThumb) => void;
   removeBusy?: boolean;
 }) {
+  const isDocument = photo.photoKind === "document";
+  const mediaUrl = publicMediaUrl(photo.filePath);
   return (
     <div className={`relative ${wrapperClassName ?? ""}`}>
       {onRemove ? (
@@ -159,16 +165,29 @@ function SrfPhotoThumbTile({
       ) : null}
       <button
         type="button"
-        onClick={() => onPreview(photo)}
-        title="Click to view full screen"
-        className="group block w-full max-w-[6.5rem] cursor-zoom-in text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rlx-green"
+        onClick={() => {
+          if (isDocument) {
+            window.open(mediaUrl, "_blank", "noopener,noreferrer");
+          } else {
+            onPreview(photo);
+          }
+        }}
+        title={isDocument ? "View document" : "Click to view full screen"}
+        className="group block w-full max-w-[6.5rem] text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rlx-green"
       >
         <span className="relative block aspect-square w-full overflow-hidden rounded-lg border border-rlx-rule bg-stone-100 transition group-hover:border-rlx-gold group-hover:shadow-md">
-          <img
-            src={`/${photo.filePath}`}
-            alt={photo.photoKind ?? "watch photo"}
-            className="h-full w-full object-cover"
-          />
+          {isDocument ? (
+            <span className="flex h-full w-full flex-col items-center justify-center bg-rose-50 text-rose-800">
+              <span className="text-lg font-black">PDF</span>
+              <span className="mt-1 text-[9px] font-semibold">View document</span>
+            </span>
+          ) : (
+            <img
+              src={mediaUrl}
+              alt={photo.photoKind ?? "watch photo"}
+              className="h-full w-full object-cover"
+            />
+          )}
           <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
             <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-white drop-shadow" aria-hidden>
               <path
@@ -196,6 +215,7 @@ export function SrfBookingV2Page() {
   const { showError: showOtpError, alertModal } = useMessageAlert();
   const { showOtpSent, otpSentModal } = useOtpSentSuccess();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { createDraftJob, refreshPhotoSession, finalizeJob, cancelDraftSrf, patchStoreDraftSrf, refreshJobs } = useSrfJobs();
   const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
@@ -223,6 +243,13 @@ export function SrfBookingV2Page() {
   const [watchFamily, setWatchFamily] = useState("");
   const [watchModel, setWatchModel] = useState("");
   const [serial, setSerial] = useState("");
+  const serialNumberRequired = useMemo(
+    () =>
+      catalogBrands.some(
+        (b) => b.name.trim().toLowerCase() === watchBrand.trim().toLowerCase() && b.serialNumberRequired,
+      ),
+    [catalogBrands, watchBrand],
+  );
   const [watchServiceDetails, setWatchServiceDetails] = useState<WatchServiceDetailValues>(
     emptyWatchServiceDetailValues,
   );
@@ -260,9 +287,17 @@ export function SrfBookingV2Page() {
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
   const [photoLightbox, setPhotoLightbox] = useState<{ src: string; label: string } | null>(null);
   const [photoRemoveBusyId, setPhotoRemoveBusyId] = useState<string | null>(null);
+  const watchPhotoPreview = useMemo(
+    () => photoPreview.filter((photo) => photo.photoKind !== "document"),
+    [photoPreview],
+  );
+  const documentPhotoPreview = useMemo(
+    () => photoPreview.find((photo) => photo.photoKind === "document") ?? null,
+    [photoPreview],
+  );
 
   const openPhotoPreview = useCallback((photo: SrfPhotoThumb) => {
-    setPhotoLightbox({ src: `/${photo.filePath}`, label: photoKindLabel(photo.photoKind) });
+    setPhotoLightbox({ src: publicMediaUrl(photo.filePath), label: photoKindLabel(photo.photoKind) });
   }, []);
 
   /** Show every error as a popup instead of an inline banner at the top of the page. */
@@ -322,6 +357,10 @@ export function SrfBookingV2Page() {
   const [cancelBusy, setCancelBusy] = useState(false);
   const autoLookupTimerRef = useRef<number | null>(null);
   const lastAutoLookupPhoneRef = useRef("");
+  /** Blocks phone auto-lookup from wiping fields while resuming after new-customer registration. */
+  const resumeCustomerHydrateRef = useRef(false);
+  const resumeHandledRef = useRef(false);
+  const loadedCustomerIdRef = useRef<string | null>(null);
   const unverifiedAlertShownForRef = useRef<string | null>(null);
 
   const clearLoadedCustomer = useCallback(() => {
@@ -469,6 +508,10 @@ export function SrfBookingV2Page() {
       setError("Watch brand, family, and model are required.");
       return false;
     }
+    if (serialNumberRequired && !serial.trim()) {
+      setError(`Serial number is required for ${watchBrand}.`);
+      return false;
+    }
     return true;
   }
   function validateEstimate() {
@@ -494,6 +537,10 @@ export function SrfBookingV2Page() {
         setError(payErr);
         return false;
       }
+    }
+    if (!estimatedFinishDate.trim()) {
+      setError("Delivery date is required.");
+      return false;
     }
     return true;
   }
@@ -707,12 +754,33 @@ export function SrfBookingV2Page() {
     emailVerifiedAt?: string | null;
   };
 
+  function customerRecordToLoaded(row: CustomerRecord): LoadedCustomer {
+    return {
+      id: row.id,
+      customerCode: row.customerCode,
+      displayName: row.displayName,
+      phone: row.phone,
+      alternatePhone: row.alternatePhone,
+      email: row.email ?? "",
+      address: row.address,
+      city: row.city,
+      billingAddress: row.billingAddress,
+      customerKind: row.customerKind,
+      company: row.company,
+      gst: row.gst,
+      pan: row.pan,
+      phoneVerifiedAt: row.phoneVerifiedAt ?? null,
+      emailVerifiedAt: row.emailVerifiedAt ?? null,
+    };
+  }
+
   function applyLoadedCustomer(data: LoadedCustomer) {
     clearPendingRegisterPhone();
     setCustomerExists(true);
     setCustomerChecked(true);
     setWalkInPending(false);
     setLoadedCustomerId(data.id?.trim() || null);
+    loadedCustomerIdRef.current = data.id?.trim() || null;
     setLoadedCustomerCode(data.customerCode?.trim() || null);
     setCustomerType(data.customerKind);
     setCustomerName((data.displayName ?? "").trim());
@@ -740,75 +808,95 @@ export function SrfBookingV2Page() {
     }
   }
 
-  useEffect(() => {
-    const rp = searchParams.get("restorePhone");
-    if (!rp) return;
-    setPhone(rp);
-    setPendingRegisterPhone(rp);
-    setSearchParams({}, { replace: true });
-  }, [searchParams, setSearchParams]);
-
   useLayoutEffect(() => {
+    if (resumeHandledRef.current) return;
+
+    const stateRow = (location.state as { resumeCustomer?: CustomerRecord } | null)?.resumeCustomer;
+    const stashed = stateRow ?? peekPendingResumeCustomer();
     const resumeStep = searchParams.get("resumeStep");
     const customerId = searchParams.get("customerId");
-    const phoneHint = searchParams.get("phone");
-    if (resumeStep !== "1" || !customerId) return;
+    const phoneHint = searchParams.get("phone") ?? searchParams.get("restorePhone");
 
-    const fromRecord = (row: LoadedCustomer) => {
+    if (!stashed && (resumeStep !== "1" || !customerId) && !phoneHint) return;
+
+    resumeHandledRef.current = true;
+    resumeCustomerHydrateRef.current = true;
+
+    const stripResumeParams = () => {
+      if (stateRow) navigate(".", { replace: true, state: {} });
+      setSearchParams({}, { replace: true });
+    };
+
+    const finishApplied = (row: LoadedCustomer) => {
       applyLoadedCustomer(row);
       setCustomerCheckMsg(null);
       setStep(1);
+      clearPendingResumeCustomer();
+      stripResumeParams();
+      resumeCustomerHydrateRef.current = false;
     };
 
-    const local = getById(customerId);
-    if (local) {
-      fromRecord({
-        id: local.id,
-        customerCode: local.customerCode,
-        displayName: local.displayName,
-        phone: local.phone,
-        alternatePhone: local.alternatePhone,
-        email: local.email,
-        address: local.address,
-        city: local.city,
-        billingAddress: local.billingAddress,
-        customerKind: local.customerKind,
-        company: local.company,
-        gst: local.gst,
-        pan: local.pan,
-        phoneVerifiedAt: local.phoneVerifiedAt ?? null,
-        emailVerifiedAt: local.emailVerifiedAt ?? null,
-      });
-      setSearchParams({}, { replace: true });
+    if (stashed) {
+      finishApplied(customerRecordToLoaded(stashed));
       return;
     }
 
+    if (customerId) {
+      const local = getById(customerId);
+      if (local) {
+        finishApplied({
+          id: local.id,
+          customerCode: local.customerCode,
+          displayName: local.displayName,
+          phone: local.phone,
+          alternatePhone: local.alternatePhone,
+          email: local.email,
+          address: local.address,
+          city: local.city,
+          billingAddress: local.billingAddress,
+          customerKind: local.customerKind,
+          company: local.company,
+          gst: local.gst,
+          pan: local.pan,
+          phoneVerifiedAt: local.phoneVerifiedAt ?? null,
+          emailVerifiedAt: local.emailVerifiedAt ?? null,
+        });
+        return;
+      }
+    }
+
     if (!phoneHint) {
-      setSearchParams({}, { replace: true });
+      resumeCustomerHydrateRef.current = false;
+      stripResumeParams();
       return;
     }
 
     let cancelled = false;
     void (async () => {
       try {
-        const data = await apiJson<{ customer: LoadedCustomer | null }>(
-          `/api/customers?phone=${encodeURIComponent(phoneHint)}`,
-        );
-        if (!cancelled && data.customer) {
-          fromRecord(data.customer);
-        } else if (!cancelled) {
-          setError("Could not load the new customer. Try the registration page again.");
+        await checkCustomerInDb(phoneHint, {
+          skipRegisterRedirect: true,
+          customerIdHint: customerId,
+        });
+        if (!cancelled && !loadedCustomerIdRef.current) {
+          setError("Could not load the new customer. Try entering the mobile number again.");
+        } else if (!cancelled && loadedCustomerIdRef.current) {
+          setStep(1);
         }
-      } catch {
-        if (!cancelled) setError("Could not load saved customer. Check API connection.");
       } finally {
-        if (!cancelled) setSearchParams({}, { replace: true });
+        if (!cancelled) {
+          clearPendingResumeCustomer();
+          stripResumeParams();
+          resumeCustomerHydrateRef.current = false;
+        }
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [searchParams, getById, setSearchParams]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot resume from registration return URL
+  }, [searchParams, getById, setSearchParams, location.state, navigate]);
 
   const continueSrfId = searchParams.get("continue")?.trim() ?? "";
 
@@ -909,10 +997,14 @@ export function SrfBookingV2Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot resume from ?continue=; avoid re-running on form state churn
   }, [continueSrfId, user?.id, refreshPhotoSession, refreshJobs, setSearchParams]);
 
-  async function checkCustomerInDb() {
+  async function checkCustomerInDb(
+    phoneOverride?: string,
+    opts?: { skipRegisterRedirect?: boolean; customerIdHint?: string | null },
+  ) {
     setError(null);
     setCustomerCheckMsg(null);
-    if (!phone.trim()) {
+    const rawPhone = (phoneOverride ?? phone).trim();
+    if (!rawPhone) {
       setCustomerChecked(false);
       setCustomerExists(false);
       setCustomerCheckMsg(null);
@@ -920,7 +1012,8 @@ export function SrfBookingV2Page() {
       setEmailVerifiedAt(null);
       return;
     }
-    const p10 = phone10(phone.trim());
+    if (phoneOverride) setPhone(rawPhone);
+    const p10 = phone10(rawPhone);
     if (p10.length !== 10) {
       setCustomerChecked(false);
       setCustomerExists(false);
@@ -931,7 +1024,40 @@ export function SrfBookingV2Page() {
     }
     setCheckingCustomer(true);
     try {
-      const data = await apiJson<{ customer: LoadedCustomer | null }>(`/api/customers?phone=${encodeURIComponent(phone.trim())}`);
+      const customerIdHint = opts?.customerIdHint?.trim() || null;
+      if (customerIdHint) {
+        const byId = await apiJson<{ customer: LoadedCustomer | null }>(
+          `/api/customers?id=${encodeURIComponent(customerIdHint)}`,
+        );
+        if (byId.customer) {
+          applyLoadedCustomer(byId.customer);
+          setCustomerCheckMsg(null);
+          return;
+        }
+      }
+
+      let data = await apiJson<{ customer: LoadedCustomer | null }>(
+        `/api/customers?phone=${encodeURIComponent(rawPhone)}`,
+      );
+      if (!data.customer && opts?.skipRegisterRedirect) {
+        for (let attempt = 0; attempt < 10; attempt++) {
+          await new Promise((r) => setTimeout(r, 160));
+          data = await apiJson<{ customer: LoadedCustomer | null }>(
+            `/api/customers?phone=${encodeURIComponent(rawPhone)}`,
+          );
+          if (data.customer) break;
+          if (customerIdHint) {
+            const byIdRetry = await apiJson<{ customer: LoadedCustomer | null }>(
+              `/api/customers?id=${encodeURIComponent(customerIdHint)}`,
+            );
+            if (byIdRetry.customer) {
+              applyLoadedCustomer(byIdRetry.customer);
+              setCustomerCheckMsg(null);
+              return;
+            }
+          }
+        }
+      }
       if (data.customer) {
         applyLoadedCustomer(data.customer);
         setCustomerCheckMsg(null);
@@ -956,6 +1082,10 @@ export function SrfBookingV2Page() {
             emailVerifiedAt: local.emailVerifiedAt ?? null,
           });
           setCustomerCheckMsg(null);
+        } else if (opts?.skipRegisterRedirect) {
+          setCustomerExists(false);
+          setCustomerChecked(false);
+          setError("Could not load the new customer yet. Wait a moment and re-enter the mobile number.");
         } else {
           setCustomerExists(false);
           setCustomerChecked(false);
@@ -963,6 +1093,7 @@ export function SrfBookingV2Page() {
           setEmailVerifiedAt(null);
           setWalkInPending(false);
           setLoadedCustomerId(null);
+          loadedCustomerIdRef.current = null;
           setLoadedCustomerCode(null);
           setCustomerName("");
           setEmail("");
@@ -977,7 +1108,7 @@ export function SrfBookingV2Page() {
           setPan("");
           customerNameForNavRef.current = "";
           setCustomerCheckMsg(null);
-          redirectToCustomerRegister(phone.trim());
+          redirectToCustomerRegister(rawPhone);
           return;
         }
       }
@@ -1012,6 +1143,8 @@ export function SrfBookingV2Page() {
 
   useEffect(() => {
     if (step !== 0) return;
+    if (resumeCustomerHydrateRef.current) return;
+    if (loadedCustomerIdRef.current) return;
     const normalized = phone10(phone);
     if (normalized === lastAutoLookupPhoneRef.current) return;
     setCustomerChecked(false);
@@ -1053,7 +1186,7 @@ export function SrfBookingV2Page() {
   }
 
   async function beginOtp() {
-    if (!validateEstimate()) return;
+    if (!validateWatch() || !validateEstimate()) return;
     setError(null);
     setOtpBusy(true);
     setOtpInput("");
@@ -1115,6 +1248,11 @@ export function SrfBookingV2Page() {
 
   async function finalizeAndPrint() {
     setError(null);
+    if (!validateWatch()) return;
+    if (!estimatedFinishDate.trim()) {
+      setError("Delivery date is required.");
+      return;
+    }
     if (!watchPhotosReady(photoPreview)) {
       setError(srfMinWatchPhotosFinalizeError(countSrfWatchPhotos(photoPreview.map((p) => p.photoKind))));
       return;
@@ -1185,11 +1323,12 @@ export function SrfBookingV2Page() {
       repairRoute: finalizedRepairRoute,
       caseType: svcDetailPayload.caseType,
       strapChainType: svcDetailPayload.strapChainType,
-      chainCount: svcDetailPayload.chainCount,
+      chainCount12Phase: svcDetailPayload.chainCount12Phase,
+      chainCount6Phase: svcDetailPayload.chainCount6Phase,
       customerRemarks: svcDetailPayload.customerRemarks,
       natureOfRepair:
         natureOfRepairLabel(watchServiceDetails.natureOfRepair) ||
-        (finalizedRepairRoute === "store_self" ? "Store repair" : "HO Service"),
+        (finalizedRepairRoute === "store_self" ? SRF_ROUTE_LABEL_INSTORE : SRF_ROUTE_LABEL_SEND_TO_SC),
       receptionistRemarks: estimateRemarks.trim() || obsAdditionalNotes.trim(),
       comments: srfComments || complaint,
       modelNumber: serial.trim(),
@@ -1268,6 +1407,7 @@ export function SrfBookingV2Page() {
         srfReference={srfRef}
         srfId={finalizedSrfId}
         customerEmail={email}
+        onPreviewSrf={printSrfOnly}
         onPrintSrf={printSrfOnly}
       />
     );
@@ -1601,8 +1741,13 @@ export function SrfBookingV2Page() {
               />
             </div>
             <label className="text-sm">
-              Serial number (optional)
-              <input className={inputClass} value={serial} onChange={(e) => setSerial(e.target.value)} />
+              Serial number ({serialNumberRequired ? "mandatory" : "optional"})
+              <input
+                className={inputClass}
+                value={serial}
+                onChange={(e) => setSerial(e.target.value)}
+                required={serialNumberRequired}
+              />
             </label>
             </div>
             <WatchServiceDetailFields
@@ -1672,11 +1817,11 @@ export function SrfBookingV2Page() {
                 from any categories)
               </p>
               {photoMsg ? <p className="rounded-xl bg-rlx-green-light px-3 py-2 text-sm">{photoMsg}</p> : null}
-              {photoPreview.length > 0 && !draft ? (
+              {watchPhotoPreview.length > 0 && !draft ? (
                 <div className="rounded-xl border border-rlx-rule bg-white p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Preview</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Watch image preview</p>
                   <div className="mt-2 flex flex-wrap gap-2.5">
-                    {photoPreview.map((p) => (
+                    {watchPhotoPreview.map((p) => (
                       <SrfPhotoThumbTile
                         key={p.id}
                         photo={p}
@@ -1685,6 +1830,19 @@ export function SrfBookingV2Page() {
                         removeBusy={photoRemoveBusyId === p.id}
                       />
                     ))}
+                  </div>
+                </div>
+              ) : null}
+              {documentPhotoPreview && !draft ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-800">Uploaded document</p>
+                  <div className="mt-2">
+                    <SrfPhotoThumbTile
+                      photo={documentPhotoPreview}
+                      onPreview={openPhotoPreview}
+                      onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
+                      removeBusy={photoRemoveBusyId === documentPhotoPreview.id}
+                    />
                   </div>
                 </div>
               ) : null}
@@ -1698,11 +1856,11 @@ export function SrfBookingV2Page() {
                   {/* <p className="mt-1 text-xs text-amber-900">
                     Edit customer or watch details on file, or cancel this SRF if the booking should not continue.
                   </p> */}
-                  {photoPreview.length > 0 ? (
+                  {watchPhotoPreview.length > 0 ? (
                     <div className="mt-3 rounded-lg border border-rlx-rule bg-white/90 p-2">
                       <p className="text-[10px] font-bold uppercase tracking-wide text-rlx-green">Uploaded image preview</p>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {photoPreview.map((p) => (
+                        {watchPhotoPreview.map((p) => (
                           <SrfPhotoThumbTile
                             key={`amber-${p.id}`}
                             photo={p}
@@ -1711,6 +1869,19 @@ export function SrfBookingV2Page() {
                             removeBusy={photoRemoveBusyId === p.id}
                           />
                         ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {documentPhotoPreview ? (
+                    <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/80 p-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-rose-800">Uploaded document</p>
+                      <div className="mt-2">
+                        <SrfPhotoThumbTile
+                          photo={documentPhotoPreview}
+                          onPreview={openPhotoPreview}
+                          onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
+                          removeBusy={photoRemoveBusyId === documentPhotoPreview.id}
+                        />
                       </div>
                     </div>
                   ) : null}
@@ -1761,7 +1932,7 @@ export function SrfBookingV2Page() {
               />
             </label>
             <label className="block min-w-0 text-sm">
-              <span className="mb-1 block font-medium text-stone-700">Estimate amount (₹)</span>
+              <span className="mb-1 block font-medium text-stone-700">{ESTIMATE_AMOUNT_LABEL_APPROX} (₹)</span>
               <input
                 className={inputClass}
                 value={estimateAmount}
@@ -1792,9 +1963,12 @@ export function SrfBookingV2Page() {
               />
             </label>
             <label className="block min-w-0 text-sm md:col-span-2">
-              <span className="mb-1 block font-medium text-stone-700">Estimated service finish date</span>
+              <span className="mb-1 block font-medium text-stone-700">
+                Delivery date <span className="text-rose-600">*</span>
+              </span>
               <input
                 type="date"
+                required
                 className={`${inputClass} max-w-xs`}
                 value={estimatedFinishDate}
                 onChange={(e) => setEstimatedFinishDate(e.target.value)}
@@ -1846,7 +2020,7 @@ export function SrfBookingV2Page() {
               </div>
             </div>
             <div className="md:col-span-2 rounded-xl bg-rlx-green-light px-3 py-2 text-sm">
-              Estimate: <strong>{formatInr(estimateTotal)}</strong> · Advance: <strong>{formatInr(advanceTotal)}</strong>
+              {ESTIMATE_LABEL_APPROX}: <strong>{formatApproxEstimateInr(estimateTotal)}</strong> · Advance: <strong>{formatInr(advanceTotal)}</strong>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -1923,9 +2097,9 @@ export function SrfBookingV2Page() {
                   <th className="bg-rlx-green-light/70 px-3 py-2 align-top font-semibold text-stone-700">Uploaded photos</th>
                   <td className="px-3 py-2 text-stone-800">
                     <p>{photoCount}</p>
-                    {photoPreview.length > 0 ? (
+                    {watchPhotoPreview.length > 0 ? (
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {photoPreview.map((p) => (
+                        {watchPhotoPreview.map((p) => (
                           <SrfPhotoThumbTile
                             key={p.id}
                             photo={p}
@@ -1936,15 +2110,28 @@ export function SrfBookingV2Page() {
                         ))}
                       </div>
                     ) : null}
+                    {documentPhotoPreview ? (
+                      <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/60 p-2">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-rose-800">Uploaded document</p>
+                        <div className="mt-2">
+                          <SrfPhotoThumbTile
+                            photo={documentPhotoPreview}
+                            onPreview={openPhotoPreview}
+                            onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
+                            removeBusy={photoRemoveBusyId === documentPhotoPreview.id}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
                 <tr>
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Estimated service finish date</th>
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Delivery date</th>
                   <td className="px-3 py-2 text-stone-800">{estimatedFinishDate || "-"}</td>
                 </tr>
                 <tr>
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Estimate</th>
-                  <td className="px-3 py-2 font-semibold text-rlx-green">{formatInr(estimateTotal)}</td>
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">{ESTIMATE_LABEL_APPROX}</th>
+                  <td className="px-3 py-2 font-semibold text-rlx-green">{formatApproxEstimateInr(estimateTotal)}</td>
                 </tr>
                 <tr>
                   <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Advance</th>

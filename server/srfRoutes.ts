@@ -29,6 +29,7 @@ import { resolveCustomerEmail } from "./messaging/customerContact";
 import { sendReestimateDecisionNotification, sendSiteVisitApprovalLink, sendTrackingLink } from "./notificationService";
 import { publishSrfDocumentForWhatsApp } from "./messaging/publishSrfDocumentForWhatsApp";
 import { sendBrandVoucherEmail } from "./messaging/brandVoucherEmail";
+import { sendReadyPickupWhatsAppTemplate } from "./messaging/qikchatWhatsApp";
 import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { finalizeSrfBillingHandoverSession } from "./srfBillingHandoverRoutes";
 import { appendStockHistory } from "./db/stockHistory";
@@ -985,6 +986,40 @@ async function resolveCustomerTrackingUrl(req: Request, client: Pool | PoolClien
   return `${trackingBase}/track?t=${encodeURIComponent(trackingToken)}`;
 }
 
+async function notifyCustomerReadyForPickup(req: Request, pool: Pool, srfId: string) {
+  try {
+    const { rows } = await pool.query<{
+      reference: string;
+      customer_name: string;
+      phone: string;
+      store_name: string | null;
+    }>(
+      `SELECT j.reference, j.customer_name, j.phone, s.name AS store_name
+       FROM srf_jobs j
+       LEFT JOIN stores s ON s.id = j.destination_store_id
+       WHERE j.id = $1::uuid AND j.status = 'received_at_store'
+       LIMIT 1`,
+      [srfId],
+    );
+    const row = rows[0];
+    if (!row?.phone?.trim()) return { sent: false, reason: "No customer phone on file." };
+
+    const trackingUrl = await resolveCustomerTrackingUrl(req, pool, row.phone);
+    const messageId = await sendReadyPickupWhatsAppTemplate({
+      phone10: row.phone,
+      customerName: row.customer_name,
+      srfNumber: row.reference,
+      storeName: row.store_name ?? "your Zimson store",
+      trackingUrl,
+    });
+    return { sent: true, messageId };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : "Could not send ready-for-pickup WhatsApp.";
+    console.error("[READY PICKUP] WhatsApp notification failed", e);
+    return { sent: false, reason };
+  }
+}
+
 function formatApprovalReason(amountInr: number, note: string): string {
   const remark = note.trim();
   const amount = Number.isFinite(amountInr) && amountInr > 0 ? `INR ${amountInr.toFixed(2)}` : "";
@@ -1131,6 +1166,8 @@ export function registerSrfRoutes(
                 j.case_type AS "caseType",
                 j.strap_chain_type AS "strapChainType",
                 j.nature_of_repair AS "natureOfRepair",
+                j.chain_count_12_phase AS "chainCount12Phase",
+                j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",
                 j.customer_remarks AS "customerRemarks",
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
@@ -1380,6 +1417,8 @@ export function registerSrfRoutes(
                 j.case_type AS "caseType",
                 j.strap_chain_type AS "strapChainType",
                 j.nature_of_repair AS "natureOfRepair",
+                j.chain_count_12_phase AS "chainCount12Phase",
+                j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",
                 j.customer_remarks AS "customerRemarks",
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
@@ -2211,6 +2250,18 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const brandSetting = await client.query<{ serial_number_required: boolean }>(
+        `SELECT serial_number_required
+         FROM brands
+         WHERE is_active = true AND LOWER(TRIM(name)) = LOWER(TRIM($1))
+         LIMIT 1`,
+        [watchBrand],
+      );
+      if (brandSetting.rows[0]?.serial_number_required && !serial) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: `Serial number is required for ${watchBrand}.` });
+        return;
+      }
       const { rows: destStoreRows } = await client.query<{ id: string }>(
         `SELECT id FROM stores WHERE id = $1::text LIMIT 1`,
         [destinationStoreId],
@@ -2360,10 +2411,15 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "estimateTotalInr must be a valid non-negative number." });
       return;
     }
+    if (!estimatedFinishDate) {
+      res.status(400).json({ error: "Delivery date is required." });
+      return;
+    }
     const caseType = String(req.body?.caseType ?? "").trim();
     const strapChainType = String(req.body?.strapChainType ?? "").trim();
     const natureOfRepair = String(req.body?.natureOfRepair ?? "").trim();
-    const chainCount = String(req.body?.chainCount ?? "").trim();
+    const chainCount12Phase = String(req.body?.chainCount12Phase ?? "").trim();
+    const chainCount6Phase = String(req.body?.chainCount6Phase ?? "").trim();
     const customerRemarks = String(req.body?.customerRemarks ?? "").trim();
     if (!Number.isFinite(advanceInr) || advanceInr < 0) {
       res.status(400).json({ error: "advanceInr must be a valid non-negative number." });
@@ -2392,13 +2448,33 @@ export function registerSrfRoutes(
     try {
       await client.query("BEGIN");
       const repairRouteBody = req.body?.repairRoute !== undefined ? normalizeSrfRepairRoute(req.body.repairRoute) : null;
-      const { rows: locked } = await client.query<{ id: string; status: string; store_id: string; repair_route: string }>(
-        `SELECT id, status, store_id, repair_route FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+      const { rows: locked } = await client.query<{
+        id: string;
+        status: string;
+        store_id: string;
+        repair_route: string;
+        watch_brand: string;
+        serial: string;
+      }>(
+        `SELECT id, status, store_id, repair_route, watch_brand, serial
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
       if (!locked[0] || (locked[0].status !== "draft" && locked[0].status !== "photo_pending")) {
         await client.query("ROLLBACK");
         res.status(400).json({ error: "Only draft/photo_pending SRFs can be finalized." });
+        return;
+      }
+      const brandSetting = await client.query<{ serial_number_required: boolean }>(
+        `SELECT serial_number_required
+         FROM brands
+         WHERE is_active = true AND LOWER(TRIM(name)) = LOWER(TRIM($1))
+         LIMIT 1`,
+        [locked[0].watch_brand],
+      );
+      if (brandSetting.rows[0]?.serial_number_required && !locked[0].serial.trim()) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: `Serial number is required for ${locked[0].watch_brand}.` });
         return;
       }
       const repairRoute = repairRouteBody ?? normalizeSrfRepairRoute(locked[0].repair_route);
@@ -2433,8 +2509,9 @@ export function registerSrfRoutes(
              case_type = $12,
              strap_chain_type = $13,
              nature_of_repair = $14,
-             chain_count = $15,
-             customer_remarks = $16,
+             chain_count_12_phase = $15,
+             chain_count_6_phase = $16,
+             customer_remarks = $17,
              photo_session_active = false,
              capture_link_disabled_at = now(),
              updated_at = now(),
@@ -2455,7 +2532,8 @@ export function registerSrfRoutes(
           caseType,
           strapChainType,
           natureOfRepair,
-          chainCount,
+          chainCount12Phase,
+          chainCount6Phase,
           customerRemarks,
         ],
       );
@@ -2470,7 +2548,7 @@ export function registerSrfRoutes(
       await appendStatusHistory(client, srfId, nextStatus, actor.id, finalizeNote);
       await appendActionLog(client, srfId, {
         action: "srf_finalized",
-        description: `SRF finalized (${repairRoute === "store_self" ? "repair by store" : "send to HO"}) — estimate INR ${estimateTotalInr.toFixed(2)}, advance INR ${advanceInr.toFixed(2)}.`,
+        description: `SRF finalized (${repairRoute === "store_self" ? "repair at in-store" : "send to centralized service centre"}) — estimate INR ${estimateTotalInr.toFixed(2)}, advance INR ${advanceInr.toFixed(2)}.`,
         amountInr: estimateTotalInr,
         actor,
         details: {
@@ -2738,8 +2816,16 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const { rows } = await client.query<{ id: string; status: string; region_id: string; store_id: string }>(
-        `SELECT id, status, region_id, store_id FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+      const { rows } = await client.query<{
+        id: string;
+        status: string;
+        region_id: string;
+        store_id: string;
+        watch_brand: string;
+        serial: string;
+      }>(
+        `SELECT id, status, region_id, store_id, watch_brand, serial
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
       const row = rows[0];
@@ -2766,6 +2852,21 @@ export function registerSrfRoutes(
         }
       }
       const body = req.body as Record<string, unknown>;
+      const effectiveWatchBrand =
+        typeof body.watchBrand === "string" ? String(body.watchBrand).trim() : row.watch_brand;
+      const effectiveSerial = typeof body.serial === "string" ? String(body.serial).trim() : row.serial;
+      const brandSetting = await client.query<{ serial_number_required: boolean }>(
+        `SELECT serial_number_required
+         FROM brands
+         WHERE is_active = true AND LOWER(TRIM(name)) = LOWER(TRIM($1))
+         LIMIT 1`,
+        [effectiveWatchBrand],
+      );
+      if (brandSetting.rows[0]?.serial_number_required && !effectiveSerial) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: `Serial number is required for ${effectiveWatchBrand}.` });
+        return;
+      }
       const sets: string[] = [];
       const vals: unknown[] = [];
       let pi = 1;
@@ -2805,8 +2906,16 @@ export function registerSrfRoutes(
         sets.push(`nature_of_repair = $${pi++}`);
         vals.push(String(body.natureOfRepair).trim());
       }
+      if (typeof body.chainCount12Phase === "string") {
+        sets.push(`chain_count_12_phase = $${pi++}`);
+        vals.push(String(body.chainCount12Phase).trim());
+      }
+      if (typeof body.chainCount6Phase === "string") {
+        sets.push(`chain_count_6_phase = $${pi++}`);
+        vals.push(String(body.chainCount6Phase).trim());
+      }
       if (typeof body.chainCount === "string") {
-        sets.push(`chain_count = $${pi++}`);
+        sets.push(`chain_count_12_phase = $${pi++}`);
         vals.push(String(body.chainCount).trim());
       }
       if (typeof body.customerRemarks === "string") {
@@ -2913,7 +3022,7 @@ export function registerSrfRoutes(
         await appendStatusHistory(client, srfId, "pending_ho_transit", actor.id, `Transfer ${dcNumber} created — pending delivery boy handoff.`);
         await appendActionLog(client, srfId, {
           action: "store_dc_dispatch",
-          description: `Transfer ${dcNumber} ready — pending delivery boy send to HO.`,
+          description: `Transfer ${dcNumber} ready — pending delivery boy send to centralized service centre.`,
           actor,
           referenceDoc: dcNumber,
         });
@@ -3955,7 +4064,9 @@ export function registerSrfRoutes(
         return;
       }
       if (normalizeSrfRepairRoute(row.repair_route) !== "store_self") {
-        res.status(400).json({ error: "Send to HO is only for repair-by-self SRFs." });
+        res.status(400).json({
+          error: "Send to centralized service centre is only for in-store repair SRFs.",
+        });
         return;
       }
       if (actor.role !== "super_admin" && actor.role !== "admin") {
@@ -4113,6 +4224,80 @@ export function registerSrfRoutes(
     res.status(400).json({
       error: "Manual re-estimate approval is disabled. Customer must approve from tracking link to restart repair.",
     });
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/supervisor/reestimate-proceed", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can proceed after customer acceptance." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const updated = await client.query<{ status: string }>(
+        `UPDATE srf_jobs
+         SET reestimate_approved_at = now(),
+             reestimate_approved_note = 'Supervisor acknowledged customer acceptance and proceeded.',
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid
+           AND status IN ('assigned', 'estimate_ok')
+           AND customer_reestimate_response = 'accepted'
+           AND customer_reestimate_responded_at IS NOT NULL
+           AND (
+             reestimate_approved_at IS NULL
+             OR reestimate_approved_at < customer_reestimate_responded_at
+           )
+         RETURNING status`,
+        [srfId, actor.id],
+      );
+      if (!updated.rows[0]) {
+        const existing = await client.query<{
+          status: string;
+          customer_reestimate_response: string | null;
+          customer_reestimate_responded_at: Date | null;
+          reestimate_approved_at: Date | null;
+        }>(
+          `SELECT status, customer_reestimate_response, customer_reestimate_responded_at, reestimate_approved_at
+           FROM srf_jobs WHERE id = $1::uuid`,
+          [srfId],
+        );
+        const row = existing.rows[0];
+        const alreadyProceeded =
+          row?.customer_reestimate_response === "accepted" &&
+          row.customer_reestimate_responded_at &&
+          row.reestimate_approved_at &&
+          row.reestimate_approved_at >= row.customer_reestimate_responded_at;
+        if (!alreadyProceeded) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "This SRF is not waiting for proceed after customer acceptance." });
+          return;
+        }
+      } else {
+        await appendStatusHistory(
+          client,
+          srfId,
+          updated.rows[0].status,
+          actor.id,
+          "Supervisor clicked Proceed after customer accepted the re-estimate.",
+        );
+        await appendActionLog(client, srfId, {
+          action: "supervisor_proceed_after_reestimate_acceptance",
+          description: "Supervisor acknowledged customer acceptance and enabled repair decision actions.",
+          actor,
+        });
+      }
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not proceed after customer acceptance." });
+    } finally {
+      client.release();
+    }
   });
 
   app.post("/api/service/srf-jobs/:srfId/inter-ho/reestimate-request", requireAuth, async (req, res) => {
@@ -8387,8 +8572,8 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const { rows: dcs } = await client.query<{ id: string }>(
-        `SELECT id FROM delivery_challans WHERE dc_number = $1 FOR UPDATE`,
+      const { rows: dcs } = await client.query<{ id: string; delivery_boy_user_id: string | null }>(
+        `SELECT id, delivery_boy_user_id FROM delivery_challans WHERE dc_number = $1 FOR UPDATE`,
         [dcNumber],
       );
       const dc = dcs[0];
@@ -8417,6 +8602,7 @@ export function registerSrfRoutes(
       }
       let updated = 0;
       let skipped = 0;
+      const inwardedSrfIds: string[] = [];
       for (const line of lines) {
         const accept = requestedIds ? requestedIds.includes(line.srf_id) : true;
         if (!accept) {
@@ -8437,9 +8623,13 @@ export function registerSrfRoutes(
                updated_at = now(),
                modified_by = $2
            WHERE id = $1::uuid
-             AND status IN ('awaiting_store_inward', 'dispatched_to_store')
+             AND (
+               ($4::boolean = true AND status = 'awaiting_store_inward')
+               OR
+               ($4::boolean = false AND status IN ('awaiting_store_inward', 'dispatched_to_store'))
+             )
              AND destination_store_id = $3::text`,
-          [line.srf_id, actor.id, actor.storeId],
+          [line.srf_id, actor.id, actor.storeId, Boolean(dc.delivery_boy_user_id)],
         );
         if ((upd.rowCount ?? 0) > 0) {
           await appendStatusHistory(client, line.srf_id, "received_at_store", actor.id, `Received against ODC ${dcNumber}.`);
@@ -8450,6 +8640,7 @@ export function registerSrfRoutes(
             referenceDoc: dcNumber,
           });
           updated += 1;
+          inwardedSrfIds.push(line.srf_id);
         }
       }
       if (updated === 0) {
@@ -8476,7 +8667,15 @@ export function registerSrfRoutes(
         );
       }
       await client.query("COMMIT");
-      res.json({ updated, skipped, pendingOnTransfer });
+      const readyNotifications = await Promise.all(
+        inwardedSrfIds.map((srfId) => notifyCustomerReadyForPickup(req, pool, srfId)),
+      );
+      res.json({
+        updated,
+        skipped,
+        pendingOnTransfer,
+        readyMessagesSent: readyNotifications.filter((result) => result.sent).length,
+      });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
@@ -8506,6 +8705,9 @@ export function registerSrfRoutes(
         ? req.body.storeBillingSnapshot
         : null;
     const handoverSessionId = String(req.body?.handoverSessionId ?? "").trim() || null;
+    const billingCustomerKindRaw = String(req.body?.billingCustomerKind ?? "").trim().toUpperCase();
+    const billingCustomerKind =
+      billingCustomerKindRaw === "B2B" ? "B2B" : billingCustomerKindRaw === "B2C" ? "B2C" : null;
     const actorStoreId = String(actor.storeId ?? "").trim();
     const isAdmin = actor.role === "super_admin" || actor.role === "admin";
     const client = await pool.connect();
@@ -8553,6 +8755,27 @@ export function registerSrfRoutes(
         return;
       }
       const row = locked.rows[0]!;
+      if (billingCustomerKind) {
+        if (billingCustomerKind === "B2B") {
+          const phoneLast10 = String(row.phone ?? "")
+            .replace(/\D/g, "")
+            .slice(-10);
+          const custRes = await client.query<{ company: string | null }>(
+            `SELECT company FROM customers WHERE phone_last10 = $1 LIMIT 1`,
+            [phoneLast10],
+          );
+          const company = String(custRes.rows[0]?.company ?? "").trim() || null;
+          await client.query(
+            `UPDATE srf_jobs
+             SET customer_kind = 'B2B',
+                 company = COALESCE(NULLIF($2::text, ''), company)
+             WHERE id = $1::uuid`,
+            [srfId, company],
+          );
+        } else {
+          await client.query(`UPDATE srf_jobs SET customer_kind = 'B2C' WHERE id = $1::uuid`, [srfId]);
+        }
+      }
       const billingStoreId = String(row.destination_store_id ?? row.store_id ?? "").trim();
       if (!noBillingHandover) {
         invoiceNumber = (row.invoice_number ?? "").trim() || null;
@@ -8745,6 +8968,8 @@ export function registerSrfRoutes(
                 j.case_type AS "caseType",
                 j.strap_chain_type AS "strapChainType",
                 j.nature_of_repair AS "natureOfRepair",
+                j.chain_count_12_phase AS "chainCount12Phase",
+                j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",
                 j.customer_remarks AS "customerRemarks",
                 j.estimate_total_inr::float8 AS "estimateTotalInr",

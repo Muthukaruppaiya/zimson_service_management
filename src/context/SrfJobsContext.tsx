@@ -123,6 +123,8 @@ type SrfJobsContextValue = {
       caseType?: string;
       strapChainType?: string;
       natureOfRepair?: string;
+      chainCount12Phase?: string;
+      chainCount6Phase?: string;
       chainCount?: string;
       customerRemarks?: string;
     },
@@ -173,6 +175,7 @@ type SrfJobsContextValue = {
   /** Repair HO supervisor: send declined-estimate SRF to outward for return DC. */
   interHoReceiverSendToOutward: (jobId: string, note?: string) => Promise<void>;
   supervisorApproveReestimate: (jobId: string, payload: { estimateTotalInr?: number; note?: string }) => Promise<void>;
+  supervisorProceedAcceptedReestimate: (jobId: string) => Promise<void>;
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
   supervisorMoveRejectedToOdc: (jobId: string, note?: string) => Promise<void>;
@@ -269,6 +272,8 @@ type SrfJobsContextValue = {
       noBillingHandover?: boolean;
       handoverSessionId?: string | null;
       storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
+      /** Billing-time customer type (e.g. B2C SRF upgraded to B2B at store invoice). */
+      billingCustomerKind?: "B2C" | "B2B";
     },
   ) => Promise<{
     ok: boolean;
@@ -290,6 +295,8 @@ type SrfJobsContextValue = {
       caseType?: string;
       strapChainType?: string;
       natureOfRepair?: string;
+      chainCount12Phase?: string;
+      chainCount6Phase?: string;
       chainCount?: string;
       customerRemarks?: string;
     },
@@ -343,6 +350,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         caseType?: string;
         strapChainType?: string;
         natureOfRepair?: string;
+        chainCount12Phase?: string;
+        chainCount6Phase?: string;
         chainCount?: string;
         customerRemarks?: string;
         customerEmail?: string;
@@ -592,6 +601,13 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate-approve`, {
       method: "POST",
       json: payload,
+    });
+    await refreshJobs();
+  }, [refreshJobs]);
+
+  const supervisorProceedAcceptedReestimate = useCallback(async (jobId: string) => {
+    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/reestimate-proceed`, {
+      method: "POST",
     });
     await refreshJobs();
   }, [refreshJobs]);
@@ -915,6 +931,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       noBillingHandover?: boolean;
       handoverSessionId?: string | null;
       storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
+      billingCustomerKind?: "B2C" | "B2B";
     },
   ) => {
     const out = await apiJson<{
@@ -964,6 +981,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         caseType?: string;
         strapChainType?: string;
         natureOfRepair?: string;
+        chainCount12Phase?: string;
+        chainCount6Phase?: string;
         chainCount?: string;
         customerRemarks?: string;
       },
@@ -1001,6 +1020,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorVerifyMoveToOutward,
       interHoReceiverSendToOutward,
       supervisorApproveReestimate,
+      supervisorProceedAcceptedReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
       supervisorMoveRejectedToOdc,
@@ -1068,6 +1088,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorVerifyMoveToOutward,
       interHoReceiverSendToOutward,
       supervisorApproveReestimate,
+      supervisorProceedAcceptedReestimate,
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
       supervisorMoveRejectedToOdc,

@@ -35,7 +35,7 @@ import type { SrfJob } from "../../types/srfJob";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { TechnicianProfile } from "../../types/technician";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
-import { formatInr } from "../../lib/formatInr";
+import { formatInr, formatApproxEstimateInr, formatApproxEstimateInrPlain, formatApproxEstimateCurrency, ESTIMATE_LABEL_APPROX, ESTIMATE_AMOUNT_LABEL_APPROX } from "../../lib/formatInr";
 import {
   resolveSparePriceFromLines,
   spareMasterSellingPrice,
@@ -53,6 +53,26 @@ import {
   type BrandInvoiceLineItem,
 } from "../../types/brandInvoice";
 import type { HsnMasterRow } from "../../types/hsnMaster";
+
+type SupervisorBrandGroup = { brand: string; rows: SrfJob[] };
+
+function formatSrfDeliveryDate(value?: string | null): string {
+  const raw = String(value ?? "").trim().slice(0, 10);
+  if (!raw) return "—";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const [year, month, day] = raw.split("-");
+  return `${day}/${month}/${year}`;
+}
+
+function formatSrfBookingDate(value?: string | null): string {
+  const date = new Date(String(value ?? ""));
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("en-GB");
+}
+
+function deliveryDateSortKey(job: SrfJob): string {
+  const raw = String(job.estimatedFinishDate ?? "").trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "9999-12-31";
+}
 
 type InterHoSpareOrder = {
   id: string;
@@ -239,6 +259,7 @@ export function ScSupervisorPage() {
     supervisorTransferToOtherHo,
     submitSparesSlip,
     supervisorMarkRepairComplete,
+    supervisorProceedAcceptedReestimate,
     supervisorMoveRejectedToOdc,
     supervisorLogBrandEstimate,
     supervisorApproveBrandEstimate,
@@ -320,6 +341,7 @@ export function ScSupervisorPage() {
   const [orderDetailsId, setOrderDetailsId] = useState<string | null>(null);
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [sendBrandPopupJobId, setSendBrandPopupJobId] = useState<string | null>(null);
+  const [reestimateProceedBusyId, setReestimateProceedBusyId] = useState<string | null>(null);
   const [sendBrandReason, setSendBrandReason] = useState("Cannot be repaired at HO");
   const [brandEstimatePopupJobId, setBrandEstimatePopupJobId] = useState<string | null>(null);
   const [brandEstimateAmountInput, setBrandEstimateAmountInput] = useState("");
@@ -366,6 +388,7 @@ export function ScSupervisorPage() {
   const [brandSuccessAck, setBrandSuccessAck] = useState<BrandSuccessAck | null>(null);
   void spareOrderMsg;
   const [scanSrfInput, setScanSrfInput] = useState("");
+  const [listBrandFilter, setListBrandFilter] = useState("");
   const [listDetailJobId, setListDetailJobId] = useState<string | null>(null);
 
   const received = useMemo(() => {
@@ -633,6 +656,47 @@ export function ScSupervisorPage() {
     return rows;
   }, [senderApprovalOnlyView, interHoSenderFallbackQueue, received, decisionQueue, brandDeskQueue, repairHoInvoiceQueue, interHoSenderReestimateQueue, transferredQueue, jobs]);
 
+  const supervisorBrandOptions = useMemo(() => {
+    const brands = new Set<string>();
+    for (const j of supervisorListRows) {
+      const brand = j.watchBrand?.trim();
+      if (brand) brands.add(brand);
+    }
+    return [...brands].sort((a, b) => a.localeCompare(b));
+  }, [supervisorListRows]);
+
+  const supervisorListBrandGroups = useMemo((): SupervisorBrandGroup[] => {
+    const brandKey = (j: SrfJob) => j.watchBrand?.trim() || "Other";
+    const filtered = listBrandFilter
+      ? supervisorListRows.filter((j) => brandKey(j) === listBrandFilter)
+      : supervisorListRows;
+    const grouped = new Map<string, SrfJob[]>();
+    for (const j of filtered) {
+      const brand = brandKey(j);
+      if (!grouped.has(brand)) grouped.set(brand, []);
+      grouped.get(brand)!.push(j);
+    }
+    return [...grouped.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([brand, rows]) => ({
+        brand,
+        rows: [...rows].sort(
+          (a, b) =>
+            deliveryDateSortKey(a).localeCompare(deliveryDateSortKey(b)) ||
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        ),
+      }));
+  }, [supervisorListRows, listBrandFilter]);
+
+  const supervisorListStats = useMemo(() => {
+    const missingDelivery = supervisorListRows.filter((j) => !j.estimatedFinishDate?.trim()).length;
+    return {
+      total: supervisorListRows.length,
+      brands: supervisorBrandOptions.length,
+      missingDelivery,
+    };
+  }, [supervisorListRows, supervisorBrandOptions]);
+
   const listDetailJob = useMemo(
     () => (listDetailJobId ? jobs.find((j) => j.id === listDetailJobId) ?? null : null),
     [jobs, listDetailJobId],
@@ -816,6 +880,25 @@ export function ScSupervisorPage() {
     setReestimatePreviousInr(Number(job?.estimateTotalInr ?? 0));
     setReestimateAmountInput("");
     setReestimateRemarkInput("");
+  }
+
+  async function proceedAfterAcceptedReestimate(jobId: string) {
+    setReestimateProceedBusyId(jobId);
+    setFeedback((current) => ({ ...current, [jobId]: "" }));
+    try {
+      await supervisorProceedAcceptedReestimate(jobId);
+      setFeedback((current) => ({
+        ...current,
+        [jobId]: "Proceed confirmed — repair decision actions are now enabled.",
+      }));
+    } catch (e) {
+      setFeedback((current) => ({
+        ...current,
+        [jobId]: e instanceof Error ? e.message : "Could not proceed after customer acceptance.",
+      }));
+    } finally {
+      setReestimateProceedBusyId(null);
+    }
   }
 
   function closeReestimatePopup() {
@@ -1944,11 +2027,50 @@ export function ScSupervisorPage() {
     return job.status.replace(/_/g, " ");
   }
 
+  function supervisorStatusBadgeClass(job: SrfJob): string {
+    const status = job.status;
+    if (
+      job.interHoReestimatePhase === "customer_declined_final" ||
+      job.interHoReestimatePhase === "customer_rejected" ||
+      status === "customer_rejected"
+    ) {
+      return "bg-rose-50 text-rose-900 ring-rose-200";
+    }
+    if (
+      job.interHoBrandEstimatePhase ||
+      status.includes("brand") ||
+      status === "brand_credit_note_pending" ||
+      status === "brand_credit_note_active"
+    ) {
+      return "bg-violet-50 text-violet-900 ring-violet-200";
+    }
+    if (
+      status === "ready_for_outward" ||
+      status === "pending_store_transit" ||
+      status === "dispatched_to_store"
+    ) {
+      return "bg-sky-50 text-sky-900 ring-sky-200";
+    }
+    if (status === "received_at_sc" || status === "assigned" || status === "estimate_ok") {
+      return "bg-emerald-50 text-emerald-900 ring-emerald-200";
+    }
+    if (status.includes("inter_ho") || job.interHoReestimatePhase || job.interHoBrandEstimatePhase) {
+      return "bg-indigo-50 text-indigo-900 ring-indigo-200";
+    }
+    return "bg-stone-100 text-stone-800 ring-stone-200";
+  }
+
   return (
-    <div>
+    <div className="space-y-6 pb-8">
       <PageHeader
         title={senderApprovalOnlyView ? "Sender HO — re-estimate approvals" : "Supervisor — assign technicians"}
-        description=""
+        description={
+          senderApprovalOnlyView
+            ? "Review and forward inter-HO estimate approvals to customers."
+            : srfId
+              ? "Review the SRF and assign the right technician for repair."
+              : "Prioritize incoming SRFs, assign technicians, and manage repair decisions."
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             {!senderApprovalOnlyView ? (
@@ -1979,155 +2101,348 @@ export function ScSupervisorPage() {
       />
       {!srfId ? (
         <Card title="Supervisor SRF list">
-          <div className="mb-3 flex flex-wrap gap-2">
-            <input
-              value={scanSrfInput}
-              onChange={(e) => setScanSrfInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") return;
-                e.preventDefault();
-                const ref = scanSrfInput.trim().toLowerCase();
-                if (!ref) return;
-                const row =
-                  supervisorListRows.find((j) => j.reference.toLowerCase() === ref) ??
-                  supervisorListRows.find((j) => rootSrfBookingReference(j).toLowerCase() === ref);
-                if (row) {
-                  navigate(`/service-centre/supervisor/srf/${encodeURIComponent(row.id)}`);
-                  setScanSrfInput("");
-                }
-              }}
-              placeholder="Scan SRF barcode/reference and press Enter"
-              className="w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-zimson-200 bg-zimson-50/80 text-xs font-semibold uppercase tracking-wide text-stone-600">
-                <tr>
-                  <th className="px-3 py-2">SRF</th>
-                  <th className="px-3 py-2">Customer</th>
-                  <th className="px-3 py-2">Watch</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {supervisorListRows.map((j) => {
-                  const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
-                  const senderReestimate = user ? isInterHoSenderReestimateRow(j, user, jobs) : false;
-                  const isInterHoLocal = isInterHoReceiverLocal(j);
-                  const localRootRef = (j.transferSourceReference ?? "").trim();
-                  const displayMainRef = isInterHoLocal ? j.reference : mainRef;
-                  const needsConvert = j.status === "received_at_sc" && !!j.requiresLocalConversion;
-                  return (
-                  <tr key={j.id} className="border-b border-zimson-100 last:border-0">
-                    <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">
+          <div className="mb-5 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-zimson-200/80 bg-gradient-to-br from-zimson-50 to-white px-4 py-3 shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-stone-500">In queue</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-zimson-900">{supervisorListStats.total}</p>
+              </div>
+              <div className="rounded-xl border border-zimson-200/80 bg-gradient-to-br from-white to-zimson-50/40 px-4 py-3 shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Watch brands</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-zimson-900">{supervisorListStats.brands}</p>
+              </div>
+              <div
+                className={`rounded-xl border px-4 py-3 shadow-sm ${
+                  supervisorListStats.missingDelivery > 0
+                    ? "border-amber-200/90 bg-gradient-to-br from-amber-50 to-white"
+                    : "border-emerald-200/80 bg-gradient-to-br from-emerald-50/60 to-white"
+                }`}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Missing delivery date</p>
+                <p
+                  className={`mt-1 text-2xl font-bold tabular-nums ${
+                    supervisorListStats.missingDelivery > 0 ? "text-amber-900" : "text-emerald-800"
+                  }`}
+                >
+                  {supervisorListStats.missingDelivery}
+                </p>
+              </div>
+            </div>
+
+            <label className="relative block">
+              <span className="sr-only">Scan SRF reference</span>
+              <span
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-base text-stone-400"
+                aria-hidden
+              >
+                ⌕
+              </span>
+              <input
+                value={scanSrfInput}
+                onChange={(e) => setScanSrfInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  const ref = scanSrfInput.trim().toLowerCase();
+                  if (!ref) return;
+                  const row =
+                    supervisorListRows.find((j) => j.reference.toLowerCase() === ref) ??
+                    supervisorListRows.find((j) => rootSrfBookingReference(j).toLowerCase() === ref);
+                  if (row) {
+                    navigate(`/service-centre/supervisor/srf/${encodeURIComponent(row.id)}`);
+                    setScanSrfInput("");
+                  }
+                }}
+                placeholder="Scan SRF barcode / reference and press Enter"
+                className="w-full rounded-xl border border-zimson-300/80 bg-white py-2.5 pl-10 pr-4 text-sm shadow-sm transition focus:border-zimson-500 focus:outline-none focus:ring-2 focus:ring-zimson-200"
+              />
+            </label>
+
+            {supervisorBrandOptions.length > 0 ? (
+              <div className="rounded-xl border border-zimson-200/80 bg-stone-50/70 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-stone-500">Filter by brand</p>
+                  {listBrandFilter ? (
+                    <button
+                      type="button"
+                      onClick={() => setListBrandFilter("")}
+                      className="text-xs font-semibold text-zimson-700 underline decoration-zimson-300 underline-offset-2 hover:text-zimson-900"
+                    >
+                      Clear filter
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setListBrandFilter("")}
+                    className={`rounded-full px-3.5 py-1.5 text-xs font-semibold shadow-sm transition ${
+                      !listBrandFilter
+                        ? "bg-zimson-700 text-white ring-2 ring-zimson-300 ring-offset-1"
+                        : "border border-zimson-200 bg-white text-zimson-900 hover:border-zimson-400 hover:bg-zimson-50"
+                    }`}
+                  >
+                    All
+                    <span className="ml-1.5 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-bold">
+                      {supervisorListRows.length}
+                    </span>
+                  </button>
+                  {supervisorBrandOptions.map((brand) => {
+                    const count = supervisorListRows.filter(
+                      (j) => (j.watchBrand?.trim() || "Other") === brand,
+                    ).length;
+                    const active = listBrandFilter === brand;
+                    return (
                       <button
+                        key={brand}
                         type="button"
-                        onClick={() =>
-                          navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)
-                        }
-                        className="text-left font-mono text-xs font-semibold text-zimson-900 underline decoration-zimson-400 underline-offset-2 hover:text-zimson-700"
-                        title="Open full SRF"
+                        onClick={() => setListBrandFilter(brand)}
+                        className={`rounded-full px-3.5 py-1.5 text-xs font-semibold shadow-sm transition ${
+                          active
+                            ? "bg-zimson-700 text-white ring-2 ring-zimson-300 ring-offset-1"
+                            : "border border-zimson-200 bg-white text-zimson-900 hover:border-zimson-400 hover:bg-zimson-50"
+                        }`}
                       >
-                        {displayMainRef}
-                      </button>
-                      {senderReestimate ? (
-                        <span className="mt-0.5 block text-[10px] font-semibold text-indigo-700">
-                          Inter-HO re-estimate (sender action)
-                        </span>
-                      ) : null}
-                      {isInterHoLocal ? (
-                        <span className="mt-0.5 block text-[10px] font-semibold text-emerald-700">
-                          Local repair SRF
-                        </span>
-                      ) : null}
-                      {isInterHoLocal && localRootRef ? (
-                        <span className="mt-0.5 block text-[10px] font-normal text-stone-500">
-                          Root SRF: <span className="font-mono">{localRootRef}</span>
-                        </span>
-                      ) : null}
-                      {!isInterHoLocal && receiverRef && receiverRef !== mainRef ? (
-                        <span className="mt-0.5 block text-[10px] font-normal text-stone-500">
-                          Receiver SRF (converted): <span className="font-mono">{receiverRef}</span>
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2">{j.customerName}</td>
-                    <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
-                    <td className="px-3 py-2 text-xs text-stone-700">{supervisorListStatusLabel(j)}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setListDetailJobId(j.id)}
-                          className="rounded-lg border border-zimson-400 bg-zimson-50 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"
+                        {brand}
+                        <span
+                          className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                            active ? "bg-white/20" : "bg-zimson-100 text-zimson-800"
+                          }`}
                         >
-                          Details
-                        </button>
-                        {needsConvert ? (
-                          <button
-                            type="button"
-                            onClick={() => void convertLocal(j.id)}
-                            className="rounded-lg border border-indigo-400 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-100"
-                          >
-                            Convert to local SRF
-                          </button>
-                        ) : null}
-                        {senderReestimate &&
-                        (j.interHoReestimatePhase === "pending_sender" ||
-                          j.interHoReestimatePhase === "customer_rejected" ||
-                          j.status === "inter_ho_reestimate_pending_sender") ? (
-                          <button
-                            type="button"
-                            onClick={() => openSenderForwardPopup(j.id)}
-                            className="rounded-lg border border-amber-500 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
-                          >
-                            {j.interHoReestimatePhase === "customer_rejected"
-                              ? "Negotiate & forward to customer"
-                              : "Forward to customer"}
-                          </button>
-                        ) : null}
-                        {senderReestimate && j.interHoReestimatePhase === "customer_rejected" ? (
-                          <button
-                            type="button"
-                            onClick={() => openEstimateNotAcceptedPopup(j.id)}
-                            className="rounded-lg border border-rose-500 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-950 hover:bg-rose-100"
-                          >
-                            Estimate not accepted by customer
-                          </button>
-                        ) : null}
-                        {senderReestimate && j.interHoReestimatePhase === "customer_declined_final" ? (
-                          <span className="rounded-lg border border-stone-300 bg-stone-50 px-3 py-1.5 text-xs font-semibold text-stone-700">
-                            Waiting repair HO Send to outward → return DC
-                          </span>
-                        ) : null}
-                        {senderReestimate &&
-                        (j.interHoReestimatePhase === "customer_accepted" ||
-                          j.status === "inter_ho_reestimate_customer_accepted") ? (
-                          <button
-                            type="button"
-                            onClick={() => void approveInterHoForReceiver(j.id)}
-                            className="rounded-lg border border-emerald-600 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
-                          >
-                            Approve repair HO
-                          </button>
-                        ) : null}
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {supervisorListBrandGroups.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-zimson-300/80 bg-zimson-50/30 px-6 py-14 text-center">
+              <p className="text-sm font-semibold text-zimson-900">
+                {listBrandFilter ? `No SRFs for ${listBrandFilter}` : "No SRFs in supervisor queue"}
+              </p>
+              <p className="mt-1 text-xs text-stone-500">
+                {listBrandFilter ? "Try another brand or clear the filter." : "New inward SRFs will appear here."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {supervisorListBrandGroups.map((group) => {
+                const showBrandInWatch = Boolean(listBrandFilter) || supervisorListBrandGroups.length === 1;
+                const earliestDelivery =
+                  group.rows.map(deliveryDateSortKey).find((key) => key !== "9999-12-31") ?? null;
+                return (
+                  <section
+                    key={group.brand}
+                    className="overflow-hidden rounded-2xl border border-zimson-200/90 bg-white shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zimson-200/80 bg-gradient-to-r from-zimson-50 via-white to-zimson-50/20 px-4 py-3 sm:px-5">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zimson-700 text-xs font-bold uppercase tracking-wide text-white shadow-sm">
+                          {group.brand.slice(0, 2)}
+                        </span>
+                        <div className="min-w-0">
+                          <h3 className="truncate text-sm font-bold text-zimson-900">{group.brand}</h3>
+                          <p className="text-xs text-stone-500">
+                            {group.rows.length} SRF{group.rows.length === 1 ? "" : "s"} · earliest delivery first
+                          </p>
+                        </div>
+                      </div>
+                      {!listBrandFilter && supervisorListBrandGroups.length > 1 ? (
                         <button
                           type="button"
-                          onClick={() => navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)}
+                          onClick={() => setListBrandFilter(group.brand)}
                           className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
                         >
-                          Open SRF
+                          View only {group.brand}
                         </button>
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      ) : null}
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="border-b border-zimson-100 bg-zimson-50/50 text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                          <tr>
+                            <th className="px-4 py-2.5">SRF</th>
+                            <th className="px-4 py-2.5">Customer</th>
+                            <th className="px-4 py-2.5">Watch</th>
+                            <th className="px-4 py-2.5">Booking date</th>
+                            <th className="px-4 py-2.5">Delivery date</th>
+                            <th className="px-4 py-2.5">Status</th>
+                            <th className="px-4 py-2.5">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.rows.map((j) => {
+                            const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
+                            const senderReestimate = user ? isInterHoSenderReestimateRow(j, user, jobs) : false;
+                            const isInterHoLocal = isInterHoReceiverLocal(j);
+                            const localRootRef = (j.transferSourceReference ?? "").trim();
+                            const displayMainRef = isInterHoLocal ? j.reference : mainRef;
+                            const needsConvert = j.status === "received_at_sc" && !!j.requiresLocalConversion;
+                            const hasDelivery = Boolean(j.estimatedFinishDate?.trim());
+                            const isPrioritySrf =
+                              earliestDelivery !== null && deliveryDateSortKey(j) === earliestDelivery;
+                            return (
+                              <tr
+                                key={j.id}
+                                className="border-b border-zimson-50 transition-colors last:border-0 hover:bg-zimson-50/40"
+                              >
+                                <td className="px-4 py-3 align-top">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)
+                                    }
+                                    className="text-left font-mono text-xs font-bold text-zimson-900 underline decoration-zimson-300 underline-offset-2 hover:text-zimson-700"
+                                    title="Open full SRF"
+                                  >
+                                    {displayMainRef}
+                                  </button>
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {senderReestimate ? (
+                                      <span className="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-800">
+                                        Inter-HO re-estimate
+                                      </span>
+                                    ) : null}
+                                    {isInterHoLocal ? (
+                                      <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                                        Local repair
+                                      </span>
+                                    ) : null}
+                                    {isPrioritySrf ? (
+                                      <span
+                                        className="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800 ring-1 ring-rose-200"
+                                        title="Priority suggested because this has the earliest delivery date for the brand"
+                                      >
+                                        Priority SRF · earliest delivery
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {isInterHoLocal && localRootRef ? (
+                                    <p className="mt-1 text-[10px] text-stone-500">
+                                      Root: <span className="font-mono">{localRootRef}</span>
+                                    </p>
+                                  ) : null}
+                                  {!isInterHoLocal && receiverRef && receiverRef !== mainRef ? (
+                                    <p className="mt-1 text-[10px] text-stone-500">
+                                      Receiver: <span className="font-mono">{receiverRef}</span>
+                                    </p>
+                                  ) : null}
+                                </td>
+                                <td className="px-4 py-3 align-top font-medium text-stone-800">{j.customerName}</td>
+                                <td className="px-4 py-3 align-top text-stone-700">
+                                  {showBrandInWatch ? (
+                                    <span>
+                                      <span className="font-semibold text-zimson-900">{j.watchBrand}</span>
+                                      <span className="mt-0.5 block text-xs text-stone-600">{j.watchModel}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-stone-800">{j.watchModel}</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 align-top text-xs font-medium text-stone-700">
+                                  {formatSrfBookingDate(j.createdAt)}
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  {hasDelivery ? (
+                                    <span className="inline-flex rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-200">
+                                      {formatSrfDeliveryDate(j.estimatedFinishDate)}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 ring-1 ring-amber-200">
+                                      Not set
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <span
+                                    className={`inline-block max-w-[14rem] rounded-lg px-2.5 py-1 text-[11px] font-semibold leading-snug ring-1 ${supervisorStatusBadgeClass(j)}`}
+                                  >
+                                    {supervisorListStatusLabel(j)}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="flex min-w-[11rem] flex-wrap gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setListDetailJobId(j.id)}
+                                      className="rounded-lg border border-zimson-400 bg-zimson-50 px-2.5 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"
+                                    >
+                                      Details
+                                    </button>
+                                    {needsConvert ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void convertLocal(j.id)}
+                                        className="rounded-lg border border-indigo-400 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-100"
+                                      >
+                                        Convert to local
+                                      </button>
+                                    ) : null}
+                                    {senderReestimate &&
+                                    (j.interHoReestimatePhase === "pending_sender" ||
+                                      j.interHoReestimatePhase === "customer_rejected" ||
+                                      j.status === "inter_ho_reestimate_pending_sender") ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => openSenderForwardPopup(j.id)}
+                                        className="rounded-lg border border-amber-500 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+                                      >
+                                        {j.interHoReestimatePhase === "customer_rejected"
+                                          ? "Negotiate & forward"
+                                          : "Forward to customer"}
+                                      </button>
+                                    ) : null}
+                                    {senderReestimate && j.interHoReestimatePhase === "customer_rejected" ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => openEstimateNotAcceptedPopup(j.id)}
+                                        className="rounded-lg border border-rose-500 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-950 hover:bg-rose-100"
+                                      >
+                                        Not accepted
+                                      </button>
+                                    ) : null}
+                                    {senderReestimate && j.interHoReestimatePhase === "customer_declined_final" ? (
+                                      <span className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-[10px] font-semibold leading-snug text-stone-700">
+                                        Awaiting repair HO → outward
+                                      </span>
+                                    ) : null}
+                                    {senderReestimate &&
+                                    (j.interHoReestimatePhase === "customer_accepted" ||
+                                      j.status === "inter_ho_reestimate_customer_accepted") ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void approveInterHoForReceiver(j.id)}
+                                        className="rounded-lg border border-emerald-600 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                                      >
+                                        Approve repair HO
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        navigate(`/service-centre/supervisor/srf/${encodeURIComponent(j.id)}`)
+                                      }
+                                      className="rounded-lg border border-zimson-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                                    >
+                                      Open SRF
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          )}
         </Card>
       ) : null}
 
@@ -2193,31 +2508,68 @@ export function ScSupervisorPage() {
       {srfId ? (
       <>
       {receivedView.length > 0 ? (
-        <Card title="Assignment" subtitle="Assign technician for this SRF" className="mb-6">
+        <Card title="Technician assignment" subtitle="Review SRF details and assign the repair technician" className="mb-6">
           {receivedView.map((j) => {
             const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
             const isInterHoLocal = isInterHoReceiverLocal(j);
+            const selectedTechnician = technicians.find((t) => t.id === (pickTech[j.id] ?? ""));
             return (
-            <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
-              <p className="font-mono text-sm font-bold text-zimson-900">{mainRef}</p>
-              {isInterHoLocal ? (
-                <p className="text-[11px] font-semibold text-emerald-700">Local repair SRF (inter-HO)</p>
-              ) : null}
-              {receiverRef && receiverRef !== mainRef ? (
-                <p className="text-[11px] text-stone-500">
-                  Receiver SRF (converted): <span className="font-mono font-semibold">{receiverRef}</span>
-                </p>
-              ) : null}
-              <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
-              <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="min-w-[240px] flex-1">
-                  <label className="text-xs font-medium text-stone-600">Technician</label>
+            <div key={j.id} className="overflow-hidden rounded-2xl border border-zimson-200/90 bg-white shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zimson-200/80 bg-gradient-to-r from-zimson-50 via-white to-amber-50/40 px-5 py-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-stone-500">Service request</p>
+                  <p className="mt-1 font-mono text-lg font-bold text-zimson-900">{mainRef}</p>
+                  {receiverRef && receiverRef !== mainRef ? (
+                    <p className="mt-0.5 text-[11px] text-stone-500">
+                      Receiver SRF: <span className="font-mono font-semibold">{receiverRef}</span>
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 ring-1 ring-amber-200">
+                    Awaiting technician
+                  </span>
+                  {isInterHoLocal ? (
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
+                      Inter-HO local repair
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid gap-3 bg-slate-50/60 p-5 sm:grid-cols-2">
+                <section className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Customer</p>
+                  <p className="mt-2 font-semibold text-slate-900">{j.customerName}</p>
+                  <p className="mt-0.5 text-sm text-slate-600">{j.phone || "No mobile number"}</p>
+                </section>
+                <section className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Watch</p>
+                  <p className="mt-2 font-semibold text-slate-900">{j.watchBrand} {j.watchModel}</p>
+                  <p className="mt-0.5 text-sm text-slate-600">Serial number: {j.serial || "—"}</p>
+                </section>
+              </div>
+
+              <div className="border-t border-zimson-100 bg-white p-5">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-zimson-900">Choose technician</p>
+                    <p className="text-xs text-stone-500">{technicians.length} technician{technicians.length === 1 ? "" : "s"} available</p>
+                  </div>
+                  {selectedTechnician ? (
+                    <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">
+                      {selectedTechnician.fullName} · {selectedTechnician.grade}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="min-w-[240px] flex-1">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-stone-600">Technician</label>
                   <select
                     value={pickTech[j.id] ?? ""}
                     onChange={(e) => setPickTech((p) => ({ ...p, [j.id]: e.target.value }))}
                     disabled={!!j.requiresLocalConversion}
-                    className="mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zimson-400/40"
+                    className="mt-1.5 w-full rounded-xl border border-zimson-300/80 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-zimson-500 focus:ring-2 focus:ring-zimson-400/30"
                   >
                     <option value="">Select…</option>
                     {technicians.length === 0 ? <option value="" disabled>No technicians in master</option> : null}
@@ -2229,8 +2581,8 @@ export function ScSupervisorPage() {
                 <button
                   type="button"
                   onClick={() => void handleAssign(j.id)}
-                  disabled={!!j.requiresLocalConversion}
-                  className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+                  disabled={!!j.requiresLocalConversion || !pickTech[j.id]}
+                  className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Assign
                 </button>
@@ -2244,7 +2596,12 @@ export function ScSupervisorPage() {
                   </button>
                 ) : null}
               </div>
-              {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
+              {feedback[j.id] ? (
+                <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-900">
+                  {feedback[j.id]}
+                </p>
+              ) : null}
+              </div>
             </div>
             );
           })}
@@ -2306,19 +2663,19 @@ export function ScSupervisorPage() {
                   </p>
                   {j.interHoBrandEstimatePhase === "pending_sender" ? (
                     <p className="mt-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900">
-                      Repair HO forwarded brand estimate INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}
+                      Repair HO forwarded brand estimate {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}
                       {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
                     </p>
                   ) : null}
                   {j.interHoBrandEstimatePhase === "customer_pending" ? (
                     <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
                       Waiting for customer approval on brand estimate (INR{" "}
-                      {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}).
+                      {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}).
                     </p>
                   ) : null}
                   {j.interHoBrandEstimatePhase === "customer_accepted" ? (
                     <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
-                      Customer approved brand estimate INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}. Repair HO has been notified to approve and send to brand.
+                      Customer approved brand estimate {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}. Repair HO has been notified to approve and send to brand.
                     </p>
                   ) : null}
                   {j.interHoBrandEstimatePhase === "customer_rejected" ? (
@@ -2328,19 +2685,19 @@ export function ScSupervisorPage() {
                   ) : null}
                   {j.interHoReestimatePhase === "pending_sender" ? (
                     <p className="mt-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-900">
-                      Repair HO proposed INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}
+                      Repair HO proposed {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}
                       {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
                     </p>
                   ) : null}
                   {j.interHoReestimatePhase === "customer_pending" ? (
                     <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
                       Waiting for customer approval on tracking link (INR{" "}
-                      {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}).
+                      {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}).
                     </p>
                   ) : null}
                   {j.interHoReestimatePhase === "customer_accepted" ? (
                     <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
-                      Customer accepted INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()} — release repair HO.
+                      Customer accepted {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)} — release repair HO.
                     </p>
                   ) : null}
                   {j.interHoReestimatePhase === "customer_rejected" ? (
@@ -2421,7 +2778,7 @@ export function ScSupervisorPage() {
                     {j.brandEstimateInr ? (
                       <p className="mt-1 text-xs text-stone-600">
                         <span className="font-semibold">Brand estimate:</span>{" "}
-                        {Number(j.brandEstimateInr).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        {formatApproxEstimateCurrency(Number(j.brandEstimateInr))}
                       </p>
                     ) : null}
                     {j.technicianBrandRecommendedAt ? (
@@ -2580,7 +2937,7 @@ export function ScSupervisorPage() {
                   {j.status === "inter_ho_brand_estimate_pending_sender" ? (
                     <>
                       <p className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
-                        Brand estimate sent to sender HO (INR {Number(j.brandEstimateInr ?? j.reestimateRequestedInr ?? 0).toLocaleString()})
+                        Brand estimate sent to sender HO ({formatApproxEstimateInrPlain(Number(j.brandEstimateInr ?? j.reestimateRequestedInr ?? 0), 0)})
                         {user && isSenderHoUserForInterHoJob(j, user)
                           ? " — add markup and forward to the customer."
                           : " — awaiting sender HO to forward to customer."}
@@ -2797,7 +3154,7 @@ export function ScSupervisorPage() {
                     ) : null}
                     {j.interHoReestimatePhase === "pending_sender" ? (
                       <p className="mt-2 text-xs font-semibold text-indigo-800">
-                        Repair HO proposed re-estimate INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}
+                        Repair HO proposed re-estimate {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}
                         {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
                       </p>
                     ) : null}
@@ -2808,7 +3165,7 @@ export function ScSupervisorPage() {
                     ) : null}
                     {j.interHoReestimatePhase === "customer_accepted" ? (
                       <p className="mt-2 text-xs font-semibold text-emerald-800">
-                        Customer accepted INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()} — release repair HO to continue.
+                        Customer accepted {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)} — release repair HO to continue.
                       </p>
                     ) : null}
                     {j.interHoReestimatePhase === "customer_rejected" ? (
@@ -2929,15 +3286,21 @@ export function ScSupervisorPage() {
       ) : null}
       <Card title="Supervisor decision queue" subtitle="From supervisor login: mark repaired or need re-estimate" className="mt-8">
         {decisionView.length === 0 ? (
-          <p className="text-sm text-stone-600">
-            {interHoSenderReestimateView.length > 0
-              ? "This is an inter-HO sender action (root SRF). Use the Inter-HO customer approvals section above — not the local decision queue."
-              : receivedView.length > 0 || repairHoInvoiceView.length > 0 || transferredView.length > 0
-                ? "No decision-pending SRFs for this item yet."
-                : srfId
-                  ? "No supervisor actions for this SRF at your HO. Check root vs converted local SRF, or return to the list."
-                  : "No assigned SRFs pending decision."}
-          </p>
+          <div className="rounded-2xl border border-dashed border-zimson-300 bg-gradient-to-br from-zimson-50/60 to-white px-6 py-10 text-center">
+            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-zimson-100 text-xl text-zimson-700">
+              ✓
+            </span>
+            <p className="mt-3 text-sm font-semibold text-zimson-900">No supervisor decision required now</p>
+            <p className="mx-auto mt-1 max-w-2xl text-xs leading-relaxed text-stone-500">
+              {interHoSenderReestimateView.length > 0
+                ? "This is an inter-HO sender action. Use the customer approvals section above."
+                : receivedView.length > 0 || repairHoInvoiceView.length > 0 || transferredView.length > 0
+                  ? "Complete the current assignment or logistics step first. Repair decisions will appear here afterward."
+                  : srfId
+                    ? "There are no available supervisor actions for this SRF at the current HO."
+                    : "Assigned SRFs requiring a repair decision will appear here."}
+            </p>
+          </div>
         ) : (
           <div className="space-y-4">
             {decisionView.map((j) => {
@@ -2961,6 +3324,13 @@ export function ScSupervisorPage() {
                 hasSpareFlow ||
                 j.status === "inter_ho_reestimate_pending_sender" ||
                 (hasTransferFlow && !interHoReceiverLocal);
+              const acceptedReestimateNeedsProceed =
+                !hasTransferFlow &&
+                j.customerReestimateResponse === "accepted" &&
+                (!j.reestimateApprovedAt ||
+                  (Boolean(j.customerReestimateRespondedAt) &&
+                    new Date(j.reestimateApprovedAt).getTime() <
+                      new Date(j.customerReestimateRespondedAt!).getTime()));
               const canOpenRepair =
                 !reestimateJourneyActive &&
                 j.status !== "reestimate_required" &&
@@ -2987,9 +3357,25 @@ export function ScSupervisorPage() {
                       </p>
                     </div>
                     {j.customerReestimateResponse === "accepted" ? (
-                      <p className="mt-1 text-xs font-semibold text-emerald-700">
-                        Customer accepted re-estimate{j.customerReestimateRespondedAt ? ` · ${new Date(j.customerReestimateRespondedAt).toLocaleString()}` : ""}
-                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                        <p className="text-xs font-semibold text-emerald-800">
+                          Customer accepted re-estimate{j.customerReestimateRespondedAt ? ` · ${new Date(j.customerReestimateRespondedAt).toLocaleString()}` : ""}
+                        </p>
+                        {acceptedReestimateNeedsProceed ? (
+                          <button
+                            type="button"
+                            disabled={reestimateProceedBusyId === j.id}
+                            onClick={() => void proceedAfterAcceptedReestimate(j.id)}
+                            className="rounded-lg bg-emerald-700 px-4 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60"
+                          >
+                            {reestimateProceedBusyId === j.id ? "Proceeding…" : "Proceed"}
+                          </button>
+                        ) : (
+                          <span className="rounded-md bg-emerald-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
+                            Proceeded
+                          </span>
+                        )}
+                      </div>
                     ) : null}
                     {j.customerReestimateResponse === "rejected" ? (
                       <p className="mt-1 text-xs font-semibold text-rose-700">
@@ -3028,7 +3414,7 @@ export function ScSupervisorPage() {
                   {j.status === "inter_ho_reestimate_pending_sender" ? (
                     <div className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
                       <p className="font-semibold">
-                        Re-estimate sent to sender HO (INR {Number(j.reestimateRequestedInr ?? 0).toLocaleString()}) — awaiting
+                        Re-estimate sent to sender HO ({formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}) — awaiting
                         customer forwarding.
                       </p>
                     </div>
@@ -3056,7 +3442,7 @@ export function ScSupervisorPage() {
                     <button
                       type="button"
                       onClick={() => openRepairPopup(j.id)}
-                      disabled={hasSpareFlow && !spareFlowInwardDone}
+                      disabled={acceptedReestimateNeedsProceed || (hasSpareFlow && !spareFlowInwardDone)}
                       className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {hasSpareFlow
@@ -3073,6 +3459,7 @@ export function ScSupervisorPage() {
                       j.status === "reestimate_required" ||
                       j.status === "inter_ho_reestimate_pending_sender" ||
                       j.status === "inter_ho_reestimate_customer_accepted" ||
+                      acceptedReestimateNeedsProceed ||
                       disableReestimate
                     }
                     className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -3100,7 +3487,8 @@ export function ScSupervisorPage() {
                     <button
                       type="button"
                       onClick={() => openTransferPopup(j.id)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 hover:bg-sky-100"
+                      disabled={acceptedReestimateNeedsProceed}
+                      className="inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <ActionSendIcon />
                       Send to region
@@ -3115,7 +3503,8 @@ export function ScSupervisorPage() {
                     <button
                       type="button"
                       onClick={() => openSendToBrandPopup(j.id)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-semibold text-fuchsia-900 hover:bg-fuchsia-100"
+                      disabled={acceptedReestimateNeedsProceed}
+                      className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-semibold text-fuchsia-900 hover:bg-fuchsia-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <ActionMailIcon />
                       Send to brand
@@ -3441,7 +3830,7 @@ export function ScSupervisorPage() {
             <h3 className="text-lg font-semibold text-zimson-900">Log brand estimate</h3>
             <p className="mt-1 text-sm text-stone-600">Enter the estimate amount from brand mail. Document upload is optional.</p>
             <div className="mt-4 grid gap-3">
-              <label className="text-sm">Estimate amount (INR) *
+              <label className="text-sm">{ESTIMATE_AMOUNT_LABEL_APPROX} (INR) *
                 <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandEstimateAmountInput} onChange={(e) => setBrandEstimateAmountInput(e.target.value)} autoFocus />
               </label>
               <label className="text-sm">Mail note / remarks
@@ -3640,13 +4029,13 @@ export function ScSupervisorPage() {
                 Previous estimate (INR)
                 <input
                   className={`${inputClassReadOnly} mt-1 w-full rounded-xl border border-zimson-200 px-3 py-2 text-sm`}
-                  value={reestimatePreviousInr > 0 ? formatInr(reestimatePreviousInr) : "—"}
+                  value={reestimatePreviousInr > 0 ? formatApproxEstimateInr(reestimatePreviousInr) : "—"}
                   readOnly
                   tabIndex={-1}
                 />
               </label>
               <label className="text-sm">
-                New re-estimate amount (INR) *
+                New re-estimate amount (approx.) (INR) *
                 <input
                   className="mt-1 w-full rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
                   value={reestimateAmountInput}
@@ -4244,12 +4633,17 @@ export function ScSupervisorPage() {
                         <td className="py-0.5">{listDetailJob.complaint || "—"}</td>
                       </tr>
                       <tr>
-                        <td className="py-0.5 pr-3 font-medium text-stone-600">Estimate</td>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Booking date</td>
+                        <td className="py-0.5">{formatSrfBookingDate(listDetailJob.createdAt)}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Delivery date</td>
+                        <td className="py-0.5">{formatSrfDeliveryDate(listDetailJob.estimatedFinishDate)}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">{ESTIMATE_LABEL_APPROX}</td>
                         <td className="py-0.5 font-semibold text-zimson-900">
-                          {Number(listDetailJob.estimateTotalInr ?? 0).toLocaleString(undefined, {
-                            style: "currency",
-                            currency: "INR",
-                          })}
+                          {formatApproxEstimateCurrency(Number(listDetailJob.estimateTotalInr ?? 0))}
                         </td>
                       </tr>
                       <tr>
@@ -4291,14 +4685,14 @@ export function ScSupervisorPage() {
                         <tr>
                           <td className="py-0.5 pr-3 font-medium text-stone-600">Original estimate</td>
                           <td className="py-0.5">
-                            {formatInr(Number(listDetailJob.estimateTotalInr ?? 0))}
+                            {formatApproxEstimateInr(Number(listDetailJob.estimateTotalInr ?? 0))}
                           </td>
                         </tr>
                         <tr>
                           <td className="py-0.5 pr-3 font-medium text-stone-600">Proposed re-estimate</td>
                           <td className="py-0.5 font-semibold text-amber-950">
                             {Number(listDetailJob.reestimateRequestedInr ?? 0) > 0
-                              ? formatInr(Number(listDetailJob.reestimateRequestedInr))
+                              ? formatApproxEstimateInr(Number(listDetailJob.reestimateRequestedInr))
                               : "—"}
                           </td>
                         </tr>

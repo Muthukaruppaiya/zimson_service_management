@@ -6,6 +6,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
+import { formatApproxEstimateCurrency, ESTIMATE_LABEL_APPROX } from "../../lib/formatInr";
 import { jobVisibleToServiceCentre } from "../../lib/srfAccess";
 import type { SeedRegion } from "../../data/seed";
 import type { SrfJob } from "../../types/srfJob";
@@ -884,7 +885,7 @@ export function ScLogisticsPage() {
                         <th className="px-3 py-2">Customer</th>
                         <th className="px-3 py-2">Watch</th>
                         <th className="px-3 py-2">From store</th>
-                        <th className="px-3 py-2">Estimate</th>
+                        <th className="px-3 py-2">{ESTIMATE_LABEL_APPROX}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -914,7 +915,7 @@ export function ScLogisticsPage() {
                             </td>
                             <td className="px-3 py-2 text-stone-700">{loc?.storeName ?? j.storeId}</td>
                             <td className="px-3 py-2 tabular-nums text-stone-800">
-                              {j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                              {formatApproxEstimateCurrency(j.estimateTotalInr)}
                             </td>
                           </tr>
                         );

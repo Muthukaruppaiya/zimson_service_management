@@ -1,5 +1,11 @@
 /** Animated “sending OTP” panel (SMS + email) — used in handover OTP modals. */
-export function OtpSendingIndicator({ label = "Sending OTP…" }: { label?: string }) {
+export function OtpSendingIndicator({
+  label = "Sending OTP…",
+  description = "Delivering to customer mobile & email…",
+}: {
+  label?: string;
+  description?: string;
+}) {
   return (
     <div
       className="flex flex-col items-center gap-3 rounded-xl border border-zimson-200 bg-gradient-to-b from-zimson-50 to-white px-4 py-5"
@@ -24,7 +30,7 @@ export function OtpSendingIndicator({ label = "Sending OTP…" }: { label?: stri
         </svg>
       </div>
       <p className="text-center text-sm font-semibold text-stone-800">{label}</p>
-      <p className="text-center text-xs text-stone-500">Delivering to customer mobile &amp; email…</p>
+      <p className="text-center text-xs text-stone-500">{description}</p>
       <style>{`
         @keyframes otp-send-pulse {
           0%, 100% { transform: scale(1); opacity: 0.35; }

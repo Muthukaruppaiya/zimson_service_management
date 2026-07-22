@@ -75,7 +75,7 @@ const statusOptions: Array<{ value: "ALL" | SrfJobStatus; label: string }> = [
   { value: "ALL", label: "All status" },
   { value: "photo_pending", label: "Photo pending" },
   { value: "at_store", label: "Store waiting dispatch" },
-  { value: "store_self_pending", label: "Store self pending" },
+  { value: "store_self_pending", label: "In-store repair — pending assign" },
   { value: "sent_to_other_ho", label: "Sent to other HO" },
   { value: "received_at_sc", label: "HO received" },
   { value: "assigned", label: "Assigned to technician" },

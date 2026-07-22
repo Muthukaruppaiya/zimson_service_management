@@ -7,7 +7,7 @@ import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
-import { apiJson } from "../../lib/api";
+import { formatApproxEstimateCurrency, ESTIMATE_LABEL_APPROX } from "../../lib/formatInr";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
 import {
   printStoreInwardReceiptDocument,
@@ -426,10 +426,7 @@ export function StoreDispatchPage() {
                           {j.watchBrand} {j.watchModel}
                         </td>
                         <td className="py-2 tabular-nums text-stone-800">
-                          {j.estimateTotalInr.toLocaleString(undefined, {
-                            style: "currency",
-                            currency: "INR",
-                          })}
+                          {formatApproxEstimateCurrency(j.estimateTotalInr)}
                         </td>
                       </tr>
                     ))}
@@ -500,7 +497,7 @@ export function StoreDispatchPage() {
                       <th className="py-2 pr-3">Customer</th>
                       <th className="py-2 pr-3">Watch</th>
                       <th className="py-2 pr-3">Inward at store</th>
-                      <th className="py-2">Estimate</th>
+                      <th className="py-2">{ESTIMATE_LABEL_APPROX}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -514,7 +511,7 @@ export function StoreDispatchPage() {
                         <td className="py-2 pr-3 text-stone-700">{j.watchBrand} {j.watchModel}</td>
                         <td className="py-2 pr-3 text-stone-700">{j.receivedBackAtStoreAt ? new Date(j.receivedBackAtStoreAt).toLocaleString() : "-"}</td>
                         <td className="py-2 tabular-nums text-stone-800">
-                          {j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                          {formatApproxEstimateCurrency(j.estimateTotalInr)}
                         </td>
                       </tr>
                     ))}
@@ -537,7 +534,7 @@ export function StoreDispatchPage() {
                     <th className="px-3 py-2">SRF</th>
                     <th className="px-3 py-2">Customer</th>
                     <th className="px-3 py-2">Watch</th>
-                    <th className="px-3 py-2">Estimate</th>
+                    <th className="px-3 py-2">{ESTIMATE_LABEL_APPROX}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -564,7 +561,7 @@ export function StoreDispatchPage() {
                         {j.watchBrand} {j.watchModel}
                       </td>
                       <td className="px-3 py-2 tabular-nums text-stone-800">
-                        {j.estimateTotalInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                        {formatApproxEstimateCurrency(j.estimateTotalInr)}
                       </td>
                     </tr>
                   ))}

@@ -284,6 +284,83 @@ export function registerDeliveryHandoffRoutes(
     }
   });
 
+  /** Completed and active delivery-boy carrying history, scoped to the actor's store/region. */
+  app.get("/api/service/delivery-handoff/history", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!STORE_ROLES.has(actor.role) && !SC_LOGISTICS_ROLES.has(actor.role)) {
+      res.status(403).json({ error: "Store or HO logistics role required." });
+      return;
+    }
+
+    try {
+      const params: unknown[] = [];
+      let scope = "";
+      if (STORE_ROLES.has(actor.role)) {
+        if (!actor.storeId) {
+          res.json({ rows: [] });
+          return;
+        }
+        params.push(actor.storeId);
+        scope = `AND EXISTS (
+          SELECT 1
+          FROM delivery_challan_lines scoped_l
+          JOIN srf_jobs scoped_j ON scoped_j.id = scoped_l.srf_id
+          WHERE scoped_l.dc_id = dc.id
+            AND (scoped_j.store_id = $1 OR scoped_j.destination_store_id = $1)
+        )`;
+      } else if (actor.role !== "super_admin" && actor.role !== "admin") {
+        if (!actor.regionId) {
+          res.json({ rows: [] });
+          return;
+        }
+        params.push(actor.regionId);
+        scope = `AND dc.region_id = $1`;
+      }
+
+      const { rows } = await pool.query(
+        `SELECT dc.id,
+                dc.dc_number AS "dcNumber",
+                dc.to_location AS "toLocation",
+                dc.status,
+                dc.created_at AS "createdAt",
+                dc.handed_to_delivery_at AS "handedToDeliveryAt",
+                dc.delivery_received_at AS "deliveryReceivedAt",
+                dc.delivery_trip_number AS "deliveryTripNumber",
+                dc.delivery_boy_user_id AS "deliveryBoyUserId",
+                u.display_name AS "deliveryBoyName",
+                u.phone AS "deliveryBoyPhone",
+                COUNT(l.srf_id)::int AS "watchCount",
+                COALESCE(json_agg(json_build_object(
+                  'id', j.id,
+                  'reference', j.reference,
+                  'customerName', j.customer_name,
+                  'watchBrand', j.watch_brand,
+                  'watchModel', j.watch_model,
+                  'status', j.status,
+                  'originStoreId', j.store_id,
+                  'destinationStoreId', j.destination_store_id
+                ) ORDER BY j.reference) FILTER (WHERE j.id IS NOT NULL), '[]'::json) AS watches
+         FROM delivery_challans dc
+         JOIN delivery_challan_lines l ON l.dc_id = dc.id
+         JOIN srf_jobs j ON j.id = l.srf_id
+         JOIN app_users u ON u.id = dc.delivery_boy_user_id
+         WHERE dc.delivery_boy_user_id IS NOT NULL
+           ${scope}
+         GROUP BY dc.id, u.display_name, u.phone
+         ORDER BY COALESCE(dc.handed_to_delivery_at, dc.created_at) DESC`,
+        params,
+      );
+      res.json({ rows });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load delivery-boy history." });
+    }
+  });
+
   app.post("/api/service/delivery-handoff/otp/start", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor) {
@@ -387,7 +464,7 @@ export function registerDeliveryHandoffRoutes(
       for (const dc of dcs) {
         if (kind === "store_to_ho_send") {
           if (dc.to_location !== "SERVICE_CENTRE" || dc.status !== "CREATED") {
-            res.status(400).json({ error: `TD ${dc.dc_number} is not pending send to HO.` });
+            res.status(400).json({ error: `TD ${dc.dc_number} is not pending send to centralized service centre.` });
             return;
           }
           if (dc.from_store_id !== actor.storeId) {
@@ -474,6 +551,14 @@ export function registerDeliveryHandoffRoutes(
       await client.query("BEGIN");
       let updatedDocs = 0;
       let updatedWatches = 0;
+      let deliveryTripNumber: string | null = null;
+      if (sess.kind === "store_to_ho_send" || sess.kind === "ho_to_store_send") {
+        const { rows: tripRows } = await client.query<{ trip_number: string }>(
+          `SELECT 'DBT' || to_char(now(), 'YYMMDD') ||
+                  lpad(nextval('delivery_trip_number_seq')::text, 6, '0') AS trip_number`,
+        );
+        deliveryTripNumber = tripRows[0]?.trip_number ?? null;
+      }
 
       for (const dcNumber of sess.dcNumbers) {
         const { rows: dcs } = await client.query<{ id: string; status: string; to_location: string }>(
@@ -494,9 +579,10 @@ export function registerDeliveryHandoffRoutes(
              SET status = 'IN_TRANSIT',
                  delivery_boy_user_id = $2,
                  handed_to_delivery_at = now(),
-                 modified_by = $3
+                 modified_by = $3,
+                 delivery_trip_number = COALESCE(delivery_trip_number, $4)
              WHERE id = $1::uuid AND status = 'CREATED'`,
-            [dc.id, sess.deliveryBoyUserId, actor.id],
+            [dc.id, sess.deliveryBoyUserId, actor.id, deliveryTripNumber],
           );
           for (const line of lines) {
             const upd = await client.query(
@@ -567,9 +653,10 @@ export function registerDeliveryHandoffRoutes(
              SET status = 'IN_TRANSIT',
                  delivery_boy_user_id = $2,
                  handed_to_delivery_at = now(),
-                 modified_by = $3
+                 modified_by = $3,
+                 delivery_trip_number = COALESCE(delivery_trip_number, $4)
              WHERE id = $1::uuid AND status IN ('CREATED', 'DISPATCHED')`,
-            [dc.id, sess.deliveryBoyUserId, actor.id],
+            [dc.id, sess.deliveryBoyUserId, actor.id, deliveryTripNumber],
           );
           for (const line of lines) {
             const upd = await client.query(
@@ -643,7 +730,7 @@ export function registerDeliveryHandoffRoutes(
 
       await client.query("COMMIT");
       handoffOtpSessions.delete(sessionId);
-      res.json({ ok: true, updatedDocs, updatedWatches });
+      res.json({ ok: true, updatedDocs, updatedWatches, deliveryTripNumber });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);

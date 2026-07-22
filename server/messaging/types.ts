@@ -10,10 +10,14 @@ export type MessagingConfig = {
     trackingTextTemplateName: string;
     /** Re-estimate / site visit approval template name. */
     approvalTemplateName: string;
+    /** Customer notification sent only after the repaired watch is inwarded at the store. */
+    readyPickupTemplateName: string;
     /** Reference body registered in Meta for tracking template ({{1}} customer, {{2}} SRF, {{3}} URL). */
     trackingTemplateBody: string;
     /** Reference body for approval template ({{1}}–{{4}}). */
     approvalTemplateBody: string;
+    /** Reference body for ready pickup ({{1}} name, {{2}} SRF, {{3}} store, {{4}} tracking URL). */
+    readyPickupTemplateBody: string;
     /** Reference body for invoice template ({{1}} customer, {{2}} invoice no). */
     invoiceTemplateBody: string;
   };

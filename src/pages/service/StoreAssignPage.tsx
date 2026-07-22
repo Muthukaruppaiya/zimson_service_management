@@ -10,14 +10,14 @@ import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError } from "../../lib/api";
 import { printAssignmentSlip } from "../../lib/serviceDocuments";
 import { jobVisibleToStoreUser } from "../../lib/srfAccess";
-import { formatInr } from "../../lib/formatInr";
+import { formatInr, formatApproxEstimateInr, formatApproxEstimateInrPlain } from "../../lib/formatInr";
 import {
   resolveSparePriceFromLines,
   spareMasterSellingPrice,
   sparePriceCacheKey,
 } from "../../lib/spareSellingPrice";
 import { srfReestimateNotifyMessage } from "../../lib/srfApprovalWhatsApp";
-import { repairRouteLabel } from "../../lib/srfRepairRoute";
+import { repairRouteLabel, storeSelfStatusLabel, SRF_ROUTE_LABEL_INSTORE, SRF_ROUTE_LABEL_SEND_TO_SC } from "../../lib/srfRepairRoute";
 import { inputClassReadOnly } from "../../lib/uiForm";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { SrfJob } from "../../types/srfJob";
@@ -63,8 +63,7 @@ function isStoreSelfWorking(job: SrfJob): boolean {
 }
 
 function statusDisplay(status: string): string {
-  if (status === "store_self_working" || status === "store_self_assigned") return "Working";
-  if (status === "store_self_pending") return "Pending assign";
+  if (status.startsWith("store_self_")) return storeSelfStatusLabel(status);
   return status.replace(/_/g, " ");
 }
 
@@ -470,7 +469,7 @@ export function StoreAssignPage() {
       <ServiceBreadcrumb current="Store assign" />
       <PageHeader
         title="Store assign"
-        subtitle="Repair by self: assign technician → working → record spares → complete → store billing."
+        subtitle={`${SRF_ROUTE_LABEL_INSTORE}: assign technician → working → record spares → complete → store billing.`}
       />
       {message ? (
         <p
@@ -482,7 +481,7 @@ export function StoreAssignPage() {
         </p>
       ) : null}
 
-      <Card title={`Pending assign · ${pending.length}`} subtitle="Booked as repair by self — not sent to dispatch.">
+      <Card title={`Pending assign · ${pending.length}`} subtitle={`Booked as ${SRF_ROUTE_LABEL_INSTORE.toLowerCase()} — not sent to dispatch.`}>
         {pending.length === 0 ? (
           <p className="text-sm text-stone-600">No SRFs waiting for assignment.</p>
         ) : (
@@ -575,7 +574,7 @@ export function StoreAssignPage() {
                       }}
                       className="rounded-xl border border-zimson-600 bg-white px-4 py-2 text-sm font-semibold text-zimson-800 hover:bg-zimson-50 disabled:opacity-50"
                     >
-                      Send to HO
+                      {SRF_ROUTE_LABEL_SEND_TO_SC}
                     </button>
                   </div>
                 </JobRow>
@@ -595,7 +594,7 @@ export function StoreAssignPage() {
               {awaitingReestimate.map((job) => (
                 <JobRow key={job.id} job={job} statusLabel="Awaiting customer">
                   <p className="text-xs text-amber-900">
-                    Revised amount: INR {Number(job.reestimateRequestedInr ?? 0).toLocaleString()}
+                    Revised amount (approx.): {formatApproxEstimateInrPlain(Number(job.reestimateRequestedInr ?? 0), 0)}
                     {job.reestimateRequestedNote ? ` · ${job.reestimateRequestedNote}` : ""}
                   </p>
                 </JobRow>
@@ -633,10 +632,11 @@ export function StoreAssignPage() {
       {sendToHoJobId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Send watch to HO</h3>
+            <h3 className="text-lg font-semibold text-zimson-900">{SRF_ROUTE_LABEL_SEND_TO_SC}</h3>
             <p className="mt-1 text-sm text-stone-600">
               The watch cannot be repaired at your store. It will move to the{" "}
-              <strong>Store dispatch</strong> outward queue so you can create a transfer to the service centre.
+              <strong>Store dispatch</strong> outward queue so you can create a transfer to the centralized service
+              centre.
             </p>
             <label className="mt-4 block text-sm">
               Remarks (optional)
@@ -722,7 +722,7 @@ export function StoreAssignPage() {
                 Previous estimate (INR)
                 <input
                   className={`${inputClassReadOnly} mt-1 w-full rounded-xl border border-zimson-200 px-3 py-2 text-sm`}
-                  value={reestimatePreviousInr > 0 ? formatInr(reestimatePreviousInr) : "—"}
+                  value={reestimatePreviousInr > 0 ? formatApproxEstimateInr(reestimatePreviousInr) : "—"}
                   readOnly
                   tabIndex={-1}
                 />
@@ -955,7 +955,7 @@ export function StoreAssignPage() {
         <ProcessSuccessModal
           open
           title="Ready for store dispatch"
-          description="Create outward transfer to send the watch to HO."
+          description="Create outward transfer to send the watch to the centralized service centre."
           onBackdropClick={() => setSendToHoAck(null)}
           actions={
             <>

@@ -4,6 +4,7 @@ export type BrandRow = {
   name: string;
   sortOrder: number;
   isActive: boolean;
+  serialNumberRequired: boolean;
   createdAt: string;
   updatedAt: string;
 };

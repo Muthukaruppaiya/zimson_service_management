@@ -34,7 +34,7 @@ import {
   resolveSellerStateCode,
 } from "../../lib/gstSupply";
 import { sanitizeDecimalInput } from "../../lib/inputSanitize";
-import { formatInr } from "../../lib/formatInr";
+import { formatInr, formatApproxEstimateInr, formatApproxEstimateInrPlain, ESTIMATE_LABEL_APPROX } from "../../lib/formatInr";
 import { customerPayableInr } from "../../lib/quickBillPayable";
 import {
   STORE_BILLING_PRICES_TAX_INCLUSIVE,
@@ -52,6 +52,8 @@ import {
 } from "../../lib/serviceBillEditorLines";
 import { ServiceBillLinesCard } from "../../components/service/ServiceBillLinesCard";
 import { BillingHandoverPhotoCard } from "../../components/service/BillingHandoverPhotoCard";
+import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
+import { isValidGstFormat } from "../../data/serviceSeed";
 import {
   buildStoreBillingGstLines,
   type StoreBillingAdditionalCharge,
@@ -144,6 +146,9 @@ export function StoreBillingPage() {
   const [serviceChargeInr, setServiceChargeInr] = useState("");
   const [billingStateInput, setBillingStateInput] = useState("");
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
+  const [billingKindOverride, setBillingKindOverride] = useState<"B2C" | "B2B" | null>(null);
+  const [billingCustomerLive, setBillingCustomerLive] = useState<CustomerRecord | null>(null);
+  const [b2bModalOpen, setB2bModalOpen] = useState(false);
   const autoWhatsAppSentRef = useRef<string | null>(null);
 
   const currentUserStore = useMemo(() => {
@@ -213,15 +218,46 @@ export function StoreBillingPage() {
     const p10 = phoneLast10(billingJob.phone);
     return customers.find((c) => phoneLast10(c.phone) === p10) ?? null;
   }, [billingJob?.phone, customers]);
-  const billingCustomerEmail = billingCustomer?.email?.trim() ?? "";
-  const billingCustomerKind = billingCustomer?.customerKind ?? billingJob?.customerKind ?? "B2C";
+  const effectiveBillingCustomer = billingCustomerLive ?? billingCustomer;
+  const billingCustomerEmail = effectiveBillingCustomer?.email?.trim() ?? "";
+  const billingCustomerKind =
+    billingKindOverride ??
+    effectiveBillingCustomer?.customerKind ??
+    billingJob?.customerKind ??
+    "B2C";
   const isB2BBilling = billingCustomerKind === "B2B";
-  const billingCustomerGst = billingCustomer?.gst?.trim().toUpperCase() ?? "";
+  const billingCustomerGst = effectiveBillingCustomer?.gst?.trim().toUpperCase() ?? "";
   const billingCustomerState =
-    billingCustomer?.billingAddress?.state?.trim() ||
-    billingCustomer?.city?.trim() ||
+    effectiveBillingCustomer?.billingAddress?.state?.trim() ||
+    effectiveBillingCustomer?.city?.trim() ||
     "";
-  const billingCustomerAddress = customerAddressText(billingCustomer);
+  const billingCustomerAddress = customerAddressText(effectiveBillingCustomer);
+
+  const trySetBillingCustomerKind = useCallback(
+    (next: "B2B" | "B2C") => {
+      if (next === "B2B") {
+        if (!effectiveBillingCustomer?.id) {
+          setMessage({
+            type: "err",
+            text: "Customer must be on file before B2B billing. Register the customer from Customer master first.",
+          });
+          return;
+        }
+        const missingB2b =
+          !effectiveBillingCustomer.company?.trim() ||
+          !effectiveBillingCustomer.gst?.trim() ||
+          !effectiveBillingCustomer.pan?.trim();
+        if (missingB2b) {
+          setB2bModalOpen(true);
+          return;
+        }
+      }
+      setBillingKindOverride(next);
+      setHandoverVerified(false);
+      setMessage(null);
+    },
+    [effectiveBillingCustomer],
+  );
   const storeBillingTaxSettings = useMemo(
     () => taxSettingsForStoreBilling(serviceTaxSettings),
     [serviceTaxSettings],
@@ -373,7 +409,7 @@ export function StoreBillingPage() {
       customerGstin: billingCustomerGst,
       billingStateName: effectiveCustomerState,
       addressText: billingCustomerAddress,
-      cityText: billingCustomer?.city ?? null,
+      cityText: effectiveBillingCustomer?.city ?? null,
       sellerStateCode: sellerState,
     });
     const gstLines = useServiceBillLinesCard
@@ -412,7 +448,7 @@ export function StoreBillingPage() {
     billingCustomerGst,
     effectiveCustomerState,
     billingCustomerAddress,
-    billingCustomer?.city,
+    effectiveBillingCustomer?.city,
     spareHsnLookup,
     spareGstLookup,
     billSubtotalBeforeAdvance,
@@ -452,12 +488,28 @@ export function StoreBillingPage() {
   useEffect(() => {
     setHandoverVerified(false);
     setHandoverModalOpen(false);
+    setBillingKindOverride(null);
+    setBillingCustomerLive(null);
+    setB2bModalOpen(false);
   }, [billingJob?.id]);
 
   function validateBeforeHandoverOtp(): boolean {
     if (!Number.isFinite(finalBillingAmount) || finalBillingAmount < 0) {
       setMessage({ type: "err", text: "Enter a valid final billing amount." });
       return false;
+    }
+    if (isB2BBilling) {
+      if (!billingCustomerGst || !isValidGstFormat(billingCustomerGst)) {
+        setMessage({
+          type: "err",
+          text: "B2B billing requires a valid GSTIN. Switch to B2B and fetch company details from GST.",
+        });
+        return false;
+      }
+      if (!effectiveBillingCustomer?.company?.trim()) {
+        setMessage({ type: "err", text: "B2B billing requires company / legal name on the customer profile." });
+        return false;
+      }
     }
     // Zero-value bills (e.g. warranty non-chargeable) collect no payment — skip payment validation.
     if (finalBillingAmount > 0) {
@@ -528,6 +580,7 @@ export function StoreBillingPage() {
       storeBillRef,
       storeBillingSnapshot,
       handoverSessionId,
+      billingCustomerKind,
     });
   }
 
@@ -579,11 +632,13 @@ export function StoreBillingPage() {
         paymentDetails: payPayload.paymentDetails,
       });
       const closeOut = await closeJob(jobId, snapshot);
-      const cust = customers.find((c) => phoneLast10(c.phone) === phoneLast10(job.phone));
+      const cust = effectiveBillingCustomer;
       setBillingEdoc(closeOut.edoc ?? null);
       setClosedSrfId(jobId);
       const closedJob = {
         ...job,
+        customerKind: billingCustomerKind,
+        company: cust?.company?.trim() || job.company,
         invoiceNumber: closeOut.invoiceNumber ?? job.invoiceNumber ?? null,
         storeBillingSnapshot: snapshot,
         edocIrn: closeOut.edoc?.irn ?? null,
@@ -846,7 +901,7 @@ export function StoreBillingPage() {
                     <th className="px-3 py-2">SRF</th>
                     <th className="px-3 py-2">Customer</th>
                     <th className="px-3 py-2">Watch</th>
-                    <th className="px-3 py-2">Estimate</th>
+                    <th className="px-3 py-2">{ESTIMATE_LABEL_APPROX}</th>
                     <th className="px-3 py-2">Action</th>
                   </tr>
                 </thead>
@@ -871,7 +926,7 @@ export function StoreBillingPage() {
                         </td>
                         <td className="px-3 py-2">{j.customerName}</td>
                         <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
-                        <td className="px-3 py-2">INR {Number(j.estimateTotalInr ?? 0).toFixed(2)}</td>
+                        <td className="px-3 py-2">{formatApproxEstimateInrPlain(Number(j.estimateTotalInr ?? 0))}</td>
                         <td className="px-3 py-2">
                           <button
                             type="button"
@@ -926,6 +981,67 @@ export function StoreBillingPage() {
               srfId={billingJob.id}
               onSessionChange={setHandoverSessionId}
             />
+            {!isRejectedNoRepairFlow ? (
+              <div className="rounded-xl border border-zimson-200/80 bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-zimson-900">Invoice customer type</p>
+                    <p className="mt-0.5 text-xs text-stone-600">
+                      SRF was booked as {billingJob.customerKind ?? "B2C"}. Change to B2B here if the customer
+                      wants a GST invoice at handover.
+                    </p>
+                  </div>
+                  <div className="flex gap-4">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="store-bill-cust-kind"
+                        checked={billingCustomerKind === "B2C"}
+                        onChange={() => trySetBillingCustomerKind("B2C")}
+                        className="text-zimson-600 focus:ring-zimson-500"
+                      />
+                      B2C
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="store-bill-cust-kind"
+                        checked={billingCustomerKind === "B2B"}
+                        onChange={() => trySetBillingCustomerKind("B2B")}
+                        className="text-zimson-600 focus:ring-zimson-500"
+                      />
+                      B2B
+                    </label>
+                  </div>
+                </div>
+                {isB2BBilling ? (
+                  <div className="mt-3 grid gap-2 rounded-lg border border-zimson-100 bg-zimson-50/60 p-3 text-sm sm:grid-cols-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-stone-500">Company</p>
+                      <p className="mt-0.5 font-medium text-zimson-900">
+                        {effectiveBillingCustomer?.company?.trim() || "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-stone-500">GSTIN</p>
+                      <p className="mt-0.5 font-mono font-medium text-zimson-900">
+                        {billingCustomerGst || "—"}
+                      </p>
+                    </div>
+                    <div className="flex items-end">
+                      <button
+                        type="button"
+                        onClick={() => setB2bModalOpen(true)}
+                        disabled={!effectiveBillingCustomer?.id}
+                        className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {billingCustomerGst ? "Update B2B details" : "Add B2B details"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {useServiceBillLinesCard && billingJob ? (
               <ServiceBillLinesCard
                 watchBrand={billingJob.watchBrand}
@@ -939,7 +1055,7 @@ export function StoreBillingPage() {
                 customerType={billingCustomerKind}
                 customerGst={billingCustomerGst}
                 customerAddress={billingCustomerAddress}
-                customerCity={billingCustomer?.city}
+                customerCity={effectiveBillingCustomer?.city}
                 serviceSacHsn={invoiceSacHsn}
                 serviceTaxSettings={storeBillingTaxSettings}
                 pricesTaxInclusive={STORE_BILLING_PRICES_TAX_INCLUSIVE}
@@ -998,9 +1114,9 @@ export function StoreBillingPage() {
                       </div>
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-900/80">
-                          Service estimate (reference only)
+                          Service estimate (approx., reference only)
                         </p>
-                        <p className="mt-0.5 font-semibold text-stone-800">{formatInr(estimatedAmtInr)}</p>
+                        <p className="mt-0.5 font-semibold text-stone-800">{formatApproxEstimateInr(estimatedAmtInr)}</p>
                       </div>
                     </div>
                   ) : null
@@ -1156,13 +1272,13 @@ export function StoreBillingPage() {
                   {isInterHoReturnFlow ? (
                     <tr className="border-b border-zimson-100">
                       <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Service estimate (reference only)</th>
-                      <td className="px-3 py-2 text-stone-600">{formatInr(estimatedAmtInr)}</td>
+                      <td className="px-3 py-2 text-stone-600">{formatApproxEstimateInr(estimatedAmtInr)}</td>
                     </tr>
                   ) : null}
                   {!isInterHoReturnFlow ? (
                   <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Estimated amt</th>
-                    <td className="px-3 py-2 font-semibold text-zimson-900">{formatInr(estimatedAmtInr)}</td>
+                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">{ESTIMATE_LABEL_APPROX}</th>
+                    <td className="px-3 py-2 font-semibold text-zimson-900">{formatApproxEstimateInr(estimatedAmtInr)}</td>
                   </tr>
                   ) : null}
                   <tr className="border-b border-zimson-100">
@@ -1254,10 +1370,10 @@ export function StoreBillingPage() {
                   <tbody>
                     <tr className="border-b border-zimson-100">
                       <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">
-                        {isInterHoReturnFlow ? "Service estimate (reference only)" : "Estimated amt"}
+                        {isInterHoReturnFlow ? "Service estimate (approx., reference only)" : ESTIMATE_LABEL_APPROX}
                       </th>
                       <td className={`px-3 py-2 font-semibold ${isInterHoReturnFlow ? "text-stone-600" : "text-zimson-900"}`}>
-                        {formatInr(estimatedAmtInr)}
+                        {formatApproxEstimateInr(estimatedAmtInr)}
                       </td>
                     </tr>
                     <tr className="border-b border-zimson-100">
@@ -1490,6 +1606,39 @@ export function StoreBillingPage() {
         contactEmail={billingCustomerEmail}
         onHandoverVerified={onHandoverVerified}
       />
+
+      {b2bModalOpen && effectiveBillingCustomer?.id && billingJob ? (
+        <B2bDetailsModal
+          customerId={effectiveBillingCustomer.id}
+          customerName={billingJob.customerName}
+          phone={billingJob.phone}
+          email={billingCustomerEmail}
+          initialCompany={effectiveBillingCustomer.company ?? ""}
+          initialGst={effectiveBillingCustomer.gst ?? ""}
+          initialPan={effectiveBillingCustomer.pan ?? ""}
+          onSaved={(savedCompany, savedGst, savedPan, extras) => {
+            setB2bModalOpen(false);
+            setBillingKindOverride("B2B");
+            setHandoverVerified(false);
+            setBillingCustomerLive({
+              ...effectiveBillingCustomer,
+              customerKind: "B2B",
+              company: savedCompany,
+              gst: savedGst,
+              pan: savedPan,
+              ...(extras?.address?.trim()
+                ? { address: extras.address.trim() }
+                : {}),
+              ...(extras?.city?.trim() ? { city: extras.city.trim() } : {}),
+            });
+            setMessage({
+              type: "ok",
+              text: "B2B details saved. Send OTP to the customer and verify before closing the bill.",
+            });
+          }}
+          onCancel={() => setB2bModalOpen(false)}
+        />
+      ) : null}
 
       <ProcessLoadingOverlay
         open={closingAfterOtp}

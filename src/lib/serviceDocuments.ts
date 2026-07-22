@@ -116,6 +116,8 @@ export type SrfPrintInput = {
   strapChainType?: string;
   invoiceNumber?: string;
   invoiceDate?: string;
+  chainCount12Phase?: string;
+  chainCount6Phase?: string;
   chainCount?: string;
   customerRemarks?: string;
   receptionistRemarks?: string;
@@ -343,7 +345,7 @@ const SRF_PRINT_CSS = `
     text-align: right;
     color: #dbe4fb;
   }
-  .srf-accent { height: 4px; background: linear-gradient(90deg, #c9a227 0%, #f1de9c 50%, #c9a227 100%); }
+  .srf-accent { height: 4px; background: linear-gradient(90deg, #3B82F6 0%, #BFDBFE 50%, #3B82F6 100%); }
   .srf-top-row {
     display: grid;
     grid-template-columns: 1.55fr 1fr 1fr;
@@ -399,7 +401,7 @@ const SRF_PRINT_CSS = `
     margin: 12px 0 8px;
     box-shadow: 0 2px 6px rgba(27, 58, 143, 0.25);
   }
-  .sec-pill .ic { color: #e8c14e; }
+  .sec-pill .ic { color: #60A5FA; }
   .srf-center-body {
     border: 1px solid #e2e8f5;
     border-radius: 12px;
@@ -412,7 +414,7 @@ const SRF_PRINT_CSS = `
   .srf-center-body .row:last-child { margin-bottom: 0; }
   .srf-center-body .ic { color: #1b3a8f; margin-top: 1px; }
   .srf-center-name { font-weight: 700; color: #0d1b2a; }
-  .srf-center-tag { font-weight: 600; color: #c9a227; }
+  .srf-center-tag { font-weight: 600; color: #3B82F6; }
   .srf-body { padding: 0 12px 14px; }
   .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 20px; margin-bottom: 4px; }
   .field { display: flex; gap: 6px; margin-bottom: 3px; align-items: baseline; font-size: 9.5px; }
@@ -427,10 +429,10 @@ const SRF_PRINT_CSS = `
     min-height: 40px;
   }
   .remark-chip-lbl { display: flex; align-items: center; gap: 4px; font-weight: 700; color: #1b3a8f; font-size: 8px; text-transform: uppercase; margin-bottom: 3px; }
-  .remark-chip-lbl .ic { color: #c9a227; }
+  .remark-chip-lbl .ic { color: #3B82F6; }
   .remark-chip-val { display: block; font-size: 9px; line-height: 1.35; white-space: pre-wrap; color: #1f2937; }
   .repair-chip {
-    border: 1px dashed #c9a227;
+    border: 1px dashed #3B82F6;
     border-radius: 10px;
     background: #fffdf5;
     padding: 6px 9px;
@@ -469,7 +471,7 @@ const SRF_PRINT_CSS = `
   .amount-ic.blue { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
   .amount-ic.green { background: linear-gradient(135deg, #22c55e, #15803d); }
   .amount-ic.orange { background: linear-gradient(135deg, #f97316, #c2410c); }
-  .amount-ic.gold { background: linear-gradient(135deg, #e8c14e, #c9a227); }
+  .amount-ic.gold { background: linear-gradient(135deg, #60A5FA, #3B82F6); }
   .amount-card-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .amount-card-lbl { font-size: 7.3px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; }
   .amount-card-val { font-size: 11.5px; font-weight: 800; color: #1b3a8f; }
@@ -498,7 +500,7 @@ const SRF_PRINT_CSS = `
   .spares-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 9px; border: 1px solid #1b3a8f; border-radius: 10px; overflow: hidden; }
   .spares-table th {
     background: linear-gradient(90deg, #15308c, #1b3a8f);
-    color: #e8c14e;
+    color: #60A5FA;
     font-weight: 700;
     text-align: center;
     padding: 5px 5px;
@@ -525,7 +527,7 @@ const SRF_PRINT_CSS = `
     border-right: 1px solid #d8dff0;
   }
   .spares-table tfoot tr:last-child td {
-    background: linear-gradient(90deg, #f1de9c, #c9a227);
+    background: linear-gradient(90deg, #BFDBFE, #3B82F6);
     color: #16308a;
     font-size: 10px;
     border-right: none;
@@ -539,7 +541,7 @@ const SRF_PRINT_CSS = `
     border-top: 1px solid #e2e8f5;
   }
   .sign-lbl { display: flex; align-items: center; gap: 4px; font-size: 8px; font-weight: 700; color: #1b3a8f; text-transform: uppercase; margin-bottom: 16px; }
-  .sign-lbl .ic { color: #c9a227; }
+  .sign-lbl .ic { color: #3B82F6; }
   .sign-line { border-bottom: 1px solid #c7d2e8; }
   .sign-wide { grid-column: 1 / -1; margin-top: 4px; }
   .sign-wide .sign-line { min-height: 18px; }
@@ -639,7 +641,8 @@ export function printSrfDocument(job: SrfPrintInput): void {
           ${srfField("Movement", srfDisplay(obs.movement))}
           ${srfField("Water Resistance", srfDisplay(obs.waterResistance))}
           ${srfField("Back Cover / S.No", srfDisplay(job.serial))}
-          ${srfField("Chain Count", srfDisplay(job.chainCount))}
+          ${srfField("12 Link Chain Count", srfDisplay(job.chainCount12Phase || job.chainCount))}
+          ${srfField("6 Link Chain Count", srfDisplay(job.chainCount6Phase))}
         </div>
       </div>
       ${repairBlock}
@@ -653,7 +656,7 @@ export function printSrfDocument(job: SrfPrintInput): void {
       <div class="amounts">
         <div class="amount-card"><span class="amount-ic blue">${srfIcon(SRF_ICONS.calendar, 13)}</span><span class="amount-card-txt"><span class="amount-card-lbl">Estd. Delivery</span><span class="amount-card-val">${escHtml(estdDelivery)}</span></span></div>
         <div class="amount-card"><span class="amount-ic green">${srfIcon(SRF_ICONS.wallet, 13)}</span><span class="amount-card-txt"><span class="amount-card-lbl">Advance Paid (INR)</span><span class="amount-card-val">₹${advance.toFixed(2)}</span></span></div>
-        <div class="amount-card"><span class="amount-ic orange">${srfIcon(SRF_ICONS.wrench, 13)}</span><span class="amount-card-txt"><span class="amount-card-lbl">Est. Service Cost</span><span class="amount-card-val">₹${estimate.toFixed(2)}</span></span></div>
+        <div class="amount-card"><span class="amount-ic orange">${srfIcon(SRF_ICONS.wrench, 13)}</span><span class="amount-card-txt"><span class="amount-card-lbl">Est. Service Cost (approx.)</span><span class="amount-card-val">Approx. ₹${estimate.toFixed(2)}</span></span></div>
         <div class="amount-card"><span class="amount-ic gold">${srfIcon(SRF_ICONS.rupee, 13)}</span><span class="amount-card-txt"><span class="amount-card-lbl">Balance (Excl. Tax)</span><span class="amount-card-val">₹${balance.toFixed(2)}</span></span></div>
       </div>
       ${advance > 0 ? `<div class="advance-note">${srfIcon(SRF_ICONS.check, 13)}${formatAdvanceForPrint(job.advanceInr, job.advancePaymentMode, job.advancePaymentDetails ?? null)}</div>` : ""}
@@ -749,7 +752,7 @@ export function printFullSrfDocument(
          <tr><td><strong>Customer</strong></td><td>${job.customerName}</td><td><strong>Phone</strong></td><td>${job.phone}</td></tr>
          <tr><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td><td><strong>Serial</strong></td><td>${job.serial}</td></tr>
          <tr><td><strong>Complaint</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
-         <tr><td><strong>Estimate</strong></td><td>INR ${Number(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Created at</strong></td><td>${new Date(job.createdAt).toLocaleString()}</td></tr>
+         <tr><td><strong>Estimate (approx.)</strong></td><td>Approx. INR ${Number(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Created at</strong></td><td>${new Date(job.createdAt).toLocaleString()}</td></tr>
        </tbody>
      </table>
      <h3 style="margin:16px 0 6px">Process references and movement</h3>
@@ -812,7 +815,7 @@ const TRANSFER_PRINT_CSS = `
     font-size: 17px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
   }
   .xfer-banner-sub { display: table-cell; vertical-align: middle; padding: 10px 14px; font-size: 10px; text-align: right; }
-  .xfer-accent { height: 4px; background: linear-gradient(90deg, #c9a227 0%, #e8d48a 50%, #c9a227 100%); }
+  .xfer-accent { height: 4px; background: linear-gradient(90deg, #3B82F6 0%, #93C5FD 50%, #3B82F6 100%); }
   .xfer-top-row { display: table; width: 100%; table-layout: fixed; border-bottom: 1px solid #1b3a8f; }
   .xfer-top-cell { display: table-cell; vertical-align: top; padding: 8px 10px; border-right: 1px solid #d8dff0; }
   .xfer-top-cell:last-child { border-right: none; }
@@ -870,7 +873,7 @@ const TRANSFER_PRINT_CSS = `
   }
   .xfer-party-body { padding: 8px 10px; font-size: 9.5px; line-height: 1.45; min-height: 88px; }
   .xfer-party-body .name { font-weight: 700; font-size: 10px; margin: 0 0 4px; color: #0d1b2a; }
-  .xfer-party-body .loc { color: #c9a227; font-weight: 600; font-size: 9px; margin: 0 0 6px; }
+  .xfer-party-body .loc { color: #3B82F6; font-weight: 600; font-size: 9px; margin: 0 0 6px; }
   .xfer-party-body .addr { margin: 0 0 4px; }
   .xfer-party-body .contact { margin: 0; }
   .sec-title {
@@ -880,7 +883,7 @@ const TRANSFER_PRINT_CSS = `
   }
   .xfer-watches { width: 100%; border-collapse: collapse; font-size: 9px; table-layout: fixed; }
   .xfer-watches th {
-    background: #1b3a8f; color: #c9a227; font-weight: 700; text-align: center;
+    background: #1b3a8f; color: #3B82F6; font-weight: 700; text-align: center;
     padding: 4px 5px; border: 1px solid #1b3a8f; font-size: 8px; text-transform: uppercase;
   }
   .xfer-watches td { border: 1px solid #d8dff0; padding: 4px 5px; vertical-align: top; word-wrap: break-word; }
@@ -1128,7 +1131,7 @@ function inwardReceiptWatchRows(jobs: SrfJob[], receivedAtLocation: string): str
           <td class="complaint">${escHtml(truncateInwardText(j.complaint, 72))}</td>
           <td class="amt">${escHtml(
             Number.isFinite(j.estimateTotalInr)
-              ? j.estimateTotalInr.toLocaleString("en-IN", { maximumFractionDigits: 0 })
+              ? `Approx. ${j.estimateTotalInr.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
               : "—",
           )}</td>
           <td>${escHtml(inwardJobStatusLabel(j.status))}</td>
@@ -1464,14 +1467,12 @@ function assignmentSlipWatchRow(job: SrfJob): string {
   return `<tr>
     <td class="c">1</td>
     <td class="mono">${escHtml(job.reference)}</td>
-    <td>${escHtml(job.customerName)}</td>
-    <td>${escHtml(job.phone || "—")}</td>
     <td>${escHtml(srfDisplay(job.watchBrand))}</td>
     <td>${escHtml(srfDisplay(job.watchModel))}</td>
     <td class="mono">${escHtml(job.serial || "—")}</td>
     <td class="amt">${escHtml(
       Number.isFinite(job.estimateTotalInr)
-        ? job.estimateTotalInr.toLocaleString("en-IN", { maximumFractionDigits: 2 })
+        ? `Approx. ${job.estimateTotalInr.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
         : "—",
     )}</td>
     <td>${escHtml(inwardJobStatusLabel(job.status))}</td>
@@ -1540,18 +1541,16 @@ export function printAssignmentSlip(
           <tr>
             <th>#</th>
             <th>SRF No.</th>
-            <th>Customer</th>
-            <th>Mobile</th>
             <th>Brand</th>
             <th>Model</th>
             <th>Serial</th>
-            <th>Estimate (₹)</th>
+            <th>Estimate (approx.) (₹)</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody>${assignmentSlipWatchRow(job)}</tbody>
       </table>
-      <div class="sec-title">Customer complaint / remarks</div>
+      <div class="sec-title">Complaint / remarks</div>
       <div class="complaint-block">${escHtml(job.complaint?.trim() || "—")}</div>
       <div class="sec-title">Technician notes (diagnosis, work done, parts used)</div>
       <p style="font-size:8px;color:#4a5568;margin:0 0 4px">Use the ruled area below for handwritten or stamped workshop notes. Retain with the watch until repair is complete.</p>
@@ -1783,7 +1782,7 @@ export function printEstimateDocument(
        </tbody>
      </table>
 
-     <div style="margin-top:10px;border:1px solid #111;padding:8px;text-align:right"><strong>Total Estimated Cost (A+B): INR ${baseRepair.toFixed(2)}</strong></div>
+     <div style="margin-top:10px;border:1px solid #111;padding:8px;text-align:right"><strong>Total Estimated Cost (approx.) (A+B): Approx. INR ${baseRepair.toFixed(2)}</strong></div>
      <div style="margin-top:8px;font-size:12px"><strong>Rupees:</strong> ${baseRepair.toLocaleString("en-IN")} only</div>
 
      <h3 style="margin:14px 0 6px">Terms and Conditions</h3>
@@ -1846,7 +1845,7 @@ export function printStoreServiceInvoice(
          <tr><td><strong>SRF</strong></td><td>${job.reference}</td><td><strong>Date</strong></td><td>${billedAt.toLocaleString()}</td></tr>
          <tr><td><strong>Customer</strong></td><td>${job.customerName}</td><td><strong>Phone</strong></td><td>${job.phone}</td></tr>
          <tr><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td><td><strong>Serial</strong></td><td>${job.serial}</td></tr>
-         <tr><td><strong>Service estimate</strong></td><td>INR ${(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Paid amount</strong></td><td>INR ${payload.paidAmountInr.toFixed(2)}</td></tr>
+         <tr><td><strong>Service estimate (approx.)</strong></td><td>Approx. INR ${(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Paid amount</strong></td><td>INR ${payload.paidAmountInr.toFixed(2)}</td></tr>
          <tr><td><strong>Payment mode</strong></td><td>${payload.paymentMode}</td><td><strong>Collection OTP</strong></td><td>${payload.otpCode}</td></tr>
          <tr><td><strong>HO spare bill ref</strong></td><td>${payload.hoSparesBillRef || "-"}</td><td><strong>Store bill ref</strong></td><td>${payload.storeBillRef || "-"}</td></tr>
        </tbody>

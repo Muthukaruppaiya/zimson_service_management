@@ -74,8 +74,11 @@ export function MessagingSettingsPage() {
   const [qikchatTrackingTemplateName, setQikchatTrackingTemplateName] = useState("customer_link");
   const [qikchatTrackingTextTemplateName, setQikchatTrackingTextTemplateName] = useState("");
   const [qikchatApprovalTemplateName, setQikchatApprovalTemplateName] = useState("site_visit_approval");
+  const [qikchatReadyPickupTemplateName, setQikchatReadyPickupTemplateName] =
+    useState("watch_ready_for_pickup");
   const [qikchatTrackingTemplateBody, setQikchatTrackingTemplateBody] = useState("");
   const [qikchatApprovalTemplateBody, setQikchatApprovalTemplateBody] = useState("");
+  const [qikchatReadyPickupTemplateBody, setQikchatReadyPickupTemplateBody] = useState("");
   const [qikchatInvoiceTemplateBody, setQikchatInvoiceTemplateBody] = useState("");
   const [whatsappInvoiceMode, setWhatsappInvoiceMode] = useState<"template" | "media">("template");
   const [messagingPublicBaseUrl, setMessagingPublicBaseUrl] = useState("");
@@ -117,8 +120,10 @@ export function MessagingSettingsPage() {
     setQikchatTrackingTemplateName(s.qikchatTrackingTemplateName);
     setQikchatTrackingTextTemplateName(s.qikchatTrackingTextTemplateName);
     setQikchatApprovalTemplateName(s.qikchatApprovalTemplateName);
+    setQikchatReadyPickupTemplateName(s.qikchatReadyPickupTemplateName);
     setQikchatTrackingTemplateBody(s.qikchatTrackingTemplateBody);
     setQikchatApprovalTemplateBody(s.qikchatApprovalTemplateBody);
+    setQikchatReadyPickupTemplateBody(s.qikchatReadyPickupTemplateBody);
     setQikchatInvoiceTemplateBody(s.qikchatInvoiceTemplateBody);
     setWhatsappInvoiceMode(s.whatsappInvoiceMode);
     setMessagingPublicBaseUrl(s.messagingPublicBaseUrl);
@@ -188,8 +193,10 @@ export function MessagingSettingsPage() {
       qikchatTrackingTemplateName: qikchatTrackingTemplateName.trim(),
       qikchatTrackingTextTemplateName: qikchatTrackingTextTemplateName.trim(),
       qikchatApprovalTemplateName: qikchatApprovalTemplateName.trim(),
+      qikchatReadyPickupTemplateName: qikchatReadyPickupTemplateName.trim(),
       qikchatTrackingTemplateBody: qikchatTrackingTemplateBody.trim(),
       qikchatApprovalTemplateBody: qikchatApprovalTemplateBody.trim(),
+      qikchatReadyPickupTemplateBody: qikchatReadyPickupTemplateBody.trim(),
       qikchatInvoiceTemplateBody: qikchatInvoiceTemplateBody.trim(),
       whatsappInvoiceMode,
       messagingPublicBaseUrl: messagingPublicBaseUrl.trim(),
@@ -446,6 +453,15 @@ export function MessagingSettingsPage() {
                     placeholder="site_visit_approval"
                   />
                 </div>
+                <div>
+                  <span className={labelClass}>Watch ready for pickup template name</span>
+                  <input
+                    className={inputClass}
+                    value={qikchatReadyPickupTemplateName}
+                    onChange={(e) => setQikchatReadyPickupTemplateName(e.target.value)}
+                    placeholder="watch_ready_for_pickup"
+                  />
+                </div>
                 <div className="sm:col-span-2">
                   <span className={labelClass}>
                     Tracking template body (register in Meta — {"{{1}}"} name, {"{{2}}"} SRF, {"{{3}}"} URL)
@@ -464,6 +480,16 @@ export function MessagingSettingsPage() {
                     className={`${inputClass} min-h-[72px]`}
                     value={qikchatApprovalTemplateBody}
                     onChange={(e) => setQikchatApprovalTemplateBody(e.target.value)}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={labelClass}>
+                    Ready pickup body ({"{{1}}"} name, {"{{2}}"} SRF, {"{{3}}"} store, {"{{4}}"} URL)
+                  </span>
+                  <textarea
+                    className={`${inputClass} min-h-[72px]`}
+                    value={qikchatReadyPickupTemplateBody}
+                    onChange={(e) => setQikchatReadyPickupTemplateBody(e.target.value)}
                   />
                 </div>
                 <div className="sm:col-span-2">

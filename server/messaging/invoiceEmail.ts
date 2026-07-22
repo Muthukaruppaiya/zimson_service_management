@@ -45,7 +45,7 @@ Thank you for choosing Zimson Watch Care.
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;">
     <tr><td align="center" style="padding:28px 16px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #e4e4e7;border-radius:8px;">
-        <tr><td style="padding:28px 28px 8px;border-bottom:3px solid #C9A227;">
+        <tr><td style="padding:28px 28px 8px;border-bottom:3px solid #3B82F6;">
           <p style="margin:0;font-size:18px;font-weight:700;color:#1B3A8F;">Zimson Watch Care</p>
         </td></tr>
         <tr><td style="padding:24px 28px 28px;">

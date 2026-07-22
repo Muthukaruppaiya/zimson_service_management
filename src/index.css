@@ -12,13 +12,13 @@
   --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Poppins", ui-sans-serif, system-ui, sans-serif;
 
-  /* Zimson Royal Blue + Gold premium palette */
+  /* Zimson Royal Blue palette (no brown / gold accents) */
   --color-rlx-green:       #1B3A8F;   /* Royal Blue — primary brand colour */
   --color-rlx-green-deep:  #102570;   /* Darker royal blue — hover / table headers */
   --color-rlx-green-light: #E8EDF8;   /* Very pale blue tint — hover rows */
-  --color-rlx-gold:        #C9A227;   /* Zimson logo gold — warm yellow-gold */
-  --color-rlx-gold-dark:   #A8850F;   /* Deeper burnished gold for hover */
-  --color-rlx-gold-light:  #F5E9B8;   /* Pale gold tint for backgrounds */
+  --color-rlx-gold:        #3B82F6;   /* Accent — bright royal blue (was gold) */
+  --color-rlx-gold-dark:   #1D4ED8;   /* Deeper blue for hover */
+  --color-rlx-gold-light:  #DBEAFE;   /* Pale blue tint for backgrounds */
   --color-rlx-ink:         #0D1B2A;   /* Near-black with blue undertone — body text */
   --color-rlx-ink-muted:   #4A5568;   /* Secondary text */
   --color-rlx-surface:     #ffffff;   /* Card surface */
@@ -28,22 +28,63 @@
   /* keep old aliases pointing to new values so other pages don't break */
   --color-premium-ink:        #0D1B2A;
   --color-premium-ink-muted:  #4A5568;
-  --color-premium-gold:       #C9A227;
-  --color-premium-gold-soft:  #F5E9B8;
+  --color-premium-gold:       #3B82F6;
+  --color-premium-gold-soft:  #DBEAFE;
   --color-premium-cream:      #F4F6FB;
   --color-premium-parchment:  #EBF0FA;
   --color-premium-line:       rgba(27,58,143,0.10);
 
-  --color-zimson-50: #fffef7;
-  --color-zimson-100: #fffbeb;
-  --color-zimson-200: #fef3c7;
-  --color-zimson-300: #fde68a;
-  --color-zimson-400: #fcd34d;
-  --color-zimson-500: #f59e0b;
-  --color-zimson-600: #d97706;
-  --color-zimson-700: #b45309;
-  --color-zimson-800: #92400e;
-  --color-zimson-900: #78350f;
+  /* Brand scale — navy/blue (replaces former amber/brown zimson scale) */
+  --color-zimson-50: #F4F7FD;
+  --color-zimson-100: #E8EDF8;
+  --color-zimson-200: #D8DFF0;
+  --color-zimson-300: #B8C7EB;
+  --color-zimson-400: #7B9AD9;
+  --color-zimson-500: #4A6FBF;
+  --color-zimson-600: #1B3A8F;
+  --color-zimson-700: #15307A;
+  --color-zimson-800: #102570;
+  --color-zimson-900: #0C1C56;
+  --color-zimson-950: #08143A;
+
+  /* Override Tailwind amber so warnings never render as yellowish-brown */
+  --color-amber-50: #EFF6FF;
+  --color-amber-100: #DBEAFE;
+  --color-amber-200: #BFDBFE;
+  --color-amber-300: #93C5FD;
+  --color-amber-400: #60A5FA;
+  --color-amber-500: #3B82F6;
+  --color-amber-600: #2563EB;
+  --color-amber-700: #1D4ED8;
+  --color-amber-800: #1E40AF;
+  --color-amber-900: #1E3A8A;
+  --color-amber-950: #172554;
+
+  /* Override Tailwind yellow the same way */
+  --color-yellow-50: #EFF6FF;
+  --color-yellow-100: #DBEAFE;
+  --color-yellow-200: #BFDBFE;
+  --color-yellow-300: #93C5FD;
+  --color-yellow-400: #60A5FA;
+  --color-yellow-500: #3B82F6;
+  --color-yellow-600: #2563EB;
+  --color-yellow-700: #1D4ED8;
+  --color-yellow-800: #1E40AF;
+  --color-yellow-900: #1E3A8A;
+  --color-yellow-950: #172554;
+
+  /* Override orange so UI never falls back to yellowish-brown */
+  --color-orange-50: #EFF6FF;
+  --color-orange-100: #DBEAFE;
+  --color-orange-200: #BFDBFE;
+  --color-orange-300: #93C5FD;
+  --color-orange-400: #60A5FA;
+  --color-orange-500: #3B82F6;
+  --color-orange-600: #2563EB;
+  --color-orange-700: #1D4ED8;
+  --color-orange-800: #1E40AF;
+  --color-orange-900: #1E3A8A;
+  --color-orange-950: #172554;
 }
 
 @layer base {
@@ -675,7 +716,7 @@
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #a8850f, #c9a227, #f0dc90, #c9a227, #a8850f);
+  background: linear-gradient(90deg, #1D4ED8, #3B82F6, #93C5FD, #3B82F6, #1D4ED8);
   pointer-events: none;
 }
 
@@ -762,7 +803,7 @@
 }
 
 .cs-status-blinker-action {
-  background: #d97706;
+  background: #2563EB;
 }
 
 .cs-status-blinker-action::before {
@@ -1166,7 +1207,7 @@
  * ============================================================================= */
 .chrono-bi {
   --bi-navy: #102570;
-  --bi-gold: #c9a227;
+  --bi-gold: #3B82F6;
   --bi-radius: 1.25rem;
   animation: dashboard-fade-in 0.35s ease-out;
 }
@@ -1194,7 +1235,7 @@
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #a8850f, var(--bi-gold), #f0dc90, var(--bi-gold), #a8850f);
+  background: linear-gradient(90deg, #1D4ED8, var(--bi-gold), #93C5FD, var(--bi-gold), #1D4ED8);
   pointer-events: none;
 }
 
@@ -1229,7 +1270,7 @@
  * ChronoSync TopBar — premium header icons & user chip
  * ============================================================================= */
 .chrono-topbar .topbar-gold-stripe {
-  background: linear-gradient(90deg, #a8850f, #c9a227, #f0dc90, #c9a227, #a8850f);
+  background: linear-gradient(90deg, #1D4ED8, #3B82F6, #93C5FD, #3B82F6, #1D4ED8);
 }
 
 .chrono-topbar .topbar-icon-btn {
@@ -1297,7 +1338,7 @@
   justify-content: center;
   padding: 2px;
   border-radius: 9999px !important;
-  background: linear-gradient(135deg, #f0dc90 0%, #c9a227 55%, #a8850f 100%);
+  background: linear-gradient(135deg, #93C5FD 0%, #3B82F6 55%, #1D4ED8 100%);
   box-shadow:
     0 2px 8px rgba(201, 162, 39, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.4);
@@ -1311,7 +1352,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 9999px !important;
-  background: linear-gradient(135deg, #fdf6e0 0%, #f0dc90 45%, #e8c96a 100%);
+  background: linear-gradient(135deg, #fdf6e0 0%, #93C5FD 45%, #e8c96a 100%);
   font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -1396,7 +1437,7 @@
 }
 
 .chrono-topbar .topbar-signout-btn:hover:not(:disabled) .topbar-signout-btn__icon {
-  color: #f5e9b8;
+  color: #DBEAFE;
   transform: translateX(2px);
 }
 
@@ -1430,7 +1471,7 @@
 }
 
 .chrono-sidebar .sidebar-gold-stripe {
-  background: linear-gradient(90deg, #a8850f, #c9a227, #f0dc90, #c9a227, #a8850f);
+  background: linear-gradient(90deg, #1D4ED8, #3B82F6, #93C5FD, #3B82F6, #1D4ED8);
   box-shadow: 0 1px 8px rgba(201, 162, 39, 0.4);
 }
 
@@ -1512,7 +1553,7 @@
   width: 3px;
   transform: translateY(-50%);
   border-radius: 9999px !important;
-  background: linear-gradient(180deg, #f0dc90, #c9a227);
+  background: linear-gradient(180deg, #93C5FD, #3B82F6);
   box-shadow: 0 0 8px rgba(201, 162, 39, 0.75);
 }
 
@@ -1529,14 +1570,14 @@
 }
 
 .chrono-sidebar .sidebar-icon-badge--active {
-  background: linear-gradient(145deg, #f0dc90 0%, #c9a227 100%);
+  background: linear-gradient(145deg, #93C5FD 0%, #3B82F6 100%);
   color: #102570;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
 .chrono-sidebar .sidebar-chevron--open {
   transform: rotate(90deg);
-  color: #f0dc90 !important;
+  color: #93C5FD !important;
 }
 
 /* Sub-item rail */
@@ -1565,7 +1606,7 @@
   width: 6px;
   transform: translateY(-50%);
   border-radius: 9999px !important;
-  background: #f0dc90;
+  background: #93C5FD;
   box-shadow: 0 0 6px rgba(240, 220, 144, 0.9);
 }
 
@@ -1590,7 +1631,7 @@
 .chrono-sidebar .sidebar-avatar-ring {
   border-radius: 9999px !important;
   padding: 2px;
-  background: linear-gradient(135deg, #f0dc90 0%, #c9a227 55%, #a8850f 100%);
+  background: linear-gradient(135deg, #93C5FD 0%, #3B82F6 55%, #1D4ED8 100%);
   box-shadow: 0 2px 10px rgba(201, 162, 39, 0.45);
 }
 
@@ -1598,7 +1639,7 @@
   border-radius: 9999px !important;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, #fdf6e0 0%, #f0dc90 45%, #e8c96a 100%);
+  background: linear-gradient(135deg, #fdf6e0 0%, #93C5FD 45%, #e8c96a 100%);
   color: var(--color-rlx-green-deep);
   box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.7);
 }

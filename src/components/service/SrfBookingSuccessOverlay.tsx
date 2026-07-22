@@ -7,6 +7,7 @@ import { useEmailSend, useMessagingSend } from "../messaging/WhatsAppSendProvide
 import {
   IconEmail,
   IconHome,
+  IconPreview,
   IconPrint,
   IconSpinner,
   IconWhatsApp,
@@ -17,6 +18,7 @@ type Props = {
   srfReference: string;
   srfId: string;
   customerEmail?: string;
+  onPreviewSrf?: () => void;
   onPrintSrf?: () => void;
 };
 
@@ -29,6 +31,7 @@ export function SrfBookingSuccessOverlay({
   srfReference,
   srfId,
   customerEmail = "",
+  onPreviewSrf,
   onPrintSrf,
 }: Props) {
   const [note, setNote] = useState<string | null>(null);
@@ -78,6 +81,18 @@ export function SrfBookingSuccessOverlay({
       title="SRF booked successfully"
       actions={
         <div className="flex flex-wrap items-center justify-center gap-3">
+          {onPreviewSrf ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onPreviewSrf}
+              className={iconPrimary}
+              title="Preview SRF document"
+              aria-label="Preview SRF document"
+            >
+              <IconPreview className="h-6 w-6" />
+            </button>
+          ) : null}
           {onPrintSrf ? (
             <button
               type="button"

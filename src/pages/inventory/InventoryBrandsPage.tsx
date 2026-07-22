@@ -20,6 +20,7 @@ export function InventoryBrandsPage() {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [sortOrder, setSortOrder] = useState("0");
+  const [serialNumberRequired, setSerialNumberRequired] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -68,12 +69,14 @@ export function InventoryBrandsPage() {
           name: trimmed,
           code: code.trim() || undefined,
           sortOrder: so,
+          serialNumberRequired,
         },
       });
       setOk("Brand added.");
       setName("");
       setCode("");
       setSortOrder("0");
+      setSerialNumberRequired(false);
       await load();
       await refreshBrands();
     } catch (e) {
@@ -96,6 +99,30 @@ export function InventoryBrandsPage() {
       await refreshBrands();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not update brand.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function toggleSerialNumberRequired(b: BrandRow) {
+    if (!canManage) return;
+    setErr(null);
+    setOk(null);
+    setBusyId(b.id);
+    try {
+      await apiJson(`/api/brands/${encodeURIComponent(b.id)}`, {
+        method: "PATCH",
+        json: { serialNumberRequired: !b.serialNumberRequired },
+      });
+      setOk(
+        !b.serialNumberRequired
+          ? `Serial number is now mandatory for ${b.name}.`
+          : `Serial number is now optional for ${b.name}.`,
+      );
+      await load();
+      await refreshBrands();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not update serial number requirement.");
     } finally {
       setBusyId(null);
     }
@@ -128,7 +155,7 @@ export function InventoryBrandsPage() {
 
       {canManage ? (
         <Card title="Add brand" subtitle="Code is optional; if omitted it is generated from the name (letters and digits only)." className="mb-8">
-          <form onSubmit={addBrand} className="grid gap-4 md:grid-cols-4">
+          <form onSubmit={addBrand} className="grid gap-4 md:grid-cols-5">
             <div>
               <label htmlFor="br-name" className="text-xs font-medium text-stone-600">
                 Name *
@@ -159,6 +186,15 @@ export function InventoryBrandsPage() {
                 className={inputClass}
               />
             </div>
+            <label className="flex items-end gap-2 pb-2.5 text-sm font-medium text-stone-700">
+              <input
+                type="checkbox"
+                checked={serialNumberRequired}
+                onChange={(e) => setSerialNumberRequired(e.target.checked)}
+                className="h-4 w-4 rounded border-zimson-300 text-zimson-600"
+              />
+              Serial number mandatory
+            </label>
             <div className="flex items-end">
               <button
                 type="submit"
@@ -182,6 +218,7 @@ export function InventoryBrandsPage() {
                 <th className="px-3 py-2">Name</th>
                 <th className="px-3 py-2">Order</th>
                 <th className="px-3 py-2">Active</th>
+                <th className="px-3 py-2">Serial mandatory</th>
                 {canManage ? <th className="px-3 py-2">Actions</th> : null}
               </tr>
             </thead>
@@ -192,8 +229,17 @@ export function InventoryBrandsPage() {
                   <td className="px-3 py-2 font-medium text-stone-900">{b.name}</td>
                   <td className="px-3 py-2">{b.sortOrder}</td>
                   <td className="px-3 py-2">{b.isActive ? "Yes" : "No"}</td>
+                  <td className="px-3 py-2">{b.serialNumberRequired ? "Yes" : "No"}</td>
                   {canManage ? (
-                    <td className="px-3 py-2">
+                    <td className="flex flex-wrap gap-2 px-3 py-2">
+                      <button
+                        type="button"
+                        disabled={busyId === b.id}
+                        onClick={() => void toggleSerialNumberRequired(b)}
+                        className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50 disabled:opacity-50"
+                      >
+                        Make serial {b.serialNumberRequired ? "optional" : "mandatory"}
+                      </button>
                       <button
                         type="button"
                         disabled={busyId === b.id}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiJson } from "../../lib/api";
-import { formatInr } from "../../lib/formatInr";
+import { formatInr, formatApproxEstimateInr } from "../../lib/formatInr";
 import {
   customerTrackingStatusLabel,
   trackingFlowForRepairRoute,
@@ -48,9 +48,9 @@ function buildCouponMessage(job: TrackJob): string {
 }
 
 function estimateAmountLabel(x: { amountInr: number | null; note: string }): string {
-  if (Number(x.amountInr ?? 0) > 0) return formatInr(Number(x.amountInr));
+  if (Number(x.amountInr ?? 0) > 0) return formatApproxEstimateInr(Number(x.amountInr));
   const m = String(x.note ?? "").match(/INR\s+([0-9]+(?:\.[0-9]+)?)/i);
-  return m ? formatInr(Number(m[1])) : formatInr(0);
+  return m ? formatApproxEstimateInr(Number(m[1])) : formatApproxEstimateInr(0);
 }
 
 function TrackProgress({ activeIndex, steps }: { activeIndex: number; steps: readonly TrackingFlowStep[] }) {
@@ -63,7 +63,7 @@ function TrackProgress({ activeIndex, steps }: { activeIndex: number; steps: rea
           aria-hidden
         />
         <div
-          className="absolute left-[10%] top-[18px] h-1 rounded-full bg-gradient-to-r from-[#c9a227] via-[#d4af37] to-[#8b6914] transition-all duration-700 sm:top-[22px] sm:h-1.5"
+          className="absolute left-[10%] top-[18px] h-1 rounded-full bg-gradient-to-r from-[#3B82F6] via-[#60A5FA] to-[#1E40AF] transition-all duration-700 sm:top-[22px] sm:h-1.5"
           style={{ width: `calc(${pct}% * 0.8)` }}
           aria-hidden
         />
@@ -76,9 +76,9 @@ function TrackProgress({ activeIndex, steps }: { activeIndex: number; steps: rea
                 <div
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base shadow-md transition-transform sm:h-12 sm:w-12 sm:text-xl sm:shadow-lg ${
                     done
-                      ? "bg-gradient-to-br from-[#c9a227] to-[#8b6914] text-white"
+                      ? "bg-gradient-to-br from-[#3B82F6] to-[#1E40AF] text-white"
                       : "border border-[#d4c4a8] bg-white text-[#8a7a5c]"
-                  } ${current ? "scale-105 ring-4 ring-[#c9a227]/25 sm:scale-110 sm:ring-[#c9a227]/30" : ""} ${
+                  } ${current ? "scale-105 ring-4 ring-[#3B82F6]/25 sm:scale-110 sm:ring-[#3B82F6]/30" : ""} ${
                     idx > activeIndex ? "opacity-60" : ""
                   }`}
                 >
@@ -92,7 +92,7 @@ function TrackProgress({ activeIndex, steps }: { activeIndex: number; steps: rea
                   {step.label}
                 </p>
                 {current ? (
-                  <p className="mt-0.5 hidden text-[9px] font-medium text-[#b8860b] sm:block">Current</p>
+                  <p className="mt-0.5 hidden text-[9px] font-medium text-[#1D4ED8] sm:block">Current</p>
                 ) : null}
               </li>
             );
@@ -110,14 +110,14 @@ function ZimsonHeader() {
         className="pointer-events-none absolute inset-0 opacity-[0.07]"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 20% 50%, #c9a227 0%, transparent 45%), radial-gradient(circle at 90% 20%, #fff 0%, transparent 35%)",
+            "radial-gradient(circle at 20% 50%, #3B82F6 0%, transparent 45%), radial-gradient(circle at 90% 20%, #fff 0%, transparent 35%)",
         }}
         aria-hidden
       />
       <div className="relative mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-5 sm:px-8 sm:py-6">
         <div className="min-w-0">
           <p
-            className="text-2xl font-semibold tracking-[0.12em] text-[#d4af37] sm:text-3xl"
+            className="text-2xl font-semibold tracking-[0.12em] text-[#60A5FA] sm:text-3xl"
             style={{ fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif' }}
           >
             ZIMSON WATCH
@@ -130,7 +130,7 @@ function ZimsonHeader() {
           Premium after-sales service for your timepiece.
         </p>
       </div>
-      <div className="h-1 bg-gradient-to-r from-transparent via-[#d4af37] to-transparent" />
+      <div className="h-1 bg-gradient-to-r from-transparent via-[#60A5FA] to-transparent" />
     </header>
   );
 }
@@ -219,7 +219,7 @@ export function SrfTrackingPage() {
       <main className="mx-auto max-w-5xl px-4 py-8 sm:px-8 sm:py-12" style={{ fontFamily: '"Poppins", system-ui, sans-serif' }}>
         {/* Hero intro card */}
         <section className="rounded-3xl border border-[#e8dfd0] bg-white px-6 py-8 shadow-[0_8px_30px_rgba(10,31,61,0.08)] sm:px-10 sm:py-10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#b8860b]">Your service</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#1D4ED8]">Your service</p>
           <h1
             className="mt-2 text-3xl font-semibold tracking-tight text-[#0a1f3d] sm:text-4xl"
             style={{ fontFamily: '"Playfair Display", Georgia, serif' }}
@@ -243,7 +243,7 @@ export function SrfTrackingPage() {
 
         {loading ? (
           <div className="mt-8 flex items-center gap-3 rounded-2xl border border-[#e8dfd0] bg-white px-5 py-4 text-sm text-[#5c6b7a] shadow-sm">
-            <span className="inline-block h-4 w-4 animate-pulse rounded-full bg-[#d4af37]" aria-hidden />
+            <span className="inline-block h-4 w-4 animate-pulse rounded-full bg-[#60A5FA]" aria-hidden />
             Loading your service details…
           </div>
         ) : null}
@@ -255,7 +255,7 @@ export function SrfTrackingPage() {
         ) : null}
 
         {!loading && disabled ? (
-          <div className="mt-8 rounded-3xl border border-[#d4af37]/40 bg-gradient-to-br from-[#0a1f3d] to-[#1a3a5c] px-6 py-8 text-white shadow-lg">
+          <div className="mt-8 rounded-3xl border border-[#60A5FA]/40 bg-gradient-to-br from-[#0a1f3d] to-[#1a3a5c] px-6 py-8 text-white shadow-lg">
             <p className="text-xl font-semibold" style={{ fontFamily: '"Playfair Display", Georgia, serif' }}>
               Service complete
             </p>
@@ -323,12 +323,12 @@ export function SrfTrackingPage() {
                     <button
                       type="button"
                       onClick={() => setOpenJobId((prev) => (prev === j.id ? null : j.id))}
-                      className="mt-5 flex w-full items-center justify-between gap-3 rounded-2xl border border-[#e8dfd0] bg-[#faf6ef] px-4 py-3.5 text-left text-sm font-semibold text-[#0a1f3d] transition hover:border-[#d4af37]/50 hover:bg-[#f5efe3]"
+                      className="mt-5 flex w-full items-center justify-between gap-3 rounded-2xl border border-[#e8dfd0] bg-[#faf6ef] px-4 py-3.5 text-left text-sm font-semibold text-[#0a1f3d] transition hover:border-[#60A5FA]/50 hover:bg-[#f5efe3]"
                       aria-expanded={isOpen}
                     >
                       <span>{isOpen ? "Hide tracking & details" : "Show tracking & details"}</span>
                       <span
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-sm text-[#b8860b] shadow-sm transition-transform ${
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-sm text-[#1D4ED8] shadow-sm transition-transform ${
                           isOpen ? "rotate-180" : ""
                         }`}
                         aria-hidden
@@ -349,10 +349,10 @@ export function SrfTrackingPage() {
                       <dl className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-xl border border-[#e8dfd0] bg-[#faf6ef]/80 px-3 py-3">
                           <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a7a5c]">
-                            Original estimate
+                            Original estimate (approx.)
                           </dt>
                           <dd className="mt-1.5 text-base font-semibold text-[#0a1f3d] sm:text-lg">
-                            {formatInr(j.estimateTotalInr)}
+                            {formatApproxEstimateInr(j.estimateTotalInr)}
                           </dd>
                         </div>
                         <div className="rounded-xl border border-[#e8dfd0] bg-[#faf6ef]/80 px-3 py-3">
@@ -374,7 +374,7 @@ export function SrfTrackingPage() {
                             {(j.reestimateHistory ?? []).map((x, idx) => (
                               <li
                                 key={`${x.requestedAt}-${idx}`}
-                                className="rounded-2xl border border-[#e8dfd0] border-l-4 border-l-[#d4af37] bg-white px-4 py-4 text-sm shadow-sm"
+                                className="rounded-2xl border border-[#e8dfd0] border-l-4 border-l-[#60A5FA] bg-white px-4 py-4 text-sm shadow-sm"
                               >
                                 <p className="font-semibold text-[#0a1f3d]">
                                   Estimate {idx + 1}: {estimateAmountLabel(x)}
@@ -401,7 +401,7 @@ export function SrfTrackingPage() {
                                 key={p.id}
                                 type="button"
                                 onClick={() => setLightboxPhoto(p)}
-                                className="overflow-hidden rounded-xl border border-[#e8dfd0] bg-white text-left shadow-sm transition hover:border-[#d4af37]/70 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#d4af37]/40"
+                                className="overflow-hidden rounded-xl border border-[#e8dfd0] bg-white text-left shadow-sm transition hover:border-[#60A5FA]/70 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#60A5FA]/40"
                               >
                                 <img
                                   src={`/${p.filePath}`}
@@ -425,7 +425,7 @@ export function SrfTrackingPage() {
                           </p>
                           {j.reestimateRequestedInr != null && Number(j.reestimateRequestedInr) > 0 ? (
                             <p className="mt-3 text-base font-semibold text-[#0a1f3d] sm:text-lg">
-                              Revised amount: {formatInr(Number(j.reestimateRequestedInr))}
+                              Revised amount (approx.): {formatApproxEstimateInr(Number(j.reestimateRequestedInr))}
                             </p>
                           ) : null}
                           <div className="mt-5 flex flex-col gap-3 sm:flex-row">

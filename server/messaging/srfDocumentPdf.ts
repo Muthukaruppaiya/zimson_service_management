@@ -8,8 +8,8 @@ type PdfDoc = InstanceType<typeof PDFDocument>;
 
 const NAVY = "#1b3a8f";
 const NAVY_DEEP = "#0c1c56";
-const GOLD = "#c9a227";
-const GOLD_LIGHT = "#e8c14e";
+const GOLD = "#3B82F6";
+const GOLD_LIGHT = "#60A5FA";
 const INK = "#0d1b2a";
 const MUTED = "#64748b";
 const BORDER = "#e2e8f5";
@@ -283,7 +283,9 @@ export async function buildSrfPdfBuffer(data: SrfPrintData): Promise<Buffer> {
     fieldRow(doc, "Strap / Chain Type", display(data.strapChainType), fy, 1);
     fy += 16;
     fieldRow(doc, "Back Cover / S.No", display(data.serial), fy, 0);
-    fieldRow(doc, "Chain Count", display(data.chainCount), fy, 1);
+    fieldRow(doc, "12 Link Chain Count", display(data.chainCount12Phase || data.chainCount), fy, 1);
+    fy += 16;
+    fieldRow(doc, "6 Link Chain Count", display(data.chainCount6Phase), fy, 0);
     y += prodCardH + 14;
 
     // ---- Remarks -----------------------------------------------------------
@@ -314,7 +316,7 @@ export async function buildSrfPdfBuffer(data: SrfPrintData): Promise<Buffer> {
     const amountCards: Array<[string, string, "calendar" | "wallet" | "wrench" | "rupee", string, string]> = [
       ["Estd. Delivery", formatDateOnly(data.estimatedFinishDate), "calendar", "#3b82f6", "#1d4ed8"],
       ["Advance Paid (INR)", `INR ${advance.toFixed(2)}`, "wallet", "#22c55e", "#15803d"],
-      ["Est. Service Cost", `INR ${estimate.toFixed(2)}`, "wrench", "#f97316", "#c2410c"],
+      ["Est. Service Cost (approx.)", `Approx. INR ${estimate.toFixed(2)}`, "wrench", "#f97316", "#c2410c"],
       ["Balance (Excl. Tax)", `INR ${balance.toFixed(2)}`, "rupee", GOLD_LIGHT, GOLD],
     ];
     amountCards.forEach(([label, val, glyph, cFrom, cTo], i) => {

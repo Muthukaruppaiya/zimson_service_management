@@ -28,7 +28,7 @@ export const SRF_DOCUMENT_PHOTO_KIND = "document" as const;
 export const SRF_MAX_WATCH_PHOTOS = SRF_WATCH_PHOTO_KINDS.length;
 
 /** Minimum watch photos required — any categories, not specific slots. */
-export const SRF_MIN_WATCH_PHOTOS_REQUIRED = 6;
+export const SRF_MIN_WATCH_PHOTOS_REQUIRED = 4;
 
 export const SRF_PHOTO_SLOT_LABELS: Record<SrfWatchPhotoKind, string> = {
   front: "Watch front",

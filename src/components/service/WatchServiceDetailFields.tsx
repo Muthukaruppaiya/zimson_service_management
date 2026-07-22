@@ -7,7 +7,8 @@ export type WatchServiceDetailValues = {
   caseType: string;
   strapChainType: string;
   natureOfRepair: string;
-  chainCount: string;
+  chainCount12Phase: string;
+  chainCount6Phase: string;
   customerRemarks: string;
 };
 
@@ -16,7 +17,8 @@ export function emptyWatchServiceDetailValues(): WatchServiceDetailValues {
     caseType: "",
     strapChainType: "",
     natureOfRepair: "",
-    chainCount: "",
+    chainCount12Phase: "",
+    chainCount6Phase: "",
     customerRemarks: "",
   };
 }
@@ -30,14 +32,19 @@ export function watchServiceDetailsFromApi(row: {
   caseType?: string | null;
   strapChainType?: string | null;
   natureOfRepair?: string | null;
+  chainCount12Phase?: string | null;
+  chainCount6Phase?: string | null;
+  /** @deprecated Legacy single chain count — mapped to 12 phase when new fields empty. */
   chainCount?: string | null;
   customerRemarks?: string | null;
 }): WatchServiceDetailValues {
+  const legacyChain = row.chainCount?.trim() ?? "";
   return {
     caseType: singleCatalogFromApi(row.caseType),
     strapChainType: singleCatalogFromApi(row.strapChainType),
     natureOfRepair: normalizeNatureOfRepair(row.natureOfRepair),
-    chainCount: row.chainCount?.trim() ?? "",
+    chainCount12Phase: row.chainCount12Phase?.trim() || legacyChain,
+    chainCount6Phase: row.chainCount6Phase?.trim() ?? "",
     customerRemarks: row.customerRemarks?.trim() ?? "",
   };
 }
@@ -47,7 +54,8 @@ export function watchServiceDetailsToApiPayload(v: WatchServiceDetailValues) {
     caseType: v.caseType.trim(),
     strapChainType: v.strapChainType.trim(),
     natureOfRepair: v.natureOfRepair.trim(),
-    chainCount: v.chainCount.trim(),
+    chainCount12Phase: v.chainCount12Phase.trim(),
+    chainCount6Phase: v.chainCount6Phase.trim(),
     customerRemarks: v.customerRemarks.trim(),
   };
 }
@@ -110,17 +118,33 @@ export function WatchServiceDetailFields({
             ))}
           </select>
         </div>
+      </div>
+      <div className={pairRow}>
         <div className="min-w-0">
-          <label htmlFor={`${idPrefix}-chain-count`} className="text-xs font-medium text-stone-600">
-            Chain count
+          <label htmlFor={`${idPrefix}-chain-count-12`} className="text-xs font-medium text-stone-600">
+            12 Link Chain Count
           </label>
           <input
-            id={`${idPrefix}-chain-count`}
-            value={values.chainCount}
+            id={`${idPrefix}-chain-count-12`}
+            value={values.chainCount12Phase}
             disabled={disabled}
-            onChange={(e) => onChange({ chainCount: sanitizeTextInput(e.target.value, 32) })}
+            onChange={(e) => onChange({ chainCount12Phase: sanitizeTextInput(e.target.value, 32) })}
             className={inputClass}
             placeholder="e.g. 12"
+            inputMode="numeric"
+          />
+        </div>
+        <div className="min-w-0">
+          <label htmlFor={`${idPrefix}-chain-count-6`} className="text-xs font-medium text-stone-600">
+            6 Link Chain Count
+          </label>
+          <input
+            id={`${idPrefix}-chain-count-6`}
+            value={values.chainCount6Phase}
+            disabled={disabled}
+            onChange={(e) => onChange({ chainCount6Phase: sanitizeTextInput(e.target.value, 32) })}
+            className={inputClass}
+            placeholder="e.g. 6"
             inputMode="numeric"
           />
         </div>

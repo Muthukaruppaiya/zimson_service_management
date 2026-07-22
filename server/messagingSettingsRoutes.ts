@@ -60,8 +60,12 @@ function bodyToDb(body: Record<string, unknown>): MessagingSettingsDb {
     qikchatTrackingTextTemplateName:
       String(body.qikchatTrackingTextTemplateName ?? "").trim().slice(0, 120) || undefined,
     qikchatApprovalTemplateName: String(body.qikchatApprovalTemplateName ?? "").trim().slice(0, 120) || undefined,
+    qikchatReadyPickupTemplateName:
+      String(body.qikchatReadyPickupTemplateName ?? "").trim().slice(0, 120) || undefined,
     qikchatTrackingTemplateBody: String(body.qikchatTrackingTemplateBody ?? "").trim().slice(0, 2000) || undefined,
     qikchatApprovalTemplateBody: String(body.qikchatApprovalTemplateBody ?? "").trim().slice(0, 2000) || undefined,
+    qikchatReadyPickupTemplateBody:
+      String(body.qikchatReadyPickupTemplateBody ?? "").trim().slice(0, 2000) || undefined,
     qikchatInvoiceTemplateBody: String(body.qikchatInvoiceTemplateBody ?? "").trim().slice(0, 2000) || undefined,
     whatsappInvoiceMode,
     messagingPublicBaseUrl: String(body.messagingPublicBaseUrl ?? "").trim().slice(0, 500) || undefined,

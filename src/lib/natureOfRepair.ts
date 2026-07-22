@@ -13,14 +13,14 @@ export const NATURE_OF_REPAIR_OPTIONS: {
   label: string;
   taxNote: string;
 }[] = [
-  { value: "regular", label: "Regular", taxNote: "Full charges + tax" },
+  { value: "regular", label: "  Chargeable", taxNote: "Full charges + tax" },
   { value: "warranty_chargeable", label: "Warranty — chargeable", taxNote: "Full charges + tax" },
   {
     value: "warranty_non_chargeable",
     label: "Warranty — non chargeable",
     taxNote: "No charge (parts & labour)",
   },
-  { value: "internal_service", label: "Internal service", taxNote: "Labour only (no spare charges)" },
+  { value: "internal_service", label: "Stock Watch", taxNote: "Labour only (no spare charges)" },
 ];
 
 const LABEL_BY_VALUE = new Map(NATURE_OF_REPAIR_OPTIONS.map((o) => [o.value, o.label]));

@@ -29,6 +29,7 @@ function seedBrandsFromDemo(): BrandRow[] {
     name,
     sortOrder: i,
     isActive: true,
+    serialNumberRequired: false,
     createdAt: now,
     updatedAt: now,
   }));

@@ -285,6 +285,53 @@ export async function sendTrackingLinkWhatsAppBodyOnly(
   return postQikchatMessage(cfg.apiKey, payload);
 }
 
+export type SendReadyPickupWhatsAppInput = {
+  phone10: string;
+  customerName: string;
+  srfNumber: string;
+  storeName: string;
+  trackingUrl: string;
+};
+
+/** Business-initiated notification sent only after store inward changes the SRF to received_at_store. */
+export async function sendReadyPickupWhatsAppTemplate(
+  input: SendReadyPickupWhatsAppInput,
+): Promise<string | undefined> {
+  if (!isWhatsAppConfigured()) {
+    throw new Error("WhatsApp not configured. Set Qikchat API key in Settings → SMS, email & WhatsApp.");
+  }
+
+  const cfg = getMessagingConfig().whatsapp;
+  const customerName = input.customerName.trim() || "Customer";
+  const srfNumber = input.srfNumber.trim();
+  const storeName = input.storeName.trim() || "your Zimson store";
+  const trackingUrl = input.trackingUrl.trim();
+  if (!srfNumber || !trackingUrl) throw new Error("SRF number and tracking URL are required.");
+
+  const payload = {
+    to_contact: formatIndiaMobileE164(input.phone10),
+    type: "template",
+    template: {
+      name: cfg.readyPickupTemplateName,
+      language: cfg.templateLanguage?.trim() || "en",
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: customerName },
+            { type: "text", text: srfNumber },
+            { type: "text", text: storeName },
+            { type: "text", text: trackingUrl },
+          ],
+        },
+      ],
+    },
+  };
+
+  console.log("[qikchat] ready pickup template", cfg.readyPickupTemplateName, "| srf=", srfNumber);
+  return postQikchatMessage(cfg.apiKey, payload);
+}
+
 export type SendSiteVisitApprovalWhatsAppInput = {
   phone10: string;
   customerName: string;

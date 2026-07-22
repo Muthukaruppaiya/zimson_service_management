@@ -34,7 +34,7 @@ function renderEmailButton(href: string, label: string, showFullUrlLink: boolean
   const safeUrl = escapeHtml(url);
   const parts = [
     `<!--[if mso]>
-<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${attr}" style="height:50px;v-text-anchor:middle;width:300px;" arcsize="10%" strokecolor="#C9A227" fillcolor="#1B3A8F">
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${attr}" style="height:50px;v-text-anchor:middle;width:300px;" arcsize="10%" strokecolor="#3B82F6" fillcolor="#1B3A8F">
 <w:anchorlock/>
 <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">${safeLabel}</center>
 </v:roundrect>
@@ -42,7 +42,7 @@ function renderEmailButton(href: string, label: string, showFullUrlLink: boolean
     `<!--[if !mso]><!-->
 <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:16px 0;">
   <tr>
-    <td align="center" bgcolor="#1B3A8F" style="border-radius:8px;border:2px solid #C9A227;">
+    <td align="center" bgcolor="#1B3A8F" style="border-radius:8px;border:2px solid #3B82F6;">
       <a href="${attr}" style="color:#ffffff;text-decoration:none;font-weight:bold;font-size:16px;font-family:Arial,Helvetica,sans-serif;display:inline-block;padding:14px 28px;line-height:1.25;">${safeLabel}</a>
     </td>
   </tr>
@@ -139,7 +139,7 @@ export function buildTransactionalHtml(subject: string, preheader: string, block
       <td align="center" style="padding:28px 16px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #e4e4e7;border-radius:8px;">
           <tr>
-            <td style="padding:28px 28px 8px;border-bottom:3px solid #C9A227;">
+            <td style="padding:28px 28px 8px;border-bottom:3px solid #3B82F6;">
               <p style="margin:0;font-size:18px;font-weight:700;color:#1B3A8F;">Zimson Watch Care</p>
             </td>
           </tr>

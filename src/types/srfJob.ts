@@ -78,6 +78,9 @@ export type SrfJob = {
   caseType?: string;
   strapChainType?: string;
   natureOfRepair?: string;
+  chainCount12Phase?: string;
+  chainCount6Phase?: string;
+  /** @deprecated Legacy field — use chainCount12Phase / chainCount6Phase. */
   chainCount?: string;
   customerRemarks?: string;
   estimateTotalInr: number;
@@ -88,7 +91,7 @@ export type SrfJob = {
   selectedPartIds: string[];
   createdAt: string;
   status: SrfJobStatus;
-  /** send_to_ho = standard dispatch flow; store_self = assign & bill at store only. */
+  /** send_to_ho = centralized service centre; store_self = repair at in-store. */
   repairRoute?: SrfRepairRoute;
   photoCount?: number;
   photos?: SrfJobPhoto[];

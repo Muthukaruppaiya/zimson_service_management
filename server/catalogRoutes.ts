@@ -25,6 +25,7 @@ function rowToBrand(r: {
   name: string;
   sort_order: number;
   is_active: boolean;
+  serial_number_required: boolean;
   created_at: Date | string;
   updated_at: Date | string;
 }): BrandRow {
@@ -35,6 +36,7 @@ function rowToBrand(r: {
     name: r.name,
     sortOrder: r.sort_order,
     isActive: r.is_active,
+    serialNumberRequired: r.serial_number_required,
     createdAt: iso(r.created_at),
     updatedAt: iso(r.updated_at),
   };
@@ -307,7 +309,7 @@ export function registerCatalogRoutes(
     try {
       const where = includeInactive ? "" : "WHERE is_active = true";
       const { rows } = await pool.query(
-        `SELECT id, code, name, sort_order, is_active, created_at, updated_at
+        `SELECT id, code, name, sort_order, is_active, serial_number_required, created_at, updated_at
          FROM brands
          ${where}
          ORDER BY sort_order, name`,
@@ -335,6 +337,7 @@ export function registerCatalogRoutes(
       sortOrderRaw === undefined || sortOrderRaw === null || sortOrderRaw === ""
         ? 0
         : Number(sortOrderRaw);
+    const serialNumberRequired = req.body?.serialNumberRequired === true;
     if (Number.isNaN(sortOrder)) {
       res.status(400).json({ error: "sortOrder must be a number." });
       return;
@@ -358,10 +361,10 @@ export function registerCatalogRoutes(
       while (attempt < 24) {
         try {
           const ins = await pool.query(
-            `INSERT INTO brands (code, name, sort_order)
-             VALUES ($1, $2, $3)
-             RETURNING id, code, name, sort_order, is_active, created_at, updated_at`,
-            [code, name, sortOrder],
+            `INSERT INTO brands (code, name, sort_order, serial_number_required)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, code, name, sort_order, is_active, serial_number_required, created_at, updated_at`,
+            [code, name, sortOrder, serialNumberRequired],
           );
           const row = ins.rows[0] as Parameters<typeof rowToBrand>[0];
           res.json({ brand: rowToBrand(row) });
@@ -400,6 +403,7 @@ export function registerCatalogRoutes(
     const codeRaw = req.body?.code;
     const sortOrderRaw = req.body?.sortOrder;
     const isActiveRaw = req.body?.isActive;
+    const serialNumberRequiredRaw = req.body?.serialNumberRequired;
     const updates: string[] = [];
     const params: unknown[] = [];
     if (nameRaw !== undefined) {
@@ -433,6 +437,10 @@ export function registerCatalogRoutes(
       params.push(Boolean(isActiveRaw));
       updates.push(`is_active = $${params.length}`);
     }
+    if (serialNumberRequiredRaw !== undefined) {
+      params.push(Boolean(serialNumberRequiredRaw));
+      updates.push(`serial_number_required = $${params.length}`);
+    }
     if (updates.length === 0) {
       res.status(400).json({ error: "No fields to update." });
       return;
@@ -442,7 +450,7 @@ export function registerCatalogRoutes(
       const upd = await pool.query(
         `UPDATE brands SET ${updates.join(", ")}, updated_at = now()
          WHERE id = $${params.length}::uuid
-         RETURNING id, code, name, sort_order, is_active, created_at, updated_at`,
+         RETURNING id, code, name, sort_order, is_active, serial_number_required, created_at, updated_at`,
         params,
       );
       if (upd.rowCount === 0) {

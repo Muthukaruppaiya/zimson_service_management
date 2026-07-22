@@ -104,9 +104,9 @@ export function WatchModelPicker({
   }, [catalogModelKey, customModelText]);
 
   useEffect(() => {
-    if (disableAutoSelect && !resolvedModel && model.trim()) return;
+    if (disableAutoSelect) return;
     onModelChange(resolvedModel);
-  }, [resolvedModel, onModelChange, disableAutoSelect, model]);
+  }, [resolvedModel, onModelChange, disableAutoSelect]);
 
   useEffect(() => {
     onSelectionModeChange?.(catalogModelKey === "__new__" || catalogModels.length === 0);
@@ -114,7 +114,11 @@ export function WatchModelPicker({
 
   useEffect(() => {
     const name = model.trim();
-    if (!name) return;
+    if (!name) {
+      setCatalogModelKey("");
+      setCustomModelText("");
+      return;
+    }
     if (catalogModels.some((x) => x.model === name)) {
       setCatalogModelKey(name);
       setCustomModelText("");
@@ -221,6 +225,7 @@ export function WatchModelPicker({
             onFreeTextChange={(t) => {
               setCustomModelText(t);
               setCatalogModelKey("__new__");
+              onModelChange(t);
               setSaveMsg(null);
             }}
             value="__new__"
@@ -260,10 +265,12 @@ export function WatchModelPicker({
               if (!v) {
                 setCatalogModelKey("");
                 setCustomModelText("");
+                onModelChange("");
                 return;
               }
               setCatalogModelKey(v);
               setCustomModelText("");
+              onModelChange(v);
             }}
             inputClass={inputClass}
             placeholder="Search or select model…"
@@ -271,12 +278,14 @@ export function WatchModelPicker({
             onActionSelect={() => {
               setCatalogModelKey("__new__");
               setCustomModelText("");
+              onModelChange("");
             }}
             freeText={catalogModelKey === "__new__"}
             freeTextValue={customModelText}
             onFreeTextChange={(t) => {
               setCustomModelText(t);
               setCatalogModelKey("__new__");
+              onModelChange(t);
               setSaveMsg(null);
             }}
           />

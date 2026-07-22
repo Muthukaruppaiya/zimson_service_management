@@ -74,6 +74,8 @@ function watchDetailMetaRows(source: {
   caseType?: string | null;
   strapChainType?: string | null;
   natureOfRepair?: string | null;
+  chainCount12Phase?: string | null;
+  chainCount6Phase?: string | null;
   chainCount?: string | null;
   customerRemarks?: string | null;
 }): { label: string; value: string }[] {
@@ -83,7 +85,10 @@ function watchDetailMetaRows(source: {
   if (source.natureOfRepair?.trim()) {
     rows.push({ label: "Nature of Repair", value: natureOfRepairLabel(source.natureOfRepair) });
   }
-  if (source.chainCount?.trim()) rows.push({ label: "Chain Count", value: source.chainCount.trim() });
+  const chain12 = source.chainCount12Phase?.trim() || source.chainCount?.trim() || "";
+  const chain6 = source.chainCount6Phase?.trim() || "";
+  if (chain12) rows.push({ label: "12 Link Chain Count", value: chain12 });
+  if (chain6) rows.push({ label: "6 Link Chain Count", value: chain6 });
   if (source.customerRemarks?.trim()) rows.push({ label: "Customer Remarks", value: source.customerRemarks.trim() });
   return rows;
 }
@@ -314,6 +319,8 @@ export type DemoInvoiceInput = {
   caseType?: string;
   strapChainType?: string;
   natureOfRepair?: string;
+  chainCount12Phase?: string;
+  chainCount6Phase?: string;
   chainCount?: string;
   customerRemarks?: string;
   watchDocumentPath?: string | null;

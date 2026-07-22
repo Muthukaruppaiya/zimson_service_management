@@ -10,6 +10,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError } from "../../lib/api";
+import { ESTIMATE_LABEL_APPROX, formatApproxEstimateCurrency } from "../../lib/formatInr";
 import { ResendClosedSrfInvoiceActions, IconGstEinvoice, IconSpinner, invoicePreviewIconBtn } from "../../components/service/ResendClosedSrfInvoiceActions";
 import { IconClose, IconPreview, IconPrint } from "../../components/service/invoicePreviewIcons";
 import { useCustomers } from "../../context/CustomersContext";
@@ -300,7 +301,7 @@ export function StoreBillingMasterPage() {
                       <th className="px-3 py-2">Watch</th>
                       <th className="px-3 py-2">Closed</th>
                       {edocEnabled ? <th className="px-3 py-2">E-invoice</th> : null}
-                      <th className="px-3 py-2 text-right">Estimate</th>
+                      <th className="px-3 py-2 text-right">{ESTIMATE_LABEL_APPROX}</th>
                       <th className="min-w-[220px] px-3 py-2 text-center">Action</th>
                     </tr>
                   </thead>
@@ -342,10 +343,7 @@ export function StoreBillingMasterPage() {
                           </td>
                         ) : null}
                         <td className="px-3 py-2 text-right tabular-nums text-stone-900">
-                          {Number(j.estimateTotalInr ?? 0).toLocaleString(undefined, {
-                            style: "currency",
-                            currency: "INR",
-                          })}
+                          {formatApproxEstimateCurrency(Number(j.estimateTotalInr ?? 0))}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex flex-wrap items-center justify-center gap-1.5">
@@ -453,7 +451,7 @@ export function StoreBillingMasterPage() {
             className="my-6 w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-3 border-b border-[#c9a227]/40 bg-gradient-to-r from-[#0c1c56] via-[#152a72] to-[#1b3a8f] px-4 py-3">
+            <div className="flex items-center justify-between gap-3 border-b border-[#3B82F6]/40 bg-gradient-to-r from-[#0c1c56] via-[#152a72] to-[#1b3a8f] px-4 py-3">
               <div className="flex items-center gap-2 text-white">
                 <PreviewIcon className="h-4 w-4 text-[#e7c968]" />
                 <span className="text-sm font-bold uppercase tracking-wide">Invoice preview</span>

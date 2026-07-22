@@ -36,21 +36,21 @@ export function ProcessSuccessModal({
     >
       <div
         className={`relative z-[1] w-full max-w-md overflow-hidden bg-white shadow-[0_24px_64px_-16px_rgba(0,0,0,0.45)] ${
-          premium ? "rounded-2xl border border-[#c9a227]/35" : "border-t-[3px] border-rlx-gold"
+          premium ? "rounded-2xl border border-[#3B82F6]/35" : "border-t-[3px] border-rlx-gold"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
         <div
           className={
             premium
-              ? "flex items-center gap-3 border-b border-[#c9a227]/35 bg-gradient-to-r from-[#0c1c56] via-[#152a72] to-[#1b3a8f] px-5 py-4"
+              ? "flex items-center gap-3 border-b border-[#3B82F6]/35 bg-gradient-to-r from-[#0c1c56] via-[#152a72] to-[#1b3a8f] px-5 py-4"
               : "flex items-center gap-3 bg-rlx-green px-6 py-4"
           }
         >
           <span
             className={
               premium
-                ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#c9a227] text-[#0c1c56] shadow-sm"
+                ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#3B82F6] text-[#0c1c56] shadow-sm"
                 : "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rlx-gold text-rlx-green-deep text-base font-bold shadow-sm"
             }
             aria-hidden

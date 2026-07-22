@@ -8,6 +8,7 @@ import { useSrfJobs } from "../../context/SrfJobsContext";
 import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
 import { useRegions } from "../../context/RegionsContext";
 import { repairRouteLabel } from "../../lib/srfRepairRoute";
+import { ESTIMATE_LABEL_APPROX, formatApproxEstimateCurrency } from "../../lib/formatInr";
 import {
   ResendSrfTrackingWhatsAppButton,
 } from "../../components/service/ResendSrfTrackingWhatsAppButton";
@@ -157,9 +158,9 @@ const STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
   photo_pending: "Photo pending",
   at_store: "At store",
-  store_self_pending: "Store self pending",
-  store_self_assigned: "Store self assigned",
-  store_self_working: "Store self working",
+  store_self_pending: "In-store repair — pending assign",
+  store_self_assigned: "In-store repair — assigned",
+  store_self_working: "In-store repair — in progress",
   pending_ho_transit: "Pending HO transit",
   in_transit_sc: "In transit to HO",
   awaiting_sc_inward: "Awaiting HO inward",
@@ -459,7 +460,7 @@ export function SrfBookingsRegisterPage() {
                       <th className="px-3 py-3 text-left font-semibold">Customer</th>
                       <th className="col-hide-md px-3 py-3 text-left font-semibold">Watch</th>
                       <th className="col-hide-lg px-3 py-3 text-left font-semibold">Store</th>
-                      <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Estimate</th>
+                      <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">{ESTIMATE_LABEL_APPROX}</th>
                       <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Actions</th>
                     </tr>
                   </thead>
@@ -516,9 +517,7 @@ export function SrfBookingsRegisterPage() {
                         </td>
                         <td className="align-middle px-3 py-3 text-right">
                           <span className="block whitespace-nowrap text-sm font-semibold tabular-nums text-rlx-green">
-                            {Number(j.estimateTotalInr ?? 0).toLocaleString(undefined, {
-                              style: "currency",
-                              currency: "INR",
+                            {formatApproxEstimateCurrency(Number(j.estimateTotalInr ?? 0), {
                               maximumFractionDigits: 0,
                             })}
                           </span>
@@ -841,12 +840,9 @@ export function SrfBookingsRegisterPage() {
                         <td className="py-0.5 text-rlx-ink">{detail.complaint || "—"}</td>
                       </tr>
                       <tr>
-                        <td className="py-0.5 pr-2 font-medium text-rlx-ink-muted align-top">Estimate</td>
+                        <td className="py-0.5 pr-2 font-medium text-rlx-ink-muted align-top">{ESTIMATE_LABEL_APPROX}</td>
                         <td className="py-0.5 font-semibold text-rlx-green">
-                          {Number(detail.estimateTotalInr ?? 0).toLocaleString(undefined, {
-                            style: "currency",
-                            currency: "INR",
-                          })}
+                          {formatApproxEstimateCurrency(Number(detail.estimateTotalInr ?? 0))}
                         </td>
                       </tr>
                       <tr>
@@ -910,37 +906,51 @@ export function SrfBookingsRegisterPage() {
                     {detail.photos.map((p) => {
                       const src = publicMediaUrl(p.filePath);
                       const label = photoKindLabel(p.photoKind);
+                      const isDocument = p.photoKind === "document";
                       return (
                         <button
                           key={p.id}
                           type="button"
-                          onClick={() => setPhotoLightbox({ src, label })}
+                          onClick={() =>
+                            isDocument
+                              ? window.open(src, "_blank", "noopener,noreferrer")
+                              : setPhotoLightbox({ src, label })
+                          }
                           className="group overflow-hidden border border-rlx-rule bg-white text-left transition hover:border-rlx-gold hover:shadow-sm"
-                          title={`Preview ${label}`}
-                          aria-label={`Preview ${label}`}
+                          title={isDocument ? "View document" : `Preview ${label}`}
+                          aria-label={isDocument ? "View document" : `Preview ${label}`}
                         >
                           <div className="relative aspect-[4/3] bg-stone-100">
-                            <img
-                              src={src}
-                              alt={label}
-                              loading="lazy"
-                              className="h-full w-full object-cover transition group-hover:scale-[1.03]"
-                              onError={(e) => {
-                                const el = e.currentTarget;
-                                el.style.display = "none";
-                                const fallback = el.nextElementSibling;
-                                if (fallback instanceof HTMLElement) fallback.hidden = false;
-                              }}
-                            />
-                            <div
-                              hidden
-                              className="absolute inset-0 flex items-center justify-center bg-stone-100 px-2 text-center text-[10px] text-stone-500"
-                            >
-                              Preview unavailable
-                            </div>
+                            {isDocument ? (
+                              <div className="absolute inset-0 flex flex-col items-center justify-center bg-rose-50 text-rose-800">
+                                <span className="text-xl font-black">PDF</span>
+                                <span className="mt-1 text-[10px] font-semibold">View document</span>
+                              </div>
+                            ) : (
+                              <>
+                                <img
+                                  src={src}
+                                  alt={label}
+                                  loading="lazy"
+                                  className="h-full w-full object-cover transition group-hover:scale-[1.03]"
+                                  onError={(e) => {
+                                    const el = e.currentTarget;
+                                    el.style.display = "none";
+                                    const fallback = el.nextElementSibling;
+                                    if (fallback instanceof HTMLElement) fallback.hidden = false;
+                                  }}
+                                />
+                                <div
+                                  hidden
+                                  className="absolute inset-0 flex items-center justify-center bg-stone-100 px-2 text-center text-[10px] text-stone-500"
+                                >
+                                  Preview unavailable
+                                </div>
+                              </>
+                            )}
                             <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/25 group-hover:opacity-100">
                               <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-rlx-green">
-                                Preview
+                                {isDocument ? "Open" : "Preview"}
                               </span>
                             </span>
                           </div>

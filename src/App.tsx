@@ -42,6 +42,7 @@ import { StoreBillingPage } from "./pages/service/StoreBillingPage";
 import { StoreBillingMasterPage } from "./pages/service/StoreBillingMasterPage";
 import { StoreDispatchPage } from "./pages/service/StoreDispatchPage";
 import { StoreDeliveryHandoffPage, ScDeliveryHandoffPage } from "./pages/service/DeliveryHandoffPage";
+import { DeliveryBoyHistoryPage } from "./pages/service/DeliveryBoyHistoryPage";
 import { StoreLogisticsHistoryPage } from "./pages/service/StoreLogisticsHistoryPage";
 import { StoreAssignPage } from "./pages/service/StoreAssignPage";
 import { WatchInventoryPage } from "./pages/service/WatchInventoryPage";
@@ -353,6 +354,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service/delivery-boy-history"
+                  element={
+                    <ModuleRoute module="service">
+                      <DeliveryBoyHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service/store-assign"
                   element={
                     <ModuleRoute module="service">
@@ -475,6 +484,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service_centre">
                       <ScLogisticsHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service-centre/delivery-boy-history"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <DeliveryBoyHistoryPage />
                     </ModuleRoute>
                   }
                 />

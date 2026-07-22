@@ -32,6 +32,7 @@ import {
 import type { CustomerAddressBlock, CustomerKind, CustomerRecord } from "../../types/customer";
 import { inputClass, inputClassReadOnly } from "../../lib/uiForm";
 import { clearPendingRegisterPhone } from "../../lib/pendingRegisterPhone";
+import { stashPendingResumeCustomer } from "../../lib/pendingResumeCustomer";
 
 const contactVerifyPill =
   "inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-900";
@@ -135,6 +136,7 @@ export function SrfCustomerRegisterPage() {
     /** Canonical mobile saved on the server (for resume URL). */
     phoneDigits: string;
   } | null>(null);
+  const [createdCustomer, setCreatedCustomer] = useState<CustomerRecord | null>(null);
 
   useEffect(() => {
     if (!lockedRegisterPhone) return;
@@ -579,7 +581,11 @@ export function SrfCustomerRegisterPage() {
         referenceName: referenceName.trim() || undefined,
         representativeName: representativeName.trim() || undefined,
       });
+      setCreatedCustomer(row);
       setSuccessInfo({ id: row.id, customerCode: row.customerCode, phoneDigits: row.phone });
+      if (forQuickBill || forSrf || returnTo) {
+        navigateAfterRegistration(row);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save customer.");
     } finally {
@@ -587,17 +593,18 @@ export function SrfCustomerRegisterPage() {
     }
   }
 
-  function afterSuccessNavigate() {
-    if (!successInfo) return;
+  function navigateAfterRegistration(row: CustomerRecord) {
     clearPendingRegisterPhone();
-    const digits = successInfo.phoneDigits || digitsOnly(phone, 12);
+    stashPendingResumeCustomer(row);
+    const digits = digitsOnly(row.phone, 12);
     const q = new URLSearchParams({
-      customerId: successInfo.id,
+      customerId: row.id,
       phone: digits,
     });
-    if (successInfo.customerCode?.trim()) {
-      q.set("customerCode", successInfo.customerCode.trim());
+    if (row.customerCode?.trim()) {
+      q.set("customerCode", row.customerCode.trim());
     }
+    const navState = { resumeCustomer: row };
     if (returnTo && returnTo.startsWith("/")) {
       if (returnTo.startsWith("/service/quick-bill")) {
         q.set("resumeCustomer", "1");
@@ -605,14 +612,22 @@ export function SrfCustomerRegisterPage() {
         q.set("resumeStep", "1");
       }
       const join = returnTo.includes("?") ? "&" : "?";
-      navigate(`${returnTo}${join}${q.toString()}`, { replace: true });
+      navigate(`${returnTo}${join}${q.toString()}`, { replace: true, state: navState });
     } else if (forQuickBill) {
       q.set("resumeCustomer", "1");
-      navigate(`/service/quick-bill?${q.toString()}`, { replace: true });
+      navigate(`/service/quick-bill?${q.toString()}`, { replace: true, state: navState });
     } else {
       q.set("resumeStep", "1");
-      navigate(`/service/srf?${q.toString()}`, { replace: true });
+      navigate(`/service/srf?${q.toString()}`, { replace: true, state: navState });
     }
+    setCreatedCustomer(null);
+    setSuccessInfo(null);
+  }
+
+  function afterSuccessNavigate() {
+    const row = createdCustomer;
+    if (!row || !successInfo) return;
+    navigateAfterRegistration(row);
   }
 
   const backHref = forQuickBill
@@ -1120,7 +1135,6 @@ export function SrfCustomerRegisterPage() {
                 className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 sm:w-auto"
                 onClick={() => {
                   afterSuccessNavigate();
-                  setSuccessInfo(null);
                 }}
               >
                 Continue

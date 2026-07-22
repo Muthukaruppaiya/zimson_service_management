@@ -94,10 +94,12 @@ CREATE TABLE IF NOT EXISTS brands (
   name VARCHAR(120) NOT NULL UNIQUE,
   sort_order INTEGER NOT NULL DEFAULT 0,
   is_active BOOLEAN NOT NULL DEFAULT true,
+  serial_number_required BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS serial_number_required BOOLEAN NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_brands_active_sort ON brands (is_active, sort_order, name);
 
 CREATE TABLE IF NOT EXISTS spares (
@@ -1215,6 +1217,14 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS strap_chain_type TEXT NOT NULL DEFAULT '';
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS nature_of_repair VARCHAR(240) NOT NULL DEFAULT '';
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS chain_count VARCHAR(32) NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS chain_count_12_phase VARCHAR(32) NOT NULL DEFAULT '';
+    ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS chain_count_6_phase VARCHAR(32) NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS chain_count_12_phase VARCHAR(32) NOT NULL DEFAULT '';
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS chain_count_6_phase VARCHAR(32) NOT NULL DEFAULT '';
+    UPDATE quick_bills SET chain_count_12_phase = chain_count
+      WHERE chain_count_12_phase = '' AND chain_count <> '';
+    UPDATE srf_jobs SET chain_count_12_phase = chain_count
+      WHERE chain_count_12_phase = '' AND chain_count <> '';
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS customer_remarks TEXT NOT NULL DEFAULT '';
     ALTER TABLE quick_bills ALTER COLUMN case_type TYPE TEXT;
     ALTER TABLE quick_bills ALTER COLUMN strap_chain_type TYPE TEXT;
@@ -1512,6 +1522,19 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS delivery_boy_user_id TEXT REFERENCES app_users(id);
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS handed_to_delivery_at TIMESTAMPTZ;
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS delivery_received_at TIMESTAMPTZ;
+    ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS delivery_trip_number VARCHAR(64);
+  `);
+  await pool.query(`
+    CREATE SEQUENCE IF NOT EXISTS delivery_trip_number_seq;
+    CREATE INDEX IF NOT EXISTS idx_delivery_challans_trip_number
+      ON delivery_challans (delivery_trip_number)
+      WHERE delivery_trip_number IS NOT NULL;
+    UPDATE delivery_challans
+    SET delivery_trip_number =
+      'DBT' || to_char(COALESCE(handed_to_delivery_at, created_at), 'YYMMDD') ||
+      lpad(nextval('delivery_trip_number_seq')::text, 6, '0')
+    WHERE delivery_boy_user_id IS NOT NULL
+      AND delivery_trip_number IS NULL;
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_delivery_challans_delivery_boy

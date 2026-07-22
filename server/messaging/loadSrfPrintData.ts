@@ -19,6 +19,8 @@ export type SrfPrintData = {
   repairRoute?: string;
   caseType?: string;
   strapChainType?: string;
+  chainCount12Phase?: string;
+  chainCount6Phase?: string;
   chainCount?: string;
   customerRemarks?: string;
   bookingDate?: string;
@@ -49,6 +51,8 @@ export async function loadSrfPrintData(pool: Pool, srfId: string): Promise<SrfPr
     repair_route: string;
     case_type: string;
     strap_chain_type: string;
+    chain_count_12_phase: string;
+    chain_count_6_phase: string;
     chain_count: string;
     customer_remarks: string;
     created_at: string;
@@ -65,7 +69,7 @@ export async function loadSrfPrintData(pool: Pool, srfId: string): Promise<SrfPr
             j.estimate_total_inr::text, j.estimated_finish_date::text,
             j.advance_inr::text, j.advance_payment_mode,
             j.nature_of_repair, j.repair_route, j.case_type, j.strap_chain_type,
-            j.chain_count, j.customer_remarks, j.created_at::text,
+            j.chain_count_12_phase, j.chain_count_6_phase, j.chain_count, j.customer_remarks, j.created_at::text,
             COALESCE(NULLIF(s.invoice_display_name, ''), s.name) AS invoice_display_name,
             s.invoice_tagline, s.invoice_address, s.invoice_phone,
             s.invoice_email, s.invoice_gstin, s.name AS store_name
@@ -99,7 +103,9 @@ export async function loadSrfPrintData(pool: Pool, srfId: string): Promise<SrfPr
     repairRoute: row.repair_route,
     caseType: row.case_type,
     strapChainType: row.strap_chain_type,
-    chainCount: row.chain_count,
+    chainCount12Phase: row.chain_count_12_phase?.trim() || row.chain_count?.trim() || undefined,
+    chainCount6Phase: row.chain_count_6_phase?.trim() || undefined,
+    chainCount: row.chain_count?.trim() || undefined,
     customerRemarks: row.customer_remarks,
     bookingDate: row.created_at,
     storeDisplayName: row.invoice_display_name?.trim() || row.store_name,

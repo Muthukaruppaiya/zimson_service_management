@@ -5,6 +5,7 @@ import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { useSrfJobs, type SrfTrace, type SrfTraceActionRow, type SrfTraceReestimateAttempt, type SrfTraceStatusRow } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
+import { formatApproxEstimateInr } from "../../lib/formatInr";
 import { phoneLast10 } from "../../lib/customerLookup";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../../lib/srfTraceLocations";
@@ -53,9 +54,9 @@ const ACTION_LABELS: Record<string, string> = {
   inter_ho_return_to_sender: "Returned to sender HO",
   ho_dispatch_to_store: "HO dispatched to store",
   store_inward_odc: "Store inward (internal outward transfer)",
-  store_self_assign_technician: "Store assigned technician (self repair)",
-  store_self_spares_slip_submitted: "Store recorded used spares (self repair)",
-  store_self_repair_complete: "Store self-repair complete → billing",
+  store_self_assign_technician: "In-store repair — technician assigned",
+  store_self_spares_slip_submitted: "In-store repair — spares recorded",
+  store_self_repair_complete: "In-store repair complete → billing",
   store_close_with_invoice: "Customer billed & SRF closed",
   store_no_billing_handover: "Customer handover (no billing)",
   customer_accept_reestimate: "Customer accepted re-estimate",
@@ -369,7 +370,7 @@ function SrfHeader({ trace }: { trace: SrfTrace }) {
           </p>
         ) : null}
         <p>
-          <span className="font-semibold text-stone-900">Approved estimate:</span> {fmtINR(j.estimateTotalInr)}
+          <span className="font-semibold text-stone-900">Approved estimate (approx.):</span> {formatApproxEstimateInr(j.estimateTotalInr)}
         </p>
         <p>
           <span className="font-semibold text-stone-900">Created:</span> {fmtDateTime(j.createdAt)}

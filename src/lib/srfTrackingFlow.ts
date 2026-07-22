@@ -37,7 +37,16 @@ export function trackingFlowForRepairRoute(
 
 export function trackingFlowIndexHo(status: string): number {
   if (status === "draft" || status === "photo_pending" || status === "at_store") return 0;
-  if (status === "in_transit_sc" || status === "received_at_sc" || status === "sent_to_other_ho") return 1;
+  if (
+    status === "pending_ho_transit" ||
+    status === "in_transit_sc" ||
+    status === "awaiting_sc_inward" ||
+    status === "received_at_sc" ||
+    status === "sent_to_other_ho"
+  ) {
+    return 1;
+  }
+  if (status === "received_at_store" || status === "closed") return 3;
   if (
     status === "assigned" ||
     status === "estimate_ok" ||
@@ -60,11 +69,15 @@ export function trackingFlowIndexHo(status: string): number {
     status === "store_self_assigned" ||
     status === "store_self_working" ||
     status === "inter_ho_reestimate_pending_sender" ||
-    status === "inter_ho_reestimate_customer_accepted"
+    status === "inter_ho_reestimate_customer_accepted" ||
+    status === "ready_for_outward" ||
+    status === "pending_store_transit" ||
+    status === "dispatched_to_store" ||
+    status === "awaiting_store_inward"
   ) {
     return 2;
   }
-  return 3;
+  return 2;
 }
 
 export function trackingFlowIndexStoreSelf(status: string): number {
@@ -137,7 +150,14 @@ export function customerTrackingStatusLabel(
   if (status === "customer_rejected") return "Awaiting confirmation";
   if (status === "inter_ho_reestimate_pending_sender") return "Re-estimate under review";
   if (status === "inter_ho_reestimate_customer_accepted") return "Estimate accepted — confirming with service centre";
-  if (status === "ready_for_outward" || status === "dispatched_to_store") return "Ready for return";
+  if (
+    status === "ready_for_outward" ||
+    status === "pending_store_transit" ||
+    status === "dispatched_to_store" ||
+    status === "awaiting_store_inward"
+  ) {
+    return "Returning to your store";
+  }
   if (status === "received_at_store") return "Ready for pickup";
   if (status === "closed") {
     if (brandCreditNoteApprovedAt) return "Completed — brand voucher issued";

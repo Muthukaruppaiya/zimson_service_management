@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { SRF_ROUTE_LABEL_SEND_TO_SC } from "../../lib/srfRepairRoute";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
+import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { Card } from "../../components/ui/Card";
+import { OtpSendingIndicator } from "../../components/ui/OtpSendingIndicator";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError } from "../../lib/api";
 import { isValidOtpCode, otpLengthLabel } from "../../lib/otp";
+import { formatOtpSentSubtitle, type OtpSentTarget } from "../../lib/otpSentMessage";
 import { inputClass } from "../../lib/uiForm";
+import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
 
 type DeliveryBoy = {
   id: string;
@@ -45,7 +50,7 @@ const QUEUE_META: Record<
   { title: string; blurb: string; kind: HandoffKind; storeSide: boolean; receiveMode: boolean }
 > = {
   store_send: {
-    title: "Send to HO",
+    title: SRF_ROUTE_LABEL_SEND_TO_SC,
     blurb: "1) Choose delivery boy → 2) All pending transfers load → 3) Send OTP → confirm.",
     kind: "store_to_ho_send",
     storeSide: true,
@@ -82,6 +87,7 @@ type Props = {
 export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
   const { user } = useAuth();
   const { refreshJobs } = useSrfJobs();
+  const { showOtpSent, otpSentModal } = useOtpSentSuccess();
   const initial = defaultQueue && queues.includes(defaultQueue) ? defaultQueue : queues[0]!;
   const [queue, setQueue] = useState<QueueKey>(initial);
   const meta = QUEUE_META[queue];
@@ -97,6 +103,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
   const [demoOtp, setDemoOtp] = useState<string | null>(null);
   const [otpInput, setOtpInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
 
   const selectedBoy = useMemo(() => boys.find((b) => b.id === boyId) ?? null, [boys, boyId]);
 
@@ -196,11 +203,13 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
       return;
     }
     setBusy(true);
+    setOtpSending(true);
     try {
       const data = await apiJson<{
         sessionId: string;
         demoOtp?: string;
         deliveryBoyName?: string;
+        sentTo: OtpSentTarget[];
       }>("/api/service/delivery-handoff/otp/start", {
         method: "POST",
         json: { kind: meta.kind, deliveryBoyUserId: boyId, dcNumbers: allDcNumbers },
@@ -210,9 +219,11 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
       setOk(
         `OTP sent to ${data.deliveryBoyName ?? "delivery boy"} via SMS/email. Enter the code to confirm.`,
       );
+      showOtpSent(formatOtpSentSubtitle(data.sentTo ?? []));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not send OTP.");
     } finally {
+      setOtpSending(false);
       setBusy(false);
     }
   }
@@ -226,12 +237,16 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
     }
     setBusy(true);
     try {
-      const data = await apiJson<{ updatedDocs: number; updatedWatches: number }>(
+      const data = await apiJson<{
+        updatedDocs: number;
+        updatedWatches: number;
+        deliveryTripNumber?: string | null;
+      }>(
         "/api/service/delivery-handoff/otp/confirm",
         { method: "POST", json: { sessionId, otp: otpInput.trim() } },
       );
       setOk(
-        `Handoff confirmed — ${data.updatedDocs} transfer(s), ${data.updatedWatches} watch(es) updated.`,
+        `Handoff confirmed${data.deliveryTripNumber ? ` · Trip ${data.deliveryTripNumber}` : ""} — ${data.updatedDocs} transfer(s), ${data.updatedWatches} watch(es) updated.`,
       );
       setSessionId(null);
       setDemoOtp(null);
@@ -374,43 +389,15 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
             {visibleRows.length > 0 ? (
               <div className="mt-4 space-y-3">
                 <p className="text-sm font-semibold text-stone-700">Step 3 — OTP</p>
-                <div className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     disabled={busy || allDcNumbers.length === 0}
                     onClick={() => void sendOtp()}
                     className="rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
                   >
-                    {busy && !sessionId ? "Sending…" : "Send OTP"}
+                    Send OTP
                   </button>
-                  {sessionId ? (
-                    <>
-                      <label className="block text-sm">
-                        <span className="mb-1 block font-semibold text-stone-700">
-                          OTP from delivery boy
-                        </span>
-                        <input
-                          className={inputClass}
-                          inputMode="numeric"
-                          maxLength={6}
-                          value={otpInput}
-                          onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ""))}
-                          placeholder={otpLengthLabel()}
-                        />
-                      </label>
-                      {demoOtp ? (
-                        <span className="text-xs text-amber-800">Demo OTP: {demoOtp}</span>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={busy || !isValidOtpCode(otpInput)}
-                        onClick={() => void confirmOtp()}
-                        className="rounded-xl border border-rlx-green bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green disabled:opacity-50"
-                      >
-                        Confirm OTP
-                      </button>
-                    </>
-                  ) : null}
                   <button
                     type="button"
                     onClick={() => void load(boyId)}
@@ -434,6 +421,49 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
           </>
         )}
       </Card>
+      {otpSending || sessionId ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label={otpSending ? "Sending delivery boy OTP" : "Enter delivery boy OTP"}
+        >
+          <div className="relative w-full max-w-lg rounded-2xl border border-white/20 bg-white p-4 shadow-2xl sm:p-5">
+            {sessionId && !busy ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSessionId(null);
+                  setDemoOtp(null);
+                  setOtpInput("");
+                }}
+                className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 bg-white text-lg text-stone-600 shadow-sm hover:bg-stone-50"
+                title="Close OTP window"
+                aria-label="Close OTP window"
+              >
+                ×
+              </button>
+            ) : null}
+            {otpSending ? (
+              <OtpSendingIndicator
+                label={`Sending OTP to ${selectedBoy?.displayName ?? "delivery boy"}…`}
+                description="Delivering to the delivery boy’s registered mobile and email…"
+              />
+            ) : (
+              <DemoOtpGate
+                title="Enter delivery boy OTP"
+                issuedCode={demoOtp ?? undefined}
+                value={otpInput}
+                onChange={setOtpInput}
+                onVerify={() => void confirmOtp()}
+                onRegenerate={() => void sendOtp()}
+                verifyBusy={busy}
+              />
+            )}
+          </div>
+        </div>
+      ) : null}
+      {otpSentModal}
     </div>
   );
 }

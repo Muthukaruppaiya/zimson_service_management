@@ -78,6 +78,9 @@ export type QuickBillInvoice = {
   caseType?: string;
   strapChainType?: string;
   natureOfRepair?: string;
+  chainCount12Phase?: string;
+  chainCount6Phase?: string;
+  /** @deprecated Legacy field — use chainCount12Phase / chainCount6Phase. */
   chainCount?: string;
   customerRemarks?: string;
   warrantyStatus?: QuickBillWarrantyStatus;

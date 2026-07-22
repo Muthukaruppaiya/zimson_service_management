@@ -30,8 +30,10 @@ export type MessagingSettingsDb = {
   qikchatTrackingTemplateName?: string;
   qikchatTrackingTextTemplateName?: string;
   qikchatApprovalTemplateName?: string;
+  qikchatReadyPickupTemplateName?: string;
   qikchatTrackingTemplateBody?: string;
   qikchatApprovalTemplateBody?: string;
+  qikchatReadyPickupTemplateBody?: string;
   qikchatInvoiceTemplateBody?: string;
   whatsappInvoiceMode?: string;
   messagingPublicBaseUrl?: string;
@@ -74,8 +76,10 @@ export type MessagingSettingsPublic = {
   qikchatTrackingTemplateName: string;
   qikchatTrackingTextTemplateName: string;
   qikchatApprovalTemplateName: string;
+  qikchatReadyPickupTemplateName: string;
   qikchatTrackingTemplateBody: string;
   qikchatApprovalTemplateBody: string;
+  qikchatReadyPickupTemplateBody: string;
   qikchatInvoiceTemplateBody: string;
   whatsappInvoiceMode: "template" | "media";
   messagingPublicBaseUrl: string;
@@ -111,6 +115,8 @@ const DEFAULT_WHATSAPP_TRACKING_BODY =
   "Hi {{1}}, your service request {{2}} has been registered. Track: {{3}}";
 const DEFAULT_WHATSAPP_APPROVAL_BODY =
   "Hi {{1}}, your service request {{2}} needs your approval for a site visit by our technician. Reason: {{3}}. Please review and respond here: {{4}} Thank you for choosing Zimson.";
+const DEFAULT_WHATSAPP_READY_PICKUP_BODY =
+  "Hi {{1}}, your watch for service request {{2}} is ready for collection at {{3}}. Please visit the store with your SRF acknowledgement to collect your watch. Track status: {{4}}. Thank you for choosing Zimson Watch Care.";
 const DEFAULT_WHATSAPP_INVOICE_BODY = "Hello {{1}}, please find your invoice {{2}} from Zimson Watch Care.";
 
 let poolRef: Pool | null = null;
@@ -189,8 +195,13 @@ function resolveMerged(db: MessagingSettingsDb): {
       trackingTemplateName,
       trackingTextTemplateName,
       approvalTemplateName: pickStr(db.qikchatApprovalTemplateName, "site_visit_approval"),
+      readyPickupTemplateName: pickStr(db.qikchatReadyPickupTemplateName, "watch_ready_for_pickup"),
       trackingTemplateBody: pickStr(db.qikchatTrackingTemplateBody, DEFAULT_WHATSAPP_TRACKING_BODY),
       approvalTemplateBody: pickStr(db.qikchatApprovalTemplateBody, DEFAULT_WHATSAPP_APPROVAL_BODY),
+      readyPickupTemplateBody: pickStr(
+        db.qikchatReadyPickupTemplateBody,
+        DEFAULT_WHATSAPP_READY_PICKUP_BODY,
+      ),
       invoiceTemplateBody: pickStr(db.qikchatInvoiceTemplateBody, DEFAULT_WHATSAPP_INVOICE_BODY),
     },
     sms: {
@@ -352,8 +363,10 @@ export function toPublicSettings(): MessagingSettingsPublic {
     qikchatTrackingTemplateName: c.whatsapp.trackingTemplateName,
     qikchatTrackingTextTemplateName: c.whatsapp.trackingTextTemplateName,
     qikchatApprovalTemplateName: c.whatsapp.approvalTemplateName,
+    qikchatReadyPickupTemplateName: c.whatsapp.readyPickupTemplateName,
     qikchatTrackingTemplateBody: c.whatsapp.trackingTemplateBody,
     qikchatApprovalTemplateBody: c.whatsapp.approvalTemplateBody,
+    qikchatReadyPickupTemplateBody: c.whatsapp.readyPickupTemplateBody,
     qikchatInvoiceTemplateBody: c.whatsapp.invoiceTemplateBody,
     whatsappInvoiceMode: f.whatsappInvoiceMode,
     messagingPublicBaseUrl: f.messagingPublicBaseUrl,
