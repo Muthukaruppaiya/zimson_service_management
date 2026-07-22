@@ -1524,6 +1524,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS delivery_received_at TIMESTAMPTZ;
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS delivery_trip_number VARCHAR(64);
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_qc_fail_remark TEXT;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_estimate_ref VARCHAR(120);
   `);
   await pool.query(`
     CREATE SEQUENCE IF NOT EXISTS delivery_trip_number_seq;

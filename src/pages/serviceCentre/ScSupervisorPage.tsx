@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
@@ -231,6 +231,67 @@ function ActionPrintIcon() {
   );
 }
 
+const dqBtnRepair =
+  "inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
+const dqBtnProceed =
+  "rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60";
+const dqBtnGold =
+  "inline-flex items-center gap-2 rounded-xl border border-rlx-gold/70 bg-rlx-gold-light/40 px-4 py-2 text-sm font-semibold text-rlx-gold-dark shadow-sm transition hover:border-rlx-gold hover:bg-rlx-gold-light/70 disabled:cursor-not-allowed disabled:opacity-60";
+const dqBtnDanger =
+  "inline-flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-800 transition hover:border-rose-400 hover:bg-rose-100";
+const dqBtnRouteRegion =
+  "inline-flex items-center gap-2 rounded-xl border border-sky-400/70 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-950 shadow-sm transition hover:border-sky-500 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60";
+const dqBtnRouteBrand =
+  "inline-flex items-center gap-2 rounded-xl border border-fuchsia-400/70 bg-fuchsia-50 px-4 py-2 text-sm font-semibold text-fuchsia-950 shadow-sm transition hover:border-fuchsia-500 hover:bg-fuchsia-100 disabled:cursor-not-allowed disabled:opacity-60";
+const dqBtnRouteOrder =
+  "inline-flex items-center gap-2 rounded-xl border border-teal-400/70 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-950 shadow-sm transition hover:border-teal-500 hover:bg-teal-100";
+const dqBtnDocHistory =
+  "inline-flex items-center gap-2 rounded-xl border border-violet-300/80 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 shadow-sm transition hover:border-violet-400 hover:bg-violet-100";
+const dqBtnDocTrace =
+  "inline-flex items-center gap-2 rounded-xl border border-cyan-400/70 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-500 hover:bg-cyan-100";
+const dqBtnDocPrint =
+  "inline-flex items-center gap-2 rounded-xl border border-rlx-gold/75 bg-rlx-gold-light/50 px-4 py-2 text-sm font-semibold text-rlx-gold-dark shadow-sm transition hover:border-rlx-gold hover:bg-rlx-gold-light/80";
+
+function ActionDocsIcon() {
+  return (
+    <svg className="h-3.5 w-3.5 text-rlx-gold-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ActionRoutingIcon() {
+  return (
+    <svg className="h-3.5 w-3.5 text-sky-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="18" cy="18" r="2.5" />
+      <path d="M8.5 7.5l7 7" strokeLinecap="round" />
+      <path d="M14 6h4v4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DecisionActionGroup({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-zimson-600">
+        {icon}
+        {label}
+      </p>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
+
 export function ScSupervisorPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -344,6 +405,7 @@ export function ScSupervisorPage() {
   const [reestimateProceedBusyId, setReestimateProceedBusyId] = useState<string | null>(null);
   const [sendBrandReason, setSendBrandReason] = useState("Cannot be repaired at HO");
   const [brandEstimatePopupJobId, setBrandEstimatePopupJobId] = useState<string | null>(null);
+  const [brandEstimateRefInput, setBrandEstimateRefInput] = useState("");
   const [brandEstimateAmountInput, setBrandEstimateAmountInput] = useState("");
   const [brandEstimateNoteInput, setBrandEstimateNoteInput] = useState("");
   const [brandEstimateAttachmentFile, setBrandEstimateAttachmentFile] = useState<File | null>(null);
@@ -1386,8 +1448,13 @@ export function ScSupervisorPage() {
   async function confirmBrandEstimate() {
     if (!brandEstimatePopupJobId) return;
     const jobId = brandEstimatePopupJobId;
+    const estimateRef = brandEstimateRefInput.trim();
     const amount = Number(brandEstimateAmountInput);
     const note = brandEstimateNoteInput.trim();
+    if (!estimateRef) {
+      setFeedback((f) => ({ ...f, [jobId]: "Brand estimate reference is required." }));
+      return;
+    }
     if (!Number.isFinite(amount) || amount <= 0) {
       setFeedback((f) => ({ ...f, [jobId]: "Enter valid brand estimate amount." }));
       return;
@@ -1402,19 +1469,21 @@ export function ScSupervisorPage() {
         attachmentMeta = brandMailMetaFromAttachment(att);
       }
       await supervisorLogBrandEstimate(jobId, {
+        estimateRef,
         estimateInr: amount,
         currency: "INR",
         note,
         ...(attachmentPath ? { attachmentPath, attachmentMeta } : {}),
       });
       setBrandEstimatePopupJobId(null);
+      setBrandEstimateRefInput("");
       setBrandEstimateAttachmentFile(null);
       setBrandEstimateAttachmentError(null);
       setBrandSuccessAck({
         title: "Brand estimate logged",
         description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
         reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
-        detail: `Brand estimate INR ${amount.toFixed(2)} saved. Forward to customer with markup.`,
+        detail: `Brand estimate ${estimateRef} — INR ${amount.toFixed(2)} saved. Forward to customer with markup.`,
       });
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand estimate." }));
@@ -2076,14 +2145,14 @@ export function ScSupervisorPage() {
             {!senderApprovalOnlyView ? (
               <Link
                 to="/service-centre/supervisor/reestimate-sender"
-                className="inline-flex rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100"
+                className="inline-flex rounded-xl border border-rlx-gold/70 bg-rlx-gold-light/35 px-4 py-2.5 text-sm font-semibold text-rlx-gold-dark shadow-sm transition hover:border-rlx-gold hover:bg-rlx-gold-light/60"
               >
                 Sender re-estimate approvals
               </Link>
             ) : (
               <Link
                 to="/service-centre/supervisor"
-                className="inline-flex rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100"
+                className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-800 shadow-sm transition hover:bg-zimson-50"
               >
                 Back to supervisor
               </Link>
@@ -2091,7 +2160,7 @@ export function ScSupervisorPage() {
             {srfId ? (
               <Link
                 to="/service-centre/supervisor"
-                className="inline-flex rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100"
+                className="inline-flex rounded-xl border border-zimson-500 bg-zimson-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-800"
               >
                 Back to SRF list
               </Link>
@@ -2778,6 +2847,10 @@ export function ScSupervisorPage() {
                     {j.brandEstimateInr ? (
                       <p className="mt-1 text-xs text-stone-600">
                         <span className="font-semibold">Brand estimate:</span>{" "}
+                        {j.brandEstimateRef?.trim() ? (
+                          <span className="font-mono text-zimson-800">{j.brandEstimateRef}</span>
+                        ) : null}
+                        {j.brandEstimateRef?.trim() ? " · " : ""}
                         {formatApproxEstimateCurrency(Number(j.brandEstimateInr))}
                       </p>
                     ) : null}
@@ -2806,6 +2879,10 @@ export function ScSupervisorPage() {
                     {j.brandInvoiceAmountInr ? (
                       <p className="mt-1 text-xs text-stone-600">
                         <span className="font-semibold">Brand invoice:</span>{" "}
+                        {j.brandInvoiceRef?.trim() ? (
+                          <span className="font-mono text-zimson-800">{j.brandInvoiceRef}</span>
+                        ) : null}
+                        {j.brandInvoiceRef?.trim() ? " · " : ""}
                         {Number(j.brandInvoiceAmountInr).toLocaleString(undefined, { style: "currency", currency: "INR" })}
                       </p>
                     ) : null}
@@ -2842,6 +2919,7 @@ export function ScSupervisorPage() {
                         type="button"
                         onClick={() => {
                           setBrandEstimatePopupJobId(j.id);
+                          setBrandEstimateRefInput(j.brandEstimateRef?.trim() ?? "");
                           setBrandEstimateAmountInput("");
                           setBrandEstimateNoteInput("");
                           setBrandEstimateAttachmentFile(null);
@@ -3056,7 +3134,7 @@ export function ScSupervisorPage() {
                         type="button"
                         onClick={() => {
                           setBrandInvoicePopupJobId(j.id);
-                          setBrandInvoiceRefInput("");
+                          setBrandInvoiceRefInput(j.brandInvoiceRef?.trim() || j.brandEstimateRef?.trim() || "");
                           setBrandInvoiceAmountInput(j.brandEstimateInr ? String(Number(j.brandEstimateInr).toFixed(2)) : "");
                           setBrandInvoiceNoteInput("");
                           setBrandInvoiceAttachmentFile(null);
@@ -3284,14 +3362,34 @@ export function ScSupervisorPage() {
           </div>
         </Card>
       ) : null}
-      <Card title="Supervisor decision queue" subtitle="From supervisor login: mark repaired or need re-estimate" className="mt-8">
+      <section className="mt-8 overflow-hidden rounded-2xl border border-zimson-200 shadow-[0_8px_32px_rgba(15,38,71,0.08)]">
+        <div className="relative border-b border-zimson-700 bg-gradient-to-r from-zimson-900 via-zimson-800 to-zimson-900 px-5 py-4">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-rlx-gold to-transparent" aria-hidden />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-rlx-gold-light">Service centre</p>
+              <h2 className="mt-0.5 text-base font-bold uppercase tracking-wide text-white sm:text-lg">
+                Supervisor decision queue
+              </h2>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-white/70">
+                From supervisor login: mark repaired, request re-estimate, or route to brand / another region.
+              </p>
+            </div>
+            {decisionView.length > 0 ? (
+              <span className="rounded-full border border-rlx-gold/50 bg-rlx-gold/15 px-4 py-1.5 text-sm font-bold tabular-nums text-rlx-gold-light ring-1 ring-rlx-gold/25">
+                {decisionView.length} active
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className="bg-gradient-to-b from-zimson-50/50 to-white p-4 sm:p-5">
         {decisionView.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-zimson-300 bg-gradient-to-br from-zimson-50/60 to-white px-6 py-10 text-center">
-            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-zimson-100 text-xl text-zimson-700">
+          <div className="rounded-2xl border border-dashed border-zimson-300/80 bg-white px-6 py-12 text-center">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-rlx-gold/40 bg-rlx-gold-light/40 text-2xl text-rlx-gold-dark">
               ✓
             </span>
-            <p className="mt-3 text-sm font-semibold text-zimson-900">No supervisor decision required now</p>
-            <p className="mx-auto mt-1 max-w-2xl text-xs leading-relaxed text-stone-500">
+            <p className="mt-4 text-sm font-semibold text-zimson-900">No supervisor decision required now</p>
+            <p className="mx-auto mt-2 max-w-2xl text-xs leading-relaxed text-stone-500">
               {interHoSenderReestimateView.length > 0
                 ? "This is an inter-HO sender action. Use the customer approvals section above."
                 : receivedView.length > 0 || repairHoInvoiceView.length > 0 || transferredView.length > 0
@@ -3302,7 +3400,7 @@ export function ScSupervisorPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {decisionView.map((j) => {
               const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
               const spareFlow = spareFlowBySrfId.get(j.id) ?? null;
@@ -3338,72 +3436,107 @@ export function ScSupervisorPage() {
                 j.status !== "inter_ho_reestimate_pending_sender" &&
                 j.status !== "inter_ho_reestimate_customer_accepted";
               return (
-              <div key={j.id} className="rounded-2xl border border-zimson-200/80 bg-white/90 p-4 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-mono text-sm font-bold text-zimson-900">{mainRef}</p>
+              <article
+                key={j.id}
+                className="overflow-hidden rounded-2xl border border-zimson-200/90 bg-white shadow-[0_4px_20px_rgba(15,38,71,0.06)]"
+              >
+                <div className="h-1 bg-gradient-to-r from-rlx-gold/80 via-rlx-gold to-rlx-gold/80" aria-hidden />
+                <header className="flex flex-wrap items-start justify-between gap-3 border-b border-zimson-100 bg-gradient-to-r from-zimson-50 via-white to-rlx-gold-light/20 px-5 py-4">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zimson-500">Decision required</p>
+                    <p className="mt-1 font-mono text-lg font-bold text-zimson-900">{mainRef}</p>
                     {receiverRef && receiverRef !== mainRef ? (
-                      <p className="text-[11px] text-stone-500">
+                      <p className="mt-0.5 text-[11px] text-stone-500">
                         Receiver SRF (converted): <span className="font-mono font-semibold">{receiverRef}</span>
                       </p>
                     ) : null}
-                    <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
-                    <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
-                    <p className="mt-1 text-xs text-stone-500">Status: {j.status.replace(/_/g, " ")}</p>
-                    <div className="mt-2 rounded-lg border border-zimson-100 bg-zimson-50/50 px-3 py-2 text-xs text-stone-700">
-                      <p>
-                        <span className="font-semibold text-stone-900">Spares / brand amount:</span>{" "}
-                        {sparesAmountInr(j).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                  </div>
+                  <span className="shrink-0 rounded-full border border-rlx-gold/45 bg-rlx-gold-light/35 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-zimson-900">
+                    {j.status.replace(/_/g, " ")}
+                  </span>
+                </header>
+
+                <div className="grid gap-3 p-5 sm:grid-cols-3">
+                  <section className="rounded-xl border border-zimson-100 bg-white p-4 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zimson-500">Customer</p>
+                    <p className="mt-2 font-semibold text-zimson-900">{j.customerName}</p>
+                    <p className="mt-0.5 text-sm text-stone-600">{j.phone || "—"}</p>
+                  </section>
+                  <section className="rounded-xl border border-zimson-100 bg-white p-4 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zimson-500">Watch</p>
+                    <p className="mt-2 font-semibold text-zimson-900">
+                      {j.watchBrand} {j.watchModel}
+                    </p>
+                    <p className="mt-0.5 text-sm text-stone-600">Serial: {j.serial || "—"}</p>
+                  </section>
+                  <section className="rounded-xl border border-rlx-gold/30 bg-gradient-to-br from-rlx-gold-light/25 to-white p-4 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rlx-gold-dark">Spares / brand</p>
+                    <p className="mt-2 text-xl font-bold tabular-nums text-zimson-900">
+                      {sparesAmountInr(j).toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                    </p>
+                    {j.usedSpares && j.usedSpares.length > 0 ? (
+                      <p className="mt-2 text-xs leading-relaxed text-stone-600">
+                        {j.usedSpares.map((x) => `${x.name} ×${x.qty}`).join(" · ")}
                       </p>
-                    </div>
+                    ) : null}
+                  </section>
+                </div>
+
+                {(j.customerReestimateResponse === "accepted" ||
+                  j.customerReestimateResponse === "rejected" ||
+                  hasSpareFlow ||
+                  j.technicianBrandRecommendedAt) ? (
+                  <div className="space-y-2 border-t border-zimson-100 px-5 py-3">
                     {j.customerReestimateResponse === "accepted" ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2">
                         <p className="text-xs font-semibold text-emerald-800">
-                          Customer accepted re-estimate{j.customerReestimateRespondedAt ? ` · ${new Date(j.customerReestimateRespondedAt).toLocaleString()}` : ""}
+                          Customer accepted re-estimate
+                          {j.customerReestimateRespondedAt
+                            ? ` · ${new Date(j.customerReestimateRespondedAt).toLocaleString()}`
+                            : ""}
                         </p>
                         {acceptedReestimateNeedsProceed ? (
                           <button
                             type="button"
                             disabled={reestimateProceedBusyId === j.id}
                             onClick={() => void proceedAfterAcceptedReestimate(j.id)}
-                            className="rounded-lg bg-emerald-700 px-4 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60"
+                            className={dqBtnProceed}
                           >
                             {reestimateProceedBusyId === j.id ? "Proceeding…" : "Proceed"}
                           </button>
                         ) : (
-                          <span className="rounded-md bg-emerald-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
+                          <span className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
                             Proceeded
                           </span>
                         )}
                       </div>
                     ) : null}
                     {j.customerReestimateResponse === "rejected" ? (
-                      <p className="mt-1 text-xs font-semibold text-rose-700">
-                        Customer rejected re-estimate{j.customerReestimateRespondedAt ? ` · ${new Date(j.customerReestimateRespondedAt).toLocaleString()}` : ""}
-                      </p>
-                    ) : null}
-                    {j.usedSpares && j.usedSpares.length > 0 ? (
-                      <p className="mt-1 text-xs text-stone-600">
-                        Spares: {j.usedSpares.map((x) => `${x.name} x${x.qty}`).join(", ")}
+                      <p className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-xs font-semibold text-rose-800">
+                        Customer rejected re-estimate
+                        {j.customerReestimateRespondedAt
+                          ? ` · ${new Date(j.customerReestimateRespondedAt).toLocaleString()}`
+                          : ""}
                       </p>
                     ) : null}
                     {hasSpareFlow ? (
-                      <p className="mt-1 text-xs font-medium text-cyan-700">
+                      <p className="rounded-xl border border-zimson-200 bg-zimson-50/80 px-3 py-2 text-xs font-medium text-zimson-800">
                         Spare flow active ({spareFlow?.orderNumber}) ·{" "}
                         {spareFlowInwardDone ? "Inward completed" : "Waiting inward"}
                       </p>
                     ) : null}
                     {j.technicianBrandRecommendedAt ? (
-                      <p className="mt-1 text-xs font-semibold text-violet-800">
+                      <p className="rounded-xl border border-rlx-gold/35 bg-rlx-gold-light/30 px-3 py-2 text-xs font-semibold text-zimson-900">
                         Technician recommends brand repair
                         {j.technicianBrandRecommendNote ? ` — ${j.technicianBrandRecommendNote}` : ""}
                       </p>
                     ) : null}
                   </div>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
+                ) : null}
+
+                <div className="space-y-4 border-t border-zimson-100 bg-zimson-50/35 px-5 py-4">
                   {j.status === "reestimate_required" ? (
-                    <div className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <div className="rounded-xl border border-rlx-gold/40 bg-rlx-gold-light/30 px-3 py-2 text-xs text-zimson-900">
                       <p className="font-semibold">
                         {j.interHoReestimatePhase === "customer_pending"
                           ? "Waiting for customer approval (sender HO forwarded via tracking link)."
@@ -3412,7 +3545,7 @@ export function ScSupervisorPage() {
                     </div>
                   ) : null}
                   {j.status === "inter_ho_reestimate_pending_sender" ? (
-                    <div className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                    <div className="rounded-xl border border-zimson-200 bg-white px-3 py-2 text-xs text-zimson-900">
                       <p className="font-semibold">
                         Re-estimate sent to sender HO ({formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}) — awaiting
                         customer forwarding.
@@ -3420,144 +3553,124 @@ export function ScSupervisorPage() {
                     </div>
                   ) : null}
                   {j.status === "inter_ho_reestimate_customer_accepted" ? (
-                    <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                      <p className="font-semibold">Customer accepted — awaiting sender HO to release repair.</p>
+                    <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-900">
+                      <p>Customer accepted — awaiting sender HO to release repair.</p>
                     </div>
                   ) : null}
                   {j.status === "customer_rejected" ? (
-                    <div className="w-full rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
-                      {/* <p className="font-semibold">
-                        Customer rejected the re-estimate. Watch is on hold for supervisor follow-up.
-                      </p> */}
-                      {/* <p className="mt-1 text-[11px]">
-                        Call the customer and try to negotiate. If they agree on a revised amount, click
-                        <span className="font-semibold"> &quot;Negotiate &amp; send re-estimate&quot;</span> to share the new
-                        estimate via tracking link. If the customer still does not want the repair, click
-                        <span className="font-semibold"> &quot;Move to internal outward&quot;</span> to send the watch back to the store
-                        without billing.
-                      </p> */}
-                    </div>
+                    <div className="w-full rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900" />
                   ) : null}
-                  {canOpenRepair ? (
+
+                  <DecisionActionGroup label="Repair decisions">
+                    {canOpenRepair ? (
+                      <button
+                        type="button"
+                        onClick={() => openRepairPopup(j.id)}
+                        disabled={acceptedReestimateNeedsProceed || (hasSpareFlow && !spareFlowInwardDone)}
+                        className={dqBtnRepair}
+                      >
+                        {hasSpareFlow
+                          ? spareFlowInwardDone
+                            ? "Watch repaired (auto spare lines)"
+                            : "Waiting spare inward"
+                          : "Watch repaired"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      onClick={() => openRepairPopup(j.id)}
-                      disabled={acceptedReestimateNeedsProceed || (hasSpareFlow && !spareFlowInwardDone)}
-                      className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => openReestimatePopup(j.id)}
+                      disabled={
+                        j.status === "reestimate_required" ||
+                        j.status === "inter_ho_reestimate_pending_sender" ||
+                        j.status === "inter_ho_reestimate_customer_accepted" ||
+                        acceptedReestimateNeedsProceed ||
+                        disableReestimate
+                      }
+                      className={dqBtnGold}
                     >
-                      {hasSpareFlow
-                        ? spareFlowInwardDone
-                          ? "Watch repaired (auto spare lines)"
-                          : "Waiting spare inward"
-                        : "Watch repaired"}
+                      {j.status === "customer_rejected"
+                        ? interHoReceiverLocal
+                          ? "Negotiate & resend to sender HO"
+                          : "Negotiate & send re-estimate"
+                        : interHoReceiverLocal
+                          ? "Need re-estimate (sender HO)"
+                          : "Need re-estimate"}
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => openReestimatePopup(j.id)}
-                    disabled={
-                      j.status === "reestimate_required" ||
-                      j.status === "inter_ho_reestimate_pending_sender" ||
-                      j.status === "inter_ho_reestimate_customer_accepted" ||
-                      acceptedReestimateNeedsProceed ||
-                      disableReestimate
-                    }
-                    className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {j.status === "customer_rejected"
-                      ? interHoReceiverLocal
-                        ? "Negotiate & resend to sender HO"
-                        : "Negotiate & send re-estimate"
-                      : interHoReceiverLocal
-                        ? "Need re-estimate (sender HO)"
-                        : "Need re-estimate"}
-                  </button>
-                  {j.status === "customer_rejected" ? (
-                    <button
-                      type="button"
-                      onClick={() => openMoveToOdcPopup(j.id)}
-                      className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
-                    >
-                      {interHoReceiverLocal
-                        ? "Return to sender HO (no repair)"
-                        : "Move to internal outward (no repair)"}
-                    </button>
-                  ) : null}
-                  {(j.status === "assigned" || j.status === "estimate_ok") && !lockTransferBrandSpares && !interHoReceiverLocal && !reestimateJourneyActive ? (
-                    <button
-                      type="button"
-                      onClick={() => openTransferPopup(j.id)}
-                      disabled={acceptedReestimateNeedsProceed}
-                      className="inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <ActionSendIcon />
-                      Send to region
-                    </button>
-                  ) : null}
-                  {(j.status === "assigned" ||
-                    j.status === "estimate_ok" ||
-                    j.status === "reestimate_required" ||
-                    j.status === "customer_rejected") &&
+                    {j.status === "customer_rejected" ? (
+                      <button type="button" onClick={() => openMoveToOdcPopup(j.id)} className={dqBtnDanger}>
+                        {interHoReceiverLocal
+                          ? "Return to sender HO (no repair)"
+                          : "Move to internal outward (no repair)"}
+                      </button>
+                    ) : null}
+                  </DecisionActionGroup>
+
+                  {(j.status === "assigned" || j.status === "estimate_ok") &&
                   !lockTransferBrandSpares &&
                   !reestimateJourneyActive ? (
-                    <button
-                      type="button"
-                      onClick={() => openSendToBrandPopup(j.id)}
-                      disabled={acceptedReestimateNeedsProceed}
-                      className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-semibold text-fuchsia-900 hover:bg-fuchsia-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <ActionMailIcon />
-                      Send to brand
-                    </button>
+                    <DecisionActionGroup label="Routing & spares" icon={<ActionRoutingIcon />}>
+                      {!interHoReceiverLocal ? (
+                        <button
+                          type="button"
+                          onClick={() => openTransferPopup(j.id)}
+                          disabled={acceptedReestimateNeedsProceed}
+                          className={dqBtnRouteRegion}
+                        >
+                          <ActionSendIcon />
+                          Send to region
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => openSendToBrandPopup(j.id)}
+                        disabled={acceptedReestimateNeedsProceed}
+                        className={dqBtnRouteBrand}
+                      >
+                        <ActionMailIcon />
+                        Send to brand
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openRequestSparesPopup(j.id)}
+                        className={dqBtnRouteOrder}
+                      >
+                        <ActionOrderIcon />
+                        Online order
+                      </button>
+                    </DecisionActionGroup>
                   ) : null}
-                  {(j.status === "assigned" || j.status === "estimate_ok") && !lockTransferBrandSpares && !reestimateJourneyActive ? (
-                    <button
-                      type="button"
-                      onClick={() => openRequestSparesPopup(j.id)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-900 hover:bg-teal-100"
-                    >
-                      <ActionOrderIcon />
-                      Online order
+
+                  <DecisionActionGroup label="Documents & trace" icon={<ActionDocsIcon />}>
+                    <button type="button" onClick={() => void toggleHistory(j.id)} className={dqBtnDocHistory}>
+                      <ActionHistoryIcon />
+                      {historyByJob[j.id] ? "Hide history" : "Show history"}
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void toggleHistory(j.id)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
-                  >
-                    <ActionHistoryIcon />
-                    {historyByJob[j.id] ? "Hide history" : "Show history"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTraceJobId(j.id)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-orange-300 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-900 hover:bg-orange-100"
-                  >
-                    <ActionSearchIcon />
-                    View full trace
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => printEstimateDocument(j)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-900 hover:bg-stone-200"
-                  >
-                    <ActionPrintIcon />
-                    Print estimate
-                  </button>
+                    <button type="button" onClick={() => setTraceJobId(j.id)} className={dqBtnDocTrace}>
+                      <ActionSearchIcon />
+                      View full trace
+                    </button>
+                    <button type="button" onClick={() => printEstimateDocument(j)} className={dqBtnDocPrint}>
+                      <ActionPrintIcon />
+                      Print estimate
+                    </button>
+                  </DecisionActionGroup>
                 </div>
-                {feedback[j.id] ? <p className="mt-2 text-xs text-stone-600">{feedback[j.id]}</p> : null}
+
+                {feedback[j.id] ? (
+                  <p className="border-t border-zimson-100 bg-white px-5 py-2 text-xs text-stone-600">{feedback[j.id]}</p>
+                ) : null}
                 {historyByJob[j.id] ? (
-                  <div className="mt-3 rounded-xl bg-zimson-50 p-3 text-xs text-stone-700">
+                  <div className="border-t border-zimson-100 bg-white px-5 py-3 text-xs text-stone-700">
                     <div className="mb-2 flex justify-end">
                       <button
                         type="button"
                         onClick={() => printHistory(j.reference, historyByJob[j.id]!)}
-                        className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900"
+                        className="rounded-lg border border-rlx-gold/50 bg-rlx-gold-light/30 px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-rlx-gold-light/50"
                       >
                         Print document
                       </button>
                     </div>
-                    <ul className="space-y-1">
+                    <ul className="space-y-1 rounded-xl border border-zimson-100 bg-zimson-50/50 p-3">
                       {historyByJob[j.id]!.map((h) => (
                         <li key={h.id}>
                           <span className="font-mono">{new Date(h.changedAt).toLocaleString()}</span> ·{" "}
@@ -3568,12 +3681,13 @@ export function ScSupervisorPage() {
                     </ul>
                   </div>
                 ) : null}
-              </div>
+              </article>
               );
             })}
           </div>
         )}
-      </Card>
+        </div>
+      </section>
       </>
       ) : null}
       {senderForwardPopupJobId ? (
@@ -3828,10 +3942,22 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand estimate</h3>
-            <p className="mt-1 text-sm text-stone-600">Enter the estimate amount from brand mail. Document upload is optional.</p>
+            <p className="mt-1 text-sm text-stone-600">
+              Enter the brand estimate reference and amount from brand mail. Document upload is optional.
+            </p>
             <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Brand estimate reference *
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={brandEstimateRefInput}
+                  onChange={(e) => setBrandEstimateRefInput(e.target.value)}
+                  placeholder="e.g. BE/2026/00421 or brand mail ref"
+                  autoFocus
+                />
+              </label>
               <label className="text-sm">{ESTIMATE_AMOUNT_LABEL_APPROX} (INR) *
-                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandEstimateAmountInput} onChange={(e) => setBrandEstimateAmountInput(e.target.value)} autoFocus />
+                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandEstimateAmountInput} onChange={(e) => setBrandEstimateAmountInput(e.target.value)} />
               </label>
               <label className="text-sm">Mail note / remarks
                 <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={3} value={brandEstimateNoteInput} onChange={(e) => setBrandEstimateNoteInput(e.target.value)} />
@@ -3868,8 +3994,16 @@ export function ScSupervisorPage() {
               .
             </p>
             <div className="mt-4 grid gap-3">
-              <label className="text-sm">Brand invoice reference *
-                <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandInvoiceRefInput} onChange={(e) => setBrandInvoiceRefInput(e.target.value)} disabled={brandInvoiceSaving} autoFocus />
+              <label className="text-sm">
+                Brand invoice reference *
+                <input
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={brandInvoiceRefInput}
+                  onChange={(e) => setBrandInvoiceRefInput(e.target.value)}
+                  disabled={brandInvoiceSaving}
+                  placeholder="e.g. BI/2026/00812 or brand invoice number"
+                  autoFocus
+                />
               </label>
               <BrandInvoiceLineItemsEditor
                 lines={brandInvoiceLines}

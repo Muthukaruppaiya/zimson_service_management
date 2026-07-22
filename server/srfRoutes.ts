@@ -1250,6 +1250,7 @@ export function registerSrfRoutes(
                 j.brand_return_without_repair AS "brandReturnWithoutRepair",
                 j.brand_odc_number AS "brandOdcNumber",
                 j.brand_inward_ref AS "brandInwardRef",
+                j.brand_estimate_ref AS "brandEstimateRef",
                 j.brand_estimate_inr::float8 AS "brandEstimateInr",
                 j.brand_estimate_currency AS "brandEstimateCurrency",
                 j.brand_estimate_received_at AS "brandEstimateReceivedAt",
@@ -1461,6 +1462,7 @@ export function registerSrfRoutes(
                 j.technician_brand_recommend_note AS "technicianBrandRecommendNote",
                 j.brand_acknowledged_at AS "brandAcknowledgedAt",
                 j.brand_mail_ref AS "brandMailRef",
+                j.brand_estimate_ref AS "brandEstimateRef",
                 j.brand_estimate_inr::float8 AS "brandEstimateInr",
                 j.brand_estimate_currency AS "brandEstimateCurrency",
                 j.brand_estimate_received_at AS "brandEstimateReceivedAt",
@@ -6919,6 +6921,7 @@ export function registerSrfRoutes(
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
+    const estimateRef = String(req.body?.estimateRef ?? "").trim();
     const estimateInr = Number(req.body?.estimateInr ?? 0);
     const currency = String(req.body?.currency ?? "INR").trim().toUpperCase() || "INR";
     const note = String(req.body?.note ?? "").trim();
@@ -6928,6 +6931,10 @@ export function registerSrfRoutes(
       attachmentPath,
       toJsonMeta(req.body?.attachmentMeta),
     );
+    if (!estimateRef) {
+      res.status(400).json({ error: "Brand estimate reference is required." });
+      return;
+    }
     if (!Number.isFinite(estimateInr) || estimateInr <= 0) {
       res.status(400).json({ error: "Valid brand estimate amount is required." });
       return;
@@ -6936,15 +6943,16 @@ export function registerSrfRoutes(
       const upd = await pool.query(
         `UPDATE srf_jobs
          SET status = 'brand_estimate_pending',
-             brand_estimate_inr = $2,
-             brand_estimate_currency = $3,
+             brand_estimate_ref = $2,
+             brand_estimate_inr = $3,
+             brand_estimate_currency = $4,
              brand_estimate_received_at = now(),
-             brand_estimate_email_meta = $4::jsonb,
+             brand_estimate_email_meta = $5::jsonb,
              updated_at = now(),
-             modified_by = $5
+             modified_by = $6
          WHERE id = $1::uuid
            AND status = 'sent_to_brand'`,
-        [srfId, estimateInr, currency, JSON.stringify(emailMeta), actor?.id ?? null],
+        [srfId, estimateRef, estimateInr, currency, JSON.stringify(emailMeta), actor?.id ?? null],
       );
       if ((upd.rowCount ?? 0) === 0) {
         res.status(400).json({ error: "SRF must be in sent_to_brand state to log brand estimate." });
@@ -6958,14 +6966,15 @@ export function registerSrfRoutes(
           srfId,
           "brand_estimate_pending",
           actor?.id ?? null,
-          note || `Brand estimate received: ${currency} ${estimateInr.toFixed(2)}.`,
+          note || `Brand estimate received: ${currency} ${estimateInr.toFixed(2)} (ref ${estimateRef}).`,
         );
         await appendActionLog(client, srfId, {
           action: "brand_estimate_received",
-          description: `Brand estimate logged (${currency} ${estimateInr.toFixed(2)}).`,
+          description: `Brand estimate logged: ${estimateRef} (${currency} ${estimateInr.toFixed(2)}).`,
           actor: actor ?? undefined,
           amountInr: currency === "INR" ? estimateInr : null,
-          details: { estimateInr, currency, note, emailMeta },
+          referenceDoc: estimateRef,
+          details: { estimateRef, estimateInr, currency, note, emailMeta },
         });
         await client.query("COMMIT");
       } catch {

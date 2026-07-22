@@ -136,6 +136,7 @@ export type SrfJob = {
   brandReturnWithoutRepair?: boolean;
   brandOdcNumber?: string | null;
   brandInwardRef?: string | null;
+  brandEstimateRef?: string | null;
   brandEstimateInr?: number | null;
   brandEstimateCurrency?: string | null;
   brandEstimateReceivedAt?: string | null;

@@ -197,6 +197,7 @@ type SrfJobsContextValue = {
   supervisorLogBrandEstimate: (
     jobId: string,
     payload: {
+      estimateRef: string;
       estimateInr: number;
       currency?: string;
       note?: string;
@@ -733,6 +734,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   const supervisorLogBrandEstimate = useCallback(async (
     jobId: string,
     payload: {
+      estimateRef: string;
       estimateInr: number;
       currency?: string;
       note?: string;
