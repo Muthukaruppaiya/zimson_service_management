@@ -189,6 +189,8 @@ export type SrfJob = {
   outwardDcNumber: string | null;
   dispatchedToStoreAt: string | null;
   receivedBackAtStoreAt?: string | null;
+  /** Store QC failed on HO return inward — reason sent back for re-repair. */
+  storeQcFailRemark?: string | null;
   closedAt?: string | null;
   edocIrn?: string | null;
   edocAckNo?: string | null;

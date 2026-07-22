@@ -1523,6 +1523,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS handed_to_delivery_at TIMESTAMPTZ;
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS delivery_received_at TIMESTAMPTZ;
     ALTER TABLE delivery_challans ADD COLUMN IF NOT EXISTS delivery_trip_number VARCHAR(64);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_qc_fail_remark TEXT;
   `);
   await pool.query(`
     CREATE SEQUENCE IF NOT EXISTS delivery_trip_number_seq;

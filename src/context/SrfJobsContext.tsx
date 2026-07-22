@@ -263,7 +263,11 @@ type SrfJobsContextValue = {
     documentKind?: "DC" | "ODC" | "TD";
     printMeta?: import("../lib/serviceDocuments").TransferPrintMeta;
   }>;
-  receiveOutwardByDc: (dcNumber: string, srfIds?: string[]) => Promise<{ updated: number; skipped?: number; pendingOnTransfer?: number }>;
+  receiveOutwardByDc: (
+    dcNumber: string,
+    srfIds?: string[],
+    skipped?: Array<{ srfId: string; action: "wait" | "return_to_ho"; remark?: string }>,
+  ) => Promise<{ updated: number; skipped?: number; returnedToHo?: number; pendingOnTransfer?: number }>;
   closeWithInvoice: (
     srfId: string,
     payload?: {
@@ -910,13 +914,25 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     return out;
   }, [refreshJobs]);
 
-  const receiveOutwardByDc = useCallback(async (dcNumber: string, srfIds?: string[]) => {
-    const out = await apiJson<{ updated: number; skipped?: number; pendingOnTransfer?: number }>(
+  const receiveOutwardByDc = useCallback(async (
+    dcNumber: string,
+    srfIds?: string[],
+    skipped?: Array<{ srfId: string; action: "wait" | "return_to_ho"; remark?: string }>,
+  ) => {
+    const out = await apiJson<{
+      updated: number;
+      skipped?: number;
+      returnedToHo?: number;
+      pendingOnTransfer?: number;
+    }>(
       `/api/service/odcs/${encodeURIComponent(dcNumber)}/receive`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(srfIds?.length ? { srfIds } : {}),
+        body: JSON.stringify({
+          ...(srfIds?.length ? { srfIds } : {}),
+          ...(skipped?.length ? { skipped } : {}),
+        }),
       },
     );
     await refreshJobs();

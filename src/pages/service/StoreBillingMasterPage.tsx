@@ -451,7 +451,7 @@ export function StoreBillingMasterPage() {
             className="my-6 w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-3 border-b border-[#3B82F6]/40 bg-gradient-to-r from-[#0c1c56] via-[#152a72] to-[#1b3a8f] px-4 py-3">
+            <div className="flex items-center justify-between gap-3 border-b border-[#C9A227]/40 bg-gradient-to-r from-[#0c1c56] via-[#152a72] to-[#1b3a8f] px-4 py-3">
               <div className="flex items-center gap-2 text-white">
                 <PreviewIcon className="h-4 w-4 text-[#e7c968]" />
                 <span className="text-sm font-bold uppercase tracking-wide">Invoice preview</span>

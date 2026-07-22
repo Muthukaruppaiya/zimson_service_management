@@ -24,11 +24,11 @@ function IconFrame({ children, size }: { children: ReactNode; size?: number }) {
 function IconQuickBill({ size }: IconProps) {
   return (
     <IconFrame size={size}>
-      <ellipse cx="46" cy="46" rx="7" ry="2.5" fill="#1D4ED8" opacity="0.35" />
-      <ellipse cx="46" cy="43" rx="7" ry="2.2" fill="#93C5FD" stroke="#3B82F6" strokeWidth="0.8" />
-      <ellipse cx="46" cy="40" rx="7" ry="2.2" fill="#93C5FD" stroke="#3B82F6" strokeWidth="0.8" />
-      <ellipse cx="46" cy="37" rx="7" ry="2.2" fill="#FDE68A" stroke="#2563EB" strokeWidth="0.8" />
-      <ellipse cx="46" cy="34" rx="7" ry="2.2" fill="#FDE68A" stroke="#2563EB" strokeWidth="0.8" />
+      <ellipse cx="46" cy="46" rx="7" ry="2.5" fill="#A8850F" opacity="0.35" />
+      <ellipse cx="46" cy="43" rx="7" ry="2.2" fill="#F0DC90" stroke="#C9A227" strokeWidth="0.8" />
+      <ellipse cx="46" cy="40" rx="7" ry="2.2" fill="#F0DC90" stroke="#C9A227" strokeWidth="0.8" />
+      <ellipse cx="46" cy="37" rx="7" ry="2.2" fill="#FDE68A" stroke="#C9A227" strokeWidth="0.8" />
+      <ellipse cx="46" cy="34" rx="7" ry="2.2" fill="#FDE68A" stroke="#C9A227" strokeWidth="0.8" />
       <rect x="14" y="22" width="28" height="24" rx="2" fill="#B8C4D4" stroke="#64748B" strokeWidth="1" />
       <rect x="14" y="40" width="28" height="6" rx="1" fill="#1B3A8F" />
       <rect x="18" y="26" width="20" height="10" rx="1" fill="#94A3B8" />
@@ -42,11 +42,11 @@ function IconQuickBill({ size }: IconProps) {
 function IconSrfBooking({ size }: IconProps) {
   return (
     <IconFrame size={size}>
-      <path d="M22 18h20l2.5 4H19.5L22 18z" fill="#3B82F6" stroke="#1D4ED8" strokeWidth="0.8" />
+      <path d="M22 18h20l2.5 4H19.5L22 18z" fill="#C9A227" stroke="#A8850F" strokeWidth="0.8" />
       <path d="M22 46h20l2.5-4H19.5L22 46z" fill="#2C3E5C" stroke="#1E293B" strokeWidth="0.8" />
       <rect x="19" y="22" width="26" height="4" rx="1" fill="#2C3E5C" />
       <rect x="19" y="38" width="26" height="4" rx="1" fill="#2C3E5C" />
-      <circle cx="32" cy="32" r="13" fill="#60A5FA" stroke="#1D4ED8" strokeWidth="1" />
+      <circle cx="32" cy="32" r="13" fill="#E8C14E" stroke="#A8850F" strokeWidth="1" />
       <circle cx="32" cy="32" r="10" fill="white" stroke="#CBD5E1" strokeWidth="0.8" />
       <path d="M32 24v1M32 39v1M25 32h-1M39 32h1M27.8 27.8l.7.7M35.5 35.5l.7.7M36.2 27.8l-.7.7M28.5 35.5l-.7.7" stroke="#374151" strokeWidth="0.9" strokeLinecap="round" />
       <line x1="32" y1="32" x2="32" y2="26" stroke="#1B3A8F" strokeWidth="1.2" strokeLinecap="round" />
@@ -62,7 +62,7 @@ function IconPartsOrder({ size }: IconProps) {
       <path d="M38 18c-2 2-6 2-8 0" stroke="#1B3A8F" strokeWidth="1.2" strokeLinecap="round" fill="none" />
       <circle cx="28" cy="20" r="7" fill="#1B3A8F" stroke="#102570" strokeWidth="0.8" />
       <circle cx="28" cy="20" r="2.5" fill="#E8EDF8" />
-      <circle cx="40" cy="16" r="5" fill="#93C5FD" stroke="#2563EB" strokeWidth="0.8" />
+      <circle cx="40" cy="16" r="5" fill="#F0DC90" stroke="#C9A227" strokeWidth="0.8" />
       <circle cx="40" cy="16" r="1.8" fill="#FEF3C7" />
       <path d="M16 30h32l-3 14H19l-3-14z" fill="#A67C52" stroke="#0C1C56" strokeWidth="1" />
       <path d="M16 30l3-4h26l3 4" fill="#C4A484" stroke="#0C1C56" strokeWidth="0.8" />
@@ -77,7 +77,7 @@ function IconBillHistory({ size }: IconProps) {
       <rect x="18" y="22" width="28" height="34" rx="2" fill="white" stroke="#CBD5E1" strokeWidth="1" />
       <rect x="14" y="18" width="28" height="34" rx="2" fill="white" stroke="#94A3B8" strokeWidth="1" />
       <path d="M20 26h20M20 31h16M20 36h18M20 41h12" stroke="#1B3A8F" strokeWidth="1.2" strokeLinecap="round" />
-      <path d="M20 22h20M20 27h14" stroke="#93C5FD" strokeWidth="1" strokeLinecap="round" opacity="0.8" />
+      <path d="M20 22h20M20 27h14" stroke="#F0DC90" strokeWidth="1" strokeLinecap="round" opacity="0.8" />
     </IconFrame>
   );
 }
@@ -85,11 +85,11 @@ function IconBillHistory({ size }: IconProps) {
 function IconSearchSrfs({ size }: IconProps) {
   return (
     <IconFrame size={size}>
-      <path d="M12 20h32a2 2 0 012 2v22H12V20z" fill="#F0D060" stroke="#2563EB" strokeWidth="1" />
-      <path d="M12 24h36" stroke="#2563EB" strokeWidth="1" />
-      <path d="M12 20l6-6h24l6 6" fill="#DBEAFE" stroke="#2563EB" strokeWidth="1" />
+      <path d="M12 20h32a2 2 0 012 2v22H12V20z" fill="#F0D060" stroke="#C9A227" strokeWidth="1" />
+      <path d="M12 24h36" stroke="#C9A227" strokeWidth="1" />
+      <path d="M12 20l6-6h24l6 6" fill="#F5E9B8" stroke="#C9A227" strokeWidth="1" />
       <circle cx="42" cy="42" r="10" fill="white" stroke="#94A3B8" strokeWidth="1.5" />
-      <circle cx="42" cy="42" r="7" fill="#DBEAFE" stroke="#1B3A8F" strokeWidth="1" />
+      <circle cx="42" cy="42" r="7" fill="#F5E9B8" stroke="#1B3A8F" strokeWidth="1" />
       <path d="M48 48l6 6" stroke="#64748B" strokeWidth="2.5" strokeLinecap="round" />
     </IconFrame>
   );

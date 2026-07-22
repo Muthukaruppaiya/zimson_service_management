@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { BrandSendDetailsModal } from "../../components/service/BrandSendDetailsModal";
 import { EwayBillModal } from "../../components/service/EwayBillModal";
+import { AppModal, AppModalDetailGrid, AppModalDetailRow } from "../../components/ui/AppModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { modalBtnGold, modalBtnPrimary, modalBtnSecondary, modalFooterClass } from "../../lib/appModalStyles";
 import { useAuth } from "../../context/AuthContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson } from "../../lib/api";
@@ -670,62 +672,19 @@ export function ScLogisticsHistoryPage() {
       ) : null}
 
       {selectedDoc ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-stone-900">Transfer document</h3>
-                <p className="font-mono text-sm font-semibold text-zimson-900">{selectedDoc.dcNumber}</p>
-                <p className="text-xs font-semibold text-stone-700">{transferTypeLabel(selectedDoc)}</p>
-                <p className="text-xs text-stone-500">{routeLabel(selectedDoc)}</p>
-              </div>
-              <button type="button" onClick={() => setSelectedDoc(null)} className="rounded-lg border px-3 py-1.5 text-sm">
-                Close
-              </button>
-            </div>
-            <dl className="grid gap-2 rounded-xl border border-stone-200 text-sm">
-              <div className="grid grid-cols-[8rem_1fr] border-b border-stone-100">
-                <dt className="bg-stone-50 px-3 py-2 text-xs font-semibold uppercase text-stone-500">Date</dt>
-                <dd className="px-3 py-2">
-                  {formatDcDate(selectedDoc.createdAt)} {formatDcTime(selectedDoc.createdAt)}
-                </dd>
-              </div>
-              <div className="grid grid-cols-[8rem_1fr] border-b border-stone-100">
-                <dt className="bg-stone-50 px-3 py-2 text-xs font-semibold uppercase text-stone-500">Route</dt>
-                <dd className="px-3 py-2 text-sm font-medium">{routeLabel(selectedDoc)}</dd>
-              </div>
-              <div className="grid grid-cols-[8rem_1fr] border-b border-stone-100">
-                <dt className="bg-stone-50 px-3 py-2 text-xs font-semibold uppercase text-stone-500">Type</dt>
-                <dd className="px-3 py-2 font-semibold">{transferTypeLabel(selectedDoc)}</dd>
-              </div>
-              <div className="grid grid-cols-[8rem_1fr] border-b border-stone-100">
-                <dt className="bg-stone-50 px-3 py-2 text-xs font-semibold uppercase text-stone-500">SRFs</dt>
-                <dd className="px-3 py-2 font-mono text-xs">
-                  {(selectedDoc.srfCount ?? selectedDoc.srfReferences.length)} —{" "}
-                  {selectedDoc.srfReferences.join(", ") || "—"}
-                </dd>
-              </div>
-              <div className="grid grid-cols-[8rem_1fr]">
-                <dt className="bg-stone-50 px-3 py-2 text-xs font-semibold uppercase text-stone-500">E-way</dt>
-                <dd className="px-3 py-2">
-                  {selectedDoc.edocEwayBillNo?.trim() ? (
-                    <span className="font-mono font-semibold text-emerald-800">{selectedDoc.edocEwayBillNo}</span>
-                  ) : documentNeedsEway({
-                      flow: selectedDoc.flow,
-                      documentNumber: selectedDoc.dcNumber,
-                      printKind: selectedDoc.printKind,
-                    }) ? (
-                    <span className="text-amber-800">Pending</span>
-                  ) : (
-                    <span className="text-stone-500">N/A (store ↔ HO)</span>
-                  )}
-                </dd>
-              </div>
-            </dl>
-            <div className="mt-4 flex flex-wrap gap-2">
+        <AppModal
+          open
+          onClose={() => setSelectedDoc(null)}
+          eyebrow="Logistics"
+          title="Transfer document"
+          subtitle={selectedDoc.dcNumber}
+          description={`${transferTypeLabel(selectedDoc)} · ${routeLabel(selectedDoc)}`}
+          size="lg"
+          footer={
+            <div className={modalFooterClass}>
               <button
                 type="button"
-                className={actionBtn}
+                className={modalBtnGold}
                 onClick={() => {
                   void printDeliveryChallanById(selectedDoc.id, liveJobs, {
                     preparedBy: user?.displayName?.trim() || user?.email?.trim(),
@@ -737,7 +696,7 @@ export function ScLogisticsHistoryPage() {
               {dcCanRetry(selectedDoc) ? (
                 <button
                   type="button"
-                  className={actionBtn}
+                  className={modalBtnPrimary}
                   onClick={() => {
                     setEwayBusyId(selectedDoc.id);
                     setEwayDcId(selectedDoc.id);
@@ -751,17 +710,46 @@ export function ScLogisticsHistoryPage() {
                   href={resolveEwayPdf(selectedDoc)!}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`${actionBtn} no-underline`}
+                  className={`${modalBtnSecondary} no-underline`}
                 >
                   Open e-way PDF
                 </a>
               ) : null}
-              <button type="button" className="rounded-lg border px-3 py-1.5 text-xs font-semibold" onClick={() => setSelectedDoc(null)}>
+              <button type="button" className={modalBtnSecondary} onClick={() => setSelectedDoc(null)}>
                 Done
               </button>
             </div>
-          </div>
-        </div>
+          }
+        >
+          <AppModalDetailGrid>
+            <AppModalDetailRow label="Date">
+              {formatDcDate(selectedDoc.createdAt)} {formatDcTime(selectedDoc.createdAt)}
+            </AppModalDetailRow>
+            <AppModalDetailRow label="Route">{routeLabel(selectedDoc)}</AppModalDetailRow>
+            <AppModalDetailRow label="Type">
+              <span className="font-semibold text-zimson-900">{transferTypeLabel(selectedDoc)}</span>
+            </AppModalDetailRow>
+            <AppModalDetailRow label="SRFs">
+              <span className="font-mono text-xs">
+                {(selectedDoc.srfCount ?? selectedDoc.srfReferences.length)} —{" "}
+                {selectedDoc.srfReferences.join(", ") || "—"}
+              </span>
+            </AppModalDetailRow>
+            <AppModalDetailRow label="E-way" last>
+              {selectedDoc.edocEwayBillNo?.trim() ? (
+                <span className="font-mono font-semibold text-emerald-800">{selectedDoc.edocEwayBillNo}</span>
+              ) : documentNeedsEway({
+                  flow: selectedDoc.flow,
+                  documentNumber: selectedDoc.dcNumber,
+                  printKind: selectedDoc.printKind,
+                }) ? (
+                <span className="font-semibold text-rlx-gold-dark">Pending</span>
+              ) : (
+                <span className="text-slate-500">N/A (store ↔ HO)</span>
+              )}
+            </AppModalDetailRow>
+          </AppModalDetailGrid>
+        </AppModal>
       ) : null}
 
       {brandDetailsJob ? (

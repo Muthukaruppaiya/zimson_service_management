@@ -4,11 +4,8 @@ import { printBrandDispatchDocument } from "../../lib/serviceDocuments";
 import type { SrfJob } from "../../types/srfJob";
 import { EwayBillModal } from "./EwayBillModal";
 import type { EdocUiResult } from "../../lib/edocResultMessage";
-
-const btnPrimary =
-  "inline-flex items-center justify-center rounded-xl bg-violet-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-900 disabled:opacity-50";
-const btnSecondary =
-  "inline-flex items-center justify-center rounded-xl border border-violet-300 bg-white px-4 py-2.5 text-sm font-semibold text-violet-900 transition hover:bg-violet-50 disabled:opacity-50 no-underline";
+import { AppModal, AppModalDetailGrid, AppModalDetailRow } from "../ui/AppModal";
+import { modalBtnGold, modalBtnPrimary, modalBtnSecondary, modalFooterClass } from "../../lib/appModalStyles";
 
 type Props = {
   job: SrfJob;
@@ -48,145 +45,102 @@ export function BrandSendDetailsModal({
   const canCreateBrandEway = Boolean(job.brandOdcNumber?.trim()) && !ewayBillNo;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-      <div
-        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl"
-        role="dialog"
-        aria-labelledby="brand-send-details-title"
-      >
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <h3 id="brand-send-details-title" className="text-lg font-semibold text-violet-950">
-              Send to brand — details
-            </h3>
-            <p className="font-mono text-sm font-semibold text-violet-900">{job.reference}</p>
-            <p className="text-xs text-stone-500">{new Date(loggedAt).toLocaleString()}</p>
+    <>
+      <AppModal
+        open
+        onClose={onClose}
+        eyebrow="Brand dispatch"
+        title="Send to brand — details"
+        subtitle={job.reference}
+        description={new Date(loggedAt).toLocaleString()}
+        size="lg"
+        zIndex={60}
+        footer={
+          <div className={modalFooterClass}>
+            <button
+              type="button"
+              className={modalBtnPrimary}
+              onClick={() => printBrandDispatchDocument(job)}
+              disabled={!job.brandOdcNumber && !job.brandDispatchRef}
+            >
+              Print brand ODC / DC
+            </button>
+            {onPrintTransferDc && transferDcLabel ? (
+              <button type="button" className={modalBtnGold} onClick={onPrintTransferDc}>
+                Print transfer DC ({transferDcLabel})
+              </button>
+            ) : null}
+            {canCreateBrandEway ? (
+              <button type="button" className={modalBtnSecondary} onClick={() => setEwayOpen(true)}>
+                Create e-way bill
+              </button>
+            ) : null}
+            {ewayPdfUrl ? (
+              <a href={ewayPdfUrl} target="_blank" rel="noopener noreferrer" className={`${modalBtnSecondary} no-underline`}>
+                Open GST e-way bill PDF
+              </a>
+            ) : null}
+            <button type="button" className={modalBtnSecondary} onClick={onClose}>
+              Done
+            </button>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm">
-            Close
-          </button>
-        </div>
-
-        <div className="overflow-x-auto rounded-xl border border-violet-100">
-          <table className="min-w-full text-left text-sm">
-            <tbody>
-              <tr className="border-b border-violet-50">
-                <th className="w-44 bg-violet-50/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
-                  Status
-                </th>
-                <td className="px-3 py-2 font-semibold uppercase tracking-wide text-violet-900">
-                  {job.status.replaceAll("_", " ")}
-                </td>
-              </tr>
-              <tr className="border-b border-violet-50">
-                <th className="bg-violet-50/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
-                  Customer
-                </th>
-                <td className="px-3 py-2">
-                  {job.customerName} · {job.phone}
-                </td>
-              </tr>
-              <tr className="border-b border-violet-50">
-                <th className="bg-violet-50/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
-                  Watch
-                </th>
-                <td className="px-3 py-2">
-                  {job.watchBrand} {job.watchModel}
-                  {job.serial ? ` · ${job.serial}` : ""}
-                </td>
-              </tr>
-              <tr className="border-b border-violet-50">
-                <th className="bg-violet-50/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
-                  Dispatch ref
-                </th>
-                <td className="px-3 py-2 font-semibold text-violet-900">{job.brandDispatchRef?.trim() || "—"}</td>
-              </tr>
-              <tr className="border-b border-violet-50">
-                <th className="bg-violet-50/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
-                  Dispatch note
-                </th>
-                <td className="px-3 py-2 text-stone-700">
-                  {job.brandDispatchClerkNote?.trim() || job.brandDispatchNote?.trim() || "—"}
-                </td>
-              </tr>
-              <tr className="border-b border-violet-50">
-                <th className="bg-violet-50/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
-                  Brand ODC / DC
-                </th>
-                <td className="px-3 py-2 font-mono font-semibold text-violet-900">{job.brandOdcNumber ?? "—"}</td>
-              </tr>
-              {transferDcLabel ? (
-                <tr className="border-b border-violet-50">
-                  <th className="bg-violet-50/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
-                    Transfer DC
-                  </th>
-                  <td className="px-3 py-2 font-mono text-stone-800">{transferDcLabel}</td>
-                </tr>
-              ) : null}
-              <tr>
-                <th className="bg-violet-50/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-800">
-                  E-way bill
-                </th>
-                <td className="px-3 py-2">
-                  {ewayBillNo ? (
-                    <div>
-                      <p className="font-mono text-base font-bold text-emerald-800">{ewayBillNo}</p>
-                      {ewayValidUpto ? (
-                        <p className="mt-0.5 text-xs text-stone-600">Valid until {ewayValidUpto}</p>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <span className="text-stone-500">No e-way bill on this dispatch</span>
-                  )}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        }
+      >
+        <AppModalDetailGrid>
+          <AppModalDetailRow label="Status">
+            <span className="font-semibold uppercase tracking-wide text-zimson-900">
+              {job.status.replaceAll("_", " ")}
+            </span>
+          </AppModalDetailRow>
+          <AppModalDetailRow label="Customer">
+            {job.customerName} · {job.phone}
+          </AppModalDetailRow>
+          <AppModalDetailRow label="Watch">
+            {job.watchBrand} {job.watchModel}
+            {job.serial ? ` · ${job.serial}` : ""}
+          </AppModalDetailRow>
+          <AppModalDetailRow label="Dispatch ref">
+            <span className="font-semibold text-zimson-900">{job.brandDispatchRef?.trim() || "—"}</span>
+          </AppModalDetailRow>
+          <AppModalDetailRow label="Dispatch note">
+            {job.brandDispatchClerkNote?.trim() || job.brandDispatchNote?.trim() || "—"}
+          </AppModalDetailRow>
+          <AppModalDetailRow label="Brand ODC / DC">
+            <span className="font-mono font-semibold text-zimson-900">{job.brandOdcNumber ?? "—"}</span>
+          </AppModalDetailRow>
+          {transferDcLabel ? (
+            <AppModalDetailRow label="Transfer DC">
+              <span className="font-mono">{transferDcLabel}</span>
+            </AppModalDetailRow>
+          ) : null}
+          <AppModalDetailRow label="E-way bill" last>
+            {ewayBillNo ? (
+              <div>
+                <p className="font-mono text-base font-bold text-emerald-800">{ewayBillNo}</p>
+                {ewayValidUpto ? (
+                  <p className="mt-0.5 text-xs text-slate-600">Valid until {ewayValidUpto}</p>
+                ) : null}
+              </div>
+            ) : (
+              <span className="text-slate-500">No e-way bill on this dispatch</span>
+            )}
+          </AppModalDetailRow>
+        </AppModalDetailGrid>
 
         {ewayPdfUrl ? (
-          <div className="mt-4 overflow-hidden rounded-xl border border-emerald-200 bg-stone-50">
+          <div className="mt-4 overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
             <p className="border-b border-emerald-100 bg-emerald-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-900">
               GST e-way bill PDF (API response)
             </p>
             <iframe title="GST e-way bill PDF" src={ewayPdfUrl} className="h-64 w-full bg-white" />
           </div>
         ) : ewayBillNo ? (
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          <p className="mt-3 rounded-xl border border-rlx-gold/35 bg-rlx-gold-light/40 px-3 py-2 text-xs text-rlx-gold-dark">
             E-way bill number is saved, but the GST PDF URL was not stored on this record (older generate). Regenerate
             e-way on a new dispatch to capture the PDF response.
           </p>
         ) : null}
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={btnPrimary}
-            onClick={() => printBrandDispatchDocument(job)}
-            disabled={!job.brandOdcNumber && !job.brandDispatchRef}
-          >
-            Print brand ODC / DC
-          </button>
-          {onPrintTransferDc && transferDcLabel ? (
-            <button type="button" className={btnSecondary} onClick={onPrintTransferDc}>
-              Print transfer DC ({transferDcLabel})
-            </button>
-          ) : null}
-          {canCreateBrandEway ? (
-            <button type="button" className={btnSecondary} onClick={() => setEwayOpen(true)}>
-              Create e-way bill
-            </button>
-          ) : null}
-          {ewayPdfUrl ? (
-            <a href={ewayPdfUrl} target="_blank" rel="noopener noreferrer" className={btnSecondary}>
-              Open GST e-way bill PDF
-            </a>
-          ) : null}
-          <button type="button" className={btnSecondary} onClick={onClose}>
-            Done
-          </button>
-        </div>
-      </div>
+      </AppModal>
 
       {ewayOpen ? (
         <EwayBillModal
@@ -202,6 +156,6 @@ export function BrandSendDetailsModal({
           onPrintDocument={() => printBrandDispatchDocument(job)}
         />
       ) : null}
-    </div>
+    </>
   );
 }

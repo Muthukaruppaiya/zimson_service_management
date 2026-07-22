@@ -12,13 +12,13 @@
   --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Poppins", ui-sans-serif, system-ui, sans-serif;
 
-  /* Zimson Royal Blue palette (no brown / gold accents) */
+  /* Zimson Royal Blue + Gold (gold accents only — no brown body text) */
   --color-rlx-green:       #1B3A8F;   /* Royal Blue — primary brand colour */
   --color-rlx-green-deep:  #102570;   /* Darker royal blue — hover / table headers */
   --color-rlx-green-light: #E8EDF8;   /* Very pale blue tint — hover rows */
-  --color-rlx-gold:        #3B82F6;   /* Accent — bright royal blue (was gold) */
-  --color-rlx-gold-dark:   #1D4ED8;   /* Deeper blue for hover */
-  --color-rlx-gold-light:  #DBEAFE;   /* Pale blue tint for backgrounds */
+  --color-rlx-gold:        #C9A227;   /* Zimson logo gold */
+  --color-rlx-gold-dark:   #A8850F;   /* Deeper gold for hover */
+  --color-rlx-gold-light:  #F5E9B8;   /* Soft gold tint (not brown) */
   --color-rlx-ink:         #0D1B2A;   /* Near-black with blue undertone — body text */
   --color-rlx-ink-muted:   #4A5568;   /* Secondary text */
   --color-rlx-surface:     #ffffff;   /* Card surface */
@@ -28,13 +28,13 @@
   /* keep old aliases pointing to new values so other pages don't break */
   --color-premium-ink:        #0D1B2A;
   --color-premium-ink-muted:  #4A5568;
-  --color-premium-gold:       #3B82F6;
-  --color-premium-gold-soft:  #DBEAFE;
+  --color-premium-gold:       #C9A227;
+  --color-premium-gold-soft:  #F5E9B8;
   --color-premium-cream:      #F4F6FB;
   --color-premium-parchment:  #EBF0FA;
   --color-premium-line:       rgba(27,58,143,0.10);
 
-  /* Brand scale — navy/blue (replaces former amber/brown zimson scale) */
+  /* Structural brand scale stays navy/blue — avoids brown text all over the UI */
   --color-zimson-50: #F4F7FD;
   --color-zimson-100: #E8EDF8;
   --color-zimson-200: #D8DFF0;
@@ -47,44 +47,42 @@
   --color-zimson-900: #0C1C56;
   --color-zimson-950: #08143A;
 
-  /* Override Tailwind amber so warnings never render as yellowish-brown */
-  --color-amber-50: #EFF6FF;
-  --color-amber-100: #DBEAFE;
-  --color-amber-200: #BFDBFE;
-  --color-amber-300: #93C5FD;
-  --color-amber-400: #60A5FA;
-  --color-amber-500: #3B82F6;
-  --color-amber-600: #2563EB;
-  --color-amber-700: #1D4ED8;
-  --color-amber-800: #1E40AF;
-  --color-amber-900: #1E3A8A;
-  --color-amber-950: #172554;
+  /* Amber/yellow/orange → bright gold (never brown) */
+  --color-amber-50: #FFFBEB;
+  --color-amber-100: #FEF3C7;
+  --color-amber-200: #FDE68A;
+  --color-amber-300: #FCD34D;
+  --color-amber-400: #F0DC90;
+  --color-amber-500: #E8C14E;
+  --color-amber-600: #C9A227;
+  --color-amber-700: #A8850F;
+  --color-amber-800: #92700C;
+  --color-amber-900: #7A5C0A;
+  --color-amber-950: #5C4508;
 
-  /* Override Tailwind yellow the same way */
-  --color-yellow-50: #EFF6FF;
-  --color-yellow-100: #DBEAFE;
-  --color-yellow-200: #BFDBFE;
-  --color-yellow-300: #93C5FD;
-  --color-yellow-400: #60A5FA;
-  --color-yellow-500: #3B82F6;
-  --color-yellow-600: #2563EB;
-  --color-yellow-700: #1D4ED8;
-  --color-yellow-800: #1E40AF;
-  --color-yellow-900: #1E3A8A;
-  --color-yellow-950: #172554;
+  --color-yellow-50: #FFFBEB;
+  --color-yellow-100: #FEF3C7;
+  --color-yellow-200: #FDE68A;
+  --color-yellow-300: #FCD34D;
+  --color-yellow-400: #F0DC90;
+  --color-yellow-500: #E8C14E;
+  --color-yellow-600: #C9A227;
+  --color-yellow-700: #A8850F;
+  --color-yellow-800: #92700C;
+  --color-yellow-900: #7A5C0A;
+  --color-yellow-950: #5C4508;
 
-  /* Override orange so UI never falls back to yellowish-brown */
-  --color-orange-50: #EFF6FF;
-  --color-orange-100: #DBEAFE;
-  --color-orange-200: #BFDBFE;
-  --color-orange-300: #93C5FD;
-  --color-orange-400: #60A5FA;
-  --color-orange-500: #3B82F6;
-  --color-orange-600: #2563EB;
-  --color-orange-700: #1D4ED8;
-  --color-orange-800: #1E40AF;
-  --color-orange-900: #1E3A8A;
-  --color-orange-950: #172554;
+  --color-orange-50: #FFFBEB;
+  --color-orange-100: #FEF3C7;
+  --color-orange-200: #FDE68A;
+  --color-orange-300: #FCD34D;
+  --color-orange-400: #F0DC90;
+  --color-orange-500: #E8C14E;
+  --color-orange-600: #C9A227;
+  --color-orange-700: #A8850F;
+  --color-orange-800: #92700C;
+  --color-orange-900: #7A5C0A;
+  --color-orange-950: #5C4508;
 }
 
 @layer base {
@@ -659,15 +657,15 @@
  * ============================================================================= */
 .chrono-dashboard {
   --cs-primary-navy: #032d60;
-  --cs-accent-gold: #c39b5b;
+  --cs-accent-gold: #c9a227;
   --cs-bg-navy: #021a36;
   --cs-page-bg: #f4f6f8;
   --cs-card-bg: #ffffff;
   --cs-divider: #e0e6ed;
   --cs-text-dark: #333333;
   --cs-text-muted: #777777;
-  --cs-status-orange-bg: #fee4b4;
-  --cs-status-orange-text: #9d7c4a;
+  --cs-status-orange-bg: #fef3c7;
+  --cs-status-orange-text: #a8850f;
   --cs-status-red-bg: #f7dada;
   --cs-status-red-text: #8d021f;
   --cs-quickaction-bg: #e0e6ed;
@@ -716,7 +714,7 @@
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #1D4ED8, #3B82F6, #93C5FD, #3B82F6, #1D4ED8);
+  background: linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F);
   pointer-events: none;
 }
 
@@ -803,7 +801,7 @@
 }
 
 .cs-status-blinker-action {
-  background: #2563EB;
+  background: #C9A227;
 }
 
 .cs-status-blinker-action::before {
@@ -1207,7 +1205,7 @@
  * ============================================================================= */
 .chrono-bi {
   --bi-navy: #102570;
-  --bi-gold: #3B82F6;
+  --bi-gold: #C9A227;
   --bi-radius: 1.25rem;
   animation: dashboard-fade-in 0.35s ease-out;
 }
@@ -1235,7 +1233,7 @@
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #1D4ED8, var(--bi-gold), #93C5FD, var(--bi-gold), #1D4ED8);
+  background: linear-gradient(90deg, #A8850F, var(--bi-gold), #F0DC90, var(--bi-gold), #A8850F);
   pointer-events: none;
 }
 
@@ -1270,7 +1268,7 @@
  * ChronoSync TopBar — premium header icons & user chip
  * ============================================================================= */
 .chrono-topbar .topbar-gold-stripe {
-  background: linear-gradient(90deg, #1D4ED8, #3B82F6, #93C5FD, #3B82F6, #1D4ED8);
+  background: linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F);
 }
 
 .chrono-topbar .topbar-icon-btn {
@@ -1338,7 +1336,7 @@
   justify-content: center;
   padding: 2px;
   border-radius: 9999px !important;
-  background: linear-gradient(135deg, #93C5FD 0%, #3B82F6 55%, #1D4ED8 100%);
+  background: linear-gradient(135deg, #F0DC90 0%, #C9A227 55%, #A8850F 100%);
   box-shadow:
     0 2px 8px rgba(201, 162, 39, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.4);
@@ -1352,7 +1350,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 9999px !important;
-  background: linear-gradient(135deg, #fdf6e0 0%, #93C5FD 45%, #e8c96a 100%);
+  background: linear-gradient(135deg, #fdf6e0 0%, #F0DC90 45%, #e8c96a 100%);
   font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -1437,7 +1435,7 @@
 }
 
 .chrono-topbar .topbar-signout-btn:hover:not(:disabled) .topbar-signout-btn__icon {
-  color: #DBEAFE;
+  color: #F5E9B8;
   transform: translateX(2px);
 }
 
@@ -1471,7 +1469,7 @@
 }
 
 .chrono-sidebar .sidebar-gold-stripe {
-  background: linear-gradient(90deg, #1D4ED8, #3B82F6, #93C5FD, #3B82F6, #1D4ED8);
+  background: linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F);
   box-shadow: 0 1px 8px rgba(201, 162, 39, 0.4);
 }
 
@@ -1553,7 +1551,7 @@
   width: 3px;
   transform: translateY(-50%);
   border-radius: 9999px !important;
-  background: linear-gradient(180deg, #93C5FD, #3B82F6);
+  background: linear-gradient(180deg, #F0DC90, #C9A227);
   box-shadow: 0 0 8px rgba(201, 162, 39, 0.75);
 }
 
@@ -1570,14 +1568,14 @@
 }
 
 .chrono-sidebar .sidebar-icon-badge--active {
-  background: linear-gradient(145deg, #93C5FD 0%, #3B82F6 100%);
+  background: linear-gradient(145deg, #F0DC90 0%, #C9A227 100%);
   color: #102570;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
 .chrono-sidebar .sidebar-chevron--open {
   transform: rotate(90deg);
-  color: #93C5FD !important;
+  color: #F0DC90 !important;
 }
 
 /* Sub-item rail */
@@ -1606,7 +1604,7 @@
   width: 6px;
   transform: translateY(-50%);
   border-radius: 9999px !important;
-  background: #93C5FD;
+  background: #F0DC90;
   box-shadow: 0 0 6px rgba(240, 220, 144, 0.9);
 }
 
@@ -1631,7 +1629,7 @@
 .chrono-sidebar .sidebar-avatar-ring {
   border-radius: 9999px !important;
   padding: 2px;
-  background: linear-gradient(135deg, #93C5FD 0%, #3B82F6 55%, #1D4ED8 100%);
+  background: linear-gradient(135deg, #F0DC90 0%, #C9A227 55%, #A8850F 100%);
   box-shadow: 0 2px 10px rgba(201, 162, 39, 0.45);
 }
 
@@ -1639,7 +1637,7 @@
   border-radius: 9999px !important;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, #fdf6e0 0%, #93C5FD 45%, #e8c96a 100%);
+  background: linear-gradient(135deg, #fdf6e0 0%, #F0DC90 45%, #e8c96a 100%);
   color: var(--color-rlx-green-deep);
   box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.7);
 }
@@ -1650,5 +1648,86 @@
   border-radius: 9999px !important;
   background: #22c55e;
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22), 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+/* =============================================================================
+ * Legacy inline modals — navy/gold shell until migrated to AppModal
+ * ============================================================================= */
+.legacy-modal-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.legacy-modal-panel > h3:first-child,
+.legacy-modal-panel > .legacy-modal-panel__title {
+  position: relative;
+  margin: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: linear-gradient(90deg, #0c1c56 0%, #173786 50%, #24499c 100%);
+  padding: 1rem 1.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #ffffff;
+}
+
+.legacy-modal-panel > h3:first-child::before,
+.legacy-modal-panel > .legacy-modal-panel__title::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #a8850f, #c9a227, #f0dc90, #c9a227, #a8850f);
+  pointer-events: none;
+}
+
+.legacy-modal-panel > p.mt-1.text-sm.text-stone-600:first-of-type,
+.legacy-modal-panel > .legacy-modal-panel__desc {
+  margin: 0;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, #173786 0%, #24499c 100%);
+  padding: 0 1.25rem 0.85rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.legacy-modal-panel > :not(h3):not(.legacy-modal-panel__title):not(p.mt-1.text-sm.text-stone-600):not(.legacy-modal-panel__desc):not(.legacy-modal-panel__footer) {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
+.legacy-modal-panel > :not(h3):not(.legacy-modal-panel__title):not(p.mt-1.text-sm.text-stone-600):not(.legacy-modal-panel__desc):not(.legacy-modal-panel__footer):first-of-type,
+.legacy-modal-panel > h3:first-child + p.mt-1.text-sm.text-stone-600 + *,
+.legacy-modal-panel > h3:first-child + *:not(p.mt-1.text-sm.text-stone-600) {
+  padding-top: 1rem;
+}
+
+.legacy-modal-panel > .legacy-modal-panel__footer,
+.legacy-modal-panel > div.mt-4.flex,
+.legacy-modal-panel > div.mt-5.flex {
+  margin-top: auto;
+  flex-shrink: 0;
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
+  padding: 0.875rem 1.25rem;
+}
+
+.legacy-modal-panel > div.mt-4.flex:last-child,
+.legacy-modal-panel > div.mt-5.flex:last-child {
+  margin-top: 0;
+}
+
+.legacy-modal-panel .overflow-y-auto,
+.legacy-modal-panel > div:not(.legacy-modal-panel__footer):not(.mt-4):not(.mt-5) {
+  overflow-y: auto;
+}
+
+.legacy-modal-backdrop {
+  background: rgba(2, 6, 23, 0.65) !important;
+  backdrop-filter: blur(4px);
 }
 

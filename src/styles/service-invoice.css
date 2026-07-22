@@ -57,7 +57,7 @@
 
 .service-invoice-print-root.inv-doc .inv-accent {
   height: 4px;
-  background: linear-gradient(90deg, #3B82F6 0%, #BFDBFE 50%, #3B82F6 100%);
+  background: linear-gradient(90deg, #C9A227 0%, #FDE68A 50%, #C9A227 100%);
 }
 
 .service-invoice-print-root.inv-doc .inv-ic {
@@ -98,7 +98,7 @@
   display: table-cell;
   vertical-align: middle;
   padding-right: 6px;
-  color: #60A5FA;
+  color: #E8C14E;
 }
 
 .service-invoice-print-root.inv-doc .inv-sec-pill-txt {
@@ -192,14 +192,14 @@
 }
 
 .service-invoice-print-root.inv-doc .inv-pay-card {
-  border: 2px solid #3B82F6;
+  border: 2px solid #C9A227;
   border-radius: 10px;
   background: #ffffff;
   padding: 8px 10px;
 }
 
 .service-invoice-print-root.inv-doc .inv-pay-total-row td {
-  background: linear-gradient(90deg, #BFDBFE 0%, #3B82F6 100%);
+  background: linear-gradient(90deg, #FDE68A 0%, #C9A227 100%);
   color: #16308a;
   font-weight: 800;
   border-bottom: none !important;
@@ -293,7 +293,7 @@
   right: 0;
   width: 120px;
   height: 100%;
-  background: #3B82F6;
+  background: #C9A227;
   opacity: 0.85;
   clip-path: polygon(100% 0, 0 0, 100% 100%);
 }
@@ -324,7 +324,7 @@
 
 /* Quick Bill invoice body — white paper; gold on document header banner only */
 .service-invoice-print-root.inv-doc.inv-quick-bill .inv-banner {
-  background: #3B82F6;
+  background: #C9A227;
   color: #1a1408;
   border-bottom: 1px solid #9a7b1a;
 }
@@ -355,7 +355,7 @@
 
 .service-invoice-print-root.inv-doc.inv-quick-bill .inv-section-head,
 .service-invoice-print-root.inv-doc.inv-quick-bill .inv-sec-pill {
-  background: #3B82F6;
+  background: #C9A227;
   color: #1a1408;
   box-shadow: 0 2px 6px rgba(154, 123, 26, 0.2);
 }
@@ -608,7 +608,7 @@
 
 .service-invoice-print-root.inv-doc .inv-items-table th {
   background: #1b3a8f;
-  color: #60A5FA;
+  color: #E8C14E;
   font-weight: 700;
   text-align: left;
   padding: 7px 8px;
@@ -817,7 +817,7 @@
 
 .service-invoice-print-root.inv-doc .inv-tax-table th {
   background: #1b3a8f;
-  color: #60A5FA;
+  color: #E8C14E;
   font-weight: 700;
   font-size: 8.5px;
   text-transform: uppercase;
@@ -830,7 +830,7 @@
 
 .service-invoice-print-root.inv-doc .inv-tax-table tfoot td {
   background: #1b3a8f;
-  color: #60A5FA;
+  color: #E8C14E;
   font-weight: 800;
   border-top: 1px solid #1b3a8f;
   border-bottom: none;

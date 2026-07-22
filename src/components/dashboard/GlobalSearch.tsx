@@ -291,10 +291,10 @@ export function GlobalSearch({
             : "bg-white",
           open
             ? isDark
-              ? "border-[#c39b5b]/70"
+              ? "border-[#C9A227]/70"
               : "border-rlx-green shadow-[0_4px_16px_rgba(27,58,143,0.12)]"
             : isDark
-              ? "border-[#e0e6ed]/30 hover:border-[#c39b5b]/50"
+              ? "border-[#e0e6ed]/30 hover:border-[#C9A227]/50"
               : "border-rlx-rule hover:border-rlx-green/50",
         ].join(" ")}
       >
@@ -336,10 +336,10 @@ export function GlobalSearch({
         <span
           className={`flex shrink-0 items-center gap-1.5 font-semibold uppercase tracking-[0.12em] ${
             isDark
-              ? "mr-1 rounded-full border border-[#3B82F6]/40 px-3 py-1.5 text-[10px] text-[#3B82F6]"
+              ? "mr-1 rounded-full border border-[#C9A227]/40 px-3 py-1.5 text-[10px] text-[#C9A227]"
               : "border-l border-rlx-rule px-3 py-1.5 text-[10px] tracking-[0.15em]"
           }`}
-          style={isDark ? { background: "rgba(201,162,39,0.12)" } : { color: "#3B82F6", background: "rgba(201,162,39,0.08)" }}
+          style={isDark ? { background: "rgba(201,162,39,0.12)" } : { color: "#C9A227", background: "rgba(201,162,39,0.08)" }}
           title="Barcode scanner ready"
         >
           <ScanIcon className="h-3.5 w-3.5" />

@@ -260,7 +260,7 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6 sm:pt-12">
       <div className="mt-8 w-full max-w-5xl rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-stone-200 px-5 py-3">
           <div>

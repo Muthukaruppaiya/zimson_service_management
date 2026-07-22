@@ -1,9 +1,15 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
+import {
+  StoreInwardQcDispositionModal,
+  type StoreInwardQcAction,
+} from "../../components/service/StoreInwardQcDispositionModal";
+import { AppModal } from "../../components/ui/AppModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
+import { modalBtnPrimary, modalBtnSecondary, modalFooterClass } from "../../lib/appModalStyles";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
@@ -67,6 +73,10 @@ export function StoreDispatchPage() {
   const [inwardReviewDc, setInwardReviewDc] = useState("");
   const [inwardAccepted, setInwardAccepted] = useState<Record<string, boolean>>({});
   const [inwardSaving, setInwardSaving] = useState(false);
+  const [qcDispositionOpen, setQcDispositionOpen] = useState(false);
+  const [qcFailedRows, setQcFailedRows] = useState<SrfJob[]>([]);
+  const [qcAction, setQcAction] = useState<StoreInwardQcAction>("wait");
+  const [qcReturnRemark, setQcReturnRemark] = useState("");
 
   const atStore = useMemo(() => {
     if (!user) return [];
@@ -154,20 +164,32 @@ export function StoreDispatchPage() {
     setInwardReviewDc("");
     setInwardAccepted({});
     setInwardSaving(false);
+    setQcDispositionOpen(false);
+    setQcFailedRows([]);
+    setQcAction("wait");
+    setQcReturnRemark("");
   }
 
-  async function confirmInwardSelected() {
+  async function executeInwardWithDisposition(
+    selectedIds: string[],
+    failedRows: SrfJob[],
+    action: StoreInwardQcAction,
+    remark: string,
+  ) {
     if (!user || !inwardReviewDc.trim() || inwardSaving) return;
     const dcNumber = inwardReviewDc.trim();
-    const selectedIds = inwardReviewRows.filter((j) => inwardAccepted[j.id]).map((j) => j.id);
-    if (selectedIds.length === 0) {
-      setMessage({ type: "err", text: "Tick at least one watch in working condition to inward." });
-      return;
-    }
     setInwardSaving(true);
     setMessage(null);
     try {
-      const out = await receiveOutwardByDc(dcNumber, selectedIds);
+      const skipped =
+        failedRows.length > 0
+          ? failedRows.map((j) => ({
+              srfId: j.id,
+              action,
+              ...(action === "return_to_ho" ? { remark: remark.trim() } : {}),
+            }))
+          : undefined;
+      const out = await receiveOutwardByDc(dcNumber, selectedIds, skipped);
       const rows = inwardReviewRows.filter((j) => selectedIds.includes(j.id));
       const store = regions.flatMap((r) => r.stores).find((s) => s.id === user.storeId);
       const region = regions.find((r) => r.id === user.regionId);
@@ -182,22 +204,30 @@ export function StoreDispatchPage() {
       }
       closeInwardReview();
       setOutwardDcInput("");
-      setStoreInwardAck({
-        inwardNumber: dcNumber,
-        rows,
-        updated: out.updated,
-        receivedAt: new Date(),
-        storeLabel,
-        fromHoLabel,
-        partyFrom,
-        partyTo,
-      });
-      const skipped = inwardReviewRows.length - selectedIds.length;
+      if (rows.length > 0) {
+        setStoreInwardAck({
+          inwardNumber: dcNumber,
+          rows,
+          updated: out.updated,
+          receivedAt: new Date(),
+          storeLabel,
+          fromHoLabel,
+          partyFrom,
+          partyTo,
+        });
+      }
       let okText = `Inwarded ${out.updated} watch(es) on ${dcNumber}.`;
-      if (skipped > 0) {
-        okText += ` ${skipped} not accepted — still on transfer (return to HO flow coming next).`;
+      if (failedRows.length > 0) {
+        if (action === "return_to_ho") {
+          okText += ` ${out.returnedToHo ?? failedRows.length} sent to outward queue for HO re-repair.`;
+        } else {
+          okText += ` ${failedRows.length} kept in inward pending on this transfer.`;
+        }
       } else if ((out.pendingOnTransfer ?? 0) > 0) {
         okText += ` ${out.pendingOnTransfer} still pending on this transfer.`;
+      }
+      if (action === "return_to_ho") {
+        okText += " Use Outward SRF to create a new transfer and delivery-boy handoff.";
       }
       setMessage({ type: "ok", text: okText });
     } catch (e) {
@@ -205,6 +235,33 @@ export function StoreDispatchPage() {
     } finally {
       setInwardSaving(false);
     }
+  }
+
+  function confirmInwardSelected() {
+    if (!user || !inwardReviewDc.trim() || inwardSaving) return;
+    const selectedIds = inwardReviewRows.filter((j) => inwardAccepted[j.id]).map((j) => j.id);
+    const failedRows = inwardReviewRows.filter((j) => !inwardAccepted[j.id]);
+    if (selectedIds.length === 0) {
+      setMessage({ type: "err", text: "Tick at least one watch in working condition to inward." });
+      return;
+    }
+    if (failedRows.length > 0) {
+      setQcFailedRows(failedRows);
+      setQcAction("wait");
+      setQcReturnRemark("");
+      setQcDispositionOpen(true);
+      return;
+    }
+    void executeInwardWithDisposition(selectedIds, [], "wait", "");
+  }
+
+  function confirmQcDisposition() {
+    const selectedIds = inwardReviewRows.filter((j) => inwardAccepted[j.id]).map((j) => j.id);
+    if (qcAction === "return_to_ho" && !qcReturnRemark.trim()) {
+      setMessage({ type: "err", text: "Enter remarks explaining why the watch is sent back to HO." });
+      return;
+    }
+    void executeInwardWithDisposition(selectedIds, qcFailedRows, qcAction, qcReturnRemark);
   }
 
   function toggleAll(checked: boolean) {
@@ -401,7 +458,8 @@ export function StoreDispatchPage() {
                       <th className="py-2 pr-3">SRF</th>
                       <th className="py-2 pr-3">Customer</th>
                       <th className="py-2 pr-3">Watch</th>
-                      <th className="py-2">Est. (INR)</th>
+                      <th className="py-2 pr-3">Est. (INR)</th>
+                      <th className="py-2">QC return note</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -425,8 +483,15 @@ export function StoreDispatchPage() {
                         <td className="py-2 pr-3 text-stone-700">
                           {j.watchBrand} {j.watchModel}
                         </td>
-                        <td className="py-2 tabular-nums text-stone-800">
+                        <td className="py-2 pr-3 tabular-nums text-stone-800">
                           {formatApproxEstimateCurrency(j.estimateTotalInr)}
+                        </td>
+                        <td className="py-2 text-xs text-rose-800">
+                          {j.storeQcFailRemark?.trim() ? (
+                            <span title={j.storeQcFailRemark}>{j.storeQcFailRemark}</span>
+                          ) : (
+                            <span className="text-stone-400">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -523,10 +588,32 @@ export function StoreDispatchPage() {
         </>
       )}
       {inwardReviewOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Inward watches — {inwardReviewDc}</h3>
-            <div className="mt-4 overflow-x-auto rounded-xl border border-zimson-200">
+        <AppModal
+          open
+          onClose={closeInwardReview}
+          eyebrow="Store inward QC"
+          title={`Inward watches — ${inwardReviewDc}`}
+          description="Tick only watches that pass store QC. Unchecked SRFs can stay on this transfer or be sent back to HO for re-repair."
+          size="xl"
+          footer={
+            <div className={modalFooterClass}>
+              <button type="button" onClick={closeInwardReview} disabled={inwardSaving} className={modalBtnSecondary}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmInwardSelected}
+                disabled={inwardSaving || !inwardReviewRows.some((j) => inwardAccepted[j.id])}
+                className={modalBtnPrimary}
+              >
+                {inwardSaving
+                  ? "Saving…"
+                  : `Inward selected (${inwardReviewRows.filter((j) => inwardAccepted[j.id]).length})`}
+              </button>
+            </div>
+          }
+        >
+            <div className="overflow-x-auto rounded-xl border border-zimson-200 bg-white shadow-sm">
               <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
                   <tr className="bg-zimson-50 text-xs uppercase tracking-wide text-stone-600">
@@ -568,29 +655,25 @@ export function StoreDispatchPage() {
                 </tbody>
               </table>
             </div>
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeInwardReview}
-                disabled={inwardSaving}
-                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void confirmInwardSelected()}
-                disabled={inwardSaving || !inwardReviewRows.some((j) => inwardAccepted[j.id])}
-                className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {inwardSaving
-                  ? "Saving…"
-                  : `Inward selected (${inwardReviewRows.filter((j) => inwardAccepted[j.id]).length})`}
-              </button>
-            </div>
-          </div>
-        </div>
+        </AppModal>
       ) : null}
+
+      <StoreInwardQcDispositionModal
+        open={qcDispositionOpen}
+        tdNumber={inwardReviewDc}
+        failedRows={qcFailedRows}
+        action={qcAction}
+        remark={qcReturnRemark}
+        saving={inwardSaving}
+        onActionChange={setQcAction}
+        onRemarkChange={setQcReturnRemark}
+        onConfirm={confirmQcDisposition}
+        onClose={() => {
+          setQcDispositionOpen(false);
+          setQcFailedRows([]);
+          setQcReturnRemark("");
+        }}
+      />
 
       {message ? (
         <p

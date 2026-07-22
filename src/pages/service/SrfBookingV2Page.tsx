@@ -2195,7 +2195,7 @@ export function SrfBookingV2Page() {
 
       {otpGateOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <DemoOtpGate
               title="OTP verification"
               issuedCode={issuedOtp ?? undefined}

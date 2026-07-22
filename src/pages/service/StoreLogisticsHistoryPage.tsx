@@ -523,14 +523,14 @@ export function StoreLogisticsHistoryPage() {
 
       {selected ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6"
+          className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6"
           role="dialog"
           aria-modal="true"
           aria-label={`SRF details ${selected.reference}`}
           onClick={() => setSelected(null)}
         >
           <div
-            className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]"
+            className="legacy-modal-panel flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="relative flex shrink-0 items-start justify-between overflow-hidden bg-gradient-to-r from-[#0c1c56] via-[#173786] to-[#24499c] px-5 py-5 text-white sm:px-7">

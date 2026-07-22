@@ -1222,6 +1222,7 @@ export function registerSrfRoutes(
                 j.outward_dc_number AS "outwardDcNumber",
                 j.dispatched_to_store_at AS "dispatchedToStoreAt",
                 j.received_back_at_store_at AS "receivedBackAtStoreAt",
+                j.store_qc_fail_remark AS "storeQcFailRemark",
                 j.closed_at AS "closedAt",
                 j.photo_session_active AS "photoSessionActive",
                 j.capture_link_disabled_at AS "captureLinkDisabledAt",
@@ -8565,10 +8566,23 @@ export function registerSrfRoutes(
       return;
     }
     const dcNumber = String(req.params.dcNumber ?? "").trim();
-    const body = req.body as { srfIds?: unknown };
+    const body = req.body as {
+      srfIds?: unknown;
+      skipped?: Array<{ srfId?: unknown; action?: unknown; remark?: unknown }>;
+    };
     const requestedIds = Array.isArray(body?.srfIds)
       ? body.srfIds.map((id) => String(id ?? "").trim()).filter(Boolean)
       : null;
+    const skippedDispositions = Array.isArray(body?.skipped)
+      ? body.skipped
+          .map((row) => ({
+            srfId: String(row?.srfId ?? "").trim(),
+            action: String(row?.action ?? "").trim() as "wait" | "return_to_ho",
+            remark: String(row?.remark ?? "").trim(),
+          }))
+          .filter((row) => row.srfId && (row.action === "wait" || row.action === "return_to_ho"))
+      : [];
+    const skippedById = new Map(skippedDispositions.map((row) => [row.srfId, row]));
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -8602,17 +8616,82 @@ export function registerSrfRoutes(
       }
       let updated = 0;
       let skipped = 0;
+      let returnedToHo = 0;
       const inwardedSrfIds: string[] = [];
       for (const line of lines) {
         const accept = requestedIds ? requestedIds.includes(line.srf_id) : true;
         if (!accept) {
           skipped += 1;
+          const disposition = skippedById.get(line.srf_id);
+          const action = disposition?.action ?? "wait";
+
+          if (action === "return_to_ho") {
+            const remark = disposition?.remark?.trim() ?? "";
+            if (!remark) {
+              await client.query("ROLLBACK");
+              res.status(400).json({ error: "Remarks are required when sending a watch back to HO for re-repair." });
+              return;
+            }
+            const { rows: jobRows } = await client.query<{ status: string; reference: string }>(
+              `SELECT status, reference FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+              [line.srf_id],
+            );
+            const jobRow = jobRows[0];
+            if (
+              !jobRow ||
+              !["awaiting_store_inward", "dispatched_to_store"].includes(jobRow.status)
+            ) {
+              continue;
+            }
+            await client.query(
+              `DELETE FROM delivery_challan_lines WHERE dc_id = $1::uuid AND srf_id = $2::uuid`,
+              [dc.id, line.srf_id],
+            );
+            const returnUpd = await client.query(
+              `UPDATE srf_jobs
+               SET status = 'at_store',
+                   outward_dc_number = NULL,
+                   dispatched_to_store_at = NULL,
+                   store_qc_fail_remark = $4,
+                   store_id = COALESCE(NULLIF(destination_store_id, ''), store_id),
+                   updated_at = now(),
+                   modified_by = $3
+               WHERE id = $1::uuid
+                 AND destination_store_id = $2::text
+                 AND status IN ('awaiting_store_inward', 'dispatched_to_store')`,
+              [line.srf_id, actor.storeId, actor.id, remark],
+            );
+            if ((returnUpd.rowCount ?? 0) > 0) {
+              returnedToHo += 1;
+              await appendStatusHistory(
+                client,
+                line.srf_id,
+                "at_store",
+                actor.id,
+                `Store QC failed on ${dcNumber} — sent back to HO for re-repair. ${remark}`,
+              );
+              await appendActionLog(client, line.srf_id, {
+                action: "store_qc_return_to_ho",
+                description: `Watch failed store QC on inward ${dcNumber}; queued for outward to HO. Reason: ${remark}`,
+                actor,
+                referenceDoc: dcNumber,
+                details: { remark, tdNumber: dcNumber },
+              });
+            }
+            continue;
+          }
+
+          const { rows: waitRows } = await client.query<{ status: string }>(
+            `SELECT status FROM srf_jobs WHERE id = $1::uuid`,
+            [line.srf_id],
+          );
+          const waitStatus = waitRows[0]?.status ?? "awaiting_store_inward";
           await appendStatusHistory(
             client,
             line.srf_id,
-            "dispatched_to_store",
+            waitStatus,
             actor.id,
-            `Not accepted at store inward (${dcNumber}) — pending return to HO.`,
+            `Not accepted at store QC on ${dcNumber} — kept in inward pending on this transfer.`,
           );
           continue;
         }
@@ -8673,6 +8752,7 @@ export function registerSrfRoutes(
       res.json({
         updated,
         skipped,
+        returnedToHo,
         pendingOnTransfer,
         readyMessagesSent: readyNotifications.filter((result) => result.sent).length,
       });

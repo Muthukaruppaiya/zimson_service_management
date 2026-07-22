@@ -1,3 +1,6 @@
+import { AppModal } from "./AppModal";
+import { modalBtnPrimary, modalFooterClass } from "../../lib/appModalStyles";
+
 type MessageAlertModalProps = {
   open: boolean;
   title?: string;
@@ -7,16 +10,10 @@ type MessageAlertModalProps = {
   variant?: "success" | "error" | "info";
 };
 
-const headerClass: Record<NonNullable<MessageAlertModalProps["variant"]>, string> = {
-  success: "border-b border-emerald-200 bg-emerald-50",
-  error: "border-b border-red-200 bg-red-50",
-  info: "border-b border-sky-200 bg-sky-50",
-};
-
-const titleClass: Record<NonNullable<MessageAlertModalProps["variant"]>, string> = {
-  success: "text-base font-bold text-emerald-900",
-  error: "text-base font-bold text-red-900",
-  info: "text-base font-bold text-sky-900",
+const eyebrowByVariant: Record<NonNullable<MessageAlertModalProps["variant"]>, string> = {
+  success: "Success",
+  error: "Attention",
+  info: "Information",
 };
 
 export function MessageAlertModal({
@@ -27,39 +24,23 @@ export function MessageAlertModal({
   confirmLabel = "OK",
   variant = "error",
 }: MessageAlertModalProps) {
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="message-alert-title"
-      aria-describedby="message-alert-body"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-stone-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className={`px-5 py-4 ${headerClass[variant]}`}>
-          <h2 id="message-alert-title" className={titleClass[variant]}>
-            {title}
-          </h2>
-        </div>
-        <p id="message-alert-body" className="px-5 py-4 text-sm leading-relaxed text-stone-800">
-          {message}
-        </p>
-        <div className="flex justify-end border-t border-stone-200 px-5 py-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl bg-zimson-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-zimson-700"
-          >
+    <AppModal
+      open={open}
+      onClose={onClose}
+      eyebrow={eyebrowByVariant[variant]}
+      title={title}
+      size="sm"
+      zIndex={130}
+      footer={
+        <div className={modalFooterClass}>
+          <button type="button" onClick={onClose} className={modalBtnPrimary}>
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+      }
+    >
+      <p className="text-sm leading-relaxed text-slate-800">{message}</p>
+    </AppModal>
   );
 }

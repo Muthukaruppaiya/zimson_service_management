@@ -58,11 +58,11 @@ function baseStyle(): string {
   .sec { margin-top: 14px; }
   table { width: 100%; border-collapse: collapse; }
   th, td { border: 1px solid #D8DFF0; padding: 6px 8px; font-size: 12px; vertical-align: top; }
-  th { background: #1B3A8F; color: #3B82F6; text-align: left; text-transform: uppercase; font-size: 11px; font-weight: 700; }
+  th { background: #1B3A8F; color: #C9A227; text-align: left; text-transform: uppercase; font-size: 11px; font-weight: 700; }
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; }
   .box { border: 1px solid #111; border-right: 0; padding: 0; }
   .box:last-child { border-right: 1px solid #111; }
-  .box-h { background: #1B3A8F; color: #3B82F6; font-size: 11px; font-weight: 700; padding: 6px 8px; text-transform: uppercase; }
+  .box-h { background: #1B3A8F; color: #C9A227; font-size: 11px; font-weight: 700; padding: 6px 8px; text-transform: uppercase; }
   .box-b { padding: 8px; font-size: 12px; line-height: 1.45; min-height: 105px; }
   .right { text-align: right; }
   .small { font-size: 11px; color: #333; }
@@ -124,7 +124,7 @@ export function openPrintDocument(title: string, html: string): void {
         .print-preview-btn--primary {
           background: #1B3A8F;
           border-color: #1B3A8F;
-          color: #3B82F6;
+          color: #C9A227;
         }
         @media print {
           .print-preview-toolbar { display: none !important; }

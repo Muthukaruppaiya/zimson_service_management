@@ -3577,8 +3577,8 @@ export function ScSupervisorPage() {
       </>
       ) : null}
       {senderForwardPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">
               {senderForwardBrandMode ? "Forward brand estimate to customer" : "Forward re-estimate to customer"}
             </h3>
@@ -3624,8 +3624,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {repairPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Add used spares from inventory</h3>
             <p className="mt-1 text-sm text-stone-600">
               {repairPopupJob?.watchBrand ? (
@@ -3742,7 +3742,7 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {sendBrandPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Queue send to brand</h3>
             <p className="mt-1 text-sm text-stone-600">
@@ -3775,8 +3775,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {brandForwardPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">
               {brandForwardInterHoSender ? "Forward brand estimate to sender HO" : "Forward brand estimate to customer"}
             </h3>
@@ -3825,8 +3825,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {brandEstimatePopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand estimate</h3>
             <p className="mt-1 text-sm text-stone-600">Enter the estimate amount from brand mail. Document upload is optional.</p>
             <div className="mt-4 grid gap-3">
@@ -3857,8 +3857,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {brandInvoicePopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand invoice</h3>
             <p className="mt-1 text-sm text-stone-600">
               Enter line items from the brand invoice. HSN codes are managed in{" "}
@@ -3915,8 +3915,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {brandCreditPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand credit note (from mail)</h3>
             <p className="mt-1 text-sm text-stone-600">Enter the voucher amount from brand mail. Accounts HO will review and issue a ZIM voucher code. Document upload is required.</p>
             <div className="mt-4 grid gap-3">
@@ -3963,8 +3963,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {brandReturnPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Return without repair</h3>
             <p className="mt-1 text-sm text-stone-600">
               Brand cannot repair or customer does not want brand repair. Document upload is optional.
@@ -4000,8 +4000,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {brandNotifyPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Customer coupon notification</h3>
             <label className="mt-3 block text-sm">Note
               <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={3} value={brandNotifyNoteInput} onChange={(e) => setBrandNotifyNoteInput(e.target.value)} />
@@ -4014,8 +4014,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {reestimatePopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">
               {reestimateInterHoMode ? "Request re-estimate via sender HO" : "Request re-estimate approval"}
             </h3>
@@ -4070,7 +4070,7 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {transferPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Send SRF to other HO</h3>
             <p className="mt-1 text-sm text-stone-600">
@@ -4115,8 +4115,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {requestSparesJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Online spare sales order</h3>
             <p className="mt-1 text-sm text-stone-600">
             </p>
@@ -4208,8 +4208,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {fulfillOrderId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Process online spare sale</h3>
             <p className="mt-1 text-sm text-stone-600">Enter invoice reference and invoice rates. Stock will be deducted from this HO.</p>
             <div className="mt-4 grid gap-3">
@@ -4284,8 +4284,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {selectedOrder ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <div className="mb-3 flex items-start justify-between">
               <div>
             <h3 className="text-lg font-semibold text-zimson-900">Online order details — {selectedOrder.orderNumber}</h3>
@@ -4339,8 +4339,8 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {logisticsInvoicePopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-amber-950">Log logistics invoice</h3>
             <p className="mt-1 text-sm text-stone-600">
               Enter the logistics invoice reference. Then use Verify &amp; move to outward so front desk can create HO →
@@ -4427,8 +4427,8 @@ export function ScSupervisorPage() {
       ) : null}
 
       {estimateNotAcceptedPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-rose-900">Estimate not accepted by customer</h3>
             <p className="mt-1 text-sm text-stone-600">
               Confirm the customer will not accept this estimate. Next: repair HO supervisor Send to outward → front desk
@@ -4473,8 +4473,8 @@ export function ScSupervisorPage() {
       ) : null}
 
       {moveToOdcPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-rose-900">
               {moveToOdcInterHo ? "Return watch to sender HO (no repair)" : "Move SRF to outward queue"}
             </h3>
@@ -4512,7 +4512,7 @@ export function ScSupervisorPage() {
       ) : null}
 
       {listDetailJob ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="flex flex-shrink-0 flex-wrap items-start justify-between gap-3 border-b border-zimson-200 bg-zimson-50/60 px-5 py-4">
               <div>
@@ -4869,8 +4869,8 @@ export function ScSupervisorPage() {
       ) : null}
 
       {brandConfirmPopup ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">
               {brandConfirmPopup.kind === "approve_send_brand"
                 ? "Confirm approval to brand"

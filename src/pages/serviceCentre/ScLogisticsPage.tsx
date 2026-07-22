@@ -873,7 +873,7 @@ export function ScLogisticsPage() {
           </Card>
 
           {inwardReviewOpen ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
               <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
                 <h3 className="text-lg font-semibold text-rlx-green">Inward watches — {inwardReviewDc}</h3>
                 <div className="mt-4 overflow-x-auto rounded-xl border border-rlx-rule">
@@ -1372,7 +1372,7 @@ export function ScLogisticsPage() {
         </>
       )}
       {selectedJob ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl">
             <div className="mb-3 flex items-start justify-between">
               <div>
@@ -1804,7 +1804,7 @@ export function ScLogisticsPage() {
       ) : null}
       {brandDispatchPopupOpen ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-violet-950">Log brand dispatch</h3>
             {selectedBrandJobIds.length > 0 ? (
               <ul className="mt-2 max-h-28 overflow-y-auto rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2 text-xs text-violet-950">

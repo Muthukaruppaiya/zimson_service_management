@@ -497,8 +497,8 @@ export function SrfPhotoCapturePage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#f8faff] via-[#f4f6fb] to-[#eef2fa] px-4 py-5 text-[#0d1b2a]">
       <div className="mx-auto max-w-md">
-        <header className="relative overflow-hidden rounded-2xl border border-[#3B82F6]/30 bg-gradient-to-r from-[#0c1c56] via-[#152a72] to-[#1b3a8f] px-4 py-5 text-center text-white shadow-[0_12px_32px_-14px_rgba(12,28,86,0.55)]">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-[#3B82F6] to-transparent" aria-hidden />
+        <header className="relative overflow-hidden rounded-2xl border border-[#C9A227]/30 bg-gradient-to-r from-[#0c1c56] via-[#152a72] to-[#1b3a8f] px-4 py-5 text-center text-white shadow-[0_12px_32px_-14px_rgba(12,28,86,0.55)]">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-[#C9A227] to-transparent" aria-hidden />
           <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#e7c968]">Zimson service</p>
           <h1 className="mt-1.5 text-xl font-bold tracking-tight">Watch photo upload</h1>
           <p className="mt-2 text-xs leading-relaxed text-white/80">{status}</p>
@@ -552,7 +552,7 @@ export function SrfPhotoCapturePage() {
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
                       allWatchPhotosDone
-                        ? "bg-gradient-to-r from-[#3B82F6] to-[#e7c968]"
+                        ? "bg-gradient-to-r from-[#C9A227] to-[#e7c968]"
                         : "bg-gradient-to-r from-[#1b3a8f] to-[#3d5fc4]"
                     }`}
                     style={{ width: `${photoProgressPct}%` }}
@@ -737,7 +737,7 @@ export function SrfPhotoCapturePage() {
                 <span className="text-xs font-bold">{busy ? "Uploading…" : "Upload PDF"}</span>
               </button>
             ) : (
-              <div className="flex items-center gap-3 rounded-xl border border-[#3B82F6]/30 bg-[#fffdf5] p-2.5">
+              <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/30 bg-[#fffdf5] p-2.5">
                 {documentIsPdf ? (
                   <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-[#e2e8f5] bg-white text-[#1b3a8f] shadow-sm">
                     <PdfIcon className="h-7 w-7" />
@@ -795,7 +795,7 @@ export function SrfPhotoCapturePage() {
 
       {cameraOpen ? (
         <div className="fixed inset-0 z-50 flex flex-col bg-[#0c1c56]">
-          <div className="flex items-center justify-between border-b border-[#3B82F6]/30 bg-gradient-to-r from-[#0c1c56] to-[#1b3a8f] px-4 py-3 text-white">
+          <div className="flex items-center justify-between border-b border-[#C9A227]/30 bg-gradient-to-r from-[#0c1c56] to-[#1b3a8f] px-4 py-3 text-white">
             <p className="text-sm font-bold">
               {cameraTarget === "document"
                 ? "Capture document"
@@ -819,7 +819,7 @@ export function SrfPhotoCapturePage() {
               <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
             )}
           </div>
-          <div className="grid grid-cols-2 gap-3 border-t border-[#3B82F6]/25 bg-[#0c1c56] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="grid grid-cols-2 gap-3 border-t border-[#C9A227]/25 bg-[#0c1c56] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {capturePreviewUrl ? (
               <>
                 <button
@@ -834,7 +834,7 @@ export function SrfPhotoCapturePage() {
                   type="button"
                   disabled={busy}
                   onClick={() => void confirmCaptureUpload()}
-                  className="rounded-xl bg-gradient-to-b from-[#e7c968] to-[#3B82F6] py-3 text-sm font-bold text-[#0c1c56] disabled:opacity-50"
+                  className="rounded-xl bg-gradient-to-b from-[#e7c968] to-[#C9A227] py-3 text-sm font-bold text-[#0c1c56] disabled:opacity-50"
                 >
                   {busy ? "Saving…" : "Use photo"}
                 </button>
@@ -852,7 +852,7 @@ export function SrfPhotoCapturePage() {
                   type="button"
                   disabled={busy || cameraStarting}
                   onClick={() => void captureFromCamera()}
-                  className="rounded-xl bg-gradient-to-b from-[#e7c968] to-[#3B82F6] py-3 text-sm font-bold text-[#0c1c56] disabled:opacity-50"
+                  className="rounded-xl bg-gradient-to-b from-[#e7c968] to-[#C9A227] py-3 text-sm font-bold text-[#0c1c56] disabled:opacity-50"
                 >
                   Capture
                 </button>

@@ -310,7 +310,7 @@ export function CustomerMasterPage() {
 
       {edit ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Edit customer</h3>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="text-sm">Customer name<input className={inputClass} value={edit.displayName} onChange={(e) => setEdit((p) => (p ? { ...p, displayName: e.target.value } : p))} /></label>

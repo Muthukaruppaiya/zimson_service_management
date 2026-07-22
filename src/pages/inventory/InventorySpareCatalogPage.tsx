@@ -708,7 +708,7 @@ export function InventorySpareCatalogPage() {
       )}
 
       {addSpareOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
             <div className="mb-4 flex items-start justify-between">
               <div>
@@ -867,7 +867,7 @@ export function InventorySpareCatalogPage() {
       ) : null}
 
       {bulkImportOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
             <div className="mb-4 flex items-start justify-between">
               <div>

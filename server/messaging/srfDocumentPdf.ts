@@ -8,8 +8,8 @@ type PdfDoc = InstanceType<typeof PDFDocument>;
 
 const NAVY = "#1b3a8f";
 const NAVY_DEEP = "#0c1c56";
-const GOLD = "#3B82F6";
-const GOLD_LIGHT = "#60A5FA";
+const GOLD = "#C9A227";
+const GOLD_LIGHT = "#E8C14E";
 const INK = "#0d1b2a";
 const MUTED = "#64748b";
 const BORDER = "#e2e8f5";
@@ -314,7 +314,7 @@ export async function buildSrfPdfBuffer(data: SrfPrintData): Promise<Buffer> {
     const cardW = (CONTENT_W - gap * 3) / 4;
     const cardH = 46;
     const amountCards: Array<[string, string, "calendar" | "wallet" | "wrench" | "rupee", string, string]> = [
-      ["Estd. Delivery", formatDateOnly(data.estimatedFinishDate), "calendar", "#3b82f6", "#1d4ed8"],
+      ["Estd. Delivery", formatDateOnly(data.estimatedFinishDate), "calendar", "#c9a227", "#a8850f"],
       ["Advance Paid (INR)", `INR ${advance.toFixed(2)}`, "wallet", "#22c55e", "#15803d"],
       ["Est. Service Cost (approx.)", `Approx. INR ${estimate.toFixed(2)}`, "wrench", "#f97316", "#c2410c"],
       ["Balance (Excl. Tax)", `INR ${balance.toFixed(2)}`, "rupee", GOLD_LIGHT, GOLD],

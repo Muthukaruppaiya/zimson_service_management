@@ -630,8 +630,8 @@ export function StoreAssignPage() {
       ) : null}
 
       {sendToHoJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">{SRF_ROUTE_LABEL_SEND_TO_SC}</h3>
             <p className="mt-1 text-sm text-stone-600">
               The watch cannot be repaired at your store. It will move to the{" "}
@@ -672,8 +672,8 @@ export function StoreAssignPage() {
       ) : null}
 
       {returnWithoutRepairJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-rose-900">Return watch without repair</h3>
             <p className="mt-1 text-sm text-stone-600">
               Customer and store could not agree on re-estimate. The watch will be sent to store billing for
@@ -713,8 +713,8 @@ export function StoreAssignPage() {
       ) : null}
 
       {reestimatePopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Request re-estimate approval</h3>
             <p className="mt-1 text-sm text-stone-600">Enter revised estimate amount and remarks for customer approval.</p>
             <div className="mt-4 grid gap-3">
@@ -764,8 +764,8 @@ export function StoreAssignPage() {
       ) : null}
 
       {repairPopupJobId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Used spares</h3>
             <p className="mt-1 text-sm text-stone-600">
               Record parts used for this repair, then the SRF will be marked complete and sent to billing.

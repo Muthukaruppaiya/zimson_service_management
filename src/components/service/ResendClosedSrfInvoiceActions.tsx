@@ -38,7 +38,7 @@ type Props = {
   trailingActions?: ReactNode;
 };
 
-const iconDownload = `${invoicePreviewIconBtn} rounded-xl border border-[#3B82F6]/45 bg-white text-[#1b3a8f] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#f8faff] hover:shadow-md`;
+const iconDownload = `${invoicePreviewIconBtn} rounded-xl border border-[#C9A227]/45 bg-white text-[#1b3a8f] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#f8faff] hover:shadow-md`;
 const iconEmail = `${invoicePreviewIconBtn} rounded-xl border border-sky-300/80 bg-sky-700 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-sky-800 hover:shadow-md`;
 const iconWhatsApp = `${invoicePreviewIconBtn} rounded-xl border border-emerald-300/80 bg-emerald-600 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-700 hover:shadow-md`;
 

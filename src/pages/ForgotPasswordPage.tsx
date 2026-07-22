@@ -44,18 +44,18 @@ export function ForgotPasswordPage() {
 
   return (
     <div className="flex min-h-dvh flex-col" style={{ background: "linear-gradient(160deg, #0D1B5E 0%, #1B3A8F 50%, #102570 100%)" }}>
-      <div className="h-[4px] w-full shrink-0" style={{ background: "linear-gradient(90deg, #1D4ED8, #3B82F6, #93C5FD, #3B82F6, #1D4ED8)" }} />
+      <div className="h-[4px] w-full shrink-0" style={{ background: "linear-gradient(90deg, #A8850F, #C9A227, #F0DC90, #C9A227, #A8850F)" }} />
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
         <div className="mb-8 flex flex-col items-center gap-4 text-center">
           <img src="/zimson-logo.png" alt="Zimson" className="h-12 w-auto object-contain" />
-          <p className="text-[11px] font-bold uppercase tracking-[0.45em]" style={{ color: "#3B82F6" }}>
+          <p className="text-[11px] font-bold uppercase tracking-[0.45em]" style={{ color: "#C9A227" }}>
             Reset password
           </p>
         </div>
 
-        <div className="w-full max-w-sm bg-white shadow-[0_32px_96px_-16px_rgba(0,0,0,0.6)]" style={{ borderTop: "3px solid #3B82F6" }}>
+        <div className="w-full max-w-sm bg-white shadow-[0_32px_96px_-16px_rgba(0,0,0,0.6)]" style={{ borderTop: "3px solid #C9A227" }}>
           <div className="px-7 py-5" style={{ background: "#1B3A8F" }}>
-            <h2 className="text-base font-semibold uppercase tracking-[0.16em]" style={{ color: "#3B82F6" }}>
+            <h2 className="text-base font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
               Forgot password
             </h2>
             <p className="mt-1 text-sm text-white/70">
@@ -108,7 +108,7 @@ export function ForgotPasswordPage() {
               type="submit"
               disabled={busy || !loginId.trim()}
               className="w-full py-3 text-xs font-bold uppercase tracking-[0.25em] transition disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ background: "linear-gradient(135deg, #1D4ED8, #3B82F6)", color: "#003a22" }}
+              style={{ background: "linear-gradient(135deg, #A8850F, #C9A227)", color: "#003a22" }}
             >
               {busy ? "Working…" : "Send reset link"}
             </button>

@@ -110,9 +110,9 @@ export function LoginPage() {
         <svg className="zimson-login__swoosh zimson-login__swoosh--bl" viewBox="0 0 400 80" fill="none">
           <defs>
             <linearGradient id="sw-bl" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#1D4ED8" stopOpacity="0" />
-              <stop offset="40%" stopColor="#3B82F6" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#2563EB" stopOpacity="0" />
+              <stop offset="0%" stopColor="#A8850F" stopOpacity="0" />
+              <stop offset="40%" stopColor="#C9A227" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#C9A227" stopOpacity="0" />
             </linearGradient>
           </defs>
           <path
@@ -125,9 +125,9 @@ export function LoginPage() {
         <svg className="zimson-login__swoosh zimson-login__swoosh--br" viewBox="0 0 400 80" fill="none">
           <defs>
             <linearGradient id="sw-br" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#1D4ED8" stopOpacity="0" />
-              <stop offset="40%" stopColor="#3B82F6" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#2563EB" stopOpacity="0" />
+              <stop offset="0%" stopColor="#A8850F" stopOpacity="0" />
+              <stop offset="40%" stopColor="#C9A227" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#C9A227" stopOpacity="0" />
             </linearGradient>
           </defs>
           <path
