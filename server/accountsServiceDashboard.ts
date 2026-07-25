@@ -36,6 +36,8 @@ export type BrandCreditHistoryRow = {
   serial: string;
   regionName: string | null;
   storeName: string | null;
+  brandCreditNoteResponsible: "ho" | "store" | null;
+  brandCreditNoteNote: string | null;
   brandInvoiceRef: string | null;
   brandInvoiceMeta: Record<string, unknown> | null;
   brandCouponCode: string | null;
@@ -46,6 +48,7 @@ export type BrandCreditHistoryRow = {
   brandCreditNoteApprovedBy: string | null;
   closedAt: string | null;
   createdAt: string;
+  status: string;
 };
 
 const OUTCOME_LABELS: Record<ServiceOutcomeKey, string> = {
@@ -123,18 +126,37 @@ const OUTCOME_CASE_SQL = `CASE
 END`;
 
 export function canAccessAccountsServiceDashboard(actor: DemoUser | null): boolean {
-  return canAccessAnalytics(actor);
+  return !!actor && canAccessAnalytics(actor);
 }
 
 export function canAccessBrandCreditHistory(actor: DemoUser | null): boolean {
   return (
-    canAccessAnalytics(actor) ||
-    (!!actor &&
-      (actor.role === "ho_accounts" ||
-        actor.role === "store_accounts" ||
-        actor.role === "super_admin" ||
-        actor.role === "admin"))
+    !!actor &&
+    (canAccessAnalytics(actor) ||
+      actor.role === "ho_accounts" ||
+      actor.role === "store_accounts" ||
+      actor.role === "service_centre_supervisor" ||
+      actor.role === "store_user" ||
+      actor.role === "store_manager" ||
+      actor.role === "super_admin" ||
+      actor.role === "admin")
   );
+}
+
+/** Role-scoped visibility after Accounts approval. */
+function brandCreditHistoryRoleScope(actor: DemoUser, params: unknown[]): string {
+  if (actor.role === "super_admin" || actor.role === "admin" || actor.role === "ho_accounts" || actor.role === "ho_manager") {
+    return "TRUE";
+  }
+  if (actor.role === "service_centre_supervisor") {
+    return `(j.brand_credit_note_responsible = 'ho' OR j.brand_credit_note_responsible IS NULL)`;
+  }
+  if (actor.role === "store_user" || actor.role === "store_manager" || actor.role === "store_accounts") {
+    if (!actor.storeId) return "FALSE";
+    params.push(actor.storeId);
+    return `j.brand_credit_note_responsible = 'store' AND j.store_id = $${params.length}`;
+  }
+  return "FALSE";
 }
 
 export function parseAccountsServiceDashboardQuery(
@@ -148,13 +170,19 @@ export async function fetchAccountsServiceDashboard(
   actor: DemoUser,
   filters: AccountsServiceDashboardFilters,
 ): Promise<AccountsServiceDashboardData> {
+  const pendingCreditStatusSql =
+    actor.role === "ho_manager"
+      ? "j.status = 'brand_credit_note_pending_ho'"
+      : actor.role === "admin" || actor.role === "super_admin"
+        ? "j.status IN ('brand_credit_note_pending', 'brand_credit_note_pending_ho', 'brand_credit_note_pending_accounts')"
+        : "j.status IN ('brand_credit_note_pending', 'brand_credit_note_pending_accounts')";
   const pendingParams: unknown[] = [];
   const pendingScope = scopeRegion(actor, pendingParams, "j.region_id", filters);
   const pendingRes = await pool.query<{ cnt: string }>(
     `SELECT COUNT(*)::int AS cnt
      FROM srf_jobs j
      WHERE ${SRF_NOT_ARCHIVED}
-       AND j.status = 'brand_credit_note_pending'
+       AND ${pendingCreditStatusSql}
        AND j.brand_coupon_value_inr IS NOT NULL
        AND j.brand_coupon_value_inr > 0
        AND ${pendingScope}`,
@@ -187,7 +215,7 @@ export async function fetchAccountsServiceDashboard(
   const activeRes = await pool.query<{ outcome: ServiceOutcomeKey; cnt: string }>(
     `SELECT outcome, COUNT(*)::int AS cnt FROM (
        SELECT CASE
-         WHEN j.status = 'brand_credit_note_pending' OR j.status = 'brand_credit_note_active' THEN 'cannot_repair'
+        WHEN j.status IN ('brand_credit_note_pending', 'brand_credit_note_pending_ho', 'brand_credit_note_pending_accounts', 'brand_credit_note_active') THEN 'cannot_repair'
          WHEN j.status IN (
            'sent_to_brand','brand_estimate_pending','brand_estimate_customer_pending',
            'brand_estimate_customer_accepted','brand_approved','brand_repair_in_progress',
@@ -250,6 +278,34 @@ export async function fetchBrandCreditHistory(
 ): Promise<{ filters: AccountsServiceDashboardFilters; rows: BrandCreditHistoryRow[] }> {
   const params: unknown[] = [filters.from, filters.to];
   const scope = scopeRegion(actor, params, "j.region_id", filters);
+  const roleScope = brandCreditHistoryRoleScope(actor, params);
+  const includePendingForHo =
+    actor.role === "service_centre_supervisor" ||
+    actor.role === "ho_manager" ||
+    actor.role === "admin" ||
+    actor.role === "super_admin";
+  const includePendingForStore =
+    actor.role === "store_user" || actor.role === "store_manager" || actor.role === "store_accounts";
+  const statusSql = includePendingForHo
+    ? `((j.status = 'closed' AND j.brand_credit_note_approved_at IS NOT NULL
+         AND ${sqlIstDate("j.brand_credit_note_approved_at")} >= $1::date
+         AND ${sqlIstDate("j.brand_credit_note_approved_at")} <= $2::date)
+       OR (j.status IN ('brand_credit_note_pending_ho', 'brand_credit_note_pending_accounts', 'brand_credit_note_pending')
+         AND j.brand_credit_note_responsible = 'ho'
+         AND ${sqlIstDate("COALESCE(j.brand_coupon_received_at, j.updated_at)")} >= $1::date
+         AND ${sqlIstDate("COALESCE(j.brand_coupon_received_at, j.updated_at)")} <= $2::date))`
+    : includePendingForStore
+      ? `((j.status = 'closed' AND j.brand_credit_note_approved_at IS NOT NULL
+           AND ${sqlIstDate("j.brand_credit_note_approved_at")} >= $1::date
+           AND ${sqlIstDate("j.brand_credit_note_approved_at")} <= $2::date)
+         OR (j.status IN ('brand_credit_note_pending_ho', 'brand_credit_note_pending_accounts', 'brand_credit_note_pending')
+           AND j.brand_credit_note_responsible = 'store'
+           AND ${sqlIstDate("COALESCE(j.brand_coupon_received_at, j.updated_at)")} >= $1::date
+           AND ${sqlIstDate("COALESCE(j.brand_coupon_received_at, j.updated_at)")} <= $2::date))`
+      : `j.status = 'closed'
+       AND j.brand_credit_note_approved_at IS NOT NULL
+       AND ${sqlIstDate("j.brand_credit_note_approved_at")} >= $1::date
+       AND ${sqlIstDate("j.brand_credit_note_approved_at")} <= $2::date`;
   const q = String(queryText ?? "").trim().toLowerCase();
   let searchSql = "";
   if (q) {
@@ -259,7 +315,7 @@ export async function fetchBrandCreditHistory(
       LOWER(j.reference) LIKE $${idx}
       OR LOWER(j.customer_name) LIKE $${idx}
       OR j.phone LIKE $${idx}
-      OR LOWER(j.brand_coupon_code) LIKE $${idx}
+      OR LOWER(COALESCE(j.brand_coupon_code, '')) LIKE $${idx}
       OR LOWER(COALESCE(j.brand_invoice_ref, '')) LIKE $${idx}
       OR LOWER(j.watch_brand || ' ' || j.watch_model) LIKE $${idx}
     )`;
@@ -275,6 +331,8 @@ export async function fetchBrandCreditHistory(
             j.serial,
             r.name AS "regionName",
             st.name AS "storeName",
+            j.brand_credit_note_responsible AS "brandCreditNoteResponsible",
+            j.brand_credit_note_note AS "brandCreditNoteNote",
             j.brand_invoice_ref AS "brandInvoiceRef",
             j.brand_invoice_meta AS "brandInvoiceMeta",
             j.brand_coupon_code AS "brandCouponCode",
@@ -284,18 +342,17 @@ export async function fetchBrandCreditHistory(
             j.brand_credit_note_approved_at AS "brandCreditNoteApprovedAt",
             j.brand_credit_note_approved_by AS "brandCreditNoteApprovedBy",
             j.closed_at AS "closedAt",
-            j.created_at AS "createdAt"
+            j.created_at AS "createdAt",
+            j.status
      FROM srf_jobs j
      LEFT JOIN regions r ON r.id = j.region_id
      LEFT JOIN stores st ON st.id = j.store_id
      WHERE ${SRF_NOT_ARCHIVED}
-       AND j.status = 'closed'
-       AND j.brand_credit_note_approved_at IS NOT NULL
-       AND ${sqlIstDate("j.brand_credit_note_approved_at")} >= $1::date
-       AND ${sqlIstDate("j.brand_credit_note_approved_at")} <= $2::date
+       AND ${statusSql}
        AND ${scope}
+       AND ${roleScope}
        ${searchSql}
-     ORDER BY j.brand_credit_note_approved_at DESC
+     ORDER BY COALESCE(j.brand_credit_note_approved_at, j.brand_coupon_received_at, j.updated_at) DESC
      LIMIT 500`,
     params,
   );

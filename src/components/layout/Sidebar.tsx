@@ -132,13 +132,14 @@ export function Sidebar() {
           { to: "/service/store-assign", label: "Store assign", module: "service" },
           { to: "/service/srf-register", label: "SRF history", module: "service" },
           { to: "/service/srf-master", label: "SRF master table", module: "service" },
+          { to: "/service/brand-credit-notes", label: "Brand credit notes", module: "service", roles: ["store_user", "store_manager", "store_accounts"] },
         ],
       },
       {
         title: "Accounts", icon: "accounts",
         items: [
           { to: "/accounts/invoice-history", label: "Invoice history", module: "accounts" },
-          { to: "/accounts/brand-credit-notes", label: "Brand credit notes", module: "accounts" },
+          { to: "/accounts/brand-credit-notes", label: "Brand credit notes", module: "accounts", roles: ["ho_accounts"] },
           { to: "/accounts/brand-credit-history", label: "Credit note history", module: "accounts" },
           { to: "/accounts/ledger", label: "Payment ledger", module: "accounts" },
           { to: "/accounts/setup", label: "Accounts setup", module: "accounts" },
@@ -154,6 +155,9 @@ export function Sidebar() {
           { to: "/reports/stock-in-hand", label: "Stock in hand", module: "reports" },
           { to: "/reports/watch-not-returned", label: "Watch not returned", module: "reports" },
           { to: "/reports/aging", label: "Aging", module: "reports" },
+          { to: "/reports/unassigned-watches", label: "Unassigned watches", module: "reports" },
+          { to: "/reports/technician-assign-watch", label: "Technician assign watch", module: "reports" },
+          { to: "/reports/technician-repaired-history", label: "Technician repaired history", module: "reports" },
           { to: "/reports/pending", label: "Pending", module: "reports" },
           { to: "/reports/transfer", label: "Transfer", module: "reports" },
         ],
@@ -208,6 +212,7 @@ export function Sidebar() {
         title: "Supervision", icon: "supervisor",
         items: [
           { to: "/service-centre/supervisor", label: "Assigning", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
+          { to: "/service-centre/brand-credit-notes", label: "HO brand credit notes", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
           { to: "/service-centre/srf-history", label: "SRF history", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
           { to: "/service-centre/supervisor/reestimate-sender", label: "Sender re-estimate approvals", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
         ],

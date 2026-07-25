@@ -1716,18 +1716,37 @@
   padding: 0.875rem 1.25rem;
 }
 
-.legacy-modal-panel > div.mt-4.flex:last-child,
-.legacy-modal-panel > div.mt-5.flex:last-child {
-  margin-top: 0;
-}
-
-.legacy-modal-panel .overflow-y-auto,
-.legacy-modal-panel > div:not(.legacy-modal-panel__footer):not(.mt-4):not(.mt-5) {
+/* Scrollable body — must shrink (min-height: 0) inside max-h flex panel.
+   Do NOT exclude all .mt-4 nodes: form bodies often use "mt-4 grid", while
+   footers are specifically "mt-4 flex" / "mt-5 flex". */
+.legacy-modal-panel > .legacy-modal-panel__body,
+.legacy-modal-panel > .overflow-y-auto,
+.legacy-modal-panel > div.mt-4.grid,
+.legacy-modal-panel > div.grid.gap-3,
+.legacy-modal-panel > div:not(.legacy-modal-panel__footer):not(.mt-4.flex):not(.mt-5.flex) {
+  min-height: 0;
+  flex: 1 1 auto;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 1rem;
 }
 
 .legacy-modal-backdrop {
   background: rgba(2, 6, 23, 0.65) !important;
   backdrop-filter: blur(4px);
+}
+
+@keyframes landing-scroll-pulse {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(280%);
+    opacity: 0;
+  }
 }
 

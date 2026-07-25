@@ -115,6 +115,21 @@ export function BrandCreditHistoryPage() {
 
   const canPickRegion = user?.role === "super_admin" || user?.role === "admin";
   const canAccessAnalytics = user?.role === "super_admin" || user?.role === "admin" || user?.role === "ho_manager";
+  const canApproveQueue =
+    user?.role === "ho_accounts" || user?.role === "super_admin" || user?.role === "admin";
+  const isStoreAudience =
+    user?.role === "store_user" || user?.role === "store_manager" || user?.role === "store_accounts";
+  const isHoSupervisorAudience = user?.role === "service_centre_supervisor";
+  const pageTitle = isStoreAudience
+    ? "Store brand credit notes"
+    : isHoSupervisorAudience
+      ? "HO brand credit notes"
+      : "Brand credit note history";
+  const pageDescription = isStoreAudience
+    ? "Store-responsible credit notes for your store — pending Accounts approval and approved vouchers."
+    : isHoSupervisorAudience
+      ? "HO-responsible credit notes for your region — pending Accounts approval and approved vouchers."
+      : "Approved ZIM vouchers issued when brand could not repair — full audit trail with customer, watch, brand mail ref, and validity.";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -210,8 +225,8 @@ export function BrandCreditHistoryPage() {
   return (
     <div className="ui-page-bleed px-3 font-sans text-rlx-ink sm:px-4 md:px-5">
       <PageHeader
-        title="Brand credit note history"
-        description="Approved ZIM vouchers issued when brand could not repair — full audit trail with customer, watch, brand mail ref, and validity."
+        title={pageTitle}
+        description={pageDescription}
         actions={
           <div className="flex flex-wrap gap-2">
             {canAccessAnalytics ? (
@@ -222,12 +237,14 @@ export function BrandCreditHistoryPage() {
                 Service outcomes
               </Link>
             ) : null}
-            <Link
-              to="/accounts/brand-credit-notes"
-              className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light"
-            >
-              Pending approvals
-            </Link>
+            {canApproveQueue ? (
+              <Link
+                to="/accounts/brand-credit-notes"
+                className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light"
+              >
+                Pending approvals
+              </Link>
+            ) : null}
           </div>
         }
       />
@@ -395,6 +412,7 @@ export function BrandCreditHistoryPage() {
                   <th className="min-w-[10rem] px-3 py-3 text-left font-semibold">Customer</th>
                   <th className="min-w-[10rem] px-3 py-3 text-left font-semibold">Watch</th>
                   <th className="min-w-[9rem] px-3 py-3 text-left font-semibold">Store</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Responsible</th>
                   <th className="min-w-[8rem] px-3 py-3 text-left font-semibold">Brand ref</th>
                   <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Voucher</th>
                   <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Value</th>
@@ -418,6 +436,11 @@ export function BrandCreditHistoryPage() {
                         <span className="block whitespace-nowrap font-mono text-sm font-semibold text-rlx-green">
                           {r.reference}
                         </span>
+                        {!r.brandCreditNoteApprovedAt ? (
+                          <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                            Pending Accounts
+                          </span>
+                        ) : null}
                       </td>
                       <td className="align-middle px-3 py-3">
                         <span className="block whitespace-normal break-words text-sm font-medium leading-snug text-rlx-ink">
@@ -436,6 +459,17 @@ export function BrandCreditHistoryPage() {
                           {r.storeName ?? "—"}
                         </span>
                         <span className="block text-xs leading-snug text-rlx-ink-muted">{r.regionName ?? "—"}</span>
+                      </td>
+                      <td className="align-middle px-3 py-3">
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                            r.brandCreditNoteResponsible === "store"
+                              ? "bg-emerald-100 text-emerald-900"
+                              : "bg-sky-100 text-sky-900"
+                          }`}
+                        >
+                          {r.brandCreditNoteResponsible === "store" ? "Store" : "HO"}
+                        </span>
                       </td>
                       <td className="align-middle px-3 py-3">
                         <span className="block whitespace-normal break-all font-mono text-sm text-rlx-ink">
@@ -537,6 +571,14 @@ export function BrandCreditHistoryPage() {
                     <DetailRow label="Serial" value={<span className="font-mono">{detail.serial || "—"}</span>} />
                     <DetailRow label="Store" value={detail.storeName ?? "—"} />
                     <DetailRow label="Region" value={detail.regionName ?? "—"} />
+                    <DetailRow
+                      label="Responsible"
+                      value={detail.brandCreditNoteResponsible === "store" ? "Store" : "HO"}
+                    />
+                    <DetailRow
+                      label="CN remark"
+                      value={detail.brandCreditNoteNote?.trim() || "—"}
+                    />
                     <DetailRow label="Brand ref" value={<span className="font-mono">{detail.brandInvoiceRef ?? "—"}</span>} />
                     <DetailRow
                       label="Voucher"

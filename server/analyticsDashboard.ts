@@ -146,7 +146,7 @@ const SRF_STAGE_SQL = `CASE
   WHEN sj.status IN ('draft','photo_pending','at_store','store_self_pending','store_self_assigned','store_self_working') THEN 'Store — booking & waiting'
   WHEN sj.status IN ('in_transit_sc','dispatched_to_store','ready_for_outward') THEN 'In transit'
   WHEN sj.status IN ('received_at_sc','assigned','estimate_ok','reestimate_required','customer_rejected','inter_ho_reestimate_pending_sender','inter_ho_reestimate_customer_accepted','inter_ho_brand_estimate_pending_sender','inter_ho_brand_estimate_customer_accepted','sent_to_other_ho') THEN 'HO — repair in progress'
-  WHEN sj.status IN ('sent_to_brand','brand_estimate_pending','brand_estimate_customer_pending','brand_estimate_customer_accepted','brand_approved','brand_repair_in_progress','received_from_brand','brand_outward_pending','brand_dispatch_pending','brand_credit_note_pending','brand_credit_note_active') THEN 'Brand service desk'
+  WHEN sj.status IN ('sent_to_brand','brand_estimate_pending','brand_estimate_customer_pending','brand_estimate_customer_accepted','brand_approved','brand_repair_in_progress','received_from_brand','brand_outward_pending','brand_dispatch_pending','brand_credit_note_pending','brand_credit_note_pending_ho','brand_credit_note_pending_accounts','brand_credit_note_active') THEN 'Brand service desk'
   WHEN sj.status = 'received_at_store' THEN 'Ready for customer pickup'
   WHEN sj.status = 'closed' THEN 'Closed'
   WHEN sj.status = 'cancelled' THEN 'Cancelled'
@@ -202,6 +202,8 @@ const SRF_STATUS_LABELS: Record<string, string> = {
   brand_repair_in_progress: "Brand repair in progress",
   received_from_brand: "Received from brand",
   brand_credit_note_pending: "Brand credit note pending",
+  brand_credit_note_pending_ho: "Brand credit note pending HO",
+  brand_credit_note_pending_accounts: "Brand credit note pending accounts",
   brand_credit_note_active: "Brand credit note active",
   ready_for_outward: "Ready for outward",
   dispatched_to_store: "Dispatched to store",

@@ -18,6 +18,8 @@ type BrandCreditNoteRow = {
   watchModel: string;
   serial: string;
   status: string;
+  brandCreditNoteResponsible: "ho" | "store" | null;
+  brandCreditNoteNote: string | null;
   brandInvoiceRef: string | null;
   brandInvoiceMeta: Record<string, unknown> | null;
   brandCouponCode: string | null;
@@ -37,6 +39,14 @@ function attachmentUrl(meta: Record<string, unknown> | null | undefined): string
 
 function hasSupervisorProposedAmount(row: BrandCreditNoteRow): boolean {
   return row.brandCouponValueInr != null && Number.isFinite(row.brandCouponValueInr) && row.brandCouponValueInr > 0;
+}
+
+function isPendingCreditNote(status: string): boolean {
+  return (
+    status === "brand_credit_note_pending" ||
+    status === "brand_credit_note_pending_ho" ||
+    status === "brand_credit_note_pending_accounts"
+  );
 }
 
 type EditableAmountProps = {
@@ -135,7 +145,7 @@ export function BrandCreditNotesPage() {
       setValueByJob((prev) => {
         const next = { ...prev };
         for (const r of out.rows) {
-          if (r.status === "brand_credit_note_pending" && r.brandCouponValueInr != null && !next[r.id]) {
+          if (isPendingCreditNote(r.status) && r.brandCouponValueInr != null && !next[r.id]) {
             next[r.id] = String(r.brandCouponValueInr);
           }
         }
@@ -168,7 +178,7 @@ export function BrandCreditNotesPage() {
   }, [rows, query]);
 
   const pending = filtered.filter(
-    (r) => r.status === "brand_credit_note_pending" && hasSupervisorProposedAmount(r),
+    (r) => isPendingCreditNote(r.status) && hasSupervisorProposedAmount(r),
   );
   const approved = filtered.filter((r) => r.status === "closed" && r.brandCreditNoteApprovedAt);
   const selectedPending = pending.find((r) => r.id === selectedPendingId) ?? null;
@@ -207,8 +217,8 @@ export function BrandCreditNotesPage() {
         reference: job.reference,
         voucherCode: out.voucherCode,
         valueInr,
-        emailSent: out.emailSent,
-        whatsappSent: out.whatsappSent,
+        emailSent: !!out.emailSent,
+        whatsappSent: !!out.whatsappSent,
       });
       await load();
     } catch (e) {
@@ -222,7 +232,7 @@ export function BrandCreditNotesPage() {
     <div>
       <PageHeader
         title="Brand credit notes"
-        description="Review supervisor-proposed voucher amounts, approve to issue a ZIM voucher code, and email the customer."
+        description="Review your assigned credit-note queue, issue the ZIM voucher, notify the customer, and route the approved details to HO or the booking store."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -294,6 +304,9 @@ export function BrandCreditNotesPage() {
                         <span className="hidden text-xs text-stone-500 sm:inline">
                           {r.watchBrand} {r.watchModel}
                         </span>
+                        <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${r.brandCreditNoteResponsible === "ho" ? "bg-sky-100 text-sky-900" : "bg-emerald-100 text-emerald-900"}`}>
+                          {r.brandCreditNoteResponsible === "ho" ? "HO responsible" : "Store responsible"}
+                        </span>
                         <span className="text-xs font-medium text-amber-800">{selected ? "Open" : "Review →"}</span>
                       </button>
                     );
@@ -317,6 +330,14 @@ export function BrandCreditNotesPage() {
                             <span className="font-mono font-semibold">{selectedPending.brandInvoiceRef}</span>
                           </p>
                         ) : null}
+                        <p className="mt-2 text-xs font-semibold text-zimson-800">
+                          Responsibility: {selectedPending.brandCreditNoteResponsible === "ho" ? "HO" : "Booking store"}
+                        </p>
+                        {selectedPending.brandCreditNoteNote ? (
+                          <p className="mt-1 max-w-2xl text-xs text-stone-600">
+                            Brand remark: {selectedPending.brandCreditNoteNote}
+                          </p>
+                        ) : null}
                       </div>
                       {attachmentUrl(selectedPending.brandInvoiceMeta) ? (
                         <a
@@ -332,7 +353,8 @@ export function BrandCreditNotesPage() {
 
                     <p className="mt-3 text-xs text-stone-500">
                       Voucher code is auto-generated (<span className="font-mono font-semibold">ZIM</span> + 8
-                      alphanumeric) when you approve.
+                      alphanumeric) when you approve. The customer is notified, the SRF closes, and the full
+                      credit-note details go to the responsible {selectedPending.brandCreditNoteResponsible === "ho" ? "HO Supervisor" : "booking store"}.
                     </p>
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -382,7 +404,9 @@ export function BrandCreditNotesPage() {
                         onClick={() => void approve(selectedPending)}
                         className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
                       >
-                        {busyId === selectedPending.id ? "Approving…" : "Approve, issue voucher & email customer"}
+                        {busyId === selectedPending.id
+                          ? "Approving…"
+                          : `Approve, issue voucher & notify ${selectedPending.brandCreditNoteResponsible === "ho" ? "HO" : "store"}`}
                       </button>
                       <button
                         type="button"

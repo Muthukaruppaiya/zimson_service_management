@@ -31,7 +31,13 @@ export type CreateUserInput = {
 
 type LoginResult =
   | { ok: true }
-  | { ok: false; message: string; code?: "ALREADY_LOGGED_IN" | "STORE_SELECTION_REQUIRED"; stores?: { id: string; name: string }[] };
+  | {
+      ok: false;
+      message: string;
+      code?: "ALREADY_LOGGED_IN" | "STORE_SELECTION_REQUIRED" | "MFA_REQUIRED";
+      stores?: { id: string; name: string }[];
+      challengeToken?: string;
+    };
 
 export type UserPatchInput = Partial<{
   displayName: string;
@@ -52,6 +58,7 @@ type AuthContextValue = {
   authReady: boolean;
   listUsers: SessionUser[];
   login: (loginId: string, password: string, storeId?: string | null) => Promise<LoginResult>;
+  verifyMfaLogin: (challengeToken: string, code: string) => Promise<LoginResult>;
   /** Apply server session after password reset (cookie already set). */
   adoptSession: (user: SessionUser) => Promise<void>;
   logout: () => Promise<void>;
@@ -198,7 +205,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (loginId: string, password: string, storeId?: string | null): Promise<LoginResult> => {
       if (api) {
         try {
-          const data = await apiJson<{ ok: boolean; user?: SessionUser; message?: string; code?: string; stores?: { id: string; name: string }[] }>(
+          const data = await apiJson<{
+            ok: boolean;
+            user?: SessionUser;
+            message?: string;
+            code?: string;
+            stores?: { id: string; name: string }[];
+            challengeToken?: string;
+          }>(
             "/api/auth/login",
             {
               method: "POST",
@@ -215,6 +229,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               code: "STORE_SELECTION_REQUIRED",
               message: data.message ?? "Select a store to continue login.",
               stores: data.stores,
+            };
+          }
+          if (!data.ok && data.code === "MFA_REQUIRED" && data.challengeToken) {
+            return {
+              ok: false,
+              code: "MFA_REQUIRED",
+              message: data.message ?? "Enter your authenticator code.",
+              challengeToken: data.challengeToken,
             };
           }
           if (!data.ok || !data.user) {
@@ -268,6 +290,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: true };
     },
     [api, allWithPassword, refreshDirectory],
+  );
+
+  const verifyMfaLogin = useCallback(
+    async (challengeToken: string, code: string): Promise<LoginResult> => {
+      if (!api) return { ok: false, message: "MFA requires API mode." };
+      try {
+        const data = await apiJson<{ ok: boolean; user?: SessionUser; message?: string }>(
+          "/api/auth/mfa/verify-login",
+          {
+            method: "POST",
+            json: { challengeToken, code: code.trim() },
+          },
+        );
+        if (!data.ok || !data.user) {
+          return { ok: false, message: data.message ?? "MFA verification failed." };
+        }
+        setUser(data.user);
+        await refreshDirectory(data.user);
+        return { ok: true };
+      } catch (e) {
+        const body =
+          e instanceof ApiError && typeof e.body === "object" && e.body !== null
+            ? (e.body as Record<string, unknown>)
+            : null;
+        return {
+          ok: false,
+          code: body?.code === "ALREADY_LOGGED_IN" ? "ALREADY_LOGGED_IN" : undefined,
+          message: e instanceof ApiError ? e.message : "MFA verification failed.",
+        };
+      }
+    },
+    [api, refreshDirectory],
   );
 
   const logout = useCallback(async () => {
@@ -436,12 +490,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authReady,
       listUsers: api ? listUsers : allWithPassword.map(stripPassword),
       login,
+      verifyMfaLogin,
       adoptSession,
       logout,
       createUser,
       updateUser,
     }),
-    [effectiveUser, authReady, api, listUsers, allWithPassword, login, adoptSession, logout, createUser, updateUser],
+    [effectiveUser, authReady, api, listUsers, allWithPassword, login, verifyMfaLogin, adoptSession, logout, createUser, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

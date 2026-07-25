@@ -432,6 +432,7 @@ export function ScSupervisorPage() {
   const [brandCreditValueInput, setBrandCreditValueInput] = useState("");
   const [brandCouponValidUntilInput, setBrandCouponValidUntilInput] = useState("");
   const [brandCouponNoteInput, setBrandCouponNoteInput] = useState("");
+  const [brandCreditResponsible, setBrandCreditResponsible] = useState<"ho" | "store" | "">("");
   const [brandCreditAttachmentFile, setBrandCreditAttachmentFile] = useState<File | null>(null);
   const [brandCreditAttachmentError, setBrandCreditAttachmentError] = useState<string | null>(null);
   const [brandCreditSaving, setBrandCreditSaving] = useState(false);
@@ -511,6 +512,8 @@ export function ScSupervisorPage() {
           j.status === "brand_repair_in_progress" ||
           j.status === "received_from_brand" ||
           j.status === "brand_credit_note_pending" ||
+          j.status === "brand_credit_note_pending_ho" ||
+          j.status === "brand_credit_note_pending_accounts" ||
           j.status === "inter_ho_brand_estimate_pending_sender") &&
         jobVisibleToServiceCentre(j, user) &&
         !shouldHideReceiverBrandDeskFromSenderHo(j, user),
@@ -1569,6 +1572,10 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({ ...f, [jobId]: "Enter valid voucher amount (INR) from brand mail." }));
       return;
     }
+    if (!brandCreditResponsible) {
+      setFeedback((f) => ({ ...f, [jobId]: "Select whether HO or Store is responsible for this credit note." }));
+      return;
+    }
     if (!brandCreditAttachmentFile) {
       setBrandCreditAttachmentError("Credit note document is required.");
       return;
@@ -1581,17 +1588,19 @@ export function ScSupervisorPage() {
         validUntil: validUntil || undefined,
         note,
         valueInr,
+        responsible: brandCreditResponsible,
         attachmentPath: att.attachmentPath,
         attachmentMeta: brandMailMetaFromAttachment(att),
       });
       setBrandCreditPopupJobId(null);
       setBrandCreditAttachmentFile(null);
       setBrandCreditAttachmentError(null);
+      setBrandCreditResponsible("");
       setBrandSuccessAck({
-        title: "Credit note sent to accounts",
+        title: "Credit note sent to HO Accounts",
         description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
         reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
-        detail: `Accounts HO will review INR ${valueInr.toLocaleString()} and issue a ZIM voucher for the customer.`,
+        detail: `HO Accounts will review INR ${valueInr.toLocaleString("en-IN")} and issue a ZIM voucher. After approval, details go to the ${brandCreditResponsible === "ho" ? "HO Supervisor" : "booking store"}.`,
       });
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand credit note." }));
@@ -2109,6 +2118,8 @@ export function ScSupervisorPage() {
       job.interHoBrandEstimatePhase ||
       status.includes("brand") ||
       status === "brand_credit_note_pending" ||
+      status === "brand_credit_note_pending_ho" ||
+      status === "brand_credit_note_pending_accounts" ||
       status === "brand_credit_note_active"
     ) {
       return "bg-violet-50 text-violet-900 ring-violet-200";
@@ -2891,7 +2902,13 @@ export function ScSupervisorPage() {
                         <span className="font-semibold">Credit note / voucher:</span>{" "}
                         {j.brandCouponCode ? `${j.brandCouponCode} · ` : ""}
                         {Number(j.brandCouponValueInr).toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                        {j.brandCreditNoteApprovedAt ? " · Accounts approved" : j.status === "brand_credit_note_pending" ? " · Pending accounts" : ""}
+                        {j.brandCreditNoteApprovedAt
+                          ? " · Approved"
+                          : j.status === "brand_credit_note_pending_ho"
+                            ? " · Pending HO Manager"
+                            : j.status === "brand_credit_note_pending_accounts" || j.status === "brand_credit_note_pending"
+                              ? " · Pending HO Accounts"
+                              : ""}
                       </p>
                     ) : null}
                     {needsInterHoSenderInvoice(j) ? (
@@ -2937,6 +2954,7 @@ export function ScSupervisorPage() {
                           setBrandCreditValueInput("");
                           setBrandCouponValidUntilInput("");
                           setBrandCouponNoteInput("");
+                          setBrandCreditResponsible("");
                           setBrandCreditAttachmentFile(null);
                           setBrandCreditAttachmentError(null);
                         }}
@@ -3155,9 +3173,11 @@ export function ScSupervisorPage() {
                       </button>
                     )
                   ) : null}
-                  {j.status === "brand_credit_note_pending" ? (
+                  {j.status === "brand_credit_note_pending" ||
+                  j.status === "brand_credit_note_pending_ho" ||
+                  j.status === "brand_credit_note_pending_accounts" ? (
                     <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                      Credit note logged — awaiting accounts HO to approve voucher (ZIM + 8 characters) and email customer. SRF will close automatically (watch stays at brand — no return dispatch).
+                      Credit note logged — awaiting HO Accounts approval. After voucher issue, the responsible {j.brandCreditNoteResponsible === "ho" ? "HO Supervisor" : "booking store"} will be notified and the SRF will close.
                     </p>
                   ) : null}
                   <button
@@ -4052,8 +4072,8 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand credit note (from mail)</h3>
-            <p className="mt-1 text-sm text-stone-600">Enter the voucher amount from brand mail. Accounts HO will review and issue a ZIM voucher code. Document upload is required.</p>
-            <div className="mt-4 grid gap-3">
+            <p className="mt-1 text-sm text-stone-600">Enter the credit-note details and select who is responsible. The selected approver will issue the voucher, notify the customer, and route the details to HO or the booking store.</p>
+            <div className="legacy-modal-panel__body mt-4 grid gap-3">
               <label className="text-sm">Voucher amount (INR) *
                 <input
                   type="number"
@@ -4075,6 +4095,21 @@ export function ScSupervisorPage() {
               <label className="text-sm">Remark from brand mail *
                 <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={3} value={brandCouponNoteInput} onChange={(e) => setBrandCouponNoteInput(e.target.value)} placeholder="Summary of brand credit note email…" />
               </label>
+              <fieldset className="rounded-xl border border-zimson-300 bg-zimson-50/50 p-3">
+                <legend className="px-1 text-sm font-semibold text-zimson-900">Credit note responsibility *</legend>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <label className={`cursor-pointer rounded-xl border p-3 text-sm transition ${brandCreditResponsible === "ho" ? "border-rlx-gold bg-amber-50 ring-2 ring-amber-200" : "border-zimson-200 bg-white hover:border-amber-300"}`}>
+                    <input type="radio" name="brand-credit-responsible" value="ho" checked={brandCreditResponsible === "ho"} onChange={() => setBrandCreditResponsible("ho")} className="mr-2" />
+                    <span className="font-semibold text-zimson-900">HO responsible</span>
+                    <span className="mt-1 block text-xs text-stone-600">Send to HO Accounts for approval, then notify HO Supervisor.</span>
+                  </label>
+                  <label className={`cursor-pointer rounded-xl border p-3 text-sm transition ${brandCreditResponsible === "store" ? "border-rlx-gold bg-amber-50 ring-2 ring-amber-200" : "border-zimson-200 bg-white hover:border-amber-300"}`}>
+                    <input type="radio" name="brand-credit-responsible" value="store" checked={brandCreditResponsible === "store"} onChange={() => setBrandCreditResponsible("store")} className="mr-2" />
+                    <span className="font-semibold text-zimson-900">Store responsible</span>
+                    <span className="mt-1 block text-xs text-stone-600">Send to HO Accounts for approval, then notify the booking store.</span>
+                  </label>
+                </div>
+              </fieldset>
               <BrandMailAttachmentField
                 file={brandCreditAttachmentFile}
                 onChange={(file) => {
@@ -4087,10 +4122,10 @@ export function ScSupervisorPage() {
                 error={brandCreditAttachmentError}
               />
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="legacy-modal-panel__footer mt-4 flex justify-end gap-2">
               <button type="button" disabled={brandCreditSaving} onClick={() => setBrandCreditPopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-50">Cancel</button>
-              <button type="button" disabled={brandCreditSaving} onClick={() => void confirmBrandCreditNote()} className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                {brandCreditSaving ? "Uploading…" : "Send to accounts"}
+              <button type="button" disabled={brandCreditSaving || !brandCreditResponsible} onClick={() => void confirmBrandCreditNote()} className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                {brandCreditSaving ? "Uploading…" : brandCreditResponsible ? "Send to HO Accounts" : "Select responsibility"}
               </button>
             </div>
           </div>

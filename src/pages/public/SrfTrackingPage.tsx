@@ -449,7 +449,10 @@ export function SrfTrackingPage() {
                         </section>
                       ) : null}
 
-                      {(j.status === "brand_credit_note_pending" || j.status === "brand_credit_note_active") &&
+                      {(j.status === "brand_credit_note_pending" ||
+                        j.status === "brand_credit_note_pending_ho" ||
+                        j.status === "brand_credit_note_pending_accounts" ||
+                        j.status === "brand_credit_note_active") &&
                       j.brandCouponCode ? (
                         <section className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-[#faf6ef] p-5 sm:p-6">
                           <h2 className="text-base font-bold text-emerald-900">Brand credit / coupon</h2>

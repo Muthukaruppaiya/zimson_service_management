@@ -71,6 +71,13 @@ import {
 } from "./authSession";
 import { registerAuthSessionRoutes } from "./authSessionRoutes";
 import { registerPasswordResetRoutes } from "./passwordResetRoutes";
+import { registerMfaRoutes } from "./mfaRoutes";
+import {
+  consumeMfaLoginChallenge,
+  createMfaLoginChallenge,
+  isMfaEnabled,
+  validateMfaConfiguration,
+} from "./mfaSecurity";
 import { startDevPublicTunnel } from "./devPublicTunnel";
 import { isS3StorageEnabled, s3Bucket } from "./storage/config";
 import { registerMediaRoutes } from "./storage/mediaRoutes";
@@ -647,6 +654,52 @@ app.post("/api/auth/login", async (req, res) => {
     res.status(403).json({ ok: false, message: "This profile is directory-only and cannot sign in." });
     return;
   }
+  if (await isMfaEnabled(dbPool, found.id)) {
+    const allowedStores = (found.storeIds ?? []).filter(Boolean);
+    if (STORE_ROLES.has(found.role)) {
+      if (allowedStores.length === 0) {
+        res.status(403).json({ ok: false, message: "No store mapping found for this account." });
+        return;
+      }
+      if (!selectedStoreId && allowedStores.length > 1) {
+        const { rows: stores } = await dbPool.query<{ id: string; name: string }>(
+          `SELECT id, name FROM stores WHERE id = ANY($1::text[]) ORDER BY name`,
+          [allowedStores],
+        );
+        res.json({
+          ok: false,
+          code: "STORE_SELECTION_REQUIRED",
+          message: "Select a store to continue.",
+          stores,
+        });
+        return;
+      }
+      if (selectedStoreId && !allowedStores.includes(selectedStoreId)) {
+        res.status(403).json({ ok: false, message: "Selected store is not assigned for this user." });
+        return;
+      }
+    }
+    const activeElsewhere = await countActiveSessionsForUser(dbPool, found.id);
+    if (activeElsewhere > 0) {
+      await notifyActiveSessionsOfLoginAttempt(dbPool, found.id);
+      res.status(409).json({
+        ok: false,
+        code: "ALREADY_LOGGED_IN",
+        activeSessionCount: activeElsewhere,
+        message:
+          "This account is already signed in on another device or browser. Ask them to sign out, or use “Sign out all devices” below with your password.",
+      });
+      return;
+    }
+    const challengeToken = await createMfaLoginChallenge(dbPool, found.id, selectedStoreId);
+    res.json({
+      ok: false,
+      code: "MFA_REQUIRED",
+      challengeToken,
+      message: "Enter the 6-digit code from your authenticator app.",
+    });
+    return;
+  }
   const activeElsewhere = await countActiveSessionsForUser(dbPool, found.id);
   if (activeElsewhere > 0) {
     await notifyActiveSessionsOfLoginAttempt(dbPool, found.id);
@@ -677,6 +730,51 @@ app.post("/api/auth/login", async (req, res) => {
     const msg = e instanceof Error ? e.message : "Could not sign in.";
     const status = msg.includes("store") ? 403 : 500;
     res.status(status).json({ ok: false, message: msg });
+  }
+});
+
+app.post("/api/auth/mfa/verify-login", async (req, res) => {
+  const challengeToken = String(req.body?.challengeToken ?? "").trim();
+  const code = String(req.body?.code ?? "").trim();
+  if (!challengeToken || !code) {
+    res.status(400).json({ ok: false, message: "Authentication code is required." });
+    return;
+  }
+  try {
+    const challenge = await consumeMfaLoginChallenge(dbPool, challengeToken, code);
+    if (!challenge.ok) {
+      res.status(401).json({ ok: false, code: "MFA_INVALID", message: challenge.message });
+      return;
+    }
+    const found = findUser(challenge.userId);
+    if (!found || found.canLogin === false) {
+      res.status(401).json({ ok: false, message: "Account is unavailable." });
+      return;
+    }
+    const activeElsewhere = await countActiveSessionsForUser(dbPool, found.id);
+    if (activeElsewhere > 0) {
+      res.status(409).json({
+        ok: false,
+        code: "ALREADY_LOGGED_IN",
+        message: "This account is already signed in on another device or browser.",
+      });
+      return;
+    }
+    const session = await issueSessionForUser(dbPool, res, found, challenge.selectedStoreId);
+    if (!session.ok) {
+      res.status(400).json({ ok: false, code: session.code, message: session.message, stores: session.stores });
+      return;
+    }
+    await refreshUsersFromDb();
+    const refreshed = allUsers().find((u) => u.id === session.user.id) ?? found;
+    res.json({
+      ok: true,
+      user: stripPassword(refreshed),
+      usedRecoveryCode: challenge.usedRecoveryCode,
+    });
+  } catch (error) {
+    console.error("[mfa] login verification failed:", error);
+    res.status(500).json({ ok: false, message: "Could not verify MFA code." });
   }
 });
 
@@ -3932,6 +4030,7 @@ async function main() {
     console.error("Missing database configuration: set DATABASE_URL or PGHOST/PGDATABASE/PGUSER/PGPASSWORD.");
     process.exit(1);
   }
+  validateMfaConfiguration();
   console.log(
     `[storage] ${isS3StorageEnabled() ? `Amazon S3 (${s3Bucket()})` : "local disk (uploads/)"}`,
   );
@@ -3992,6 +4091,7 @@ async function main() {
       return matches.find((u) => u.password === passwordHash) ?? null;
     },
   });
+  registerMfaRoutes(app, dbPool, requireAuth, getSessionUserId, findUser, hashPassword);
 
   app.listen(PORT, HOST, () => {
     console.log(`Zimson API listening on http://${HOST}:${PORT} (browser: http://<server-ip>:${PORT})`);

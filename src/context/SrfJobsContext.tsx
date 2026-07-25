@@ -236,6 +236,7 @@ type SrfJobsContextValue = {
       validUntil?: string;
       note: string;
       valueInr: number;
+      responsible: "ho" | "store";
       attachmentPath: string;
       attachmentMeta?: Record<string, unknown>;
     },
@@ -846,6 +847,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       validUntil?: string;
       note: string;
       valueInr: number;
+      responsible: "ho" | "store";
       attachmentPath: string;
       attachmentMeta?: Record<string, unknown>;
     },

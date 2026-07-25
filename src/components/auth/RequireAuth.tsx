@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { LandingPage } from "../../pages/LandingPage";
 import { AppBootLoader } from "../ui/AppBootLoader";
 
 /** Keep boot animation visible briefly — session restore is often faster than one Lottie loop. */
@@ -21,6 +22,10 @@ export function RequireAuth() {
   }
 
   if (!user) {
+    // Public marketing landing at "/" — all other protected paths still go to login.
+    if (location.pathname === "/") {
+      return <LandingPage />;
+    }
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 

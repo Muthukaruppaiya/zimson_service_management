@@ -30,6 +30,8 @@ export type BrandCreditHistoryRow = {
   serial: string;
   regionName: string | null;
   storeName: string | null;
+  brandCreditNoteResponsible?: "ho" | "store" | null;
+  brandCreditNoteNote?: string | null;
   brandInvoiceRef: string | null;
   brandInvoiceMeta: Record<string, unknown> | null;
   brandCouponCode: string | null;
@@ -40,6 +42,7 @@ export type BrandCreditHistoryRow = {
   brandCreditNoteApprovedBy: string | null;
   closedAt: string | null;
   createdAt: string;
+  status?: string;
 };
 
 function qs(filters: AccountsServiceDashboardFilters, extra?: Record<string, string>): string {

@@ -91,6 +91,10 @@ import { WatchNotReturnedReportPage } from "./pages/reports/WatchNotReturnedRepo
 import { AgingReportPage } from "./pages/reports/AgingReportPage";
 import { PendingReportPage } from "./pages/reports/PendingReportPage";
 import { TransferReportPage } from "./pages/reports/TransferReportPage";
+import { TechnicianAssignWatchReportPage } from "./pages/reports/TechnicianAssignWatchReportPage";
+import { TechnicianRepairedHistoryReportPage } from "./pages/reports/TechnicianRepairedHistoryReportPage";
+import { UnassignedWatchReportPage } from "./pages/reports/UnassignedWatchReportPage";
+import { MfaSettingsPage } from "./pages/security/MfaSettingsPage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
   const { search } = useLocation();
@@ -126,6 +130,7 @@ export default function App() {
                     </ModuleRoute>
                   }
                 />
+                <Route path="/security/mfa" element={<MfaSettingsPage />} />
                 <Route
                   path="/analytics"
                   element={
@@ -181,6 +186,30 @@ export default function App() {
                   element={
                     <ModuleRoute module="reports">
                       <TransferReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/reports/technician-assign-watch"
+                  element={
+                    <ModuleRoute module="reports">
+                      <TechnicianAssignWatchReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/reports/technician-repaired-history"
+                  element={
+                    <ModuleRoute module="reports">
+                      <TechnicianRepairedHistoryReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/reports/unassigned-watches"
+                  element={
+                    <ModuleRoute module="reports">
+                      <UnassignedWatchReportPage />
                     </ModuleRoute>
                   }
                 />
@@ -402,6 +431,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service/brand-credit-notes"
+                  element={
+                    <ModuleRoute module="service">
+                      <BrandCreditHistoryPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service/reports"
                   element={
                     <Navigate to="/reports" replace />
@@ -548,6 +585,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service_centre">
                       <ScSupervisorPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service-centre/brand-credit-notes"
+                  element={
+                    <ModuleRoute module="service_centre">
+                      <BrandCreditHistoryPage />
                     </ModuleRoute>
                   }
                 />

@@ -32,6 +32,8 @@ export type SrfJobStatus =
   | "brand_repair_in_progress"
   | "received_from_brand"
   | "brand_credit_note_pending"
+  | "brand_credit_note_pending_ho"
+  | "brand_credit_note_pending_accounts"
   | "brand_credit_note_active"
   | "ready_for_outward"
   | "pending_store_transit"
@@ -155,6 +157,8 @@ export type SrfJob = {
   brandCouponValidUntil?: string | null;
   brandCreditNoteApprovedAt?: string | null;
   brandCreditNoteApprovedBy?: string | null;
+  brandCreditNoteResponsible?: "ho" | "store" | null;
+  brandCreditNoteNote?: string | null;
   customerCouponNotifiedAt?: string | null;
   customerCouponNotifyChannels?: Record<string, unknown> | null;
   trackingUrl?: string | null;

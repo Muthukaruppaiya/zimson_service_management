@@ -49,7 +49,7 @@ type Authed = Request & { userId: string };
 
 export type InAppNotifier = (
   userIds: string[],
-  payload: { title: string; message: string; category: string },
+  payload: { title: string; message: string; category: "inventory_pr" | "service_dc" | "service_srf" },
 ) => Promise<void>;
 
 const STORE_ROLES = new Set<UserRole>([
@@ -114,9 +114,23 @@ function canApproveBrandCreditNote(actor: DemoUser | null): boolean {
   return (
     !!actor &&
     (actor.role === "ho_accounts" ||
-      actor.role === "store_accounts" ||
       actor.role === "super_admin" ||
       actor.role === "admin")
+  );
+}
+
+function canAccessBrandCreditNoteApprovals(actor: DemoUser | null): boolean {
+  return canApproveBrandCreditNote(actor);
+}
+
+function canApproveBrandCreditNoteStatus(actor: DemoUser | null, status: string): boolean {
+  if (!actor) return false;
+  if (actor.role === "super_admin" || actor.role === "admin") return true;
+  return (
+    (status === "brand_credit_note_pending_ho" ||
+      status === "brand_credit_note_pending_accounts" ||
+      status === "brand_credit_note_pending") &&
+    canApproveBrandCreditNote(actor)
   );
 }
 
@@ -1269,6 +1283,8 @@ export function registerSrfRoutes(
                 j.brand_coupon_valid_until AS "brandCouponValidUntil",
                 j.brand_credit_note_approved_at AS "brandCreditNoteApprovedAt",
                 j.brand_credit_note_approved_by AS "brandCreditNoteApprovedBy",
+                j.brand_credit_note_responsible AS "brandCreditNoteResponsible",
+                j.brand_credit_note_note AS "brandCreditNoteNote",
                 j.customer_coupon_notified_at AS "customerCouponNotifiedAt",
                 j.customer_coupon_notify_channels AS "customerCouponNotifyChannels",
                 j.created_by AS "createdBy",
@@ -1478,6 +1494,8 @@ export function registerSrfRoutes(
                 j.brand_coupon_valid_until AS "brandCouponValidUntil",
                 j.brand_credit_note_approved_at AS "brandCreditNoteApprovedAt",
                 j.brand_credit_note_approved_by AS "brandCreditNoteApprovedBy",
+                j.brand_credit_note_responsible AS "brandCreditNoteResponsible",
+                j.brand_credit_note_note AS "brandCreditNoteNote",
                 j.customer_coupon_notified_at AS "customerCouponNotifiedAt",
                 j.customer_reestimate_response AS "customerReestimateResponse",
                 j.created_at AS "createdAt"
@@ -7320,6 +7338,7 @@ export function registerSrfRoutes(
     const note = String(req.body?.note ?? "").trim();
     const valueInr = Number(req.body?.valueInr ?? 0);
     const attachmentPath = String(req.body?.attachmentPath ?? "").trim();
+    const responsible = String(req.body?.responsible ?? "").trim().toLowerCase();
     if (!note) {
       res.status(400).json({ error: "Credit note remark from brand mail is required." });
       return;
@@ -7332,27 +7351,53 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "Credit note document upload is required." });
       return;
     }
+    if (responsible !== "ho" && responsible !== "store") {
+      res.status(400).json({ error: "Select whether HO or Store is responsible for this credit note." });
+      return;
+    }
+    const pendingStatus =
+      responsible === "ho" ? "brand_credit_note_pending_ho" : "brand_credit_note_pending_accounts";
     const invoiceMeta = mergeBrandAttachmentMeta(
       {},
       attachmentPath,
       toJsonMeta(req.body?.attachmentMeta),
     );
     try {
-      const upd = await pool.query(
+      const upd = await pool.query<{
+        reference: string;
+        region_id: string;
+        store_id: string;
+        customer_name: string;
+        watch_brand: string;
+        watch_model: string;
+      }>(
         `UPDATE srf_jobs
-         SET status = 'brand_credit_note_pending',
+         SET status = $7,
              brand_invoice_ref = COALESCE($2, brand_invoice_ref),
              brand_invoice_meta = $5::jsonb,
              brand_coupon_received_at = now(),
              brand_coupon_valid_until = $3::date,
              brand_coupon_code = NULL,
              brand_coupon_value_inr = $6,
+             brand_credit_note_responsible = $8,
+             brand_credit_note_note = $9,
              updated_at = now(),
              modified_by = $4
          WHERE id = $1::uuid
            AND status = 'sent_to_brand'
-           AND brand_estimate_inr IS NULL`,
-        [srfId, brandCreditNoteRef, validUntil, actor?.id ?? null, JSON.stringify(invoiceMeta), valueInr],
+           AND brand_estimate_inr IS NULL
+         RETURNING reference, region_id, store_id, customer_name, watch_brand, watch_model`,
+        [
+          srfId,
+          brandCreditNoteRef,
+          validUntil,
+          actor?.id ?? null,
+          JSON.stringify(invoiceMeta),
+          valueInr,
+          pendingStatus,
+          responsible,
+          note,
+        ],
       );
       if ((upd.rowCount ?? 0) === 0) {
         res.status(400).json({ error: "SRF must be sent_to_brand with no brand estimate logged yet." });
@@ -7364,22 +7409,43 @@ export function registerSrfRoutes(
         await appendStatusHistory(
           client,
           srfId,
-          "brand_credit_note_pending",
+          pendingStatus,
           actor?.id ?? null,
-          note || "Brand credit note logged from mail — awaiting accounts approval.",
+          `${note} — awaiting HO Accounts approval.`,
         );
         await appendActionLog(client, srfId, {
           action: "brand_credit_note_received",
           description: `Brand credit note logged from mail${brandCreditNoteRef ? ` (ref ${brandCreditNoteRef})` : ""}.`,
           actor: actor ?? undefined,
           referenceDoc: brandCreditNoteRef,
-          details: { validUntil, note, brandCreditNoteRef, invoiceMeta, proposedValueInr: valueInr },
+          details: {
+            validUntil,
+            note,
+            brandCreditNoteRef,
+            invoiceMeta,
+            proposedValueInr: valueInr,
+            responsible,
+          },
         });
         await client.query("COMMIT");
       } catch {
         await client.query("ROLLBACK").catch(() => {});
       } finally {
         client.release();
+      }
+      if (pushInApp) {
+        const srf = upd.rows[0];
+        const { rows: recipients } = await pool.query<{ id: string }>(
+          `SELECT id FROM app_users WHERE role = 'ho_accounts'`,
+        );
+        await pushInApp(
+          recipients.map((r) => r.id),
+          {
+            title: "Brand credit note awaiting HO Accounts approval",
+            message: `${srf.reference} · ${srf.watch_brand} ${srf.watch_model} · ${srf.customer_name} · INR ${valueInr.toLocaleString("en-IN")} · CN ${brandCreditNoteRef || "—"}${validUntil ? ` · valid until ${validUntil}` : ""} · ${note}`,
+            category: "service_srf",
+          },
+        );
       }
       res.json({ ok: true });
     } catch (e) {
@@ -7671,10 +7737,12 @@ export function registerSrfRoutes(
 
   app.get("/api/accounts/brand-credit-notes", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!canApproveBrandCreditNote(actor)) {
-      res.status(403).json({ error: "Accounts role required." });
+    if (!canAccessBrandCreditNoteApprovals(actor)) {
+      res.status(403).json({ error: "HO Accounts role required." });
       return;
     }
+    const pendingSql =
+      "j.status IN ('brand_credit_note_pending_ho', 'brand_credit_note_pending_accounts', 'brand_credit_note_pending')";
     try {
       const { rows } = await pool.query(
         `SELECT j.id,
@@ -7685,6 +7753,8 @@ export function registerSrfRoutes(
                 j.watch_model AS "watchModel",
                 j.serial,
                 j.status,
+                j.brand_credit_note_responsible AS "brandCreditNoteResponsible",
+                j.brand_credit_note_note AS "brandCreditNoteNote",
                 j.brand_invoice_ref AS "brandInvoiceRef",
                 j.brand_invoice_meta AS "brandInvoiceMeta",
                 j.brand_coupon_code AS "brandCouponCode",
@@ -7694,7 +7764,7 @@ export function registerSrfRoutes(
                 j.brand_credit_note_approved_at AS "brandCreditNoteApprovedAt",
                 j.created_at AS "createdAt"
          FROM srf_jobs j
-         WHERE j.status = 'brand_credit_note_pending'
+         WHERE (${pendingSql})
             OR (j.status = 'closed' AND j.brand_credit_note_approved_at IS NOT NULL)
          ORDER BY j.brand_coupon_received_at DESC NULLS LAST, j.created_at DESC`,
       );
@@ -7707,8 +7777,8 @@ export function registerSrfRoutes(
 
   app.post("/api/service/srf-jobs/:srfId/brand/approve-credit-note", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!canApproveBrandCreditNote(actor)) {
-      res.status(403).json({ error: "Only accounts can approve brand credit notes." });
+    if (!canAccessBrandCreditNoteApprovals(actor)) {
+      res.status(403).json({ error: "Only HO Accounts can approve brand credit notes." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -7722,23 +7792,49 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     let voucherCode = "";
     let validUntilDb: string | null = null;
+    let approvedJob: {
+      reference: string;
+      status: string;
+      brand_coupon_valid_until: string | null;
+      phone: string;
+      region_id: string;
+      store_id: string;
+      brand_credit_note_responsible: "ho" | "store" | null;
+      brand_credit_note_note: string | null;
+      brand_invoice_ref: string | null;
+      customer_name: string;
+      watch_brand: string;
+      watch_model: string;
+    } | null = null;
     try {
       await client.query("BEGIN");
       const row = await client.query<{
         reference: string;
+        status: string;
         brand_coupon_valid_until: string | null;
         phone: string;
+        region_id: string;
+        store_id: string;
+        brand_credit_note_responsible: "ho" | "store" | null;
+        brand_credit_note_note: string | null;
+        brand_invoice_ref: string | null;
+        customer_name: string;
+        watch_brand: string;
+        watch_model: string;
       }>(
-        `SELECT reference, brand_coupon_valid_until::text, phone
-         FROM srf_jobs WHERE id = $1::uuid AND status = 'brand_credit_note_pending' FOR UPDATE`,
+        `SELECT reference, status, brand_coupon_valid_until::text, phone, region_id, store_id,
+                brand_credit_note_responsible, brand_credit_note_note, brand_invoice_ref,
+                customer_name, watch_brand, watch_model
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
       const job = row.rows[0];
-      if (!job) {
+      if (!job || !canApproveBrandCreditNoteStatus(actor, job.status)) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "SRF must be in brand_credit_note_pending state." });
+        res.status(400).json({ error: "This credit note is not in your approval queue." });
         return;
       }
+      approvedJob = job;
       voucherCode = await generateUniqueBrandVoucherCode(client);
       validUntilDb = validUntil || job.brand_coupon_valid_until;
       const closeNote =
@@ -7764,7 +7860,7 @@ export function registerSrfRoutes(
           valueInr,
           validUntilDb,
           actor?.id ?? null,
-          JSON.stringify({ email: true, whatsapp: true, source: "accounts_approve" }),
+          JSON.stringify({ email: true, whatsapp: true, source: "credit_note_approve" }),
         ],
       );
       await appendStatusHistory(client, srfId, "closed", actor?.id ?? null, closeNote);
@@ -7812,6 +7908,35 @@ export function registerSrfRoutes(
       return;
     } finally {
       client.release();
+    }
+
+    if (pushInApp && approvedJob) {
+      const responsible =
+        approvedJob.brand_credit_note_responsible ??
+        (approvedJob.status === "brand_credit_note_pending_ho" ? "ho" : "store");
+      const { rows: recipients } =
+        responsible === "ho"
+          ? await pool.query<{ id: string }>(
+              `SELECT id FROM app_users
+               WHERE (role = 'service_centre_supervisor' AND region_id = $1::text)
+                  OR role IN ('admin', 'super_admin')`,
+              [approvedJob.region_id],
+            )
+          : await pool.query<{ id: string }>(
+              `SELECT id FROM app_users
+               WHERE store_id = $1::text
+                 AND role IN ('store_user', 'store_manager', 'store_accounts')`,
+              [approvedJob.store_id],
+            );
+      const cnRemark = approvedJob.brand_credit_note_note?.trim() || note || "No credit-note remark";
+      await pushInApp(
+        recipients.map((r) => r.id),
+        {
+          title: `Brand credit note approved — ${responsible === "ho" ? "HO responsible" : "Store responsible"}`,
+          message: `${approvedJob.reference} · ${approvedJob.watch_brand} ${approvedJob.watch_model} · ${approvedJob.customer_name} · INR ${valueInr.toLocaleString("en-IN")} · CN ${approvedJob.brand_invoice_ref || "—"} · Voucher ${voucherCode} · ${cnRemark}`,
+          category: "service_srf",
+        },
+      );
     }
 
     const notify = await notifyCustomerBrandVoucher(req, pool, srfId, {

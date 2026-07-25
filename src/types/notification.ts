@@ -3,7 +3,7 @@ export type AppNotification = {
   userId: string;
   title: string;
   message: string;
-  category: "inventory_pr" | "service_dc";
+  category: "inventory_pr" | "service_dc" | "service_srf";
   isRead: boolean;
   createdAt: string;
 };

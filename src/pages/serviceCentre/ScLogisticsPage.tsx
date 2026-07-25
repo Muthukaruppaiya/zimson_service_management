@@ -334,6 +334,8 @@ export function ScLogisticsPage() {
       "brand_repair_in_progress",
       "received_from_brand",
       "brand_credit_note_pending",
+      "brand_credit_note_pending_ho",
+      "brand_credit_note_pending_accounts",
       "brand_credit_note_active",
     ]);
     return jobs

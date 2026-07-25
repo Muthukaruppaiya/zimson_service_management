@@ -10,7 +10,7 @@ import "../styles/zimson-login.css";
 const LOGIN_BOOT_MIN_MS = 700;
 
 export function LoginPage() {
-  const { user, login, authReady } = useAuth();
+  const { user, login, verifyMfaLogin, authReady } = useAuth();
   const [bootMinElapsed, setBootMinElapsed] = useState(false);
 
   useEffect(() => {
@@ -33,6 +33,9 @@ export function LoginPage() {
   const [alreadyLoggedIn, setAlreadyLoggedIn] = useState(false);
   const [signOutAllBusy, setSignOutAllBusy] = useState(false);
   const [signOutAllNote, setSignOutAllNote] = useState<string | null>(null);
+  const [mfaChallengeToken, setMfaChallengeToken] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaBusy, setMfaBusy] = useState(false);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -56,6 +59,14 @@ export function LoginPage() {
       setAlreadyLoggedIn(false);
       return false;
     }
+    if ("code" in result && result.code === "MFA_REQUIRED" && result.challengeToken) {
+      setMfaChallengeToken(result.challengeToken);
+      setMfaCode("");
+      setStorePickerOpen(false);
+      setError(null);
+      setAlreadyLoggedIn(false);
+      return false;
+    }
     setStoreOptions([]);
     setStorePickerOpen(false);
     setError(result.message);
@@ -67,6 +78,25 @@ export function LoginPage() {
     e.preventDefault();
     setError(null);
     setSignOutAllNote(null);
+    if (mfaChallengeToken) {
+      if (!mfaCode.trim()) {
+        setError("Enter your authenticator or recovery code.");
+        return;
+      }
+      setMfaBusy(true);
+      try {
+        const result = await verifyMfaLogin(mfaChallengeToken, mfaCode);
+        if (result.ok) {
+          navigate(from === "/login" ? "/" : from, { replace: true });
+          return;
+        }
+        setError(result.message);
+        if ("code" in result && result.code === "ALREADY_LOGGED_IN") setAlreadyLoggedIn(true);
+      } finally {
+        setMfaBusy(false);
+      }
+      return;
+    }
     await finishLogin(storeId || null);
   }
 
@@ -233,14 +263,55 @@ export function LoginPage() {
                 </div>
               </div>
 
-              <label className="zimson-login__remember">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                />
-                <span>Remember me</span>
-              </label>
+              {mfaChallengeToken ? (
+                <div className="zimson-login__field">
+                  <label className="zimson-login__label" htmlFor="login-mfa-code">
+                    Authenticator code
+                  </label>
+                  <div className="zimson-login__input-row">
+                    <span className="zimson-login__input-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                        <path d="M12 3 5 6v5c0 4.8 2.9 8.2 7 10 4.1-1.8 7-5.2 7-10V6l-7-3Z" />
+                        <path d="M9 12h6M12 9v6" />
+                      </svg>
+                    </span>
+                    <div className="zimson-login__input-box">
+                      <input
+                        className="zimson-login__input"
+                        id="login-mfa-code"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        autoFocus
+                        value={mfaCode}
+                        onChange={(e) => setMfaCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 9))}
+                        placeholder="6-digit code or recovery code"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="zimson-login__forgot mt-2"
+                    onClick={() => {
+                      setMfaChallengeToken("");
+                      setMfaCode("");
+                      setError(null);
+                    }}
+                  >
+                    Use a different account
+                  </button>
+                </div>
+              ) : (
+                <label className="zimson-login__remember">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                  />
+                  <span>Remember me</span>
+                </label>
+              )}
 
               {alreadyLoggedIn ? (
                 <div className="zimson-login__alert zimson-login__alert--warn">
@@ -266,8 +337,8 @@ export function LoginPage() {
                 <div className="zimson-login__alert zimson-login__alert--success">{signOutAllNote}</div>
               ) : null}
 
-              <button className="zimson-login__submit" type="submit">
-                Sign in
+              <button className="zimson-login__submit" type="submit" disabled={mfaBusy}>
+                {mfaBusy ? "Verifying…" : mfaChallengeToken ? "Verify & sign in" : "Sign in"}
                 <svg viewBox="0 0 24 24">
                   <path d="M13.5 5.5 19 11H5v2h14l-5.5 5.5 1.4 1.4L22.8 12l-7.9-7.9-1.4 1.4Z" />
                 </svg>

@@ -109,6 +109,8 @@ function laneOf(job: SrfJob): "HO" | "STORE" {
     s === "brand_repair_in_progress" ||
     s === "received_from_brand" ||
     s === "brand_credit_note_pending" ||
+    s === "brand_credit_note_pending_ho" ||
+    s === "brand_credit_note_pending_accounts" ||
     s === "brand_credit_note_active" ||
     s === "ready_for_outward" ||
     s === "in_transit_sc" ||
@@ -136,7 +138,12 @@ function timelineLabel(job: SrfJob): string {
     return "With brand service centre";
   }
   if (job.status === "received_from_brand") return "Returned from brand, in HO processing";
-  if (job.status === "brand_credit_note_pending" || job.status === "brand_credit_note_active") {
+  if (
+    job.status === "brand_credit_note_pending" ||
+    job.status === "brand_credit_note_pending_ho" ||
+    job.status === "brand_credit_note_pending_accounts" ||
+    job.status === "brand_credit_note_active"
+  ) {
     return "Brand issued coupon / credit note";
   }
   if (job.status === "ready_for_outward") return "Repaired, waiting dispatch";
