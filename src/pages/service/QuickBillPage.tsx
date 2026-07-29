@@ -350,6 +350,7 @@ export function QuickBillPage() {
   const [watchServiceDetails, setWatchServiceDetails] = useState<WatchServiceDetailValues>(
     emptyWatchServiceDetailValues,
   );
+  const [stockWatchStoreId, setStockWatchStoreId] = useState("");
   const [customerBillingState, setCustomerBillingState] = useState("");
   const [watchDocumentPath, setWatchDocumentPath] = useState<string | null>(null);
   const [watchImagePath, setWatchImagePath] = useState<string | null>(null);
@@ -776,6 +777,10 @@ export function QuickBillPage() {
     () => storesForRegion(regions, effectiveBillingRegionId),
     [regions, effectiveBillingRegionId],
   );
+  const selectedStockWatchStoreName = useMemo(
+    () => billingStoreOptions.find((store) => store.id === stockWatchStoreId)?.name ?? "",
+    [billingStoreOptions, stockWatchStoreId],
+  );
   const showHoBillingLocation = isHoServiceOperator(user?.role);
 
   const priceRegionQuery = useMemo(() => {
@@ -828,6 +833,22 @@ export function QuickBillPage() {
     regions,
     effectiveBillingRegionId,
     billingStoreId,
+  ]);
+
+  useEffect(() => {
+    const isStockWatch = watchServiceDetails.natureOfRepair === "internal_service";
+    if (!isStockWatch) {
+      if (stockWatchStoreId) setStockWatchStoreId("");
+      return;
+    }
+    if (stockWatchStoreId && billingStoreOptions.some((store) => store.id === stockWatchStoreId)) return;
+    const fallbackStoreId = effectiveBillingStoreId || billingStoreOptions[0]?.id || "";
+    if (fallbackStoreId !== stockWatchStoreId) setStockWatchStoreId(fallbackStoreId);
+  }, [
+    watchServiceDetails.natureOfRepair,
+    stockWatchStoreId,
+    billingStoreOptions,
+    effectiveBillingStoreId,
   ]);
 
   useEffect(() => {
@@ -1278,6 +1299,10 @@ export function QuickBillPage() {
     }
     if (serialNumberRequired && !watchRef.trim()) {
       setError(`Serial number is required for ${watchBrand}.`);
+      return false;
+    }
+    if (watchServiceDetails.natureOfRepair === "internal_service" && !stockWatchStoreId) {
+      setError("For Stock Watch, select the stock watch location store.");
       return false;
     }
     if (apiMode && user?.role === "super_admin" && !billingRegionId.trim()) {
@@ -2296,6 +2321,9 @@ export function QuickBillPage() {
               inputClass={inputClass}
               values={watchServiceDetails}
               onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
+              stockWatchStoreOptions={billingStoreOptions}
+              stockWatchStoreId={stockWatchStoreId}
+              onStockWatchStoreChange={setStockWatchStoreId}
             />
             <div className={qbField}>
               <label htmlFor="qb-watch-remark" className="text-xs font-medium text-stone-600">
@@ -2310,6 +2338,12 @@ export function QuickBillPage() {
                 placeholder="Condition notes, accessories, etc."
               />
             </div>
+            {watchServiceDetails.natureOfRepair === "internal_service" ? (
+              <div className={`${qbField} text-xs text-stone-600`}>
+                Selected stock watch location:{" "}
+                <span className="font-semibold text-stone-800">{selectedStockWatchStoreName || "—"}</span>
+              </div>
+            ) : null}
             <div className={`${qbField} min-w-0 rounded-xl border border-zimson-200 bg-zimson-50/50 p-3 sm:p-4`}>
               <p className="text-sm font-semibold text-zimson-900">Documents &amp; watch photos (customer link)</p>
               {/* <p className="mt-1 text-xs text-stone-600">

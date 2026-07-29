@@ -253,6 +253,7 @@ export function SrfBookingV2Page() {
   const [watchServiceDetails, setWatchServiceDetails] = useState<WatchServiceDetailValues>(
     emptyWatchServiceDetailValues,
   );
+  const [stockWatchStoreId, setStockWatchStoreId] = useState("");
   const [handoverStoreId, setHandoverStoreId] = useState("");
   /** Default: send to HO (standard dispatch flow). */
   const [repairRoute, setRepairRoute] = useState<SrfRepairRoute>("send_to_ho");
@@ -395,6 +396,10 @@ export function SrfBookingV2Page() {
     const region = regions.find((r) => r.id === currentRegionId);
     return region?.stores ?? [];
   }, [regions, currentRegionId]);
+  const selectedStockWatchStoreName = useMemo(
+    () => handoverStoreOptions.find((store) => store.id === stockWatchStoreId)?.name ?? "",
+    [handoverStoreOptions, stockWatchStoreId],
+  );
   const currentUserStore = useMemo(() => {
     const sid = currentStoreId;
     if (!sid) return undefined;
@@ -480,6 +485,22 @@ export function SrfBookingV2Page() {
   }, [handoverStoreId, currentStoreId]);
 
   useEffect(() => {
+    const isStockWatch = watchServiceDetails.natureOfRepair === "internal_service";
+    if (!isStockWatch) {
+      if (stockWatchStoreId) setStockWatchStoreId("");
+      return;
+    }
+    if (
+      stockWatchStoreId &&
+      handoverStoreOptions.some((store) => store.id === stockWatchStoreId)
+    ) {
+      return;
+    }
+    const fallbackStoreId = handoverStoreOptions[0]?.id ?? "";
+    if (fallbackStoreId !== stockWatchStoreId) setStockWatchStoreId(fallbackStoreId);
+  }, [watchServiceDetails.natureOfRepair, handoverStoreOptions, stockWatchStoreId]);
+
+  useEffect(() => {
     if (!ENABLE_SRF_HANDOVER_STORE_SELECT && operatingStoreId) {
       setHandoverStoreId(operatingStoreId);
     }
@@ -506,6 +527,10 @@ export function SrfBookingV2Page() {
   function validateWatch() {
     if (!watchBrand || !watchFamily.trim() || !watchModel.trim()) {
       setError("Watch brand, family, and model are required.");
+      return false;
+    }
+    if (watchServiceDetails.natureOfRepair === "internal_service" && !stockWatchStoreId) {
+      setError("For Stock Watch, select the stock watch location store.");
       return false;
     }
     if (serialNumberRequired && !serial.trim()) {
@@ -1755,6 +1780,9 @@ export function SrfBookingV2Page() {
               inputClass={inputClass}
               values={watchServiceDetails}
               onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
+              stockWatchStoreOptions={handoverStoreOptions}
+              stockWatchStoreId={stockWatchStoreId}
+              onStockWatchStoreChange={setStockWatchStoreId}
             />
             <label className="text-sm">
               Repair routing
@@ -2085,6 +2113,14 @@ export function SrfBookingV2Page() {
                   <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">After-service handover store</th>
                   <td className="px-3 py-2 text-stone-800">{handoverStoreOptions.find((s) => s.id === handoverStoreId)?.name ?? (handoverStoreId || "-")}</td>
                 </tr>
+                {watchServiceDetails.natureOfRepair === "internal_service" ? (
+                  <tr className="border-b border-rlx-rule">
+                    <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">
+                      Stock watch location
+                    </th>
+                    <td className="px-3 py-2 text-stone-800">{selectedStockWatchStoreName || "-"}</td>
+                  </tr>
+                ) : null}
                 <tr className="border-b border-rlx-rule">
                   <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Watch complaint</th>
                   <td className="px-3 py-2 text-stone-800">{complaint}</td>

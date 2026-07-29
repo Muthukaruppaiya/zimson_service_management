@@ -67,6 +67,9 @@ type Props = {
   inputClass: string;
   disabled?: boolean;
   apiMode?: boolean;
+  stockWatchStoreOptions?: { id: string; name: string }[];
+  stockWatchStoreId?: string;
+  onStockWatchStoreChange?: (storeId: string) => void;
 };
 
 export function WatchServiceDetailFields({
@@ -75,8 +78,12 @@ export function WatchServiceDetailFields({
   onChange,
   inputClass,
   disabled,
+  stockWatchStoreOptions = [],
+  stockWatchStoreId = "",
+  onStockWatchStoreChange,
 }: Props) {
   const pairRow = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start";
+  const isStockWatch = normalizeNatureOfRepair(values.natureOfRepair) === "internal_service";
 
   return (
     <>
@@ -119,6 +126,29 @@ export function WatchServiceDetailFields({
           </select>
         </div>
       </div>
+      {isStockWatch && onStockWatchStoreChange ? (
+        <div className={pairRow}>
+          <div className="min-w-0">
+            <label htmlFor={`${idPrefix}-stock-watch-store`} className="text-xs font-medium text-stone-600">
+              Stock watch location (store)
+            </label>
+            <select
+              id={`${idPrefix}-stock-watch-store`}
+              value={stockWatchStoreId}
+              disabled={disabled || stockWatchStoreOptions.length === 0}
+              onChange={(e) => onStockWatchStoreChange(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">Select store…</option>
+              {stockWatchStoreOptions.map((store) => (
+                <option key={store.id} value={store.id}>
+                  {store.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      ) : null}
       <div className={pairRow}>
         <div className="min-w-0">
           <label htmlFor={`${idPrefix}-chain-count-12`} className="text-xs font-medium text-stone-600">
