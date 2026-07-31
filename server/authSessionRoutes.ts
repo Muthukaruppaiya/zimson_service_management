@@ -7,6 +7,7 @@ import {
   revokeSessionById,
   SESSION_COOKIE,
 } from "./authSession";
+import { clearTrustedDeviceCookie, revokeTrustedDevicesForUser } from "./trustedDeviceAuth";
 
 type AuthSessionRouteDeps = {
   requireAuth: (req: Request, res: Response, next: NextFunction) => void;
@@ -106,11 +107,13 @@ export function registerAuthSessionRoutes(app: Express, pool: Pool, deps: AuthSe
     }
     try {
       const revokedCount = await revokeAllSessionsForUser(pool, found.id);
+      await revokeTrustedDevicesForUser(pool, found.id);
       const sid = deps.parseCookies(req.headers.cookie)[SESSION_COOKIE];
       if (sid) {
         await revokeSessionById(pool, sid);
       }
       res.clearCookie(SESSION_COOKIE, { path: "/" });
+      clearTrustedDeviceCookie(res);
       res.json({
         ok: true,
         revokedCount,

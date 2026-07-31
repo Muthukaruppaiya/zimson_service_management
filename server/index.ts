@@ -71,13 +71,12 @@ import {
 } from "./authSession";
 import { registerAuthSessionRoutes } from "./authSessionRoutes";
 import { registerPasswordResetRoutes } from "./passwordResetRoutes";
-import { registerMfaRoutes } from "./mfaRoutes";
 import {
-  consumeMfaLoginChallenge,
-  createMfaLoginChallenge,
-  isMfaEnabled,
-  validateMfaConfiguration,
-} from "./mfaSecurity";
+  consumeLoginOtpChallenge,
+  createLoginOtpChallenge,
+  createTrustedDevice,
+  isTrustedDevice,
+} from "./trustedDeviceAuth";
 import { startDevPublicTunnel } from "./devPublicTunnel";
 import { isS3StorageEnabled, s3Bucket } from "./storage/config";
 import { registerMediaRoutes } from "./storage/mediaRoutes";
@@ -654,52 +653,6 @@ app.post("/api/auth/login", async (req, res) => {
     res.status(403).json({ ok: false, message: "This profile is directory-only and cannot sign in." });
     return;
   }
-  if (await isMfaEnabled(dbPool, found.id)) {
-    const allowedStores = (found.storeIds ?? []).filter(Boolean);
-    if (STORE_ROLES.has(found.role)) {
-      if (allowedStores.length === 0) {
-        res.status(403).json({ ok: false, message: "No store mapping found for this account." });
-        return;
-      }
-      if (!selectedStoreId && allowedStores.length > 1) {
-        const { rows: stores } = await dbPool.query<{ id: string; name: string }>(
-          `SELECT id, name FROM stores WHERE id = ANY($1::text[]) ORDER BY name`,
-          [allowedStores],
-        );
-        res.json({
-          ok: false,
-          code: "STORE_SELECTION_REQUIRED",
-          message: "Select a store to continue.",
-          stores,
-        });
-        return;
-      }
-      if (selectedStoreId && !allowedStores.includes(selectedStoreId)) {
-        res.status(403).json({ ok: false, message: "Selected store is not assigned for this user." });
-        return;
-      }
-    }
-    const activeElsewhere = await countActiveSessionsForUser(dbPool, found.id);
-    if (activeElsewhere > 0) {
-      await notifyActiveSessionsOfLoginAttempt(dbPool, found.id);
-      res.status(409).json({
-        ok: false,
-        code: "ALREADY_LOGGED_IN",
-        activeSessionCount: activeElsewhere,
-        message:
-          "This account is already signed in on another device or browser. Ask them to sign out, or use “Sign out all devices” below with your password.",
-      });
-      return;
-    }
-    const challengeToken = await createMfaLoginChallenge(dbPool, found.id, selectedStoreId);
-    res.json({
-      ok: false,
-      code: "MFA_REQUIRED",
-      challengeToken,
-      message: "Enter the 6-digit code from your authenticator app.",
-    });
-    return;
-  }
   const activeElsewhere = await countActiveSessionsForUser(dbPool, found.id);
   if (activeElsewhere > 0) {
     await notifyActiveSessionsOfLoginAttempt(dbPool, found.id);
@@ -712,7 +665,52 @@ app.post("/api/auth/login", async (req, res) => {
     });
     return;
   }
+
+  // Store selection must happen before OTP / session so multi-store users pick once.
+  if (STORE_ROLES.has(found.role)) {
+    const allowedStores = (found.storeIds ?? []).filter(Boolean);
+    if (allowedStores.length === 0) {
+      res.status(403).json({ ok: false, message: "No store mapping found for this account." });
+      return;
+    }
+    if (!selectedStoreId && allowedStores.length > 1) {
+      const { rows: stores } = await dbPool.query<{ id: string; name: string }>(
+        `SELECT id, name FROM stores WHERE id = ANY($1::text[]) ORDER BY name`,
+        [allowedStores],
+      );
+      res.json({
+        ok: false,
+        code: "STORE_SELECTION_REQUIRED",
+        message: "Select a store to continue.",
+        stores,
+      });
+      return;
+    }
+    if (selectedStoreId && !allowedStores.includes(selectedStoreId)) {
+      res.status(403).json({ ok: false, message: "Selected store is not assigned for this user." });
+      return;
+    }
+  }
+
   try {
+    const trusted = await isTrustedDevice(dbPool, req, found.id);
+    if (!trusted) {
+      const challenge = await createLoginOtpChallenge(dbPool, found, selectedStoreId);
+      if (!challenge.ok) {
+        res.status(400).json({ ok: false, message: challenge.message });
+        return;
+      }
+      res.json({
+        ok: false,
+        code: "LOGIN_OTP_REQUIRED",
+        challengeToken: challenge.challengeToken,
+        sentTo: challenge.sentTo,
+        demoOtp: challenge.demoOtp,
+        message: challenge.message,
+      });
+      return;
+    }
+
     const session = await issueSessionForUser(dbPool, res, found, selectedStoreId);
     if (!session.ok) {
       res.status(400).json({
@@ -725,7 +723,7 @@ app.post("/api/auth/login", async (req, res) => {
     }
     await refreshUsersFromDb();
     const refreshed = allUsers().find((u) => u.id === session.user.id) ?? found;
-    res.json({ ok: true, user: stripPassword(refreshed) });
+    res.json({ ok: true, user: stripPassword(refreshed), trustedDevice: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not sign in.";
     const status = msg.includes("store") ? 403 : 500;
@@ -733,17 +731,18 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-app.post("/api/auth/mfa/verify-login", async (req, res) => {
+app.post("/api/auth/login/verify-otp", async (req, res) => {
   const challengeToken = String(req.body?.challengeToken ?? "").trim();
   const code = String(req.body?.code ?? "").trim();
+  const rememberDevice = req.body?.rememberDevice !== false;
   if (!challengeToken || !code) {
-    res.status(400).json({ ok: false, message: "Authentication code is required." });
+    res.status(400).json({ ok: false, message: "OTP is required." });
     return;
   }
   try {
-    const challenge = await consumeMfaLoginChallenge(dbPool, challengeToken, code);
+    const challenge = await consumeLoginOtpChallenge(dbPool, challengeToken, code);
     if (!challenge.ok) {
-      res.status(401).json({ ok: false, code: "MFA_INVALID", message: challenge.message });
+      res.status(401).json({ ok: false, code: "LOGIN_OTP_INVALID", message: challenge.message });
       return;
     }
     const found = findUser(challenge.userId);
@@ -762,19 +761,28 @@ app.post("/api/auth/mfa/verify-login", async (req, res) => {
     }
     const session = await issueSessionForUser(dbPool, res, found, challenge.selectedStoreId);
     if (!session.ok) {
-      res.status(400).json({ ok: false, code: session.code, message: session.message, stores: session.stores });
+      res.status(400).json({
+        ok: false,
+        code: session.code,
+        message: session.message,
+        stores: session.stores,
+      });
       return;
+    }
+    if (rememberDevice) {
+      await createTrustedDevice(dbPool, res, found.id);
     }
     await refreshUsersFromDb();
     const refreshed = allUsers().find((u) => u.id === session.user.id) ?? found;
     res.json({
       ok: true,
       user: stripPassword(refreshed),
-      usedRecoveryCode: challenge.usedRecoveryCode,
+      trustedDeviceSaved: rememberDevice,
     });
-  } catch (error) {
-    console.error("[mfa] login verification failed:", error);
-    res.status(500).json({ ok: false, message: "Could not verify MFA code." });
+  } catch (e) {
+    console.error("[login-otp] verify failed:", e);
+    const msg = e instanceof Error ? e.message : "Could not verify OTP.";
+    res.status(500).json({ ok: false, message: msg });
   }
 });
 
@@ -4030,7 +4038,6 @@ async function main() {
     console.error("Missing database configuration: set DATABASE_URL or PGHOST/PGDATABASE/PGUSER/PGPASSWORD.");
     process.exit(1);
   }
-  validateMfaConfiguration();
   console.log(
     `[storage] ${isS3StorageEnabled() ? `Amazon S3 (${s3Bucket()})` : "local disk (uploads/)"}`,
   );
@@ -4091,8 +4098,6 @@ async function main() {
       return matches.find((u) => u.password === passwordHash) ?? null;
     },
   });
-  registerMfaRoutes(app, dbPool, requireAuth, getSessionUserId, findUser, hashPassword);
-
   app.listen(PORT, HOST, () => {
     console.log(`Zimson API listening on http://${HOST}:${PORT} (browser: http://<server-ip>:${PORT})`);
     void (async () => {

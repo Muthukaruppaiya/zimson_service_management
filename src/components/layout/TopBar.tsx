@@ -197,17 +197,15 @@ export function TopBar() {
               ) : null}
             </div>
 
-            <button
-              type="button"
-              onClick={() => navigate("/security/mfa")}
+            <div
               className="topbar-avatar-btn"
-              title={`${roleLabel(user.role)} · ${user.displayName} · Security settings`}
-              aria-label={`Open security settings for ${user.displayName}`}
+              title={`${roleLabel(user.role)} · ${user.displayName}`}
+              aria-label={`${user.displayName}`}
             >
               <span className="topbar-avatar-btn__ring">
                 <span className="topbar-avatar-btn__inner">{initials}</span>
               </span>
-            </button>
+            </div>
 
             <button
               type="button"

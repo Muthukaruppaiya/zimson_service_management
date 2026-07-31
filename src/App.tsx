@@ -94,7 +94,6 @@ import { TransferReportPage } from "./pages/reports/TransferReportPage";
 import { TechnicianAssignWatchReportPage } from "./pages/reports/TechnicianAssignWatchReportPage";
 import { TechnicianRepairedHistoryReportPage } from "./pages/reports/TechnicianRepairedHistoryReportPage";
 import { UnassignedWatchReportPage } from "./pages/reports/UnassignedWatchReportPage";
-import { MfaSettingsPage } from "./pages/security/MfaSettingsPage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
   const { search } = useLocation();
@@ -130,7 +129,6 @@ export default function App() {
                     </ModuleRoute>
                   }
                 />
-                <Route path="/security/mfa" element={<MfaSettingsPage />} />
                 <Route
                   path="/analytics"
                   element={

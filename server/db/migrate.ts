@@ -41,11 +41,11 @@ CREATE INDEX IF NOT EXISTS idx_app_users_store ON app_users (store_id);
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS employee_code VARCHAR(64);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_app_users_employee_code ON app_users(employee_code) WHERE employee_code IS NOT NULL;
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS plain_password TEXT;
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS mfa_secret_encrypted TEXT;
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS mfa_pending_secret_encrypted TEXT;
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS mfa_recovery_code_hashes JSONB NOT NULL DEFAULT '[]'::jsonb;
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS mfa_enabled_at TIMESTAMPTZ;
+ALTER TABLE app_users DROP COLUMN IF EXISTS mfa_enabled;
+ALTER TABLE app_users DROP COLUMN IF EXISTS mfa_secret_encrypted;
+ALTER TABLE app_users DROP COLUMN IF EXISTS mfa_pending_secret_encrypted;
+ALTER TABLE app_users DROP COLUMN IF EXISTS mfa_recovery_code_hashes;
+ALTER TABLE app_users DROP COLUMN IF EXISTS mfa_enabled_at;
 UPDATE app_users
 SET plain_password = '123456'
 WHERE plain_password IS NULL AND role <> 'super_admin';
@@ -91,18 +91,7 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions (expires_at);
 
-CREATE TABLE IF NOT EXISTS mfa_login_challenges (
-  token_hash TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-  selected_store_id TEXT,
-  attempts INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at TIMESTAMPTZ NOT NULL,
-  used_at TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_mfa_challenges_user ON mfa_login_challenges (user_id);
-CREATE INDEX IF NOT EXISTS idx_mfa_challenges_expiry ON mfa_login_challenges (expires_at);
+DROP TABLE IF EXISTS mfa_login_challenges CASCADE;
 
 DROP TABLE IF EXISTS spare_brand_mrp CASCADE;
 
@@ -1561,5 +1550,32 @@ export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_delivery_challans_delivery_boy
       ON delivery_challans (delivery_boy_user_id, status);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trusted_devices (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      token_hash VARCHAR(128) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_trusted_devices_token_hash ON trusted_devices (token_hash);
+    CREATE INDEX IF NOT EXISTS idx_trusted_devices_user ON trusted_devices (user_id, expires_at);
+
+    CREATE TABLE IF NOT EXISTS login_otp_challenges (
+      token_hash VARCHAR(128) PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      code_hash VARCHAR(128) NOT NULL,
+      selected_store_id TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_otp_challenges_user ON login_otp_challenges (user_id);
+    CREATE INDEX IF NOT EXISTS idx_login_otp_challenges_expiry ON login_otp_challenges (expires_at);
   `);
 }

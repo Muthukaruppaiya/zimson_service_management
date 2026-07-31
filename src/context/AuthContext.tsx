@@ -34,9 +34,11 @@ type LoginResult =
   | {
       ok: false;
       message: string;
-      code?: "ALREADY_LOGGED_IN" | "STORE_SELECTION_REQUIRED" | "MFA_REQUIRED";
+      code?: "ALREADY_LOGGED_IN" | "STORE_SELECTION_REQUIRED" | "LOGIN_OTP_REQUIRED";
       stores?: { id: string; name: string }[];
       challengeToken?: string;
+      sentTo?: { type: "mobile" | "email"; label: string }[];
+      demoOtp?: string;
     };
 
 export type UserPatchInput = Partial<{
@@ -58,7 +60,11 @@ type AuthContextValue = {
   authReady: boolean;
   listUsers: SessionUser[];
   login: (loginId: string, password: string, storeId?: string | null) => Promise<LoginResult>;
-  verifyMfaLogin: (challengeToken: string, code: string) => Promise<LoginResult>;
+  verifyLoginOtp: (
+    challengeToken: string,
+    code: string,
+    rememberDevice?: boolean,
+  ) => Promise<LoginResult>;
   /** Apply server session after password reset (cookie already set). */
   adoptSession: (user: SessionUser) => Promise<void>;
   logout: () => Promise<void>;
@@ -212,6 +218,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             code?: string;
             stores?: { id: string; name: string }[];
             challengeToken?: string;
+            sentTo?: { type: "mobile" | "email"; label: string }[];
+            demoOtp?: string;
           }>(
             "/api/auth/login",
             {
@@ -231,12 +239,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               stores: data.stores,
             };
           }
-          if (!data.ok && data.code === "MFA_REQUIRED" && data.challengeToken) {
+          if (!data.ok && data.code === "LOGIN_OTP_REQUIRED" && data.challengeToken) {
             return {
               ok: false,
-              code: "MFA_REQUIRED",
-              message: data.message ?? "Enter your authenticator code.",
+              code: "LOGIN_OTP_REQUIRED",
+              message: data.message ?? "Enter the OTP sent to your mobile/email.",
               challengeToken: data.challengeToken,
+              sentTo: data.sentTo,
+              demoOtp: data.demoOtp,
             };
           }
           if (!data.ok || !data.user) {
@@ -292,19 +302,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [api, allWithPassword, refreshDirectory],
   );
 
-  const verifyMfaLogin = useCallback(
-    async (challengeToken: string, code: string): Promise<LoginResult> => {
-      if (!api) return { ok: false, message: "MFA requires API mode." };
+  const verifyLoginOtp = useCallback(
+    async (
+      challengeToken: string,
+      code: string,
+      rememberDevice = true,
+    ): Promise<LoginResult> => {
+      if (!api) return { ok: false, message: "OTP login requires API mode." };
       try {
         const data = await apiJson<{ ok: boolean; user?: SessionUser; message?: string }>(
-          "/api/auth/mfa/verify-login",
+          "/api/auth/login/verify-otp",
           {
             method: "POST",
-            json: { challengeToken, code: code.trim() },
+            json: {
+              challengeToken,
+              code: code.trim(),
+              rememberDevice,
+            },
           },
         );
         if (!data.ok || !data.user) {
-          return { ok: false, message: data.message ?? "MFA verification failed." };
+          return { ok: false, message: data.message ?? "OTP verification failed." };
         }
         setUser(data.user);
         await refreshDirectory(data.user);
@@ -317,7 +335,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return {
           ok: false,
           code: body?.code === "ALREADY_LOGGED_IN" ? "ALREADY_LOGGED_IN" : undefined,
-          message: e instanceof ApiError ? e.message : "MFA verification failed.",
+          message: e instanceof ApiError ? e.message : "OTP verification failed.",
         };
       }
     },
@@ -490,13 +508,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authReady,
       listUsers: api ? listUsers : allWithPassword.map(stripPassword),
       login,
-      verifyMfaLogin,
+      verifyLoginOtp,
       adoptSession,
       logout,
       createUser,
       updateUser,
     }),
-    [effectiveUser, authReady, api, listUsers, allWithPassword, login, verifyMfaLogin, adoptSession, logout, createUser, updateUser],
+    [effectiveUser, authReady, api, listUsers, allWithPassword, login, verifyLoginOtp, adoptSession, logout, createUser, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

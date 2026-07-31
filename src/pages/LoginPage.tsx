@@ -5,12 +5,14 @@ import { AppBootLoader } from "../components/ui/AppBootLoader";
 import { useAuth } from "../context/AuthContext";
 import { ApiError, apiJson } from "../lib/api";
 import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
+import { formatOtpSentSubtitle } from "../lib/otpSentMessage";
+import { OTP_LENGTH } from "../lib/otp";
 import "../styles/zimson-login.css";
 
 const LOGIN_BOOT_MIN_MS = 700;
 
 export function LoginPage() {
-  const { user, login, verifyMfaLogin, authReady } = useAuth();
+  const { user, login, verifyLoginOtp, authReady } = useAuth();
   const [bootMinElapsed, setBootMinElapsed] = useState(false);
 
   useEffect(() => {
@@ -24,7 +26,7 @@ export function LoginPage() {
 
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [storeId, setStoreId] = useState("");
   const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
   const [storePickerOpen, setStorePickerOpen] = useState(false);
@@ -33,9 +35,11 @@ export function LoginPage() {
   const [alreadyLoggedIn, setAlreadyLoggedIn] = useState(false);
   const [signOutAllBusy, setSignOutAllBusy] = useState(false);
   const [signOutAllNote, setSignOutAllNote] = useState<string | null>(null);
-  const [mfaChallengeToken, setMfaChallengeToken] = useState("");
-  const [mfaCode, setMfaCode] = useState("");
-  const [mfaBusy, setMfaBusy] = useState(false);
+  const [otpChallengeToken, setOtpChallengeToken] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpHint, setOtpHint] = useState<string | null>(null);
+  const [demoOtp, setDemoOtp] = useState<string | null>(null);
+  const [otpBusy, setOtpBusy] = useState(false);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -43,9 +47,17 @@ export function LoginPage() {
     return <AppBootLoader message="Checking session…" />;
   }
 
+  function clearOtpStep() {
+    setOtpChallengeToken("");
+    setOtpCode("");
+    setOtpHint(null);
+    setDemoOtp(null);
+  }
+
   async function finishLogin(selectedStoreId: string | null) {
     const result = await login(loginId, password, selectedStoreId);
     if (result.ok) {
+      clearOtpStep();
       setAlreadyLoggedIn(false);
       setStorePickerOpen(false);
       setStoreOptions([]);
@@ -57,16 +69,20 @@ export function LoginPage() {
       setStorePickerOpen(true);
       setError(null);
       setAlreadyLoggedIn(false);
+      clearOtpStep();
       return false;
     }
-    if ("code" in result && result.code === "MFA_REQUIRED" && result.challengeToken) {
-      setMfaChallengeToken(result.challengeToken);
-      setMfaCode("");
+    if ("code" in result && result.code === "LOGIN_OTP_REQUIRED" && result.challengeToken) {
+      setOtpChallengeToken(result.challengeToken);
+      setOtpCode("");
+      setOtpHint(result.sentTo?.length ? formatOtpSentSubtitle(result.sentTo) : result.message);
+      setDemoOtp(result.demoOtp ?? null);
       setStorePickerOpen(false);
       setError(null);
       setAlreadyLoggedIn(false);
       return false;
     }
+    clearOtpStep();
     setStoreOptions([]);
     setStorePickerOpen(false);
     setError(result.message);
@@ -78,14 +94,14 @@ export function LoginPage() {
     e.preventDefault();
     setError(null);
     setSignOutAllNote(null);
-    if (mfaChallengeToken) {
-      if (!mfaCode.trim()) {
-        setError("Enter your authenticator or recovery code.");
+    if (otpChallengeToken) {
+      if (otpCode.trim().length !== OTP_LENGTH) {
+        setError(`Enter the ${OTP_LENGTH}-digit OTP.`);
         return;
       }
-      setMfaBusy(true);
+      setOtpBusy(true);
       try {
-        const result = await verifyMfaLogin(mfaChallengeToken, mfaCode);
+        const result = await verifyLoginOtp(otpChallengeToken, otpCode, rememberMe);
         if (result.ok) {
           navigate(from === "/login" ? "/" : from, { replace: true });
           return;
@@ -93,11 +109,21 @@ export function LoginPage() {
         setError(result.message);
         if ("code" in result && result.code === "ALREADY_LOGGED_IN") setAlreadyLoggedIn(true);
       } finally {
-        setMfaBusy(false);
+        setOtpBusy(false);
       }
       return;
     }
     await finishLogin(storeId || null);
+  }
+
+  async function handleResendOtp() {
+    setError(null);
+    setOtpBusy(true);
+    try {
+      await finishLogin(storeId || null);
+    } finally {
+      setOtpBusy(false);
+    }
   }
 
   async function handleStorePickFromModal(pickedStoreId: string) {
@@ -125,6 +151,7 @@ export function LoginPage() {
       });
       setAlreadyLoggedIn(false);
       setError(null);
+      clearOtpStep();
       setSignOutAllNote(data.message || "All devices signed out. Click Sign in again.");
     } catch (e) {
       setSignOutAllNote(e instanceof ApiError ? e.message : "Could not sign out all devices.");
@@ -192,7 +219,7 @@ export function LoginPage() {
             <div className="zimson-login__title-row">
               <span className="zimson-login__ornament" />
               <h1 className="zimson-login__title" id="login-title">
-                Sign in
+                {otpChallengeToken ? "Verify OTP" : "Sign in"}
               </h1>
               <span className="zimson-login__ornament zimson-login__ornament--right" />
             </div>
@@ -200,118 +227,135 @@ export function LoginPage() {
 
           <div className="zimson-login__body">
             <form onSubmit={handleSubmit} noValidate>
-              <div className="zimson-login__field">
-                <label className="zimson-login__label" htmlFor="login-emp">
-                  Username
-                </label>
-                <div className="zimson-login__input-row">
-                  <span className="zimson-login__input-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="8" r="3.5" />
-                      <path d="M5 20c0-3.5 3.13-6 7-6s7 2.5 7 6" />
-                    </svg>
-                  </span>
-                  <div className="zimson-login__input-box">
-                    <input
-                      className="zimson-login__input"
-                      id="login-emp"
-                      type="text"
-                      autoComplete="username"
-                      value={loginId}
-                      onChange={(e) => {
-                        setLoginId(sanitizeLoginIdInput(e.target.value));
-                        setAlreadyLoggedIn(false);
-                      }}
-                      placeholder="e.g. jsmith"
-                      required
-                    />
+              {!otpChallengeToken ? (
+                <>
+                  <div className="zimson-login__field">
+                    <label className="zimson-login__label" htmlFor="login-emp">
+                      Username
+                    </label>
+                    <div className="zimson-login__input-row">
+                      <span className="zimson-login__input-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="8" r="3.5" />
+                          <path d="M5 20c0-3.5 3.13-6 7-6s7 2.5 7 6" />
+                        </svg>
+                      </span>
+                      <div className="zimson-login__input-box">
+                        <input
+                          className="zimson-login__input"
+                          id="login-emp"
+                          type="text"
+                          autoComplete="username"
+                          value={loginId}
+                          onChange={(e) => {
+                            setLoginId(sanitizeLoginIdInput(e.target.value));
+                            setAlreadyLoggedIn(false);
+                          }}
+                          placeholder="e.g. jsmith"
+                          required
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              <div className="zimson-login__field">
-                <div className="zimson-login__field-row">
-                  <label className="zimson-login__label" htmlFor="login-password">
-                    Password
-                  </label>
-                  <Link className="zimson-login__forgot" to="/login/forgot-password">
-                    Forgot password?
-                  </Link>
-                </div>
-                <div className="zimson-login__input-row">
-                  <span className="zimson-login__input-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="6" y="11" width="12" height="9" rx="1.5" />
-                      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-                    </svg>
-                  </span>
-                  <div className="zimson-login__input-box">
-                    <input
-                      className="zimson-login__input"
-                      id="login-password"
-                      type="password"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(sanitizePasswordInput(e.target.value));
-                        setAlreadyLoggedIn(false);
-                      }}
-                      placeholder="••••••••"
-                      required
-                    />
+                  <div className="zimson-login__field">
+                    <div className="zimson-login__field-row">
+                      <label className="zimson-login__label" htmlFor="login-password">
+                        Password
+                      </label>
+                      <Link className="zimson-login__forgot" to="/login/forgot-password">
+                        Forgot password?
+                      </Link>
+                    </div>
+                    <div className="zimson-login__input-row">
+                      <span className="zimson-login__input-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="6" y="11" width="12" height="9" rx="1.5" />
+                          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                        </svg>
+                      </span>
+                      <div className="zimson-login__input-box">
+                        <input
+                          className="zimson-login__input"
+                          id="login-password"
+                          type="password"
+                          autoComplete="current-password"
+                          value={password}
+                          onChange={(e) => {
+                            setPassword(sanitizePasswordInput(e.target.value));
+                            setAlreadyLoggedIn(false);
+                          }}
+                          placeholder="••••••••"
+                          required
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-
-              {mfaChallengeToken ? (
+                </>
+              ) : (
                 <div className="zimson-login__field">
-                  <label className="zimson-login__label" htmlFor="login-mfa-code">
-                    Authenticator code
+                  {otpHint ? <p className="zimson-login__label" style={{ marginBottom: "0.75rem" }}>{otpHint}</p> : null}
+                  {demoOtp ? (
+                    <p className="zimson-login__alert zimson-login__alert--success" style={{ marginBottom: "0.75rem" }}>
+                      Demo OTP: <strong>{demoOtp}</strong>
+                    </p>
+                  ) : null}
+                  <label className="zimson-login__label" htmlFor="login-otp">
+                    One-time password
                   </label>
                   <div className="zimson-login__input-row">
                     <span className="zimson-login__input-icon" aria-hidden="true">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                         <path d="M12 3 5 6v5c0 4.8 2.9 8.2 7 10 4.1-1.8 7-5.2 7-10V6l-7-3Z" />
-                        <path d="M9 12h6M12 9v6" />
                       </svg>
                     </span>
                     <div className="zimson-login__input-box">
                       <input
                         className="zimson-login__input"
-                        id="login-mfa-code"
+                        id="login-otp"
                         type="text"
                         inputMode="numeric"
                         autoComplete="one-time-code"
                         autoFocus
-                        value={mfaCode}
-                        onChange={(e) => setMfaCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 9))}
-                        placeholder="6-digit code or recovery code"
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, OTP_LENGTH))}
+                        placeholder={`${OTP_LENGTH}-digit code`}
                         required
                       />
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="zimson-login__forgot mt-2"
-                    onClick={() => {
-                      setMfaChallengeToken("");
-                      setMfaCode("");
-                      setError(null);
-                    }}
-                  >
-                    Use a different account
-                  </button>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      className="zimson-login__forgot"
+                      disabled={otpBusy}
+                      onClick={() => void handleResendOtp()}
+                    >
+                      Resend OTP
+                    </button>
+                    <button
+                      type="button"
+                      className="zimson-login__forgot"
+                      disabled={otpBusy}
+                      onClick={() => {
+                        clearOtpStep();
+                        setError(null);
+                      }}
+                    >
+                      Use a different account
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                <label className="zimson-login__remember">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                  />
-                  <span>Remember me</span>
-                </label>
               )}
+
+              <label className="zimson-login__remember">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <span>Remember this device (skip OTP next time)</span>
+              </label>
 
               {alreadyLoggedIn ? (
                 <div className="zimson-login__alert zimson-login__alert--warn">
@@ -337,8 +381,14 @@ export function LoginPage() {
                 <div className="zimson-login__alert zimson-login__alert--success">{signOutAllNote}</div>
               ) : null}
 
-              <button className="zimson-login__submit" type="submit" disabled={mfaBusy}>
-                {mfaBusy ? "Verifying…" : mfaChallengeToken ? "Verify & sign in" : "Sign in"}
+              <button className="zimson-login__submit" type="submit" disabled={otpBusy}>
+                {otpBusy
+                  ? otpChallengeToken
+                    ? "Verifying…"
+                    : "Sending OTP…"
+                  : otpChallengeToken
+                    ? "Verify & sign in"
+                    : "Sign in"}
                 <svg viewBox="0 0 24 24">
                   <path d="M13.5 5.5 19 11H5v2h14l-5.5 5.5 1.4 1.4L22.8 12l-7.9-7.9-1.4 1.4Z" />
                 </svg>
