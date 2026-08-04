@@ -580,6 +580,16 @@ app.get("/api/messaging/public-srf-pdf/:filename", async (req, res) => {
 async function ensureSeedUsers(): Promise<void> {
   for (const user of SEED_USERS) {
     const employeeCode = normalizeEmployeeCode(String(user.employeeCode ?? "")) || normalizeEmployeeCode(user.id);
+    const email = user.email.toLowerCase();
+    // Avoid unique-email crash if another row already uses the seed email.
+    await dbPool.query(
+      `UPDATE app_users
+       SET email = ('relocated-' || id || '@invalid.local'),
+           updated_at = now()
+       WHERE lower(email) = lower($1)
+         AND id <> $2`,
+      [email, user.id],
+    );
     await dbPool.query(
       `INSERT INTO app_users (
          id, employee_code, email, password_hash, plain_password, display_name, role, region_id, store_id, technician_profile_id,
@@ -602,7 +612,7 @@ async function ensureSeedUsers(): Promise<void> {
       [
         user.id,
         employeeCode,
-        user.email.toLowerCase(),
+        email,
         hashPassword(user.password),
         user.password,
         user.displayName,

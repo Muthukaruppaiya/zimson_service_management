@@ -123,7 +123,7 @@ INSERT INTO app_users (
 VALUES (
   'seed-super-1',
   'SEEDSUPER1',
-  'superadmin@zimson.demo',
+  'sivamkaruppaiya15@gmail.com',
   '4e4c56e4a15f89f05c2f4c72613da2a18c9665d4f0d6acce16415eb06f9be776',
   'super123',
   'Super Admin',
