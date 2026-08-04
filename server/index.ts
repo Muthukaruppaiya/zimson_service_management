@@ -643,7 +643,8 @@ app.post("/api/auth/login", async (req, res) => {
     res.status(400).json({ ok: false, message: "Enter your username." });
     return;
   }
-  const users = await allUsers();
+  await refreshUsersFromDb();
+  const users = allUsers();
   const passwordHash = hashPassword(password);
   const loginMatches = users.filter((u) => userMatchesLoginId(u, loginId));
   if (loginMatches.length > 1) {
