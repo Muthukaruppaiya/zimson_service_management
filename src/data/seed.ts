@@ -60,7 +60,7 @@ export const SEED_USERS: DemoUser[] = [
   {
     id: "seed-super-1",
     employeeCode: "SA001",
-    email: "sivamkaruppaiya15@gmail.com",
+    email: "prakashkumar@abtinfocloud.com",
     password: "super123",
     displayName: "Super Admin",
     role: "super_admin",
