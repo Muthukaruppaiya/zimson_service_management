@@ -297,7 +297,7 @@ export function LoginPage() {
                   {otpHint ? <p className="zimson-login__label" style={{ marginBottom: "0.75rem" }}>{otpHint}</p> : null}
                   {demoOtp ? (
                     <p className="zimson-login__alert zimson-login__alert--success" style={{ marginBottom: "0.75rem" }}>
-                      Demo OTP: <strong>{demoOtp}</strong>
+                      Temporary OTP: <strong>{demoOtp}</strong>
                     </p>
                   ) : null}
                   <label className="zimson-login__label" htmlFor="login-otp">

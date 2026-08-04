@@ -4,7 +4,6 @@ import type { Pool } from "pg";
 import type { DemoUser } from "../src/types/user";
 import {
   deliverOtpToTargets,
-  otpStartResponsePayload,
   type OtpDeliveryTarget,
 } from "./messaging/deliverOtp";
 import { generateOtpCode, isValidOtpCode } from "./otp";
@@ -120,17 +119,12 @@ export async function createLoginOtpChallenge(
   selectedStoreId: string | null,
 ): Promise<LoginOtpChallengeResult> {
   const targets = buildLoginOtpTargets(user);
-  if (targets.length === 0) {
-    return {
-      ok: false,
-      message: "Add a mobile number or email on this account to receive a login OTP.",
-    };
-  }
-
   const code = generateOtpCode();
   const challengeToken = crypto.randomBytes(24).toString("base64url");
   const tokenHash = hashToken(challengeToken);
   const codeHash = hashToken(code);
+  /** Temporary testing: always show OTP on login screen (emails may be wrong / shared). */
+  const showOtpOnScreen = true;
 
   await pool.query(
     `DELETE FROM login_otp_challenges
@@ -147,14 +141,24 @@ export async function createLoginOtpChallenge(
     [tokenHash, user.id, codeHash, selectedStoreId],
   );
 
-  await deliverOtpToTargets(code, targets);
-  const payload = otpStartResponsePayload(challengeToken, code, targets);
+  if (targets.length > 0) {
+    try {
+      await deliverOtpToTargets(code, targets);
+    } catch (e) {
+      // Still allow login when mail/SMS fails — OTP is shown on screen for testing.
+      console.warn(
+        "[login-otp] delivery failed; showing OTP on screen:",
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
   return {
     ok: true,
     challengeToken,
     sentTo: targets,
-    demoOtp: payload.demoOtp,
-    message: "Enter the OTP sent to your registered mobile/email.",
+    demoOtp: showOtpOnScreen ? code : undefined,
+    message: "Temporary: OTP is shown below. Enter it to continue.",
   };
 }
 
