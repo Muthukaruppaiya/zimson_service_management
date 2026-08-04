@@ -87,7 +87,7 @@ async function run() {
     console.log("✅  All tables cleared successfully.");
     console.log("\nNext steps:");
     console.log("  1. Start the server:   npm run dev");
-    console.log("  2. Log in as:          prakashkumar@abtinfocloud.com  /  super123");
+    console.log("  2. Log in as:          superadmin@zimson.demo  /  super123");
     console.log("  3. Settings → Regions & Stores  →  create your regions and stores");
     console.log("  4. Settings → Users             →  create your staff accounts");
     console.log("  5. Settings → Service Tax       →  set GST rates and invoice terms\n");
