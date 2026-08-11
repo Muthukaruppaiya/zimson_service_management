@@ -355,6 +355,7 @@ export function QuickBillPage() {
   const [watchDocumentPath, setWatchDocumentPath] = useState<string | null>(null);
   const [watchImagePath, setWatchImagePath] = useState<string | null>(null);
   const [capturePhotos, setCapturePhotos] = useState<QbCapturePhoto[]>([]);
+  const [capturePhotoLightbox, setCapturePhotoLightbox] = useState<{ src: string; label: string } | null>(null);
   const [captureSession, setCaptureSession] = useState<{
     sessionId: string;
     token: string;
@@ -1216,6 +1217,19 @@ export function QuickBillPage() {
     if (!window.confirm(`Remove ${label}? The customer can upload again from the capture link.`)) return;
     void removeCaptureAttachment(kind);
   }
+
+  useEffect(() => {
+    if (!capturePhotoLightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCapturePhotoLightbox(null);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [capturePhotoLightbox]);
 
   function validateBeforeOtp(opts?: { skipHandoverCheck?: boolean }): boolean {
     setError(null);
@@ -2405,50 +2419,90 @@ export function QuickBillPage() {
                 </div>
               </div>
               {capturePhotos.length > 0 ? (
-                <div className="mt-4 rounded-lg border border-zimson-200 bg-white p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Uploaded from customer link</p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="mt-4 rounded-xl border border-zimson-200 bg-white p-3 sm:p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">
+                      Uploaded from customer link
+                    </p>
+                    <p className="text-[11px] text-stone-500">Click a photo to preview full size</p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2.5">
                     {capturePhotos.map((photo) => {
                       const kind = normalizeSrfPhotoKind(photo.photoKind);
                       const label = capturePhotoLabel(photo);
                       const src = capturePhotoSrc(photo.filePath);
                       const isDoc = kind === SRF_DOCUMENT_PHOTO_KIND;
                       const isPdf =
-                        photo.mime?.includes("pdf") || photo.filePath.toLowerCase().includes(".pdf");
+                        photo.mime?.includes("pdf") ||
+                        photo.filePath.toLowerCase().includes(".pdf") ||
+                        photo.filePath.toLowerCase().includes(".doc");
                       return (
                         <div
                           key={photo.id}
-                          className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3"
+                          className="w-[6.5rem] overflow-hidden rounded-lg border border-emerald-200/80 bg-emerald-50/40 shadow-sm sm:w-[7rem]"
                         >
-                          <p className="text-xs font-semibold text-emerald-900">{label}</p>
+                          <p className="truncate px-1.5 py-1 text-[10px] font-semibold text-emerald-900">
+                            {label}
+                          </p>
                           {isDoc && isPdf ? (
-                            <p className="mt-2 text-xs text-emerald-800">
-                              {watchAttachmentDisplayName(photo.filePath)}
-                            </p>
-                          ) : (
-                            <img
-                              src={src}
-                              alt={label}
-                              className="mt-2 max-h-32 w-full rounded-md border border-stone-200 object-contain bg-white"
-                            />
-                          )}
-                          {isDoc ? (
                             <a
                               href={src}
                               target="_blank"
                               rel="noreferrer"
-                              className="mt-2 inline-block text-xs font-semibold text-zimson-700 underline"
+                              title="Open document"
+                              className="flex aspect-square w-full flex-col items-center justify-center bg-rose-50 text-rose-800 transition hover:bg-rose-100"
                             >
-                              {isPdf ? "Open document" : "Open"}
+                              <span className="text-sm font-black">DOC</span>
+                              <span className="mt-0.5 max-w-[90%] truncate px-1 text-center text-[9px] font-semibold">
+                                {watchAttachmentDisplayName(photo.filePath)}
+                              </span>
+                              <span className="mt-1 text-[9px] font-bold underline">Open</span>
                             </a>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => clearCapturePhoto(photo)}
-                            className="mt-2 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-50"
-                          >
-                            Remove
-                          </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setCapturePhotoLightbox({ src, label })}
+                              title="Click to view full screen"
+                              className="group relative block aspect-square w-full overflow-hidden bg-stone-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-zimson-600"
+                            >
+                              <img
+                                src={src}
+                                alt={label}
+                                className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                              />
+                              <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+                                <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 text-white drop-shadow" aria-hidden>
+                                  <path
+                                    d="M9 4H5a1 1 0 00-1 1v4m11-5h4a1 1 0 011 1v4M4 15v4a1 1 0 001 1h4m11-5v4a1 1 0 01-1 1h-4"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </span>
+                            </button>
+                          )}
+                          <div className="flex items-center justify-between gap-1 border-t border-emerald-100 bg-white/70 px-1.5 py-1">
+                            {!isDoc || !isPdf ? (
+                              <button
+                                type="button"
+                                onClick={() => setCapturePhotoLightbox({ src, label })}
+                                className="text-[10px] font-semibold text-zimson-800 hover:underline"
+                              >
+                                Preview
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-stone-400">Doc</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => clearCapturePhoto(photo)}
+                              className="rounded border border-stone-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-stone-700 hover:bg-stone-50"
+                            >
+                              ×
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -2917,6 +2971,45 @@ export function QuickBillPage() {
           </div>
         </div>
       </form>
+
+      {capturePhotoLightbox ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-3 backdrop-blur-sm sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Photo preview: ${capturePhotoLightbox.label}`}
+          onClick={() => setCapturePhotoLightbox(null)}
+        >
+          <div
+            className="relative flex h-full max-h-[96vh] w-full max-w-6xl flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3 text-white">
+              <p className="rounded-full bg-white/10 px-3 py-1 text-sm font-semibold capitalize">
+                {capturePhotoLightbox.label}
+              </p>
+              <button
+                type="button"
+                onClick={() => setCapturePhotoLightbox(null)}
+                title="Close full screen preview"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
+              >
+                <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden>
+                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                <span className="sr-only">Close</span>
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+              <img
+                src={capturePhotoLightbox.src}
+                alt={capturePhotoLightbox.label}
+                className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <CustomerHandoverOtpModal
         open={handoverModalOpen}
