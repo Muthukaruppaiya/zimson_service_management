@@ -31,13 +31,13 @@ type TrackJob = {
   brandCouponValidUntil?: string | null;
   customerCouponNotifiedAt?: string | null;
   reestimateHistory?: Array<{ amountInr: number | null; note: string; requestedAt: string }>;
+  /** Current re-estimate cycle number (1 = first customer approval). */
+  reestimateAttemptNo?: number;
   photos?: Array<{ id: string; photoKind?: string; filePath: string }>;
   timeline: TrackHistory[];
 };
 
 type TrackPhoto = { id: string; photoKind?: string; filePath: string };
-
-const STEP_ICONS = ["🧰", "📦", "🔧", "🎁"] as const;
 
 function buildCouponMessage(job: TrackJob): string {
   const coupon = job.brandCouponCode ?? "-";
@@ -53,47 +53,125 @@ function estimateAmountLabel(x: { amountInr: number | null; note: string }): str
   return m ? formatApproxEstimateInr(Number(m[1])) : formatApproxEstimateInr(0);
 }
 
+function TrackStepIcon({ stepId, className = "h-5 w-5" }: { stepId: string; className?: string }) {
+  const common = {
+    className,
+    viewBox: "0 0 24 24",
+    fill: "none" as const,
+    stroke: "currentColor",
+    strokeWidth: 1.75,
+    "aria-hidden": true as const,
+  };
+  switch (stepId) {
+    case "booked":
+      return (
+        <svg {...common}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5a2 2 0 012-2h2a2 2 0 012 2v0a2 2 0 01-2 2h-2a2 2 0 01-2-2v0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6M9 16h4" />
+        </svg>
+      );
+    case "sent":
+    case "assign":
+      return (
+        <svg {...common}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5-5 5M6 12h12" />
+        </svg>
+      );
+    case "repair":
+      return (
+        <svg {...common}>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M14.7 6.3a4 4 0 00-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 005.4-5.4l-2.5 2.5-2-2 2.5-2.5z"
+          />
+        </svg>
+      );
+    case "ready":
+    default:
+      return (
+        <svg {...common}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8 10L4 11" />
+        </svg>
+      );
+  }
+}
+
 function TrackProgress({ activeIndex, steps }: { activeIndex: number; steps: readonly TrackingFlowStep[] }) {
-  const pct = steps.length > 1 ? (activeIndex / (steps.length - 1)) * 100 : 0;
+  const last = Math.max(steps.length - 1, 1);
+  const safeIndex = Math.min(Math.max(activeIndex, 0), last);
+  const pct = Math.round((safeIndex / last) * 100);
+
   return (
-    <div className="mt-4 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <div className="relative min-w-[20rem] px-1 sm:min-w-0 sm:px-2">
+    <div className="mt-3 overflow-hidden rounded-2xl border border-[#e8dfd0] bg-gradient-to-b from-white to-[#faf6ef] p-4 shadow-sm sm:p-5">
+      <div className="mb-5 flex items-end justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#A8850F]">
+            Step {safeIndex + 1} of {steps.length}
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-[#0a1f3d]">{steps[safeIndex]?.label}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-semibold tabular-nums text-[#0a1f3d]">{pct}%</p>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[#8a7a5c]">Complete</p>
+        </div>
+      </div>
+
+      <div className="relative px-1 sm:px-3">
         <div
-          className="absolute left-[10%] right-[10%] top-[18px] h-1 rounded-full bg-[#e8dfd0] sm:top-[22px] sm:h-1.5"
+          className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-[22px] h-[3px] rounded-full bg-[#e8dfd0] sm:top-[26px]"
           aria-hidden
         />
         <div
-          className="absolute left-[10%] top-[18px] h-1 rounded-full bg-gradient-to-r from-[#C9A227] via-[#E8C14E] to-[#8B6914] transition-all duration-700 sm:top-[22px] sm:h-1.5"
-          style={{ width: `calc(${pct}% * 0.8)` }}
+          className="pointer-events-none absolute left-[12.5%] top-[22px] h-[3px] rounded-full bg-gradient-to-r from-[#8B6914] via-[#C9A227] to-[#E8C14E] transition-all duration-700 sm:top-[26px]"
+          style={{ width: `calc(${pct}% * 0.75)` }}
           aria-hidden
         />
-        <ol className="relative z-10 flex justify-between gap-1">
+
+        <ol className="relative z-10 grid" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
           {steps.map((step, idx) => {
-            const done = idx <= activeIndex;
-            const current = idx === activeIndex;
+            const done = idx < safeIndex;
+            const current = idx === safeIndex;
+            const upcoming = idx > safeIndex;
             return (
-              <li key={step.id} className="flex min-w-0 flex-1 flex-col items-center text-center">
+              <li key={step.id} className="flex flex-col items-center text-center">
                 <div
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base shadow-md transition-transform sm:h-12 sm:w-12 sm:text-xl sm:shadow-lg ${
+                  className={[
+                    "relative flex h-11 w-11 items-center justify-center rounded-full transition-all duration-300 sm:h-[3.25rem] sm:w-[3.25rem]",
                     done
-                      ? "bg-gradient-to-br from-[#C9A227] to-[#8B6914] text-white"
-                      : "border border-[#d4c4a8] bg-white text-[#8a7a5c]"
-                  } ${current ? "scale-105 ring-4 ring-[#C9A227]/25 sm:scale-110 sm:ring-[#C9A227]/30" : ""} ${
-                    idx > activeIndex ? "opacity-60" : ""
-                  }`}
+                      ? "bg-[#0a1f3d] text-[#E8C14E] shadow-md"
+                      : current
+                        ? "bg-gradient-to-br from-[#C9A227] to-[#8B6914] text-white shadow-[0_0_0_4px_rgba(201,162,39,0.22)] sm:shadow-[0_0_0_5px_rgba(201,162,39,0.22)]"
+                        : "border border-[#d4c4a8] bg-white text-[#b09a6e]",
+                    upcoming ? "opacity-70" : "",
+                  ].join(" ")}
                 >
-                  {STEP_ICONS[idx] ?? "●"}
+                  {done ? (
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <TrackStepIcon stepId={step.id} className="h-5 w-5 sm:h-[1.35rem] sm:w-[1.35rem]" />
+                  )}
                 </div>
                 <p
-                  className={`mt-2 max-w-[4.5rem] text-[9px] font-semibold leading-tight sm:mt-3 sm:max-w-[7.5rem] sm:text-[11px] sm:leading-snug ${
-                    current ? "text-[#0a1f3d]" : "text-[#6b7280]"
-                  }`}
+                  className={[
+                    "mt-2.5 max-w-[5.5rem] text-[10px] font-semibold leading-snug sm:max-w-[8rem] sm:text-[12px]",
+                    current ? "text-[#0a1f3d]" : done ? "text-[#3d4f66]" : "text-[#8a7a5c]",
+                  ].join(" ")}
                 >
                   {step.label}
                 </p>
                 {current ? (
-                  <p className="mt-0.5 hidden text-[9px] font-medium text-[#A8850F] sm:block">Current</p>
-                ) : null}
+                  <span className="mt-1.5 inline-flex rounded-full bg-[#0a1f3d] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-[#E8C14E]">
+                    Now
+                  </span>
+                ) : done ? (
+                  <span className="mt-1.5 text-[9px] font-medium text-[#A8850F]">Done</span>
+                ) : (
+                  <span className="mt-1.5 text-[9px] font-medium text-transparent select-none">·</span>
+                )}
               </li>
             );
           })}
@@ -344,12 +422,13 @@ export function SrfTrackingPage() {
                         <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#0a1f3d]">
                           Repair progress
                         </h2>
+                        <p className="mt-1 text-xs text-[#8a7a5c]">Follow your watch through each stage of service.</p>
                         <TrackProgress activeIndex={activeFlow} steps={steps} />
                       </section>
                       <dl className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-xl border border-[#e8dfd0] bg-[#faf6ef]/80 px-3 py-3">
                           <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a7a5c]">
-                            Original estimate (approx.)
+                            Original Estimate (approximate)
                           </dt>
                           <dd className="mt-1.5 text-base font-semibold text-[#0a1f3d] sm:text-lg">
                             {formatApproxEstimateInr(j.estimateTotalInr)}
@@ -420,32 +499,45 @@ export function SrfTrackingPage() {
                       {pendingReestimate ? (
                         <section className="rounded-3xl border border-amber-300/70 bg-gradient-to-br from-amber-50 to-[#faf6ef] p-5 sm:p-6">
                           <h2 className="text-base font-bold text-amber-950">Your approval is needed</h2>
-                          <p className="mt-1 text-sm text-[#5c6b7a]">
-                            A revised estimate is ready. Please accept or reject to continue your repair.
-                          </p>
-                          {j.reestimateRequestedInr != null && Number(j.reestimateRequestedInr) > 0 ? (
-                            <p className="mt-3 text-base font-semibold text-[#0a1f3d] sm:text-lg">
-                              Revised amount (approx.): {formatApproxEstimateInr(Number(j.reestimateRequestedInr))}
-                            </p>
-                          ) : null}
-                          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                            <button
-                              type="button"
-                              disabled={busyId === j.id}
-                              onClick={() => void respond(j.id, true)}
-                              className="flex-1 rounded-2xl bg-[#0a1f3d] px-4 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-[#132a4d] disabled:opacity-60"
-                            >
-                              Accept estimate
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busyId === j.id}
-                              onClick={() => void respond(j.id, false)}
-                              className="flex-1 rounded-2xl border-2 border-[#0a1f3d] bg-white px-4 py-3.5 text-sm font-bold text-[#0a1f3d] transition hover:bg-[#faf6ef] disabled:opacity-60"
-                            >
-                              Decline
-                            </button>
-                          </div>
+                          {(() => {
+                            const isBrandPending = j.status === "brand_estimate_customer_pending";
+                            const attemptNo = Number(j.reestimateAttemptNo ?? 1);
+                            const firstReestimate = !isBrandPending && attemptNo <= 1;
+                            const softDeclineLabel = firstReestimate ? "Need to talk" : "Decline";
+                            return (
+                              <>
+                                <p className="mt-1 text-sm text-[#5c6b7a]">
+                                  {firstReestimate
+                                    ? "A revised estimate is ready. Accept to continue, or choose Need to talk if you’d like our team to call you."
+                                    : "A revised estimate is ready. Please accept or decline to continue your repair."}
+                                </p>
+                                {j.reestimateRequestedInr != null && Number(j.reestimateRequestedInr) > 0 ? (
+                                  <p className="mt-3 text-base font-semibold text-[#0a1f3d] sm:text-lg">
+                                    Revised amount (approximate):{" "}
+                                    {formatApproxEstimateInr(Number(j.reestimateRequestedInr))}
+                                  </p>
+                                ) : null}
+                                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                                  <button
+                                    type="button"
+                                    disabled={busyId === j.id}
+                                    onClick={() => void respond(j.id, true)}
+                                    className="flex-1 rounded-2xl bg-[#0a1f3d] px-4 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-[#132a4d] disabled:opacity-60"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busyId === j.id}
+                                    onClick={() => void respond(j.id, false)}
+                                    className="flex-1 rounded-2xl border-2 border-[#0a1f3d] bg-white px-4 py-3.5 text-sm font-bold text-[#0a1f3d] transition hover:bg-[#faf6ef] disabled:opacity-60"
+                                  >
+                                    {softDeclineLabel}
+                                  </button>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </section>
                       ) : null}
 

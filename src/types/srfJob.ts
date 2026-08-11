@@ -168,6 +168,10 @@ export type SrfJob = {
   inwardAt: string | null;
   assignedTechnicianId: string | null;
   assignedAt: string | null;
+  /** Supervisor list: pin this SRF as priority for assigning. */
+  assignPriority?: boolean;
+  /** When true, do not treat earliest-delivery (due soon) as auto priority. */
+  assignPriorityDismissed?: boolean;
   estimateOkAt: string | null;
   reestimateRequestedNote?: string | null;
   reestimateRequestedInr?: number | null;
@@ -177,6 +181,8 @@ export type SrfJob = {
   customerReestimateResponse?: "accepted" | "rejected" | null;
   customerReestimateRespondedAt?: string | null;
   usedSpares?: UsedSpareLine[];
+  /** Service/parts warranty end date (set when used spares are recorded). */
+  warrantyTillDate?: string | null;
   sparesSlipSubmittedAt?: string | null;
   sparesSlipSubmittedBy?: string | null;
   hoSparesBillRef?: string | null;

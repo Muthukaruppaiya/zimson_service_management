@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
+import { SearchableCombobox } from "../../components/service/SearchableCombobox";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -87,6 +88,7 @@ export function StoreAssignPage() {
 
   const [repairPopupJobId, setRepairPopupJobId] = useState<string | null>(null);
   const [repairLines, setRepairLines] = useState<SpareLineDraft[]>([{ spareId: "", qty: "1" }]);
+  const [repairWarrantyTillDate, setRepairWarrantyTillDate] = useState("");
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
   const [storeStockBySpareId, setStoreStockBySpareId] = useState<Record<string, number>>({});
   const [repairPopupError, setRepairPopupError] = useState("");
@@ -381,6 +383,11 @@ export function StoreAssignPage() {
     const job = jobs.find((j) => j.id === jobId);
     setRepairPopupJobId(jobId);
     setRepairPopupError("");
+    setRepairWarrantyTillDate(
+      job?.warrantyTillDate && /^\d{4}-\d{2}-\d{2}/.test(job.warrantyTillDate)
+        ? job.warrantyTillDate.slice(0, 10)
+        : "",
+    );
     const initialLines =
       job?.usedSpares && job.usedSpares.length > 0
         ? job.usedSpares.map((u) => ({
@@ -400,6 +407,7 @@ export function StoreAssignPage() {
   function closeRepairPopup() {
     setRepairPopupJobId(null);
     setRepairLines([{ spareId: "", qty: "1" }]);
+    setRepairWarrantyTillDate("");
     setRepairPopupError("");
     setUnitPriceBySpareId({});
     setStoreStockBySpareId({});
@@ -430,6 +438,10 @@ export function StoreAssignPage() {
       setRepairPopupError("Add at least one used spare from inventory.");
       return;
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(repairWarrantyTillDate.trim())) {
+      setRepairPopupError("Warranty till date is required.");
+      return;
+    }
     const noPrice = lines.find((x) => Number(x.unitPriceInr ?? 0) <= 0);
     if (noPrice) {
       const label = noPrice.sku ? `${noPrice.name} (${noPrice.sku})` : noPrice.name;
@@ -446,7 +458,7 @@ export function StoreAssignPage() {
     setRepairSaving(true);
     setRepairPopupError("");
     try {
-      await storeSelfSubmitSparesSlip(jobId, lines);
+      await storeSelfSubmitSparesSlip(jobId, lines, repairWarrantyTillDate.trim());
       await storeSelfMarkRepairComplete(jobId);
       closeRepairPopup();
       if (job) {
@@ -594,7 +606,7 @@ export function StoreAssignPage() {
               {awaitingReestimate.map((job) => (
                 <JobRow key={job.id} job={job} statusLabel="Awaiting customer">
                   <p className="text-xs text-amber-900">
-                    Revised amount (approx.): {formatApproxEstimateInrPlain(Number(job.reestimateRequestedInr ?? 0), 0)}
+                    Revised amount (approximate): {formatApproxEstimateInrPlain(Number(job.reestimateRequestedInr ?? 0), 0)}
                     {job.reestimateRequestedNote ? ` · ${job.reestimateRequestedNote}` : ""}
                   </p>
                 </JobRow>
@@ -765,7 +777,7 @@ export function StoreAssignPage() {
 
       {repairPopupJobId ? (
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
-          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Used spares</h3>
             <p className="mt-1 text-sm text-stone-600">
               Record parts used for this repair, then the SRF will be marked complete and sent to billing.
@@ -785,55 +797,52 @@ export function StoreAssignPage() {
                   line.spareId && storeStock != null && Number.isFinite(qty) && qty > 0 && qty > storeStock;
                 const outOfStock = line.spareId && storeStock != null && storeStock <= 0;
                 const noPrice = line.spareId && unit <= 0;
+                const spareOptions = activeSpares.map((s) => {
+                  const stock = storeStockBySpareId[s.id];
+                  const stockHint =
+                    stock != null ? (stock <= 0 ? " · Out of stock" : ` · Stock ${stock}`) : "";
+                  return { value: s.id, label: `${s.sku} — ${s.name}${stockHint}` };
+                });
                 return (
                   <div key={idx} className="grid grid-cols-12 gap-2">
-                    <select
-                      value={line.spareId}
-                      onChange={(e) => {
-                        const nextId = e.target.value;
-                        setRepairPopupError("");
-                        if (nextId) {
-                          void (async () => {
-                            const stock = await fetchStoreStockQty(nextId);
-                            if (stock <= 0) {
-                              const picked = activeSpares.find((s) => s.id === nextId);
-                              setRepairPopupError(
-                                `${picked?.name ?? "Spare"} (${picked?.sku ?? nextId}) is out of stock at your store.`,
+                    <div className="col-span-8">
+                      <SearchableCombobox
+                        id={`store-repair-spare-${idx}`}
+                        value={line.spareId}
+                        options={spareOptions}
+                        placeholder="Search spare by SKU or name…"
+                        disabled={repairSaving}
+                        inputClass="w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"
+                        onChange={(nextId) => {
+                          setRepairPopupError("");
+                          if (nextId) {
+                            void (async () => {
+                              const stock = await fetchStoreStockQty(nextId);
+                              if (stock <= 0) {
+                                const picked = activeSpares.find((s) => s.id === nextId);
+                                setRepairPopupError(
+                                  `${picked?.name ?? "Spare"} (${picked?.sku ?? nextId}) is out of stock at your store.`,
+                                );
+                                return;
+                              }
+                              const price = await ensureSparePrice(nextId, watchBrand);
+                              if (price <= 0) {
+                                const picked = activeSpares.find((s) => s.id === nextId);
+                                setRepairPopupError(
+                                  `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? nextId})${watchBrand ? ` — add ${watchBrand} price in Inventory` : ""}.`,
+                                );
+                                return;
+                              }
+                              setRepairLines((prev) =>
+                                prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)),
                               );
-                              return;
-                            }
-                            const price = await ensureSparePrice(nextId, watchBrand);
-                            if (price <= 0) {
-                              const picked = activeSpares.find((s) => s.id === nextId);
-                              setRepairPopupError(
-                                `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? nextId})${watchBrand ? ` — add ${watchBrand} price in Inventory` : ""}.`,
-                              );
-                              return;
-                            }
-                            setRepairLines((prev) =>
-                              prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)),
-                            );
-                          })();
-                          return;
-                        }
-                        setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
-                      }}
-                      disabled={repairSaving}
-                      className="col-span-8 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"
-                    >
-                      <option value="">Select spare…</option>
-                      {activeSpares.map((s) => {
-                        const stock = storeStockBySpareId[s.id];
-                        const stockHint =
-                          stock != null ? (stock <= 0 ? " · Out of stock" : ` · Stock ${stock}`) : "";
-                        return (
-                          <option key={s.id} value={s.id}>
-                            {s.sku} — {s.name}
-                            {stockHint}
-                          </option>
-                        );
-                      })}
-                    </select>
+                            })();
+                            return;
+                          }
+                          setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
+                        }}
+                      />
+                    </div>
                     <input
                       value={line.qty}
                       onChange={(e) => {
@@ -883,6 +892,20 @@ export function StoreAssignPage() {
             >
               Add spare row
             </button>
+            <label className="mt-4 block text-sm font-medium text-stone-800">
+              Warranty till date <span className="text-rose-600">*</span>
+              <input
+                type="date"
+                value={repairWarrantyTillDate}
+                onChange={(e) => {
+                  setRepairPopupError("");
+                  setRepairWarrantyTillDate(e.target.value);
+                }}
+                disabled={repairSaving}
+                required
+                className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60 sm:max-w-xs"
+              />
+            </label>
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
@@ -923,7 +946,7 @@ export function StoreAssignPage() {
                   })
                 }
               >
-                Print technician notes
+                Print technician sheet
               </button>
               <button
                 type="button"

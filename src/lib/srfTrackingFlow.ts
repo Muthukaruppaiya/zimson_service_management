@@ -3,7 +3,7 @@ export type TrackingFlowStep = { id: string; label: string; short: string };
 /** Standard store → HO → return journey. */
 export const SRF_TRACKING_FLOW_HO: readonly TrackingFlowStep[] = [
   { id: "booked", label: "Service booked", short: "Booked" },
-  { id: "sent", label: "Watch moved for repair", short: "In transit" },
+  { id: "sent", label: "Gone to repair", short: "In transit" },
   { id: "repair", label: "Repair in progress", short: "Repair" },
   { id: "ready", label: "Ready for delivery", short: "Delivery" },
 ] as const;

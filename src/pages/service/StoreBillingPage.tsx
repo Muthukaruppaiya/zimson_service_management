@@ -1114,7 +1114,7 @@ export function StoreBillingPage() {
                       </div>
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-900/80">
-                          Service estimate (approx., reference only)
+                          Service estimate (approximate, reference only)
                         </p>
                         <p className="mt-0.5 font-semibold text-stone-800">{formatApproxEstimateInr(estimatedAmtInr)}</p>
                       </div>
@@ -1370,7 +1370,7 @@ export function StoreBillingPage() {
                   <tbody>
                     <tr className="border-b border-zimson-100">
                       <th className="w-56 bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">
-                        {isInterHoReturnFlow ? "Service estimate (approx., reference only)" : ESTIMATE_LABEL_APPROX}
+                        {isInterHoReturnFlow ? "Service estimate (approximate, reference only)" : ESTIMATE_LABEL_APPROX}
                       </th>
                       <td className={`px-3 py-2 font-semibold ${isInterHoReturnFlow ? "text-stone-600" : "text-zimson-900"}`}>
                         {formatApproxEstimateInr(estimatedAmtInr)}

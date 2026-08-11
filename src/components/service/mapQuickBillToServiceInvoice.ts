@@ -87,8 +87,8 @@ function watchDetailMetaRows(source: {
   }
   const chain12 = source.chainCount12Phase?.trim() || source.chainCount?.trim() || "";
   const chain6 = source.chainCount6Phase?.trim() || "";
-  if (chain12) rows.push({ label: "12 Link Chain Count", value: chain12 });
-  if (chain6) rows.push({ label: "6 Link Chain Count", value: chain6 });
+  if (chain12) rows.push({ label: "12 Side Count", value: chain12 });
+  if (chain6) rows.push({ label: "6 Side Count", value: chain6 });
   if (source.customerRemarks?.trim()) rows.push({ label: "Customer Remarks", value: source.customerRemarks.trim() });
   return rows;
 }

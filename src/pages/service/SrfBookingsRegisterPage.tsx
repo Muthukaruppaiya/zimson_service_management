@@ -867,7 +867,7 @@ export function SrfBookingsRegisterPage() {
                         </tr>
                       ) : null}
                       <tr>
-                        <td className="py-0.5 pr-2 font-medium text-rlx-ink-muted align-top">Est. finish</td>
+                        <td className="py-0.5 pr-2 font-medium text-rlx-ink-muted align-top">Estimated delivery date</td>
                         <td className="py-0.5 text-rlx-ink">{detail.estimatedFinishDate ?? "—"}</td>
                       </tr>
                     </tbody>

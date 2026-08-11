@@ -79,6 +79,9 @@ import {
 } from "../../lib/serviceOperatingContext";
 import { inputClass } from "../../lib/uiForm";
 
+/** Compact fields for SRF booking (watch / customer steps look less tall). */
+const bookingInputClass = `${inputClass} ui-field--compact`;
+const readOnlyCustomerFieldClass = `${bookingInputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
 const steps = ["Customer", "Watch", "Photos", "Estimate + OTP", "Review"] as const;
 
 /**
@@ -119,8 +122,6 @@ function formFieldsFromBillingOrLegacy(
     pin: "",
   };
 }
-
-const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
 
 type SrfPhotoThumb = { id: string; photoKind?: string; filePath: string };
 
@@ -564,7 +565,7 @@ export function SrfBookingV2Page() {
       }
     }
     if (!estimatedFinishDate.trim()) {
-      setError("Delivery date is required.");
+      setError("Estimated delivery date is required.");
       return false;
     }
     return true;
@@ -1275,7 +1276,7 @@ export function SrfBookingV2Page() {
     setError(null);
     if (!validateWatch()) return;
     if (!estimatedFinishDate.trim()) {
-      setError("Delivery date is required.");
+      setError("Estimated delivery date is required.");
       return;
     }
     if (!watchPhotosReady(photoPreview)) {
@@ -1456,7 +1457,7 @@ export function SrfBookingV2Page() {
                     setOperatingRegionId(e.target.value);
                     setOperatingStoreId("");
                   }}
-                  className={inputClass}
+                  className={bookingInputClass}
                 >
                   <option value="">Select region</option>
                   {regions.map((r) => (
@@ -1480,7 +1481,7 @@ export function SrfBookingV2Page() {
                 <select
                   value={operatingStoreId}
                   onChange={(e) => setOperatingStoreId(e.target.value)}
-                  className={inputClass}
+                  className={bookingInputClass}
                   disabled={!effectiveOperatingRegionId}
                 >
                   <option value="">Select store</option>
@@ -1534,20 +1535,20 @@ export function SrfBookingV2Page() {
               </button>
             ) : null}
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="text-sm md:col-span-2">
+          <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
+            <label className="min-w-0 text-xs font-medium text-stone-600">
               Customer ID
               <input
                 readOnly
-                className={`${inputClass} bg-rlx-green-light/80 font-mono`}
+                className={`${bookingInputClass} bg-rlx-green-light/80 font-mono`}
                 value={loadedCustomerCode ?? ""}
                 placeholder="—"
               />
             </label>
-            <label className="text-sm md:col-span-2">
+            <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-2">
               Phone
               {phoneLockedForNewRegistration ? (
-                <span className="mt-0.5 block text-xs font-normal text-stone-500">
+                <span className="mt-0.5 block text-[11px] font-normal text-stone-500">
                   Mobile for new customer registration (cannot be changed on this screen).
                 </span>
               ) : null}
@@ -1555,7 +1556,7 @@ export function SrfBookingV2Page() {
                 className={
                   customerLockedFromDb || phoneLockedForNewRegistration
                     ? readOnlyCustomerFieldClass
-                    : inputClass
+                    : bookingInputClass
                 }
                 value={phone}
                 readOnly={customerLockedFromDb || phoneLockedForNewRegistration}
@@ -1573,8 +1574,8 @@ export function SrfBookingV2Page() {
             </p>
           ) : null}
           {phone10(phone).length === 10 && !checkingCustomer ? (
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <label className="block text-sm">
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
+              <label className="min-w-0 block text-xs font-medium text-stone-600">
                 <span className="flex flex-wrap items-center gap-2">
                   <span>Customer name</span>
                   {customerExists && customerChecked ? (
@@ -1590,32 +1591,41 @@ export function SrfBookingV2Page() {
                   ) : null}
                 </span>
                 <input
-                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                   value={customerName}
                   readOnly={customerLockedFromDb}
                   onChange={customerLockedFromDb ? undefined : (e) => setCustomerName(e.target.value)}
                 />
               </label>
-              <label className="text-sm">
+              <label className="min-w-0 text-xs font-medium text-stone-600">
                 Email
                 <input
-                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                   type="email"
                   value={email}
                   readOnly={customerLockedFromDb}
                   onChange={customerLockedFromDb ? undefined : (e) => setEmail(e.target.value)}
                 />
               </label>
+              <label className="min-w-0 text-xs font-medium text-stone-600">
+                Alternate mobile
+                <input
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
+                  value={alternatePhone}
+                  readOnly={customerLockedFromDb}
+                  onChange={customerLockedFromDb ? undefined : (e) => setAlternatePhone(e.target.value)}
+                />
+              </label>
               {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
                 <div
-                  className="md:col-span-2 rounded-xl border-2 border-rlx-gold bg-rlx-gold-light px-3 py-2 text-sm font-semibold text-rlx-green-deep"
+                  className="rounded-xl border-2 border-rlx-gold bg-rlx-gold-light px-3 py-2 text-sm font-semibold text-rlx-green-deep md:col-span-3"
                   role="alert"
                 >
                   Alert: Customer not verified — complete mobile OTP before handover.
                 </div>
               ) : null}
               {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
-                <div className="md:col-span-2 flex flex-col gap-2 rounded-xl border border-rlx-gold/40 bg-rlx-green-light/90 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-2 rounded-xl border border-rlx-gold/40 bg-rlx-green-light/90 px-3 py-2.5 md:col-span-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs text-rlx-green">
                     Complete mobile OTP on customer registration to mark this customer verified.
                   </p>
@@ -1628,19 +1638,10 @@ export function SrfBookingV2Page() {
                   </button>
                 </div>
               ) : null}
-              <label className="text-sm">
-                Alternate mobile
-                <input
-                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
-                  value={alternatePhone}
-                  readOnly={customerLockedFromDb}
-                  onChange={customerLockedFromDb ? undefined : (e) => setAlternatePhone(e.target.value)}
-                />
-              </label>
-              <label className="text-sm md:col-span-2">
+              <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-3">
                 Street / building address
                 <textarea
-                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                   rows={2}
                   value={address}
                   readOnly={customerLockedFromDb}
@@ -1648,38 +1649,38 @@ export function SrfBookingV2Page() {
                   placeholder="Door no., street, area"
                 />
               </label>
-              <label className="text-sm">
+              <label className="min-w-0 text-xs font-medium text-stone-600">
                 City
                 <input
-                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                   value={city}
                   readOnly={customerLockedFromDb}
                   onChange={customerLockedFromDb ? undefined : (e) => setCity(e.target.value)}
                 />
               </label>
-              <label className="text-sm">
+              <label className="min-w-0 text-xs font-medium text-stone-600">
                 State
                 <input
-                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                   value={stateName}
                   readOnly={customerLockedFromDb}
                   onChange={customerLockedFromDb ? undefined : (e) => setStateName(e.target.value)}
                 />
               </label>
-              <label className="text-sm">
+              <label className="min-w-0 text-xs font-medium text-stone-600">
                 Country
                 <input
-                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                   value={country}
                   readOnly={customerLockedFromDb}
                   onChange={customerLockedFromDb ? undefined : (e) => setCountry(e.target.value)}
                   placeholder="e.g. India"
                 />
               </label>
-              <label className="text-sm">
+              <label className="min-w-0 text-xs font-medium text-stone-600">
                 PIN code
                 <input
-                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                   value={pincode}
                   readOnly={customerLockedFromDb}
                   onChange={customerLockedFromDb ? undefined : (e) => setPincode(e.target.value)}
@@ -1690,28 +1691,28 @@ export function SrfBookingV2Page() {
               </label>
               {customerType === "B2B" ? (
                 <>
-                  <label className="text-sm">
+                  <label className="min-w-0 text-xs font-medium text-stone-600">
                     Company
                     <input
-                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                       value={company}
                       readOnly={customerLockedFromDb}
                       onChange={customerLockedFromDb ? undefined : (e) => setCompany(e.target.value)}
                     />
                   </label>
-                  <label className="text-sm">
+                  <label className="min-w-0 text-xs font-medium text-stone-600">
                     GSTIN
                     <input
-                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                       value={gst}
                       readOnly={customerLockedFromDb}
                       onChange={customerLockedFromDb ? undefined : (e) => setGst(e.target.value)}
                     />
                   </label>
-                  <label className="text-sm">
+                  <label className="min-w-0 text-xs font-medium text-stone-600 md:col-start-1">
                     PAN
                     <input
-                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
                       value={pan}
                       readOnly={customerLockedFromDb}
                       onChange={customerLockedFromDb ? undefined : (e) => setPan(e.target.value)}
@@ -1730,11 +1731,11 @@ export function SrfBookingV2Page() {
 
       {step === 1 ? (
         <Card title="Step 2 — Watch">
-          <div className="flex flex-col gap-4">
-            <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
-              <label className="min-w-0 text-sm">
+          <div className="flex flex-col gap-3">
+            <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
+              <label className="min-w-0 text-xs font-medium text-stone-600">
                 Brand
-                <select className={inputClass} value={watchBrand} onChange={(e) => syncModelForBrand(e.target.value)}>
+                <select className={bookingInputClass} value={watchBrand} onChange={(e) => syncModelForBrand(e.target.value)}>
                   {brandNames.map((b) => (
                     <option key={b}>{b}</option>
                   ))}
@@ -1747,80 +1748,83 @@ export function SrfBookingV2Page() {
                   family={watchFamily}
                   onFamilyChange={setWatchFamily}
                   disableAutoSelect
-                  inputClass={inputClass}
+                  inputClass={bookingInputClass}
                   idPrefix="srf"
                 />
               </div>
-            </div>
-            <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
-            <div className="min-w-0">
-              <WatchModelPicker
-                watchBrand={watchBrand}
-                apiMode={apiMode}
-                model={watchModel}
-                onModelChange={setWatchModel}
-                disableAutoSelect
-                inputClass={inputClass}
-                idPrefix="srf"
-                serialHint={serial}
-              />
-            </div>
-            <label className="text-sm">
-              Serial number ({serialNumberRequired ? "mandatory" : "optional"})
-              <input
-                className={inputClass}
-                value={serial}
-                onChange={(e) => setSerial(e.target.value)}
-                required={serialNumberRequired}
-              />
-            </label>
+              <div className="min-w-0">
+                <WatchModelPicker
+                  watchBrand={watchBrand}
+                  apiMode={apiMode}
+                  model={watchModel}
+                  onModelChange={setWatchModel}
+                  disableAutoSelect
+                  inputClass={bookingInputClass}
+                  idPrefix="srf"
+                  serialHint={serial}
+                />
+              </div>
             </div>
             <WatchServiceDetailFields
               idPrefix="srf"
-              inputClass={inputClass}
+              inputClass={bookingInputClass}
+              columns={3}
               values={watchServiceDetails}
               onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
               stockWatchStoreOptions={handoverStoreOptions}
               stockWatchStoreId={stockWatchStoreId}
               onStockWatchStoreChange={setStockWatchStoreId}
+              leadingFields={
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Serial number ({serialNumberRequired ? "mandatory" : "optional"})
+                  <input
+                    className={bookingInputClass}
+                    value={serial}
+                    onChange={(e) => setSerial(e.target.value)}
+                    required={serialNumberRequired}
+                  />
+                </label>
+              }
             />
-            <label className="text-sm">
-              Repair routing
-              <select
-                className={inputClass}
-                value={repairRoute}
-                onChange={(e) => setRepairRoute(normalizeSrfRepairRoute(e.target.value))}
-              >
-                {SRF_REPAIR_ROUTE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <span className="mt-1 block text-xs text-stone-600">
-                {SRF_REPAIR_ROUTE_OPTIONS.find((o) => o.value === repairRoute)?.hint}
-              </span>
-            </label>
-            <label className="text-sm">
-              After-service handover store
-              <select
-                className={`${inputClass} disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-600`}
-                value={handoverStoreId}
-                onChange={(e) => setHandoverStoreId(e.target.value)}
-                disabled={!ENABLE_SRF_HANDOVER_STORE_SELECT}
-                title={
-                  ENABLE_SRF_HANDOVER_STORE_SELECT
-                    ? undefined
-                    : "Locked to your login store for now. Set ENABLE_SRF_HANDOVER_STORE_SELECT to true in SrfBookingV2Page.tsx to allow changing this."
-                }
-              >
-                {handoverStoreOptions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
+              <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-1">
+                Repair routing
+                <select
+                  className={bookingInputClass}
+                  value={repairRoute}
+                  onChange={(e) => setRepairRoute(normalizeSrfRepairRoute(e.target.value))}
+                >
+                  {SRF_REPAIR_ROUTE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-[11px] text-stone-600">
+                  {SRF_REPAIR_ROUTE_OPTIONS.find((o) => o.value === repairRoute)?.hint}
+                </span>
+              </label>
+              <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-2">
+                After-service handover store
+                <select
+                  className={`${bookingInputClass} disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-600`}
+                  value={handoverStoreId}
+                  onChange={(e) => setHandoverStoreId(e.target.value)}
+                  disabled={!ENABLE_SRF_HANDOVER_STORE_SELECT}
+                  title={
+                    ENABLE_SRF_HANDOVER_STORE_SELECT
+                      ? undefined
+                      : "Locked to your login store for now. Set ENABLE_SRF_HANDOVER_STORE_SELECT to true in SrfBookingV2Page.tsx to allow changing this."
+                  }
+                >
+                  {handoverStoreOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
           <div className="mt-4 flex justify-between">
             <button type="button" onClick={goBack} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Back</button>
@@ -1949,20 +1953,20 @@ export function SrfBookingV2Page() {
 
       {step === 3 ? (
         <Card title="Step 4 — Estimate + OTP">
-          <div className="grid gap-4 md:grid-cols-2 md:items-start">
-            <label className="block min-w-0 text-sm md:col-span-2">
-              <span className="mb-1 block font-medium text-stone-700">Watch complaint</span>
+          <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
+            <label className="block min-w-0 text-xs font-medium text-stone-600 md:col-span-3">
+              <span className="mb-0.5 block">Watch complaint</span>
               <textarea
-                className={inputClass}
-                rows={3}
+                className={bookingInputClass}
+                rows={2}
                 value={complaint}
                 onChange={(e) => setComplaint(e.target.value)}
               />
             </label>
-            <label className="block min-w-0 text-sm">
-              <span className="mb-1 block font-medium text-stone-700">{ESTIMATE_AMOUNT_LABEL_APPROX} (₹)</span>
+            <label className="block min-w-0 text-xs font-medium text-stone-600">
+              <span className="mb-0.5 block">{ESTIMATE_AMOUNT_LABEL_APPROX} (₹)</span>
               <input
-                className={inputClass}
+                className={bookingInputClass}
                 value={estimateAmount}
                 onChange={(e) => {
                   setError(null);
@@ -1970,10 +1974,10 @@ export function SrfBookingV2Page() {
                 }}
               />
             </label>
-            <label className="block min-w-0 text-sm">
-              <span className="mb-1 block font-medium text-stone-700">Advance amount (₹)</span>
+            <label className="block min-w-0 text-xs font-medium text-stone-600">
+              <span className="mb-0.5 block">Advance amount (₹)</span>
               <input
-                className={inputClass}
+                className={bookingInputClass}
                 value={advanceAmount}
                 onChange={(e) => {
                   setError(null);
@@ -1990,20 +1994,20 @@ export function SrfBookingV2Page() {
                 max={estimateTotal > 0 ? estimateTotal : undefined}
               />
             </label>
-            <label className="block min-w-0 text-sm md:col-span-2">
-              <span className="mb-1 block font-medium text-stone-700">
-                Delivery date <span className="text-rose-600">*</span>
+            <label className="block min-w-0 text-xs font-medium text-stone-600">
+              <span className="mb-0.5 block">
+                Estimated delivery date <span className="text-rose-600">*</span>
               </span>
               <input
                 type="date"
                 required
-                className={`${inputClass} max-w-xs`}
+                className={bookingInputClass}
                 value={estimatedFinishDate}
                 onChange={(e) => setEstimatedFinishDate(e.target.value)}
               />
             </label>
             {advanceTotal > 0 ? (
-              <div className="min-w-0 md:col-span-2">
+              <div className="min-w-0 md:col-span-3">
                 <MultiPaymentFields
                   idPrefix="srf-advance"
                   amountLabel="advance"
@@ -2013,42 +2017,88 @@ export function SrfBookingV2Page() {
                 />
               </div>
             ) : null}
-            <label className="block min-w-0 text-sm md:col-span-2">
-              <span className="mb-1 block font-medium text-stone-700">Remarks</span>
+            <label className="block min-w-0 text-xs font-medium text-stone-600 md:col-span-3">
+              <span className="mb-0.5 block">Remarks</span>
               <input
-                className={inputClass}
+                className={bookingInputClass}
                 value={estimateRemarks}
                 onChange={(e) => setEstimateRemarks(e.target.value)}
                 placeholder="Optional remarks"
               />
             </label>
-            <div className="md:col-span-2 rounded-xl border border-rlx-rule bg-white p-3">
-              <p className="text-sm font-semibold text-rlx-green">Watch condition / observation</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <label className="text-xs text-stone-600">Case / Crystal<input className={inputClass} value={obsCaseCrystal} onChange={(e) => setObsCaseCrystal(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Glass / Crystal<input className={inputClass} value={obsGlassCrystal} onChange={(e) => setObsGlassCrystal(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Strap / Bracelet<input className={inputClass} value={obsStrapBracelet} onChange={(e) => setObsStrapBracelet(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Hands<input className={inputClass} value={obsHands} onChange={(e) => setObsHands(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Crown / Pushers<input className={inputClass} value={obsCrownPushers} onChange={(e) => setObsCrownPushers(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Movement<input className={inputClass} value={obsMovement} onChange={(e) => setObsMovement(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Water resistance<input className={inputClass} value={obsWaterResistance} onChange={(e) => setObsWaterResistance(e.target.value)} /></label>
-                <label className="text-xs text-stone-600 sm:col-span-2">Additional notes<input className={inputClass} value={obsAdditionalNotes} onChange={(e) => setObsAdditionalNotes(e.target.value)} /></label>
+            <div className="rounded-xl border border-rlx-rule bg-white p-3 md:col-span-3">
+              <p className="text-xs font-semibold text-rlx-green">Watch condition / observation</p>
+              <div className="mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Case / Crystal
+                  <input className={bookingInputClass} value={obsCaseCrystal} onChange={(e) => setObsCaseCrystal(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Glass / Crystal
+                  <input className={bookingInputClass} value={obsGlassCrystal} onChange={(e) => setObsGlassCrystal(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Strap / Bracelet
+                  <input className={bookingInputClass} value={obsStrapBracelet} onChange={(e) => setObsStrapBracelet(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Hands
+                  <input className={bookingInputClass} value={obsHands} onChange={(e) => setObsHands(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Crown / Pushers
+                  <input className={bookingInputClass} value={obsCrownPushers} onChange={(e) => setObsCrownPushers(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Movement
+                  <input className={bookingInputClass} value={obsMovement} onChange={(e) => setObsMovement(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Water resistance
+                  <input className={bookingInputClass} value={obsWaterResistance} onChange={(e) => setObsWaterResistance(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-2">
+                  Additional notes
+                  <input className={bookingInputClass} value={obsAdditionalNotes} onChange={(e) => setObsAdditionalNotes(e.target.value)} />
+                </label>
               </div>
             </div>
-            <div className="md:col-span-2 rounded-xl border border-rlx-rule bg-white p-3">
-              <p className="text-sm font-semibold text-rlx-green">Suggested repairs</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <label className="text-xs text-stone-600">Movement overhaul<input className={inputClass} value={repMovementOverhaul} onChange={(e) => setRepMovementOverhaul(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Polishing (Case / Bracelet)<input className={inputClass} value={repPolishing} onChange={(e) => setRepPolishing(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Replace water resistant kit<input className={inputClass} value={repWaterKit} onChange={(e) => setRepWaterKit(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Replace bezel<input className={inputClass} value={repBezel} onChange={(e) => setRepBezel(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Replace Crown / Stem<input className={inputClass} value={repCrownStem} onChange={(e) => setRepCrownStem(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Replace Glass / Crystal<input className={inputClass} value={repGlassCrystal} onChange={(e) => setRepGlassCrystal(e.target.value)} /></label>
-                <label className="text-xs text-stone-600">Replace Dial / Hands<input className={inputClass} value={repDialHands} onChange={(e) => setRepDialHands(e.target.value)} /></label>
+            <div className="rounded-xl border border-rlx-rule bg-white p-3 md:col-span-3">
+              <p className="text-xs font-semibold text-rlx-green">Suggested repairs</p>
+              <div className="mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Movement overhaul
+                  <input className={bookingInputClass} value={repMovementOverhaul} onChange={(e) => setRepMovementOverhaul(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Polishing (Case / Bracelet)
+                  <input className={bookingInputClass} value={repPolishing} onChange={(e) => setRepPolishing(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Replace water resistant kit
+                  <input className={bookingInputClass} value={repWaterKit} onChange={(e) => setRepWaterKit(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Replace bezel
+                  <input className={bookingInputClass} value={repBezel} onChange={(e) => setRepBezel(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Replace Crown / Stem
+                  <input className={bookingInputClass} value={repCrownStem} onChange={(e) => setRepCrownStem(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Replace Glass / Crystal
+                  <input className={bookingInputClass} value={repGlassCrystal} onChange={(e) => setRepGlassCrystal(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-medium text-stone-600">
+                  Replace Dial / Hands
+                  <input className={bookingInputClass} value={repDialHands} onChange={(e) => setRepDialHands(e.target.value)} />
+                </label>
               </div>
             </div>
-            <div className="md:col-span-2 rounded-xl bg-rlx-green-light px-3 py-2 text-sm">
-              {ESTIMATE_LABEL_APPROX}: <strong>{formatApproxEstimateInr(estimateTotal)}</strong> · Advance: <strong>{formatInr(advanceTotal)}</strong>
+            <div className="rounded-xl bg-rlx-green-light px-3 py-2 text-sm md:col-span-3">
+              {ESTIMATE_LABEL_APPROX}: <strong>{formatApproxEstimateInr(estimateTotal)}</strong> · Advance:{" "}
+              <strong>{formatInr(advanceTotal)}</strong>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -2162,7 +2212,7 @@ export function SrfBookingV2Page() {
                   </td>
                 </tr>
                 <tr>
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Delivery date</th>
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Estimated delivery date</th>
                   <td className="px-3 py-2 text-stone-800">{estimatedFinishDate || "-"}</td>
                 </tr>
                 <tr>

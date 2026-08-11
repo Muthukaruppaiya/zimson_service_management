@@ -606,6 +606,140 @@
   line-height: 1;
 }
 
+/* ─── Login OTP entry ───────────────────────────────────────────── */
+.zimson-login-otp {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  animation: z-slide-up 0.35s ease-out both;
+}
+
+.zimson-login-otp__hero {
+  text-align: center;
+  margin-bottom: 0.15rem;
+}
+
+.zimson-login-otp__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin-bottom: 0.65rem;
+  border-radius: 1rem;
+  color: #071d49;
+  background: linear-gradient(160deg, #f5e7b8 0%, #e8d48a 55%, #c9a227 100%);
+  box-shadow: 0 8px 20px rgba(201, 162, 39, 0.28);
+}
+
+.zimson-login-otp__icon svg {
+  width: 1.55rem;
+  height: 1.55rem;
+}
+
+.zimson-login-otp__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #071d49;
+}
+
+.zimson-login-otp__subtitle {
+  margin: 0.4rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #5c6b82;
+}
+
+.zimson-login-otp__temp {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(201, 162, 39, 0.45);
+  background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+  text-align: center;
+}
+
+.zimson-login-otp__temp-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #92610a;
+}
+
+.zimson-login-otp__temp-code {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  color: #071d49;
+  font-variant-numeric: tabular-nums;
+}
+
+.zimson-login-otp__temp-note {
+  font-size: 0.7rem;
+  color: #8a6d1f;
+}
+
+.zimson-login-otp__digits {
+  padding: 0.15rem 0 0.25rem;
+}
+
+.zimson-login-otp__digits input {
+  border-color: rgba(7, 29, 73, 0.18) !important;
+  background: #fff !important;
+  color: #071d49 !important;
+  font-weight: 700;
+  box-shadow: inset 0 1px 2px rgba(7, 29, 73, 0.04);
+}
+
+.zimson-login-otp__digits input:focus {
+  border-color: #c9a227 !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.22);
+}
+
+.zimson-login-otp__remember {
+  margin-top: 0.15rem;
+}
+
+.zimson-login-otp__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem 0.5rem;
+  margin-top: -0.15rem;
+}
+
+.zimson-login-otp__link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0.15rem 0.2rem;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #071d49;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.zimson-login-otp__link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.zimson-login-otp__dot {
+  color: #9aa5b5;
+  font-size: 0.85rem;
+}
+
 /* ─── Animations ────────────────────────────────────────────────── */
 @keyframes z-fade-in {
   from { opacity: 0; }

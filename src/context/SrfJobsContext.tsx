@@ -130,7 +130,11 @@ type SrfJobsContextValue = {
     },
   ) => Promise<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>;
   storeSelfAssignTechnician: (jobId: string, technicianId: string) => Promise<void>;
-  storeSelfSubmitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
+  storeSelfSubmitSparesSlip: (
+    jobId: string,
+    lines: UsedSpareLine[],
+    warrantyTillDate: string,
+  ) => Promise<void>;
   storeSelfMarkRepairComplete: (jobId: string, note?: string) => Promise<void>;
   storeSelfRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<SrfReestimateNotifyResult>;
   storeSelfReturnWithoutRepair: (jobId: string, note?: string) => Promise<void>;
@@ -192,7 +196,11 @@ type SrfJobsContextValue = {
     jobId: string,
     payload?: { note?: string; dispatchDocPath?: string },
   ) => Promise<{ brandOdcNumber?: string }>;
-  submitSparesSlip: (jobId: string, lines: UsedSpareLine[]) => Promise<void>;
+  submitSparesSlip: (
+    jobId: string,
+    lines: UsedSpareLine[],
+    warrantyTillDate: string,
+  ) => Promise<void>;
   technicianMarkRepairComplete: (jobId: string, technicianProfileId: string) => Promise<void>;
   supervisorLogBrandEstimate: (
     jobId: string,
@@ -387,13 +395,16 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     await refreshJobs();
   }, [refreshJobs]);
 
-  const storeSelfSubmitSparesSlip = useCallback(async (jobId: string, lines: UsedSpareLine[]) => {
-    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/spares-slip`, {
-      method: "POST",
-      json: { lines },
-    });
-    await refreshJobs();
-  }, [refreshJobs]);
+  const storeSelfSubmitSparesSlip = useCallback(
+    async (jobId: string, lines: UsedSpareLine[], warrantyTillDate: string) => {
+      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/spares-slip`, {
+        method: "POST",
+        json: { lines, warrantyTillDate },
+      });
+      await refreshJobs();
+    },
+    [refreshJobs],
+  );
 
   const storeSelfMarkRepairComplete = useCallback(async (jobId: string, note?: string) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/repair-complete`, {
@@ -716,13 +727,16 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     [refreshJobs],
   );
 
-  const submitSparesSlip = useCallback(async (jobId: string, lines: UsedSpareLine[]) => {
-    await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/spares-slip`, {
-      method: "POST",
-      json: { lines },
-    });
-    await refreshJobs();
-  }, [refreshJobs]);
+  const submitSparesSlip = useCallback(
+    async (jobId: string, lines: UsedSpareLine[], warrantyTillDate: string) => {
+      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/spares-slip`, {
+        method: "POST",
+        json: { lines, warrantyTillDate },
+      });
+      await refreshJobs();
+    },
+    [refreshJobs],
+  );
 
   const technicianMarkRepairComplete = useCallback(async (jobId: string, technicianProfileId: string) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/repair-complete`, {

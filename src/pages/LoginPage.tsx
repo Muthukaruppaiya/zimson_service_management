@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { LoginOtpEntryPanel, LoginOtpSendingPopup } from "../components/auth/LoginOtpUi";
 import { LoginStorePickerModal } from "../components/auth/LoginStorePickerModal";
 import { AppBootLoader } from "../components/ui/AppBootLoader";
+import { OtpSentSuccessModal } from "../components/ui/OtpSentSuccessModal";
 import { useAuth } from "../context/AuthContext";
 import { ApiError, apiJson } from "../lib/api";
 import { sanitizeLoginIdInput, sanitizePasswordInput } from "../lib/inputSanitize";
-import { formatOtpSentSubtitle } from "../lib/otpSentMessage";
 import { OTP_LENGTH } from "../lib/otp";
+import { formatOtpSentSubtitle } from "../lib/otpSentMessage";
 import "../styles/zimson-login.css";
 
 const LOGIN_BOOT_MIN_MS = 700;
+const OTP_SENT_MODAL_MS = 1800;
 
 export function LoginPage() {
   const { user, login, verifyLoginOtp, authReady } = useAuth();
@@ -40,6 +43,14 @@ export function LoginPage() {
   const [otpHint, setOtpHint] = useState<string | null>(null);
   const [demoOtp, setDemoOtp] = useState<string | null>(null);
   const [otpBusy, setOtpBusy] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpSentModalOpen, setOtpSentModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!otpSentModalOpen) return;
+    const t = window.setTimeout(() => setOtpSentModalOpen(false), OTP_SENT_MODAL_MS);
+    return () => window.clearTimeout(t);
+  }, [otpSentModalOpen]);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -52,42 +63,50 @@ export function LoginPage() {
     setOtpCode("");
     setOtpHint(null);
     setDemoOtp(null);
+    setOtpSentModalOpen(false);
   }
 
-  async function finishLogin(selectedStoreId: string | null) {
-    const result = await login(loginId, password, selectedStoreId);
-    if (result.ok) {
+  async function finishLogin(selectedStoreId: string | null, opts?: { showSendingPopup?: boolean }) {
+    const showSending = opts?.showSendingPopup !== false;
+    if (showSending) setOtpSending(true);
+    try {
+      const result = await login(loginId, password, selectedStoreId);
+      if (result.ok) {
+        clearOtpStep();
+        setAlreadyLoggedIn(false);
+        setStorePickerOpen(false);
+        setStoreOptions([]);
+        navigate(from === "/login" ? "/" : from, { replace: true });
+        return true;
+      }
+      if ("code" in result && result.code === "STORE_SELECTION_REQUIRED" && result.stores) {
+        setStoreOptions(result.stores);
+        setStorePickerOpen(true);
+        setError(null);
+        setAlreadyLoggedIn(false);
+        clearOtpStep();
+        return false;
+      }
+      if ("code" in result && result.code === "LOGIN_OTP_REQUIRED" && result.challengeToken) {
+        setOtpChallengeToken(result.challengeToken);
+        setOtpCode("");
+        setOtpHint(result.sentTo?.length ? formatOtpSentSubtitle(result.sentTo) : result.message);
+        setDemoOtp(result.demoOtp ?? null);
+        setStorePickerOpen(false);
+        setError(null);
+        setAlreadyLoggedIn(false);
+        setOtpSentModalOpen(true);
+        return false;
+      }
       clearOtpStep();
-      setAlreadyLoggedIn(false);
-      setStorePickerOpen(false);
       setStoreOptions([]);
-      navigate(from === "/login" ? "/" : from, { replace: true });
-      return true;
-    }
-    if ("code" in result && result.code === "STORE_SELECTION_REQUIRED" && result.stores) {
-      setStoreOptions(result.stores);
-      setStorePickerOpen(true);
-      setError(null);
-      setAlreadyLoggedIn(false);
-      clearOtpStep();
-      return false;
-    }
-    if ("code" in result && result.code === "LOGIN_OTP_REQUIRED" && result.challengeToken) {
-      setOtpChallengeToken(result.challengeToken);
-      setOtpCode("");
-      setOtpHint(result.sentTo?.length ? formatOtpSentSubtitle(result.sentTo) : result.message);
-      setDemoOtp(result.demoOtp ?? null);
       setStorePickerOpen(false);
-      setError(null);
-      setAlreadyLoggedIn(false);
+      setError(result.message);
+      setAlreadyLoggedIn("code" in result && result.code === "ALREADY_LOGGED_IN");
       return false;
+    } finally {
+      if (showSending) setOtpSending(false);
     }
-    clearOtpStep();
-    setStoreOptions([]);
-    setStorePickerOpen(false);
-    setError(result.message);
-    setAlreadyLoggedIn("code" in result && result.code === "ALREADY_LOGGED_IN");
-    return false;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -120,7 +139,7 @@ export function LoginPage() {
     setError(null);
     setOtpBusy(true);
     try {
-      await finishLogin(storeId || null);
+      await finishLogin(storeId || null, { showSendingPopup: true });
     } finally {
       setOtpBusy(false);
     }
@@ -159,6 +178,8 @@ export function LoginPage() {
       setSignOutAllBusy(false);
     }
   }
+
+  const onOtpStep = Boolean(otpChallengeToken);
 
   return (
     <div className="zimson-login">
@@ -219,7 +240,7 @@ export function LoginPage() {
             <div className="zimson-login__title-row">
               <span className="zimson-login__ornament" />
               <h1 className="zimson-login__title" id="login-title">
-                {otpChallengeToken ? "Verify OTP" : "Sign in"}
+                {onOtpStep ? "Verify OTP" : "Sign in"}
               </h1>
               <span className="zimson-login__ornament zimson-login__ornament--right" />
             </div>
@@ -227,7 +248,7 @@ export function LoginPage() {
 
           <div className="zimson-login__body">
             <form onSubmit={handleSubmit} noValidate>
-              {!otpChallengeToken ? (
+              {!onOtpStep ? (
                 <>
                   <div className="zimson-login__field">
                     <label className="zimson-login__label" htmlFor="login-emp">
@@ -291,108 +312,75 @@ export function LoginPage() {
                       </div>
                     </div>
                   </div>
+
+                  <label className="zimson-login__remember">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                    />
+                    <span>Remember this device (skip OTP next time)</span>
+                  </label>
+
+                  {alreadyLoggedIn ? (
+                    <div className="zimson-login__alert zimson-login__alert--warn">
+                      <p className="zimson-login__alert-title">Account already in use</p>
+                      <p>
+                        {error ??
+                          "Someone is already signed in with this account. They must sign out, or you can end all sessions with your password below."}
+                      </p>
+                      <button
+                        type="button"
+                        className="zimson-login__alert-btn"
+                        disabled={signOutAllBusy}
+                        onClick={() => void handleSignOutAllDevices()}
+                      >
+                        {signOutAllBusy ? "Signing out all devices…" : "Sign out all devices & try again"}
+                      </button>
+                    </div>
+                  ) : error ? (
+                    <div className="zimson-login__alert zimson-login__alert--error">{error}</div>
+                  ) : null}
+
+                  {signOutAllNote ? (
+                    <div className="zimson-login__alert zimson-login__alert--success">{signOutAllNote}</div>
+                  ) : null}
+
+                  <button className="zimson-login__submit" type="submit" disabled={otpSending}>
+                    {otpSending ? "Sending OTP…" : "Sign in"}
+                    <svg viewBox="0 0 24 24">
+                      <path d="M13.5 5.5 19 11H5v2h14l-5.5 5.5 1.4 1.4L22.8 12l-7.9-7.9-1.4 1.4Z" />
+                    </svg>
+                  </button>
                 </>
               ) : (
-                <div className="zimson-login__field">
-                  {otpHint ? <p className="zimson-login__label" style={{ marginBottom: "0.75rem" }}>{otpHint}</p> : null}
-                  {demoOtp ? (
-                    <p className="zimson-login__alert zimson-login__alert--success" style={{ marginBottom: "0.75rem" }}>
-                      Temporary OTP: <strong>{demoOtp}</strong>
-                    </p>
-                  ) : null}
-                  <label className="zimson-login__label" htmlFor="login-otp">
-                    One-time password
-                  </label>
-                  <div className="zimson-login__input-row">
-                    <span className="zimson-login__input-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                        <path d="M12 3 5 6v5c0 4.8 2.9 8.2 7 10 4.1-1.8 7-5.2 7-10V6l-7-3Z" />
-                      </svg>
-                    </span>
-                    <div className="zimson-login__input-box">
-                      <input
-                        className="zimson-login__input"
-                        id="login-otp"
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        autoFocus
-                        value={otpCode}
-                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, OTP_LENGTH))}
-                        placeholder={`${OTP_LENGTH}-digit code`}
-                        required
-                      />
+                <>
+                  <LoginOtpEntryPanel
+                    otpCode={otpCode}
+                    onOtpChange={setOtpCode}
+                    otpHint={otpHint}
+                    demoOtp={demoOtp}
+                    rememberMe={rememberMe}
+                    onRememberMeChange={setRememberMe}
+                    error={error}
+                    alreadyLoggedIn={alreadyLoggedIn}
+                    alreadyLoggedInBody={error}
+                    signOutAllBusy={signOutAllBusy}
+                    onSignOutAll={() => void handleSignOutAllDevices()}
+                    otpBusy={otpBusy || otpSending}
+                    onResend={() => void handleResendOtp()}
+                    onBack={() => {
+                      clearOtpStep();
+                      setError(null);
+                    }}
+                  />
+                  {signOutAllNote ? (
+                    <div className="zimson-login__alert zimson-login__alert--success" style={{ marginTop: "0.75rem" }}>
+                      {signOutAllNote}
                     </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      className="zimson-login__forgot"
-                      disabled={otpBusy}
-                      onClick={() => void handleResendOtp()}
-                    >
-                      Resend OTP
-                    </button>
-                    <button
-                      type="button"
-                      className="zimson-login__forgot"
-                      disabled={otpBusy}
-                      onClick={() => {
-                        clearOtpStep();
-                        setError(null);
-                      }}
-                    >
-                      Use a different account
-                    </button>
-                  </div>
-                </div>
+                  ) : null}
+                </>
               )}
-
-              <label className="zimson-login__remember">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                />
-                <span>Remember this device (skip OTP next time)</span>
-              </label>
-
-              {alreadyLoggedIn ? (
-                <div className="zimson-login__alert zimson-login__alert--warn">
-                  <p className="zimson-login__alert-title">Account already in use</p>
-                  <p>
-                    {error ??
-                      "Someone is already signed in with this account. They must sign out, or you can end all sessions with your password below."}
-                  </p>
-                  <button
-                    type="button"
-                    className="zimson-login__alert-btn"
-                    disabled={signOutAllBusy}
-                    onClick={() => void handleSignOutAllDevices()}
-                  >
-                    {signOutAllBusy ? "Signing out all devices…" : "Sign out all devices & try again"}
-                  </button>
-                </div>
-              ) : error ? (
-                <div className="zimson-login__alert zimson-login__alert--error">{error}</div>
-              ) : null}
-
-              {signOutAllNote ? (
-                <div className="zimson-login__alert zimson-login__alert--success">{signOutAllNote}</div>
-              ) : null}
-
-              <button className="zimson-login__submit" type="submit" disabled={otpBusy}>
-                {otpBusy
-                  ? otpChallengeToken
-                    ? "Verifying…"
-                    : "Sending OTP…"
-                  : otpChallengeToken
-                    ? "Verify & sign in"
-                    : "Sign in"}
-                <svg viewBox="0 0 24 24">
-                  <path d="M13.5 5.5 19 11H5v2h14l-5.5 5.5 1.4 1.4L22.8 12l-7.9-7.9-1.4 1.4Z" />
-                </svg>
-              </button>
 
               <div className="zimson-login__or" aria-hidden="true">
                 or
@@ -424,6 +412,13 @@ export function LoginPage() {
           setStorePickerOpen(false);
         }}
         onConfirm={(id) => void handleStorePickFromModal(id)}
+      />
+
+      <LoginOtpSendingPopup open={otpSending} />
+      <OtpSentSuccessModal
+        open={otpSentModalOpen && !otpSending}
+        subtitle={otpHint ?? undefined}
+        onClose={() => setOtpSentModalOpen(false)}
       />
     </div>
   );

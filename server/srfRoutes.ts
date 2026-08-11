@@ -1192,6 +1192,8 @@ export function registerSrfRoutes(
                 j.selected_part_ids AS "selectedPartIds",
                 j.status,
                 j.repair_route AS "repairRoute",
+                COALESCE(j.assign_priority, false) AS "assignPriority",
+                COALESCE(j.assign_priority_dismissed, false) AS "assignPriorityDismissed",
                 j.dc_number AS "dcNumber",
                 j.dispatched_to_sc_at AS "dispatchedToScAt",
                 j.inward_at AS "inwardAt",
@@ -1214,6 +1216,7 @@ export function registerSrfRoutes(
                   LIMIT 1
                 ) AS "trackingToken",
                 j.used_spares AS "usedSpares",
+                j.warranty_till_date::text AS "warrantyTillDate",
                 j.spares_slip_submitted_at AS "sparesSlipSubmittedAt",
                 j.spares_slip_submitted_by AS "sparesSlipSubmittedBy",
                 j.ho_spares_bill_ref AS "hoSparesBillRef",
@@ -3496,6 +3499,58 @@ export function registerSrfRoutes(
     }
   });
 
+  app.post("/api/service/srf-jobs/:srfId/supervisor/assign-priority", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || (actor.role !== "service_centre_supervisor" && actor.role !== "super_admin" && actor.role !== "admin")) {
+      res.status(403).json({ error: "Only supervisor/admin can set assign priority." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const priority =
+      req.body?.priority === true || req.body?.priority === "true" || req.body?.priority === 1 || req.body?.priority === "1";
+    if (!srfId) {
+      res.status(400).json({ error: "srfId is required." });
+      return;
+    }
+    try {
+      // priority on → pin + clear dismiss; priority off → unpin + dismiss due-soon auto so colour can stay off
+      const upd = await pool.query(
+        `UPDATE srf_jobs
+         SET assign_priority = $2,
+             assign_priority_dismissed = $3,
+             updated_at = now(),
+             modified_by = $4
+         WHERE id = $1::uuid`,
+        [srfId, priority, !priority, actor.id],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await appendActionLog(client, srfId, {
+          action: "supervisor_assign_priority",
+          description: priority
+            ? "Marked as priority for assigning."
+            : "Turned off assign priority (including due-soon auto).",
+          actor,
+          details: { assignPriority: priority, assignPriorityDismissed: !priority },
+        });
+        await client.query("COMMIT");
+      } catch {
+        await client.query("ROLLBACK").catch(() => {});
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true, assignPriority: priority, assignPriorityDismissed: !priority });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not update assign priority." });
+    }
+  });
+
   app.post("/api/service/srf-jobs/:srfId/assign", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || (actor.role !== "service_centre_supervisor" && actor.role !== "super_admin" && actor.role !== "admin")) {
@@ -3653,6 +3708,12 @@ export function registerSrfRoutes(
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
+    const warrantyTillRaw = String(req.body?.warrantyTillDate ?? "").trim();
+    const warrantyTillDate = /^\d{4}-\d{2}-\d{2}$/.test(warrantyTillRaw) ? warrantyTillRaw : "";
+    if (!warrantyTillDate) {
+      res.status(400).json({ error: "Warranty till date is required (YYYY-MM-DD)." });
+      return;
+    }
     const lines = Array.isArray(req.body?.lines)
       ? req.body.lines
           .map((x: unknown) => ({
@@ -3780,21 +3841,22 @@ export function registerSrfRoutes(
       await client.query(
         `UPDATE srf_jobs
          SET used_spares = $2::jsonb,
+             warranty_till_date = $4::date,
              spares_slip_submitted_at = now(),
              spares_slip_submitted_by = $3,
              updated_at = now(),
              modified_by = $3
          WHERE id = $1::uuid`,
-        [srfId, JSON.stringify(normalized), actor.id],
+        [srfId, JSON.stringify(normalized), actor.id, warrantyTillDate],
       );
       const totalInr = normalized.reduce((sum, l) => sum + l.lineTotalInr, 0);
       await appendStatusHistory(client, srfId, job.status, actor.id, "Store self-repair: used spares recorded.");
       await appendActionLog(client, srfId, {
         action: "store_self_spares_slip_submitted",
-        description: `Store recorded used spares (${normalized.length} line${normalized.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}).`,
+        description: `Store recorded used spares (${normalized.length} line${normalized.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}). Warranty till ${warrantyTillDate}.`,
         amountInr: totalInr,
         actor,
-        details: { lines: normalized },
+        details: { lines: normalized, warrantyTillDate },
       });
       await client.query("COMMIT");
       res.json({ ok: true });
@@ -6270,6 +6332,12 @@ export function registerSrfRoutes(
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
+    const warrantyTillRaw = String(req.body?.warrantyTillDate ?? "").trim();
+    const warrantyTillDate = /^\d{4}-\d{2}-\d{2}$/.test(warrantyTillRaw) ? warrantyTillRaw : "";
+    if (!warrantyTillDate) {
+      res.status(400).json({ error: "Warranty till date is required (YYYY-MM-DD)." });
+      return;
+    }
     const lines = Array.isArray(req.body?.lines)
       ? req.body.lines
           .map((x: unknown) => ({
@@ -6288,15 +6356,16 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const params: unknown[] = [srfId, actor.id, JSON.stringify(lines)];
+      const params: unknown[] = [srfId, actor.id, JSON.stringify(lines), warrantyTillDate];
       let where = `id = $1::uuid AND status IN ('assigned', 'estimate_ok')`;
       if (actor.role === "technician") {
-        where += " AND assigned_technician_id = $4";
+        where += " AND assigned_technician_id = $5";
         params.push(actor.technicianProfileId);
       }
       const upd = await client.query<{ region_id: string; reference: string }>(
         `UPDATE srf_jobs
          SET used_spares = $3::jsonb,
+             warranty_till_date = $4::date,
              spares_slip_submitted_at = now(),
              spares_slip_submitted_by = $2,
              updated_at = now(),
@@ -6370,10 +6439,10 @@ export function registerSrfRoutes(
       );
       await appendActionLog(client, srfId, {
         action: "spares_slip_submitted",
-        description: `Used spares slip submitted (${lines.length} line${lines.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}).`,
+        description: `Used spares slip submitted (${lines.length} line${lines.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}). Warranty till ${warrantyTillDate}.`,
         amountInr: totalInr,
         actor,
-        details: { lines },
+        details: { lines, warrantyTillDate },
       });
       await client.query("COMMIT");
       res.json({ ok: true });
@@ -9234,17 +9303,26 @@ export function registerSrfRoutes(
         allJobIds.length > 0
           ? await pool.query<{
               srf_id: string;
+              attempt_no: number;
               amount_inr: number | string | null;
               remark: string | null;
               raised_at: Date | string;
             }>(
-              `SELECT srf_id, amount_inr::float8 AS amount_inr, remark, raised_at
+              `SELECT srf_id, attempt_no, amount_inr::float8 AS amount_inr, remark, raised_at
                FROM srf_reestimate_attempts
                WHERE srf_id = ANY($1::uuid[])
                ORDER BY attempt_no ASC`,
               [allJobIds],
             )
-          : { rows: [] as Array<{ srf_id: string; amount_inr: number | string | null; remark: string | null; raised_at: Date | string }> };
+          : {
+              rows: [] as Array<{
+                srf_id: string;
+                attempt_no: number;
+                amount_inr: number | string | null;
+                remark: string | null;
+                raised_at: Date | string;
+              }>,
+            };
 
       const historyBySrf = new Map<string, Array<{ id: string; status: string; note: string; changedAt: string }>>();
       for (const h of historyRows.rows) {
@@ -9253,11 +9331,15 @@ export function registerSrfRoutes(
         historyBySrf.set(h.srf_id, list);
       }
 
-      const attemptsBySrf = new Map<string, Array<{ amountInr: number | null; note: string; requestedAt: string }>>();
+      const attemptsBySrf = new Map<
+        string,
+        Array<{ attemptNo: number; amountInr: number | null; note: string; requestedAt: string }>
+      >();
       for (const a of attemptRows.rows) {
         const list = attemptsBySrf.get(a.srf_id) ?? [];
         const amount = Number(a.amount_inr);
         list.push({
+          attemptNo: Number(a.attempt_no) || list.length + 1,
           amountInr: Number.isFinite(amount) && amount > 0 ? amount : null,
           note: String(a.remark ?? "").trim() || "Re-estimate",
           requestedAt: a.raised_at instanceof Date ? a.raised_at.toISOString() : String(a.raised_at),
@@ -9280,10 +9362,15 @@ export function registerSrfRoutes(
                 requestedAt: a.requestedAt,
               }))
             : fromHistory;
+        const attemptCount = fromAttempts.length > 0 ? fromAttempts.length : fromHistory.length;
+        const pendingEstimate =
+          j.status === "reestimate_required" || j.status === "brand_estimate_customer_pending";
+        const reestimateAttemptNo = pendingEstimate ? Math.max(attemptCount, 1) : attemptCount;
         return {
           ...j,
           timeline: historyBySrf.get(j.id) ?? [],
           reestimateHistory,
+          reestimateAttemptNo,
         };
       });
 

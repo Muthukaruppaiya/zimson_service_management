@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
+import { SearchableCombobox } from "../../components/service/SearchableCombobox";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
@@ -46,7 +47,12 @@ import { BrandMailAttachmentField } from "../../components/service/BrandMailAtta
 import { BrandInvoiceLineItemsEditor } from "../../components/service/BrandInvoiceLineItemsEditor";
 import { brandMailMetaFromAttachment, uploadBrandMailAttachment } from "../../lib/brandMailUpload";
 import {
-  brandInvoiceLinesTotal,
+  PriorityAssignIcon,
+  SupervisorStatusIcon,
+  supervisorStatusBadgeClass,
+  supervisorStatusMeta,
+} from "../../lib/supervisorListStatus";
+import { brandInvoiceLinesTotal,
   emptyBrandInvoiceLine,
   normalizeBrandInvoiceLines,
   validateBrandInvoiceLines,
@@ -72,6 +78,13 @@ function formatSrfBookingDate(value?: string | null): string {
 function deliveryDateSortKey(job: SrfJob): string {
   const raw = String(job.estimatedFinishDate ?? "").trim().slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "9999-12-31";
+}
+
+/** Pinned star, or due-soon auto — unless user dismissed due-soon priority. */
+function isEffectiveAssignPriority(job: SrfJob, earliestDeliveryKey: string | null): boolean {
+  if (job.assignPriority) return true;
+  const dueSoon = earliestDeliveryKey !== null && deliveryDateSortKey(job) === earliestDeliveryKey;
+  return dueSoon && !job.assignPriorityDismissed;
 }
 
 type InterHoSpareOrder = {
@@ -251,6 +264,8 @@ const dqBtnDocTrace =
   "inline-flex items-center gap-2 rounded-xl border border-cyan-400/70 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-500 hover:bg-cyan-100";
 const dqBtnDocPrint =
   "inline-flex items-center gap-2 rounded-xl border border-rlx-gold/75 bg-rlx-gold-light/50 px-4 py-2 text-sm font-semibold text-rlx-gold-dark shadow-sm transition hover:border-rlx-gold hover:bg-rlx-gold-light/80";
+const dqBtnDocTechSlip =
+  "inline-flex items-center gap-2 rounded-xl border border-emerald-500/70 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm transition hover:border-emerald-600 hover:bg-emerald-100";
 
 function ActionDocsIcon() {
   return (
@@ -333,8 +348,10 @@ export function ScSupervisorPage() {
     supervisorLogBrandCreditNote,
     supervisorNotifyBrandCoupon,
     getStatusHistory,
+    refreshJobs,
   } = useSrfJobs();
   const [feedback, setFeedback] = useState<Record<string, string>>({});
+  const [priorityBusyId, setPriorityBusyId] = useState<string | null>(null);
   const [pickTech, setPickTech] = useState<Record<string, string>>({});
   const [historyByJob, setHistoryByJob] = useState<Record<string, Array<{ id: string; status: string; note: string; changedAt: string }>>>({});
   const [reestimatePopupJobId, setReestimatePopupJobId] = useState<string | null>(null);
@@ -354,6 +371,7 @@ export function ScSupervisorPage() {
     [repairPopupJobId, jobs],
   );
   const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string }>>([{ spareId: "", qty: "1" }]);
+  const [repairWarrantyTillDate, setRepairWarrantyTillDate] = useState("");
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
   const [hoStockBySpareId, setHoStockBySpareId] = useState<Record<string, number>>({});
   const [repairPopupError, setRepairPopupError] = useState("");
@@ -743,14 +761,23 @@ export function ScSupervisorPage() {
     }
     return [...grouped.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([brand, rows]) => ({
-        brand,
-        rows: [...rows].sort(
-          (a, b) =>
-            deliveryDateSortKey(a).localeCompare(deliveryDateSortKey(b)) ||
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-        ),
-      }));
+      .map(([brand, rows]) => {
+        const earliestKey = rows.map(deliveryDateSortKey).find((key) => key !== "9999-12-31") ?? null;
+        return {
+          brand,
+          rows: [...rows].sort((a, b) => {
+            const aPri = Number(isEffectiveAssignPriority(a, earliestKey));
+            const bPri = Number(isEffectiveAssignPriority(b, earliestKey));
+            if (bPri !== aPri) return bPri - aPri;
+            const pin = Number(Boolean(b.assignPriority)) - Number(Boolean(a.assignPriority));
+            if (pin !== 0) return pin;
+            return (
+              deliveryDateSortKey(a).localeCompare(deliveryDateSortKey(b)) ||
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+          }),
+        };
+      });
   }, [supervisorListRows, listBrandFilter]);
 
   const supervisorListStats = useMemo(() => {
@@ -1865,6 +1892,11 @@ export function ScSupervisorPage() {
     setRepairPopupError("");
     const job = jobs.find((j) => j.id === jobId);
     const watchBrand = job?.watchBrand ?? "";
+    setRepairWarrantyTillDate(
+      job?.warrantyTillDate && /^\d{4}-\d{2}-\d{2}/.test(job.warrantyTillDate)
+        ? job.warrantyTillDate.slice(0, 10)
+        : "",
+    );
     const flow = spareFlowBySrfId.get(jobId);
     if (flow?.status === "FULFILLED" && flow.inwardReceivedAt && flow.lines.length > 0) {
       setUnitPriceBySpareId((prev) => {
@@ -1910,6 +1942,7 @@ export function ScSupervisorPage() {
   function closeRepairPopup() {
     setRepairPopupJobId(null);
     setRepairLines([{ spareId: "", qty: "1" }]);
+    setRepairWarrantyTillDate("");
     setUnitPriceBySpareId({});
     setRepairPopupError("");
     setRepairSaving(false);
@@ -1967,6 +2000,10 @@ export function ScSupervisorPage() {
       setRepairPopupError("Add at least one used spare from inventory.");
       return;
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(repairWarrantyTillDate.trim())) {
+      setRepairPopupError("Warranty till date is required.");
+      return;
+    }
     if (lines.some((x) => Number(x.unitPriceInr ?? 0) <= 0)) {
       const missing = lines.find((x) => Number(x.unitPriceInr ?? 0) <= 0);
       const spare = missing ? activeSpares.find((s) => s.id === missing.spareId) : null;
@@ -1984,7 +2021,7 @@ export function ScSupervisorPage() {
     setRepairSaving(true);
     setRepairPopupError("");
     try {
-      await submitSparesSlip(jobId, lines);
+      await submitSparesSlip(jobId, lines, repairWarrantyTillDate.trim());
       await supervisorMarkRepairComplete(jobId);
       closeRepairPopup();
       const isInterHoReturnRepair =
@@ -2063,81 +2100,28 @@ export function ScSupervisorPage() {
     }
   }
 
-  function supervisorListStatusLabel(job: SrfJob): string {
-    if (job.interHoBrandEstimatePhase === "pending_sender" || job.status === "inter_ho_brand_estimate_pending_sender") {
-      return "inter ho brand estimate pending sender";
+  async function toggleAssignPriority(job: SrfJob, earliestDeliveryKey: string | null) {
+    const currentlyOn = isEffectiveAssignPriority(job, earliestDeliveryKey);
+    const next = !currentlyOn;
+    setPriorityBusyId(job.id);
+    try {
+      await apiJson(`/api/service/srf-jobs/${encodeURIComponent(job.id)}/supervisor/assign-priority`, {
+        method: "POST",
+        json: { priority: next },
+      });
+      await refreshJobs();
+      setFeedback((prev) => ({
+        ...prev,
+        [job.id]: next ? "Marked as priority for assigning." : "Priority turned off.",
+      }));
+    } catch (e) {
+      setFeedback((prev) => ({
+        ...prev,
+        [job.id]: e instanceof ApiError ? e.message : "Could not update priority.",
+      }));
+    } finally {
+      setPriorityBusyId(null);
     }
-    if (job.interHoBrandEstimatePhase === "customer_pending") {
-      return "brand estimate sent to customer";
-    }
-    if (job.interHoBrandEstimatePhase === "customer_accepted") {
-      return "customer approved brand estimate";
-    }
-    if (job.status === "inter_ho_brand_estimate_customer_accepted") {
-      return "customer approved brand estimate";
-    }
-    if (job.interHoReestimatePhase === "pending_sender" || job.status === "inter_ho_reestimate_pending_sender") {
-      return "inter ho re-estimate pending sender";
-    }
-    if (job.interHoReestimatePhase === "customer_pending") {
-      return "re-estimate sent to customer";
-    }
-    if (job.interHoReestimatePhase === "customer_declined_final") {
-      if (job.status === "customer_rejected" && isInterHoReceiverLocal(job)) {
-        return "estimate not accepted — send to outward";
-      }
-      if (job.status === "received_at_sc" && !(job.transferSourceRegionId ?? "").trim()) {
-        return "return inwarded — verify & move to outward";
-      }
-      if (job.status === "ready_for_outward") {
-        return !(job.transferSourceRegionId ?? "").trim()
-          ? "outward queue — dispatch to store"
-          : "outward queue — return DC to sender HO";
-      }
-      return "estimate not accepted — awaiting repair HO";
-    }
-    if (job.interHoReestimatePhase === "customer_rejected" || job.status === "customer_rejected") {
-      return "customer rejected — negotiate or decline";
-    }
-    if (job.interHoReestimatePhase === "customer_accepted" || job.status === "inter_ho_reestimate_customer_accepted") {
-      return "customer accepted - awaiting sender approval";
-    }
-    return job.status.replace(/_/g, " ");
-  }
-
-  function supervisorStatusBadgeClass(job: SrfJob): string {
-    const status = job.status;
-    if (
-      job.interHoReestimatePhase === "customer_declined_final" ||
-      job.interHoReestimatePhase === "customer_rejected" ||
-      status === "customer_rejected"
-    ) {
-      return "bg-rose-50 text-rose-900 ring-rose-200";
-    }
-    if (
-      job.interHoBrandEstimatePhase ||
-      status.includes("brand") ||
-      status === "brand_credit_note_pending" ||
-      status === "brand_credit_note_pending_ho" ||
-      status === "brand_credit_note_pending_accounts" ||
-      status === "brand_credit_note_active"
-    ) {
-      return "bg-violet-50 text-violet-900 ring-violet-200";
-    }
-    if (
-      status === "ready_for_outward" ||
-      status === "pending_store_transit" ||
-      status === "dispatched_to_store"
-    ) {
-      return "bg-sky-50 text-sky-900 ring-sky-200";
-    }
-    if (status === "received_at_sc" || status === "assigned" || status === "estimate_ok") {
-      return "bg-emerald-50 text-emerald-900 ring-emerald-200";
-    }
-    if (status.includes("inter_ho") || job.interHoReestimatePhase || job.interHoBrandEstimatePhase) {
-      return "bg-indigo-50 text-indigo-900 ring-indigo-200";
-    }
-    return "bg-stone-100 text-stone-800 ring-stone-200";
   }
 
   return (
@@ -2198,7 +2182,7 @@ export function ScSupervisorPage() {
                     : "border-emerald-200/80 bg-gradient-to-br from-emerald-50/60 to-white"
                 }`}
               >
-                <p className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Missing delivery date</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Missing estimated delivery date</p>
                 <p
                   className={`mt-1 text-2xl font-bold tabular-nums ${
                     supervisorListStats.missingDelivery > 0 ? "text-amber-900" : "text-emerald-800"
@@ -2327,7 +2311,7 @@ export function ScSupervisorPage() {
                         <div className="min-w-0">
                           <h3 className="truncate text-sm font-bold text-zimson-900">{group.brand}</h3>
                           <p className="text-xs text-stone-500">
-                            {group.rows.length} SRF{group.rows.length === 1 ? "" : "s"} · earliest delivery first
+                            {group.rows.length} SRF{group.rows.length === 1 ? "" : "s"} · priority & due soon first
                           </p>
                         </div>
                       </div>
@@ -2345,11 +2329,14 @@ export function ScSupervisorPage() {
                       <table className="min-w-full text-left text-sm">
                         <thead className="border-b border-zimson-100 bg-zimson-50/50 text-[11px] font-semibold uppercase tracking-wide text-stone-500">
                           <tr>
+                            <th className="w-12 px-3 py-2.5 text-center" title="Assign priority">
+                              ★
+                            </th>
                             <th className="px-4 py-2.5">SRF</th>
                             <th className="px-4 py-2.5">Customer</th>
                             <th className="px-4 py-2.5">Watch</th>
                             <th className="px-4 py-2.5">Booking date</th>
-                            <th className="px-4 py-2.5">Delivery date</th>
+                            <th className="px-4 py-2.5">Estimated delivery</th>
                             <th className="px-4 py-2.5">Status</th>
                             <th className="px-4 py-2.5">Action</th>
                           </tr>
@@ -2363,13 +2350,40 @@ export function ScSupervisorPage() {
                             const displayMainRef = isInterHoLocal ? j.reference : mainRef;
                             const needsConvert = j.status === "received_at_sc" && !!j.requiresLocalConversion;
                             const hasDelivery = Boolean(j.estimatedFinishDate?.trim());
-                            const isPrioritySrf =
+                            const dueSoon =
                               earliestDelivery !== null && deliveryDateSortKey(j) === earliestDelivery;
+                            const isPinnedPriority = Boolean(j.assignPriority);
+                            const isPriority = isEffectiveAssignPriority(j, earliestDelivery);
+                            const statusMeta = supervisorStatusMeta(j);
+                            const priorityTitle = isPriority
+                              ? "Turn off priority (clears yellow highlight)"
+                              : dueSoon
+                                ? "Turn priority back on"
+                                : "Mark as priority for assigning";
                             return (
                               <tr
                                 key={j.id}
-                                className="border-b border-zimson-50 transition-colors last:border-0 hover:bg-zimson-50/40"
+                                className={`border-b border-zimson-50 transition-colors last:border-0 hover:bg-zimson-50/40 ${
+                                  isPriority ? "bg-amber-50/40" : ""
+                                }`}
                               >
+                                <td className="px-2 py-3 align-top text-center">
+                                  <button
+                                    type="button"
+                                    disabled={priorityBusyId === j.id}
+                                    onClick={() => void toggleAssignPriority(j, earliestDelivery)}
+                                    className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border transition ${
+                                      isPriority
+                                        ? "border-amber-400 bg-amber-100 text-amber-700 shadow-sm"
+                                        : "border-stone-200 bg-white text-stone-400 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-600"
+                                    } disabled:opacity-50`}
+                                    title={priorityTitle}
+                                    aria-label={priorityTitle}
+                                    aria-pressed={isPriority}
+                                  >
+                                    <PriorityAssignIcon filled={isPriority} />
+                                  </button>
+                                </td>
                                 <td className="px-4 py-3 align-top">
                                   <button
                                     type="button"
@@ -2382,6 +2396,17 @@ export function ScSupervisorPage() {
                                     {displayMainRef}
                                   </button>
                                   <div className="mt-1 flex flex-wrap gap-1">
+                                    {isPriority ? (
+                                      <span
+                                        className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 ring-1 ring-amber-200"
+                                        title={priorityTitle}
+                                      >
+                                        <PriorityAssignIcon filled className="h-3 w-3" />
+                                        {isPinnedPriority
+                                          ? "Priority"
+                                          : "Priority · due soon"}
+                                      </span>
+                                    ) : null}
                                     {senderReestimate ? (
                                       <span className="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-800">
                                         Inter-HO re-estimate
@@ -2390,14 +2415,6 @@ export function ScSupervisorPage() {
                                     {isInterHoLocal ? (
                                       <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
                                         Local repair
-                                      </span>
-                                    ) : null}
-                                    {isPrioritySrf ? (
-                                      <span
-                                        className="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800 ring-1 ring-rose-200"
-                                        title="Priority suggested because this has the earliest delivery date for the brand"
-                                      >
-                                        Priority SRF · earliest delivery
                                       </span>
                                     ) : null}
                                   </div>
@@ -2428,20 +2445,20 @@ export function ScSupervisorPage() {
                                 </td>
                                 <td className="px-4 py-3 align-top">
                                   {hasDelivery ? (
-                                    <span className="inline-flex rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-200">
+                                    <span className="text-xs font-medium text-emerald-700">
                                       {formatSrfDeliveryDate(j.estimatedFinishDate)}
                                     </span>
                                   ) : (
-                                    <span className="inline-flex rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 ring-1 ring-amber-200">
-                                      Not set
-                                    </span>
+                                    <span className="text-xs font-medium text-amber-800">Not set</span>
                                   )}
                                 </td>
                                 <td className="px-4 py-3 align-top">
                                   <span
-                                    className={`inline-block max-w-[14rem] rounded-lg px-2.5 py-1 text-[11px] font-semibold leading-snug ring-1 ${supervisorStatusBadgeClass(j)}`}
+                                    className={`inline-flex max-w-[18rem] items-center gap-1.5 text-[11px] font-semibold leading-snug ${supervisorStatusBadgeClass(statusMeta.tone)}`}
+                                    title={statusMeta.title}
                                   >
-                                    {supervisorListStatusLabel(j)}
+                                    <SupervisorStatusIcon icon={statusMeta.icon} className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                                    <span className="min-w-0 leading-snug">{statusMeta.shortLabel}</span>
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 align-top">
@@ -3472,7 +3489,7 @@ export function ScSupervisorPage() {
                     ) : null}
                   </div>
                   <span className="shrink-0 rounded-full border border-rlx-gold/45 bg-rlx-gold-light/35 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-zimson-900">
-                    {j.status.replace(/_/g, " ")}
+                    {supervisorStatusMeta(j).shortLabel}
                   </span>
                 </header>
 
@@ -3591,9 +3608,9 @@ export function ScSupervisorPage() {
                       >
                         {hasSpareFlow
                           ? spareFlowInwardDone
-                            ? "Watch repaired (auto spare lines)"
+                            ? "Mark repaired (auto spare lines)"
                             : "Waiting spare inward"
-                          : "Watch repaired"}
+                          : "Mark repaired"}
                       </button>
                     ) : null}
                     <button
@@ -3672,6 +3689,26 @@ export function ScSupervisorPage() {
                     <button type="button" onClick={() => printEstimateDocument(j)} className={dqBtnDocPrint}>
                       <ActionPrintIcon />
                       Print estimate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tech = technicians.find((t) => t.id === j.assignedTechnicianId);
+                        const technicianLabel = tech
+                          ? `${tech.fullName} (${tech.grade})`
+                          : j.assignedTechnicianId
+                            ? `Technician ${j.assignedTechnicianId}`
+                            : "Technician";
+                        printAssignmentSlip(j, technicianLabel, {
+                          assignedAt: j.assignedAt ? new Date(j.assignedAt) : new Date(),
+                          serviceCentreLabel:
+                            regions.find((r) => r.id === user?.regionId)?.name ?? j.regionName,
+                        });
+                      }}
+                      className={dqBtnDocTechSlip}
+                    >
+                      <ActionPrintIcon />
+                      Print technician sheet
                     </button>
                   </DecisionActionGroup>
                 </div>
@@ -3759,7 +3796,7 @@ export function ScSupervisorPage() {
       ) : null}
       {repairPopupJobId ? (
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
-          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Add used spares from inventory</h3>
             <p className="mt-1 text-sm text-stone-600">
               {repairPopupJob?.watchBrand ? (
@@ -3776,43 +3813,45 @@ export function ScSupervisorPage() {
             <div className="mt-4 space-y-3">
               {repairLines.map((line, idx) => {
                 const watchBrand = repairPopupJob?.watchBrand ?? "";
-                const spare = activeSpares.find((s) => s.id === line.spareId);
                 const unit = resolveSpareUnitPrice(line.spareId, watchBrand);
                 const qty = Number(line.qty || 0);
                 const hoStock = line.spareId ? hoStockBySpareId[line.spareId] : undefined;
                 const lineShort =
                   line.spareId && hoStock != null && Number.isFinite(qty) && qty > 0 && qty > hoStock;
+                const spareOptions = activeSpares.map((s) => {
+                  const stock = hoStockBySpareId[s.id];
+                  const stockHint =
+                    stock != null ? (stock <= 0 ? " · Out of stock" : ` · HO ${stock}`) : "";
+                  return { value: s.id, label: `${s.sku} - ${s.name}${stockHint}` };
+                });
                 return (
                 <div key={idx} className="grid grid-cols-12 gap-2">
-                  <select
-                    value={line.spareId}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
-                      setRepairPopupError("");
-                      setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
-                      if (nextId) {
-                        void (async () => {
-                          const picked = activeSpares.find((s) => s.id === nextId);
-                          const price = await ensureSparePrice(nextId, watchBrand);
-                          if (price <= 0) {
-                            setRepairPopupError(
-                              `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? nextId})${watchBrand ? ` — add ${watchBrand} price in Inventory → Spare catalogue` : ""}.`,
-                            );
-                          }
-                          void fetchHoStockQty(nextId);
-                        })();
-                      }
-                    }}
-                    disabled={repairSaving}
-                    className="col-span-8 rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"
-                  >
-                    <option value="">Select spare...</option>
-                    {activeSpares.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.sku} - {s.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="col-span-8">
+                    <SearchableCombobox
+                      id={`ho-repair-spare-${idx}`}
+                      value={line.spareId}
+                      options={spareOptions}
+                      placeholder="Search spare by SKU or name…"
+                      disabled={repairSaving}
+                      inputClass="w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"
+                      onChange={(nextId) => {
+                        setRepairPopupError("");
+                        setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
+                        if (nextId) {
+                          void (async () => {
+                            const picked = activeSpares.find((s) => s.id === nextId);
+                            const price = await ensureSparePrice(nextId, watchBrand);
+                            if (price <= 0) {
+                              setRepairPopupError(
+                                `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? nextId})${watchBrand ? ` — add ${watchBrand} price in Inventory → Spare catalogue` : ""}.`,
+                              );
+                            }
+                            void fetchHoStockQty(nextId);
+                          })();
+                        }
+                      }}
+                    />
+                  </div>
                   <input
                     value={line.qty}
                     onChange={(e) => {
@@ -3854,6 +3893,20 @@ export function ScSupervisorPage() {
             >
               Add spare row
             </button>
+            <label className="mt-4 block text-sm font-medium text-stone-800">
+              Warranty till date <span className="text-rose-600">*</span>
+              <input
+                type="date"
+                value={repairWarrantyTillDate}
+                onChange={(e) => {
+                  setRepairPopupError("");
+                  setRepairWarrantyTillDate(e.target.value);
+                }}
+                disabled={repairSaving}
+                required
+                className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60 sm:max-w-xs"
+              />
+            </label>
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
@@ -4204,7 +4257,7 @@ export function ScSupervisorPage() {
                 />
               </label>
               <label className="text-sm">
-                New re-estimate amount (approx.) (INR) *
+                New re-estimate amount (approximate) (INR) *
                 <input
                   className="mt-1 w-full rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
                   value={reestimateAmountInput}
@@ -4806,7 +4859,7 @@ export function ScSupervisorPage() {
                         <td className="py-0.5">{formatSrfBookingDate(listDetailJob.createdAt)}</td>
                       </tr>
                       <tr>
-                        <td className="py-0.5 pr-3 font-medium text-stone-600">Delivery date</td>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Estimated delivery date</td>
                         <td className="py-0.5">{formatSrfDeliveryDate(listDetailJob.estimatedFinishDate)}</td>
                       </tr>
                       <tr>
@@ -5183,7 +5236,7 @@ export function ScSupervisorPage() {
                   })
                 }
               >
-                Print technician notes
+                Print technician sheet
               </button>
               <button
                 type="button"

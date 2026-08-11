@@ -139,10 +139,10 @@ export function SearchableCombobox({
         <ul
           id={listId}
           role="listbox"
-          className="absolute z-30 mt-0.5 max-h-48 w-full overflow-y-auto border border-rlx-rule bg-white shadow-md"
+          className="absolute z-50 mt-0.5 max-h-56 w-full overflow-y-auto rounded-xl border border-zimson-300 bg-white shadow-lg"
         >
           {filtered.length === 0 ? (
-            <li className="px-2 py-2 text-[11px] text-rlx-ink-muted">No matches</li>
+            <li className="px-3 py-2 text-xs text-rlx-ink-muted">No matches</li>
           ) : (
             filtered.map((o) => (
               <li key={o.value}>
@@ -150,7 +150,7 @@ export function SearchableCombobox({
                   type="button"
                   role="option"
                   aria-selected={value === o.value}
-                  className={`w-full px-2 py-1.5 text-left text-[11px] hover:bg-rlx-green-light ${
+                  className={`w-full px-3 py-2 text-left text-sm hover:bg-rlx-green-light ${
                     value === o.value ? "bg-rlx-green-light/80 font-semibold text-rlx-green" : "text-rlx-ink"
                   }`}
                   onMouseDown={(e) => e.preventDefault()}
@@ -165,7 +165,7 @@ export function SearchableCombobox({
             <li className="border-t border-rlx-rule">
               <button
                 type="button"
-                className="w-full px-2 py-1.5 text-left text-[11px] font-semibold text-rlx-green hover:bg-rlx-bg"
+                className="w-full px-3 py-2 text-left text-sm font-semibold text-rlx-green hover:bg-rlx-bg"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   onActionSelect?.();

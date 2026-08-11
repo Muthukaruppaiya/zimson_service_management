@@ -567,6 +567,8 @@ CREATE TABLE IF NOT EXISTS srf_jobs (
   complaint TEXT NOT NULL DEFAULT '',
   estimate_total_inr NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (estimate_total_inr >= 0),
   estimated_finish_date DATE,
+  assign_priority BOOLEAN NOT NULL DEFAULT false,
+  assign_priority_dismissed BOOLEAN NOT NULL DEFAULT false,
   advance_inr NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (advance_inr >= 0),
   advance_payment_mode VARCHAR(32),
   advance_payment_details JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -679,6 +681,8 @@ ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_mail_ref VARCHAR(120);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_markup_inr NUMERIC(14, 2);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS brand_customer_quote_inr NUMERIC(14, 2);
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS estimated_finish_date DATE;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS assign_priority BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS assign_priority_dismissed BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS repair_route VARCHAR(20) NOT NULL DEFAULT 'send_to_ho';
 UPDATE srf_jobs SET repair_route = 'send_to_ho' WHERE repair_route IS NULL OR TRIM(repair_route) = '';
 
@@ -1577,5 +1581,9 @@ export async function runMigrations(pool: Pool): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_login_otp_challenges_user ON login_otp_challenges (user_id);
     CREATE INDEX IF NOT EXISTS idx_login_otp_challenges_expiry ON login_otp_challenges (expires_at);
+  `);
+
+  await pool.query(`
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_till_date DATE;
   `);
 }

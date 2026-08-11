@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { WatchCatalogSinglePicker } from "./WatchCatalogSinglePicker";
 import { NATURE_OF_REPAIR_OPTIONS, normalizeNatureOfRepair } from "../../lib/natureOfRepair";
 import { parseWatchCatalogMultiValue } from "../../lib/watchCatalogMulti";
@@ -70,6 +71,10 @@ type Props = {
   stockWatchStoreOptions?: { id: string; name: string }[];
   stockWatchStoreId?: string;
   onStockWatchStoreChange?: (storeId: string) => void;
+  /** 2 = default pairs; 3 = denser SRF booking layout. */
+  columns?: 2 | 3;
+  /** Optional field(s) inserted at the start of the first detail row (e.g. Serial). */
+  leadingFields?: ReactNode;
 };
 
 export function WatchServiceDetailFields({
@@ -81,51 +86,118 @@ export function WatchServiceDetailFields({
   stockWatchStoreOptions = [],
   stockWatchStoreId = "",
   onStockWatchStoreChange,
+  columns = 2,
+  leadingFields,
 }: Props) {
-  const pairRow = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start";
+  const dense = columns === 3;
+  const pairRow = dense
+    ? "grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start"
+    : "grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 md:items-start";
   const isStockWatch = normalizeNatureOfRepair(values.natureOfRepair) === "internal_service";
+
+  const casePicker = (
+    <WatchCatalogSinglePicker
+      kind="case-types"
+      idPrefix={idPrefix}
+      inputClass={inputClass}
+      disabled={disabled}
+      value={values.caseType}
+      onChange={(caseType) => onChange({ caseType })}
+    />
+  );
+  const strapPicker = (
+    <WatchCatalogSinglePicker
+      kind="strap-chain-types"
+      idPrefix={idPrefix}
+      inputClass={inputClass}
+      disabled={disabled}
+      value={values.strapChainType}
+      onChange={(strapChainType) => onChange({ strapChainType })}
+    />
+  );
+  const natureField = (
+    <div className="min-w-0">
+      <label htmlFor={`${idPrefix}-nature-repair`} className="text-xs font-medium text-stone-600">
+        Nature of repair
+      </label>
+      <select
+        id={`${idPrefix}-nature-repair`}
+        value={values.natureOfRepair}
+        disabled={disabled}
+        onChange={(e) => onChange({ natureOfRepair: e.target.value })}
+        className={inputClass}
+      >
+        <option value="">Select nature of repair…</option>
+        {NATURE_OF_REPAIR_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+  const chain12 = (
+    <div className="min-w-0">
+      <label htmlFor={`${idPrefix}-chain-count-12`} className="text-xs font-medium text-stone-600">
+        12 Side Count
+      </label>
+      <input
+        id={`${idPrefix}-chain-count-12`}
+        value={values.chainCount12Phase}
+        disabled={disabled}
+        onChange={(e) => onChange({ chainCount12Phase: sanitizeTextInput(e.target.value, 32) })}
+        className={inputClass}
+        placeholder="e.g. 12"
+        inputMode="numeric"
+      />
+    </div>
+  );
+  const chain6 = (
+    <div className="min-w-0">
+      <label htmlFor={`${idPrefix}-chain-count-6`} className="text-xs font-medium text-stone-600">
+        6 Side Count
+      </label>
+      <input
+        id={`${idPrefix}-chain-count-6`}
+        value={values.chainCount6Phase}
+        disabled={disabled}
+        onChange={(e) => onChange({ chainCount6Phase: sanitizeTextInput(e.target.value, 32) })}
+        className={inputClass}
+        placeholder="e.g. 6"
+        inputMode="numeric"
+      />
+    </div>
+  );
 
   return (
     <>
-      <div className={pairRow}>
-        <WatchCatalogSinglePicker
-          kind="case-types"
-          idPrefix={idPrefix}
-          inputClass={inputClass}
-          disabled={disabled}
-          value={values.caseType}
-          onChange={(caseType) => onChange({ caseType })}
-        />
-        <WatchCatalogSinglePicker
-          kind="strap-chain-types"
-          idPrefix={idPrefix}
-          inputClass={inputClass}
-          disabled={disabled}
-          value={values.strapChainType}
-          onChange={(strapChainType) => onChange({ strapChainType })}
-        />
-      </div>
-      <div className={pairRow}>
-        <div className="min-w-0">
-          <label htmlFor={`${idPrefix}-nature-repair`} className="text-xs font-medium text-stone-600">
-            Nature of repair
-          </label>
-          <select
-            id={`${idPrefix}-nature-repair`}
-            value={values.natureOfRepair}
-            disabled={disabled}
-            onChange={(e) => onChange({ natureOfRepair: e.target.value })}
-            className={inputClass}
-          >
-            <option value="">Select nature of repair…</option>
-            {NATURE_OF_REPAIR_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {dense ? (
+        <>
+          <div className={pairRow}>
+            {leadingFields}
+            {casePicker}
+            {strapPicker}
+          </div>
+          <div className={pairRow}>
+            {natureField}
+            {chain12}
+            {chain6}
+          </div>
+        </>
+      ) : (
+        <>
+          {leadingFields ? <div className={pairRow}>{leadingFields}</div> : null}
+          <div className={pairRow}>
+            {casePicker}
+            {strapPicker}
+          </div>
+          <div className={pairRow}>{natureField}</div>
+          <div className={pairRow}>
+            {chain12}
+            {chain6}
+          </div>
+        </>
+      )}
       {isStockWatch && onStockWatchStoreChange ? (
         <div className={pairRow}>
           <div className="min-w-0">
@@ -149,36 +221,6 @@ export function WatchServiceDetailFields({
           </div>
         </div>
       ) : null}
-      <div className={pairRow}>
-        <div className="min-w-0">
-          <label htmlFor={`${idPrefix}-chain-count-12`} className="text-xs font-medium text-stone-600">
-            12 Link Chain Count
-          </label>
-          <input
-            id={`${idPrefix}-chain-count-12`}
-            value={values.chainCount12Phase}
-            disabled={disabled}
-            onChange={(e) => onChange({ chainCount12Phase: sanitizeTextInput(e.target.value, 32) })}
-            className={inputClass}
-            placeholder="e.g. 12"
-            inputMode="numeric"
-          />
-        </div>
-        <div className="min-w-0">
-          <label htmlFor={`${idPrefix}-chain-count-6`} className="text-xs font-medium text-stone-600">
-            6 Link Chain Count
-          </label>
-          <input
-            id={`${idPrefix}-chain-count-6`}
-            value={values.chainCount6Phase}
-            disabled={disabled}
-            onChange={(e) => onChange({ chainCount6Phase: sanitizeTextInput(e.target.value, 32) })}
-            className={inputClass}
-            placeholder="e.g. 6"
-            inputMode="numeric"
-          />
-        </div>
-      </div>
       <div className="min-w-0">
         <label htmlFor={`${idPrefix}-cust-remarks`} className="text-xs font-medium text-stone-600">
           Customer Remarks

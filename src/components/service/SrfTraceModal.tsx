@@ -370,7 +370,7 @@ function SrfHeader({ trace }: { trace: SrfTrace }) {
           </p>
         ) : null}
         <p>
-          <span className="font-semibold text-stone-900">Approved estimate (approx.):</span> {formatApproxEstimateInr(j.estimateTotalInr)}
+          <span className="font-semibold text-stone-900">Approved Estimate (approximate):</span> {formatApproxEstimateInr(j.estimateTotalInr)}
         </p>
         <p>
           <span className="font-semibold text-stone-900">Created:</span> {fmtDateTime(j.createdAt)}
