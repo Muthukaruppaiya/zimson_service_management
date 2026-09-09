@@ -135,12 +135,22 @@ export function InventoryBrandsPage() {
         title="Brand master"
         description="Short codes and display names used everywhere the app asks for a watch brand (spare regional prices, quick bill, SRF)."
         actions={
-          <Link
-            to="/inventory"
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Inventory home
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {canManage ? (
+              <Link
+                to="/inventory/brands/bulk-import"
+                className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              >
+                Bulk import
+              </Link>
+            ) : null}
+            <Link
+              to="/inventory"
+              className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Inventory home
+            </Link>
+          </div>
         }
       />
 

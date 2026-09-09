@@ -6,6 +6,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { buildPurchaseOrderDocument, openPrintDocument } from "../../lib/inventoryDocuments";
+import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
 import type { PurchaseOrder } from "../../types/purchaseOrder";
 import type { Supplier } from "../../types/supplier";
 
@@ -167,7 +168,7 @@ export function InventoryPoHistoryPage() {
           </svg>
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search PO#, PR#, supplier or store…"
+            placeholder={ENABLE_PR_FLOW ? "Search PO#, PR#, supplier or store…" : "Search PO#, supplier or store…"}
             className="w-full border border-rlx-rule bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-rlx-green"
           />
         </div>
@@ -203,7 +204,7 @@ export function InventoryPoHistoryPage() {
               <thead>
                 <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
                   <th className="px-5 py-3 text-left">PO#</th>
-                  <th className="px-5 py-3 text-left">PR#</th>
+                  {ENABLE_PR_FLOW ? <th className="px-5 py-3 text-left">PR#</th> : null}
                   <th className="px-5 py-3 text-left">Supplier</th>
                   {isHo && <th className="px-5 py-3 text-left">Store</th>}
                   <th className="px-5 py-3 text-left">Status</th>
@@ -216,7 +217,9 @@ export function InventoryPoHistoryPage() {
                 {filtered.map((po) => (
                   <tr key={po.id} className="border-b border-rlx-rule last:border-0 hover:bg-stone-50/50 transition">
                     <td className="px-5 py-3 font-mono text-xs font-bold text-rlx-green">{po.poNumber}</td>
-                    <td className="px-5 py-3 font-mono text-xs text-stone-500">{poPrReference(po)}</td>
+                    {ENABLE_PR_FLOW ? (
+                      <td className="px-5 py-3 font-mono text-xs text-stone-500">{poPrReference(po)}</td>
+                    ) : null}
                     <td className="px-5 py-3 font-medium text-stone-800">{po.supplierName}</td>
                     {isHo && (
                       <td className="px-5 py-3">
@@ -268,7 +271,7 @@ export function InventoryPoHistoryPage() {
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-wide text-white">{po.poNumber}</h3>
                   <p className="text-[11px] text-white/60 mt-0.5">
-                    PR: {poPrReference(po)} · Supplier: {po.supplierName}
+                    {ENABLE_PR_FLOW ? `PR: ${poPrReference(po)} · ` : ""}Supplier: {po.supplierName}
                   </p>
                 </div>
                 <div className="flex gap-2">

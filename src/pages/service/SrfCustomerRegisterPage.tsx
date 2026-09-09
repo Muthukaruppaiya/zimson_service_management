@@ -16,6 +16,10 @@ import {
   validateCustomerB2bGstin,
 } from "../../lib/zimsonCompanyGst";
 import { apiJson, useApiMode } from "../../lib/api";
+import { CustomFieldsSection } from "../../components/customFields/CustomFieldsSection";
+import { useCustomFields } from "../../hooks/useCustomFields";
+import { requiredCustomFieldError } from "../../lib/customFields";
+import type { CustomFieldValues } from "../../types/customField";
 import { companyNameFromGstLookup, lookupCompanyByGstin, lookupPanByNumber } from "../../lib/gstLookupClient";
 import {
   sanitizeEmailInput,
@@ -108,6 +112,8 @@ export function SrfCustomerRegisterPage() {
   const [remarkAttention, setRemarkAttention] = useState("");
   const [referenceName, setReferenceName] = useState("");
   const [representativeName, setRepresentativeName] = useState("");
+  const [customFields, setCustomFields] = useState<CustomFieldValues>({});
+  const { fields: extraFieldDefs } = useCustomFields("customer");
   const [gstFetchBusy, setGstFetchBusy] = useState(false);
   const [gstLookupLocked, setGstLookupLocked] = useState(false);
   const [panVerifyBusy, setPanVerifyBusy] = useState(false);
@@ -161,6 +167,7 @@ export function SrfCustomerRegisterPage() {
     setRemarkAttention("");
     setReferenceName("");
     setRepresentativeName("");
+    setCustomFields({});
     setSessionId(null);
     setDemoMobileOtp(null);
     setDemoEmailOtp(null);
@@ -541,6 +548,11 @@ export function SrfCustomerRegisterPage() {
         return false;
       }
     }
+    const customErr = requiredCustomFieldError(extraFieldDefs, customFields);
+    if (customErr) {
+      setError(customErr);
+      return false;
+    }
     return true;
   }
 
@@ -580,6 +592,7 @@ export function SrfCustomerRegisterPage() {
         remarkAttention: remarkAttention.trim() || undefined,
         referenceName: referenceName.trim() || undefined,
         representativeName: representativeName.trim() || undefined,
+        customFields,
       });
       setCreatedCustomer(row);
       setSuccessInfo({ id: row.id, customerCode: row.customerCode, phoneDigits: row.phone });
@@ -1031,6 +1044,19 @@ export function SrfCustomerRegisterPage() {
             </div>
           </div>
         </Card>
+
+        {extraFieldDefs.length > 0 ? (
+          <Card title="Custom fields">
+            <CustomFieldsSection
+              fields={extraFieldDefs}
+              values={customFields}
+              onChange={setCustomFields}
+              variant="plain"
+              inputClass={inputClass}
+              labelClass="text-xs font-medium text-stone-600"
+            />
+          </Card>
+        ) : null}
 
         {customerKind === "B2B" ? (
           <Card title="Business & tax">

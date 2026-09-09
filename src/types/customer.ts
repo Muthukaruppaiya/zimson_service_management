@@ -54,6 +54,7 @@ export type CustomerRecord = {
   phoneVerifiedAt?: string | null;
   emailVerifiedAt?: string | null;
   customerDataSource?: CustomerDataSource;
+  customFields?: Record<string, string | number | boolean | null>;
   createdAt: string;
   isSeed?: boolean;
 };
@@ -87,4 +88,5 @@ export type CustomerRegistrationPayload = {
   remarkAttention?: string;
   referenceName?: string;
   representativeName?: string;
+  customFields?: Record<string, string | number | boolean | null>;
 };

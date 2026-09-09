@@ -4,6 +4,8 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
+import { PrFlowHeldNotice } from "./PrFlowHeldNotice";
 import { buildPrDocument, buildTransferDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import { useEffect, useMemo, useState } from "react";
 
@@ -64,6 +66,11 @@ function statusLabel(status: PrRow["status"]) {
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export function InventoryPrHistoryPage() {
+  if (!ENABLE_PR_FLOW) return <PrFlowHeldNotice title="PR History" />;
+  return <InventoryPrHistoryBody />;
+}
+
+function InventoryPrHistoryBody() {
   const { user } = useAuth();
   const { spares } = useSpares();
   const navigate = useNavigate();

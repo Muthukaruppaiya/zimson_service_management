@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
 import { isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
+import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
 import { useAuth } from "../../context/AuthContext";
 import { useNavLayout } from "../../context/NavLayoutContext";
 import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } from "../../lib/appBranding";
@@ -174,12 +175,17 @@ export function Sidebar() {
       {
         title: "Purchase", icon: "purchase",
         items: [
-          { to: "/inventory/purchase-requests", label: "New PR", module: "inventory" },
-          { to: "/inventory/pr-history", label: "PR History", module: "inventory" },
+          ...(ENABLE_PR_FLOW
+            ? [
+                { to: "/inventory/purchase-requests", label: "New PR", module: "inventory" as const },
+                { to: "/inventory/pr-history", label: "PR History", module: "inventory" as const },
+              ]
+            : []),
           { to: "/inventory/purchase-orders", label: "New PO", module: "inventory" },
           { to: "/inventory/po-history", label: "PO History", module: "inventory" },
           { to: "/inventory/po-inward", label: "Post GRN", module: "inventory" },
           { to: "/inventory/grn-history", label: "GRN History", module: "inventory" },
+          { to: "/inventory/ho-transfer", label: "HO transfer", module: "inventory" },
         ],
       },
       {
@@ -221,8 +227,10 @@ export function Sidebar() {
         title: "Master Data", icon: "master",
         items: [
           { to: "/service/customers/master", label: "Customer master", module: "service" },
+          { to: "/service/customers/bulk-import", label: "Customer bulk import", module: "service" },
           { to: "/inventory/suppliers", label: "Supplier Master", module: "inventory" },
           { to: "/inventory/suppliers/new", label: "Add Supplier", module: "inventory" },
+          { to: "/inventory/suppliers/bulk-import", label: "Supplier bulk import", module: "inventory" },
           { to: "/users", label: "Users creation", module: "users" },
           { to: "/users/list", label: "Users list", module: "users" },
           { to: "/service-centre/technicians-master", label: "Technician creation/list", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager", "ho_manager"] },
@@ -238,7 +246,9 @@ export function Sidebar() {
           { to: "/settings/messaging", label: "SMS, email & WhatsApp", module: "settings", roles: ["super_admin"] },
           { to: "/settings/active-sessions", label: "Logged-in users", module: "settings", roles: ["super_admin"] },
           { to: "/settings/document-templates", label: "Document templates", module: "settings" },
+          { to: "/settings/custom-fields", label: "Custom fields", module: "settings", roles: ["super_admin", "admin"] },
           { to: "/inventory/brands", label: "Brand", module: "inventory" },
+          { to: "/inventory/brands/bulk-import", label: "Brand bulk import", module: "inventory" },
         ],
       },
     ];

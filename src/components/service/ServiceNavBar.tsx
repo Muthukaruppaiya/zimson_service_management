@@ -9,6 +9,7 @@ const baseNavItems: Array<{ to: string; label: string }> = [
   { to: "/service/srf-master", label: "SRF master" },
   { to: "/service/watch-inventory", label: "Watch inventory" },
   { to: "/service/customers/master", label: "Customer master" },
+  { to: "/service/customers/bulk-import", label: "Customer import" },
   { to: "/service/store-assign", label: "Store assign" },
   { to: "/service/store-dispatch", label: "Store dispatch" },
   { to: "/service/store-logistics-history", label: "Inward & outward history" },

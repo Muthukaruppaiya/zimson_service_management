@@ -11,6 +11,8 @@ import { publicMediaUrl } from "../../lib/mediaUrl";
 import { printEstimateDocument, printFullSrfDocument } from "../../lib/serviceDocuments";
 import { ESTIMATE_LABEL_APPROX, formatApproxEstimateCurrency } from "../../lib/formatInr";
 import type { SrfJob } from "../../types/srfJob";
+import { useCustomFields } from "../../hooks/useCustomFields";
+import { customFieldsMatchSearch, formatCustomFieldDisplay, listCustomFieldDefs } from "../../lib/customFields";
 
 const btnIcon =
   "inline-flex h-9 w-9 shrink-0 items-center justify-center border transition disabled:cursor-not-allowed disabled:opacity-50";
@@ -161,6 +163,8 @@ function buildSrfTimeline(job: SrfJob): Array<{ label: string; done: boolean; at
 export function SrfMasterTablePage() {
   const { user } = useAuth();
   const { jobs } = useSrfJobs();
+  const { fields: extraFieldDefs } = useCustomFields("srf");
+  const listExtras = useMemo(() => listCustomFieldDefs(extraFieldDefs), [extraFieldDefs]);
   const [detailJobId, setDetailJobId] = useState<string | null>(null);
   const [masterQuery, setMasterQuery] = useState("");
   const [masterStatus, setMasterStatus] = useState<string>("ALL");
@@ -198,11 +202,12 @@ export function SrfMasterTablePage() {
           j.reference.toLowerCase().includes(q) ||
           j.customerName.toLowerCase().includes(q) ||
           j.phone.toLowerCase().includes(q) ||
-          `${j.watchBrand} ${j.watchModel}`.toLowerCase().includes(q)
+          `${j.watchBrand} ${j.watchModel}`.toLowerCase().includes(q) ||
+          customFieldsMatchSearch(j.customFields, extraFieldDefs, q)
         );
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [visibleJobs, masterQuery, masterStatus, masterFromDate, masterToDate]);
+  }, [visibleJobs, masterQuery, masterStatus, masterFromDate, masterToDate, extraFieldDefs]);
 
   const totalPages = Math.max(1, Math.ceil(masterRows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -350,6 +355,9 @@ export function SrfMasterTablePage() {
                     <th className="px-3 py-3 text-left font-semibold">Customer</th>
                     <th className="col-hide-md px-3 py-3 text-left font-semibold">Watch</th>
                     <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Status</th>
+                    {listExtras.map((f) => (
+                      <th key={f.id} className="col-hide-lg whitespace-nowrap px-3 py-3 text-left font-semibold">{f.label}</th>
+                    ))}
                     <th className="col-hide-lg px-3 py-3 text-left font-semibold">DC</th>
                     <th className="col-hide-lg px-3 py-3 text-left font-semibold">ODC</th>
                     <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Actions</th>
@@ -395,6 +403,11 @@ export function SrfMasterTablePage() {
                             <span className="truncate">{statusLabel(j.status)}</span>
                           </span>
                         </td>
+                        {listExtras.map((f) => (
+                          <td key={f.id} className="col-hide-lg align-middle px-3 py-3 text-sm text-rlx-ink">
+                            {formatCustomFieldDisplay(f, j.customFields)}
+                          </td>
+                        ))}
                         <td className="col-hide-lg align-middle px-3 py-3">
                           <span className="block truncate font-mono text-sm text-rlx-ink-muted" title={j.dcNumber ?? undefined}>
                             {j.dcNumber ?? "—"}

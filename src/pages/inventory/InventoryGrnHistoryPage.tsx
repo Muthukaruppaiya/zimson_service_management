@@ -11,7 +11,7 @@ import { buildGrnDocument, openPrintDocument } from "../../lib/inventoryDocument
 
 type GrnItem = {
   id: string; poItemId: string; spareId: string;
-  qtyReceived: number; costPrice?: number; gstRate?: number; taxAmount?: number;
+  qtyReceived: number; qtyTransferred?: number; costPrice?: number; gstRate?: number; taxAmount?: number;
 };
 type GrnRow = {
   id: string; grnNumber: string; poId: string; poNumber: string;
@@ -35,6 +35,10 @@ function grnTotals(items: GrnItem[]) {
   return { subtotal: +subtotal.toFixed(2), totalTax: +totalTax.toFixed(2), grand: +(subtotal + totalTax).toFixed(2) };
 }
 
+function grnPendingQty(items: GrnItem[]) {
+  return items.reduce((s, i) => s + Math.max(0, i.qtyReceived - (i.qtyTransferred ?? 0)), 0);
+}
+
 function fmt(v: number) {
   return `₹${v.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
 }
@@ -53,10 +57,11 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
-function GrnDetailModal({ grn, spareNameById, onClose }: {
+function GrnDetailModal({ grn, spareNameById, onClose, onTransfer }: {
   grn: GrnRow;
   spareNameById: Map<string, string>;
   onClose: () => void;
+  onTransfer?: () => void;
 }) {
   const totals = grnTotals(grn.items);
   const hasPricing = grn.items.some((i) => (i.costPrice ?? 0) > 0);
@@ -98,7 +103,9 @@ function GrnDetailModal({ grn, spareNameById, onClose }: {
               <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
                 <th className="px-5 py-2.5 text-left">#</th>
                 <th className="px-5 py-2.5 text-left">Spare</th>
-                <th className="px-5 py-2.5 text-center">Qty</th>
+                <th className="px-5 py-2.5 text-center">Received</th>
+                <th className="px-5 py-2.5 text-center">Transferred</th>
+                <th className="px-5 py-2.5 text-center">Pending</th>
                 {hasPricing && <>
                   <th className="px-5 py-2.5 text-right">Cost/Unit</th>
                   <th className="px-5 py-2.5 text-center">GST %</th>
@@ -118,6 +125,8 @@ function GrnDetailModal({ grn, spareNameById, onClose }: {
                     <td className="px-5 py-2.5 text-stone-400">{idx + 1}</td>
                     <td className="px-5 py-2.5 text-stone-800">{spareNameById.get(i.spareId) ?? i.spareId}</td>
                     <td className="px-5 py-2.5 text-center font-semibold text-stone-700">{i.qtyReceived}</td>
+                    <td className="px-5 py-2.5 text-center text-stone-600">{i.qtyTransferred ?? 0}</td>
+                    <td className="px-5 py-2.5 text-center font-semibold text-rlx-green">{Math.max(0, i.qtyReceived - (i.qtyTransferred ?? 0))}</td>
                     {hasPricing && <>
                       <td className="px-5 py-2.5 text-right text-stone-600">{cp > 0 ? fmt(cp) : "—"}</td>
                       <td className="px-5 py-2.5 text-center text-stone-500">{cp > 0 ? `${i.gstRate ?? 18}%` : "—"}</td>
@@ -161,6 +170,12 @@ function GrnDetailModal({ grn, spareNameById, onClose }: {
             className="bg-rlx-green px-6 py-2 text-sm font-semibold text-white hover:bg-rlx-green/90 transition">
             Print GRN
           </button>
+          {onTransfer && grnPendingQty(grn.items) > 0 ? (
+            <button type="button" onClick={onTransfer}
+              className="border border-rlx-rule px-6 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition">
+              Transfer remaining
+            </button>
+          ) : null}
           <button type="button" onClick={onClose}
             className="border border-rlx-rule px-6 py-2 text-sm font-semibold text-stone-600 hover:bg-stone-50 transition">
             Close
@@ -317,6 +332,7 @@ export function InventoryGrnHistoryPage() {
                   <th className="px-5 py-3 text-left">Mode</th>
                   <th className="px-5 py-3 text-left">Invoice</th>
                   <th className="px-5 py-3 text-center">Lines</th>
+                  <th className="px-5 py-3 text-center">Pending</th>
                   <th className="px-5 py-3 text-right">Grand Total</th>
                   <th className="px-5 py-3 text-center">Date</th>
                   <th className="px-5 py-3 text-center">Actions</th>
@@ -326,6 +342,7 @@ export function InventoryGrnHistoryPage() {
                 {filtered.map((g) => {
                   const t = grnTotals(g.items);
                   const hasPricing = g.items.some((i) => (i.costPrice ?? 0) > 0);
+                  const pending = grnPendingQty(g.items);
                   return (
                     <tr key={g.id}
                       onClick={() => setSelectedGrn(g)}
@@ -340,6 +357,13 @@ export function InventoryGrnHistoryPage() {
                       </td>
                       <td className="px-5 py-3 text-stone-600">{g.invoiceNumber ?? "—"}</td>
                       <td className="px-5 py-3 text-center text-stone-600">{g.items.length}</td>
+                      <td className="px-5 py-3 text-center">
+                        {pending > 0 ? (
+                          <span className="font-semibold text-rlx-green">{pending}</span>
+                        ) : (
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Sent</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3 text-right font-semibold text-stone-700">
                         {hasPricing ? fmt(t.grand) : "—"}
                       </td>
@@ -368,6 +392,13 @@ export function InventoryGrnHistoryPage() {
                             className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition">
                             Print
                           </button>
+                          {pending > 0 ? (
+                            <button type="button"
+                              onClick={() => navigate(`/inventory/ho-transfer?grnId=${encodeURIComponent(g.id)}`)}
+                              className="border border-rlx-green px-2.5 py-1 text-[11px] font-semibold text-rlx-green hover:bg-green-50 transition">
+                              Transfer
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -381,7 +412,16 @@ export function InventoryGrnHistoryPage() {
 
       {/* Detail Modal */}
       {selectedGrn && (
-        <GrnDetailModal grn={selectedGrn} spareNameById={spareNameById} onClose={() => setSelectedGrn(null)} />
+        <GrnDetailModal
+          grn={selectedGrn}
+          spareNameById={spareNameById}
+          onClose={() => setSelectedGrn(null)}
+          onTransfer={
+            grnPendingQty(selectedGrn.items) > 0
+              ? () => navigate(`/inventory/ho-transfer?grnId=${encodeURIComponent(selectedGrn.id)}`)
+              : undefined
+          }
+        />
       )}
     </div>
   );

@@ -31,6 +31,13 @@ import { startEdocRetryWorker } from "./edocRetryWorker";
 import { registerMessagingSettingsRoutes } from "./messagingSettingsRoutes";
 import { registerHsnMasterRoutes } from "./hsnMasterRoutes";
 import { registerInventoryBulkImportRoutes } from "./inventoryBulkImportRoutes";
+import { registerSupplierBulkImportRoutes } from "./supplierBulkImportRoutes";
+import { registerCustomerBulkImportRoutes } from "./customerBulkImportRoutes";
+import { registerBrandBulkImportRoutes } from "./brandBulkImportRoutes";
+import { registerInventoryDirectPurchaseRoutes } from "./inventoryDirectPurchaseRoutes";
+import { registerCustomFieldRoutes } from "./customFieldRoutes";
+import { validateEntityCustomFields } from "./customFields";
+import { rejectIfPrFlowHeld } from "./inventoryFeatureFlags";
 import { registerSrfRoutes } from "./srfRoutes";
 import { registerDeliveryHandoffRoutes } from "./deliveryHandoffRoutes";
 import { registerEdocRoutes } from "./edocRoutes";
@@ -140,6 +147,7 @@ const CUSTOMERS_SELECT_FIELDS = `
   phone_verified_at AS "phoneVerifiedAt",
   email_verified_at AS "emailVerifiedAt",
   customer_data_source AS "customerDataSource",
+  custom_fields AS "customFields",
   created_at AS "createdAt"
 `;
 
@@ -213,6 +221,10 @@ function rowToCustomer(r: Record<string, unknown>): CustomerRecord {
     phoneVerifiedAt: iso(r.phoneVerifiedAt),
     emailVerifiedAt: iso(r.emailVerifiedAt),
     customerDataSource: (r.customerDataSource as CustomerRecord["customerDataSource"]) ?? "registered",
+    customFields:
+      r.customFields && typeof r.customFields === "object" && !Array.isArray(r.customFields)
+        ? (r.customFields as CustomerRecord["customFields"])
+        : {},
     createdAt: iso(r.createdAt) ?? new Date().toISOString(),
   };
 }
@@ -2000,6 +2012,7 @@ app.get("/api/inventory/prs/:prId/ho-stock", requireAuth, async (req, res) => {
 });
 
 app.post("/api/inventory/prs", requireAuth, async (req, res) => {
+  if (rejectIfPrFlowHeld(res)) return;
   if (!dbPool) {
     res.status(503).json({ error: "Database is required for PR module." });
     return;
@@ -2147,6 +2160,7 @@ app.post("/api/inventory/prs/:prId/remind", requireAuth, async (req, res) => {
 });
 
 app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
+  if (rejectIfPrFlowHeld(res)) return;
   if (!dbPool) {
     res.status(503).json({ error: "Database is required for PR module." });
     return;
@@ -2315,6 +2329,7 @@ app.post("/api/inventory/prs/:prId/store-approve", requireAuth, async (req, res)
 });
 
 app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
+  if (rejectIfPrFlowHeld(res)) return;
   if (!dbPool) {
     res.status(503).json({ error: "Database is required for PR module." });
     return;
@@ -2560,6 +2575,7 @@ app.post("/api/notifications/service-dispatch", requireAuth, async (req, res) =>
 });
 
 app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
+  if (rejectIfPrFlowHeld(res)) return;
   if (!dbPool) {
     res.status(503).json({ error: "Database is required for PR module." });
     return;
@@ -2734,6 +2750,7 @@ app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
 });
 
 app.post("/api/inventory/allocations/suggest", requireAuth, async (req, res) => {
+  if (rejectIfPrFlowHeld(res)) return;
   if (!dbPool) {
     res.status(503).json({ error: "Database is required." });
     return;
@@ -2839,6 +2856,7 @@ app.post("/api/inventory/allocations/suggest", requireAuth, async (req, res) => 
 });
 
 app.post("/api/inventory/allocations/confirm", requireAuth, async (req, res) => {
+  if (rejectIfPrFlowHeld(res)) return;
   if (!dbPool) {
     res.status(503).json({ error: "Database is required." });
     return;
@@ -3821,6 +3839,12 @@ app.post("/api/customers", async (req, res) => {
   ].join("\n");
   const cityLegacy = `${billingAddress.city}, ${billingAddress.district}`.slice(0, 120);
 
+  const customChecked = await validateEntityCustomFields(dbPool, "customer", (body as { customFields?: unknown }).customFields);
+  if (!customChecked.ok) {
+    res.status(400).json({ error: customChecked.error });
+    return;
+  }
+
   const id = createId("cust");
   const client = await dbPool.connect();
   try {
@@ -3849,6 +3873,7 @@ app.post("/api/customers", async (req, res) => {
          remark_attention, reference_name, representative_name,
          additional_addresses,
          phone_verified_at, email_verified_at, customer_data_source,
+         custom_fields,
          created_by, modified_by
        ) VALUES (
          $1, $2, $3, $4, $5, $6,
@@ -3861,6 +3886,7 @@ app.post("/api/customers", async (req, res) => {
          $25, $26, $27,
          $28::jsonb,
          now(), now(), 'registered',
+         $30::jsonb,
          $29, $29
        )`,
       [
@@ -3893,6 +3919,7 @@ app.post("/api/customers", async (req, res) => {
         representativeName,
         additionalJson,
         actor?.id ?? null,
+        JSON.stringify(customChecked.values),
       ],
     );
     const { rows } = await client.query(
@@ -3936,11 +3963,16 @@ app.put("/api/customers/:id", async (req, res) => {
     company?: string;
     gst?: string;
     pan?: string;
+    customFields?: unknown;
   };
   const displayName = String(body.displayName ?? "").trim();
   const phone = String(body.phone ?? "").trim();
   const alternatePhone = String(body.alternatePhone ?? "").trim() || null;
   const email = String(body.email ?? "").trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: "Enter a valid email or leave it blank. Email is not mandatory." });
+    return;
+  }
   const address = String(body.address ?? "").trim() || null;
   const city = String(body.city ?? "").trim() || null;
   const customerKind = body.customerKind;
@@ -3985,6 +4017,15 @@ app.put("/api/customers/:id", async (req, res) => {
       return;
     }
   }
+  let customFieldsJson: string | undefined;
+  if (body.customFields !== undefined) {
+    const customChecked = await validateEntityCustomFields(dbPool, "customer", body.customFields);
+    if (!customChecked.ok) {
+      res.status(400).json({ error: customChecked.error });
+      return;
+    }
+    customFieldsJson = JSON.stringify(customChecked.values);
+  }
   try {
     const upd = await dbPool.query(
       `UPDATE customers
@@ -4001,8 +4042,11 @@ app.put("/api/customers/:id", async (req, res) => {
            pan = $12,
            modified_by = $13,
            updated_at = now()
+           ${customFieldsJson !== undefined ? ", custom_fields = $14::jsonb" : ""}
        WHERE id = $1`,
-      [id, displayName, phone, p10, alternatePhone, email, address, city, customerKind, company, gst, pan, actor?.id ?? null],
+      customFieldsJson !== undefined
+        ? [id, displayName, phone, p10, alternatePhone, email, address, city, customerKind, company, gst, pan, actor?.id ?? null, customFieldsJson]
+        : [id, displayName, phone, p10, alternatePhone, email, address, city, customerKind, company, gst, pan, actor?.id ?? null],
     );
     if ((upd.rowCount ?? 0) === 0) {
       res.status(404).json({ error: "Customer not found." });
@@ -4073,6 +4117,7 @@ async function main() {
     return findUser(id) ?? null;
   });
   registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(id), allUsers, pushNotifications);
+  registerInventoryDirectPurchaseRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerServiceInvoiceRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerClientReportsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
@@ -4089,7 +4134,11 @@ async function main() {
   await initMessagingSettings(dbPool);
   registerMessagingSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerSupplierBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerCustomerBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerBrandBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerHsnMasterRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerCustomFieldRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
   registerDeliveryHandoffRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

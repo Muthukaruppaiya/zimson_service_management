@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
+import { SparePicker } from "../../components/inventory/SparePicker";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
+import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
 import { buildPurchaseOrderDocument as _buildPurchaseOrderDocument, openPrintDocument as _openPrintDocument } from "../../lib/inventoryDocuments";
 import type { PurchaseOrder } from "../../types/purchaseOrder";
 import type { Supplier } from "../../types/supplier";
@@ -96,6 +99,7 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
 export function InventoryPurchaseOrdersPage() {
   const { user } = useAuth();
   const { spares } = useSpares();
+  const { regions } = useRegions();
   const navigate = useNavigate();
 
   const isHo =
@@ -103,11 +107,17 @@ export function InventoryPurchaseOrdersPage() {
     user?.role === "ho_manager" || user?.role === "ho_purchase";
 
   const [_prs, setPrs] = useState<PrRow[]>([]);
-  const [_suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [, setPos] = useState<PurchaseOrder[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [successPoNumbers, setSuccessPoNumbers] = useState<string[] | null>(null);
+  const [supplierId, setSupplierId] = useState("");
+  const [regionId, setRegionId] = useState(user?.regionId ?? "");
+  const [notes, setNotes] = useState("");
+  const [standaloneLines, setStandaloneLines] = useState<Array<{ spareId: string; qty: string }>>([
+    { spareId: "", qty: "1" },
+  ]);
   const [consolidationRows, setConsolidationRows] = useState<ConsolidationRow[]>([]);
   const [selectedDemand, setSelectedDemand] = useState<Record<string, boolean>>({});
   const [selectedSupplierByItem, setSelectedSupplierByItem] = useState<Record<string, string>>({});
@@ -122,17 +132,19 @@ export function InventoryPurchaseOrdersPage() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [prData, supData, poData] = await Promise.all([
-        apiJson<{ prs: PrRow[] }>("/api/inventory/prs"),
+      const [supData, poData] = await Promise.all([
         apiJson<{ suppliers: Supplier[] }>("/api/inventory/suppliers"),
         apiJson<{ pos: PurchaseOrder[] }>("/api/inventory/pos"),
       ]);
-      setPrs(prData.prs);
       setSuppliers(supData.suppliers);
       setPos(poData.pos);
-      if (isHo) {
-        const cData = await apiJson<{ rows: ConsolidationRow[] }>("/api/inventory/po-consolidation");
-        setConsolidationRows(cData.rows);
+      if (ENABLE_PR_FLOW) {
+        const prData = await apiJson<{ prs: PrRow[] }>("/api/inventory/prs");
+        setPrs(prData.prs);
+        if (isHo) {
+          const cData = await apiJson<{ rows: ConsolidationRow[] }>("/api/inventory/po-consolidation");
+          setConsolidationRows(cData.rows);
+        }
       }
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not load data.");
@@ -140,6 +152,44 @@ export function InventoryPurchaseOrdersPage() {
   }, [isHo]);
 
   useEffect(() => { void loadAll(); }, [loadAll]);
+
+  useEffect(() => {
+    if (!regionId && (user?.regionId || regions[0])) setRegionId(user?.regionId || regions[0]!.id);
+  }, [regionId, regions, user?.regionId]);
+
+  async function createStandalonePo() {
+    const items = standaloneLines
+      .map((l) => ({ spareId: l.spareId, qtyOrdered: Number(l.qty), unitPrice: 0 }))
+      .filter((l) => l.spareId && l.qtyOrdered > 0);
+    if (!supplierId) {
+      setErr("Select a supplier.");
+      return;
+    }
+    if (!regionId) {
+      setErr("Select a region.");
+      return;
+    }
+    if (items.length === 0) {
+      setErr("Add at least one spare with quantity.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const data = await apiJson<{ poNumber: string }>("/api/inventory/pos/standalone", {
+        method: "POST",
+        json: { supplierId, regionId, notes, items },
+      });
+      setStandaloneLines([{ spareId: "", qty: "1" }]);
+      setNotes("");
+      setSuccessPoNumbers([data.poNumber]);
+      await loadAll();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not create PO.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
 
   // Commented out — stat cards temporarily disabled
@@ -207,7 +257,7 @@ export function InventoryPurchaseOrdersPage() {
         <InventoryBreadcrumb current="Purchase orders" />
         <PageHeader
           title="Purchase Orders (PO)"
-          description="POs are raised at HO based on approved store PRs."
+          description={ENABLE_PR_FLOW ? "POs are raised at HO based on approved store PRs." : "POs are created at HO. Purchase request flow is on hold."}
           actions={
             <button type="button" onClick={() => navigate(-1)} className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition">
               ← Back
@@ -256,13 +306,105 @@ export function InventoryPurchaseOrdersPage() {
 
       {err && <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">✕ {err}</div>}
 
-      {/* ── Single PR → PO (temporarily hidden) ─────────────────────────────
-      <div className="mb-6 border border-rlx-rule bg-white shadow-sm">
-        …
-      </div>
-      ── */}
-
-      {/* ── Consolidated demand → supplier-wise POs ──────────────────────────── */}
+      {!ENABLE_PR_FLOW ? (
+        <div className="border border-rlx-rule bg-white shadow-sm">
+          <SectionHeader
+            title="Direct PO (no PR)"
+            subtitle="HO Purchase raises the PO first. Pricing is captured at GRN. Then transfer HO stock to the store."
+          />
+          <div className="space-y-4 p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label>
+                <span className="block text-[11px] font-semibold uppercase tracking-widest text-stone-500">Supplier</span>
+                <select
+                  className="mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
+                  value={supplierId}
+                  onChange={(e) => setSupplierId(e.target.value)}
+                >
+                  <option value="">Select supplier…</option>
+                  {suppliers.filter((s) => s.isActive).map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="block text-[11px] font-semibold uppercase tracking-widest text-stone-500">Region (HO stock)</span>
+                <select
+                  className="mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
+                  value={regionId}
+                  disabled={Boolean(user?.regionId) && user?.role !== "super_admin"}
+                  onChange={(e) => setRegionId(e.target.value)}
+                >
+                  {regions.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="sm:col-span-2">
+                <span className="block text-[11px] font-semibold uppercase tracking-widest text-stone-500">Notes</span>
+                <input
+                  className="mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+            </div>
+            <div className="space-y-3">
+              {standaloneLines.map((line, idx) => (
+                <div key={idx} className="grid gap-3 border border-rlx-rule p-3 sm:grid-cols-[1fr_8rem_auto]">
+                  <SparePicker
+                    value={line.spareId}
+                    onChange={(id) => setStandaloneLines((prev) => prev.map((l, i) => (i === idx ? { ...l, spareId: id } : l)))}
+                    spares={spares}
+                  />
+                  <label>
+                    <span className="block text-[11px] font-semibold uppercase tracking-widest text-stone-500">Qty</span>
+                    <input
+                      type="number"
+                      min={0.001}
+                      step={0.001}
+                      className="mt-1 w-full border border-rlx-rule px-2 py-2 text-sm outline-none focus:border-rlx-green"
+                      value={line.qty}
+                      onChange={(e) => setStandaloneLines((prev) => prev.map((l, i) => (i === idx ? { ...l, qty: e.target.value } : l)))}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="self-end border border-rlx-rule px-3 py-2 text-xs text-stone-500 hover:bg-stone-50"
+                    onClick={() => setStandaloneLines((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== idx)))}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="text-xs font-semibold text-rlx-green hover:underline"
+              onClick={() => setStandaloneLines((prev) => [...prev, { spareId: "", qty: "1" }])}
+            >
+              + Add line
+            </button>
+            <div className="flex flex-wrap gap-3 border-t border-rlx-rule pt-4">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void createStandalonePo()}
+                className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white transition hover:bg-rlx-green/90 disabled:opacity-40"
+              >
+                {busy ? "Creating…" : "Create PO"}
+              </button>
+              <Link to="/inventory/po-inward" className="px-4 py-2.5 text-sm font-semibold text-rlx-green hover:underline">
+                Next: Post GRN →
+              </Link>
+              <Link to="/inventory/ho-transfer" className="px-4 py-2.5 text-sm font-semibold text-rlx-green hover:underline">
+                Transfer to store →
+              </Link>
+            </div>
+          </div>
+        </div>
+      ) : (
       <div className="border border-rlx-rule bg-white shadow-sm">
         <SectionHeader
           title="Consolidated Demand → Supplier-wise POs"
@@ -411,6 +553,7 @@ export function InventoryPurchaseOrdersPage() {
           )}
         </div>
       </div>
+      )}
 
       {/* Success popup */}
       {successPoNumbers && (

@@ -8,6 +8,16 @@ import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../../lib/gst
 import { validateCustomerB2bGstin } from "../../../lib/zimsonCompanyGst";
 import { apiJson } from "../../../lib/api";
 import type { CustomerKind, CustomerRecord } from "../../../types/customer";
+import { CustomFieldsSection } from "../../../components/customFields/CustomFieldsSection";
+import { useCustomFields } from "../../../hooks/useCustomFields";
+import {
+  customFieldsMatchSearch,
+  formatCustomFieldDisplay,
+  listCustomFieldDefs,
+  parseCustomFieldValues,
+  requiredCustomFieldError,
+} from "../../../lib/customFields";
+import type { CustomFieldValues } from "../../../types/customField";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 placeholder:text-stone-400 focus:ring-2";
@@ -24,6 +34,7 @@ type EditableCustomer = {
   company: string;
   gst: string;
   pan: string;
+  customFields: CustomFieldValues;
 };
 
 function toEditable(c: CustomerRecord): EditableCustomer {
@@ -39,10 +50,13 @@ function toEditable(c: CustomerRecord): EditableCustomer {
     company: c.company ?? "",
     gst: c.gst ?? "",
     pan: c.pan ?? "",
+    customFields: parseCustomFieldValues(c.customFields),
   };
 }
 
 export function CustomerMasterPage() {
+  const { fields: extraFieldDefs } = useCustomFields("customer");
+  const listExtras = useMemo(() => listCustomFieldDefs(extraFieldDefs), [extraFieldDefs]);
   const [rows, setRows] = useState<CustomerRecord[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -77,9 +91,9 @@ export function CustomerMasterPage() {
       [c.displayName, c.phone, c.alternatePhone ?? "", c.email, c.city ?? "", c.company ?? "", c.customerCode ?? ""]
         .join(" ")
         .toLowerCase()
-        .includes(q),
+        .includes(q) || customFieldsMatchSearch(c.customFields, extraFieldDefs, q),
     );
-  }, [rows, query]);
+  }, [rows, query, extraFieldDefs]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pagedRows = useMemo(() => {
@@ -128,8 +142,8 @@ export function CustomerMasterPage() {
       setError("Name and primary mobile are required.");
       return;
     }
-    if (!edit.email.trim() || !edit.email.includes("@")) {
-      setError("Valid email is required.");
+    if (edit.email.trim() && !edit.email.includes("@")) {
+      setError("Enter a valid email or leave it blank. Email is not mandatory.");
       return;
     }
     if (!edit.address.trim() || !edit.city.trim()) {
@@ -155,6 +169,11 @@ export function CustomerMasterPage() {
         return;
       }
     }
+    const customErr = requiredCustomFieldError(extraFieldDefs, edit.customFields);
+    if (customErr) {
+      setError(customErr);
+      return;
+    }
     setSaving(true);
     try {
       const data = await apiJson<{ customer: CustomerRecord }>(`/api/customers/${encodeURIComponent(edit.id)}`, {
@@ -170,6 +189,7 @@ export function CustomerMasterPage() {
           company: edit.customerKind === "B2B" ? edit.company : "",
           gst: edit.customerKind === "B2B" ? edit.gst : "",
           pan: edit.customerKind === "B2B" ? edit.pan : "",
+          customFields: edit.customFields,
         },
       });
       setRows((prev) => prev.map((r) => (r.id === data.customer.id ? data.customer : r)));
@@ -188,12 +208,20 @@ export function CustomerMasterPage() {
         title="Customer master"
         description=""
         actions={
-          <Link
-            to="/service/customers/register"
-            className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
-          >
-            Create customer →
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/service/customers/bulk-import"
+              className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
+            >
+              Bulk import
+            </Link>
+            <Link
+              to="/service/customers/register"
+              className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
+            >
+              Create customer →
+            </Link>
+          </div>
         }
       />
       {error ? <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
@@ -230,6 +258,9 @@ export function CustomerMasterPage() {
                     <th className="px-3 py-2 font-semibold">Email</th>
                     <th className="px-3 py-2 font-semibold">City</th>
                     <th className="px-3 py-2 font-semibold">Type</th>
+                    {listExtras.map((f) => (
+                      <th key={f.id} className="px-3 py-2 font-semibold">{f.label}</th>
+                    ))}
                     <th className="px-3 py-2 font-semibold">Verified</th>
                     <th className="px-3 py-2 font-semibold">Action</th>
                   </tr>
@@ -246,6 +277,9 @@ export function CustomerMasterPage() {
                       <td className="px-3 py-2">{c.email || "-"}</td>
                       <td className="px-3 py-2">{c.city || "-"}</td>
                       <td className="px-3 py-2">{c.customerKind}</td>
+                      {listExtras.map((f) => (
+                        <td key={f.id} className="px-3 py-2">{formatCustomFieldDisplay(f, c.customFields)}</td>
+                      ))}
                       <td className="px-3 py-2">
                         {fullyVerified ? (
                           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
@@ -315,7 +349,7 @@ export function CustomerMasterPage() {
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="text-sm">Customer name<input className={inputClass} value={edit.displayName} onChange={(e) => setEdit((p) => (p ? { ...p, displayName: e.target.value } : p))} /></label>
               <label className="text-sm">Primary mobile<input className={inputClass} value={edit.phone} onChange={(e) => setEdit((p) => (p ? { ...p, phone: e.target.value } : p))} /></label>
-              <label className="text-sm">Email<input className={inputClass} type="email" value={edit.email} onChange={(e) => setEdit((p) => (p ? { ...p, email: e.target.value } : p))} /></label>
+              <label className="text-sm">Email (optional)<input className={inputClass} type="email" value={edit.email} onChange={(e) => setEdit((p) => (p ? { ...p, email: e.target.value } : p))} /></label>
               <label className="text-sm">Alternate mobile<input className={inputClass} value={edit.alternatePhone} onChange={(e) => setEdit((p) => (p ? { ...p, alternatePhone: e.target.value } : p))} /></label>
               <label className="text-sm">Address<input className={inputClass} value={edit.address} onChange={(e) => setEdit((p) => (p ? { ...p, address: e.target.value } : p))} /></label>
               <label className="text-sm">City<input className={inputClass} value={edit.city} onChange={(e) => setEdit((p) => (p ? { ...p, city: e.target.value } : p))} /></label>
@@ -361,6 +395,16 @@ export function CustomerMasterPage() {
                 <label className="text-sm">PAN<input className={inputClass} value={edit.pan} onChange={(e) => setEdit((p) => (p ? { ...p, pan: e.target.value.toUpperCase() } : p))} /></label>
               </div>
             ) : null}
+            <div className="mt-4">
+              <CustomFieldsSection
+                fields={extraFieldDefs}
+                values={edit.customFields}
+                onChange={(next) => setEdit((p) => (p ? { ...p, customFields: next } : p))}
+                variant="plain"
+                inputClass={inputClass}
+                labelClass="text-sm"
+              />
+            </div>
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"

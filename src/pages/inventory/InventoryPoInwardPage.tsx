@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
@@ -45,8 +45,8 @@ function computeTax(costPrice: number, qty: number, gstRate: number, isInterstat
 
 // ── Success Modal ─────────────────────────────────────────────────────────────
 
-function GrnSuccessModal({ grnNumber, movedQty, onClose }: {
-  grnNumber: string; movedQty: number; onClose: () => void;
+function GrnSuccessModal({ grnNumber, grnId, movedQty, onClose }: {
+  grnNumber: string; grnId?: string; movedQty: number; onClose: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }}>
@@ -64,7 +64,13 @@ function GrnSuccessModal({ grnNumber, movedQty, onClose }: {
           <p className="font-mono text-2xl font-bold text-rlx-green">{grnNumber}</p>
           <p className="text-sm text-stone-500 mt-2">{movedQty} unit(s) moved to HO stock.</p>
         </div>
-        <div className="border-t border-rlx-rule bg-rlx-bg px-6 py-4 flex justify-center">
+        <div className="border-t border-rlx-rule bg-rlx-bg px-6 py-4 flex flex-wrap justify-center gap-2">
+          <Link
+            to={grnId ? `/inventory/ho-transfer?grnId=${encodeURIComponent(grnId)}` : "/inventory/ho-transfer"}
+            className="border border-rlx-rule bg-white px-6 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition"
+          >
+            Transfer against GRN
+          </Link>
           <button type="button" onClick={onClose}
             className="bg-rlx-green px-8 py-2 text-sm font-semibold text-white hover:bg-rlx-green/90 transition">
             Post Another GRN
@@ -108,7 +114,7 @@ export function InventoryPoInwardPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [successData, setSuccessData] = useState<{ grnNumber: string; movedQty: number } | null>(null);
+  const [successData, setSuccessData] = useState<{ grnNumber: string; grnId?: string; movedQty: number } | null>(null);
 
   const spareById = useMemo(() => {
     const m = new Map<string, SparePart>();
@@ -195,7 +201,7 @@ export function InventoryPoInwardPage() {
     setBusy(true);
     try {
       // Use FormData only if file is attached, otherwise use JSON
-      let data: { grnNumber: string; movedQty: number; poStatus: string };
+      let data: { id?: string; grnNumber: string; movedQty: number; poStatus: string };
       if (invoiceFile) {
         const fd = new FormData();
         fd.append("poId", selectedPo.id);
@@ -233,7 +239,7 @@ export function InventoryPoInwardPage() {
           taxAmount: l.taxAmount,
         })),
       }));
-      setSuccessData({ grnNumber: data.grnNumber, movedQty: data.movedQty });
+      setSuccessData({ grnNumber: data.grnNumber, grnId: data.id, movedQty: data.movedQty });
       setSelectedPoId(""); setInvoiceNumber(""); setInvoiceDate(""); setNotes(""); setLineState({}); setInvoiceFile(null);
       if (fileRef.current) fileRef.current.value = "";
       await loadData();
@@ -452,7 +458,7 @@ export function InventoryPoInwardPage() {
 
       {/* Success modal */}
       {successData && (
-        <GrnSuccessModal grnNumber={successData.grnNumber} movedQty={successData.movedQty} onClose={() => setSuccessData(null)} />
+        <GrnSuccessModal grnNumber={successData.grnNumber} grnId={successData.grnId} movedQty={successData.movedQty} onClose={() => setSuccessData(null)} />
       )}
     </div>
   );

@@ -9,23 +9,23 @@ export const BULK_IMPORT_SPARES_COLUMNS: BulkImportColumn[] = [
   { key: "sku", label: "Product Code", required: true, note: "Unique identifier, e.g. SP-GLASS-001" },
   { key: "name", label: "Product Name", required: true, note: "Short display name" },
   { key: "description", label: "Product Description", required: true, note: "Longer product description" },
-  { key: "category", label: "Category", required: true, note: "Glass / Battery / Crown / Strap / Movement / Other…" },
+  { key: "category", label: "Category", required: true, note: "Excel dropdown (Glass, Battery, Crown, Strap, Movement…)" },
   { key: "hsn", label: "HSN", required: false, note: "HSN tariff code" },
   { key: "mrp_inr", label: "MRP (INR)", required: false, note: "Maximum retail price in INR" },
-  { key: "is_active", label: "Active", required: true, note: "Y / N — controls catalogue visibility" },
+  { key: "is_active", label: "Active", required: true, note: "Y / N — Excel dropdown" },
 ];
 
 export const BULK_IMPORT_PRICES_COLUMNS: BulkImportColumn[] = [
   { key: "sku", label: "Product Code", required: true, note: "Must match a product code in the Spares sheet" },
-  { key: "region_name", label: "Region Name", required: true, note: "Exact region name (e.g. COIMBATORE HO)" },
-  { key: "watch_brand", label: "Watch Brand", required: true, note: "Brand name the price applies to" },
+  { key: "region_name", label: "Region Name", required: true, note: "Excel dropdown of your regions" },
+  { key: "watch_brand", label: "Watch Brand", required: true, note: "Excel dropdown of active brands" },
   { key: "price_inr", label: "Price (INR)", required: true, note: "Selling price in INR (numeric)" },
 ];
 
 export const BULK_IMPORT_STOCK_COLUMNS: BulkImportColumn[] = [
   { key: "sku", label: "Product Code", required: true, note: "Must match a product code in the Spares sheet" },
-  { key: "location_type", label: "Location Type", required: true, note: "HO or STORE" },
-  { key: "region_name", label: "Region Name", required: true, note: "Region name (e.g. COIMBATORE HO)" },
+  { key: "location_type", label: "Location Type", required: true, note: "HO or STORE — Excel dropdown" },
+  { key: "region_name", label: "Region Name", required: true, note: "Excel dropdown of your regions" },
   { key: "store_name", label: "Store Name", required: false, note: "Required when Location Type = STORE" },
   { key: "quantity", label: "Quantity", required: true, note: "Integer quantity (non-negative)" },
 ];

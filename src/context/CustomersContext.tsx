@@ -377,6 +377,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
             remarkAttention: optTrim(input.remarkAttention) || undefined,
             referenceName: optTrim(input.referenceName) || undefined,
             representativeName: optTrim(input.representativeName) || undefined,
+            customFields: input.customFields,
           },
         });
         setExtra((prev) => [...prev, data.customer]);
@@ -436,6 +437,7 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         remarkAttention: optTrim(input.remarkAttention) || null,
         referenceName: optTrim(input.referenceName) || null,
         representativeName: optTrim(input.representativeName) || null,
+        customFields: input.customFields,
         phoneVerifiedAt: now,
         emailVerifiedAt: now,
         customerDataSource: "registered",

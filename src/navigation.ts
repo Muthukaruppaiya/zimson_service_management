@@ -81,4 +81,10 @@ export const mainNav: NavItem[] = [
     description: "PO, PR, GRN and transfer print templates",
     module: "settings",
   },
+  {
+    to: "/settings/custom-fields",
+    label: "Custom fields",
+    description: "Add extra fields on customer, supplier, inventory and SRF",
+    module: "settings",
+  },
 ];

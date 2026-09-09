@@ -5,6 +5,8 @@ import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
+import { PrFlowHeldNotice } from "./PrFlowHeldNotice";
 
 type SuggestRow = {
   prId: string;
@@ -20,6 +22,11 @@ type SuggestRow = {
 };
 
 export function InventoryAllocationReviewPage() {
+  if (!ENABLE_PR_FLOW) return <PrFlowHeldNotice title="Allocation" />;
+  return <InventoryAllocationReviewBody />;
+}
+
+function InventoryAllocationReviewBody() {
   const { user } = useAuth();
   const isHo = user?.role === "super_admin" || user?.role === "admin";
   const [regionId, setRegionId] = useState(user?.regionId ?? "");

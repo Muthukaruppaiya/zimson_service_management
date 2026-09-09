@@ -127,6 +127,7 @@ type SrfJobsContextValue = {
       chainCount6Phase?: string;
       chainCount?: string;
       customerRemarks?: string;
+      customFields?: Record<string, string | number | boolean | null>;
     },
   ) => Promise<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>;
   storeSelfAssignTechnician: (jobId: string, technicianId: string) => Promise<void>;
@@ -369,6 +370,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         chainCount?: string;
         customerRemarks?: string;
         customerEmail?: string;
+        customFields?: Record<string, string | number | boolean | null>;
       },
     ) => {
       const out = await apiJson<{

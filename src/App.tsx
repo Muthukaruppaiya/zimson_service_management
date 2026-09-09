@@ -32,6 +32,7 @@ import { QuickBillHistoryPage } from "./pages/service/QuickBillHistoryPage";
 import { ServiceModulePage } from "./pages/service/ServiceModulePage";
 import { CustomerRegisterPage } from "./pages/service/customers/CustomerRegisterPage";
 import { CustomerMasterPage } from "./pages/service/customers/CustomerMasterPage";
+import { CustomerBulkImportPage } from "./pages/service/customers/CustomerBulkImportPage";
 import { ServiceBillingPage } from "./pages/service/ServiceBillingPage";
 import { ServiceBillingHomePage } from "./pages/service/ServiceBillingHomePage";
 import { SrfBookingsRegisterPage } from "./pages/service/SrfBookingsRegisterPage";
@@ -63,6 +64,7 @@ import { EdocSettingsPage } from "./pages/settings/EdocSettingsPage";
 import { BrandEwayConsigneesSettingsPage } from "./pages/settings/BrandEwayConsigneesSettingsPage";
 import { ActiveSessionsPage } from "./pages/settings/ActiveSessionsPage";
 import { DocumentTemplatesPage } from "./pages/settings/DocumentTemplatesPage";
+import { CustomFieldsSettingsPage } from "./pages/settings/CustomFieldsSettingsPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
 import { InventoryPoInwardPage } from "./pages/inventory/InventoryPoInwardPage";
 import { InventoryGrnHistoryPage } from "./pages/inventory/InventoryGrnHistoryPage";
@@ -70,6 +72,8 @@ import { InventoryPurchaseOrdersPage } from "./pages/inventory/InventoryPurchase
 import { InventoryPoHistoryPage } from "./pages/inventory/InventoryPoHistoryPage";
 import { InventorySuppliersPage } from "./pages/inventory/InventorySuppliersPage";
 import { InventorySupplierFormPage } from "./pages/inventory/InventorySupplierFormPage";
+import { InventorySupplierBulkImportPage } from "./pages/inventory/InventorySupplierBulkImportPage";
+import { InventoryBrandBulkImportPage } from "./pages/inventory/InventoryBrandBulkImportPage";
 import { InventoryPurchaseRequestsPage } from "./pages/inventory/InventoryPurchaseRequestsPage";
 import { InventoryPrHistoryPage } from "./pages/inventory/InventoryPrHistoryPage";
 import { InventorySpareCatalogPage } from "./pages/inventory/InventorySpareCatalogPage";
@@ -78,6 +82,7 @@ import { InventorySparePriceFixingPage } from "./pages/inventory/InventorySpareP
 import { InventoryStockPriceOverviewPage } from "./pages/inventory/InventoryStockPriceOverviewPage";
 import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPage";
 import { InventoryStockAdjustmentPage } from "./pages/inventory/InventoryStockAdjustmentPage";
+import { InventoryHoStoreTransferPage } from "./pages/inventory/InventoryHoStoreTransferPage";
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
 import { InventoryHsnMasterPage } from "./pages/inventory/InventoryHsnMasterPage";
@@ -475,6 +480,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service/customers/bulk-import"
+                  element={
+                    <ModuleRoute module="service">
+                      <CustomerBulkImportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service/invoicing"
                   element={
                     <ModuleRoute module="service">
@@ -673,6 +686,16 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/inventory/ho-transfer"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryHoStoreTransferPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/inventory/allocation-review"
                   element={
                     <ModuleRoute module="inventory">
@@ -728,6 +751,16 @@ export default function App() {
                     <ModuleRoute module="inventory">
                       <InventorySupervisorGuard>
                         <InventorySuppliersPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/suppliers/bulk-import"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventorySupplierBulkImportPage />
                       </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
@@ -813,6 +846,16 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/inventory/brands/bulk-import"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryBrandBulkImportPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/inventory/spare-price-fixing"
                   element={
                     <ModuleRoute module="inventory">
@@ -891,6 +934,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="settings">
                       <DocumentTemplatesPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/settings/custom-fields"
+                  element={
+                    <ModuleRoute module="settings">
+                      <CustomFieldsSettingsPage />
                     </ModuleRoute>
                   }
                 />

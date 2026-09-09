@@ -17,6 +17,10 @@ import { useBrands } from "../../context/BrandsContext";
 import { useCustomers } from "../../context/CustomersContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
+import { CustomFieldsSection } from "../../components/customFields/CustomFieldsSection";
+import { useCustomFields } from "../../hooks/useCustomFields";
+import { requiredCustomFieldError } from "../../lib/customFields";
+import type { CustomFieldValues } from "../../types/customField";
 import { apiJson, ApiError, useApiMode } from "../../lib/api";
 import { publicMediaUrl } from "../../lib/mediaUrl";
 import {
@@ -323,6 +327,8 @@ export function SrfBookingV2Page() {
   const [issuedOtp, setIssuedOtp] = useState<string | null>(null);
   const [otpBusy, setOtpBusy] = useState(false);
   const [isCreatingSrf, setIsCreatingSrf] = useState(false);
+  const [customFields, setCustomFields] = useState<CustomFieldValues>({});
+  const { fields: extraFieldDefs } = useCustomFields("srf");
   const [otpInput, setOtpInput] = useState("");
   const [customerChecked, setCustomerChecked] = useState(false);
   const [customerExists, setCustomerExists] = useState(false);
@@ -1283,6 +1289,11 @@ export function SrfBookingV2Page() {
       setError(srfMinWatchPhotosFinalizeError(countSrfWatchPhotos(photoPreview.map((p) => p.photoKind))));
       return;
     }
+    const customErr = requiredCustomFieldError(extraFieldDefs, customFields);
+    if (customErr) {
+      setError(customErr);
+      return;
+    }
     setIsCreatingSrf(true);
     try {
       const row = await ensureDraft();
@@ -1302,6 +1313,7 @@ export function SrfBookingV2Page() {
         selectedPartIds: [],
         repairRoute,
         customerEmail: email.trim() || undefined,
+        customFields,
         ...watchServiceDetailsToApiPayload(watchServiceDetails),
       });
       setSrfRef(row.reference);
@@ -2234,6 +2246,18 @@ export function SrfBookingV2Page() {
               </tbody>
             </table>
           </div>
+          {extraFieldDefs.length > 0 ? (
+            <div className="mt-4">
+              <CustomFieldsSection
+                fields={extraFieldDefs}
+                values={customFields}
+                onChange={setCustomFields}
+                variant="plain"
+                inputClass={bookingInputClass}
+                labelClass="text-xs font-medium text-stone-600"
+              />
+            </div>
+          ) : null}
           <div className="mt-4 flex flex-wrap justify-between gap-3">
             <button type="button" onClick={goBack} disabled={isCreatingSrf} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light disabled:cursor-not-allowed disabled:opacity-50">Back</button>
             <button type="button" onClick={() => void finalizeAndPrint()} disabled={isCreatingSrf} className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep disabled:cursor-not-allowed disabled:opacity-50">{isCreatingSrf ? "Creating SRF…" : "Create SRF"}</button>

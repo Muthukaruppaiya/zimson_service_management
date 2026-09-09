@@ -44,6 +44,7 @@ import {
   transferFlowNeedsEway,
 } from "./mastersIndiaEdoc";
 import { buildHoOutwardPrintMeta, buildStoreToHoPrintMeta, rebuildPrintMetaForChallan } from "./transferDocMeta";
+import { validateEntityCustomFields } from "./customFields";
 
 type Authed = Request & { userId: string };
 
@@ -1184,6 +1185,7 @@ export function registerSrfRoutes(
                 j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",
                 j.customer_remarks AS "customerRemarks",
+                j.custom_fields AS "customFields",
                 j.estimate_total_inr::float8 AS "estimateTotalInr",
                 j.estimated_finish_date::text AS "estimatedFinishDate",
                 j.advance_inr::float8 AS "advanceInr",
@@ -2439,6 +2441,11 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "Delivery date is required." });
       return;
     }
+    const customChecked = await validateEntityCustomFields(pool, "srf", req.body?.customFields);
+    if (!customChecked.ok) {
+      res.status(400).json({ error: customChecked.error });
+      return;
+    }
     const caseType = String(req.body?.caseType ?? "").trim();
     const strapChainType = String(req.body?.strapChainType ?? "").trim();
     const natureOfRepair = String(req.body?.natureOfRepair ?? "").trim();
@@ -2536,6 +2543,7 @@ export function registerSrfRoutes(
              chain_count_12_phase = $15,
              chain_count_6_phase = $16,
              customer_remarks = $17,
+             custom_fields = $18::jsonb,
              photo_session_active = false,
              capture_link_disabled_at = now(),
              updated_at = now(),
@@ -2559,6 +2567,7 @@ export function registerSrfRoutes(
           chainCount12Phase,
           chainCount6Phase,
           customerRemarks,
+          JSON.stringify(customChecked.values),
         ],
       );
       await client.query(
@@ -2945,6 +2954,16 @@ export function registerSrfRoutes(
       if (typeof body.customerRemarks === "string") {
         sets.push(`customer_remarks = $${pi++}`);
         vals.push(String(body.customerRemarks).trim());
+      }
+      if (body.customFields !== undefined) {
+        const customChecked = await validateEntityCustomFields(pool, "srf", body.customFields);
+        if (!customChecked.ok) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: customChecked.error });
+          return;
+        }
+        sets.push(`custom_fields = $${pi++}::jsonb`);
+        vals.push(JSON.stringify(customChecked.values));
       }
       if (body.repairRoute !== undefined) {
         sets.push(`repair_route = $${pi++}`);

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
+import { BulkImportSuccessModal } from "../../components/ui/BulkImportSuccessModal";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useApiMode } from "../../lib/api";
@@ -100,6 +101,7 @@ export function InventoryBulkImportPage() {
   const [validated, setValidated] = useState(false);
   const [summary, setSummary] = useState<{ spareRows: number; priceRows: number; stockRows: number } | null>(null);
   const [importResult, setImportResult] = useState<{ sparesUpserted: number; pricesUpserted: number; stockUpserted: number } | null>(null);
+  const [successOpen, setSuccessOpen] = useState(false);
 
   const step: 1 | 2 | 3 = importResult ? 3 : validated ? 3 : fileName ? 2 : 1;
 
@@ -111,6 +113,7 @@ export function InventoryBulkImportPage() {
     setSummary(null);
     setMsg(null);
     setImportResult(null);
+    setSuccessOpen(false);
   }, []);
 
   const downloadTemplate = useCallback(async () => {
@@ -200,6 +203,7 @@ export function InventoryBulkImportPage() {
       }
       setValidated(false);
       setImportResult(data.summary ?? { sparesUpserted: 0, pricesUpserted: 0, stockUpserted: 0 });
+      setSuccessOpen(true);
       setMsg(null);
     } catch {
       setMsg({ type: "err", text: "Could not complete the import." });
@@ -217,6 +221,7 @@ export function InventoryBulkImportPage() {
     setSummary(null);
     setMsg(null);
     setImportResult(null);
+    setSuccessOpen(false);
   }
 
   if (!canImport) {
@@ -253,6 +258,25 @@ export function InventoryBulkImportPage() {
       />
 
       <StepBar step={step} />
+
+      <BulkImportSuccessModal
+        open={successOpen && !!importResult}
+        entityLabel="Spares"
+        description="Spare catalogue, prices, and stock have been saved."
+        stats={
+          importResult
+            ? [
+                { label: "Spares", value: importResult.sparesUpserted },
+                { label: "Price lines", value: importResult.pricesUpserted },
+                { label: "Stock rows", value: importResult.stockUpserted },
+              ]
+            : []
+        }
+        masterHref="/inventory/spares"
+        masterLabel="Spare catalogue"
+        onClose={() => setSuccessOpen(false)}
+        onImportAnother={resetAll}
+      />
 
       {/* ── Import success ── */}
       {importResult && (
@@ -315,6 +339,7 @@ export function InventoryBulkImportPage() {
                 Downloads a pre-filled Excel with <strong>20 real watch-service spare parts</strong> across Batteries, Glass, Crowns, Gaskets, Straps, Lubricants and Tools — complete with Prices and Stock sheets auto-filled from your regions and brands.
               </p>
               <ul className="mt-3 space-y-1 text-xs text-stone-500">
+                <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Excel dropdowns for Category, Active, Location Type, Region, Brand</li>
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> 20 spare SKUs seeded (batteries, crystals, straps, tools…)</li>
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Prices auto-filled for all your regions &amp; brands</li>
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Opening stock of 20 (HO) + 5 (Store) per SKU</li>

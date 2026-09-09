@@ -1586,4 +1586,35 @@ export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_till_date DATE;
   `);
+
+  await pool.query(`
+    ALTER TABLE grn_items ADD COLUMN IF NOT EXISTS qty_transferred NUMERIC(18, 3) NOT NULL DEFAULT 0;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS custom_field_definitions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      entity_key TEXT NOT NULL,
+      field_key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      field_type TEXT NOT NULL DEFAULT 'text',
+      options JSONB NOT NULL DEFAULT '[]'::jsonb,
+      required BOOLEAN NOT NULL DEFAULT false,
+      show_in_list BOOLEAN NOT NULL DEFAULT false,
+      searchable BOOLEAN NOT NULL DEFAULT false,
+      help_text TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (entity_key, field_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_custom_field_defs_entity ON custom_field_definitions (entity_key, sort_order);
+
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
+  `);
 }

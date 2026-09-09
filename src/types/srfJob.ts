@@ -216,6 +216,7 @@ export type SrfJob = {
   edocEwayPdfUrl?: string | null;
   createdBy?: string | null;
   modifiedBy?: string | null;
+  customFields?: Record<string, string | number | boolean | null>;
   updatedAt?: string;
 };
 

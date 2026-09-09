@@ -14,6 +14,12 @@ import {
   type BulkImportColumn,
 } from "../src/lib/inventoryBulkImportColumns";
 import { appendStockHistory } from "./db/stockHistory";
+import {
+  EXCEL_LOCATION_TYPES,
+  EXCEL_SPARE_CATEGORIES,
+  EXCEL_YES_NO,
+  withExcelDropdowns,
+} from "./excelListValidation";
 
 type Authed = Request & { userId: string };
 
@@ -572,6 +578,10 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
     ["  Region Name           – Exact region name."],
     ["  Store Name            – Required when Location Type = STORE; leave empty for HO."],
     ["  Quantity              – Non-negative integer."],
+    [""],
+    ["DROPDOWNS"],
+    ["Category, Active, Location Type, Region Name, and Watch Brand are Excel dropdowns."],
+    ["See the Dropdowns sheet. Check file still validates after upload."],
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(readme), "README");
 
@@ -613,7 +623,15 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
   }
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stockRows), "Stock");
 
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const regionNames = regions.map((r) => r.name).filter(Boolean);
+  return withExcelDropdowns(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer, [
+    { sheetName: "Spares", header: "Category", values: [...EXCEL_SPARE_CATEGORIES] },
+    { sheetName: "Spares", header: "Active", values: [...EXCEL_YES_NO] },
+    { sheetName: "Prices", header: "Watch Brand", values: brands },
+    { sheetName: "Prices", header: "Region Name", values: regionNames },
+    { sheetName: "Stock", header: "Location Type", values: [...EXCEL_LOCATION_TYPES] },
+    { sheetName: "Stock", header: "Region Name", values: regionNames },
+  ]);
 }
 
 export function registerInventoryBulkImportRoutes(

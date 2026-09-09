@@ -4,6 +4,8 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
+import { PrFlowHeldNotice } from "./PrFlowHeldNotice";
 import { buildPrDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -165,6 +167,11 @@ function PrSuccessModal({
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export function InventoryPurchaseRequestsPage() {
+  if (!ENABLE_PR_FLOW) return <PrFlowHeldNotice title="New PR" />;
+  return <InventoryPurchaseRequestsForm />;
+}
+
+function InventoryPurchaseRequestsForm() {
   const { user } = useAuth();
   const { spares } = useSpares();
   const navigate = useNavigate();

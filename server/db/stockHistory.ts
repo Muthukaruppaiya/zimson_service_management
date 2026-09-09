@@ -16,7 +16,7 @@ export type StockHistoryInput = {
   storeId?: string | null;
   quantityChange?: number | null;
   balanceAfter?: number | null;
-  referenceType?: "PR" | "PO" | "GRN" | "MANUAL" | null;
+  referenceType?: "PR" | "PO" | "GRN" | "MANUAL" | "TRANSFER" | null;
   referenceNumber?: string | null;
   note?: string | null;
   createdBy?: string | null;

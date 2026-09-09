@@ -17,6 +17,16 @@ import {
   sanitizeTextInput,
 } from "../../lib/inputSanitize";
 import type { SparePriceLine } from "../../types/spare";
+import { CustomFieldsSection } from "../../components/customFields/CustomFieldsSection";
+import { useCustomFields } from "../../hooks/useCustomFields";
+import {
+  customFieldsMatchSearch,
+  formatCustomFieldDisplay,
+  listCustomFieldDefs,
+  parseCustomFieldValues,
+  requiredCustomFieldError,
+} from "../../lib/customFields";
+import type { CustomFieldValues } from "../../types/customField";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2";
@@ -75,6 +85,19 @@ function IconLogs({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: str
   );
 }
 
+function IconEdit({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+      />
+    </svg>
+  );
+}
+
 function IconClose({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
@@ -113,10 +136,21 @@ export function InventorySpareCatalogPage() {
   const [gstPercent, setGstPercent] = useState("18");
   const [editHsn, setEditHsn] = useState("");
   const [editGstPercent, setEditGstPercent] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editCategory, setEditCategory] = useState("Other");
+  const [editCostPriceInr, setEditCostPriceInr] = useState("");
+  const [editSellingPriceInr, setEditSellingPriceInr] = useState("");
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [propsEditBusy, setPropsEditBusy] = useState(false);
   const [taxEditMsg, setTaxEditMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [costPriceInr, setCostPriceInr] = useState("");
   const [sellingPriceInr, setSellingPriceInr] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [addCustomFields, setAddCustomFields] = useState<CustomFieldValues>({});
+  const [editCustomFields, setEditCustomFields] = useState<CustomFieldValues>({});
+  const { fields: extraFieldDefs } = useCustomFields("spare");
+  const listExtras = useMemo(() => listCustomFieldDefs(extraFieldDefs), [extraFieldDefs]);
   const { regions } = useRegions();
   const { brands: brandMasterRows } = useBrands();
   const brandOptions = useMemo(() => brandMasterRows.map((b) => b.name), [brandMasterRows]);
@@ -147,6 +181,8 @@ export function InventorySpareCatalogPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [activeFilter, setActiveFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const canCreateSpare = user?.role === "super_admin" || user?.role === "admin";
+  /** Property edit only (not stock) — Admin / Super Admin. */
+  const canEditProperties = canCreateSpare;
   const hoOnlyRole =
     user?.role === "service_centre_clerk" || user?.role === "service_centre_supervisor" || user?.role === "technician";
   const canViewLogs = !hideStockLogsButton;
@@ -201,20 +237,45 @@ export function InventorySpareCatalogPage() {
       if (activeFilter === "INACTIVE" && s.isActive) return false;
       if (q) {
         const hay = `${s.sku} ${s.name} ${s.description} ${s.category} ${s.hsn ?? ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (!hay.includes(q) && !customFieldsMatchSearch(s.customFields, extraFieldDefs, q)) return false;
       }
       return true;
     });
-  }, [spares, query, categoryFilter, activeFilter]);
+  }, [spares, query, categoryFilter, activeFilter, extraFieldDefs]);
 
   const barcodeRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     if (!selectedSpare) return;
+    setEditName(selectedSpare.name);
+    setEditDescription(selectedSpare.description ?? "");
+    setEditCategory(selectedSpare.category || "Other");
     setEditHsn(selectedSpare.hsn ?? "");
     setEditGstPercent(selectedSpare.gstPercent != null ? String(selectedSpare.gstPercent) : "");
+    setEditCostPriceInr(selectedSpare.costPriceInr != null ? String(selectedSpare.costPriceInr) : "");
+    setEditSellingPriceInr(
+      selectedSpare.sellingPriceInr != null
+        ? String(selectedSpare.sellingPriceInr)
+        : selectedSpare.mrpInr != null
+          ? String(selectedSpare.mrpInr)
+          : "",
+    );
+    setEditIsActive(selectedSpare.isActive);
+    setEditCustomFields(parseCustomFieldValues(selectedSpare.customFields));
     setTaxEditMsg(null);
-  }, [selectedSpare?.id, selectedSpare?.hsn, selectedSpare?.gstPercent]);
+  }, [
+    selectedSpare?.id,
+    selectedSpare?.name,
+    selectedSpare?.description,
+    selectedSpare?.category,
+    selectedSpare?.hsn,
+    selectedSpare?.gstPercent,
+    selectedSpare?.costPriceInr,
+    selectedSpare?.sellingPriceInr,
+    selectedSpare?.mrpInr,
+    selectedSpare?.isActive,
+    selectedSpare?.customFields,
+  ]);
 
   async function loadPrices(spareId: string) {
     try {
@@ -319,6 +380,11 @@ export function InventorySpareCatalogPage() {
       setMsg({ type: "err", text: "GST % must be between 0 and 100." });
       return;
     }
+    const customErr = requiredCustomFieldError(extraFieldDefs, addCustomFields);
+    if (customErr) {
+      setMsg({ type: "err", text: customErr });
+      return;
+    }
     const r = await addSpare({
       sku,
       name,
@@ -330,6 +396,7 @@ export function InventorySpareCatalogPage() {
       sellingPriceInr: sellingValue,
       mrpInr: sellingValue,
       isActive,
+      customFields: addCustomFields,
     });
     if ("error" in r) {
       setMsg({ type: "err", text: r.error });
@@ -345,6 +412,7 @@ export function InventorySpareCatalogPage() {
     setCostPriceInr("");
     setSellingPriceInr("");
     setIsActive(true);
+    setAddCustomFields({});
     setAddSpareOpen(false);
   }
 
@@ -378,24 +446,56 @@ export function InventorySpareCatalogPage() {
     if (tab === "logs") void loadHistory(spareId);
   }
 
-  async function saveSpareTaxDetails(e: React.FormEvent) {
+  async function saveSpareProperties(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedSpare) return;
+    if (!selectedSpare || !canEditProperties) return;
     setTaxEditMsg(null);
     const gstValue = editGstPercent.trim() === "" ? null : Number(editGstPercent);
     if (gstValue != null && (Number.isNaN(gstValue) || gstValue < 0 || gstValue > 100)) {
       setTaxEditMsg({ type: "err", text: "GST % must be between 0 and 100." });
       return;
     }
-    const r = await updateSpare(selectedSpare.id, {
-      hsn: editHsn.trim() || null,
-      gstPercent: gstValue,
-    });
-    if ("error" in r) {
-      setTaxEditMsg({ type: "err", text: r.error });
+    const costValue = editCostPriceInr.trim() === "" ? null : Number(editCostPriceInr);
+    if (costValue != null && (Number.isNaN(costValue) || costValue < 0)) {
+      setTaxEditMsg({ type: "err", text: "Cost price must be a non-negative number." });
       return;
     }
-    setTaxEditMsg({ type: "ok", text: "HSN and GST % saved." });
+    const sellingValue = editSellingPriceInr.trim() === "" ? null : Number(editSellingPriceInr);
+    if (sellingValue != null && (Number.isNaN(sellingValue) || sellingValue < 0)) {
+      setTaxEditMsg({ type: "err", text: "Selling price must be a non-negative number." });
+      return;
+    }
+    if (!editName.trim()) {
+      setTaxEditMsg({ type: "err", text: "Name is required." });
+      return;
+    }
+    const customErr = requiredCustomFieldError(extraFieldDefs, editCustomFields);
+    if (customErr) {
+      setTaxEditMsg({ type: "err", text: customErr });
+      return;
+    }
+    setPropsEditBusy(true);
+    try {
+      const r = await updateSpare(selectedSpare.id, {
+        name: editName.trim(),
+        description: editDescription.trim(),
+        category: editCategory.trim() || "Other",
+        hsn: editHsn.trim() || null,
+        gstPercent: gstValue,
+        costPriceInr: costValue,
+        sellingPriceInr: sellingValue,
+        mrpInr: sellingValue,
+        isActive: editIsActive,
+        customFields: editCustomFields,
+      });
+      if ("error" in r) {
+        setTaxEditMsg({ type: "err", text: r.error });
+        return;
+      }
+      setTaxEditMsg({ type: "ok", text: "Spare properties saved." });
+    } finally {
+      setPropsEditBusy(false);
+    }
   }
 
   function openLogs(spareId: string) {
@@ -628,6 +728,9 @@ export function InventorySpareCatalogPage() {
                   <th className="min-w-[14rem] px-3 py-3 text-left font-semibold">Item</th>
                   <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Cost</th>
                   <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Active</th>
+                  {listExtras.map((f) => (
+                    <th key={f.id} className="whitespace-nowrap px-3 py-3 text-left font-semibold">{f.label}</th>
+                  ))}
                   <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
@@ -666,6 +769,11 @@ export function InventorySpareCatalogPage() {
                         {s.isActive ? "Yes" : "No"}
                       </span>
                     </td>
+                    {listExtras.map((f) => (
+                      <td key={f.id} className="align-middle px-3 py-3 text-sm text-rlx-ink">
+                        {formatCustomFieldDisplay(f, s.customFields)}
+                      </td>
+                    ))}
                     <td className="align-middle px-3 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex flex-nowrap items-center justify-end gap-1.5">
                         <button
@@ -677,6 +785,17 @@ export function InventorySpareCatalogPage() {
                         >
                           <IconDetails />
                         </button>
+                        {canEditProperties ? (
+                          <button
+                            type="button"
+                            onClick={() => openDetails(s.id)}
+                            className={btnIcon}
+                            title="Edit properties"
+                            aria-label="Edit properties"
+                          >
+                            <IconEdit />
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => printBarcodeLabel(s)}
@@ -835,6 +954,14 @@ export function InventorySpareCatalogPage() {
                 <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
                 Is active
               </label>
+              <CustomFieldsSection
+                fields={extraFieldDefs}
+                values={addCustomFields}
+                onChange={setAddCustomFields}
+                variant="plain"
+                inputClass={inputClass}
+                labelClass="text-xs font-medium text-stone-600"
+              />
               {msg ? (
                 <p
                   className={
@@ -1028,81 +1155,175 @@ export function InventorySpareCatalogPage() {
                           </th>
                           <td className="px-3 py-2.5 font-mono font-semibold text-rlx-green">{selectedSpare.sku}</td>
                         </tr>
-                        <tr className="border-b border-rlx-rule">
-                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
-                            Name
-                          </th>
-                          <td className="px-3 py-2.5">{selectedSpare.name}</td>
-                        </tr>
-                        <tr className="border-b border-rlx-rule">
-                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
-                            Description
-                          </th>
-                          <td className="px-3 py-2.5">{selectedSpare.description || "—"}</td>
-                        </tr>
-                        <tr className="border-b border-rlx-rule">
-                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
-                            Category
-                          </th>
-                          <td className="px-3 py-2.5">{selectedSpare.category}</td>
-                        </tr>
-                        <tr className="border-b border-rlx-rule">
-                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
-                            Active
-                          </th>
-                          <td className="px-3 py-2.5">{selectedSpare.isActive ? "Yes" : "No"}</td>
-                        </tr>
-                        <tr className="border-b border-rlx-rule">
-                          <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
-                            Cost / Selling
-                          </th>
-                          <td className="px-3 py-2.5">
-                            {selectedSpare.costPriceInr ?? "—"} /{" "}
-                            {selectedSpare.sellingPriceInr ?? selectedSpare.mrpInr ?? "—"}
-                          </td>
-                        </tr>
+                        {!canEditProperties ? (
+                          <>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Name
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.name}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Description
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.description || "—"}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Category
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.category}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Active
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.isActive ? "Yes" : "No"}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Cost / Selling
+                              </th>
+                              <td className="px-3 py-2.5">
+                                {selectedSpare.costPriceInr ?? "—"} /{" "}
+                                {selectedSpare.sellingPriceInr ?? selectedSpare.mrpInr ?? "—"}
+                              </td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                HSN / GST
+                              </th>
+                              <td className="px-3 py-2.5">
+                                {selectedSpare.hsn || "—"}
+                                {selectedSpare.gstPercent != null ? ` · ${selectedSpare.gstPercent}%` : ""}
+                              </td>
+                            </tr>
+                          </>
+                        ) : null}
                       </tbody>
                     </table>
                   </div>
 
-                  <Card title="HSN & GST (billing)" subtitle="Used on Quick Bill, store billing, and GRN">
-                    <form onSubmit={(e) => void saveSpareTaxDetails(e)} className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="text-xs font-medium text-stone-600">HSN / SAC</label>
-                        <input
-                          value={editHsn}
-                          onChange={(e) => setEditHsn(sanitizeAlphanumericInput(e.target.value, 16))}
-                          className={inputClass}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-stone-600">GST %</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={0.01}
-                          value={editGstPercent}
-                          onChange={(e) => setEditGstPercent(sanitizeDecimalInput(e.target.value))}
-                          className={inputClass}
-                          required
-                        />
-                      </div>
-                      <div className="flex items-center gap-3 sm:col-span-2">
-                        <button
-                          type="submit"
-                          className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-700"
-                        >
-                          Save HSN & GST
-                        </button>
-                        {taxEditMsg ? (
-                          <p className={`text-sm ${taxEditMsg.type === "ok" ? "text-emerald-800" : "text-red-800"}`}>
-                            {taxEditMsg.text}
-                          </p>
-                        ) : null}
-                      </div>
-                    </form>
-                  </Card>
+                  {canEditProperties ? (
+                    <Card
+                      title="Edit properties"
+                      subtitle="Admin only — updates spare master fields (not stock quantity)."
+                    >
+                      <form onSubmit={(e) => void saveSpareProperties(e)} className="grid gap-4 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                          <label className="text-xs font-medium text-stone-600">Name *</label>
+                          <input
+                            value={editName}
+                            onChange={(e) => setEditName(sanitizeTextInput(e.target.value, 200))}
+                            className={inputClass}
+                            required
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="text-xs font-medium text-stone-600">Description</label>
+                          <textarea
+                            value={editDescription}
+                            onChange={(e) => setEditDescription(sanitizeMultilineTextInput(e.target.value, 500))}
+                            className={inputClass}
+                            rows={3}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Category *</label>
+                          <select
+                            value={editCategory}
+                            onChange={(e) => setEditCategory(sanitizeTextInput(e.target.value, 40))}
+                            className={inputClass}
+                          >
+                            {categories.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-end pb-1">
+                          <label className="inline-flex items-center gap-2 text-sm text-stone-800">
+                            <input
+                              type="checkbox"
+                              checked={editIsActive}
+                              onChange={(e) => setEditIsActive(e.target.checked)}
+                              className="h-4 w-4 rounded border-zimson-300"
+                            />
+                            Active
+                          </label>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">HSN / SAC</label>
+                          <input
+                            value={editHsn}
+                            onChange={(e) => setEditHsn(sanitizeAlphanumericInput(e.target.value, 16))}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">GST %</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={0.01}
+                            value={editGstPercent}
+                            onChange={(e) => setEditGstPercent(sanitizeDecimalInput(e.target.value))}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Cost price (INR)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={editCostPriceInr}
+                            onChange={(e) => setEditCostPriceInr(sanitizeDecimalInput(e.target.value))}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Selling price (INR)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={editSellingPriceInr}
+                            onChange={(e) => setEditSellingPriceInr(sanitizeDecimalInput(e.target.value))}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <CustomFieldsSection
+                            fields={extraFieldDefs}
+                            values={editCustomFields}
+                            onChange={setEditCustomFields}
+                            variant="plain"
+                            inputClass={inputClass}
+                            labelClass="text-xs font-medium text-stone-600"
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+                          <button
+                            type="submit"
+                            disabled={propsEditBusy}
+                            className="rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-700 disabled:opacity-60"
+                          >
+                            {propsEditBusy ? "Saving…" : "Save properties"}
+                          </button>
+                          <p className="text-xs text-stone-500">SKU cannot be changed. Stock is not edited here.</p>
+                          {taxEditMsg ? (
+                            <p className={`text-sm ${taxEditMsg.type === "ok" ? "text-emerald-800" : "text-red-800"}`}>
+                              {taxEditMsg.text}
+                            </p>
+                          ) : null}
+                        </div>
+                      </form>
+                    </Card>
+                  ) : null}
 
                   <Card title="Brand price lines" subtitle={`Price lines for ${selectedSpare.sku}`}>
                     <div className="mb-3">

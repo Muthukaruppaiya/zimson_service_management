@@ -6,6 +6,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
 import type { Supplier } from "../../types/supplier";
+import { useCustomFields } from "../../hooks/useCustomFields";
+import { customFieldsMatchSearch, formatCustomFieldDisplay, listCustomFieldDefs } from "../../lib/customFields";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -389,6 +391,8 @@ export function InventorySuppliersPage() {
   const [ok, setOk] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const { fields: extraFieldDefs } = useCustomFields("supplier");
+  const listExtras = useMemo(() => listCustomFieldDefs(extraFieldDefs), [extraFieldDefs]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -410,9 +414,10 @@ export function InventorySuppliersPage() {
         s.name.toLowerCase().includes(q) ||
         s.supplierCode.toLowerCase().includes(q) ||
         (s.contactName ?? "").toLowerCase().includes(q) ||
-        (s.phone ?? "").includes(q),
+        (s.phone ?? "").includes(q) ||
+        customFieldsMatchSearch(s.customFields, extraFieldDefs, q),
     );
-  }, [suppliers, search]);
+  }, [suppliers, search, extraFieldDefs]);
 
   async function toggleActive(s: Supplier) {
     setErr(null);
@@ -447,12 +452,20 @@ export function InventorySuppliersPage() {
         actions={
           <div className="flex gap-2">
             {canEdit && (
-              <Link
-                to="/inventory/suppliers/new"
-                className="bg-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white hover:bg-rlx-green/90 transition"
-              >
-                + Add Supplier
-              </Link>
+              <>
+                <Link
+                  to="/inventory/suppliers/bulk-import"
+                  className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green hover:bg-stone-50 transition"
+                >
+                  Bulk import
+                </Link>
+                <Link
+                  to="/inventory/suppliers/new"
+                  className="bg-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white hover:bg-rlx-green/90 transition"
+                >
+                  + Add Supplier
+                </Link>
+              </>
             )}
             <button type="button" onClick={() => navigate(-1)}
               className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition">
@@ -511,6 +524,9 @@ export function InventorySuppliersPage() {
                   <th className="px-5 py-3 text-left">Contact</th>
                   <th className="px-5 py-3 text-left">Phone</th>
                   <th className="px-5 py-3 text-left">GST</th>
+                  {listExtras.map((f) => (
+                    <th key={f.id} className="px-5 py-3 text-left">{f.label}</th>
+                  ))}
                   <th className="px-5 py-3 text-center">Mapped Spares</th>
                   <th className="px-5 py-3 text-center">Status</th>
                 </tr>
@@ -528,6 +544,9 @@ export function InventorySuppliersPage() {
                     <td className="px-5 py-3 text-stone-600">{s.contactName ?? "—"}</td>
                     <td className="px-5 py-3 text-stone-600">{s.phone ?? "—"}</td>
                     <td className="px-5 py-3 font-mono text-xs text-stone-500">{s.gst ?? "—"}</td>
+                    {listExtras.map((f) => (
+                      <td key={f.id} className="px-5 py-3 text-stone-600">{formatCustomFieldDisplay(f, s.customFields)}</td>
+                    ))}
                     <td className="px-5 py-3 text-center">
                       <span className="inline-block border border-rlx-rule px-2 py-0.5 text-[10px] font-bold text-stone-500">
                         View →

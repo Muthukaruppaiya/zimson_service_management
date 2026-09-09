@@ -11,6 +11,7 @@ export type SparePart = {
   sellingPriceInr?: number | null;
   mrpInr: number | null;
   isActive: boolean;
+  customFields?: Record<string, string | number | boolean | null>;
   createdAt: string;
 };
 
@@ -25,6 +26,21 @@ export type CreateSpareInput = {
   sellingPriceInr?: number | null;
   mrpInr?: number | null;
   isActive?: boolean;
+  customFields?: Record<string, string | number | boolean | null>;
+};
+
+/** Property-only spare master updates (not stock). Admin / Super Admin. */
+export type UpdateSparePatch = {
+  name?: string;
+  description?: string;
+  category?: string;
+  hsn?: string | null;
+  gstPercent?: number | null;
+  costPriceInr?: number | null;
+  sellingPriceInr?: number | null;
+  mrpInr?: number | null;
+  isActive?: boolean;
+  customFields?: Record<string, string | number | boolean | null>;
 };
 
 export type SparePriceLine = {

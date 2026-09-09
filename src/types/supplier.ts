@@ -19,6 +19,7 @@ export type Supplier = {
   gst: string | null;
   taxPersonType?: string | null;
   isActive: boolean;
+  customFields?: Record<string, string | number | boolean | null>;
   createdAt: string;
   updatedAt: string;
 };

@@ -6,6 +6,10 @@ import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson } from "../../lib/api";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import type { Supplier, SupplierLocation } from "../../types/supplier";
+import { CustomFieldsSection } from "../../components/customFields/CustomFieldsSection";
+import { useCustomFields } from "../../hooks/useCustomFields";
+import { parseCustomFieldValues, requiredCustomFieldError } from "../../lib/customFields";
+import type { CustomFieldValues } from "../../types/customField";
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 
@@ -81,6 +85,8 @@ export function InventorySupplierFormPage() {
     user?.role === "ho_manager" || user?.role === "ho_purchase";
 
   const [form, setForm] = useState(emptyForm);
+  const [customFields, setCustomFields] = useState<CustomFieldValues>({});
+  const { fields: extraFieldDefs } = useCustomFields("supplier");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(isEditing);
   const [err, setErr] = useState<string | null>(null);
@@ -118,18 +124,21 @@ export function InventorySupplierFormPage() {
           taxPersonType: s.taxPersonType ?? "",
           locations: s.locations && s.locations.length > 0 ? s.locations : [{ ...emptyLocation }],
         });
+        setCustomFields(parseCustomFieldValues(s.customFields));
       } catch (e) { setErr(e instanceof ApiError ? e.message : "Could not load supplier."); }
       finally { setLoading(false); }
     })();
   }, [editId]);
 
-  function resetForm() { setForm(emptyForm); setErr(null); setSuccessMsg(null); }
+  function resetForm() { setForm(emptyForm); setCustomFields({}); setErr(null); setSuccessMsg(null); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     if (!form.name.trim()) { setErr("Supplier name is required."); return; }
     if (!form.supplierCode.trim()) { setErr("Supplier code is required."); return; }
+    const customErr = requiredCustomFieldError(extraFieldDefs, customFields);
+    if (customErr) { setErr(customErr); return; }
     setBusy(true);
     const payload = {
       name: form.name.trim(),
@@ -140,6 +149,7 @@ export function InventorySupplierFormPage() {
       locations: form.locations,
       gst: form.gst.trim().toUpperCase() || null,
       taxPersonType: form.taxPersonType.trim() || null,
+      customFields,
     };
     try {
       if (isEditing) {
@@ -306,6 +316,8 @@ export function InventorySupplierFormPage() {
             </button>
           </div>
         </div>
+
+        <CustomFieldsSection fields={extraFieldDefs} values={customFields} onChange={setCustomFields} />
 
         {/* Submit */}
         <div className="flex gap-3 border-t border-rlx-rule pt-2 pb-6">

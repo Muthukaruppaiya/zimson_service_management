@@ -5,6 +5,7 @@ import type { CreateSpareInput, SparePart } from "../src/types/spare";
 import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
 import { clearSpareGstCache } from "./hsnGstRates";
+import { validateEntityCustomFields } from "./customFields";
 
 function isHoAdminRole(role: string): boolean {
   return role === "super_admin" || role === "admin" || role === "admin";
@@ -57,6 +58,7 @@ function rowToSpare(r: {
   selling_price_inr: number | null;
   is_active: boolean;
   created_at: Date | string;
+  custom_fields?: unknown;
 }): SparePart {
   const createdAt =
     r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString();
@@ -79,11 +81,15 @@ function rowToSpare(r: {
     sellingPriceInr: r.selling_price_inr == null ? (r.mrp_inr == null ? null : Number(r.mrp_inr)) : Number(r.selling_price_inr),
     mrpInr: r.mrp_inr == null ? null : Number(r.mrp_inr),
     isActive: r.is_active,
+    customFields:
+      r.custom_fields && typeof r.custom_fields === "object" && !Array.isArray(r.custom_fields)
+        ? (r.custom_fields as SparePart["customFields"])
+        : {},
     createdAt,
   };
 }
 
-const SPARE_SELECT = `id, sku, name, description, category, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at`;
+const SPARE_SELECT = `id, sku, name, description, category, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at, custom_fields`;
 
 export function registerCatalogRoutes(
   app: Express,
@@ -127,10 +133,15 @@ export function registerCatalogRoutes(
       res.status(400).json({ error: "sku, name, description and category are required." });
       return;
     }
+    const customChecked = await validateEntityCustomFields(pool, "spare", input.customFields);
+    if (!customChecked.ok) {
+      res.status(400).json({ error: customChecked.error });
+      return;
+    }
     try {
       const ins = await pool.query(
-        `INSERT INTO spares (sku, name, description, category, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `INSERT INTO spares (sku, name, description, category, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, custom_fields)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
          RETURNING ${SPARE_SELECT}`,
         [
           sku,
@@ -143,6 +154,7 @@ export function registerCatalogRoutes(
           input.costPriceInr ?? null,
           input.sellingPriceInr ?? input.mrpInr ?? null,
           isActive,
+          JSON.stringify(customChecked.values),
         ],
       );
       const row = ins.rows[0] as Parameters<typeof rowToSpare>[0];
@@ -173,32 +185,127 @@ export function registerCatalogRoutes(
       return;
     }
     const spareId = req.params.spareId;
-    const hsn = req.body?.hsn != null ? String(req.body.hsn).trim() || null : undefined;
-    const gstPercentRaw = req.body?.gstPercent;
+    const body = req.body ?? {};
+
+    const name = body.name != null ? String(body.name).trim() : undefined;
+    const description = body.description != null ? String(body.description).trim() : undefined;
+    const category = body.category != null ? String(body.category).trim() : undefined;
+    const hsn = body.hsn != null ? String(body.hsn).trim() || null : undefined;
+    const gstPercentRaw = body.gstPercent;
     const gstPercent =
-      gstPercentRaw === undefined || gstPercentRaw === null || gstPercentRaw === ""
+      gstPercentRaw === undefined
         ? undefined
-        : Number(gstPercentRaw);
-    if (gstPercent !== undefined && (Number.isNaN(gstPercent) || gstPercent < 0 || gstPercent > 100)) {
+        : gstPercentRaw === null || gstPercentRaw === ""
+          ? null
+          : Number(gstPercentRaw);
+    const costRaw = body.costPriceInr;
+    const costPriceInr =
+      costRaw === undefined
+        ? undefined
+        : costRaw === null || costRaw === ""
+          ? null
+          : Number(costRaw);
+    const sellRaw = body.sellingPriceInr;
+    const sellingPriceInr =
+      sellRaw === undefined
+        ? undefined
+        : sellRaw === null || sellRaw === ""
+          ? null
+          : Number(sellRaw);
+    const mrpRaw = body.mrpInr;
+    const mrpInr =
+      mrpRaw === undefined
+        ? undefined
+        : mrpRaw === null || mrpRaw === ""
+          ? null
+          : Number(mrpRaw);
+    const isActive = body.isActive === undefined ? undefined : Boolean(body.isActive);
+
+    if (name !== undefined && !name) {
+      res.status(400).json({ error: "Name is required." });
+      return;
+    }
+    if (category !== undefined && !category) {
+      res.status(400).json({ error: "Category is required." });
+      return;
+    }
+    if (gstPercent !== undefined && gstPercent != null && (Number.isNaN(gstPercent) || gstPercent < 0 || gstPercent > 100)) {
       res.status(400).json({ error: "gstPercent must be between 0 and 100." });
       return;
     }
-    if (hsn === undefined && gstPercent === undefined) {
+    if (costPriceInr !== undefined && costPriceInr != null && (Number.isNaN(costPriceInr) || costPriceInr < 0)) {
+      res.status(400).json({ error: "costPriceInr must be a non-negative number." });
+      return;
+    }
+    if (sellingPriceInr !== undefined && sellingPriceInr != null && (Number.isNaN(sellingPriceInr) || sellingPriceInr < 0)) {
+      res.status(400).json({ error: "sellingPriceInr must be a non-negative number." });
+      return;
+    }
+    if (mrpInr !== undefined && mrpInr != null && (Number.isNaN(mrpInr) || mrpInr < 0)) {
+      res.status(400).json({ error: "mrpInr must be a non-negative number." });
+      return;
+    }
+
+    const sets: string[] = ["updated_at = now()"];
+    const vals: unknown[] = [];
+    let i = 1;
+    if (name !== undefined) {
+      sets.push(`name = $${i++}`);
+      vals.push(name);
+    }
+    if (description !== undefined) {
+      sets.push(`description = $${i++}`);
+      vals.push(description);
+    }
+    if (category !== undefined) {
+      sets.push(`category = $${i++}`);
+      vals.push(category);
+    }
+    if (hsn !== undefined) {
+      sets.push(`hsn = $${i++}`);
+      vals.push(hsn);
+    }
+    if (gstPercent !== undefined) {
+      sets.push(`gst_percent = $${i++}`);
+      vals.push(gstPercent);
+    }
+    if (costPriceInr !== undefined) {
+      sets.push(`cost_price_inr = $${i++}`);
+      vals.push(costPriceInr);
+    }
+    if (sellingPriceInr !== undefined) {
+      sets.push(`selling_price_inr = $${i++}`);
+      vals.push(sellingPriceInr);
+      // Keep legacy MRP aligned with selling price when selling is updated and MRP not sent.
+      if (mrpInr === undefined) {
+        sets.push(`mrp_inr = $${i++}`);
+        vals.push(sellingPriceInr);
+      }
+    }
+    if (mrpInr !== undefined) {
+      sets.push(`mrp_inr = $${i++}`);
+      vals.push(mrpInr);
+    }
+    if (isActive !== undefined) {
+      sets.push(`is_active = $${i++}`);
+      vals.push(isActive);
+    }
+    if (body.customFields !== undefined) {
+      const customChecked = await validateEntityCustomFields(pool, "spare", body.customFields);
+      if (!customChecked.ok) {
+        res.status(400).json({ error: customChecked.error });
+        return;
+      }
+      sets.push(`custom_fields = $${i++}::jsonb`);
+      vals.push(JSON.stringify(customChecked.values));
+    }
+
+    if (sets.length === 1) {
       res.status(400).json({ error: "Nothing to update." });
       return;
     }
+
     try {
-      const sets: string[] = ["updated_at = now()"];
-      const vals: unknown[] = [];
-      let i = 1;
-      if (hsn !== undefined) {
-        sets.push(`hsn = $${i++}`);
-        vals.push(hsn);
-      }
-      if (gstPercent !== undefined) {
-        sets.push(`gst_percent = $${i++}`);
-        vals.push(gstPercent);
-      }
       vals.push(spareId);
       const upd = await pool.query(
         `UPDATE spares SET ${sets.join(", ")} WHERE id = $${i}::uuid RETURNING ${SPARE_SELECT}`,

@@ -10,7 +10,7 @@ import {
 import { ApiError, apiJson, useApiMode } from "../lib/api";
 import { createId } from "../lib/id";
 import { STORAGE_SPARES } from "../lib/storageKeys";
-import type { CreateSpareInput, SparePart } from "../types/spare";
+import type { CreateSpareInput, SparePart, UpdateSparePatch } from "../types/spare";
 import { useAuth } from "./AuthContext";
 
 function loadSparesLocal(): SparePart[] {
@@ -34,10 +34,7 @@ type SparesContextValue = {
   spares: SparePart[];
   activeSpares: SparePart[];
   addSpare: (input: CreateSpareInput) => Promise<{ ok: SparePart } | { error: string }>;
-  updateSpare: (
-    id: string,
-    patch: { hsn?: string | null; gstPercent?: number | null },
-  ) => Promise<{ ok: SparePart } | { error: string }>;
+  updateSpare: (id: string, patch: UpdateSparePatch) => Promise<{ ok: SparePart } | { error: string }>;
 };
 
 const SparesContext = createContext<SparesContextValue | null>(null);
@@ -112,6 +109,7 @@ export function SparesProvider({ children }: { children: ReactNode }) {
         sellingPriceInr: input.sellingPriceInr ?? input.mrpInr ?? null,
         mrpInr: input.sellingPriceInr ?? input.mrpInr ?? null,
         isActive: input.isActive ?? true,
+        customFields: input.customFields ?? {},
         createdAt: new Date().toISOString(),
       };
       const next = [row, ...spares];
@@ -123,12 +121,21 @@ export function SparesProvider({ children }: { children: ReactNode }) {
   );
 
   const updateSpare = useCallback(
-    async (
-      id: string,
-      patch: { hsn?: string | null; gstPercent?: number | null },
-    ): Promise<{ ok: SparePart } | { error: string }> => {
+    async (id: string, patch: UpdateSparePatch): Promise<{ ok: SparePart } | { error: string }> => {
+      if (patch.name !== undefined && !String(patch.name).trim()) {
+        return { error: "Name is required." };
+      }
+      if (patch.category !== undefined && !String(patch.category).trim()) {
+        return { error: "Category is required." };
+      }
       if (patch.gstPercent != null && (patch.gstPercent < 0 || patch.gstPercent > 100)) {
         return { error: "GST % must be between 0 and 100." };
+      }
+      if (patch.costPriceInr != null && patch.costPriceInr < 0) {
+        return { error: "Cost price must be a non-negative number." };
+      }
+      if (patch.sellingPriceInr != null && patch.sellingPriceInr < 0) {
+        return { error: "Selling price must be a non-negative number." };
       }
       if (api) {
         try {
@@ -145,10 +152,24 @@ export function SparesProvider({ children }: { children: ReactNode }) {
       }
       const existing = spares.find((s) => s.id === id);
       if (!existing) return { error: "Spare not found." };
+      const nextSelling =
+        patch.sellingPriceInr !== undefined ? patch.sellingPriceInr : existing.sellingPriceInr;
       const nextRow: SparePart = {
         ...existing,
+        name: patch.name !== undefined ? String(patch.name).trim() : existing.name,
+        description: patch.description !== undefined ? String(patch.description).trim() : existing.description,
+        category: patch.category !== undefined ? String(patch.category).trim() : existing.category,
         hsn: patch.hsn !== undefined ? patch.hsn?.trim() || null : existing.hsn,
         gstPercent: patch.gstPercent !== undefined ? patch.gstPercent : existing.gstPercent,
+        costPriceInr: patch.costPriceInr !== undefined ? patch.costPriceInr : existing.costPriceInr,
+        sellingPriceInr: nextSelling,
+        mrpInr:
+          patch.mrpInr !== undefined
+            ? patch.mrpInr
+            : patch.sellingPriceInr !== undefined
+              ? patch.sellingPriceInr
+              : existing.mrpInr,
+        isActive: patch.isActive !== undefined ? patch.isActive : existing.isActive,
       };
       const next = spares.map((s) => (s.id === id ? nextRow : s));
       setSpares(next);

@@ -3,8 +3,10 @@ import type { Express, NextFunction, Request, Response } from "express";
 import type { Pool } from "pg";
 import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
+import { rejectIfPrFlowHeld } from "./inventoryFeatureFlags";
 import { createMemoryUpload } from "./storage/multerMemory";
 import { persistUploadedFile } from "./storage/fileStorage";
+import { validateEntityCustomFields } from "./customFields";
 
 const grnInvoiceUpload = createMemoryUpload(10 * 1024 * 1024);
 
@@ -147,6 +149,7 @@ export function registerInventoryPoSupplierRoutes(
                 gst,
                 tax_person_type AS "taxPersonType",
                 is_active AS "isActive",
+                custom_fields AS "customFields",
                 created_at AS "createdAt",
                 updated_at AS "updatedAt"
          FROM suppliers
@@ -182,10 +185,15 @@ export function registerInventoryPoSupplierRoutes(
     const address = toLegacyAddress(locations);
     const gst = String(req.body?.gst ?? "").trim().toUpperCase() || null;
     const taxPersonType = String(req.body?.taxPersonType ?? "").trim().toUpperCase() || null;
+    const customChecked = await validateEntityCustomFields(pool, "supplier", req.body?.customFields);
+    if (!customChecked.ok) {
+      res.status(400).json({ error: customChecked.error });
+      return;
+    }
     try {
       const { rows } = await pool.query(
-        `INSERT INTO suppliers (supplier_code, name, contact_name, email, phone, address, locations_json, gst, tax_person_type, created_by, modified_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $10)
+        `INSERT INTO suppliers (supplier_code, name, contact_name, email, phone, address, locations_json, gst, tax_person_type, custom_fields, created_by, modified_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $11::jsonb, $10, $10)
          RETURNING id,
                    supplier_code AS "supplierCode",
                    name,
@@ -197,9 +205,10 @@ export function registerInventoryPoSupplierRoutes(
                    gst,
                    tax_person_type AS "taxPersonType",
                    is_active AS "isActive",
+                   custom_fields AS "customFields",
                    created_at AS "createdAt",
                    updated_at AS "updatedAt"`,
-        [supplierCode, name, contactName, email, phone, address, JSON.stringify(locations), gst, taxPersonType, actor?.id ?? null],
+        [supplierCode, name, contactName, email, phone, address, JSON.stringify(locations), gst, taxPersonType, actor?.id ?? null, JSON.stringify(customChecked.values)],
       );
       res.json({ supplier: rows[0] });
     } catch (e) {
@@ -286,6 +295,15 @@ export function registerInventoryPoSupplierRoutes(
       sets.push(`is_active = $${i++}`);
       params.push(isActive);
     }
+    if (req.body?.customFields !== undefined) {
+      const customChecked = await validateEntityCustomFields(pool, "supplier", req.body.customFields);
+      if (!customChecked.ok) {
+        res.status(400).json({ error: customChecked.error });
+        return;
+      }
+      sets.push(`custom_fields = $${i++}::jsonb`);
+      params.push(JSON.stringify(customChecked.values));
+    }
     if (sets.length === 0) {
       res.status(400).json({ error: "No fields to update." });
       return;
@@ -307,6 +325,7 @@ export function registerInventoryPoSupplierRoutes(
                 gst,
                 tax_person_type AS "taxPersonType",
                 is_active AS "isActive",
+                custom_fields AS "customFields",
                 created_at AS "createdAt",
                 updated_at AS "updatedAt"`,
         params,
@@ -437,6 +456,7 @@ export function registerInventoryPoSupplierRoutes(
 
   /** Purchase orders */
   app.get("/api/inventory/po-consolidation", requireAuth, async (req, res) => {
+    if (rejectIfPrFlowHeld(res)) return;
     const actor = getActor((req as Authed).userId);
     if (!actor) {
       res.status(401).json({ error: "Invalid session." });
@@ -531,6 +551,7 @@ export function registerInventoryPoSupplierRoutes(
   });
 
   app.post("/api/inventory/pos/draft-from-demand", requireAuth, async (req, res) => {
+    if (rejectIfPrFlowHeld(res)) return;
     const actor = getActor((req as Authed).userId);
     if (!canManagePo(actor)) {
       res.status(403).json({ error: "Only HO admins can draft POs from demand." });
@@ -706,6 +727,7 @@ export function registerInventoryPoSupplierRoutes(
   });
 
   app.post("/api/inventory/pos/bulk-create", requireAuth, async (req, res) => {
+    if (rejectIfPrFlowHeld(res)) return;
     const actor = getActor((req as Authed).userId);
     if (!actor) {
       res.status(401).json({ error: "Invalid session." });
@@ -923,6 +945,7 @@ export function registerInventoryPoSupplierRoutes(
   });
 
   app.post("/api/inventory/pos", requireAuth, async (req, res) => {
+    if (rejectIfPrFlowHeld(res)) return;
     const actor = getActor((req as Authed).userId);
     if (!actor) {
       res.status(401).json({ error: "Invalid session." });
@@ -1084,6 +1107,7 @@ export function registerInventoryPoSupplierRoutes(
                       'poItemId', gi.po_item_id,
                       'spareId', gi.spare_id,
                       'qtyReceived', gi.qty_received::float8,
+                      'qtyTransferred', COALESCE(gi.qty_transferred, 0)::float8,
                       'costPrice', gi.cost_price::float8,
                       'gstRate', gi.gst_rate::float8,
                       'taxAmount', gi.tax_amount::float8
