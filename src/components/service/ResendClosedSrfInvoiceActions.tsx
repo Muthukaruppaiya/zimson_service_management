@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { ServiceInvoiceTemplate } from "./ServiceInvoiceTemplate";
+import { ServiceInvoicePrintSet } from "./ServiceInvoicePrintSet";
 import { SendInvoiceEmailButton } from "./SendInvoiceEmailButton";
 import { SendInvoiceWhatsAppButton } from "./SendInvoiceWhatsAppButton";
 import {
@@ -170,8 +170,8 @@ export function ResendClosedSrfInvoiceActions({
 
   return (
     <>
-      <div className="pointer-events-none fixed -left-[12000px] top-0 opacity-0" aria-hidden>
-        <ServiceInvoiceTemplate data={invoiceVm} idPrefix={idPrefix} />
+      <div className="invoice-print-offscreen pointer-events-none fixed -left-[12000px] top-0 opacity-0 print:hidden" aria-hidden>
+        <ServiceInvoicePrintSet data={invoiceVm} idPrefix={idPrefix} />
       </div>
       <div
         className={

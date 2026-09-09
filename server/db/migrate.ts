@@ -1617,4 +1617,8 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE spares ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
   `);
+
+  await pool.query(`
+    ALTER TABLE quick_bill_lines ADD COLUMN IF NOT EXISTS hsn VARCHAR(16);
+  `);
 }

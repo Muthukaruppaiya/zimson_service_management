@@ -8,6 +8,7 @@ export type QuickBillLineInvoice = {
   amountInr: number;
   spareId: string | null;
   qty: number;
+  hsnSac?: string | null;
 };
 
 /** Summary row for quick bill history lists (GET /api/service/quick-bills). */

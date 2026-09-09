@@ -34,7 +34,7 @@ import {
   emptyMultiPaymentForm,
   validateMultiPaymentForm,
 } from "../../lib/paymentModes";
-import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import { ServiceInvoicePrintSet } from "../../components/service/ServiceInvoicePrintSet";
 import {
   QuickBillEinvoiceStatus,
 } from "../../components/service/QuickBillEinvoicePanel";
@@ -249,28 +249,36 @@ function QuickBillInvoicePanel({
 }) {
   return (
     <div className="space-y-6">
-      <ServiceInvoiceTemplate data={viewModel} idPrefix="qb" />
-      <div className="flex flex-wrap gap-3 print:hidden">
-        <button
-          type="button"
-          onClick={() => printServiceInvoice()}
-          className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-        >
-          Print invoice
-        </button>
-        <button
-          type="button"
-          onClick={onNew}
-          className="inline-flex rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
-        >
-          New quick bill
-        </button>
-        <Link
-          to="/service"
-          className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-        >
-          Back to service
-        </Link>
+      <div className="print:hidden">
+        <ServiceInvoicePrintSet data={viewModel} idPrefix="qb" />
+        <p className="mt-3 text-xs text-stone-500">
+          Print includes two pages: Customer Copy (spares combined) and Internal Copy (line-by-line).
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => printServiceInvoice()}
+            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+          >
+            Print invoice
+          </button>
+          <button
+            type="button"
+            onClick={onNew}
+            className="inline-flex rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700"
+          >
+            New quick bill
+          </button>
+          <Link
+            to="/service"
+            className="inline-flex items-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+          >
+            Back to service
+          </Link>
+        </div>
+      </div>
+      <div className="hidden print:block" aria-hidden>
+        <ServiceInvoicePrintSet data={viewModel} idPrefix="qb-print" />
       </div>
     </div>
   );
@@ -1395,6 +1403,7 @@ export function QuickBillPage() {
         amount: Number.parseFloat(l.amount),
         spareId: l.spareId,
         qty: l.qty ?? 1,
+        hsn: l.hsn?.trim() || (l.spareId ? resolveSpareHsn(l.spareId) : null),
       }))
       .filter((l) => l.description && !Number.isNaN(l.amount) && l.amount >= 0);
 
@@ -1473,11 +1482,19 @@ export function QuickBillPage() {
               amount: l.amount,
               spareId: l.spareId,
               qty: l.qty,
+              hsn: l.hsn,
             })),
           },
         });
         const mergedInvoice: QuickBillInvoice = {
           ...invoice,
+          lines: (invoice.lines ?? []).map((ln, i) => ({
+            ...ln,
+            hsnSac:
+              ln.hsnSac?.trim() ||
+              parsedLines[i]?.hsn ||
+              (ln.spareId ? resolveSpareHsn(ln.spareId) : null),
+          })),
           edocIrn: edoc?.irn ?? invoice.edocIrn,
           edocAckNo: edoc?.ackNo ?? invoice.edocAckNo,
           edocQr: edoc?.qrUrl ?? invoice.edocQr,
@@ -1917,12 +1934,18 @@ export function QuickBillPage() {
       user?.regionId != null
         ? (regions.find((r) => r.id === user.regionId)?.name ?? user.regionId)
         : "—";
-    const demoLines = lines
-      .map((l) => ({
-        description: l.description.trim(),
-        amount: Number.parseFloat(l.amount),
-      }))
-      .filter((l) => l.description && !Number.isNaN(l.amount) && l.amount >= 0);
+    const demoLines = [
+      ...lines
+        .map((l) => ({
+          description: l.description.trim(),
+          amount: Number.parseFloat(l.amount),
+          spareId: l.spareId ?? null,
+        }))
+        .filter((l) => l.description && !Number.isNaN(l.amount) && l.amount >= 0),
+      ...(serviceChargeBillable > 0
+        ? [{ description: "Service / repair charge", amount: serviceChargeBillable, spareId: null }]
+        : []),
+    ];
     const demoPayment = buildMultiPaymentPayload(multiPaymentForm, payableTotal);
     const demoVm = buildDemoServiceInvoiceViewModel(
       {

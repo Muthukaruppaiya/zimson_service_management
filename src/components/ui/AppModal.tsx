@@ -52,7 +52,7 @@ export function AppModal({
 
   return (
     <div
-      className={`fixed inset-0 flex bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6 ${
+      className={`app-modal-overlay print:hidden fixed inset-0 flex bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6 ${
         align === "top" ? "items-start justify-center pt-8 sm:pt-12" : "items-center justify-center"
       }`}
       style={{ zIndex }}

@@ -130,14 +130,16 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
   if (detail.rowCount === 0) return null;
 
   const { rows: lineRows } = await db.query(
-    `SELECT line_no AS "lineNo",
-            description,
-            amount_inr::float8 AS "amountInr",
-            spare_id AS "spareId",
-            qty::float8 AS qty
-     FROM quick_bill_lines
-     WHERE quick_bill_id = $1::uuid
-     ORDER BY line_no`,
+    `SELECT qbl.line_no AS "lineNo",
+            qbl.description,
+            qbl.amount_inr::float8 AS "amountInr",
+            qbl.spare_id AS "spareId",
+            qbl.qty::float8 AS qty,
+            COALESCE(NULLIF(TRIM(qbl.hsn), ''), NULLIF(TRIM(s.hsn), '')) AS "hsnSac"
+     FROM quick_bill_lines qbl
+     LEFT JOIN spares s ON s.id = qbl.spare_id
+     WHERE qbl.quick_bill_id = $1::uuid
+     ORDER BY qbl.line_no`,
     [billId],
   );
 
@@ -197,6 +199,7 @@ async function loadQuickBillInvoiceById(db: Pool | PoolClient, billId: string) {
       amountInr: Number(r.amountInr),
       spareId: (r.spareId as string | null) ?? null,
       qty: Number(r.qty),
+      hsnSac: (r.hsnSac as string | null) ?? null,
     })),
     edocIrn: (head.edocIrn as string | null) ?? null,
     edocAckNo: (head.edocAckNo as string | null) ?? null,
@@ -813,7 +816,14 @@ export function registerQuickBillRoutes(
       return;
     }
 
-    type NormLine = { lineNo: number; description: string; amountInr: number; spareId: string | null; qty: number };
+    type NormLine = {
+      lineNo: number;
+      description: string;
+      amountInr: number;
+      spareId: string | null;
+      qty: number;
+      hsn: string | null;
+    };
     const lines: NormLine[] = [];
     let sum = 0;
     let lineNo = 0;
@@ -852,12 +862,14 @@ export function registerQuickBillRoutes(
         res.status(400).json({ error: `Line ${lineNo}: spare lines need a positive qty.` });
         return;
       }
+      const hsnRaw = String((row as { hsn?: unknown }).hsn ?? "").replace(/\D/g, "").trim();
       lines.push({
         lineNo,
         description,
         amountInr,
         spareId,
         qty: spareId ? qty : 1,
+        hsn: hsnRaw || null,
       });
       sum += billableLineAmount(natureOfRepair, amountInr, spareId);
     }
@@ -886,6 +898,7 @@ export function registerQuickBillRoutes(
         amountInr: rounded,
         spareId: null,
         qty: 1,
+        hsn: null,
       });
       sum += rounded;
     }
@@ -958,12 +971,15 @@ export function registerQuickBillRoutes(
         if (h) hsnBySpareId.set(row.id, h);
       }
     }
+    for (const ln of lines) {
+      if (ln.spareId) ln.hsn = ln.hsn || hsnBySpareId.get(ln.spareId) || null;
+    }
 
     const gstResult = computeServiceBillGst({
       lines: lines.map((ln) => ({
         amountInr: billableLineAmount(natureOfRepair, ln.amountInr, ln.spareId),
         spareId: ln.spareId,
-        hsnSac: ln.spareId ? hsnBySpareId.get(ln.spareId) ?? null : defaultSacHsn,
+        hsnSac: ln.hsn || (ln.spareId ? hsnBySpareId.get(ln.spareId) ?? null : defaultSacHsn),
       })),
       defaultHsnSac: defaultSacHsn,
       spareHsnLookup: (id) => hsnBySpareId.get(id) ?? null,
@@ -1082,9 +1098,9 @@ export function registerQuickBillRoutes(
 
       for (const ln of lines) {
         await client.query(
-          `INSERT INTO quick_bill_lines (quick_bill_id, line_no, description, amount_inr, spare_id, qty)
-           VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6)`,
-          [billId, ln.lineNo, ln.description, ln.amountInr, ln.spareId, ln.qty],
+          `INSERT INTO quick_bill_lines (quick_bill_id, line_no, description, amount_inr, spare_id, qty, hsn)
+           VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7)`,
+          [billId, ln.lineNo, ln.description, ln.amountInr, ln.spareId, ln.qty, ln.hsn],
         );
       }
 

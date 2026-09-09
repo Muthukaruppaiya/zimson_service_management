@@ -646,12 +646,36 @@ textarea.ui-field.ui-field--compact {
   html,
   body {
     background: white !important;
+    height: auto !important;
+    overflow: visible !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
 
   body {
     font-size: 10pt;
+  }
+
+  /* Ancestors use overflow/height clip — that would print only the visible viewport. */
+  .app-shell,
+  .app-shell > div,
+  .app-main,
+  .app-main-content {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  .app-main {
+    padding: 0 !important;
+  }
+
+  .app-modal-overlay,
+  .invoice-print-offscreen {
+    display: none !important;
   }
 
   .service-invoice-print-root {
@@ -663,6 +687,11 @@ textarea.ui-field.ui-field--compact {
     page-break-before: auto;
     break-before: auto;
     margin-top: 4px;
+  }
+
+  .service-invoice-print-root.inv-copy-internal {
+    page-break-before: always;
+    break-before: page;
   }
 
   .service-invoice-print-root .inv-terms-block .inv-terms {

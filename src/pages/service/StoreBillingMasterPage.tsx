@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
-import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import { ServiceInvoicePrintSet } from "../../components/service/ServiceInvoicePrintSet";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -438,7 +438,7 @@ export function StoreBillingMasterPage() {
 
       {printInvoiceVm ? (
         <div className="hidden print:block" aria-hidden>
-          <ServiceInvoiceTemplate data={printInvoiceVm} idPrefix="srf-billing-history-print" />
+          <ServiceInvoicePrintSet data={printInvoiceVm} idPrefix="srf-billing-history-print" />
         </div>
       ) : null}
 
@@ -478,7 +478,7 @@ export function StoreBillingMasterPage() {
               </div>
             </div>
             <div className="max-h-[80vh] overflow-y-auto bg-stone-100 p-4">
-              <ServiceInvoiceTemplate data={invoiceVmForJob(previewJob)} idPrefix="srf-billing-history-preview" />
+              <ServiceInvoicePrintSet data={invoiceVmForJob(previewJob)} idPrefix="srf-billing-history-preview" />
             </div>
           </div>
         </div>

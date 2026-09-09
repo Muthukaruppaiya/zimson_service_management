@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import { ServiceInvoicePrintSet } from "../../components/service/ServiceInvoicePrintSet";
 import {
   IconDownload,
   IconPreview,
@@ -741,7 +741,7 @@ export function InvoiceHistoryPage() {
 
       {previewOpen && previewVm && previewRecord ? (
         <div className="fixed inset-0 z-[60] flex items-end justify-center bg-rlx-ink/70 p-0 sm:items-center sm:p-4 print:static print:inset-auto print:bg-white print:p-0">
-          <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-xl print:max-h-none print:max-w-none print:shadow-none">
+          <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-xl print:max-h-none print:max-w-none print:overflow-visible print:shadow-none">
             <div className="sticky top-0 z-10 flex flex-col gap-3 bg-rlx-green px-4 py-4 sm:flex-row sm:items-center sm:justify-between print:hidden">
               <div>
                 <p className="text-[9px] font-semibold uppercase tracking-[0.4em] text-rlx-gold">Invoice preview</p>
@@ -773,7 +773,7 @@ export function InvoiceHistoryPage() {
               </div>
             </div>
             <div className="p-4 md:p-6">
-              <ServiceInvoiceTemplate data={previewVm} idPrefix={`inv-hist-preview-${previewRecord.id.slice(0, 8)}`} />
+              <ServiceInvoicePrintSet data={previewVm} idPrefix={`inv-hist-preview-${previewRecord.id.slice(0, 8)}`} />
             </div>
           </div>
         </div>

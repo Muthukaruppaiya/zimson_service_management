@@ -15,7 +15,6 @@ import {
   InvIconPhone,
   InvIconStore,
   InvIconTag,
-  InvIconTax,
   InvIconWallet,
 } from "./invoiceDocumentIcons";
 
@@ -48,27 +47,25 @@ function normalizeTermLine(text: string): string {
 function TermsColumns({ terms }: { terms: string[] }) {
   const lines = terms.map(normalizeTermLine).filter(Boolean);
   if (lines.length === 0) return null;
-  const splitAt = Math.ceil(lines.length / 2);
-  const colA = lines.slice(0, splitAt);
-  const colB = lines.slice(splitAt);
   return (
-    <div className="inv-terms-columns">
-      <ol className="inv-terms-col">
-        {colA.map((t, i) => (
-          <li key={i}>{t}</li>
-        ))}
-      </ol>
-      {colB.length > 0 ? (
-        <ol className="inv-terms-col" start={splitAt + 1}>
-          {colB.map((t, i) => (
-            <li key={i}>{t}</li>
-          ))}
-        </ol>
-      ) : (
-        <div className="inv-terms-col inv-terms-col--empty" aria-hidden />
-      )}
-    </div>
+    <ol className="inv-terms-list">
+      {lines.map((t, i) => (
+        <li key={i}>{t}</li>
+      ))}
+    </ol>
   );
+}
+
+function printedHsn(hsnSac: string): string {
+  if (!hsnSac?.trim()) return "—";
+  if (hsnSac.includes(",")) {
+    return hsnSac
+      .split(",")
+      .map((part) => formatPrintedHsnSac(part.trim()))
+      .filter(Boolean)
+      .join(", ");
+  }
+  return formatPrintedHsnSac(hsnSac);
 }
 
 function buildProductInfoRows(
@@ -161,6 +158,8 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
   const isQuickBill = data.invoiceType === "Quick Bill";
   const isB2cCustomer = !String(data.billTo.gstin ?? "").trim();
   const hasEinvoiceQr = Boolean(data.irn || data.einvoiceQr);
+  const isCustomerCopy = data.copyKind === "customer";
+  const copyLabel = isCustomerCopy ? "CUSTOMER COPY" : data.copyKind === "internal" ? "INTERNAL COPY" : null;
 
   const FALLBACK_LOGO = "/zimson-logo.png";
   const logoSrc = data.sellerLogoUrl || FALLBACK_LOGO;
@@ -171,7 +170,9 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
   return (
     <div
       id={rootId}
-      className={`service-invoice-print-root inv-doc${isQuickBill ? " inv-quick-bill" : ""}`}
+      className={`service-invoice-print-root inv-doc${isQuickBill ? " inv-quick-bill" : ""}${
+        isCustomerCopy ? " inv-copy-customer" : data.copyKind === "internal" ? " inv-copy-internal" : ""
+      }`}
       data-expect-einvoice-qr={data.irn || data.einvoiceQr ? "1" : undefined}
     >
       <div className="inv-sheet inv-page-main">
@@ -189,6 +190,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
         <div className="inv-banner">
           <div className="inv-banner-title">{data.documentLabel?.trim() || "TAX INVOICE"}</div>
           <div className="inv-banner-sub">
+            {copyLabel ? <div className="inv-copy-label">{copyLabel}</div> : null}
             <div>{data.invoiceType || "Tax Invoice"}</div>
             {data.placeOfSupply ? <div>Place of supply: {data.placeOfSupply}</div> : null}
           </div>
@@ -331,29 +333,36 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
         ) : null}
 
         {/* Line items */}
-        <table className="inv-items-table">
+        <table className={`inv-items-table${isCustomerCopy ? " inv-items-table--customer" : ""}`}>
+          <colgroup>
+            <col className="inv-col-sno" />
+            {!isCustomerCopy ? <col className="inv-col-spare" /> : null}
+            <col className="inv-col-item" />
+            <col className="inv-col-hsn" />
+            <col className="inv-col-price" />
+            <col className="inv-col-qty" />
+            <col className="inv-col-gross" />
+          </colgroup>
           <thead>
             <tr>
               <th>S.No</th>
-              <th>Spare Code</th>
+              {!isCustomerCopy ? <th>Spare Code</th> : null}
               <th>Item Name</th>
-              <th>HSN/SAC Number</th>
+              <th>HSN/SAC</th>
               <th className="num">Price (₹)</th>
-              <th className="num">Quantity</th>
-              <th className="num">Gross Value (₹)</th>
+              <th className="num">Qty</th>
+              <th className="num">Gross (₹)</th>
             </tr>
           </thead>
           <tbody>
             {data.lines.map((ln) => (
               <tr key={ln.slNo}>
-                <td>{ln.slNo}</td>
-                <td className="mono" style={{ fontFamily: "Consolas, monospace" }}>
-                  {ln.spareCode ?? "—"}
-                </td>
-                <td>{ln.description}</td>
-                <td className="mono" style={{ fontFamily: "Consolas, monospace" }}>
-                  {formatPrintedHsnSac(ln.hsnSac)}
-                </td>
+                <td className="inv-td-sno">{ln.slNo}</td>
+                {!isCustomerCopy ? (
+                  <td className="inv-td-spare mono">{ln.spareCode ?? "—"}</td>
+                ) : null}
+                <td className="inv-td-item">{ln.description}</td>
+                <td className="inv-td-hsn mono">{printedHsn(ln.hsnSac)}</td>
                 <td className="num">{fmt(ln.unitPrice)}</td>
                 <td className="num">{ln.qty}</td>
                 <td className="num">{fmt(ln.grossValue)}</td>
@@ -362,7 +371,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={5}>
+              <td colSpan={isCustomerCopy ? 4 : 5}>
                 {data.amountInWords ? (
                   <span className="inv-amount-words">{data.amountInWords}</span>
                 ) : null}
@@ -454,55 +463,6 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             </div>
           </div>
         </div>
-
-        {data.taxBreakdownRows && data.taxBreakdownRows.length > 0 ? (
-          <div className="inv-tax-panel">
-            <InvSecPill icon={<InvIconTax />}>Tax Summary</InvSecPill>
-            <div className="inv-card-body inv-tax-body">
-              {(() => {
-                const rows = data.taxBreakdownRows;
-                const showIgst = rows.some((r) => r.igst > 0);
-                const showCgstSgst = rows.some((r) => r.cgst > 0 || r.sgst > 0);
-                return (
-                  <table className="inv-tax-table">
-                    <thead>
-                      <tr>
-                        <th>Tax Description</th>
-                        <th className="num">Taxable Amount</th>
-                        {showCgstSgst ? <th className="num">CGST</th> : null}
-                        {showCgstSgst ? <th className="num">SGST</th> : null}
-                        {showIgst ? <th className="num">IGST</th> : null}
-                        <th className="num">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r, idx) => (
-                        <tr key={`${r.description}-${idx}`}>
-                          <td>{r.description}</td>
-                          <td className="num">{fmt(r.taxable)}</td>
-                          {showCgstSgst ? <td className="num">{fmt(r.cgst)}</td> : null}
-                          {showCgstSgst ? <td className="num">{fmt(r.sgst)}</td> : null}
-                          {showIgst ? <td className="num">{fmt(r.igst)}</td> : null}
-                          <td className="num inv-tax-row-total">{fmt(r.total)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr>
-                        <td>Total</td>
-                        <td className="num">{fmt(rows.reduce((s, r) => s + r.taxable, 0))}</td>
-                        {showCgstSgst ? <td className="num">{fmt(rows.reduce((s, r) => s + r.cgst, 0))}</td> : null}
-                        {showCgstSgst ? <td className="num">{fmt(rows.reduce((s, r) => s + r.sgst, 0))}</td> : null}
-                        {showIgst ? <td className="num">{fmt(rows.reduce((s, r) => s + r.igst, 0))}</td> : null}
-                        <td className="num">{fmt(rows.reduce((s, r) => s + r.total, 0))}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                );
-              })()}
-            </div>
-          </div>
-        ) : null}
 
         <div className="inv-footer">
           <div className="inv-footer-left">

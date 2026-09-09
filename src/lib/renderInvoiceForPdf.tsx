@@ -1,8 +1,9 @@
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { ServiceInvoiceTemplate } from "../components/service/ServiceInvoiceTemplate";
-import type { ServiceInvoiceViewModel } from "../types/serviceInvoice";
+import type { ServiceInvoiceCopyKind, ServiceInvoiceViewModel } from "../types/serviceInvoice";
 import { captureInvoicePdfBlob } from "./captureInvoicePdf";
+import { toCustomerCopyInvoiceVm, toInternalCopyInvoiceVm } from "./invoiceCopy";
 
 const LAYOUT_POLL_MS = 80;
 const LAYOUT_DEADLINE_MS = 8000;
@@ -52,7 +53,12 @@ async function waitForInvoiceLayout(root: HTMLElement): Promise<HTMLElement> {
 export async function captureInvoicePdfFromViewModel(
   data: ServiceInvoiceViewModel,
   idPrefix = "inv-dl",
+  options?: { copyKind?: ServiceInvoiceCopyKind },
 ): Promise<Blob> {
+  const vm =
+    options?.copyKind === "internal"
+      ? toInternalCopyInvoiceVm(data)
+      : toCustomerCopyInvoiceVm(data);
   const host = document.createElement("div");
   host.style.position = "fixed";
   host.style.left = "-12000px";
@@ -66,7 +72,7 @@ export async function captureInvoicePdfFromViewModel(
   const root = createRoot(host);
   try {
     flushSync(() => {
-      root.render(<ServiceInvoiceTemplate data={data} idPrefix={idPrefix} />);
+      root.render(<ServiceInvoiceTemplate data={vm} idPrefix={idPrefix} />);
     });
     const printRoot = await waitForInvoiceLayout(host);
     return await captureInvoicePdfBlob(printRoot);

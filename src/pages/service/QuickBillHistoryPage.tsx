@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { mapQuickBillInvoiceToViewModel } from "../../components/service/mapQuickBillToServiceInvoice";
-import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import { ServiceInvoicePrintSet } from "../../components/service/ServiceInvoicePrintSet";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { FilterField } from "../../components/ui/FilterField";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
+import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { SendInvoiceWhatsAppButton } from "../../components/service/SendInvoiceWhatsAppButton";
 import { SendInvoiceEmailButton } from "../../components/service/SendInvoiceEmailButton";
@@ -36,6 +37,7 @@ import {
   quickBillNeedsEinvoiceRetry,
 } from "../../lib/edocResultMessage";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
+import type { QuickBillHistoryRow, QuickBillInvoice } from "../../types/quickBill";
 
 const TABLE_HEADERS: { key: string; label: string; align?: "right"; hide?: string }[] = [
   { key: "date", label: "Date" },
@@ -97,6 +99,7 @@ export function QuickBillHistoryPage() {
   const apiMode = useApiMode();
   const { user } = useAuth();
   const { regions } = useRegions();
+  const { spares } = useSpares();
   const [searchParams] = useSearchParams();
   const [rows, setRows] = useState<QuickBillHistoryRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -251,8 +254,9 @@ export function QuickBillHistoryPage() {
       edocIrn: inv?.edocIrn ?? null,
       edocAckNo: inv?.edocAckNo ?? null,
       edocQr: inv?.edocQr ?? null,
+      spareHsnLookup: (spareId: string) => spares.find((s) => s.id === spareId)?.hsn?.trim() || null,
     }),
-    [invoiceHsnSac, serviceTaxSettings, storeForInvoice, currentUserStore, user?.displayName, user?.email, user?.id],
+    [invoiceHsnSac, serviceTaxSettings, storeForInvoice, currentUserStore, user?.displayName, user?.email, user?.id, spares],
   );
 
   const invoiceVmOptions = useMemo(
@@ -736,7 +740,7 @@ export function QuickBillHistoryPage() {
       {/* ── INVOICE PREVIEW MODAL ─────────────────────────────── */}
       {selected ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-rlx-ink/70 backdrop-blur-sm sm:items-center sm:p-4 print:static print:inset-auto print:z-0 print:bg-white print:p-0 print:backdrop-blur-none">
-          <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] print:max-h-none print:max-w-none print:shadow-none">
+          <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] print:max-h-none print:max-w-none print:overflow-visible print:shadow-none">
 
             {/* modal header */}
             <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-rlx-gold bg-rlx-green px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 print:hidden">
@@ -921,7 +925,7 @@ export function QuickBillHistoryPage() {
                     Invoice · Formal layout
                   </p>
                   <div className="border border-rlx-rule print:border-0">
-                    <ServiceInvoiceTemplate data={detailInvoiceVm} idPrefix={invoicePrintIdPrefix} />
+                    <ServiceInvoicePrintSet data={detailInvoiceVm} idPrefix={invoicePrintIdPrefix} />
                   </div>
                 </div>
               ) : null}

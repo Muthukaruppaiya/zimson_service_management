@@ -1,5 +1,8 @@
 import type { PaymentSplit } from "../lib/paymentModes";
 
+/** Which printed invoice copy this view model represents. */
+export type ServiceInvoiceCopyKind = "internal" | "customer";
+
 /** View model for the printable service invoice shell (Quick bill, SRF service bill, etc.). */
 export type ServiceInvoiceLineView = {
   slNo: number;
@@ -11,6 +14,8 @@ export type ServiceInvoiceLineView = {
   qty: number;
   /** Line taxable (gross) = unitPrice * qty */
   grossValue: number;
+  /** Spare part line — customer copy collapses these into one row. */
+  isSpareLine?: boolean;
 };
 
 export type ServiceInvoiceTaxRow = {
@@ -24,6 +29,11 @@ export type ServiceInvoiceTaxRow = {
 
 export type ServiceInvoiceViewModel = {
   documentLabel: string;
+  /**
+   * Customer copy hides spare price split-up (one row, comma-separated names, cumulative price).
+   * Internal copy is the current line-by-line layout. Unset is treated as internal.
+   */
+  copyKind?: ServiceInvoiceCopyKind;
   /** Shown on layout e.g. "Quick Bill" / "Service bill" */
   invoiceType?: string;
   /** Service ref / SR no. (SRF ref or secondary id) */

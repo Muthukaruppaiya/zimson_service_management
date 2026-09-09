@@ -4,7 +4,7 @@ import {
   type HandoverOtpMode,
 } from "../../components/service/CustomerHandoverOtpModal";
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
-import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import { ServiceInvoicePrintSet } from "../../components/service/ServiceInvoicePrintSet";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { Card } from "../../components/ui/Card";
@@ -1494,7 +1494,7 @@ export function StoreBillingPage() {
 
       {billingInvoiceVm ? (
         <div className="hidden print:block" aria-hidden>
-          <ServiceInvoiceTemplate data={billingInvoiceVm} idPrefix="srf-store-bill" />
+          <ServiceInvoicePrintSet data={billingInvoiceVm} idPrefix="srf-store-bill" />
         </div>
       ) : null}
 

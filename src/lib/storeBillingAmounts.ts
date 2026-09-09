@@ -54,7 +54,7 @@ export function buildStoreBillingSnapshot(params: {
         params.job,
         resolveStoreBillingAmounts(params.job),
         params.additionalCharges,
-      ).map((l) => ({ ...l, spareId: null, hsnSac: params.defaultSacHsn }));
+      ).map((l) => ({ ...l, spareId: l.spareId ?? null, hsnSac: params.defaultSacHsn }));
   return {
     billLines: invoiceLines,
     serviceChargeInr: params.serviceChargeBillable > 0 ? params.serviceChargeBillable : undefined,
@@ -134,9 +134,9 @@ export function resolveStoreBillingAmounts(job: SrfJob): StoreBillingAmounts {
 export function buildStoreBillingInvoiceLines(
   job: SrfJob,
   amounts: StoreBillingAmounts,
-  additionalCharges: { description: string; amountInr: number }[],
-): { description: string; amountInr: number }[] {
-  const lines: { description: string; amountInr: number }[] = [];
+  additionalCharges: { description: string; amountInr: number; spareId?: string | null }[],
+): { description: string; amountInr: number; spareId?: string | null }[] {
+  const lines: { description: string; amountInr: number; spareId?: string | null }[] = [];
 
   if (amounts.isBrandRepair) {
     if (amounts.billableBaseAmount > 0) {
@@ -159,6 +159,7 @@ export function buildStoreBillingInvoiceLines(
         lines.push({
           description: spare.qty > 1 ? `${spare.name} x ${spare.qty}` : spare.name,
           amountInr: amt,
+          spareId: spare.spareId ?? null,
         });
       }
     }

@@ -29,7 +29,7 @@ export function buildStoreBillingGstLines(
     .filter((l) => Number.isFinite(l.amountInr) && l.amountInr > 0)
     .map((l) => ({
       amountInr: l.amountInr,
-      spareId: spareIdByDesc.get(l.description.trim()) ?? null,
+      spareId: l.spareId ?? spareIdByDesc.get(l.description.trim()) ?? null,
       hsnSac: defaultSacHsn,
     }));
 }

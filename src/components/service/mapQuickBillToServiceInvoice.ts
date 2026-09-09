@@ -239,14 +239,17 @@ function buildGstLines(
     if (lineTaxInclusive && g > 0) taxableLine = lineAmt / (1 + g);
     const unitTaxable = taxableLine / qty;
     totalQty += qty;
+    const spareFromCode = parseSpareCodeFromDescription(ln.description);
+    const labourLike = /labour|service\s*\/\s*repair|service charge|brand repair/i.test(ln.description);
     outLines.push({
       slNo: ln.lineNo || i + 1,
-      spareCode: parseSpareCodeFromDescription(ln.description),
+      spareCode: spareFromCode,
       description: ln.description,
       hsnSac: hsn,
       unitPrice: Math.round(unitTaxable * 100) / 100,
       qty: Math.round(qty * 1000) / 1000,
       grossValue: Math.round(taxableLine * 100) / 100,
+      isSpareLine: Boolean(ln.spareId) || Boolean(spareFromCode) || !labourLike,
     });
   });
 
@@ -329,7 +332,7 @@ export type DemoInvoiceInput = {
   paymentMode: string;
   paymentDetails?: AdvancePaymentDetails | null;
   notes: string;
-  lines: { description: string; amount: number }[];
+  lines: { description: string; amount: number; spareId?: string | null }[];
   total: number;
 };
 
@@ -349,7 +352,7 @@ export function buildDemoServiceInvoiceViewModel(
       lineNo: idx + 1,
       description: l.description.trim(),
       amountInr: l.amount,
-      spareId: null,
+      spareId: l.spareId ?? null,
       qty: 1,
     }));
   const supply = gstSupplyContext(options, sellerPack, {

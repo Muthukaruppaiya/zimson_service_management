@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { HsnPicker } from "../../components/service/HsnPicker";
-import { ServiceInvoiceTemplate } from "../../components/service/ServiceInvoiceTemplate";
+import { ServiceInvoicePrintSet } from "../../components/service/ServiceInvoicePrintSet";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -754,13 +754,13 @@ export function ServiceBillingPage() {
 
         {recordedInterHoInvoiceVm && !interHoInvoicePreviewOpen ? (
           <div className="hidden print:block" aria-hidden>
-            <ServiceInvoiceTemplate data={recordedInterHoInvoiceVm} idPrefix={interHoInvoicePrintIdPrefix} />
+            <ServiceInvoicePrintSet data={recordedInterHoInvoiceVm} idPrefix={interHoInvoicePrintIdPrefix} />
           </div>
         ) : null}
 
         {recordedInterHoInvoiceVm && interHoInvoicePreviewOpen ? (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-rlx-ink/70 backdrop-blur-sm sm:items-center sm:p-4 print:static print:inset-auto print:z-0 print:bg-white print:p-0 print:backdrop-blur-none">
-            <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] print:max-h-none print:max-w-none print:shadow-none">
+            <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] print:max-h-none print:max-w-none print:overflow-visible print:shadow-none">
               <div className="sticky top-0 z-20 flex flex-col gap-3 bg-rlx-green px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 print:hidden">
                 <div className="min-w-0">
                   <p className="text-[9px] font-semibold uppercase tracking-[0.45em] text-rlx-gold">Invoice preview</p>
@@ -798,7 +798,7 @@ export function ServiceBillingPage() {
               </div>
               <div className="p-6 md:p-8">
                 <div className="border border-rlx-rule print:border-0">
-                  <ServiceInvoiceTemplate data={recordedInterHoInvoiceVm} idPrefix={`${interHoInvoicePrintIdPrefix}-preview`} />
+                  <ServiceInvoicePrintSet data={recordedInterHoInvoiceVm} idPrefix={`${interHoInvoicePrintIdPrefix}-preview`} />
                 </div>
               </div>
             </div>

@@ -126,6 +126,8 @@ export async function captureInvoicePdfBlob(
 }
 
 export function findInvoicePrintRoot(): HTMLElement | null {
+  const customer = document.querySelector(".service-invoice-print-root.inv-copy-customer");
+  if (customer instanceof HTMLElement) return customer;
   const el = document.querySelector(".service-invoice-print-root");
   return el instanceof HTMLElement ? el : null;
 }
