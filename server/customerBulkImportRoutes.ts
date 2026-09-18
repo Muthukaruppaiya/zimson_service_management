@@ -10,7 +10,7 @@ import type { DemoUser } from "../src/types/user";
 import { isValidGstin } from "./mastersIndiaEdoc/types";
 import {
   canonicalCustomerBulkHeader,
-  customerBulkColumnKeys,
+  customerBulkRequiredKeys,
   customerBulkColumnLabel,
   customerBulkHeaderLabels,
 } from "../src/lib/customerBulkImportColumns";
@@ -47,6 +47,7 @@ type Addr = {
 
 type CustomerImportRow = {
   rowNum: number;
+  customerCode: string | null;
   customerKind: CustomerKind;
   salutation: string | null;
   firstName: string | null;
@@ -137,17 +138,28 @@ function sheetRows(sheet: XLSX.WorkSheet | undefined): Record<string, unknown>[]
   return out;
 }
 
+function findCustomersSheet(wb: XLSX.WorkBook): XLSX.WorkSheet | undefined {
+  const named = findSheet(wb, "Customers") ?? findSheet(wb, "Customer");
+  if (named) return named;
+  for (const name of wb.SheetNames) {
+    if (name.trim().toLowerCase() === "readme") continue;
+    const sh = wb.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sh, { header: 1, defval: "" });
+    const headers = ((rows[0] as unknown[]) ?? []).map((h) => canonicalCustomerBulkHeader(h));
+    if (headers.includes("phone") || headers.includes("first_name")) return sh;
+  }
+  return undefined;
+}
+
 function assertHeaders(sheet: XLSX.WorkSheet | undefined): string[] {
-  if (!sheet) return ['Missing "Customers" sheet. Use the downloaded template.'];
+  if (!sheet) return ['Missing "Customers" sheet. Use the downloaded template or a file with Primary Mobile.'];
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
   if (rows.length < 1) return ["Customers: sheet is empty."];
   const headers = (rows[0] as unknown[]).map((h) => canonicalCustomerBulkHeader(h)).filter(Boolean);
-  const missing = customerBulkColumnKeys().filter((e) => !headers.includes(e));
+  const missing = customerBulkRequiredKeys().filter((e) => !headers.includes(e));
   if (missing.length) {
     const missingLabels = missing.map((k) => customerBulkColumnLabel(k));
-    return [
-      `Customers: missing column(s): ${missingLabels.join(", ")}. First row must match the template.`,
-    ];
+    return [`Customers: missing required column(s): ${missingLabels.join(", ")}.`];
   }
   return [];
 }
@@ -338,7 +350,7 @@ function parseRows(
     }
 
     if (kind === "B2C") {
-      if (!firstName || !lastName) rowErrs.push(`Customers row ${rowNum}: First Name and Last Name are required for B2C.`);
+      if (!firstName) rowErrs.push(`Customers row ${rowNum}: First Name is required for B2C.`);
       if (panRaw && !PAN_RE.test(panRaw)) rowErrs.push(`Customers row ${rowNum}: PAN is invalid.`);
       if (gstRaw) {
         if (!isValidGstin(gstRaw)) rowErrs.push(`Customers row ${rowNum}: GSTIN must be a valid 15-character GSTIN.`);
@@ -418,6 +430,7 @@ function parseRows(
 
     parsed.push({
       rowNum,
+      customerCode: cellStr(r.customer_code).toUpperCase() || null,
       customerKind: kind,
       salutation,
       firstName,
@@ -520,12 +533,13 @@ async function buildTemplateWorkbook(): Promise<Buffer> {
     ["3. Save as .xlsx and upload on Customer master → Bulk import."],
     ["4. Click Check file first. Import is enabled only after validation passes."],
     ["5. Matching Primary Mobile updates the existing customer; new mobiles create customers."],
+    ["6. Customer Number is assigned by the system (CUST + year + sequence). Leave any Customer Number column blank."],
     [""],
     ["VERIFICATION"],
     ["Bulk import does NOT send SMS or email OTP. Email is optional."],
     ["Imported customers are saved as migrated (unverified). Verify later from the counter if needed."],
     [""],
-    ["B2C: First Name + Last Name + Primary Mobile + billing address."],
+    ["B2C: First Name + Primary Mobile + billing address. Last / second name is optional."],
     ["B2B: Display Name + Company + GSTIN + PAN + Primary Mobile + billing address."],
     ["Same Shipping As Billing = Y copies billing to shipping."],
     ["Dates (Date of Birth, Anniversary): use DD/MM/YYYY, e.g. 12/04/1988."],
@@ -546,12 +560,13 @@ async function buildTemplateWorkbook(): Promise<Buffer> {
 
 async function parseUploaded(pool: Pool, buffer: Buffer) {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-  const headerErrors = assertHeaders(findSheet(wb, "Customers"));
+  const sheet = findCustomersSheet(wb);
+  const headerErrors = assertHeaders(sheet);
   const { byId, byName } = await loadCountries(pool);
   if (headerErrors.length) {
     return { headerErrors, rows: [] as CustomerImportRow[], parseErrors: [] as string[] };
   }
-  const raw = sheetRows(findSheet(wb, "Customers"));
+  const raw = sheetRows(sheet);
   const { rows, errors } = parseRows(raw, byId, byName);
   const parseErrors = [...errors];
   if (rows.length === 0 && errors.length === 0) {
@@ -597,6 +612,7 @@ async function commitRows(
   actorId: string,
   rows: CustomerImportRow[],
   existingSet: Set<string>,
+  registeredStoreId: string | null,
 ): Promise<void> {
   for (const row of rows) {
     const { address, city } = legacyAddress(row.billing);
@@ -669,7 +685,12 @@ async function commitRows(
       );
     } else {
       const id = createId("cust");
-      const customerCode = await nextCustomerCode(client);
+      let customerCode = row.customerCode;
+      if (customerCode) {
+        const taken = await client.query(`SELECT 1 FROM customers WHERE customer_code = $1 LIMIT 1`, [customerCode]);
+        if (taken.rowCount && taken.rowCount > 0) customerCode = null;
+      }
+      if (!customerCode) customerCode = await nextCustomerCode(client);
       await client.query(
         `INSERT INTO customers (
            id, customer_code, display_name, salutation, first_name, last_name,
@@ -682,7 +703,7 @@ async function commitRows(
            remark_attention, reference_name, representative_name,
            additional_addresses,
            phone_verified_at, email_verified_at, customer_data_source,
-           created_by, modified_by
+           created_by, modified_by, registered_store_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6,
            $7, $8, $9, $10, $11, $12,
@@ -694,7 +715,7 @@ async function commitRows(
            $25, $26, $27,
            $28::jsonb,
            NULL, NULL, 'migrated',
-           $29, $29
+           $29, $29, $30
          )`,
         [
           id,
@@ -726,6 +747,7 @@ async function commitRows(
           row.representativeName,
           addJson,
           actorId,
+          registeredStoreId,
         ],
       );
     }
@@ -812,7 +834,15 @@ export function registerCustomerBulkImportRoutes(
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        await commitRows(client, actor.id, rows, classified.existingSet);
+        let registeredStoreId: string | null = String(actor.storeId ?? "").trim() || null;
+        if (registeredStoreId) {
+          const st = await client.query<{ id: string }>(
+            `SELECT id FROM stores WHERE id = $1::text LIMIT 1`,
+            [registeredStoreId],
+          );
+          registeredStoreId = st.rows[0]?.id ?? null;
+        }
+        await commitRows(client, actor.id, rows, classified.existingSet, registeredStoreId);
         await client.query("COMMIT");
         res.json({
           ok: true,

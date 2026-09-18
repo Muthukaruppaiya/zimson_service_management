@@ -5,14 +5,14 @@ export type { BulkImportColumn };
 
 /** One supplier per row. Location columns map to the primary address. */
 export const SUPPLIER_BULK_IMPORT_COLUMNS: BulkImportColumn[] = [
-  { key: "supplier_code", label: "Supplier Code", required: true, note: "Unique code, stored uppercase (e.g. SUP001). Used to update if the supplier already exists." },
+  { key: "supplier_code", label: "Supplier Code", required: false, note: "Leave blank to auto-generate (SUP…). Matching code or GSTIN updates the existing supplier." },
   { key: "name", label: "Supplier Name", required: true, note: "Company / trading name" },
   { key: "contact_name", label: "Contact Person", required: false, note: "Primary contact name" },
   { key: "phone", label: "Phone", required: false, note: "10–15 digits; +91 allowed" },
   { key: "email", label: "Email", required: false, note: "Valid email if provided" },
   { key: "gstin", label: "GSTIN", required: false, note: "15-character GSTIN if registered" },
   { key: "tax_person_type", label: "Tax Person Type", required: false, note: "Excel dropdown from Tax Types sheet (Tax & billing settings)" },
-  { key: "is_active", label: "Active", required: true, note: "Y / N — Excel dropdown" },
+  { key: "is_active", label: "Active", required: false, note: "Y / N — default Y" },
   { key: "door_no", label: "Door / Plot No.", required: false, note: "Primary location" },
   { key: "street", label: "Street", required: false, note: "Primary location" },
   { key: "place", label: "Place / Area", required: false, note: "Primary location" },
@@ -23,6 +23,10 @@ export const SUPPLIER_BULK_IMPORT_COLUMNS: BulkImportColumn[] = [
 
 const SUPPLIER_HEADER_ALIASES: Record<string, string> = {
   supplier_code: "supplier_code",
+  supplier_number: "supplier_code",
+  supplier_no: "supplier_code",
+  vendor_code: "supplier_code",
+  vendor_number: "supplier_code",
   code: "supplier_code",
   name: "name",
   supplier_name: "name",
@@ -63,6 +67,10 @@ export function supplierBulkHeaderLabels(): string[] {
 
 export function supplierBulkColumnKeys(): string[] {
   return SUPPLIER_BULK_IMPORT_COLUMNS.map((c) => c.key);
+}
+
+export function supplierBulkRequiredKeys(): string[] {
+  return SUPPLIER_BULK_IMPORT_COLUMNS.filter((c) => c.required).map((c) => c.key);
 }
 
 export function supplierBulkColumnLabel(key: string): string {

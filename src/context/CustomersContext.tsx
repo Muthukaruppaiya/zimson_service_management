@@ -16,6 +16,7 @@ import { lookupCustomer as runLookup, type LookupResult } from "../lib/customerL
 import { STORAGE_CUSTOMERS } from "../lib/storageKeys";
 import type { CustomerRecord, CustomerRegistrationPayload } from "../types/customer";
 import { useAuth } from "./AuthContext";
+import { isCustomerPhoneVerified } from "../lib/customerVerification";
 
 type LocalRegOtpSession = {
   phoneLast10: string;
@@ -159,8 +160,8 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       if (p10.length !== 10) {
         throw new Error("Enter a valid 10-digit mobile for OTP (or fill OTP mobile).");
       }
-      const phoneTaken = customers.some((c) => phoneLast10Local(c.phone) === primaryP10);
-      if (phoneTaken) {
+      const existing = customers.find((c) => phoneLast10Local(c.phone) === primaryP10);
+      if (existing && isCustomerPhoneVerified(existing)) {
         throw new Error(
           "This mobile number is already registered. Open Customer master to view or edit the existing profile.",
         );
@@ -342,7 +343,8 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
   const registerCustomer = useCallback(
     async (input: CustomerRegistrationPayload): Promise<CustomerRecord> => {
       const regP10 = phoneLast10Local(optTrim(input.phone));
-      if (regP10.length === 10 && customers.some((c) => phoneLast10Local(c.phone) === regP10)) {
+      const existing = customers.find((c) => phoneLast10Local(c.phone) === regP10);
+      if (existing && isCustomerPhoneVerified(existing)) {
         throw new Error(
           "This mobile number is already registered. Open Customer master to view or edit the existing profile.",
         );
@@ -378,9 +380,18 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
             referenceName: optTrim(input.referenceName) || undefined,
             representativeName: optTrim(input.representativeName) || undefined,
             customFields: input.customFields,
+            registeredStoreId: optTrim(input.registeredStoreId) || undefined,
           },
         });
-        setExtra((prev) => [...prev, data.customer]);
+        setExtra((prev) => {
+          const i = prev.findIndex((c) => c.id === data.customer.id);
+          if (i >= 0) {
+            const next = [...prev];
+            next[i] = data.customer;
+            return next;
+          }
+          return [...prev, data.customer];
+        });
         return data.customer;
       }
 
@@ -409,9 +420,14 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
       localOtpSessionsRef.current.delete(input.sessionId);
 
       const now = new Date().toISOString();
+      const existingUnverified =
+        regP10.length === 10
+          ? customers.find((c) => phoneLast10Local(c.phone) === regP10 && !isCustomerPhoneVerified(c))
+          : undefined;
       const row: CustomerRecord = {
-        id: createId("cust"),
-        customerCode: `CUST-L-${Date.now().toString(36).toUpperCase().slice(-8)}`,
+        id: existingUnverified?.id ?? createId("cust"),
+        customerCode:
+          existingUnverified?.customerCode ?? `CUST-L-${Date.now().toString(36).toUpperCase().slice(-8)}`,
         displayName: buildDisplayName(input),
         salutation: optTrim(input.salutation) || undefined,
         firstName: optTrim(input.firstName) || undefined,
@@ -441,9 +457,13 @@ export function CustomersProvider({ children }: { children: ReactNode }) {
         phoneVerifiedAt: now,
         emailVerifiedAt: now,
         customerDataSource: "registered",
-        createdAt: now,
+        registeredStoreId: existingUnverified?.registeredStoreId ?? (optTrim(input.registeredStoreId) || null),
+        registeredStoreName: existingUnverified?.registeredStoreName ?? null,
+        createdAt: existingUnverified?.createdAt ?? now,
       };
-      const next = [...extra, row];
+      const next = existingUnverified
+        ? extra.map((c) => (c.id === existingUnverified.id ? row : c))
+        : [...extra, row];
       setExtra(next);
       saveStoredCustomers(next);
       return row;

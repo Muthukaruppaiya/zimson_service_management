@@ -134,7 +134,7 @@ type SrfJobsContextValue = {
   storeSelfSubmitSparesSlip: (
     jobId: string,
     lines: UsedSpareLine[],
-    warrantyTillDate: string,
+    servicePackage?: import("../types/servicePackage").SrfServicePackageSnapshot | null,
   ) => Promise<void>;
   storeSelfMarkRepairComplete: (jobId: string, note?: string) => Promise<void>;
   storeSelfRequestReestimate: (jobId: string, payload: { estimateTotalInr: number; note: string }) => Promise<SrfReestimateNotifyResult>;
@@ -200,7 +200,7 @@ type SrfJobsContextValue = {
   submitSparesSlip: (
     jobId: string,
     lines: UsedSpareLine[],
-    warrantyTillDate: string,
+    servicePackage?: import("../types/servicePackage").SrfServicePackageSnapshot | null,
   ) => Promise<void>;
   technicianMarkRepairComplete: (jobId: string, technicianProfileId: string) => Promise<void>;
   supervisorLogBrandEstimate: (
@@ -289,6 +289,8 @@ type SrfJobsContextValue = {
       storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
       /** Billing-time customer type (e.g. B2C SRF upgraded to B2B at store invoice). */
       billingCustomerKind?: "B2C" | "B2B";
+      /** Service warranty period selected on the store invoice (months). */
+      warrantyMonths?: number | null;
     },
   ) => Promise<{
     ok: boolean;
@@ -398,10 +400,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   }, [refreshJobs]);
 
   const storeSelfSubmitSparesSlip = useCallback(
-    async (jobId: string, lines: UsedSpareLine[], warrantyTillDate: string) => {
+    async (
+      jobId: string,
+      lines: UsedSpareLine[],
+      servicePackage?: import("../types/servicePackage").SrfServicePackageSnapshot | null,
+    ) => {
       await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store-self/spares-slip`, {
         method: "POST",
-        json: { lines, warrantyTillDate },
+        json: { lines, servicePackage: servicePackage ?? null },
       });
       await refreshJobs();
     },
@@ -730,10 +736,14 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
   );
 
   const submitSparesSlip = useCallback(
-    async (jobId: string, lines: UsedSpareLine[], warrantyTillDate: string) => {
+    async (
+      jobId: string,
+      lines: UsedSpareLine[],
+      servicePackage?: import("../types/servicePackage").SrfServicePackageSnapshot | null,
+    ) => {
       await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/spares-slip`, {
         method: "POST",
-        json: { lines, warrantyTillDate },
+        json: { lines, servicePackage: servicePackage ?? null },
       });
       await refreshJobs();
     },
@@ -968,6 +978,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       handoverSessionId?: string | null;
       storeBillingSnapshot?: import("../lib/storeBillingSnapshot").StoreBillingSnapshot;
       billingCustomerKind?: "B2C" | "B2B";
+      warrantyMonths?: number | null;
     },
   ) => {
     const out = await apiJson<{

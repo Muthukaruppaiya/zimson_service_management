@@ -1,29 +1,98 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
+import { SparePicker } from "../../components/inventory/SparePicker";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
+import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import {
+  GRN_DOC_ACCEPT,
+  grnAttachHint,
+  grnDocDateLabel,
+  grnDocNumberLabel,
+  grnDocNumberPlaceholder,
+  grnModeLabel,
+  grnUploadLabel,
+  isAllowedGrnDocument,
+  isVendorInvoiceGrn,
+  type GrnMode,
+} from "../../lib/grnMode";
 import { buildGrnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
+import { DEFAULT_LINE_GST_PERCENT } from "../../lib/serviceBillGst";
+import { taxPersonTypeFromGstin } from "../../lib/supplierGstFill";
 import type { PurchaseOrder } from "../../types/purchaseOrder";
-import type { SparePart } from "../../types/spare";
+import type { SparePart, SparePriceLine } from "../../types/spare";
+import type { Supplier } from "../../types/supplier";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
 
 type LineState = {
   qty: string;
   costPrice: string;
 };
 
-// ── Styles ─────────────────────────────────────────────────────────────────────
+type DirectLine = {
+  spareId: string;
+  qty: string;
+  costPrice: string;
+  brand: string;
+};
+
+function emptyDirectLine(): DirectLine {
+  return { spareId: "", qty: "1", costPrice: "", brand: "" };
+}
+
+function fmtMoney(v: number) {
+  return v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 const inputCls =
   "mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30 transition-colors";
 const labelCls = "block text-[11px] font-semibold uppercase tracking-widest text-stone-500";
+const compactFieldCls =
+  "mt-0.5 h-8 w-full border border-rlx-rule bg-white px-2 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30";
 
-import { DEFAULT_LINE_GST_PERCENT } from "../../lib/serviceBillGst";
+function FieldLabel({ children }: { children: ReactNode }) {
+  return <span className="block text-[10px] font-semibold uppercase tracking-widest text-stone-400">{children}</span>;
+}
+
+function LineMeta({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-rlx-rule bg-stone-50/60 px-3 py-1.5 text-[11px] text-stone-500">
+      {children}
+    </div>
+  );
+}
+
+function MetaItem({
+  label,
+  value,
+  emphasize,
+  muted,
+  mono,
+}: {
+  label: string;
+  value?: string | number | null;
+  emphasize?: boolean;
+  muted?: boolean;
+  mono?: boolean;
+}) {
+  if (value == null || value === "") return null;
+  return (
+    <span className={muted ? "opacity-40" : undefined}>
+      {label ? <>{label} </> : null}
+      <span
+        className={`${mono ? "font-mono" : ""} ${
+          emphasize ? "font-semibold text-rlx-green" : "font-medium text-stone-800"
+        }`}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
 
 // ── Tax computation ───────────────────────────────────────────────────────────
 
@@ -45,9 +114,12 @@ function computeTax(costPrice: number, qty: number, gstRate: number, isInterstat
 
 // ── Success Modal ─────────────────────────────────────────────────────────────
 
-function GrnSuccessModal({ grnNumber, grnId, movedQty, onClose }: {
-  grnNumber: string; grnId?: string; movedQty: number; onClose: () => void;
+function GrnSuccessModal({ grnNumber, grnId, movedQty, poId, poStatus, poNumber, onClose }: {
+  grnNumber: string; grnId?: string; movedQty: number;
+  poId?: string; poStatus?: string | null; poNumber?: string;
+  onClose: () => void;
 }) {
+  const partialPo = Boolean(poId && poStatus === "PARTIAL");
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }}>
       <div className="w-full max-w-sm bg-white shadow-2xl overflow-hidden">
@@ -63,13 +135,26 @@ function GrnSuccessModal({ grnNumber, grnId, movedQty, onClose }: {
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400">GRN Number</p>
           <p className="font-mono text-2xl font-bold text-rlx-green">{grnNumber}</p>
           <p className="text-sm text-stone-500 mt-2">{movedQty} unit(s) moved to HO stock.</p>
+          {partialPo && (
+            <p className="mt-3 text-left text-[12px] leading-relaxed text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2">
+              {poNumber ?? "This PO"} still has unreceived parts. If you will not inward the rest, amend the PO to keep only received qty and close it.
+            </p>
+          )}
         </div>
         <div className="border-t border-rlx-rule bg-rlx-bg px-6 py-4 flex flex-wrap justify-center gap-2">
+          {partialPo && (
+            <Link
+              to={`/inventory/po-history?amend=${encodeURIComponent(poId!)}`}
+              className="border border-amber-300 bg-amber-50 px-5 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 transition"
+            >
+              Amend remaining on PO
+            </Link>
+          )}
           <Link
-            to={grnId ? `/inventory/ho-transfer?grnId=${encodeURIComponent(grnId)}` : "/inventory/ho-transfer"}
+            to="/inventory/ho-transfer"
             className="border border-rlx-rule bg-white px-6 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition"
           >
-            Transfer against GRN
+            Transfer to store
           </Link>
           <button type="button" onClick={onClose}
             className="bg-rlx-green px-8 py-2 text-sm font-semibold text-white hover:bg-rlx-green/90 transition">
@@ -97,24 +182,33 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
 export function InventoryPoInwardPage() {
   const { user } = useAuth();
   const { spares } = useSpares();
+  const { regions } = useRegions();
   const navigate = useNavigate();
 
   const isHo =
     user?.role === "super_admin" || user?.role === "admin" ||
     user?.role === "ho_manager" || user?.role === "ho_purchase";
 
+  const [grnSource, setGrnSource] = useState<"PO" | "DIRECT">("PO");
   const [pos, setPos] = useState<PurchaseOrder[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [selectedPoId, setSelectedPoId] = useState("");
-  const [mode, setMode] = useState<"WITH_BILL" | "WITHOUT_BILL">("WITH_BILL");
+  const [supplierId, setSupplierId] = useState("");
+  const [regionId, setRegionId] = useState(user?.regionId ?? "");
+  const [mode, setMode] = useState<GrnMode>("WITH_BILL");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lineState, setLineState] = useState<Record<string, LineState>>({});
+  const [directLines, setDirectLines] = useState<DirectLine[]>([emptyDirectLine()]);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [successData, setSuccessData] = useState<{ grnNumber: string; grnId?: string; movedQty: number } | null>(null);
+  const [successData, setSuccessData] = useState<{
+    grnNumber: string; grnId?: string; movedQty: number;
+    poId?: string; poStatus?: string | null; poNumber?: string;
+  } | null>(null);
 
   const spareById = useMemo(() => {
     const m = new Map<string, SparePart>();
@@ -123,23 +217,74 @@ export function InventoryPoInwardPage() {
   }, [spares]);
 
   const selectedPo = useMemo(() => pos.find((p) => p.id === selectedPoId) ?? null, [pos, selectedPoId]);
-
-  // Default to intrastate (CGST+SGST split). When supplier taxPersonType is available
-  // in PO data it can be derived here. For now all GRNs use intrastate rates.
-  const isInterstate = false;
+  const selectedSupplier = useMemo(
+    () => suppliers.find((s) => s.id === supplierId) ?? null,
+    [suppliers, supplierId],
+  );
+  const hoGstin = useMemo(() => {
+    const region = regions.find((r) => r.id === regionId) ?? regions[0];
+    return region?.gst?.trim() || null;
+  }, [regions, regionId]);
+  const isInterstate = useMemo(() => {
+    if (grnSource !== "DIRECT" || !selectedSupplier) return false;
+    if (selectedSupplier.taxPersonType === "INTERSTATE_TAXABLE_PERSON") return true;
+    if (selectedSupplier.taxPersonType === "INTRASTATE_TAXABLE_PERSON") return false;
+    if (selectedSupplier.gst) {
+      return taxPersonTypeFromGstin(selectedSupplier.gst, hoGstin) === "INTERSTATE_TAXABLE_PERSON";
+    }
+    return false;
+  }, [grnSource, selectedSupplier, hoGstin]);
 
   const loadData = useCallback(async () => {
     try {
-      const poData = await apiJson<{ pos: PurchaseOrder[] }>("/api/inventory/pos");
+      const [poData, supData] = await Promise.all([
+        apiJson<{ pos: PurchaseOrder[] }>("/api/inventory/pos"),
+        apiJson<{ suppliers: Supplier[] }>("/api/inventory/suppliers"),
+      ]);
       setPos(poData.pos);
+      setSuppliers(supData.suppliers);
     } catch (e) { setErr(e instanceof ApiError ? e.message : "Could not load data."); }
   }, []);
 
   useEffect(() => { if (isHo) void loadData(); }, [isHo, loadData]);
 
-  function spareGstRate(spareId: string): number {
+  useEffect(() => {
+    if (!regionId && (user?.regionId || regions[0])) setRegionId(user?.regionId || regions[0]!.id);
+  }, [regionId, regions, user?.regionId]);
+
+  function spareGstRate(spareId: string, poGstRate?: number): number {
+    if (poGstRate != null && Number.isFinite(poGstRate) && poGstRate > 0) return poGstRate;
     const pct = spareById.get(spareId)?.gstPercent;
     return pct != null && Number.isFinite(pct) ? pct : DEFAULT_LINE_GST_PERCENT;
+  }
+
+  async function fillDirectSpare(idx: number, spareId: string, prev: DirectLine) {
+    const spare = spareById.get(spareId);
+    setDirectLines((current) =>
+      current.map((l, i) =>
+        i === idx
+          ? {
+              spareId,
+              qty: prev.qty || "1",
+              costPrice: spare?.costPriceInr != null ? String(spare.costPriceInr) : prev.costPrice,
+              brand: "",
+            }
+          : l,
+      ),
+    );
+    if (!spareId) return;
+    try {
+      const q = regionId ? `?regionId=${encodeURIComponent(regionId)}` : "";
+      const data = await apiJson<{ prices: SparePriceLine[] }>(
+        `/api/catalog/spares/${encodeURIComponent(spareId)}/prices${q}`,
+      );
+      const brands = [...new Set(data.prices.map((p) => p.brand.trim()).filter(Boolean))];
+      setDirectLines((current) =>
+        current.map((l, i) => (i === idx ? { ...l, brand: brands.join(", ") } : l)),
+      );
+    } catch {
+      /* brand stays blank */
+    }
   }
 
   // Initialise line states when PO changes
@@ -151,7 +296,7 @@ export function InventoryPoInwardPage() {
       const spare = spareById.get(i.spareId);
       next[i.id] = {
         qty: pending > 0 ? String(pending) : "0",
-        costPrice: spare?.costPriceInr ? String(spare.costPriceInr) : "0",
+        costPrice: i.unitPrice > 0 ? String(i.unitPrice) : spare?.costPriceInr ? String(spare.costPriceInr) : "0",
       };
     }
     setLineState(next);
@@ -170,7 +315,7 @@ export function InventoryPoInwardPage() {
       if (!ls) continue;
       const qty = Number(ls.qty) || 0;
       if (qty <= 0) continue;
-      const t = computeTax(Number(ls.costPrice) || 0, qty, spareGstRate(i.spareId), isInterstate);
+      const t = computeTax(Number(ls.costPrice) || 0, qty, spareGstRate(i.spareId, i.gstRate), isInterstate);
       subtotal += t.taxable;
       totalTax += t.taxAmount;
       totalCgst += t.cgst;
@@ -189,7 +334,7 @@ export function InventoryPoInwardPage() {
         const ls = lineState[i.id];
         const qty = Number(ls?.qty ?? "0");
         const costPrice = Number(ls?.costPrice ?? "0");
-        const gstRate = spareGstRate(i.spareId);
+        const gstRate = spareGstRate(i.spareId, i.gstRate);
         const pending = Math.max(0, i.qtyOrdered - i.receivedQty);
         const t = computeTax(costPrice, qty, gstRate, isInterstate);
         return { poItemId: i.id, spareId: i.spareId, qtyReceived: qty, costPrice, gstRate, taxAmount: t.taxAmount, pending };
@@ -197,9 +342,18 @@ export function InventoryPoInwardPage() {
       .filter((i) => i.qtyReceived > 0);
     if (lines.length === 0) { setErr("Enter inward quantity for at least one line."); return; }
     if (lines.some((l) => l.qtyReceived > l.pending)) { setErr("Received qty exceeds pending on one or more lines."); return; }
-    if (mode === "WITH_BILL" && !invoiceNumber.trim()) { setErr("Invoice number is required for WITH_BILL mode."); return; }
+    if (invoiceFile && !isAllowedGrnDocument(invoiceFile)) {
+      setErr("Upload PDF or DOC only. Images are not allowed.");
+      return;
+    }
+    if (isVendorInvoiceGrn(mode) && !invoiceNumber.trim()) {
+      setErr("Invoice number is required for GRN against vendor invoice.");
+      return;
+    }
     setBusy(true);
     try {
+      const docNumber = invoiceNumber.trim() || null;
+      const docDate = invoiceDate || null;
       // Use FormData only if file is attached, otherwise use JSON
       let data: { id?: string; grnNumber: string; movedQty: number; poStatus: string };
       if (invoiceFile) {
@@ -219,8 +373,8 @@ export function InventoryPoInwardPage() {
           method: "POST",
           json: {
             poId: selectedPo.id, mode,
-            invoiceNumber: mode === "WITH_BILL" ? invoiceNumber.trim() : null,
-            invoiceDate: mode === "WITH_BILL" && invoiceDate ? invoiceDate : null,
+            invoiceNumber: docNumber,
+            invoiceDate: docDate,
             notes: notes.trim(),
             items: lines.map((l) => ({ poItemId: l.poItemId, spareId: l.spareId, qtyReceived: l.qtyReceived, costPrice: l.costPrice, gstRate: l.gstRate, taxAmount: l.taxAmount })),
           },
@@ -229,8 +383,98 @@ export function InventoryPoInwardPage() {
       openPrintDocument(`GRN ${data.grnNumber}`, buildGrnDocument({
         grnNumber: data.grnNumber, createdAt: new Date().toISOString(),
         poNumber: selectedPo.poNumber, supplierName: selectedPo.supplierName,
-        mode, invoiceNumber: mode === "WITH_BILL" ? invoiceNumber.trim() : null,
-        invoiceDate: mode === "WITH_BILL" ? invoiceDate : null, notes: notes.trim(),
+        mode, invoiceNumber: docNumber,
+        invoiceDate: docDate, notes: notes.trim(),
+        lines: lines.map((l) => ({
+          description: spareById.get(l.spareId)?.name ?? l.spareId,
+          qtyReceived: l.qtyReceived,
+          costPrice: l.costPrice,
+          gstRate: l.gstRate,
+          taxAmount: l.taxAmount,
+        })),
+      }));
+      setSuccessData({
+        grnNumber: data.grnNumber, grnId: data.id, movedQty: data.movedQty,
+        poId: selectedPo.id, poStatus: data.poStatus, poNumber: selectedPo.poNumber,
+      });
+      setSelectedPoId(""); setInvoiceNumber(""); setInvoiceDate(""); setNotes(""); setLineState({}); setInvoiceFile(null);
+      if (fileRef.current) fileRef.current.value = "";
+      await loadData();
+    } catch (e) { setErr(e instanceof ApiError ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  const directTotals = useMemo(() => {
+    let subtotal = 0, totalTax = 0, totalCgst = 0, totalSgst = 0, totalIgst = 0;
+    for (const line of directLines) {
+      const qty = Number(line.qty) || 0;
+      const cost = Number(line.costPrice) || 0;
+      if (!line.spareId || qty <= 0) continue;
+      const t = computeTax(cost, qty, spareGstRate(line.spareId), isInterstate);
+      subtotal += t.taxable;
+      totalTax += t.taxAmount;
+      totalCgst += t.cgst;
+      totalSgst += t.sgst;
+      totalIgst += t.igst;
+    }
+    return { subtotal: +subtotal.toFixed(2), totalTax: +totalTax.toFixed(2), grand: +(subtotal + totalTax).toFixed(2), totalCgst: +totalCgst.toFixed(2), totalSgst: +totalSgst.toFixed(2), totalIgst: +totalIgst.toFixed(2) };
+  }, [directLines, isInterstate, spareById]);
+
+  async function createDirectGrn(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    if (!supplierId) { setErr("Select a supplier."); return; }
+    if (!regionId) { setErr("Select a region."); return; }
+    const lines = directLines
+      .map((line) => {
+        const qty = Number(line.qty) || 0;
+        const costPrice = Number(line.costPrice) || 0;
+        const gstRate = spareGstRate(line.spareId);
+        const t = computeTax(costPrice, qty, gstRate, isInterstate);
+        return { spareId: line.spareId, qtyReceived: qty, costPrice, gstRate, taxAmount: t.taxAmount };
+      })
+      .filter((l) => l.spareId && l.qtyReceived > 0);
+    if (lines.length === 0) { setErr("Add at least one spare with quantity."); return; }
+    if (invoiceFile && !isAllowedGrnDocument(invoiceFile)) {
+      setErr("Upload PDF or DOC only. Images are not allowed.");
+      return;
+    }
+    if (isVendorInvoiceGrn(mode) && !invoiceNumber.trim()) {
+      setErr("Invoice number is required for GRN against vendor invoice.");
+      return;
+    }
+    setBusy(true);
+    try {
+      let data: { id?: string; grnNumber: string; movedQty: number };
+      const payload = {
+        supplierId, regionId, mode,
+        invoiceNumber: invoiceNumber.trim() || null,
+        invoiceDate: invoiceDate || null,
+        notes: notes.trim(),
+        items: lines,
+      };
+      if (invoiceFile) {
+        const fd = new FormData();
+        fd.append("supplierId", supplierId);
+        fd.append("regionId", regionId);
+        fd.append("mode", mode);
+        fd.append("invoiceNumber", invoiceNumber.trim());
+        fd.append("invoiceDate", invoiceDate);
+        fd.append("notes", notes.trim());
+        fd.append("items", JSON.stringify(lines));
+        fd.append("invoiceFile", invoiceFile);
+        const resp = await fetch("/api/inventory/grns/standalone", { method: "POST", body: fd, credentials: "include" });
+        if (!resp.ok) { const j = await resp.json() as { error: string }; throw new Error(j.error); }
+        data = await resp.json() as typeof data;
+      } else {
+        data = await apiJson<typeof data>("/api/inventory/grns/standalone", { method: "POST", json: payload });
+      }
+      const supplierName = selectedSupplier?.name ?? "Supplier";
+      openPrintDocument(`GRN ${data.grnNumber}`, buildGrnDocument({
+        grnNumber: data.grnNumber, createdAt: new Date().toISOString(),
+        poNumber: "Direct", supplierName,
+        mode, invoiceNumber: invoiceNumber.trim() || null,
+        invoiceDate: invoiceDate || null, notes: notes.trim(),
         lines: lines.map((l) => ({
           description: spareById.get(l.spareId)?.name ?? l.spareId,
           qtyReceived: l.qtyReceived,
@@ -240,7 +484,8 @@ export function InventoryPoInwardPage() {
         })),
       }));
       setSuccessData({ grnNumber: data.grnNumber, grnId: data.id, movedQty: data.movedQty });
-      setSelectedPoId(""); setInvoiceNumber(""); setInvoiceDate(""); setNotes(""); setLineState({}); setInvoiceFile(null);
+      setDirectLines([emptyDirectLine()]);
+      setInvoiceNumber(""); setInvoiceDate(""); setNotes(""); setInvoiceFile(null);
       if (fileRef.current) fileRef.current.value = "";
       await loadData();
     } catch (e) { setErr(e instanceof ApiError ? e.message : String(e)); }
@@ -273,6 +518,10 @@ export function InventoryPoInwardPage() {
               className="border border-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green hover:bg-rlx-green/5 transition">
               GRN History
             </button>
+            <button type="button" onClick={() => navigate("/inventory/purchase-return")}
+              className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition">
+              Spare return
+            </button>
             <button type="button" onClick={() => navigate(-1)}
               className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition">
               ← Back
@@ -286,12 +535,30 @@ export function InventoryPoInwardPage() {
       {/* ── GRN Form ──────────────────────────────────────────────────────── */}
       <div className="mb-6 border border-rlx-rule bg-white shadow-sm">
         <SectionHeader
-          title="Create GRN Against PO"
-          subtitle="Inward updates HO stock, updates PO receive status, and saves cost price to inventory."
+          title={grnSource === "DIRECT" ? "Direct GRN (no PO)" : "Create GRN Against PO"}
+          subtitle={grnSource === "DIRECT"
+            ? "Receive stock at HO without a purchase order. Quantity and purchase price are entered here."
+            : "Inward updates HO stock and PO receive status. If leftover parts will not be received, amend the PO from history to close remaining qty."}
         />
-        <form onSubmit={createGrn} className="p-5 space-y-5">
+        <div className="flex border-b border-rlx-rule">
+          <button
+            type="button"
+            onClick={() => { setGrnSource("PO"); setErr(null); }}
+            className={`px-5 py-2.5 text-xs font-semibold uppercase tracking-widest ${grnSource === "PO" ? "border-b-2 border-rlx-green text-rlx-green" : "text-stone-400 hover:text-stone-600"}`}
+          >
+            Against PO
+          </button>
+          <button
+            type="button"
+            onClick={() => { setGrnSource("DIRECT"); setErr(null); }}
+            className={`px-5 py-2.5 text-xs font-semibold uppercase tracking-widest ${grnSource === "DIRECT" ? "border-b-2 border-rlx-green text-rlx-green" : "text-stone-400 hover:text-stone-600"}`}
+          >
+            Direct GRN
+          </button>
+        </div>
+        <form onSubmit={grnSource === "DIRECT" ? createDirectGrn : createGrn} className="p-5 space-y-5">
 
-          {/* Row 1: PO + Mode */}
+          {grnSource === "PO" ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelCls}>Purchase Order *</label>
@@ -302,28 +569,79 @@ export function InventoryPoInwardPage() {
                 ))}
               </select>
               {openPos.length === 0 && <p className="mt-1 text-[11px] text-stone-400">No open POs. Create POs first.</p>}
+              {selectedPo?.status === "PARTIAL" && (
+                <p className="mt-1.5 text-[11px] text-amber-700">
+                  Partial PO. If remaining parts will not be inwarded, amend this PO from{" "}
+                  <Link to={`/inventory/po-history?amend=${encodeURIComponent(selectedPo.id)}`} className="underline">
+                    PO History
+                  </Link>{" "}
+                  to close leftover qty.
+                </p>
+              )}
             </div>
             <div>
               <label className={labelCls}>Mode *</label>
-              <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as "WITH_BILL" | "WITHOUT_BILL")}>
-                <option value="WITH_BILL">With Bill (Tax Invoice)</option>
-                <option value="WITHOUT_BILL">Without Bill (Fast path ≤ ₹10,000)</option>
+              <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as GrnMode)}>
+                <option value="WITH_BILL">{grnModeLabel("WITH_BILL")}</option>
+                <option value="WITHOUT_BILL">{grnModeLabel("WITHOUT_BILL")}</option>
               </select>
             </div>
           </div>
-
-          {/* Row 2: Invoice details + file upload */}
-          <div className="grid gap-4 sm:grid-cols-3">
+          ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <label className={labelCls}>Invoice Number {mode === "WITH_BILL" ? "*" : "(optional)"}</label>
-              <input className={inputCls} value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="e.g. INV-2601-0001" />
+              <label className={labelCls}>Supplier *</label>
+              <select className={inputCls} value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+                <option value="">Select supplier…</option>
+                {suppliers.filter((s) => s.isActive).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              {selectedSupplier ? (
+                <p className="mt-1.5 text-[11px] text-stone-500">
+                  {selectedSupplier.gst ? `GSTIN ${selectedSupplier.gst}` : "No GSTIN"}
+                  {" · "}
+                  {isInterstate ? "Interstate — IGST" : "Intrastate — CGST + SGST"}
+                </p>
+              ) : (
+                <p className="mt-1.5 text-[11px] text-stone-400">Tax split is set from the supplier.</p>
+              )}
             </div>
             <div>
-              <label className={labelCls}>Invoice Date</label>
+              <label className={labelCls}>Region (HO stock) *</label>
+              <select
+                className={inputCls}
+                value={regionId}
+                disabled={Boolean(user?.regionId) && user?.role !== "super_admin"}
+                onChange={(e) => setRegionId(e.target.value)}
+              >
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Mode *</label>
+              <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as GrnMode)}>
+                <option value="WITH_BILL">{grnModeLabel("WITH_BILL")}</option>
+                <option value="WITHOUT_BILL">{grnModeLabel("WITHOUT_BILL")}</option>
+              </select>
+            </div>
+          </div>
+          )}
+
+          {/* Row 2: Invoice / voucher details + file upload */}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className={labelCls}>{grnDocNumberLabel(mode)} {isVendorInvoiceGrn(mode) ? "*" : "(optional)"}</label>
+              <input className={inputCls} value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder={grnDocNumberPlaceholder(mode)} />
+            </div>
+            <div>
+              <label className={labelCls}>{grnDocDateLabel(mode)}</label>
               <input type="date" className={inputCls} value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
             </div>
             <div>
-              <label className={labelCls}>Upload Vendor Invoice (PDF / Image)</label>
+              <label className={labelCls}>{grnUploadLabel(mode)}</label>
               <div
                 onClick={() => fileRef.current?.click()}
                 className="mt-1 flex cursor-pointer items-center gap-3 border border-dashed border-rlx-rule bg-stone-50/40 px-3 py-2 hover:border-rlx-green transition"
@@ -332,15 +650,26 @@ export function InventoryPoInwardPage() {
                   <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 <span className="text-sm text-stone-500 truncate">
-                  {invoiceFile ? invoiceFile.name : "Click to attach invoice…"}
+                  {invoiceFile ? invoiceFile.name : grnAttachHint(mode)}
                 </span>
                 {invoiceFile && (
                   <button type="button" onClick={(e) => { e.stopPropagation(); setInvoiceFile(null); if (fileRef.current) fileRef.current.value = ""; }}
                     className="ml-auto shrink-0 text-xs text-red-400 hover:text-red-600">✕</button>
                 )}
               </div>
-              <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
-                onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)} />
+              <input ref={fileRef} type="file" accept={GRN_DOC_ACCEPT} className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  if (file && !isAllowedGrnDocument(file)) {
+                    setErr("Upload PDF or DOC only. Images are not allowed.");
+                    setInvoiceFile(null);
+                    e.target.value = "";
+                    return;
+                  }
+                  setErr(null);
+                  setInvoiceFile(file);
+                }} />
+              <p className="mt-1 text-[11px] text-stone-400">PDF or DOC only. Images are not accepted.</p>
             </div>
           </div>
 
@@ -351,7 +680,7 @@ export function InventoryPoInwardPage() {
           </div>
 
           {/* Line items table */}
-          {selectedPo && (
+          {grnSource === "PO" && selectedPo && (
             <div className="border border-rlx-rule">
               <div className="border-b border-rlx-rule bg-stone-50 px-4 py-2.5">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">
@@ -380,7 +709,7 @@ export function InventoryPoInwardPage() {
                       const pending = Math.max(0, i.qtyOrdered - i.receivedQty);
                       const qty = Number(ls.qty) || 0;
                       const spare = spareById.get(i.spareId);
-                      const gstRate = spareGstRate(i.spareId);
+                      const gstRate = spareGstRate(i.spareId, i.gstRate);
                       const t = computeTax(Number(ls.costPrice) || 0, qty, gstRate, isInterstate);
                       return (
                         <tr key={i.id} className="border-b border-rlx-rule last:border-0 hover:bg-stone-50/30">
@@ -447,18 +776,156 @@ export function InventoryPoInwardPage() {
             </div>
           )}
 
-          <div className="border-t border-rlx-rule pt-4">
-            <button type="submit" disabled={busy || !selectedPo}
-              className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white hover:bg-rlx-green/90 transition disabled:opacity-40">
-              {busy ? "Posting GRN…" : "Post GRN"}
-            </button>
-          </div>
+          {grnSource === "DIRECT" && (
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h4 className="text-xs font-bold uppercase tracking-[0.18em] text-stone-500">Line items</h4>
+                <span className="text-[11px] text-stone-400">
+                  {directLines.filter((l) => l.spareId && (Number(l.qty) || 0) > 0).length} spare{directLines.filter((l) => l.spareId && (Number(l.qty) || 0) > 0).length === 1 ? "" : "s"} ready
+                </span>
+              </div>
+              <div className="space-y-3">
+                {directLines.map((line, idx) => {
+                  const spare = spareById.get(line.spareId);
+                  const qty = Number(line.qty) || 0;
+                  const gstRate = spareGstRate(line.spareId);
+                  const t = computeTax(Number(line.costPrice) || 0, qty, gstRate, isInterstate);
+                  const mrp = spare?.mrpInr ?? spare?.sellingPriceInr ?? 0;
+                  const totalMrp = qty * (Number(mrp) || 0);
+                  return (
+                    <div key={idx} className="relative z-0 overflow-visible border border-rlx-rule bg-white focus-within:z-40">
+                      <div className="flex flex-wrap items-end gap-2 px-3 py-2">
+                        <div className="mb-px flex h-8 w-7 shrink-0 items-center justify-center bg-rlx-green text-[11px] font-bold text-white">
+                          {idx + 1}
+                        </div>
+                        <div className="relative min-w-[180px] flex-1">
+                          <FieldLabel>Select spare</FieldLabel>
+                          <SparePicker
+                            value={line.spareId}
+                            onChange={(id) => void fillDirectSpare(idx, id, line)}
+                            spares={spares}
+                            className="relative mt-0.5"
+                            compact
+                            showSku={false}
+                          />
+                        </div>
+                        <label className="w-20 shrink-0">
+                          <FieldLabel>Qty *</FieldLabel>
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            inputMode="numeric"
+                            className={`${compactFieldCls} text-right font-semibold tabular-nums`}
+                            value={line.qty}
+                            onChange={(e) => setDirectLines((prev) => prev.map((l, i) => (i === idx ? { ...l, qty: e.target.value } : l)))}
+                          />
+                        </label>
+                        <label className="w-28 shrink-0">
+                          <FieldLabel>Price *</FieldLabel>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className={`${compactFieldCls} text-right font-semibold tabular-nums`}
+                            value={line.costPrice}
+                            placeholder="0.00"
+                            onChange={(e) => setDirectLines((prev) => prev.map((l, i) => (i === idx ? { ...l, costPrice: e.target.value } : l)))}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="mb-px h-8 shrink-0 px-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 hover:text-red-600"
+                          onClick={() =>
+                            setDirectLines((prev) => (prev.length === 1 ? [emptyDirectLine()] : prev.filter((_, i) => i !== idx)))
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      {spare ? (
+                        <>
+                          <LineMeta>
+                            <MetaItem label="Part" value={spare.sku} mono />
+                            <MetaItem label="" value={spare.name} />
+                            <MetaItem label="Brand" value={line.brand} />
+                            <MetaItem label="HSN" value={spare.hsn} mono />
+                            <MetaItem label="UOM" value="Nos" />
+                          </LineMeta>
+                          <LineMeta>
+                            <MetaItem label="MRP" value={`₹${fmtMoney(Number(mrp) || 0)}`} />
+                            <MetaItem label="GST" value={`${gstRate}%`} />
+                            <MetaItem label="CGST" value={`₹${fmtMoney(t.cgst)}`} muted={isInterstate} />
+                            <MetaItem label="SGST" value={`₹${fmtMoney(t.sgst)}`} muted={isInterstate} />
+                            <MetaItem label="IGST" value={`₹${fmtMoney(t.igst)}`} muted={!isInterstate} />
+                            <MetaItem label="Total MRP" value={`₹${fmtMoney(totalMrp)}`} />
+                            <MetaItem label="Total cost" value={`₹${fmtMoney(t.taxable)}`} />
+                            <MetaItem label="Final" value={`₹${fmtMoney(t.total)}`} emphasize />
+                          </LineMeta>
+                        </>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                className="mt-3 w-full border border-dashed border-rlx-rule py-2 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green/5"
+                onClick={() => setDirectLines((prev) => [...prev, emptyDirectLine()])}
+              >
+                + Add another spare
+              </button>
+            </div>
+          )}
+
+          {grnSource === "DIRECT" ? (
+            <div className="sticky bottom-0 z-10 -mx-5 border-t border-rlx-rule bg-white px-5 py-4 shadow-[0_-8px_16px_rgba(0,0,0,0.04)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div className="grid flex-1 grid-cols-2 gap-3 sm:grid-cols-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">Total cost</p>
+                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-stone-800">₹{fmtMoney(directTotals.subtotal)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">{isInterstate ? "IGST" : "CGST + SGST"}</p>
+                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-stone-800">₹{fmtMoney(directTotals.totalTax)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">Final cost</p>
+                    <p className="mt-0.5 text-base font-bold tabular-nums text-rlx-green">₹{fmtMoney(directTotals.grand)}</p>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={busy || !supplierId}
+                  className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white transition hover:bg-rlx-green/90 disabled:opacity-40"
+                >
+                  {busy ? "Posting GRN…" : "Post GRN"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="border-t border-rlx-rule pt-4">
+              <button type="submit" disabled={busy || !selectedPo}
+                className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white hover:bg-rlx-green/90 transition disabled:opacity-40">
+                {busy ? "Posting GRN…" : "Post GRN"}
+              </button>
+            </div>
+          )}
         </form>
       </div>
 
       {/* Success modal */}
       {successData && (
-        <GrnSuccessModal grnNumber={successData.grnNumber} grnId={successData.grnId} movedQty={successData.movedQty} onClose={() => setSuccessData(null)} />
+        <GrnSuccessModal
+          grnNumber={successData.grnNumber}
+          grnId={successData.grnId}
+          movedQty={successData.movedQty}
+          poId={successData.poId}
+          poStatus={successData.poStatus}
+          poNumber={successData.poNumber}
+          onClose={() => setSuccessData(null)}
+        />
       )}
     </div>
   );

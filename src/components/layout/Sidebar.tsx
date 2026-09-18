@@ -167,6 +167,8 @@ export function Sidebar() {
         title: "Inventory", icon: "inventory",
         items: [
           { to: "/inventory/spares", label: "Spares", module: "inventory" },
+          { to: "/inventory/service-packages", label: "Service packages", module: "inventory" },
+          { to: "/inventory/service-packages/new", label: "Add package", module: "inventory" },
           { to: "/inventory/stock-adjustment", label: "Stock adjustment", module: "inventory" },
           { to: "/service/watch-inventory", label: "Watch inventory", module: "service" },
           { to: "/inventory/stock-prices", label: "Stock & prices", module: "inventory" },
@@ -185,6 +187,8 @@ export function Sidebar() {
           { to: "/inventory/po-history", label: "PO History", module: "inventory" },
           { to: "/inventory/po-inward", label: "Post GRN", module: "inventory" },
           { to: "/inventory/grn-history", label: "GRN History", module: "inventory" },
+          { to: "/inventory/purchase-return", label: "Spare return", module: "inventory" },
+          { to: "/inventory/purchase-return-history", label: "Return History", module: "inventory" },
           { to: "/inventory/ho-transfer", label: "HO transfer", module: "inventory" },
         ],
       },

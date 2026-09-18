@@ -152,7 +152,8 @@ function InventoryAllocationReviewBody() {
                         type="number"
                         min={0}
                         max={r.pendingQty}
-                        step={0.001}
+                        step={1}
+                        inputMode="numeric"
                         className="w-24 rounded border px-2 py-1"
                         value={finalQty[r.prItemId] ?? "0"}
                         onChange={(e) => setFinalQty((prev) => ({ ...prev, [r.prItemId]: e.target.value }))}

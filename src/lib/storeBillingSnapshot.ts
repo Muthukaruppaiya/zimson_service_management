@@ -5,6 +5,7 @@ export type StoreBillingSnapshotLine = {
   amountInr: number;
   spareId?: string | null;
   hsnSac?: string | null;
+  lineKind?: "service" | "spare";
 };
 
 export type StoreBillingSnapshot = {
@@ -16,6 +17,8 @@ export type StoreBillingSnapshot = {
   collectionPaymentMode?: string | null;
   paymentDetails?: unknown;
   closedAt?: string;
+  /** Service warranty period selected at store invoice (months). */
+  warrantyMonths?: number;
 };
 
 const LABOUR_DESC_RE = /labour|service\s*\/\s*repair|service charge/i;
@@ -36,6 +39,7 @@ export function normalizeStoreBillingSnapshot(raw: unknown): StoreBillingSnapsho
       amountInr,
       spareId: r.spareId != null ? String(r.spareId) : null,
       hsnSac: r.hsnSac != null ? String(r.hsnSac) : null,
+      lineKind: r.lineKind === "spare" || r.lineKind === "service" ? r.lineKind : undefined,
     });
   }
   if (billLines.length === 0) return null;
@@ -51,6 +55,10 @@ export function normalizeStoreBillingSnapshot(raw: unknown): StoreBillingSnapsho
       typeof o.collectionPaymentMode === "string" ? o.collectionPaymentMode : undefined,
     paymentDetails: o.paymentDetails,
     closedAt: typeof o.closedAt === "string" ? o.closedAt : undefined,
+    warrantyMonths:
+      Number.isInteger(Number(o.warrantyMonths)) && Number(o.warrantyMonths) > 0
+        ? Number(o.warrantyMonths)
+        : undefined,
   };
 }
 
@@ -60,7 +68,7 @@ export function snapshotInvoiceBillLines(snapshot: StoreBillingSnapshot): StoreB
   const svc = Number(snapshot.serviceChargeInr ?? 0);
   const hasLabour = lines.some((l) => LABOUR_DESC_RE.test(l.description));
   if (svc > 0.02 && !hasLabour) {
-    lines.push({ description: "Service / repair labour", amountInr: svc, spareId: null, hsnSac: null });
+    lines.push({ description: "Service / repair labour", amountInr: svc, spareId: null, hsnSac: null, lineKind: "service" });
   }
   return lines;
 }

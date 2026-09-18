@@ -90,6 +90,10 @@ export function CustomerDetailsModal({ customerId, open, onClose, fallback }: Cu
       ) : c ? (
         <dl className="rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
           <DetailRow label="Customer code" value={<span className="font-mono">{c.customerCode || "—"}</span>} />
+          <DetailRow
+            label="Registered at"
+            value={c.registeredStoreName || c.registeredStoreId || "—"}
+          />
           <DetailRow label="Display name" value={c.displayName} />
           <DetailRow
             label="Type"

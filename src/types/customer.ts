@@ -55,6 +55,9 @@ export type CustomerRecord = {
   emailVerifiedAt?: string | null;
   customerDataSource?: CustomerDataSource;
   customFields?: Record<string, string | number | boolean | null>;
+  /** Store where this customer was first registered. Lookup remains global. */
+  registeredStoreId?: string | null;
+  registeredStoreName?: string | null;
   createdAt: string;
   isSeed?: boolean;
 };
@@ -89,4 +92,6 @@ export type CustomerRegistrationPayload = {
   referenceName?: string;
   representativeName?: string;
   customFields?: Record<string, string | number | boolean | null>;
+  /** Optional for HO; store users are captured from session. */
+  registeredStoreId?: string | null;
 };

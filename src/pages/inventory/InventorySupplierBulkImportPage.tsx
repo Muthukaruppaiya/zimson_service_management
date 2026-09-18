@@ -236,7 +236,7 @@ export function InventorySupplierBulkImportPage() {
       <InventoryBreadcrumb current="Supplier bulk import" />
       <PageHeader
         title="Supplier Bulk Import"
-        description="Download the Excel template, fill the Suppliers sheet, check the file, then import. Existing supplier codes are updated."
+        description="Download the Excel template, fill the Suppliers sheet, check the file, then import. Leave Supplier Code blank to auto-generate. Matching codes or GSTIN are updated."
         actions={
           <Link
             to="/inventory/suppliers"

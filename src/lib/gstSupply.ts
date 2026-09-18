@@ -206,5 +206,20 @@ export function stateCodeLabel(code: string | null | undefined): string {
     .replace(/\D/g, "")
     .padStart(2, "0")
     .slice(0, 2);
-  return STATE_CODE_LABEL[c] ?? `State ${c}`;
+  return STATE_CODE_LABEL[c] || gstStateDisplayName(c) || `State ${c}`;
+}
+
+/** Title-case Indian state name from GST state code (e.g. 33 → Tamil Nadu). */
+export function gstStateDisplayName(code: string | null | undefined): string {
+  const c = String(code ?? "")
+    .replace(/\D/g, "")
+    .padStart(2, "0")
+    .slice(0, 2);
+  if (STATE_CODE_LABEL[c]) return STATE_CODE_LABEL[c]!;
+  for (const [name, sc] of Object.entries(STATE_NAME_TO_CODE)) {
+    if (sc === c && !name.includes("(") && !name.includes("&")) {
+      return name.replace(/\b\w/g, (ch) => ch.toUpperCase());
+    }
+  }
+  return "";
 }

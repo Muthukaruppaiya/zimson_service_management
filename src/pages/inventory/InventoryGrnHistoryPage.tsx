@@ -5,16 +5,24 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import {
+  grnDocDateLabel,
+  grnDocNumberLabel,
+  grnModeBadgeClass,
+  grnModeLabel,
+  grnTypeDetail,
+  isDirectGrn,
+} from "../../lib/grnMode";
 import { buildGrnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type GrnItem = {
   id: string; poItemId: string; spareId: string;
-  qtyReceived: number; qtyTransferred?: number; costPrice?: number; gstRate?: number; taxAmount?: number;
+  qtyReceived: number; qtyTransferred?: number; qtyReturned?: number; costPrice?: number; gstRate?: number; taxAmount?: number;
 };
 type GrnRow = {
-  id: string; grnNumber: string; poId: string; poNumber: string;
+  id: string; grnNumber: string; poId: string | null; poNumber: string | null;
   supplierId: string; supplierName: string; regionId: string;
   invoiceNumber: string | null; invoiceDate: string | null;
   mode: "WITH_BILL" | "WITHOUT_BILL"; notes: string;
@@ -36,7 +44,10 @@ function grnTotals(items: GrnItem[]) {
 }
 
 function grnPendingQty(items: GrnItem[]) {
-  return items.reduce((s, i) => s + Math.max(0, i.qtyReceived - (i.qtyTransferred ?? 0)), 0);
+  return items.reduce(
+    (s, i) => s + Math.max(0, i.qtyReceived - (i.qtyTransferred ?? 0) - (i.qtyReturned ?? 0)),
+    0,
+  );
 }
 
 function fmt(v: number) {
@@ -57,11 +68,12 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
-function GrnDetailModal({ grn, spareNameById, onClose, onTransfer }: {
+function GrnDetailModal({ grn, spareNameById, onClose, onTransfer, onReturn }: {
   grn: GrnRow;
   spareNameById: Map<string, string>;
   onClose: () => void;
   onTransfer?: () => void;
+  onReturn?: () => void;
 }) {
   const totals = grnTotals(grn.items);
   const hasPricing = grn.items.some((i) => (i.costPrice ?? 0) > 0);
@@ -81,17 +93,20 @@ function GrnDetailModal({ grn, spareNameById, onClose, onTransfer }: {
         {/* Meta */}
         <div className="grid grid-cols-2 gap-4 border-b border-rlx-rule bg-stone-50 px-6 py-4 text-sm">
           <div className="space-y-1">
-            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">PO Number</span><br /><span className="font-mono font-semibold text-stone-700">{grn.poNumber}</span></p>
+            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">GRN Type</span><br /><span className="font-semibold text-stone-700">{isDirectGrn(grn.poNumber) ? "Direct GRN" : "Against PO"}</span></p>
+            {!isDirectGrn(grn.poNumber) && (
+              <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">PO Number</span><br /><span className="font-mono font-semibold text-stone-700">{grn.poNumber}</span></p>
+            )}
             <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Supplier</span><br /><span className="text-stone-700">{grn.supplierName}</span></p>
             <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Mode</span><br />
-              <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${grn.mode === "WITH_BILL" ? "border-blue-200 bg-blue-50 text-blue-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
-                {grn.mode === "WITH_BILL" ? "With Bill" : "Without Bill"}
+              <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${grnModeBadgeClass(grn.mode)}`}>
+                {grnModeLabel(grn.mode)}
               </span>
             </p>
           </div>
           <div className="space-y-1">
-            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Invoice #</span><br /><span className="text-stone-700">{grn.invoiceNumber ?? "—"}</span></p>
-            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Invoice Date</span><br /><span className="text-stone-700">{grn.invoiceDate ? new Date(grn.invoiceDate).toLocaleDateString("en-IN") : "—"}</span></p>
+            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">{grnDocNumberLabel(grn.mode)}</span><br /><span className="text-stone-700">{grn.invoiceNumber ?? "—"}</span></p>
+            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">{grnDocDateLabel(grn.mode)}</span><br /><span className="text-stone-700">{grn.invoiceDate ? new Date(grn.invoiceDate).toLocaleDateString("en-IN") : "—"}</span></p>
             <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Posted On</span><br /><span className="text-stone-700">{new Date(grn.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span></p>
           </div>
         </div>
@@ -105,6 +120,7 @@ function GrnDetailModal({ grn, spareNameById, onClose, onTransfer }: {
                 <th className="px-5 py-2.5 text-left">Spare</th>
                 <th className="px-5 py-2.5 text-center">Received</th>
                 <th className="px-5 py-2.5 text-center">Transferred</th>
+                <th className="px-5 py-2.5 text-center">Returned</th>
                 <th className="px-5 py-2.5 text-center">Pending</th>
                 {hasPricing && <>
                   <th className="px-5 py-2.5 text-right">Cost/Unit</th>
@@ -126,7 +142,8 @@ function GrnDetailModal({ grn, spareNameById, onClose, onTransfer }: {
                     <td className="px-5 py-2.5 text-stone-800">{spareNameById.get(i.spareId) ?? i.spareId}</td>
                     <td className="px-5 py-2.5 text-center font-semibold text-stone-700">{i.qtyReceived}</td>
                     <td className="px-5 py-2.5 text-center text-stone-600">{i.qtyTransferred ?? 0}</td>
-                    <td className="px-5 py-2.5 text-center font-semibold text-rlx-green">{Math.max(0, i.qtyReceived - (i.qtyTransferred ?? 0))}</td>
+                    <td className="px-5 py-2.5 text-center text-stone-600">{i.qtyReturned ?? 0}</td>
+                    <td className="px-5 py-2.5 text-center font-semibold text-rlx-green">{Math.max(0, i.qtyReceived - (i.qtyTransferred ?? 0) - (i.qtyReturned ?? 0))}</td>
                     {hasPricing && <>
                       <td className="px-5 py-2.5 text-right text-stone-600">{cp > 0 ? fmt(cp) : "—"}</td>
                       <td className="px-5 py-2.5 text-center text-stone-500">{cp > 0 ? `${i.gstRate ?? 18}%` : "—"}</td>
@@ -158,7 +175,7 @@ function GrnDetailModal({ grn, spareNameById, onClose, onTransfer }: {
           <button type="button"
             onClick={() => openPrintDocument(`GRN ${grn.grnNumber}`, buildGrnDocument({
               grnNumber: grn.grnNumber, createdAt: grn.createdAt,
-              poNumber: grn.poNumber, supplierName: grn.supplierName,
+              poNumber: grn.poNumber || "Direct", supplierName: grn.supplierName,
               mode: grn.mode, invoiceNumber: grn.invoiceNumber, invoiceDate: grn.invoiceDate,
               notes: grn.notes,
               lines: grn.items.map((i) => ({
@@ -170,10 +187,16 @@ function GrnDetailModal({ grn, spareNameById, onClose, onTransfer }: {
             className="bg-rlx-green px-6 py-2 text-sm font-semibold text-white hover:bg-rlx-green/90 transition">
             Print GRN
           </button>
-          {onTransfer && grnPendingQty(grn.items) > 0 ? (
+          {onTransfer ? (
             <button type="button" onClick={onTransfer}
               className="border border-rlx-rule px-6 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition">
-              Transfer remaining
+              Transfer to store
+            </button>
+          ) : null}
+          {onReturn && grnPendingQty(grn.items) > 0 ? (
+            <button type="button" onClick={onReturn}
+              className="border border-rlx-rule px-6 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition">
+              Return to supplier
             </button>
           ) : null}
           <button type="button" onClick={onClose}
@@ -228,7 +251,7 @@ export function InventoryGrnHistoryPage() {
       if (!q) return true;
       return (
         g.grnNumber.toLowerCase().includes(q) ||
-        g.poNumber.toLowerCase().includes(q) ||
+        (g.poNumber ?? "direct").toLowerCase().includes(q) ||
         g.supplierName.toLowerCase().includes(q) ||
         (g.invoiceNumber ?? "").toLowerCase().includes(q)
       );
@@ -281,7 +304,7 @@ export function InventoryGrnHistoryPage() {
       {/* ── Stats ──────────────────────────────────────────────────────────── */}
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total GRNs" value={stats.total} />
-        <StatCard label="With Bill" value={stats.withBill} sub={`${stats.total - stats.withBill} without bill`} />
+        <StatCard label="GRN against vendor invoice" value={stats.withBill} sub={`${stats.total - stats.withBill} against voucher`} />
         <StatCard label="Total Lines" value={stats.totalLines} sub="spare items received" />
         <StatCard label="Total Value" value={stats.totalValue > 0 ? fmt(stats.totalValue) : "—"} sub="incl. GST" />
       </div>
@@ -294,15 +317,15 @@ export function InventoryGrnHistoryPage() {
             <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" strokeLinecap="round" />
           </svg>
           <input
-            type="text" placeholder="Search GRN#, PO#, supplier, invoice…"
+            type="text" placeholder="Search GRN#, PO#, supplier, invoice or voucher…"
             value={search} onChange={(e) => setSearch(e.target.value)}
             className="w-full border border-rlx-rule bg-white py-2 pl-9 pr-3 text-sm text-stone-800 outline-none focus:border-rlx-green" />
         </div>
         <select value={modeFilter} onChange={(e) => setModeFilter(e.target.value as typeof modeFilter)}
           className="border border-rlx-rule bg-white px-3 py-2 text-sm text-stone-700 outline-none focus:border-rlx-green">
           <option value="">All Modes</option>
-          <option value="WITH_BILL">With Bill</option>
-          <option value="WITHOUT_BILL">Without Bill</option>
+          <option value="WITH_BILL">{grnModeLabel("WITH_BILL")}</option>
+          <option value="WITHOUT_BILL">{grnModeLabel("WITHOUT_BILL")}</option>
         </select>
         {(search || modeFilter) && (
           <button type="button" onClick={() => { setSearch(""); setModeFilter(""); }}
@@ -327,10 +350,10 @@ export function InventoryGrnHistoryPage() {
               <thead>
                 <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
                   <th className="px-5 py-3 text-left">GRN#</th>
-                  <th className="px-5 py-3 text-left">PO#</th>
+                  <th className="px-5 py-3 text-left">GRN Type / PO#</th>
                   <th className="px-5 py-3 text-left">Supplier</th>
                   <th className="px-5 py-3 text-left">Mode</th>
-                  <th className="px-5 py-3 text-left">Invoice</th>
+                  <th className="px-5 py-3 text-left">Invoice / Voucher</th>
                   <th className="px-5 py-3 text-center">Lines</th>
                   <th className="px-5 py-3 text-center">Pending</th>
                   <th className="px-5 py-3 text-right">Grand Total</th>
@@ -348,11 +371,11 @@ export function InventoryGrnHistoryPage() {
                       onClick={() => setSelectedGrn(g)}
                       className="cursor-pointer border-b border-rlx-rule last:border-0 hover:bg-stone-50/60 transition">
                       <td className="px-5 py-3 font-mono text-xs font-bold text-rlx-green">{g.grnNumber}</td>
-                      <td className="px-5 py-3 font-mono text-xs text-stone-500">{g.poNumber}</td>
+                      <td className="px-5 py-3 font-mono text-xs text-stone-500">{grnTypeDetail(g.poNumber)}</td>
                       <td className="px-5 py-3 font-medium text-stone-800">{g.supplierName}</td>
                       <td className="px-5 py-3">
-                        <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${g.mode === "WITH_BILL" ? "border-blue-200 bg-blue-50 text-blue-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
-                          {g.mode === "WITH_BILL" ? "With Bill" : "Without Bill"}
+                        <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${grnModeBadgeClass(g.mode)}`}>
+                          {grnModeLabel(g.mode)}
                         </span>
                       </td>
                       <td className="px-5 py-3 text-stone-600">{g.invoiceNumber ?? "—"}</td>
@@ -380,7 +403,7 @@ export function InventoryGrnHistoryPage() {
                           <button type="button"
                             onClick={() => openPrintDocument(`GRN ${g.grnNumber}`, buildGrnDocument({
                               grnNumber: g.grnNumber, createdAt: g.createdAt,
-                              poNumber: g.poNumber, supplierName: g.supplierName,
+                              poNumber: g.poNumber || "Direct", supplierName: g.supplierName,
                               mode: g.mode, invoiceNumber: g.invoiceNumber, invoiceDate: g.invoiceDate,
                               notes: g.notes,
                               lines: g.items.map((i) => ({
@@ -394,9 +417,9 @@ export function InventoryGrnHistoryPage() {
                           </button>
                           {pending > 0 ? (
                             <button type="button"
-                              onClick={() => navigate(`/inventory/ho-transfer?grnId=${encodeURIComponent(g.id)}`)}
-                              className="border border-rlx-green px-2.5 py-1 text-[11px] font-semibold text-rlx-green hover:bg-green-50 transition">
-                              Transfer
+                              onClick={() => navigate(`/inventory/purchase-return?grnId=${encodeURIComponent(g.id)}`)}
+                              className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition">
+                              Return
                             </button>
                           ) : null}
                         </div>
@@ -416,9 +439,10 @@ export function InventoryGrnHistoryPage() {
           grn={selectedGrn}
           spareNameById={spareNameById}
           onClose={() => setSelectedGrn(null)}
-          onTransfer={
+          onTransfer={isHo ? () => navigate("/inventory/ho-transfer") : undefined}
+          onReturn={
             grnPendingQty(selectedGrn.items) > 0
-              ? () => navigate(`/inventory/ho-transfer?grnId=${encodeURIComponent(selectedGrn.id)}`)
+              ? () => navigate(`/inventory/purchase-return?grnId=${encodeURIComponent(selectedGrn.id)}`)
               : undefined
           }
         />

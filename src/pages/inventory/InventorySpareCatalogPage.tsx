@@ -1,7 +1,7 @@
-import JsBarcode from "jsbarcode";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
+import { AppModal } from "../../components/ui/AppModal";
 import { Card } from "../../components/ui/Card";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -16,7 +16,7 @@ import {
   sanitizeMultilineTextInput,
   sanitizeTextInput,
 } from "../../lib/inputSanitize";
-import type { SparePriceLine } from "../../types/spare";
+import type { SparePart, SparePriceLine } from "../../types/spare";
 import { CustomFieldsSection } from "../../components/customFields/CustomFieldsSection";
 import { useCustomFields } from "../../hooks/useCustomFields";
 import {
@@ -27,6 +27,8 @@ import {
   requiredCustomFieldError,
 } from "../../lib/customFields";
 import type { CustomFieldValues } from "../../types/customField";
+import { modalBtnPrimary, modalBtnSecondary, modalFooterClass, modalInputClass } from "../../lib/appModalStyles";
+import { buildSpareStickerData, printSpareStickers, type SpareStickerData } from "../../lib/spareSticker";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2";
@@ -40,6 +42,7 @@ function eventLabel(eventType: string) {
   if (eventType === "SPARE_CREATED") return "Spare created";
   if (eventType === "MANUAL_STOCK_SET") return "Manual stock update";
   if (eventType === "PURCHASE_IN") return "Purchase inward";
+  if (eventType === "PURCHASE_RETURN") return "Purchase return";
   if (eventType === "TRANSFER_OUT") return "Transfer out";
   if (eventType === "TRANSFER_IN") return "Transfer in";
   return eventType.replace(/_/g, " ");
@@ -56,6 +59,24 @@ function IconDetails({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: 
         d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
       />
     </svg>
+  );
+}
+
+function SpareStickerPreview({ data }: { data: SpareStickerData }) {
+  return (
+    <div className="inline-flex h-[25mm] w-[70mm] flex-col justify-between rounded-[3.4mm] border border-stone-300 bg-white px-3 py-1.5 font-[Arial,Helvetica,sans-serif] text-[#111]">
+      <div className="flex items-baseline justify-between gap-2 text-[9pt] font-bold leading-none">
+        <span>{data.itemNumber}</span>
+        <span className="truncate text-right">{data.sku}</span>
+      </div>
+      <div className="flex min-h-[9mm] items-center justify-center px-3">
+        <img src={data.barcodeSrc} alt="" className="h-[9mm] w-full object-contain" />
+      </div>
+      <div className="flex items-baseline justify-between gap-2 text-[9pt] font-bold leading-none">
+        <span>{data.mrpLabel}</span>
+        <span className="text-right">{data.brandMark}</span>
+      </div>
+    </div>
   );
 }
 
@@ -106,7 +127,7 @@ function IconClose({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: st
   );
 }
 
-const categories = ["Glass", "Movement", "Battery", "Crown", "Gasket", "Strap", "Dial", "Hands", "Lubricant", "Tool", "Consumable", "Stem", "Other"];
+const categories = ["Glass", "Movement", "Movement Part", "Battery", "Crown", "Gasket", "Strap", "Bracelet", "Dial", "Hands", "Lubricant", "Tool", "Consumable", "Stem", "Case Part", "Other"];
 
 type SpareHistoryRow = {
   id: string;
@@ -129,18 +150,36 @@ export function InventorySpareCatalogPage() {
   const hideStockLogsButton =
     user?.role === "ho_purchase" || user?.role === "ho_manager" || user?.role === "admin" || user?.role === "ho_manager";
   const [sku, setSku] = useState("");
+  const [addSpareBrand, setAddSpareBrand] = useState("");
+  const [altSku, setAltSku] = useState("");
   const [name, setName] = useState("");
+  const [altName, setAltName] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("Other");
+  const [modelNo, setModelNo] = useState("");
+  const [caliber, setCaliber] = useState("");
+  const [subCategory, setSubCategory] = useState("");
+  const [size, setSize] = useState("");
+  const [colour, setColour] = useState("");
   const [hsn, setHsn] = useState("");
   const [gstPercent, setGstPercent] = useState("18");
+  const [mrpInr, setMrpInr] = useState("");
   const [editHsn, setEditHsn] = useState("");
   const [editGstPercent, setEditGstPercent] = useState("");
   const [editName, setEditName] = useState("");
+  const [editBrand, setEditBrand] = useState("");
+  const [editAltSku, setEditAltSku] = useState("");
+  const [editAltName, setEditAltName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editCategory, setEditCategory] = useState("Other");
+  const [editModelNo, setEditModelNo] = useState("");
+  const [editCaliber, setEditCaliber] = useState("");
+  const [editSubCategory, setEditSubCategory] = useState("");
+  const [editSize, setEditSize] = useState("");
+  const [editColour, setEditColour] = useState("");
   const [editCostPriceInr, setEditCostPriceInr] = useState("");
   const [editSellingPriceInr, setEditSellingPriceInr] = useState("");
+  const [editMrpInr, setEditMrpInr] = useState("");
   const [editIsActive, setEditIsActive] = useState(true);
   const [propsEditBusy, setPropsEditBusy] = useState(false);
   const [taxEditMsg, setTaxEditMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -174,6 +213,10 @@ export function InventorySpareCatalogPage() {
   const bulkFileRef = useRef<File | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsTab, setDetailsTab] = useState<"details" | "logs">("details");
+  const [stickerPrintSpare, setStickerPrintSpare] = useState<SparePart | null>(null);
+  const [stickerPrintBrand, setStickerPrintBrand] = useState("");
+  const [stickerPrintCount, setStickerPrintCount] = useState("1");
+  const [stickerPrintBusy, setStickerPrintBusy] = useState(false);
   const [historyRows, setHistoryRows] = useState<SpareHistoryRow[]>([]);
   const [historyErr, setHistoryErr] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -194,7 +237,8 @@ export function InventorySpareCatalogPage() {
   useEffect(() => {
     if (brandOptions.length === 0) return;
     if (!brand || !brandOptions.includes(brand)) setBrand(brandOptions[0]!);
-  }, [brandOptions, brand]);
+    if (!addSpareBrand || !brandOptions.includes(addSpareBrand)) setAddSpareBrand(brandOptions[0]!);
+  }, [brandOptions, brand, addSpareBrand]);
 
   useEffect(() => {
     if (!user) return;
@@ -221,6 +265,12 @@ export function InventorySpareCatalogPage() {
     [spares, selectedId],
   );
 
+  const stickerLocationCode = useMemo(() => {
+    const region = regions.find((r) => r.id === (regionId || user?.regionId));
+    const store = region?.stores.find((s) => s.id === user?.storeId);
+    return store?.invoiceNumberStoreCode?.trim() || region?.regionCode?.trim() || "";
+  }, [regions, regionId, user?.regionId, user?.storeId]);
+
   const categoryOptions = useMemo(() => {
     const set = new Set<string>();
     for (const s of spares) {
@@ -236,23 +286,30 @@ export function InventorySpareCatalogPage() {
       if (activeFilter === "ACTIVE" && !s.isActive) return false;
       if (activeFilter === "INACTIVE" && s.isActive) return false;
       if (q) {
-        const hay = `${s.sku} ${s.name} ${s.description} ${s.category} ${s.hsn ?? ""}`.toLowerCase();
+        const hay = `${s.sku} ${s.altSku ?? ""} ${s.brand ?? ""} ${s.name} ${s.altName ?? ""} ${s.description} ${s.category} ${s.subCategory ?? ""} ${s.modelNo ?? ""} ${s.caliber ?? ""} ${s.size ?? ""} ${s.colour ?? ""} ${s.hsn ?? ""}`.toLowerCase();
         if (!hay.includes(q) && !customFieldsMatchSearch(s.customFields, extraFieldDefs, q)) return false;
       }
       return true;
     });
   }, [spares, query, categoryFilter, activeFilter, extraFieldDefs]);
 
-  const barcodeRef = useRef<SVGSVGElement | null>(null);
-
   useEffect(() => {
     if (!selectedSpare) return;
     setEditName(selectedSpare.name);
+    setEditBrand(selectedSpare.brand ?? "");
+    setEditAltSku(selectedSpare.altSku ?? "");
+    setEditAltName(selectedSpare.altName ?? "");
     setEditDescription(selectedSpare.description ?? "");
     setEditCategory(selectedSpare.category || "Other");
+    setEditModelNo(selectedSpare.modelNo ?? "");
+    setEditCaliber(selectedSpare.caliber ?? "");
+    setEditSubCategory(selectedSpare.subCategory ?? "");
+    setEditSize(selectedSpare.size ?? "");
+    setEditColour(selectedSpare.colour ?? "");
     setEditHsn(selectedSpare.hsn ?? "");
     setEditGstPercent(selectedSpare.gstPercent != null ? String(selectedSpare.gstPercent) : "");
     setEditCostPriceInr(selectedSpare.costPriceInr != null ? String(selectedSpare.costPriceInr) : "");
+    setEditMrpInr(selectedSpare.mrpInr != null ? String(selectedSpare.mrpInr) : "");
     setEditSellingPriceInr(
       selectedSpare.sellingPriceInr != null
         ? String(selectedSpare.sellingPriceInr)
@@ -266,8 +323,16 @@ export function InventorySpareCatalogPage() {
   }, [
     selectedSpare?.id,
     selectedSpare?.name,
+    selectedSpare?.brand,
+    selectedSpare?.altSku,
+    selectedSpare?.altName,
     selectedSpare?.description,
     selectedSpare?.category,
+    selectedSpare?.modelNo,
+    selectedSpare?.caliber,
+    selectedSpare?.subCategory,
+    selectedSpare?.size,
+    selectedSpare?.colour,
     selectedSpare?.hsn,
     selectedSpare?.gstPercent,
     selectedSpare?.costPriceInr,
@@ -310,56 +375,45 @@ export function InventorySpareCatalogPage() {
     void loadPrices(selectedId);
   }, [selectedId, regionId]);
 
-  useEffect(() => {
-    if (!selectedSpare || !barcodeRef.current) return;
-    JsBarcode(barcodeRef.current, selectedSpare.sku, {
-      format: "CODE128",
-      displayValue: true,
-      lineColor: "#111827",
-      width: 2,
-      height: 60,
-      margin: 8,
-    });
-  }, [selectedSpare]);
+  async function resolveStickerBrand(spare: { id: string; brand?: string }): Promise<string> {
+    if (spare.brand?.trim()) return spare.brand.trim();
+    if (spare.id === selectedId && prices.length > 0) {
+      const match = brand ? prices.find((p) => p.brand === brand) : null;
+      return (match ?? prices[0])?.brand ?? "";
+    }
+    try {
+      const q = regionId ? `?regionId=${encodeURIComponent(regionId)}` : "";
+      const data = await apiJson<{ prices: SparePriceLine[] }>(
+        `/api/catalog/spares/${encodeURIComponent(spare.id)}/prices${q}`,
+      );
+      return data.prices[0]?.brand ?? "";
+    } catch {
+      return "";
+    }
+  }
 
-  function printBarcodeLabel(target = selectedSpare) {
-    if (!target || !barcodeRef.current) return;
-    JsBarcode(barcodeRef.current, target.sku, {
-      format: "CODE128",
-      displayValue: true,
-      lineColor: "#111827",
-      width: 2,
-      height: 60,
-      margin: 8,
-    });
-    const popup = window.open("", "_blank", "width=480,height=640");
-    if (!popup) return;
-    popup.document.write(`<!doctype html>
-<html>
-  <head>
-    <title>Spare Barcode - ${target.sku}</title>
-    <style>
-      @import url("https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap");
-      body { font-family: "Poppins", ui-sans-serif, system-ui, sans-serif; margin: 24px; color: #111827; }
-      .label { border: 1px solid #d1d5db; border-radius: 12px; padding: 16px; width: 320px; }
-      .name { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
-      .sku { font-family: monospace; font-size: 12px; margin-bottom: 8px; color: #374151; }
-      .muted { font-size: 11px; color: #6b7280; margin-top: 8px; }
-    </style>
-  </head>
-  <body>
-    <div class="label">
-      <div class="name">${target.name}</div>
-      <div class="sku">${target.sku}</div>
-      ${barcodeRef.current.outerHTML}
-      <div class="muted">Zimson Spare Label</div>
-    </div>
-    <script>
-      window.onload = function () { window.print(); window.close(); };
-    </script>
-  </body>
-</html>`);
-    popup.document.close();
+  async function openStickerPrint(target = selectedSpare) {
+    if (!target) return;
+    setStickerPrintBusy(true);
+    try {
+      const stickerBrand = await resolveStickerBrand(target);
+      setStickerPrintSpare(target);
+      setStickerPrintBrand(stickerBrand);
+      setStickerPrintCount("1");
+    } finally {
+      setStickerPrintBusy(false);
+    }
+  }
+
+  function confirmStickerPrint() {
+    if (!stickerPrintSpare) return;
+    const n = Number.parseInt(stickerPrintCount.trim(), 10);
+    const copies = Number.isFinite(n) ? Math.max(1, Math.min(99, n)) : 1;
+    printSpareStickers(
+      [buildSpareStickerData(stickerPrintSpare, { brand: stickerPrintBrand, locationCode: stickerLocationCode })],
+      copies,
+    );
+    setStickerPrintSpare(null);
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -367,17 +421,26 @@ export function InventorySpareCatalogPage() {
     setMsg(null);
     const costValue = costPriceInr.trim() === "" ? null : Number(costPriceInr);
     const sellingValue = sellingPriceInr.trim() === "" ? null : Number(sellingPriceInr);
+    const mrpValue = mrpInr.trim() === "" ? null : Number(mrpInr);
     if (costValue != null && (Number.isNaN(costValue) || costValue < 0)) {
-      setMsg({ type: "err", text: "Cost price must be a non-negative number." });
+      setMsg({ type: "err", text: "Cost must be a non-negative number." });
       return;
     }
     if (sellingValue != null && (Number.isNaN(sellingValue) || sellingValue < 0)) {
       setMsg({ type: "err", text: "Selling price must be a non-negative number." });
       return;
     }
+    if (mrpValue != null && (Number.isNaN(mrpValue) || mrpValue < 0)) {
+      setMsg({ type: "err", text: "MRP must be a non-negative number." });
+      return;
+    }
     const gstValue = gstPercent.trim() === "" ? null : Number(gstPercent);
     if (gstValue != null && (Number.isNaN(gstValue) || gstValue < 0 || gstValue > 100)) {
       setMsg({ type: "err", text: "GST % must be between 0 and 100." });
+      return;
+    }
+    if (!sku.trim() || !addSpareBrand.trim()) {
+      setMsg({ type: "err", text: "Part number and brand are required." });
       return;
     }
     const customErr = requiredCustomFieldError(extraFieldDefs, addCustomFields);
@@ -387,14 +450,22 @@ export function InventorySpareCatalogPage() {
     }
     const r = await addSpare({
       sku,
+      brand: addSpareBrand.trim(),
+      altSku,
       name,
+      altName,
       description,
       category,
+      modelNo,
+      caliber,
+      subCategory,
+      size,
+      colour,
       hsn: hsn.trim() || null,
       gstPercent: gstValue,
       costPriceInr: costValue,
-      sellingPriceInr: sellingValue,
-      mrpInr: sellingValue,
+      sellingPriceInr: sellingValue ?? mrpValue,
+      mrpInr: mrpValue ?? sellingValue,
       isActive,
       customFields: addCustomFields,
     });
@@ -402,15 +473,24 @@ export function InventorySpareCatalogPage() {
       setMsg({ type: "err", text: r.error });
       return;
     }
-    setMsg({ type: "ok", text: `Spare ${r.ok.sku} added.` });
+    setMsg({ type: "ok", text: `Spare ${r.ok.sku} (${r.ok.brand}) added.` });
     setSku("");
+    setAddSpareBrand(brandOptions[0] ?? "");
+    setAltSku("");
     setName("");
+    setAltName("");
     setDescription("");
     setCategory("Other");
+    setModelNo("");
+    setCaliber("");
+    setSubCategory("");
+    setSize("");
+    setColour("");
     setHsn("");
     setGstPercent("18");
     setCostPriceInr("");
     setSellingPriceInr("");
+    setMrpInr("");
     setIsActive(true);
     setAddCustomFields({});
     setAddSpareOpen(false);
@@ -419,7 +499,7 @@ export function InventorySpareCatalogPage() {
   async function addPriceLine(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedId) return;
-    const brandValue = brand.trim();
+    const brandValue = (selectedSpare?.brand?.trim() || brand.trim());
     const priceValue = Number(price);
     if (!regionId || !brandValue || Number.isNaN(priceValue) || priceValue < 0) {
       setPriceErr("Select region, brand, and a non-negative price.");
@@ -465,8 +545,17 @@ export function InventorySpareCatalogPage() {
       setTaxEditMsg({ type: "err", text: "Selling price must be a non-negative number." });
       return;
     }
+    const mrpValue = editMrpInr.trim() === "" ? null : Number(editMrpInr);
+    if (mrpValue != null && (Number.isNaN(mrpValue) || mrpValue < 0)) {
+      setTaxEditMsg({ type: "err", text: "MRP must be a non-negative number." });
+      return;
+    }
     if (!editName.trim()) {
       setTaxEditMsg({ type: "err", text: "Name is required." });
+      return;
+    }
+    if (!editBrand.trim()) {
+      setTaxEditMsg({ type: "err", text: "Brand is required." });
       return;
     }
     const customErr = requiredCustomFieldError(extraFieldDefs, editCustomFields);
@@ -477,14 +566,22 @@ export function InventorySpareCatalogPage() {
     setPropsEditBusy(true);
     try {
       const r = await updateSpare(selectedSpare.id, {
+        brand: editBrand.trim(),
+        altSku: editAltSku,
         name: editName.trim(),
+        altName: editAltName,
         description: editDescription.trim(),
         category: editCategory.trim() || "Other",
+        modelNo: editModelNo,
+        caliber: editCaliber,
+        subCategory: editSubCategory,
+        size: editSize,
+        colour: editColour,
         hsn: editHsn.trim() || null,
         gstPercent: gstValue,
         costPriceInr: costValue,
         sellingPriceInr: sellingValue,
-        mrpInr: sellingValue,
+        mrpInr: mrpValue,
         isActive: editIsActive,
         customFields: editCustomFields,
       });
@@ -680,7 +777,7 @@ export function InventorySpareCatalogPage() {
               className="ui-field"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="SKU, name, description, HSN…"
+              placeholder="Part number, alt part no, brand, name, model, caliber…"
             />
           </FilterField>
           <FilterField label="Category" htmlFor="spare-cat" className="min-w-0">
@@ -724,9 +821,10 @@ export function InventorySpareCatalogPage() {
             <table className="ui-table-dense w-full min-w-[40rem] text-left text-sm">
               <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
                 <tr className="border-b-2 border-rlx-gold">
-                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">SKU</th>
-                  <th className="min-w-[14rem] px-3 py-3 text-left font-semibold">Item</th>
-                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Cost</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Part no</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Brand</th>
+                  <th className="min-w-[14rem] px-3 py-3 text-left font-semibold">Part full name</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Cost / MRP</th>
                   <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Active</th>
                   {listExtras.map((f) => (
                     <th key={f.id} className="whitespace-nowrap px-3 py-3 text-left font-semibold">{f.label}</th>
@@ -747,16 +845,36 @@ export function InventorySpareCatalogPage() {
                       <span className="block whitespace-nowrap font-mono text-sm font-semibold text-rlx-green">
                         {s.sku}
                       </span>
+                      {s.altSku ? (
+                        <span className="mt-0.5 block whitespace-nowrap font-mono text-[11px] text-rlx-ink-muted">
+                          Alt {s.altSku}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="align-middle px-3 py-3">
+                      <span className="block whitespace-nowrap text-sm font-medium text-rlx-ink">
+                        {s.brand?.trim() || "—"}
+                      </span>
                     </td>
                     <td className="align-middle px-3 py-3">
                       <span className="block break-words text-sm font-medium leading-snug text-rlx-ink">{s.name}</span>
+                      {s.altName ? (
+                        <span className="block text-xs leading-snug text-rlx-ink-muted">Alt name: {s.altName}</span>
+                      ) : null}
                       <span className="block text-xs leading-snug text-rlx-ink-muted">
                         {s.category}
+                        {s.subCategory ? ` · ${s.subCategory}` : ""}
+                        {s.modelNo ? ` · Model ${s.modelNo}` : ""}
+                        {s.caliber ? ` · Cal ${s.caliber}` : ""}
+                        {s.size ? ` · ${s.size}` : ""}
+                        {s.colour ? ` · ${s.colour}` : ""}
                         {s.description ? ` · ${s.description}` : ""}
                       </span>
                     </td>
                     <td className="align-middle whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-rlx-ink">
                       {s.costPriceInr == null ? "—" : s.costPriceInr.toLocaleString()}
+                      {" / "}
+                      {s.mrpInr == null ? "—" : s.mrpInr.toLocaleString()}
                     </td>
                     <td className="align-middle px-3 py-3">
                       <span
@@ -798,10 +916,10 @@ export function InventorySpareCatalogPage() {
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => printBarcodeLabel(s)}
+                          onClick={() => void openStickerPrint(s)}
                           className={btnIcon}
-                          title="Print barcode"
-                          aria-label="Print barcode"
+                          title="Print inventory sticker"
+                          aria-label="Print inventory sticker"
                         >
                           <IconBarcode />
                         </button>
@@ -841,27 +959,75 @@ export function InventorySpareCatalogPage() {
             <form onSubmit={handleAdd} className="space-y-4">
               <div>
                 <label htmlFor="sp-sku" className="text-xs font-medium text-stone-600">
-                  SKU *
+                  Part number *
                 </label>
                 <input
                   id="sp-sku"
                   value={sku}
                   onChange={(e) => setSku(sanitizeAlphanumericInput(e.target.value, 48))}
                   className={inputClass}
-                  placeholder="e.g. SP-NEW-01"
+                  placeholder="e.g. WSPBAT001"
                   autoComplete="off"
                 />
               </div>
               <div>
+                <label htmlFor="sp-alt-sku" className="text-xs font-medium text-stone-600">
+                  Alternative part number
+                </label>
+                <input
+                  id="sp-alt-sku"
+                  value={altSku}
+                  onChange={(e) => setAltSku(sanitizeAlphanumericInput(e.target.value, 48))}
+                  className={inputClass}
+                  placeholder="Optional second part number"
+                  autoComplete="off"
+                />
+              </div>
+              <div>
+                <label htmlFor="sp-brand" className="text-xs font-medium text-stone-600">
+                  Brand *
+                </label>
+                <select
+                  id="sp-brand"
+                  value={addSpareBrand}
+                  onChange={(e) => setAddSpareBrand(e.target.value)}
+                  className={inputClass}
+                  required
+                >
+                  {brandOptions.length === 0 ? (
+                    <option value="">No brands — add under Inventory → Brands</option>
+                  ) : (
+                    brandOptions.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <p className="mt-1 text-xs text-stone-500">Same part number can be added again for a different brand.</p>
+              </div>
+              <div>
                 <label htmlFor="sp-name" className="text-xs font-medium text-stone-600">
-                  Name *
+                  Part full name *
                 </label>
                 <input
                   id="sp-name"
                   value={name}
                   onChange={(e) => setName(sanitizeTextInput(e.target.value, 200))}
                   className={inputClass}
-                  placeholder="Part name"
+                  placeholder="Part full name"
+                />
+              </div>
+              <div>
+                <label htmlFor="sp-alt-name" className="text-xs font-medium text-stone-600">
+                  Alternative name
+                </label>
+                <input
+                  id="sp-alt-name"
+                  value={altName}
+                  onChange={(e) => setAltName(sanitizeTextInput(e.target.value, 200))}
+                  className={inputClass}
+                  placeholder="Optional second name"
                 />
               </div>
               <div>
@@ -895,6 +1061,73 @@ export function InventorySpareCatalogPage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
+                  <label htmlFor="sp-subcat" className="text-xs font-medium text-stone-600">
+                    Sub category
+                  </label>
+                  <input
+                    id="sp-subcat"
+                    value={subCategory}
+                    onChange={(e) => setSubCategory(sanitizeTextInput(e.target.value, 80))}
+                    className={inputClass}
+                    placeholder="Leather, Metal, Bezel…"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sp-model" className="text-xs font-medium text-stone-600">
+                    Model no.
+                  </label>
+                  <input
+                    id="sp-model"
+                    value={modelNo}
+                    onChange={(e) => setModelNo(sanitizeTextInput(e.target.value, 80))}
+                    className={inputClass}
+                    placeholder="Watch / clock model"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sp-caliber" className="text-xs font-medium text-stone-600">
+                    Caliber
+                  </label>
+                  <input
+                    id="sp-caliber"
+                    value={caliber}
+                    onChange={(e) => setCaliber(sanitizeTextInput(e.target.value, 80))}
+                    className={inputClass}
+                    placeholder="Movement caliber"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sp-size" className="text-xs font-medium text-stone-600">
+                    Size
+                  </label>
+                  <input
+                    id="sp-size"
+                    value={size}
+                    onChange={(e) => setSize(sanitizeTextInput(e.target.value, 80))}
+                    className={inputClass}
+                    placeholder="e.g. 22 MM"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sp-colour" className="text-xs font-medium text-stone-600">
+                    Colour
+                  </label>
+                  <input
+                    id="sp-colour"
+                    value={colour}
+                    onChange={(e) => setColour(sanitizeTextInput(e.target.value, 80))}
+                    className={inputClass}
+                    placeholder="e.g. Black"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
                   <label htmlFor="sp-hsn" className="text-xs font-medium text-stone-600">
                     HSN
                   </label>
@@ -907,7 +1140,7 @@ export function InventorySpareCatalogPage() {
                 </div>
                 <div>
                   <label htmlFor="sp-gst" className="text-xs font-medium text-stone-600">
-                    GST % *
+                    Tax % *
                   </label>
                   <input
                     id="sp-gst"
@@ -923,7 +1156,7 @@ export function InventorySpareCatalogPage() {
                 </div>
                 <div>
                   <label htmlFor="sp-cost" className="text-xs font-medium text-stone-600">
-                    Cost price (INR)
+                    Cost
                   </label>
                   <input
                     id="sp-cost"
@@ -932,6 +1165,20 @@ export function InventorySpareCatalogPage() {
                     step={0.01}
                     value={costPriceInr}
                     onChange={(e) => setCostPriceInr(sanitizeDecimalInput(e.target.value))}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sp-mrp" className="text-xs font-medium text-stone-600">
+                    MRP
+                  </label>
+                  <input
+                    id="sp-mrp"
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={mrpInr}
+                    onChange={(e) => setMrpInr(sanitizeDecimalInput(e.target.value))}
                     className={inputClass}
                   />
                 </div>
@@ -999,7 +1246,7 @@ export function InventorySpareCatalogPage() {
             <div className="mb-4 flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-stone-900">Bulk import preview / check</h3>
-                <p className="text-sm text-stone-600">Download template, upload file, check, then import</p>
+                <p className="text-sm text-stone-600">Template or client inventory file (Brand + Part Reference + Description). Part numbers can be auto-generated.</p>
               </div>
               <button type="button" onClick={() => setBulkImportOpen(false)} className="rounded-lg border px-3 py-1.5 text-sm">
                 Close
@@ -1076,17 +1323,16 @@ export function InventorySpareCatalogPage() {
         </div>
       ) : null}
 
-      <div className="hidden">
-        <svg ref={barcodeRef} />
-      </div>
-
       {detailsOpen && selectedSpare ? (
         <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-rlx-ink/70 p-0 backdrop-blur-sm sm:items-center sm:p-3 md:p-5">
           <div className="flex h-[100dvh] w-full max-w-[96rem] flex-col overflow-hidden bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] sm:h-[min(96dvh,58rem)] sm:max-h-[96dvh]">
             <div className="flex shrink-0 items-center justify-between gap-3 bg-rlx-green px-4 py-3 sm:px-6">
               <div className="min-w-0 flex-1">
                 <p className="text-[9px] font-semibold uppercase tracking-[0.35em] text-rlx-gold">Spare details</p>
-                <h3 className="truncate font-mono text-base font-semibold text-white sm:text-lg">{selectedSpare.sku}</h3>
+                <h3 className="truncate font-mono text-base font-semibold text-white sm:text-lg">
+                  {selectedSpare.sku}
+                  {selectedSpare.brand ? ` · ${selectedSpare.brand}` : ""}
+                </h3>
                 <p className="mt-0.5 truncate text-xs text-white/65 sm:text-sm">
                   {selectedSpare.name} · {selectedSpare.category}
                 </p>
@@ -1094,10 +1340,10 @@ export function InventorySpareCatalogPage() {
               <div className="flex shrink-0 items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => printBarcodeLabel()}
+                  onClick={() => void openStickerPrint()}
                   className={`${modalIconGhost} border-rlx-gold/50 bg-rlx-gold text-rlx-green-deep hover:bg-rlx-gold-dark`}
-                  title="Print barcode"
-                  aria-label="Print barcode"
+                  title="Print inventory sticker"
+                  aria-label="Print inventory sticker"
                 >
                   <IconBarcode />
                 </button>
@@ -1151,17 +1397,35 @@ export function InventorySpareCatalogPage() {
                       <tbody className="odd:[&>tr]:bg-white even:[&>tr]:bg-rlx-bg">
                         <tr className="border-b border-rlx-rule">
                           <th className="w-40 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
-                            SKU
+                            Part no
                           </th>
                           <td className="px-3 py-2.5 font-mono font-semibold text-rlx-green">{selectedSpare.sku}</td>
+                        </tr>
+                        <tr className="border-b border-rlx-rule">
+                          <th className="w-40 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                            Alt part no
+                          </th>
+                          <td className="px-3 py-2.5 font-mono">{selectedSpare.altSku || "—"}</td>
+                        </tr>
+                        <tr className="border-b border-rlx-rule">
+                          <th className="w-40 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                            Brand
+                          </th>
+                          <td className="px-3 py-2.5">{selectedSpare.brand?.trim() || "—"}</td>
                         </tr>
                         {!canEditProperties ? (
                           <>
                             <tr className="border-b border-rlx-rule">
                               <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
-                                Name
+                                Part full name
                               </th>
                               <td className="px-3 py-2.5">{selectedSpare.name}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Alt name
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.altName || "—"}</td>
                             </tr>
                             <tr className="border-b border-rlx-rule">
                               <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
@@ -1177,6 +1441,36 @@ export function InventorySpareCatalogPage() {
                             </tr>
                             <tr className="border-b border-rlx-rule">
                               <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Sub category
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.subCategory || "—"}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Model no
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.modelNo || "—"}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Caliber
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.caliber || "—"}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Size
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.size || "—"}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                Colour
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.colour || "—"}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
                                 Active
                               </th>
                               <td className="px-3 py-2.5">{selectedSpare.isActive ? "Yes" : "No"}</td>
@@ -1187,12 +1481,18 @@ export function InventorySpareCatalogPage() {
                               </th>
                               <td className="px-3 py-2.5">
                                 {selectedSpare.costPriceInr ?? "—"} /{" "}
-                                {selectedSpare.sellingPriceInr ?? selectedSpare.mrpInr ?? "—"}
+                                {selectedSpare.sellingPriceInr ?? "—"}
                               </td>
                             </tr>
                             <tr className="border-b border-rlx-rule">
                               <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
-                                HSN / GST
+                                MRP
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.mrpInr ?? "—"}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                HSN / Tax %
                               </th>
                               <td className="px-3 py-2.5">
                                 {selectedSpare.hsn || "—"}
@@ -1205,6 +1505,23 @@ export function InventorySpareCatalogPage() {
                     </table>
                   </div>
 
+                  {(() => {
+                    const sticker = buildSpareStickerData(selectedSpare, {
+                      brand:
+                        selectedSpare.brand?.trim() ||
+                        ((brand && prices.some((p) => p.brand === brand) ? brand : prices[0]?.brand) ?? ""),
+                      locationCode: stickerLocationCode,
+                    });
+                    return (
+                      <div className="border border-rlx-rule bg-stone-200/70 p-4">
+                        <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-500">
+                          Inventory sticker
+                        </p>
+                        <SpareStickerPreview data={sticker} />
+                      </div>
+                    );
+                  })()}
+
                   {canEditProperties ? (
                     <Card
                       title="Edit properties"
@@ -1212,13 +1529,50 @@ export function InventorySpareCatalogPage() {
                     >
                       <form onSubmit={(e) => void saveSpareProperties(e)} className="grid gap-4 sm:grid-cols-2">
                         <div className="sm:col-span-2">
-                          <label className="text-xs font-medium text-stone-600">Name *</label>
+                          <label className="text-xs font-medium text-stone-600">Part full name *</label>
                           <input
                             value={editName}
                             onChange={(e) => setEditName(sanitizeTextInput(e.target.value, 200))}
                             className={inputClass}
                             required
                           />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Alternative part number</label>
+                          <input
+                            value={editAltSku}
+                            onChange={(e) => setEditAltSku(sanitizeAlphanumericInput(e.target.value, 48))}
+                            className={inputClass}
+                            placeholder="Optional"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Alternative name</label>
+                          <input
+                            value={editAltName}
+                            onChange={(e) => setEditAltName(sanitizeTextInput(e.target.value, 200))}
+                            className={inputClass}
+                            placeholder="Optional"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Brand *</label>
+                          <select
+                            value={editBrand}
+                            onChange={(e) => setEditBrand(e.target.value)}
+                            className={inputClass}
+                            required
+                          >
+                            {brandOptions.length === 0 ? (
+                              <option value="">No brands</option>
+                            ) : (
+                              brandOptions.map((b) => (
+                                <option key={b} value={b}>
+                                  {b}
+                                </option>
+                              ))
+                            )}
+                          </select>
                         </div>
                         <div className="sm:col-span-2">
                           <label className="text-xs font-medium text-stone-600">Description</label>
@@ -1243,6 +1597,51 @@ export function InventorySpareCatalogPage() {
                             ))}
                           </select>
                         </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Sub category</label>
+                          <input
+                            value={editSubCategory}
+                            onChange={(e) => setEditSubCategory(sanitizeTextInput(e.target.value, 80))}
+                            className={inputClass}
+                            placeholder="Leather, Metal…"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Model no.</label>
+                          <input
+                            value={editModelNo}
+                            onChange={(e) => setEditModelNo(sanitizeTextInput(e.target.value, 80))}
+                            className={inputClass}
+                            placeholder="Optional"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Caliber</label>
+                          <input
+                            value={editCaliber}
+                            onChange={(e) => setEditCaliber(sanitizeTextInput(e.target.value, 80))}
+                            className={inputClass}
+                            placeholder="Optional"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Size</label>
+                          <input
+                            value={editSize}
+                            onChange={(e) => setEditSize(sanitizeTextInput(e.target.value, 80))}
+                            className={inputClass}
+                            placeholder="e.g. 22 MM"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">Colour</label>
+                          <input
+                            value={editColour}
+                            onChange={(e) => setEditColour(sanitizeTextInput(e.target.value, 80))}
+                            className={inputClass}
+                            placeholder="e.g. Black"
+                          />
+                        </div>
                         <div className="flex items-end pb-1">
                           <label className="inline-flex items-center gap-2 text-sm text-stone-800">
                             <input
@@ -1263,7 +1662,7 @@ export function InventorySpareCatalogPage() {
                           />
                         </div>
                         <div>
-                          <label className="text-xs font-medium text-stone-600">GST %</label>
+                          <label className="text-xs font-medium text-stone-600">Tax %</label>
                           <input
                             type="number"
                             min={0}
@@ -1275,13 +1674,24 @@ export function InventorySpareCatalogPage() {
                           />
                         </div>
                         <div>
-                          <label className="text-xs font-medium text-stone-600">Cost price (INR)</label>
+                          <label className="text-xs font-medium text-stone-600">Cost</label>
                           <input
                             type="number"
                             min={0}
                             step={0.01}
                             value={editCostPriceInr}
                             onChange={(e) => setEditCostPriceInr(sanitizeDecimalInput(e.target.value))}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">MRP</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={editMrpInr}
+                            onChange={(e) => setEditMrpInr(sanitizeDecimalInput(e.target.value))}
                             className={inputClass}
                           />
                         </div>
@@ -1314,7 +1724,7 @@ export function InventorySpareCatalogPage() {
                           >
                             {propsEditBusy ? "Saving…" : "Save properties"}
                           </button>
-                          <p className="text-xs text-stone-500">SKU cannot be changed. Stock is not edited here.</p>
+                          <p className="text-xs text-stone-500">Part number cannot be changed. Stock is not edited here.</p>
                           {taxEditMsg ? (
                             <p className={`text-sm ${taxEditMsg.type === "ok" ? "text-emerald-800" : "text-red-800"}`}>
                               {taxEditMsg.text}
@@ -1343,17 +1753,21 @@ export function InventorySpareCatalogPage() {
                       </select>
                     </div>
                     <form onSubmit={addPriceLine} className="mb-4 grid gap-3 sm:grid-cols-3">
-                      <select value={brand} onChange={(e) => setBrand(e.target.value)} className={inputClass}>
-                        {brandOptions.length === 0 ? (
-                          <option value="">No brands — add under Inventory → Brands</option>
-                        ) : (
-                          brandOptions.map((b) => (
-                            <option key={b} value={b}>
-                              {b}
-                            </option>
-                          ))
-                        )}
-                      </select>
+                      {selectedSpare.brand?.trim() ? (
+                        <input className={inputClass} value={selectedSpare.brand} readOnly />
+                      ) : (
+                        <select value={brand} onChange={(e) => setBrand(e.target.value)} className={inputClass}>
+                          {brandOptions.length === 0 ? (
+                            <option value="">No brands — add under Inventory → Brands</option>
+                          ) : (
+                            brandOptions.map((b) => (
+                              <option key={b} value={b}>
+                                {b}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      )}
                       <input
                         type="number"
                         min={0}
@@ -1501,6 +1915,67 @@ export function InventorySpareCatalogPage() {
           </div>
         </div>
       ) : null}
+
+      <AppModal
+        open={stickerPrintSpare != null}
+        onClose={() => setStickerPrintSpare(null)}
+        title="Print spare stickers"
+        eyebrow="Inventory sticker"
+        subtitle={stickerPrintSpare?.sku}
+        description="Enter how many labels to print for this spare."
+        size="sm"
+        zIndex={70}
+        footer={
+          <div className={modalFooterClass}>
+            <button type="button" className={modalBtnSecondary} onClick={() => setStickerPrintSpare(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={modalBtnPrimary}
+              onClick={confirmStickerPrint}
+              disabled={stickerPrintBusy || Number.parseInt(stickerPrintCount, 10) < 1}
+            >
+              Print
+            </button>
+          </div>
+        }
+      >
+        {stickerPrintSpare ? (
+          <div className="space-y-4">
+            <div className="flex justify-center bg-stone-200/80 p-4">
+              <SpareStickerPreview
+                data={buildSpareStickerData(stickerPrintSpare, {
+                  brand: stickerPrintBrand,
+                  locationCode: stickerLocationCode,
+                })}
+              />
+            </div>
+            <label className="block text-sm font-medium text-slate-700">
+              How many stickers to print?
+              <input
+                type="number"
+                min={1}
+                max={99}
+                step={1}
+                inputMode="numeric"
+                className={modalInputClass}
+                value={stickerPrintCount}
+                onChange={(e) => setStickerPrintCount(e.target.value.replace(/[^\d]/g, "").slice(0, 2))}
+                onFocus={(e) => e.currentTarget.select()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    confirmStickerPrint();
+                  }
+                }}
+                autoFocus
+              />
+            </label>
+            <p className="text-xs text-slate-500">Whole numbers from 1 to 99.</p>
+          </div>
+        ) : null}
+      </AppModal>
     </div>
   );
 }

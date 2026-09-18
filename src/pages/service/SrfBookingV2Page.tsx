@@ -1988,6 +1988,9 @@ export function SrfBookingV2Page() {
             </label>
             <label className="block min-w-0 text-xs font-medium text-stone-600">
               <span className="mb-0.5 block">Advance amount (₹)</span>
+              <span className="mb-1 block text-[11px] font-normal leading-snug text-stone-500">
+                Optional at booking. If the estimate increases later, extra amounts can be collected and logged against this SRF.
+              </span>
               <input
                 className={bookingInputClass}
                 value={advanceAmount}

@@ -35,6 +35,7 @@ function eventLabel(eventType: string) {
   if (eventType === "SPARE_CREATED") return "Spare created";
   if (eventType === "MANUAL_STOCK_SET") return "Manual stock update";
   if (eventType === "PURCHASE_IN") return "Purchase inward";
+  if (eventType === "PURCHASE_RETURN") return "Purchase return";
   if (eventType === "TRANSFER_OUT") return "Transfer out";
   if (eventType === "TRANSFER_IN") return "Transfer in";
   return eventType.replace(/_/g, " ");
@@ -378,7 +379,8 @@ export function InventoryStockAdjustmentPage() {
                 id="adj-qty"
                 type="number"
                 min={0}
-                step={0.001}
+                step={1}
+                inputMode="numeric"
                 value={stockQty}
                 onChange={(e) => setStockQty(e.target.value)}
                 className="ui-field"

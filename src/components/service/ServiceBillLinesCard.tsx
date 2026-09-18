@@ -13,6 +13,7 @@ import {
 import { isNatureOfRepairTaxable } from "../../lib/natureOfRepair";
 import type { ServiceBillEditorLine } from "../../lib/serviceBillEditorLines";
 import { editorLineAmountInr } from "../../lib/serviceBillEditorLines";
+import { pickSpareByScannedSku } from "../../lib/spareIdentity";
 import {
   validateStoreServiceAmountInr,
 } from "../../lib/serviceChargeLimits";
@@ -22,6 +23,8 @@ import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 export type ServiceBillSpareOption = {
   id: string;
   sku: string;
+  altSku?: string | null;
+  brand?: string;
   name: string;
   hsn: string | null;
   gstPercent: number | null;
@@ -63,7 +66,12 @@ type Props = {
 };
 
 function emptyEditableLine(): ServiceBillEditorLine {
-  return { id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, description: "", amount: "" };
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    description: "",
+    amount: "",
+    lineKind: "service",
+  };
 }
 
 export function ServiceBillLinesCard({
@@ -175,10 +183,11 @@ export function ServiceBillLinesCard({
       ...lines,
       {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        description: `${spare.name} (${spare.sku})`,
+        description: `${spare.name} (${spare.sku}${spare.brand ? ` · ${spare.brand}` : ""})`,
         amount: String(spare.price),
         spareId: spare.id,
         hsn: spare.hsn,
+        lineKind: "spare",
       },
     ]);
     onValidationError?.(null);
@@ -188,7 +197,7 @@ export function ServiceBillLinesCard({
   function addScannedSku() {
     const sku = barcodeSku.trim().toUpperCase();
     if (!sku) return;
-    const option = spareOptions.find((s) => s.sku.toUpperCase() === sku);
+    const option = pickSpareByScannedSku(spareOptions, sku, watchBrand);
     if (!option) {
       onValidationError?.(`Scanned SKU ${sku} not found in spare catalogue.`);
       setBarcodeSku("");
@@ -240,7 +249,8 @@ export function ServiceBillLinesCard({
             <option value="">+ Spare from catalogue…</option>
             {spareOptions.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} ({s.sku}) — ₹{s.price.toFixed(2)}
+                {s.name} ({s.sku}
+                {s.brand ? ` · ${s.brand}` : ""}) — ₹{s.price.toFixed(2)}
               </option>
             ))}
           </select>
@@ -268,7 +278,9 @@ export function ServiceBillLinesCard({
                 : null;
             const showHsnColumn = Boolean(line.spareId || (line.locked && lineHsn));
             const readOnly = labourChargesOnly || Boolean(line.spareId) || Boolean(line.locked);
-            const lineLabel = line.locked && !line.spareId
+            const lineLabel = line.locked && line.lineKind === "service"
+              ? "Service package"
+              : line.locked && !line.spareId
               ? "Brand invoice"
               : line.locked
                 ? "Spare (from slip)"
@@ -278,8 +290,27 @@ export function ServiceBillLinesCard({
             return (
               <div
                 key={line.id}
-                className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[1fr_minmax(0,7rem)_minmax(0,9rem)_auto] sm:items-end"
+                className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[minmax(0,6.5rem)_1fr_minmax(0,7rem)_minmax(0,9rem)_auto] sm:items-end"
               >
+                <div className="min-w-0">
+                  <span className="text-xs font-medium text-stone-600">Type</span>
+                  <select
+                    className={readOnly ? `${inputClass} cursor-not-allowed bg-stone-100` : inputClass}
+                    value={line.lineKind ?? (line.spareId ? "spare" : "service")}
+                    disabled={readOnly}
+                    onChange={
+                      readOnly
+                        ? undefined
+                        : (e) =>
+                            updateLine(line.id, {
+                              lineKind: e.target.value === "spare" ? "spare" : "service",
+                            })
+                    }
+                  >
+                    <option value="service">Service</option>
+                    <option value="spare">Spare</option>
+                  </select>
+                </div>
                 <div className="min-w-0">
                   <span className="text-xs font-medium text-stone-600">{lineLabel}</span>
                   <input

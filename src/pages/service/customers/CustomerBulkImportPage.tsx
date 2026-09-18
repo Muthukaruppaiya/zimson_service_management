@@ -285,7 +285,7 @@ export function CustomerBulkImportPage() {
       <ServiceBreadcrumb current="Customer bulk import" />
       <PageHeader
         title="Customer Bulk Import"
-        description="Download the template, fill every customer field, check the file, then import. Matching primary mobile updates the existing customer. SMS and email OTP are not sent."
+        description="Download the template, check the file, then import. Customer numbers are assigned by the system. Matching primary mobile updates the existing customer. SMS and email OTP are not sent."
         actions={
           <Link
             to="/service/customers/master"
@@ -540,7 +540,7 @@ export function CustomerBulkImportPage() {
           <ColumnTable
             title="Identity & tax"
             badge="Customers sheet"
-            desc="B2C needs first + last name. B2B needs display name, company, GSTIN, PAN. Email is optional."
+            desc="B2C needs first name. Last / second name is optional. B2B needs display name, company, GSTIN, PAN. Email is optional."
             columns={CUSTOMER_BULK_IDENTITY_COLUMNS}
           />
           <ColumnTable

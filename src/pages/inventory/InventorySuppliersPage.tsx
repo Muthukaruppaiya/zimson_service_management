@@ -298,7 +298,7 @@ function SupplierModal({
                             />
                           </td>
                           <td className="px-4 py-2.5 text-center">
-                            <input type="number" min={0} step={0.001}
+                            <input type="number" min={0} step={1} inputMode="numeric"
                               className="w-20 border border-rlx-rule px-2 py-1 text-sm text-center outline-none focus:border-rlx-green disabled:bg-stone-50"
                               value={r.minOrderQty ?? ""} disabled={!canEdit}
                               onChange={(e) => updateRow(r.spareId, { minOrderQty: e.target.value === "" ? null : Math.max(0, Number(e.target.value)) })}

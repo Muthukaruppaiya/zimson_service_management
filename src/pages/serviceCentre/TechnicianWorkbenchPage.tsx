@@ -21,7 +21,6 @@ export function TechnicianWorkbenchPage() {
   } = useSrfJobs();
   const [note, setNote] = useState<string | null>(null);
   const [sparesTextByJob, setSparesTextByJob] = useState<Record<string, string>>({});
-  const [warrantyTillByJob, setWarrantyTillByJob] = useState<Record<string, string>>({});
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
 
   useEffect(() => {
@@ -73,11 +72,6 @@ export function TechnicianWorkbenchPage() {
       setNote("Enter used spares as lines, for example: Glass - 1");
       return;
     }
-    const warrantyTillDate = (warrantyTillByJob[jobId] ?? "").trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(warrantyTillDate)) {
-      setNote("Warranty till date is required.");
-      return;
-    }
     const lines = raw
       .split("\n")
       .map((line) => line.trim())
@@ -88,7 +82,7 @@ export function TechnicianWorkbenchPage() {
         return { name: namePart || line, qty: Number.isFinite(qty) && qty > 0 ? qty : 1 };
       });
     try {
-      await submitSparesSlip(jobId, lines, warrantyTillDate);
+      await submitSparesSlip(jobId, lines);
       setNote("Used spares slip submitted.");
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Could not submit spares slip.");
@@ -214,17 +208,6 @@ export function TechnicianWorkbenchPage() {
                         className="w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                         rows={3}
                       />
-                      <label className="w-full text-sm font-medium text-stone-800 sm:max-w-xs">
-                        Warranty till date <span className="text-rose-600">*</span>
-                        <input
-                          type="date"
-                          value={warrantyTillByJob[j.id] ?? ""}
-                          onChange={(e) =>
-                            setWarrantyTillByJob((prev) => ({ ...prev, [j.id]: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
-                        />
-                      </label>
                       <button
                         type="button"
                         onClick={() => void submitSpares(j.id)}

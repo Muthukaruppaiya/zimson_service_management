@@ -3,6 +3,7 @@ import type { AdvancePaymentDetails, MultiPaymentDetails } from "../../lib/payme
 import { paymentSplitsFromDetails } from "../../lib/paymentModes";
 import { inrAmountToWords } from "../../lib/inrAmountToWords";
 import { billableLineAmount, natureOfRepairLabel } from "../../lib/natureOfRepair";
+import { formatWarrantyInvoiceLine } from "../../lib/serviceWarranty";
 import {
   formatPlaceOfSupplyLabel,
   resolveCustomerSupplyStateCode,
@@ -241,6 +242,11 @@ function buildGstLines(
     totalQty += qty;
     const spareFromCode = parseSpareCodeFromDescription(ln.description);
     const labourLike = /labour|service\s*\/\s*repair|service charge|brand repair/i.test(ln.description);
+    const lineKind = ln.lineKind === "service" || ln.lineKind === "spare"
+      ? ln.lineKind
+      : Boolean(ln.spareId) || Boolean(spareFromCode) || !labourLike
+        ? "spare"
+        : "service";
     outLines.push({
       slNo: ln.lineNo || i + 1,
       spareCode: spareFromCode,
@@ -249,7 +255,8 @@ function buildGstLines(
       unitPrice: Math.round(unitTaxable * 100) / 100,
       qty: Math.round(qty * 1000) / 1000,
       grossValue: Math.round(taxableLine * 100) / 100,
-      isSpareLine: Boolean(ln.spareId) || Boolean(spareFromCode) || !labourLike,
+      isSpareLine: lineKind === "spare",
+      lineKind,
     });
   });
 
@@ -614,6 +621,7 @@ export type SrfServiceBillPreviewInput = {
     amountInr: number;
     spareId?: string | null;
     hsnSac?: string | null;
+    lineKind?: "service" | "spare";
   }[];
   /** Amount collected at store billing (balance due). */
   collectionAmountInr?: number;
@@ -622,6 +630,8 @@ export type SrfServiceBillPreviewInput = {
   collectionPaymentDetails?: MultiPaymentDetails | AdvancePaymentDetails | null;
   natureOfRepair?: string;
   customerCode?: string;
+  warrantyMonths?: number | null;
+  warrantyTillDate?: string | null;
 };
 
 export function mapSrfPreviewToServiceInvoiceViewModel(
@@ -646,6 +656,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
           spareId: l.spareId ?? null,
           qty: 1,
           hsnSac: l.hsnSac?.trim() || undefined,
+          lineKind: l.lineKind,
         }))
       : [
           {
@@ -679,6 +690,12 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
   );
   const serviceMeta: { label: string; value: string }[] = [];
   if (input.complaint.trim()) serviceMeta.push({ label: "Complaint", value: input.complaint.trim() });
+  if (input.warrantyMonths && input.warrantyMonths > 0) {
+    serviceMeta.push({
+      label: "Warranty",
+      value: formatWarrantyInvoiceLine(input.warrantyMonths, input.warrantyTillDate),
+    });
+  }
   if (adv > 0) {
     serviceMeta.push({
       label: "Advance collected",

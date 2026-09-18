@@ -15,6 +15,8 @@ function spareDisplayName(line: ServiceInvoiceLineView): string {
 
 /** Spare part lines are collapsed on the customer copy; labour / other charges stay separate. */
 export function isSpareInvoiceLine(line: ServiceInvoiceLineView): boolean {
+  if (line.lineKind === "service") return false;
+  if (line.lineKind === "spare") return true;
   if (line.isSpareLine === false) return false;
   if (NON_SPARE_DESC_RE.test(line.description)) return false;
   if (line.isSpareLine === true) return true;
@@ -47,6 +49,7 @@ function collapseSpareLines(spareLines: ServiceInvoiceLineView[]): ServiceInvoic
     qty: 1,
     grossValue,
     isSpareLine: true,
+    lineKind: "spare",
   };
 }
 

@@ -7,13 +7,15 @@ import {
   BULK_IMPORT_PRICES_COLUMNS,
   BULK_IMPORT_SPARES_COLUMNS,
   BULK_IMPORT_STOCK_COLUMNS,
-  bulkImportColumnKeys,
   bulkImportColumnLabel,
   bulkImportHeaderLabels,
+  bulkImportRequiredKeys,
   canonicalBulkImportHeader,
   type BulkImportColumn,
 } from "../src/lib/inventoryBulkImportColumns";
 import { appendStockHistory } from "./db/stockHistory";
+import { spareSkuBrandKey, normalizeAltName, normalizeAltSku, optionalMasterText } from "../src/lib/spareIdentity";
+import { nextPartNumber } from "./numberSequences";
 import {
   EXCEL_LOCATION_TYPES,
   EXCEL_SPARE_CATEGORIES,
@@ -35,11 +37,23 @@ const STOCK_HEADER_LABELS = bulkImportHeaderLabels(BULK_IMPORT_STOCK_COLUMNS);
 type SpareRow = {
   rowNum: number;
   sku: string;
+  autoSku: boolean;
+  brand: string;
+  altSku: string | null;
   name: string;
+  altName: string | null;
   description: string;
   category: string;
+  subCategory: string | null;
+  modelNo: string | null;
+  caliber: string | null;
+  size: string | null;
+  colour: string | null;
   hsn: string | null;
   mrpInr: number | null;
+  costInr: number | null;
+  gstPercent: number | null;
+  quantity: number | null;
   isActive: boolean;
 };
 
@@ -54,6 +68,7 @@ type PriceRow = {
 type StockRow = {
   rowNum: number;
   sku: string;
+  brand: string;
   locationType: "HO" | "STORE";
   regionName: string;
   storeName: string | null;
@@ -68,6 +83,97 @@ function cellStr(v: unknown): string {
   if (v == null) return "";
   if (typeof v === "number") return Number.isFinite(v) ? String(v) : "";
   return String(v).trim();
+}
+
+function blankNa(raw: unknown): string {
+  const s = cellStr(raw);
+  if (!s) return "";
+  if (/^(n\/?a|nil|none|null|-|—|–)$/i.test(s)) return "";
+  return s;
+}
+
+function mapSpareCategory(raw: string): string {
+  const s = blankNa(raw);
+  if (!s) return "Other";
+  const key = s.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  const aliases: Record<string, string> = {
+    "case part": "Case Part",
+    "case parts": "Case Part",
+    case: "Case Part",
+    glass: "Glass",
+    crystal: "Glass",
+    movement: "Movement",
+    "movement part": "Movement Part",
+    "clock movement": "Movement Part",
+    battery: "Battery",
+    batteries: "Battery",
+    crown: "Crown",
+    gasket: "Gasket",
+    strap: "Strap",
+    bracelet: "Bracelet",
+    dial: "Dial",
+    hands: "Hands",
+    lubricant: "Lubricant",
+    oil: "Lubricant",
+    tool: "Tool",
+    tools: "Tool",
+    consumable: "Consumable",
+    stem: "Stem",
+    other: "Other",
+  };
+  if (aliases[key]) return aliases[key];
+  const hit = EXCEL_SPARE_CATEGORIES.find((c) => c.toLowerCase() === key);
+  return hit ?? "Other";
+}
+
+function categoryFromRow(r: Record<string, unknown>): string {
+  const direct = blankNa(r.category);
+  if (direct) return mapSpareCategory(direct);
+  const hint = `${blankNa(r.alt_name)} ${blankNa(r.name)} ${blankNa(r.description)}`.toLowerCase();
+  if (/\bglass\b|\bcrystal\b/.test(hint)) return "Glass";
+  if (/\bmovement\b|\bmodule\b/.test(hint)) return "Movement Part";
+  if (/\bstrap\b/.test(hint)) return "Strap";
+  if (/\bbracelet\b|\bchain\b/.test(hint)) return "Bracelet";
+  return "Other";
+}
+
+function sheetHeaderKeys(sheet: XLSX.WorkSheet | undefined): string[] {
+  if (!sheet) return [];
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+  if (rows.length < 1) return [];
+  return (rows[0] as unknown[]).map((h) => normHeader(h)).filter(Boolean);
+}
+
+function sheetLooksLikeSpares(headers: string[]): boolean {
+  const h = new Set(headers);
+  if (h.has("price_inr")) return false;
+  if (h.has("location_type") && !h.has("description") && !h.has("name") && !h.has("category")) return false;
+  const hasBrand = h.has("watch_brand");
+  const hasPart = h.has("sku") || h.has("name") || h.has("description") || h.has("category");
+  return hasBrand && hasPart;
+}
+
+function findSparesSheets(wb: XLSX.WorkBook): Array<{ name: string; sheet: XLSX.WorkSheet }> {
+  const skip = new Set(["prices", "stock", "readme", "dropdowns", "tax types", "tax_types"]);
+  const out: Array<{ name: string; sheet: XLSX.WorkSheet }> = [];
+  const seen = new Set<XLSX.WorkSheet>();
+  for (const name of ["Spares", "Inventory", "Parts"]) {
+    const sh = findSheet(wb, name);
+    if (sh && !seen.has(sh)) {
+      seen.add(sh);
+      out.push({ name, sheet: sh });
+    }
+  }
+  for (const name of wb.SheetNames) {
+    if (skip.has(name.trim().toLowerCase())) continue;
+    const sh = wb.Sheets[name];
+    if (!sh || seen.has(sh)) continue;
+    if (sheetLooksLikeSpares(sheetHeaderKeys(sh))) {
+      seen.add(sh);
+      out.push({ name, sheet: sh });
+    }
+  }
+  return out;
 }
 
 function parseBool(v: unknown): boolean | null {
@@ -112,40 +218,85 @@ function findSheet(wb: XLSX.WorkBook, name: string): XLSX.WorkSheet | undefined 
   return sn ? wb.Sheets[sn] : undefined;
 }
 
-function parseSpares(rows: Record<string, unknown>[], baseRow: number): { rows: SpareRow[]; errors: string[] } {
+function parseSpares(
+  rows: Record<string, unknown>[],
+  baseRow: number,
+  sheetLabel = "Spares",
+  seenSkuBrand = new Map<string, number>(),
+): { rows: SpareRow[]; errors: string[] } {
   const errors: string[] = [];
   const parsed: SpareRow[] = [];
+  const loc = (rowNum: number) => `${sheetLabel} row ${rowNum}`;
   rows.forEach((r, idx) => {
     const rowNum = baseRow + idx + 2;
-    const sku = cellStr(r.sku).toUpperCase();
-    if (!sku) return;
-    const name = cellStr(r.name);
-    const description = cellStr(r.description);
-    const category = cellStr(r.category);
+    const skuRaw = blankNa(r.sku).toUpperCase();
+    const brand = blankNa(r.watch_brand);
+    const nameFromCol = blankNa(r.name);
+    const descriptionFromCol = blankNa(r.description);
+    const name = nameFromCol || descriptionFromCol;
+    const description = descriptionFromCol || nameFromCol;
+    if (!skuRaw && !name) return;
     const rowErrs: string[] = [];
-    if (!name) rowErrs.push(`Spares row ${rowNum}: Product Name is required for product code "${sku}".`);
-    if (!description) rowErrs.push(`Spares row ${rowNum}: Product Description is required for product code "${sku}".`);
-    if (!category) rowErrs.push(`Spares row ${rowNum}: Category is required for product code "${sku}".`);
-    const hsnRaw = cellStr(r.hsn);
+    if (!brand) rowErrs.push(`${loc(rowNum)}: Brand / Watch Brand is required.`);
+    if (!name) rowErrs.push(`${loc(rowNum)}: Product Name or Description is required.`);
+    const hsnRaw = blankNa(r.hsn);
     const mrp = parseNum(r.mrp_inr);
-    if (r.mrp_inr != null && cellStr(r.mrp_inr) !== "" && mrp == null) {
-      rowErrs.push(`Spares row ${rowNum}: MRP (INR) must be a number for product code "${sku}".`);
+    if (r.mrp_inr != null && cellStr(r.mrp_inr) !== "" && blankNa(r.mrp_inr) && mrp == null) {
+      rowErrs.push(`${loc(rowNum)}: MRP (INR) must be a number.`);
+    }
+    const cost = parseNum(r.cost_inr);
+    if (r.cost_inr != null && cellStr(r.cost_inr) !== "" && blankNa(r.cost_inr) && cost == null) {
+      rowErrs.push(`${loc(rowNum)}: Cost (INR) must be a number.`);
+    }
+    const gst = parseNum(r.gst_percent);
+    if (r.gst_percent != null && cellStr(r.gst_percent) !== "" && blankNa(r.gst_percent) && gst == null) {
+      rowErrs.push(`${loc(rowNum)}: Tax % must be a number.`);
+    }
+    if (gst != null && (gst < 0 || gst > 100)) {
+      rowErrs.push(`${loc(rowNum)}: Tax % must be between 0 and 100.`);
+    }
+    const qty = parseNum(r.quantity);
+    if (r.quantity != null && cellStr(r.quantity) !== "" && blankNa(r.quantity) && (qty == null || qty < 0)) {
+      rowErrs.push(`${loc(rowNum)}: Qty must be a non-negative number.`);
     }
     const activeP = parseBool(r.is_active);
-    if (activeP === null && cellStr(r.is_active) !== "") {
-      rowErrs.push(`Spares row ${rowNum}: Active must be Y/N or true/false for product code "${sku}".`);
+    if (activeP === null && cellStr(r.is_active) !== "" && blankNa(r.is_active)) {
+      rowErrs.push(`${loc(rowNum)}: Active must be Y/N or true/false.`);
     }
     errors.push(...rowErrs);
     if (rowErrs.length > 0) return;
     const isActive = activeP ?? true;
+    let sku = skuRaw;
+    let altSku = normalizeAltSku(blankNa(r.alt_sku));
+    if (sku) {
+      const seenKey = `${sku}::${brand.trim().toLowerCase()}`;
+      const n = (seenSkuBrand.get(seenKey) ?? 0) + 1;
+      seenSkuBrand.set(seenKey, n);
+      if (n > 1) {
+        if (!altSku) altSku = sku;
+        sku = `${sku}-${n}`.slice(0, 64);
+      }
+    }
     parsed.push({
       rowNum,
       sku,
+      autoSku: !sku,
+      brand,
+      altSku,
       name,
+      altName: normalizeAltName(blankNa(r.alt_name)),
       description,
-      category,
+      category: categoryFromRow(r),
+      subCategory: optionalMasterText(blankNa(r.sub_category)),
+      modelNo: optionalMasterText(blankNa(r.model_no)),
+      caliber: optionalMasterText(blankNa(r.caliber)),
+      size: optionalMasterText(blankNa(r.size), 80),
+      colour: optionalMasterText(blankNa(r.colour), 80),
       hsn: hsnRaw || null,
       mrpInr: mrp,
+      costInr: cost,
+      gstPercent: gst,
+      quantity: qty,
       isActive,
     });
   });
@@ -183,10 +334,12 @@ function parseStock(rows: Record<string, unknown>[], baseRow: number): { rows: S
     const sku = cellStr(r.sku).toUpperCase();
     if (!sku) return;
     const lt = cellStr(r.location_type).toUpperCase();
+    const watchBrand = cellStr(r.watch_brand);
     const regionName = cellStr(r.region_name);
     const storeNameRaw = cellStr(r.store_name);
     const qty = parseNum(r.quantity);
     const rowErrs: string[] = [];
+    if (!watchBrand) rowErrs.push(`Stock row ${rowNum}: Watch Brand is required for product code "${sku}".`);
     if (lt !== "HO" && lt !== "STORE") {
       rowErrs.push(`Stock row ${rowNum}: Location Type must be HO or STORE for product code "${sku}".`);
     }
@@ -205,6 +358,7 @@ function parseStock(rows: Record<string, unknown>[], baseRow: number): { rows: S
     parsed.push({
       rowNum,
       sku,
+      brand: watchBrand,
       locationType: lt === "STORE" ? "STORE" : "HO",
       regionName,
       storeName: lt === "STORE" ? storeNameRaw || null : null,
@@ -223,27 +377,39 @@ function parseWorkbook(buf: Buffer): {
   const wb = XLSX.read(buf, { type: "buffer" });
   const parseErrors: string[] = [];
 
-  const shSpares = findSheet(wb, "Spares");
+  const spareSheets = findSparesSheets(wb);
   const shPrices = findSheet(wb, "Prices");
   const shStock = findSheet(wb, "Stock");
 
-  if (!shSpares) parseErrors.push('Missing sheet "Spares". Use the downloaded template.');
-  if (!shPrices) parseErrors.push('Missing sheet "Prices". Use the downloaded template.');
-  if (!shStock) parseErrors.push('Missing sheet "Stock". Use the downloaded template.');
+  if (spareSheets.length === 0) {
+    parseErrors.push(
+      'No inventory sheet found. Use a "Spares" sheet, or a client file with Brand plus Part Reference Number / Description (Watch / Clock / Strap sheets are accepted).',
+    );
+  }
 
-  const rawSpares = sheetRows(shSpares);
+  const seenSkuBrand = new Map<string, number>();
+  const spareRows: SpareRow[] = [];
+  const spareParseErrors: string[] = [];
+  for (const { name, sheet } of spareSheets) {
+    const sp = parseSpares(sheetRows(sheet), 0, name, seenSkuBrand);
+    spareRows.push(...sp.rows);
+    spareParseErrors.push(...sp.errors);
+  }
   const rawPrices = sheetRows(shPrices);
   const rawStock = sheetRows(shStock);
 
-  const sp = parseSpares(rawSpares, 0);
   const pr = parsePrices(rawPrices, 0);
   const st = parseStock(rawStock, 0);
 
+  if (spareSheets.length > 0 && spareRows.length === 0 && spareParseErrors.length === 0) {
+    parseErrors.push("No spare rows found. Add at least one row under the header.");
+  }
+
   return {
-    spareRows: sp.rows,
+    spareRows,
     priceRows: pr.rows,
     stockRows: st.rows,
-    parseErrors: [...parseErrors, ...sp.errors, ...pr.errors, ...st.errors],
+    parseErrors: [...parseErrors, ...spareParseErrors, ...pr.errors, ...st.errors],
   };
 }
 
@@ -287,34 +453,53 @@ async function validateAgainstDb(
   const errors: string[] = [];
   const { regionByName, storeByRegionAndName, brandNamesLower } = await loadRefs(pool);
 
-  const skusNeeded = new Set<string>();
-  for (const p of priceRows) skusNeeded.add(p.sku);
-  for (const s of stockRows) skusNeeded.add(s.sku);
-  for (const s of spareRows) skusNeeded.add(s.sku);
-
-  const skuList = [...skusNeeded];
+  const skuList = [
+    ...new Set([
+      ...priceRows.map((p) => p.sku),
+      ...stockRows.map((s) => s.sku),
+      ...spareRows.filter((s) => s.sku).map((s) => s.sku),
+    ]),
+  ];
   const existing = new Set<string>();
   if (skuList.length > 0) {
-    const { rows } = await pool.query<{ sku: string }>(
-      `SELECT UPPER(TRIM(sku)) AS sku FROM spares WHERE UPPER(TRIM(sku)) = ANY($1::text[])`,
+    const { rows } = await pool.query<{ sku: string; brand: string }>(
+      `SELECT UPPER(TRIM(sku)) AS sku, UPPER(TRIM(brand)) AS brand
+       FROM spares
+       WHERE UPPER(TRIM(sku)) = ANY($1::text[])`,
       [skuList],
     );
-    for (const r of rows) existing.add(r.sku.toUpperCase());
+    for (const r of rows) existing.add(spareSkuBrandKey(r.sku, r.brand));
   }
 
-  const skusFromSparesSheet = new Set(spareRows.map((r) => r.sku));
-  const spareSkuSeen = new Set<string>();
+  const fromSheet = new Set<string>();
+  const spareKeySeen = new Set<string>();
   for (const s of spareRows) {
-    if (spareSkuSeen.has(s.sku)) {
-      errors.push(`Spares: duplicate SKU "${s.sku}" (row ${s.rowNum}). Each SKU may appear only once on the Spares sheet.`);
+    const canon = brandNamesLower.get(s.brand.trim().toLowerCase()) ?? s.brand.trim();
+    const key = s.sku ? spareSkuBrandKey(s.sku, canon) : `AUTO:${s.brand.trim().toLowerCase()}::${s.name.trim().toLowerCase()}::${s.rowNum}`;
+    if (s.sku && spareKeySeen.has(key)) {
+      errors.push(
+        `Spares: duplicate part number + brand "${s.sku}" / "${s.brand}" (row ${s.rowNum}). Each combination may appear only once.`,
+      );
     }
-    spareSkuSeen.add(s.sku);
+    spareKeySeen.add(key);
+    fromSheet.add(spareSkuBrandKey(s.sku || `AUTO-${s.rowNum}`, canon));
   }
 
-  for (const sku of skusNeeded) {
-    if (!skusFromSparesSheet.has(sku) && !existing.has(sku)) {
+  for (const p of priceRows) {
+    const canon = brandNamesLower.get(p.watchBrand.trim().toLowerCase());
+    const key = spareSkuBrandKey(p.sku, canon ?? p.watchBrand);
+    if (!fromSheet.has(key) && !existing.has(key)) {
       errors.push(
-        `SKU "${sku}" appears in Prices or Stock but is not in the Spares sheet and does not exist in the database. Add a Spares row or create the spare first.`,
+        `Prices row ${p.rowNum}: "${p.sku}" + "${p.watchBrand}" is not in the Spares sheet and does not exist in the catalogue.`,
+      );
+    }
+  }
+  for (const s of stockRows) {
+    const canon = brandNamesLower.get(s.brand.trim().toLowerCase());
+    const key = spareSkuBrandKey(s.sku, canon ?? s.brand);
+    if (!fromSheet.has(key) && !existing.has(key)) {
+      errors.push(
+        `Stock row ${s.rowNum}: "${s.sku}" + "${s.brand}" is not in the Spares sheet and does not exist in the catalogue.`,
       );
     }
   }
@@ -358,6 +543,51 @@ async function validateAgainstDb(
   return errors;
 }
 
+async function ensureBrand(
+  client: PoolClient,
+  rawName: string,
+  brandNamesLower: Map<string, string>,
+): Promise<string> {
+  const name = rawName.trim();
+  const existing = brandNamesLower.get(name.toLowerCase());
+  if (existing) return existing;
+  const { rows: found } = await client.query<{ name: string }>(
+    `SELECT name FROM brands WHERE LOWER(BTRIM(name)) = LOWER(BTRIM($1)) LIMIT 1`,
+    [name],
+  );
+  if (found[0]) {
+    brandNamesLower.set(name.toLowerCase(), found[0].name);
+    return found[0].name;
+  }
+  const codeBase = name.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24) || "BRAND";
+  let code = codeBase;
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    try {
+      await client.query(
+        `INSERT INTO brands (code, name, sort_order, is_active, serial_number_required)
+         VALUES ($1, $2, 100, true, false)`,
+        [code, name],
+      );
+      brandNamesLower.set(name.toLowerCase(), name);
+      return name;
+    } catch (e: unknown) {
+      const err = e as { code?: string };
+      if (err.code !== "23505") throw e;
+      const again = await client.query<{ name: string }>(
+        `SELECT name FROM brands WHERE LOWER(BTRIM(name)) = LOWER(BTRIM($1)) LIMIT 1`,
+        [name],
+      );
+      if (again.rows[0]) {
+        brandNamesLower.set(name.toLowerCase(), again.rows[0].name);
+        return again.rows[0].name;
+      }
+      const suffix = String(attempt + 1);
+      code = `${codeBase}`.slice(0, Math.max(1, 32 - suffix.length)) + suffix;
+    }
+  }
+  throw new Error(`Could not create brand "${name}".`);
+}
+
 async function commitImport(
   client: PoolClient,
   actor: DemoUser,
@@ -368,29 +598,96 @@ async function commitImport(
   regionByName: Map<string, { id: string; name: string }>,
   storeByRegionAndName: Map<string, { id: string; regionId: string; name: string }>,
 ): Promise<{ sparesUpserted: number; pricesUpserted: number; stockUpserted: number }> {
-  const skuToId = new Map<string, string>();
+  const skuBrandToId = new Map<string, string>();
+
+  async function rememberSpare(sku: string, brand: string, id: string) {
+    skuBrandToId.set(spareSkuBrandKey(sku, brand), id);
+  }
+
+  async function lookupSpareId(sku: string, brand: string): Promise<string | undefined> {
+    const key = spareSkuBrandKey(sku, brand);
+    const cached = skuBrandToId.get(key);
+    if (cached) return cached;
+    const { rows } = await client.query<{ id: string }>(
+      `SELECT id FROM spares
+       WHERE UPPER(BTRIM(sku)) = $1 AND UPPER(BTRIM(brand)) = UPPER(BTRIM($2))`,
+      [sku, brand],
+    );
+    if (rows[0]) {
+      skuBrandToId.set(key, rows[0].id);
+      return rows[0].id;
+    }
+    return undefined;
+  }
 
   let sparesUpserted = 0;
+  let inlineStock = 0;
+  const defaultRegion =
+    (actor.regionId
+      ? [...regionByName.values()].find((r) => r.id === actor.regionId)
+      : undefined) ?? [...regionByName.values()][0];
+
   for (const s of spareRows) {
-    const before = await client.query<{ id: string }>(`SELECT id FROM spares WHERE UPPER(TRIM(sku)) = $1`, [s.sku]);
+    const brandCanon = await ensureBrand(client, s.brand, brandNamesLower);
+    let sku = s.sku;
+    if (!sku) {
+      sku = await nextPartNumber(client);
+      s.sku = sku;
+    }
+    const before = await client.query<{ id: string }>(
+      `SELECT id FROM spares
+       WHERE UPPER(BTRIM(sku)) = $1 AND UPPER(BTRIM(brand)) = UPPER(BTRIM($2))`,
+      [sku, brandCanon],
+    );
     const wasExisting = before.rows.length > 0;
     const ins = await client.query<{ id: string }>(
-      `INSERT INTO spares (sku, name, description, category, hsn, mrp_inr, selling_price_inr, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
-       ON CONFLICT (sku) DO UPDATE SET
+      `INSERT INTO spares (sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, custom_fields)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $15, $17, '{}'::jsonb)
+       ON CONFLICT ((UPPER(BTRIM(sku))), (UPPER(BTRIM(brand)))) DO UPDATE SET
+         alt_sku = COALESCE(EXCLUDED.alt_sku, spares.alt_sku),
          name = EXCLUDED.name,
+         alt_name = EXCLUDED.alt_name,
          description = EXCLUDED.description,
          category = EXCLUDED.category,
+         model_no = EXCLUDED.model_no,
+         caliber = EXCLUDED.caliber,
+         sub_category = EXCLUDED.sub_category,
+         size = EXCLUDED.size,
+         colour = EXCLUDED.colour,
          hsn = EXCLUDED.hsn,
+         gst_percent = EXCLUDED.gst_percent,
          mrp_inr = EXCLUDED.mrp_inr,
+         cost_price_inr = EXCLUDED.cost_price_inr,
          selling_price_inr = EXCLUDED.selling_price_inr,
          is_active = EXCLUDED.is_active,
+         custom_fields = CASE
+           WHEN EXCLUDED.custom_fields = '{}'::jsonb THEN spares.custom_fields
+           ELSE COALESCE(spares.custom_fields, '{}'::jsonb) || EXCLUDED.custom_fields
+         END,
          updated_at = now()
        RETURNING id`,
-      [s.sku, s.name, s.description, s.category, s.hsn, s.mrpInr, s.isActive],
+      [
+        sku,
+        brandCanon,
+        s.altSku,
+        s.name,
+        s.altName,
+        s.description,
+        s.category,
+        s.modelNo,
+        s.caliber,
+        s.subCategory,
+        s.size,
+        s.colour,
+        s.hsn,
+        s.gstPercent,
+        s.mrpInr,
+        s.costInr,
+        s.isActive,
+      ],
     );
     const id = ins.rows[0]!.id;
-    skuToId.set(s.sku, id);
+    await rememberSpare(sku, brandCanon, id);
     sparesUpserted += 1;
     if (!wasExisting) {
       await appendStockHistory(client, {
@@ -401,25 +698,43 @@ async function commitImport(
         createdBy: actor.id,
       });
     }
-  }
-
-  const skusForPrice = new Set(priceRows.map((p) => p.sku));
-  for (const sku of skusForPrice) {
-    if (!skuToId.has(sku)) {
-      const { rows } = await client.query<{ id: string; sku: string }>(
-        `SELECT id, UPPER(TRIM(sku)) AS sku FROM spares WHERE UPPER(TRIM(sku)) = $1`,
-        [sku],
+    if (s.quantity != null && defaultRegion) {
+      const locationKey = `HO:${defaultRegion.id}`;
+      const prev = await client.query<{ qty: number }>(
+        `SELECT quantity::float8 AS qty FROM spare_stock WHERE spare_id = $1::uuid AND location_key = $2 FOR UPDATE`,
+        [id, locationKey],
       );
-      if (rows[0]) skuToId.set(sku, rows[0]!.id);
+      const prevQty = prev.rows[0]?.qty ?? 0;
+      await client.query(
+        `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
+         VALUES ($1::uuid, $2, 'HO', $3, NULL, $4)
+         ON CONFLICT (spare_id, location_key)
+         DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = now()`,
+        [id, locationKey, defaultRegion.id, s.quantity],
+      );
+      await appendStockHistory(client, {
+        spareId: id,
+        eventType: "MANUAL_STOCK_SET",
+        locationKey,
+        locationType: "HO",
+        regionId: defaultRegion.id,
+        storeId: null,
+        quantityChange: s.quantity - prevQty,
+        balanceAfter: s.quantity,
+        referenceType: "MANUAL",
+        note: "Bulk import qty from inventory sheet.",
+        createdBy: actor.id,
+      });
+      inlineStock += 1;
     }
   }
 
   let pricesUpserted = 0;
   for (const p of priceRows) {
-    const spareId = skuToId.get(p.sku);
-    if (!spareId) throw new Error(`Internal: missing spare id for ${p.sku}`);
     const brandCanon = brandNamesLower.get(p.watchBrand.trim().toLowerCase());
     if (!brandCanon) throw new Error(`Internal: brand not resolved for ${p.watchBrand}`);
+    const spareId = await lookupSpareId(p.sku, brandCanon);
+    if (!spareId) throw new Error(`Internal: missing spare id for ${p.sku} / ${brandCanon}`);
     const region = regionByName.get(p.regionName.trim().toLowerCase());
     if (!region) throw new Error(`Internal: region not resolved for ${p.regionName}`);
     await client.query(
@@ -432,21 +747,12 @@ async function commitImport(
     pricesUpserted += 1;
   }
 
-  const skusForStock = new Set(stockRows.map((p) => p.sku));
-  for (const sku of skusForStock) {
-    if (!skuToId.has(sku)) {
-      const { rows } = await client.query<{ id: string }>(
-        `SELECT id FROM spares WHERE UPPER(TRIM(sku)) = $1`,
-        [sku],
-      );
-      if (rows[0]) skuToId.set(sku, rows[0]!.id);
-    }
-  }
-
   let stockUpserted = 0;
   for (const s of stockRows) {
-    const spareId = skuToId.get(s.sku);
-    if (!spareId) throw new Error(`Internal: missing spare id for ${s.sku}`);
+    const brandCanon = brandNamesLower.get(s.brand.trim().toLowerCase());
+    if (!brandCanon) throw new Error(`Internal: brand not resolved for ${s.brand}`);
+    const spareId = await lookupSpareId(s.sku, brandCanon);
+    if (!spareId) throw new Error(`Internal: missing spare id for ${s.sku} / ${brandCanon}`);
     const region = regionByName.get(s.regionName.trim().toLowerCase());
     if (!region) throw new Error(`Internal: region not resolved for ${s.regionName}`);
     const store =
@@ -484,25 +790,46 @@ async function commitImport(
     stockUpserted += 1;
   }
 
-  return { sparesUpserted, pricesUpserted, stockUpserted };
+  return { sparesUpserted, pricesUpserted, stockUpserted: stockUpserted + inlineStock };
 }
 
-function assertHeaders(sheet: XLSX.WorkSheet | undefined, columns: BulkImportColumn[], sheetLabel: string): string[] {
-  if (!sheet) return [`Missing ${sheetLabel} sheet.`];
+function assertSpareSheetHeaders(wb: XLSX.WorkBook): string[] {
+  const sheets = findSparesSheets(wb);
+  if (sheets.length === 0) {
+    return [
+      'No inventory sheet found. Use a "Spares" sheet, or a client file with Brand plus Part Reference Number / Description (Watch / Clock / Strap sheets are accepted).',
+    ];
+  }
+  return sheets.flatMap(({ name, sheet }) => assertHeaders(sheet, BULK_IMPORT_SPARES_COLUMNS, name));
+}
+
+function assertHeaders(
+  sheet: XLSX.WorkSheet | undefined,
+  columns: BulkImportColumn[],
+  sheetLabel: string,
+  opts?: { optional?: boolean },
+): string[] {
+  if (!sheet) {
+    return opts?.optional ? [] : [`Missing ${sheetLabel} sheet.`];
+  }
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
   if (rows.length < 1) return [`${sheetLabel}: sheet is empty.`];
   const headerRaw = rows[0] as unknown[];
   const headers = headerRaw.map((h) => normHeader(h)).filter(Boolean);
-  const expectedKeys = bulkImportColumnKeys(columns);
+  const expectedKeys = bulkImportRequiredKeys(columns);
   const missing = expectedKeys.filter((e) => !headers.includes(e));
   if (missing.length) {
     const missingLabels = missing.map((k) => bulkImportColumnLabel(columns, k));
-    const expectedLabels = bulkImportHeaderLabels(columns);
     return [
-      `${sheetLabel}: missing column(s): ${missingLabels.join(", ")}. First row must be headers exactly as in the template (${expectedLabels.join(", ")}).`,
+      `${sheetLabel}: missing required column(s): ${missingLabels.join(", ")}.`,
     ];
   }
   return [];
+}
+
+function canBulkImport(actor: DemoUser | null): actor is DemoUser {
+  const role = actor?.role;
+  return role === "super_admin" || role === "admin" || role === "ho_manager" || role === "ho_purchase";
 }
 
 // ── Seeded spare parts catalogue ─────────────────────────────────────────────
@@ -557,23 +884,29 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
     ["3. Delete the seeded sample rows before importing, or they will be upserted into your catalogue."],
     ["4. Save as .xlsx and upload on the Bulk Import page."],
     [""],
-    ["SHEET: Spares"],
-    ["  Product Code          – Unique code (stored uppercase). Required."],
-    ["  Product Name          – Short display name. Required."],
-    ["  Product Description   – Longer description. Required."],
-    ["  Category              – Battery / Glass / Crown / Gasket / Strap / Movement / Stem / Lubricant / Tool / Consumable / Other"],
-    ["  HSN                   – HSN tariff code (optional)."],
-    ["  MRP (INR)             – Max retail price in INR (optional number)."],
+    ["SHEET: Spares  (or client Watch / Clock / Strap sheets — all matching sheets are imported)"],
+    ["  Product Code          – Optional. Leave blank and the system assigns PRT + year + sequence."],
+    ["  Part Reference Number – Accepted as Product Code (client inventory format)."],
+    ["  Watch Brand / Brand   – Required. Created in brand master if it does not exist yet."],
+    ["  Product Name          – Optional if Description is filled."],
+    ["  Alternative Part No   – Optional second part number (cross-reference)."],
+    ["  Alternative Name      – Optional second spare name. N/A is treated as blank."],
+    ["  Product Description   – Optional if Product Name is filled."],
+    ["  Category              – Mapped to catalogue categories (CASE PART → Case Part, Movement Part, Bracelet). Blank → Other."],
+    ["  Sub Category          – Optional (Leather / Metal / BiMetal on Strap sheets)."],
+    ["  Model No / Clock Model / Caliber / Size / Colour / HSN / MRP / Cost / Tax % (or IGST %) — optional."],
+    ["  Qty                   – Optional. Written as HO opening stock when a number is present."],
     ["  Active                – Y or N (default Y)."],
     [""],
-    ["SHEET: Prices"],
-    ["  Product Code          – Must match a product code in the Spares sheet or already in DB."],
+    ["SHEET: Prices  (optional — not required for client inventory files)"],
+    ["  Product Code          – Must match Product Code + Watch Brand in Spares or catalogue."],
     ["  Region Name           – Exact region name from your system (e.g. COIMBATORE HO)."],
     ["  Watch Brand           – Active brand name (e.g. Citizen)."],
     ["  Price (INR)           – Selling price in INR (number)."],
     [""],
-    ["SHEET: Stock"],
-    ["  Product Code          – Must match a product code."],
+    ["SHEET: Stock   (optional — not required for client inventory files)"],
+    ["  Product Code          – Must match Product Code + Watch Brand."],
+    ["  Watch Brand           – Must match the spare’s brand."],
     ["  Location Type         – HO or STORE (uppercase)."],
     ["  Region Name           – Exact region name."],
     ["  Store Name            – Required when Location Type = STORE; leave empty for HO."],
@@ -585,24 +918,42 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(readme), "README");
 
-  // ── Spares sheet ─────────────────────────────────────────────────────────
+  const sampleBrand = brands[0] ?? "Citizen";
+  const spareSheetRows = SEED_SPARES.map((row) => [
+    row[0],
+    sampleBrand,
+    row[1],
+    "",
+    "",
+    row[2],
+    row[3],
+    "",
+    "",
+    "",
+    "",
+    "",
+    row[4],
+    row[5],
+    "",
+    "18",
+    "",
+    row[6],
+  ]);
   XLSX.utils.book_append_sheet(
     wb,
-    XLSX.utils.aoa_to_sheet([SPARES_HEADER_LABELS, ...SEED_SPARES]),
+    XLSX.utils.aoa_to_sheet([SPARES_HEADER_LABELS, ...spareSheetRows]),
     "Spares",
   );
 
-  // ── Prices sheet — one row per spare × region × brand ───────────────────
+  // ── Prices sheet — one row per spare × region (spare’s brand) ────────────
   const priceRows: string[][] = [PRICES_HEADER_LABELS];
   for (const spare of SEED_SPARES) {
     const sku = spare[0];
     const mrpStr = spare[5] ?? "";
     const mrp = parseFloat(mrpStr) || 0;
     for (const region of regions) {
-      for (const brand of brands.slice(0, 3)) { // up to 3 brands per spare
-        const sellingPrice = Math.round(mrp * 0.85); // 15% off MRP as default selling price
-        priceRows.push([sku, region.name, brand, String(sellingPrice > 0 ? sellingPrice : 100)]);
-      }
+      const sellingPrice = Math.round(mrp * 0.85);
+      priceRows.push([sku, region.name, sampleBrand, String(sellingPrice > 0 ? sellingPrice : 100)]);
     }
   }
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(priceRows), "Prices");
@@ -612,12 +963,10 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
   for (const spare of SEED_SPARES) {
     const sku = spare[0];
     for (const region of regions) {
-      // HO stock
-      stockRows.push([sku, "HO", region.name, "", "20"]);
-      // First store in this region
+      stockRows.push([sku, sampleBrand, "HO", region.name, "", "20"]);
       const store = storeRows.find((s) => s.region_id === region.id);
       if (store) {
-        stockRows.push([sku, "STORE", region.name, store.name, "5"]);
+        stockRows.push([sku, sampleBrand, "STORE", region.name, store.name, "5"]);
       }
     }
   }
@@ -627,8 +976,10 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
   return withExcelDropdowns(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer, [
     { sheetName: "Spares", header: "Category", values: [...EXCEL_SPARE_CATEGORIES] },
     { sheetName: "Spares", header: "Active", values: [...EXCEL_YES_NO] },
+    { sheetName: "Spares", header: "Watch Brand", values: brands },
     { sheetName: "Prices", header: "Watch Brand", values: brands },
     { sheetName: "Prices", header: "Region Name", values: regionNames },
+    { sheetName: "Stock", header: "Watch Brand", values: brands },
     { sheetName: "Stock", header: "Location Type", values: [...EXCEL_LOCATION_TYPES] },
     { sheetName: "Stock", header: "Region Name", values: regionNames },
   ]);
@@ -642,7 +993,7 @@ export function registerInventoryBulkImportRoutes(
 ): void {
   app.get("/api/inventory/bulk-import/template", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin")) {
+    if (!canBulkImport(actor)) {
       res.status(403).json({ error: "Only super or regional admins can download the import template." });
       return;
     }
@@ -662,7 +1013,7 @@ export function registerInventoryBulkImportRoutes(
 
   app.post("/api/inventory/bulk-import/validate", requireAuth, upload.single("file"), async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin")) {
+    if (!canBulkImport(actor)) {
       res.status(403).json({ error: "Only super or regional admins can validate imports." });
       return;
     }
@@ -673,9 +1024,9 @@ export function registerInventoryBulkImportRoutes(
     try {
       const wb = XLSX.read(req.file.buffer, { type: "buffer" });
       const headerErrors = [
-        ...assertHeaders(findSheet(wb, "Spares"), BULK_IMPORT_SPARES_COLUMNS, "Spares"),
-        ...assertHeaders(findSheet(wb, "Prices"), BULK_IMPORT_PRICES_COLUMNS, "Prices"),
-        ...assertHeaders(findSheet(wb, "Stock"), BULK_IMPORT_STOCK_COLUMNS, "Stock"),
+        ...assertSpareSheetHeaders(wb),
+        ...assertHeaders(findSheet(wb, "Prices"), BULK_IMPORT_PRICES_COLUMNS, "Prices", { optional: true }),
+        ...assertHeaders(findSheet(wb, "Stock"), BULK_IMPORT_STOCK_COLUMNS, "Stock", { optional: true }),
       ];
       if (headerErrors.length) {
         res.status(400).json({ ok: false, errors: headerErrors });
@@ -705,7 +1056,7 @@ export function registerInventoryBulkImportRoutes(
 
   app.post("/api/inventory/bulk-import/commit", requireAuth, upload.single("file"), async (req, res) => {
     const actor = getUserById((req as Authed).userId);
-    if (!actor || (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin")) {
+    if (!canBulkImport(actor)) {
       res.status(403).json({ error: "Only super or regional admins can commit imports." });
       return;
     }
@@ -716,9 +1067,9 @@ export function registerInventoryBulkImportRoutes(
     try {
       const wb = XLSX.read(req.file.buffer, { type: "buffer" });
       const headerErrors = [
-        ...assertHeaders(findSheet(wb, "Spares"), BULK_IMPORT_SPARES_COLUMNS, "Spares"),
-        ...assertHeaders(findSheet(wb, "Prices"), BULK_IMPORT_PRICES_COLUMNS, "Prices"),
-        ...assertHeaders(findSheet(wb, "Stock"), BULK_IMPORT_STOCK_COLUMNS, "Stock"),
+        ...assertSpareSheetHeaders(wb),
+        ...assertHeaders(findSheet(wb, "Prices"), BULK_IMPORT_PRICES_COLUMNS, "Prices", { optional: true }),
+        ...assertHeaders(findSheet(wb, "Stock"), BULK_IMPORT_STOCK_COLUMNS, "Stock", { optional: true }),
       ];
       if (headerErrors.length) {
         res.status(400).json({ ok: false, errors: headerErrors });

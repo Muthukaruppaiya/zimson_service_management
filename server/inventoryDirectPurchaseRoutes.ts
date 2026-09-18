@@ -2,6 +2,11 @@ import type { Express, NextFunction, Request, Response } from "express";
 import type { Pool } from "pg";
 import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
+import { createMemoryUpload } from "./storage/multerMemory";
+import { persistUploadedFile } from "./storage/fileStorage";
+import path from "node:path";
+
+const grnInvoiceUpload = createMemoryUpload(10 * 1024 * 1024);
 
 type Authed = Request & { userId: string };
 
@@ -50,6 +55,18 @@ async function getPoSeries(
   };
 }
 
+async function getGrnSeries(
+  client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
+): Promise<{ prefix: string; suffix: string }> {
+  const { rows } = await client.query(
+    `SELECT grn_prefix AS prefix, grn_suffix AS suffix FROM service_tax_settings WHERE id = 1`,
+  );
+  return {
+    prefix: String(rows[0]?.prefix ?? "GRN").trim() || "GRN",
+    suffix: String(rows[0]?.suffix ?? "").trim(),
+  };
+}
+
 function resolveRegionId(actor: DemoUser, requested: string): string | null {
   const regionId = requested.trim() || actor.regionId || "";
   if (!regionId) return null;
@@ -78,7 +95,21 @@ export function registerInventoryDirectPurchaseRoutes(
     const notes = String(req.body?.notes ?? "").trim();
     const regionId = resolveRegionId(actor, String(req.body?.regionId ?? ""));
     const items = Array.isArray(req.body?.items)
-      ? (req.body.items as Array<{ spareId: string; qtyOrdered: number; unitPrice?: number }>)
+      ? (req.body.items as Array<{
+          spareId: string;
+          qtyOrdered: number;
+          unitPrice?: number;
+          mrp?: number;
+          gstRate?: number;
+          cgstAmount?: number;
+          sgstAmount?: number;
+          igstAmount?: number;
+          uom?: string;
+          hsn?: string;
+          brand?: string;
+          partCode?: string;
+          productName?: string;
+        }>)
       : [];
     if (!supplierId || !regionId) {
       res.status(400).json({ error: "supplierId and regionId are required." });
@@ -130,9 +161,29 @@ export function registerInventoryDirectPurchaseRoutes(
           return;
         }
         await client.query(
-          `INSERT INTO purchase_order_items (po_id, pr_item_id, spare_id, qty_ordered, unit_price, created_by, modified_by)
-           VALUES ($1::uuid, NULL, $2::uuid, $3, $4, $5, $5)`,
-          [poId, it.spareId, Number(it.qtyOrdered), Number(it.unitPrice ?? 0) || 0, actor.id],
+          `INSERT INTO purchase_order_items (
+             po_id, pr_item_id, spare_id, qty_ordered, unit_price,
+             mrp, gst_rate, cgst_amount, sgst_amount, igst_amount, uom, hsn, brand,
+             part_code, product_name,
+             created_by, modified_by
+           ) VALUES ($1::uuid, NULL, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)`,
+          [
+            poId,
+            it.spareId,
+            Number(it.qtyOrdered),
+            Number(it.unitPrice ?? 0) || 0,
+            Number(it.mrp ?? 0) || 0,
+            Number(it.gstRate ?? 0) || 0,
+            Number(it.cgstAmount ?? 0) || 0,
+            Number(it.sgstAmount ?? 0) || 0,
+            Number(it.igstAmount ?? 0) || 0,
+            String(it.uom ?? "Nos").trim() || "Nos",
+            String(it.hsn ?? "").trim() || null,
+            String(it.brand ?? "").trim() || null,
+            String(it.partCode ?? "").trim() || null,
+            String(it.productName ?? "").trim() || null,
+            actor.id,
+          ],
         );
       }
       await client.query("COMMIT");
@@ -185,6 +236,172 @@ export function registerInventoryDirectPurchaseRoutes(
     }
   });
 
+  app.post(
+    "/api/inventory/grns/standalone",
+    requireAuth,
+    (req: Request, res: Response, next: NextFunction) => {
+      const ct = req.headers["content-type"] ?? "";
+      if (ct.includes("multipart/form-data")) {
+        grnInvoiceUpload.single("invoiceFile")(req, res, next);
+      } else {
+        next();
+      }
+    },
+    async (req: Request, res: Response) => {
+      const actor = getUserById((req as Authed).userId);
+      if (!actor) {
+        res.status(401).json({ error: "Invalid session." });
+        return;
+      }
+      if (!canManageHoPurchase(actor)) {
+        res.status(403).json({ error: "Only HO Purchase / HO Manager can post GRN." });
+        return;
+      }
+      const supplierId = String(req.body?.supplierId ?? "").trim();
+      const regionId = resolveRegionId(actor, String(req.body?.regionId ?? ""));
+      const mode = String(req.body?.mode ?? "").toUpperCase();
+      const invoiceNumber = String(req.body?.invoiceNumber ?? "").trim() || null;
+      const invoiceDate = String(req.body?.invoiceDate ?? "").trim() || null;
+      const notes = String(req.body?.notes ?? "").trim();
+      const uploadFile = (req as Request & { file?: Express.Multer.File }).file;
+      let invoiceFilePath: string | null = null;
+      if (uploadFile?.buffer?.length) {
+        const ext = path.extname(uploadFile.originalname || "").toLowerCase();
+        const allowed = [".pdf", ".doc", ".docx"];
+        if (!allowed.includes(ext)) {
+          res.status(400).json({ error: "GRN document must be PDF or DOC. Images are not allowed." });
+          return;
+        }
+        invoiceFilePath = await persistUploadedFile({
+          category: "customer-documents",
+          buffer: uploadFile.buffer,
+          originalName: uploadFile.originalname || `grn-invoice${ext || ".pdf"}`,
+          mime: uploadFile.mimetype || "application/octet-stream",
+          fallbackExt: ext || ".pdf",
+        });
+      }
+      let rawItems = req.body?.items;
+      if (typeof rawItems === "string") {
+        try {
+          rawItems = JSON.parse(rawItems);
+        } catch {
+          rawItems = [];
+        }
+      }
+      const items = Array.isArray(rawItems)
+        ? (rawItems as Array<{ spareId: string; qtyReceived: number; costPrice?: number; gstRate?: number; taxAmount?: number }>)
+        : [];
+      if (!supplierId || !regionId) {
+        res.status(400).json({ error: "supplierId and regionId are required." });
+        return;
+      }
+      if (mode !== "WITH_BILL" && mode !== "WITHOUT_BILL") {
+        res.status(400).json({ error: "mode is required." });
+        return;
+      }
+      if (mode === "WITH_BILL" && !invoiceNumber) {
+        res.status(400).json({ error: "Invoice number is required for GRN against vendor invoice." });
+        return;
+      }
+      if (items.length === 0) {
+        res.status(400).json({ error: "At least one inward line is required." });
+        return;
+      }
+      for (const it of items) {
+        if (!it.spareId || Number.isNaN(Number(it.qtyReceived)) || Number(it.qtyReceived) <= 0) {
+          res.status(400).json({ error: "Each line needs spareId and qtyReceived > 0." });
+          return;
+        }
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const sup = await client.query("SELECT id FROM suppliers WHERE id = $1::uuid AND is_active = true", [supplierId]);
+        if (sup.rowCount === 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Invalid or inactive supplier." });
+          return;
+        }
+        const regionNameRes = await client.query<{ name: string }>("SELECT name FROM regions WHERE id = $1::text", [
+          regionId,
+        ]);
+        if (regionNameRes.rowCount === 0) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Invalid region." });
+          return;
+        }
+        const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? regionId, "REG");
+        const grnSeries = await getGrnSeries(client);
+        const grnNumber = await nextDocNumber(client, grnSeries.prefix, grnSeries.suffix, regionCode);
+        const ins = await client.query<{ id: string }>(
+          `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, invoice_file_path, created_by, modified_by)
+           VALUES ($1, NULL, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $9)
+           RETURNING id`,
+          [grnNumber, supplierId, regionId, invoiceNumber, invoiceDate, mode, notes, invoiceFilePath, actor.id],
+        );
+        const grnId = ins.rows[0]!.id;
+        let moved = 0;
+        for (const it of items) {
+          const spare = await client.query(`SELECT id FROM spares WHERE id = $1::uuid`, [it.spareId]);
+          if (spare.rowCount === 0) {
+            await client.query("ROLLBACK");
+            res.status(400).json({ error: "One or more spares were not found." });
+            return;
+          }
+          const qty = Number(it.qtyReceived);
+          const costPrice = Number(it.costPrice ?? 0) || 0;
+          const gstRate = Number(it.gstRate ?? 18) || 18;
+          const taxAmount = Number(it.taxAmount ?? 0) || 0;
+          await client.query(
+            `INSERT INTO grn_items (grn_id, po_item_id, spare_id, qty_received, cost_price, gst_rate, tax_amount, created_by, modified_by)
+             VALUES ($1::uuid, NULL, $2::uuid, $3, $4, $5, $6, $7, $7)`,
+            [grnId, it.spareId, qty, costPrice, gstRate, taxAmount, actor.id],
+          );
+          if (costPrice > 0) {
+            await client.query(`UPDATE spares SET cost_price_inr = $1, updated_at = now() WHERE id = $2::uuid`, [
+              costPrice,
+              it.spareId,
+            ]);
+          }
+          await client.query(
+            `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
+             VALUES ($1::uuid, $2, 'HO', $3, NULL, $4)
+             ON CONFLICT (spare_id, location_key)
+             DO UPDATE SET quantity = spare_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
+            [it.spareId, `HO:${regionId}`, regionId, qty],
+          );
+          const hoAfter = await client.query<{ qty: number }>(
+            `SELECT quantity::float8 AS qty FROM spare_stock WHERE spare_id = $1::uuid AND location_key = $2`,
+            [it.spareId, `HO:${regionId}`],
+          );
+          await appendStockHistory(client, {
+            spareId: it.spareId,
+            eventType: "PURCHASE_IN",
+            locationKey: `HO:${regionId}`,
+            locationType: "HO",
+            regionId,
+            quantityChange: qty,
+            balanceAfter: hoAfter.rows[0]?.qty ?? null,
+            referenceType: "GRN",
+            referenceNumber: grnNumber,
+            note: "Direct GRN (no PO).",
+            createdBy: actor.id,
+          });
+          moved += qty;
+        }
+        await client.query("COMMIT");
+        res.json({ ok: true, id: grnId, grnNumber, movedQty: moved, poStatus: null });
+      } catch (e) {
+        await client.query("ROLLBACK").catch(() => {});
+        console.error(e);
+        res.status(400).json({ error: "Could not post GRN." });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   app.get("/api/inventory/grns/pending-transfer", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor) {
@@ -219,7 +436,8 @@ export function registerInventoryDirectPurchaseRoutes(
                       'name', sp.name,
                       'qtyReceived', gi.qty_received::float8,
                       'qtyTransferred', COALESCE(gi.qty_transferred, 0)::float8,
-                      'qtyPending', GREATEST(gi.qty_received - COALESCE(gi.qty_transferred, 0), 0)::float8,
+                      'qtyReturned', COALESCE(gi.qty_returned, 0)::float8,
+                      'qtyPending', GREATEST(gi.qty_received - COALESCE(gi.qty_transferred, 0) - COALESCE(gi.qty_returned, 0), 0)::float8,
                       'hoAvailable', COALESCE(ss.quantity, 0)::float8
                     )
                     ORDER BY sp.name
@@ -228,7 +446,7 @@ export function registerInventoryDirectPurchaseRoutes(
                 ) AS items
          FROM grns g
          JOIN suppliers s ON s.id = g.supplier_id
-         JOIN purchase_orders po ON po.id = g.po_id
+         LEFT JOIN purchase_orders po ON po.id = g.po_id
          JOIN grn_items gi ON gi.grn_id = g.id
          JOIN spares sp ON sp.id = gi.spare_id
          LEFT JOIN spare_stock ss ON ss.spare_id = gi.spare_id AND ss.location_key = $2
@@ -236,7 +454,7 @@ export function registerInventoryDirectPurchaseRoutes(
            AND EXISTS (
              SELECT 1 FROM grn_items x
              WHERE x.grn_id = g.id
-               AND (x.qty_received - COALESCE(x.qty_transferred, 0)) > 0
+               AND (x.qty_received - COALESCE(x.qty_transferred, 0) - COALESCE(x.qty_returned, 0)) > 0
            )
          GROUP BY g.id, po.po_number, s.name
          ORDER BY g.created_at DESC`,
@@ -320,8 +538,11 @@ export function registerInventoryDirectPurchaseRoutes(
           spare_id: string;
           qty_received: number;
           qty_transferred: number;
+          qty_returned: number;
         }>(
-          `SELECT id, spare_id, qty_received::float8 AS qty_received, COALESCE(qty_transferred, 0)::float8 AS qty_transferred
+          `SELECT id, spare_id, qty_received::float8 AS qty_received,
+                  COALESCE(qty_transferred, 0)::float8 AS qty_transferred,
+                  COALESCE(qty_returned, 0)::float8 AS qty_returned
            FROM grn_items
            WHERE id = $1::uuid AND grn_id = $2::uuid
            FOR UPDATE`,
@@ -332,7 +553,7 @@ export function registerInventoryDirectPurchaseRoutes(
           res.status(400).json({ error: "One or more GRN lines do not belong to this GRN." });
           return;
         }
-        const pending = Math.max(0, gi.rows[0]!.qty_received - gi.rows[0]!.qty_transferred);
+        const pending = Math.max(0, gi.rows[0]!.qty_received - gi.rows[0]!.qty_transferred - gi.rows[0]!.qty_returned);
         if (line.qty > pending) {
           await client.query("ROLLBACK");
           res.status(400).json({ error: "Transfer qty exceeds remaining GRN qty on one or more lines." });
@@ -405,7 +626,7 @@ export function registerInventoryDirectPurchaseRoutes(
 
       await client.query("COMMIT");
       const remain = await pool.query<{ pending: number }>(
-        `SELECT COALESCE(SUM(GREATEST(qty_received - COALESCE(qty_transferred, 0), 0)), 0)::float8 AS pending
+        `SELECT COALESCE(SUM(GREATEST(qty_received - COALESCE(qty_transferred, 0) - COALESCE(qty_returned, 0), 0)), 0)::float8 AS pending
          FROM grn_items WHERE grn_id = $1::uuid`,
         [grnId],
       );
@@ -508,8 +729,11 @@ export function registerInventoryDirectPurchaseRoutes(
             spare_id: string;
             qty_received: number;
             qty_transferred: number;
+            qty_returned: number;
           }>(
-            `SELECT spare_id, qty_received::float8 AS qty_received, COALESCE(qty_transferred, 0)::float8 AS qty_transferred
+            `SELECT spare_id, qty_received::float8 AS qty_received,
+                    COALESCE(qty_transferred, 0)::float8 AS qty_transferred,
+                    COALESCE(qty_returned, 0)::float8 AS qty_returned
              FROM grn_items
              WHERE id = $1::uuid AND grn_id = $2::uuid
              FOR UPDATE`,
@@ -525,7 +749,7 @@ export function registerInventoryDirectPurchaseRoutes(
             res.status(400).json({ error: "GRN line spare does not match." });
             return;
           }
-          const pending = Math.max(0, gi.rows[0]!.qty_received - gi.rows[0]!.qty_transferred);
+          const pending = Math.max(0, gi.rows[0]!.qty_received - gi.rows[0]!.qty_transferred - gi.rows[0]!.qty_returned);
           if (line.qty > pending) {
             await client.query("ROLLBACK");
             res.status(400).json({ error: "Transfer qty exceeds remaining GRN qty on one or more lines." });
@@ -611,7 +835,7 @@ export function registerInventoryDirectPurchaseRoutes(
       let remainingQty: number | undefined;
       if (grnId) {
         const remain = await pool.query<{ pending: number }>(
-          `SELECT COALESCE(SUM(GREATEST(qty_received - COALESCE(qty_transferred, 0), 0)), 0)::float8 AS pending
+          `SELECT COALESCE(SUM(GREATEST(qty_received - COALESCE(qty_transferred, 0) - COALESCE(qty_returned, 0), 0)), 0)::float8 AS pending
            FROM grn_items WHERE grn_id = $1::uuid`,
           [grnId],
         );

@@ -7,6 +7,7 @@ import { rejectIfPrFlowHeld } from "./inventoryFeatureFlags";
 import { createMemoryUpload } from "./storage/multerMemory";
 import { persistUploadedFile } from "./storage/fileStorage";
 import { validateEntityCustomFields } from "./customFields";
+import { isValidGstin } from "./mastersIndiaEdoc/types";
 
 const grnInvoiceUpload = createMemoryUpload(10 * 1024 * 1024);
 
@@ -41,6 +42,69 @@ function canViewPo(actor: DemoUser | undefined | null): boolean {
   );
 }
 
+function roundMoney2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function taxForAmendedQty(poi: {
+  unit_price: number;
+  gst_rate: number;
+  cgst_amount: number;
+  sgst_amount: number;
+  igst_amount: number;
+  qty_ordered: number;
+}, newQty: number): { cgst: number; sgst: number; igst: number } {
+  const gst = Number(poi.gst_rate) || 0;
+  const price = Number(poi.unit_price) || 0;
+  const totalCost = roundMoney2(newQty * price);
+  const tax = roundMoney2(totalCost * (gst / 100));
+  const interstate = Number(poi.igst_amount) > 0 && Number(poi.cgst_amount) <= 0;
+  if (gst <= 0) {
+    const oldQty = Number(poi.qty_ordered) || 0;
+    const ratio = oldQty > 0 ? newQty / oldQty : 0;
+    return {
+      cgst: roundMoney2(Number(poi.cgst_amount) * ratio),
+      sgst: roundMoney2(Number(poi.sgst_amount) * ratio),
+      igst: roundMoney2(Number(poi.igst_amount) * ratio),
+    };
+  }
+  if (interstate) return { cgst: 0, sgst: 0, igst: tax };
+  const half = roundMoney2(tax / 2);
+  return { cgst: half, sgst: roundMoney2(tax - half), igst: 0 };
+}
+
+async function nextSupplierCode(
+  client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<{ last_value: number }> }> },
+): Promise<string> {
+  const yy = String(new Date().getFullYear()).slice(-2);
+  const seq = await client.query(
+    `INSERT INTO number_sequences (prefix, scope_code, year_2, last_value)
+     VALUES ('SUP', 'GLOBAL', $1, 1001)
+     ON CONFLICT (prefix, scope_code, year_2)
+     DO UPDATE SET last_value = number_sequences.last_value + 1
+     RETURNING last_value`,
+    [yy],
+  );
+  const num = String(seq.rows[0]!.last_value).padStart(5, "0");
+  return `SUP${yy}${num}`;
+}
+
+async function supplierGstTaken(
+  pool: Pool,
+  gst: string,
+  excludeId?: string,
+): Promise<{ supplierCode: string; name: string } | null> {
+  const params: unknown[] = [gst];
+  let sql = `SELECT supplier_code AS "supplierCode", name FROM suppliers WHERE gst = $1`;
+  if (excludeId) {
+    params.push(excludeId);
+    sql += ` AND id <> $2::uuid`;
+  }
+  sql += ` LIMIT 1`;
+  const { rows } = await pool.query<{ supplierCode: string; name: string }>(sql, params);
+  return rows[0] ?? null;
+}
+
 function makeAlphaNumCode(input: string, fallback: string): string {
   const cleaned = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
   return (cleaned.slice(0, 3) || fallback).padEnd(3, "X");
@@ -67,8 +131,9 @@ async function nextDocNumber(
 
 async function getSeriesPrefixSuffix(
   client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
-  doc: "po" | "grn",
+  doc: "po" | "grn" | "prt",
 ): Promise<{ prefix: string; suffix: string }> {
+  if (doc === "prt") return { prefix: "PRT", suffix: "" };
   const prefixColumn = doc === "po" ? "po_prefix" : "grn_prefix";
   const suffixColumn = doc === "po" ? "po_suffix" : "grn_suffix";
   const fallback = doc === "po" ? "PO" : "GRN";
@@ -80,6 +145,8 @@ async function getSeriesPrefixSuffix(
     suffix: String(rows[0]?.suffix ?? "").trim(),
   };
 }
+
+const PURCHASE_RETURN_REASONS = new Set(["DEFECTIVE", "EXCESS", "WRONG_PART", "QUALITY", "OTHER"]);
 
 type PushNotificationsFn = (
   userIds: string[],
@@ -162,6 +229,29 @@ export function registerInventoryPoSupplierRoutes(
     }
   });
 
+  app.get("/api/inventory/suppliers/next-code", requireAuth, async (req, res) => {
+    const actor = getActor((req as Authed).userId);
+    if (!requireHo(actor)) {
+      res.status(403).json({ error: "Only HO admins can allocate supplier codes." });
+      return;
+    }
+    const preferred = String(req.query.preferred ?? "").trim().toUpperCase();
+    try {
+      if (preferred) {
+        const taken = await pool.query(`SELECT 1 FROM suppliers WHERE supplier_code = $1 LIMIT 1`, [preferred]);
+        if ((taken.rowCount ?? 0) === 0) {
+          res.json({ supplierCode: preferred, generated: false });
+          return;
+        }
+      }
+      const supplierCode = await nextSupplierCode(pool);
+      res.json({ supplierCode, generated: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not allocate supplier code." });
+    }
+  });
+
   app.post("/api/inventory/suppliers", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
@@ -173,17 +263,35 @@ export function registerInventoryPoSupplierRoutes(
       res.status(400).json({ error: "Supplier name is required." });
       return;
     }
-    const supplierCode = String(req.body?.supplierCode ?? "").trim().toUpperCase();
-    if (!supplierCode) {
-      res.status(400).json({ error: "Supplier code is required." });
+    let supplierCode = String(req.body?.supplierCode ?? "").trim().toUpperCase();
+    const gst = String(req.body?.gst ?? "").trim().toUpperCase() || null;
+    if (gst && !isValidGstin(gst)) {
+      res.status(400).json({ error: "Enter a valid 15-character GSTIN." });
       return;
+    }
+    if (gst) {
+      const dup = await supplierGstTaken(pool, gst);
+      if (dup) {
+        res.status(400).json({
+          error: `GSTIN already registered for supplier ${dup.supplierCode} (${dup.name}).`,
+        });
+        return;
+      }
+    }
+    if (!supplierCode) {
+      try {
+        supplierCode = await nextSupplierCode(pool);
+      } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: "Could not generate supplier code." });
+        return;
+      }
     }
     const contactName = String(req.body?.contactName ?? "").trim() || null;
     const email = String(req.body?.email ?? "").trim() || null;
     const phone = String(req.body?.phone ?? "").trim() || null;
     const locations = normalizeLocations(req.body?.locations);
     const address = toLegacyAddress(locations);
-    const gst = String(req.body?.gst ?? "").trim().toUpperCase() || null;
     const taxPersonType = String(req.body?.taxPersonType ?? "").trim().toUpperCase() || null;
     const customChecked = await validateEntityCustomFields(pool, "supplier", req.body?.customFields);
     if (!customChecked.ok) {
@@ -245,6 +353,19 @@ export function registerInventoryPoSupplierRoutes(
           ? toLegacyAddress(locations)
           : undefined;
     const gst = req.body?.gst !== undefined ? String(req.body.gst ?? "").trim().toUpperCase() || null : undefined;
+    if (gst) {
+      if (!isValidGstin(gst)) {
+        res.status(400).json({ error: "Enter a valid 15-character GSTIN." });
+        return;
+      }
+      const dup = await supplierGstTaken(pool, gst, id);
+      if (dup) {
+        res.status(400).json({
+          error: `GSTIN already registered for supplier ${dup.supplierCode} (${dup.name}).`,
+        });
+        return;
+      }
+    }
     const taxPersonType =
       req.body?.taxPersonType !== undefined ? String(req.body.taxPersonType ?? "").trim().toUpperCase() || null : undefined;
     const isActive = req.body?.isActive !== undefined ? Boolean(req.body.isActive) : undefined;
@@ -914,7 +1035,17 @@ export function registerInventoryPoSupplierRoutes(
                       'spareId', poi.spare_id,
                       'qtyOrdered', poi.qty_ordered::float8,
                       'unitPrice', poi.unit_price::float8,
-                      'receivedQty', poi.received_qty::float8
+                      'receivedQty', poi.received_qty::float8,
+                      'mrp', COALESCE(poi.mrp, 0)::float8,
+                      'gstRate', COALESCE(poi.gst_rate, 0)::float8,
+                      'cgstAmount', COALESCE(poi.cgst_amount, 0)::float8,
+                      'sgstAmount', COALESCE(poi.sgst_amount, 0)::float8,
+                      'igstAmount', COALESCE(poi.igst_amount, 0)::float8,
+                      'uom', COALESCE(NULLIF(poi.uom, ''), 'Nos'),
+                      'hsn', poi.hsn,
+                      'brand', poi.brand,
+                      'partCode', poi.part_code,
+                      'productName', poi.product_name
                     )
                   ) FILTER (WHERE poi.id IS NOT NULL),
                   '[]'::json
@@ -941,6 +1072,221 @@ export function registerInventoryPoSupplierRoutes(
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Failed to load purchase orders." });
+    }
+  });
+
+  /**
+   * Amend an OPEN/PARTIAL PO: reduce ordered qty (never below received).
+   * Unreceived lines (received = 0) can be dropped. When remaining lines are
+   * fully received, the PO closes so leftover parts do not stay pending for GRN.
+   */
+  app.patch("/api/inventory/pos/:poId/amend", requireAuth, async (req, res) => {
+    const actor = getActor((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!canManagePo(actor)) {
+      res.status(403).json({ error: "Only HO Purchase / HO Manager can amend POs." });
+      return;
+    }
+    const poId = String(req.params.poId ?? "").trim();
+    if (!poId) {
+      res.status(400).json({ error: "PO id is required." });
+      return;
+    }
+    const shortClose = Boolean(req.body?.shortClose);
+    const extraNotes = String(req.body?.notes ?? "").trim();
+    const rawItems = Array.isArray(req.body?.items)
+      ? (req.body.items as Array<{ poItemId?: string; id?: string; qtyOrdered?: number }>)
+      : [];
+    const itemMap = new Map<string, number>();
+    for (const it of rawItems) {
+      const id = String(it.poItemId ?? it.id ?? "").trim();
+      if (!id) {
+        res.status(400).json({ error: "Each amend line needs poItemId." });
+        return;
+      }
+      const qty = Number(it.qtyOrdered);
+      if (!Number.isFinite(qty) || qty < 0) {
+        res.status(400).json({ error: "Each amend line needs qtyOrdered >= 0." });
+        return;
+      }
+      itemMap.set(id, qty);
+    }
+    if (!shortClose && itemMap.size === 0) {
+      res.status(400).json({ error: "Send shortClose: true, or items with new ordered quantities." });
+      return;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const poRes = await client.query<{
+        id: string;
+        po_number: string;
+        region_id: string;
+        status: string;
+        notes: string;
+      }>(
+        `SELECT id, po_number, region_id, status, notes
+         FROM purchase_orders
+         WHERE id = $1::uuid
+         FOR UPDATE`,
+        [poId],
+      );
+      const po = poRes.rows[0];
+      if (!po) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "PO not found." });
+        return;
+      }
+      if ((actor.role === "admin" || actor.role === "ho_manager" || actor.role === "ho_purchase") && actor.regionId && actor.regionId !== po.region_id) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "PO is outside your region." });
+        return;
+      }
+      if (po.status === "CLOSED" || po.status === "CANCELLED") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: `Cannot amend a ${po.status.toLowerCase()} PO.` });
+        return;
+      }
+
+      const linesRes = await client.query<{
+        id: string;
+        qty_ordered: number;
+        received_qty: number;
+        unit_price: number;
+        gst_rate: number;
+        cgst_amount: number;
+        sgst_amount: number;
+        igst_amount: number;
+      }>(
+        `SELECT id,
+                qty_ordered::float8,
+                received_qty::float8,
+                unit_price::float8,
+                COALESCE(gst_rate, 0)::float8 AS gst_rate,
+                COALESCE(cgst_amount, 0)::float8 AS cgst_amount,
+                COALESCE(sgst_amount, 0)::float8 AS sgst_amount,
+                COALESCE(igst_amount, 0)::float8 AS igst_amount
+         FROM purchase_order_items
+         WHERE po_id = $1::uuid
+         FOR UPDATE`,
+        [poId],
+      );
+      if (linesRes.rows.length === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "PO has no lines to amend." });
+        return;
+      }
+      if (!shortClose) {
+        for (const id of itemMap.keys()) {
+          if (!linesRes.rows.some((l) => l.id === id)) {
+            await client.query("ROLLBACK");
+            res.status(400).json({ error: "One or more lines do not belong to this PO." });
+            return;
+          }
+        }
+      }
+
+      let changed = 0;
+      let dropped = 0;
+      for (const line of linesRes.rows) {
+        const received = Number(line.received_qty) || 0;
+        const ordered = Number(line.qty_ordered) || 0;
+        const nextQty = shortClose ? received : (itemMap.has(line.id) ? itemMap.get(line.id)! : ordered);
+        if (nextQty > ordered) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Amendment can only reduce ordered qty, not increase it." });
+          return;
+        }
+        if (nextQty < received) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: `Cannot reduce a line below received qty (${received}).` });
+          return;
+        }
+        if (nextQty === ordered) continue;
+
+        if (nextQty === 0) {
+          const grnRef = await client.query<{ n: number }>(
+            `SELECT COUNT(*)::int AS n FROM grn_items WHERE po_item_id = $1::uuid`,
+            [line.id],
+          );
+          if ((grnRef.rows[0]?.n ?? 0) > 0) {
+            await client.query("ROLLBACK");
+            res.status(400).json({ error: "Cannot drop a line that already has GRN history." });
+            return;
+          }
+          await client.query(`DELETE FROM purchase_order_items WHERE id = $1::uuid`, [line.id]);
+          dropped += 1;
+          changed += 1;
+          continue;
+        }
+
+        const tax = taxForAmendedQty(line, nextQty);
+        await client.query(
+          `UPDATE purchase_order_items
+           SET qty_ordered = $1,
+               cgst_amount = $2,
+               sgst_amount = $3,
+               igst_amount = $4,
+               modified_by = $6
+           WHERE id = $5::uuid`,
+          [nextQty, tax.cgst, tax.sgst, tax.igst, line.id, actor.id],
+        );
+        changed += 1;
+      }
+
+      if (changed === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "No quantities changed. Reduce pending qty or drop unreceived lines." });
+        return;
+      }
+
+      const remaining = await client.query<{ n: number; ordered: number; received: number }>(
+        `SELECT COUNT(*)::int AS n,
+                COALESCE(SUM(qty_ordered), 0)::float8 AS ordered,
+                COALESCE(SUM(received_qty), 0)::float8 AS received
+         FROM purchase_order_items
+         WHERE po_id = $1::uuid`,
+        [poId],
+      );
+      const n = remaining.rows[0]?.n ?? 0;
+      const ordered = remaining.rows[0]?.ordered ?? 0;
+      const received = remaining.rows[0]?.received ?? 0;
+      const poStatus = n === 0 || ordered === 0
+        ? "CANCELLED"
+        : received >= ordered
+          ? "CLOSED"
+          : received > 0
+            ? "PARTIAL"
+            : "OPEN";
+      const stamp = shortClose
+        ? `Amended ${new Date().toISOString().slice(0, 10)}: reduced to received qty (${dropped} unreceived line(s) dropped). Status ${poStatus}.`
+        : `Amended ${new Date().toISOString().slice(0, 10)}: ordered qty reduced. Status ${poStatus}.`;
+      const notes = [po.notes, extraNotes, stamp].filter(Boolean).join("\n");
+      await client.query(
+        `UPDATE purchase_orders
+         SET status = $1, notes = $2, updated_at = now(), modified_by = $4
+         WHERE id = $3::uuid`,
+        [poStatus, notes, poId, actor.id],
+      );
+      await client.query("COMMIT");
+      res.json({
+        ok: true,
+        id: poId,
+        poNumber: po.po_number,
+        status: poStatus,
+        changedLines: changed,
+        droppedLines: dropped,
+      });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not amend PO." });
+    } finally {
+      client.release();
     }
   });
 
@@ -1108,6 +1454,7 @@ export function registerInventoryPoSupplierRoutes(
                       'spareId', gi.spare_id,
                       'qtyReceived', gi.qty_received::float8,
                       'qtyTransferred', COALESCE(gi.qty_transferred, 0)::float8,
+                      'qtyReturned', COALESCE(gi.qty_returned, 0)::float8,
                       'costPrice', gi.cost_price::float8,
                       'gstRate', gi.gst_rate::float8,
                       'taxAmount', gi.tax_amount::float8
@@ -1117,7 +1464,7 @@ export function registerInventoryPoSupplierRoutes(
                 ) AS items
          FROM grns g
          JOIN suppliers s ON s.id = g.supplier_id
-         JOIN purchase_orders po ON po.id = g.po_id
+         LEFT JOIN purchase_orders po ON po.id = g.po_id
          LEFT JOIN grn_items gi ON gi.grn_id = g.id
          ${where}
          GROUP BY g.id, s.name, po.po_number
@@ -1157,9 +1504,9 @@ export function registerInventoryPoSupplierRoutes(
     let invoiceFilePath: string | null = null;
     if (uploadFile?.buffer?.length) {
       const ext = path.extname(uploadFile.originalname || "").toLowerCase();
-      const allowed = [".pdf", ".jpg", ".jpeg", ".png"];
+      const allowed = [".pdf", ".doc", ".docx"];
       if (!allowed.includes(ext)) {
-        res.status(400).json({ error: "GRN invoice file must be PDF, JPG, or PNG." });
+        res.status(400).json({ error: "GRN document must be PDF or DOC. Images are not allowed." });
         return;
       }
       invoiceFilePath = await persistUploadedFile({
@@ -1188,7 +1535,7 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     if (mode === "WITH_BILL" && !invoiceNumber) {
-      res.status(400).json({ error: "Invoice number is required for WITH_BILL mode." });
+      res.status(400).json({ error: "Invoice number is required for GRN against vendor invoice." });
       return;
     }
     for (const it of items) {
@@ -1415,4 +1762,428 @@ export function registerInventoryPoSupplierRoutes(
     }
   });
   // End of multer-wrapped handler (closing the extra array arg from app.post)
+
+  /** Purchase return (spare return to supplier against GRN) */
+  app.get("/api/inventory/purchase-returns/eligible-grns", requireAuth, async (req, res) => {
+    const actor = getActor((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!requireHo(actor)) {
+      res.status(403).json({ error: "Only HO Manager or HO Purchase can return spares." });
+      return;
+    }
+    try {
+      const params: unknown[] = [];
+      let regionClause = "";
+      if ((actor.role === "admin" || actor.role === "ho_manager" || actor.role === "ho_purchase") && actor.regionId) {
+        params.push(actor.regionId);
+        regionClause = `AND g.region_id = $${params.length}::text`;
+      }
+      const hoKeyExpr = "('HO:' || g.region_id)";
+      const { rows } = await pool.query(
+        `SELECT g.id,
+                g.grn_number AS "grnNumber",
+                g.po_id AS "poId",
+                po.po_number AS "poNumber",
+                g.supplier_id AS "supplierId",
+                s.name AS "supplierName",
+                g.region_id AS "regionId",
+                g.invoice_number AS "invoiceNumber",
+                g.mode,
+                g.created_at AS "createdAt",
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', gi.id,
+                      'poItemId', gi.po_item_id,
+                      'spareId', gi.spare_id,
+                      'sku', sp.sku,
+                      'name', sp.name,
+                      'qtyReceived', gi.qty_received::float8,
+                      'qtyTransferred', COALESCE(gi.qty_transferred, 0)::float8,
+                      'qtyReturned', COALESCE(gi.qty_returned, 0)::float8,
+                      'qtyReturnable', GREATEST(
+                        gi.qty_received - COALESCE(gi.qty_transferred, 0) - COALESCE(gi.qty_returned, 0),
+                        0
+                      )::float8,
+                      'hoAvailable', COALESCE(ss.quantity, 0)::float8,
+                      'costPrice', gi.cost_price::float8,
+                      'gstRate', gi.gst_rate::float8,
+                      'taxAmount', gi.tax_amount::float8
+                    )
+                    ORDER BY sp.name
+                  ) FILTER (WHERE gi.id IS NOT NULL),
+                  '[]'::json
+                ) AS items
+         FROM grns g
+         JOIN suppliers s ON s.id = g.supplier_id
+         LEFT JOIN purchase_orders po ON po.id = g.po_id
+         JOIN grn_items gi ON gi.grn_id = g.id
+         JOIN spares sp ON sp.id = gi.spare_id
+         LEFT JOIN spare_stock ss ON ss.spare_id = gi.spare_id AND ss.location_key = ${hoKeyExpr}
+         WHERE EXISTS (
+             SELECT 1 FROM grn_items x
+             WHERE x.grn_id = g.id
+               AND (x.qty_received - COALESCE(x.qty_transferred, 0) - COALESCE(x.qty_returned, 0)) > 0
+           )
+           ${regionClause}
+         GROUP BY g.id, po.po_number, s.name
+         ORDER BY g.created_at DESC`,
+        params,
+      );
+      res.json({ grns: rows });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load returnable GRNs." });
+    }
+  });
+
+  app.get("/api/inventory/purchase-returns", requireAuth, async (req, res) => {
+    const actor = getActor((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!requireHo(actor)) {
+      res.status(403).json({ error: "Only HO Manager or HO Purchase can view purchase returns." });
+      return;
+    }
+    try {
+      const params: unknown[] = [];
+      let where = "";
+      if ((actor.role === "admin" || actor.role === "ho_manager" || actor.role === "ho_purchase") && actor.regionId) {
+        params.push(actor.regionId);
+        where = "WHERE prt.region_id = $1::text";
+      }
+      const { rows } = await pool.query(
+        `SELECT prt.id,
+                prt.prt_number AS "prtNumber",
+                prt.grn_id AS "grnId",
+                g.grn_number AS "grnNumber",
+                prt.po_id AS "poId",
+                po.po_number AS "poNumber",
+                prt.supplier_id AS "supplierId",
+                s.name AS "supplierName",
+                prt.region_id AS "regionId",
+                prt.return_date AS "returnDate",
+                prt.reason,
+                prt.debit_note_number AS "debitNoteNumber",
+                prt.notes,
+                prt.support_doc_path AS "supportDocPath",
+                prt.support_doc_name AS "supportDocName",
+                prt.created_by AS "createdBy",
+                prt.created_at AS "createdAt",
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', pri.id,
+                      'grnItemId', pri.grn_item_id,
+                      'poItemId', pri.po_item_id,
+                      'spareId', pri.spare_id,
+                      'qtyReturned', pri.qty_returned::float8,
+                      'costPrice', pri.cost_price::float8,
+                      'gstRate', pri.gst_rate::float8,
+                      'taxAmount', pri.tax_amount::float8
+                    )
+                  ) FILTER (WHERE pri.id IS NOT NULL),
+                  '[]'::json
+                ) AS items
+         FROM purchase_returns prt
+         JOIN grns g ON g.id = prt.grn_id
+         LEFT JOIN purchase_orders po ON po.id = prt.po_id
+         JOIN suppliers s ON s.id = prt.supplier_id
+         LEFT JOIN purchase_return_items pri ON pri.purchase_return_id = prt.id
+         ${where}
+         GROUP BY prt.id, g.grn_number, po.po_number, s.name
+         ORDER BY prt.created_at DESC`,
+        params,
+      );
+      res.json({ purchaseReturns: rows });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load purchase returns." });
+    }
+  });
+
+  app.post(
+    "/api/inventory/purchase-returns",
+    requireAuth,
+    (req: Request, res: Response, next: NextFunction) => {
+      const ct = req.headers["content-type"] ?? "";
+      if (ct.includes("multipart/form-data")) {
+        grnInvoiceUpload.single("supportDoc")(req, res, next);
+      } else {
+        next();
+      }
+    },
+    async (req: Request, res: Response) => {
+    const actor = getActor((req as Authed).userId);
+    if (!requireHo(actor)) {
+      res.status(403).json({ error: "Only HO Manager or HO Purchase can post purchase returns." });
+      return;
+    }
+    const grnId = String(req.body?.grnId ?? "").trim();
+    const reasonRaw = String(req.body?.reason ?? "OTHER").trim().toUpperCase();
+    const reason = PURCHASE_RETURN_REASONS.has(reasonRaw) ? reasonRaw : "";
+    const debitNoteNumber = String(req.body?.debitNoteNumber ?? "").trim() || null;
+    const notes = String(req.body?.notes ?? "").trim();
+    const returnDateRaw = String(req.body?.returnDate ?? "").trim();
+    const uploadFile = (req as Request & { file?: Express.Multer.File }).file;
+    let supportDocPath: string | null = null;
+    let supportDocName: string | null = null;
+    if (uploadFile?.buffer?.length) {
+      const ext = path.extname(uploadFile.originalname || "").toLowerCase();
+      const allowed = [".pdf", ".doc", ".docx"];
+      if (!allowed.includes(ext)) {
+        res.status(400).json({ error: "Support document must be PDF or DOC. Images are not allowed." });
+        return;
+      }
+      supportDocPath = await persistUploadedFile({
+        category: "customer-documents",
+        buffer: uploadFile.buffer,
+        originalName: uploadFile.originalname || `purchase-return${ext || ".pdf"}`,
+        mime: uploadFile.mimetype || "application/octet-stream",
+        fallbackExt: ext || ".pdf",
+      });
+      supportDocName = String(uploadFile.originalname || "").trim() || `purchase-return${ext || ".pdf"}`;
+    }
+    let rawItems = req.body?.items;
+    if (typeof rawItems === "string") {
+      try {
+        rawItems = JSON.parse(rawItems);
+      } catch {
+        rawItems = [];
+      }
+    }
+    const items = Array.isArray(rawItems)
+      ? (rawItems as Array<{ grnItemId: string; spareId: string; qtyReturned: number }>)
+      : [];
+    if (!grnId) {
+      res.status(400).json({ error: "grnId is required." });
+      return;
+    }
+    if (!reason) {
+      res.status(400).json({ error: "A valid return reason is required." });
+      return;
+    }
+    const selected = items
+      .map((it) => ({
+        grnItemId: String(it.grnItemId ?? "").trim(),
+        spareId: String(it.spareId ?? "").trim(),
+        qtyReturned: Number(it.qtyReturned),
+      }))
+      .filter((it) => it.grnItemId && it.spareId && Number.isFinite(it.qtyReturned) && it.qtyReturned > 0);
+    if (selected.length === 0) {
+      res.status(400).json({ error: "Enter return quantity for at least one spare line." });
+      return;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const grnRes = await client.query<{
+        id: string;
+        grn_number: string;
+        po_id: string;
+        supplier_id: string;
+        region_id: string;
+      }>(
+        `SELECT id, grn_number, po_id, supplier_id, region_id
+         FROM grns
+         WHERE id = $1::uuid
+         FOR UPDATE`,
+        [grnId],
+      );
+      const grn = grnRes.rows[0];
+      if (!grn) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "GRN not found." });
+        return;
+      }
+      if (
+        (actor?.role === "admin" || actor?.role === "ho_manager" || actor?.role === "ho_purchase") &&
+        actor.regionId &&
+        actor.regionId !== grn.region_id
+      ) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "GRN is outside your region." });
+        return;
+      }
+
+      const regionNameRes = await client.query<{ name: string }>(
+        "SELECT name FROM regions WHERE id = $1::text",
+        [grn.region_id],
+      );
+      const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? grn.region_id, "REG");
+      const prtSeries = await getSeriesPrefixSuffix(client, "prt");
+      const prtNumber = await nextDocNumber(client, prtSeries.prefix, prtSeries.suffix, regionCode);
+      const returnDate = returnDateRaw || new Date().toISOString().slice(0, 10);
+      const hoKey = `HO:${grn.region_id}`;
+      const actorId = actor?.id ?? "system";
+
+      const ins = await client.query<{ id: string }>(
+        `INSERT INTO purchase_returns (
+           prt_number, grn_id, po_id, supplier_id, region_id, return_date, reason, debit_note_number, notes,
+           support_doc_path, support_doc_name, created_by, modified_by
+         ) VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+         RETURNING id`,
+        [
+          prtNumber,
+          grnId,
+          grn.po_id,
+          grn.supplier_id,
+          grn.region_id,
+          returnDate,
+          reason,
+          debitNoteNumber,
+          notes,
+          supportDocPath,
+          supportDocName,
+          actorId,
+        ],
+      );
+      const prtId = ins.rows[0]!.id;
+      let returnedQty = 0;
+
+      for (const it of selected) {
+        const gi = await client.query<{
+          id: string;
+          po_item_id: string | null;
+          spare_id: string;
+          qty_received: number;
+          qty_transferred: number;
+          qty_returned: number;
+          cost_price: number;
+          gst_rate: number;
+        }>(
+          `SELECT id, po_item_id, spare_id,
+                  qty_received::float8 AS qty_received,
+                  COALESCE(qty_transferred, 0)::float8 AS qty_transferred,
+                  COALESCE(qty_returned, 0)::float8 AS qty_returned,
+                  COALESCE(cost_price, 0)::float8 AS cost_price,
+                  COALESCE(gst_rate, 18)::float8 AS gst_rate
+           FROM grn_items
+           WHERE id = $1::uuid AND grn_id = $2::uuid
+           FOR UPDATE`,
+          [it.grnItemId, grnId],
+        );
+        const line = gi.rows[0];
+        if (!line) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "One or more GRN lines do not belong to this GRN." });
+          return;
+        }
+        if (String(line.spare_id) !== it.spareId) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Spare mismatch on GRN line." });
+          return;
+        }
+        const qty = it.qtyReturned;
+        const returnable = Math.max(0, line.qty_received - line.qty_transferred - line.qty_returned);
+        if (qty > returnable) {
+          await client.query("ROLLBACK");
+          res.status(400).json({
+            error: `Return qty exceeds remaining HO qty for a line (returnable ${returnable}). Transferred stock cannot be returned from HO.`,
+          });
+          return;
+        }
+        const ho = await client.query<{ qty: number }>(
+          `SELECT quantity::float8 AS qty FROM spare_stock WHERE spare_id = $1::uuid AND location_key = $2 FOR UPDATE`,
+          [line.spare_id, hoKey],
+        );
+        const available = ho.rows[0]?.qty ?? 0;
+        if (qty > available) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Return qty exceeds current HO stock for one or more lines." });
+          return;
+        }
+        const costPrice = line.cost_price;
+        const gstRate = line.gst_rate;
+        const taxAmount = +((costPrice * qty * gstRate) / 100).toFixed(2);
+
+        await client.query(
+          `INSERT INTO purchase_return_items (
+             purchase_return_id, grn_item_id, po_item_id, spare_id, qty_returned, cost_price, gst_rate, tax_amount, created_by
+           ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9)`,
+          [prtId, line.id, line.po_item_id, line.spare_id, qty, costPrice, gstRate, taxAmount, actorId],
+        );
+        await client.query(
+          `UPDATE grn_items SET qty_returned = qty_returned + $1, modified_by = $3 WHERE id = $2::uuid`,
+          [qty, line.id, actorId],
+        );
+        if (line.po_item_id) {
+          await client.query(
+            `UPDATE purchase_order_items
+             SET received_qty = GREATEST(received_qty - $1, 0), modified_by = $3
+             WHERE id = $2::uuid`,
+            [qty, line.po_item_id, actorId],
+          );
+        }
+        await client.query(
+          `UPDATE spare_stock SET quantity = GREATEST(quantity - $1, 0), updated_at = now()
+           WHERE spare_id = $2::uuid AND location_key = $3`,
+          [qty, line.spare_id, hoKey],
+        );
+        const hoAfter = await client.query<{ qty: number }>(
+          `SELECT quantity::float8 AS qty FROM spare_stock WHERE spare_id = $1::uuid AND location_key = $2`,
+          [line.spare_id, hoKey],
+        );
+        await appendStockHistory(client, {
+          spareId: line.spare_id,
+          eventType: "PURCHASE_RETURN",
+          locationKey: hoKey,
+          locationType: "HO",
+          regionId: grn.region_id,
+          quantityChange: -qty,
+          balanceAfter: hoAfter.rows[0]?.qty ?? null,
+          referenceType: "PRT",
+          referenceNumber: prtNumber,
+          note: notes || `Spare return against GRN ${grn.grn_number} (${reason}).`,
+          createdBy: actorId,
+        });
+        returnedQty += qty;
+      }
+
+      if (grn.po_id) {
+        const sum = await client.query<{ ordered: number; received: number; status: string }>(
+          `SELECT COALESCE(SUM(poi.qty_ordered), 0)::float8 AS ordered,
+                  COALESCE(SUM(poi.received_qty), 0)::float8 AS received,
+                  po.status
+           FROM purchase_order_items poi
+           JOIN purchase_orders po ON po.id = poi.po_id
+           WHERE poi.po_id = $1::uuid
+           GROUP BY po.status`,
+          [grn.po_id],
+        );
+        const ordered = sum.rows[0]?.ordered ?? 0;
+        const received = sum.rows[0]?.received ?? 0;
+        const currentStatus = sum.rows[0]?.status ?? "";
+        if (currentStatus !== "CANCELLED") {
+          const poStatus = received >= ordered && ordered > 0 ? "CLOSED" : received > 0 ? "PARTIAL" : "OPEN";
+          await client.query(
+            `UPDATE purchase_orders SET status = $1, updated_at = now(), modified_by = $3 WHERE id = $2::uuid`,
+            [poStatus, grn.po_id, actorId],
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+      res.json({
+        ok: true,
+        id: prtId,
+        prtNumber,
+        returnedQty,
+        grnNumber: grn.grn_number,
+        poId: grn.po_id,
+      });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not post purchase return." });
+    } finally {
+      client.release();
+    }
+  });
 }

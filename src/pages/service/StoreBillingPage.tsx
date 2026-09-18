@@ -4,6 +4,7 @@ import {
   type HandoverOtpMode,
 } from "../../components/service/CustomerHandoverOtpModal";
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
+import { SrfPaymentLogPanel } from "../../components/service/SrfPaymentLogPanel";
 import { ServiceInvoicePrintSet } from "../../components/service/ServiceInvoicePrintSet";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
@@ -52,6 +53,8 @@ import {
 } from "../../lib/serviceBillEditorLines";
 import { ServiceBillLinesCard } from "../../components/service/ServiceBillLinesCard";
 import { BillingHandoverPhotoCard } from "../../components/service/BillingHandoverPhotoCard";
+import { WarrantyMonthsPicker } from "../../components/service/WarrantyMonthsPicker";
+import { parseServiceWarrantyMonths, addMonthsYmd } from "../../lib/serviceWarranty";
 import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
 import { isValidGstFormat } from "../../data/serviceSeed";
 import {
@@ -112,7 +115,7 @@ export function StoreBillingPage() {
   const { regions } = useRegions();
   const { customers } = useCustomers();
   const { activeSpares } = useSpares();
-  const { jobs, closeWithInvoice } = useSrfJobs();
+  const { jobs, closeWithInvoice, refreshJobs } = useSrfJobs();
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
   const [billingInvoiceVm, setBillingInvoiceVm] = useState<ServiceInvoiceViewModel | null>(null);
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
@@ -149,6 +152,7 @@ export function StoreBillingPage() {
   const [billingKindOverride, setBillingKindOverride] = useState<"B2C" | "B2B" | null>(null);
   const [billingCustomerLive, setBillingCustomerLive] = useState<CustomerRecord | null>(null);
   const [b2bModalOpen, setB2bModalOpen] = useState(false);
+  const [warrantyMonths, setWarrantyMonths] = useState<number | null>(null);
   const autoWhatsAppSentRef = useRef<string | null>(null);
 
   const currentUserStore = useMemo(() => {
@@ -294,15 +298,24 @@ export function StoreBillingPage() {
 
   const spareOptions = useMemo(
     () =>
-      activeSpares.map((s) => ({
-        id: s.id,
-        sku: s.sku,
-        name: s.name,
-        hsn: s.hsn?.trim() || null,
-        gstPercent: s.gstPercent ?? null,
-        price: Number(s.sellingPriceInr ?? s.mrpInr ?? 0),
-      })),
-    [activeSpares],
+      activeSpares
+        .filter((s) => {
+          const spareBrand = (s.brand ?? "").trim().toLowerCase();
+          const jobBrand = (billingJob?.watchBrand ?? "").trim().toLowerCase();
+          if (!spareBrand || !jobBrand) return true;
+          return spareBrand === jobBrand;
+        })
+        .map((s) => ({
+          id: s.id,
+          sku: s.sku,
+          brand: s.brand,
+          altSku: s.altSku,
+          name: s.name,
+          hsn: s.hsn?.trim() || null,
+          gstPercent: s.gstPercent ?? null,
+          price: Number(s.sellingPriceInr ?? s.mrpInr ?? 0),
+        })),
+    [activeSpares, billingJob?.watchBrand],
   );
 
   useEffect(() => {
@@ -491,6 +504,7 @@ export function StoreBillingPage() {
     setBillingKindOverride(null);
     setBillingCustomerLive(null);
     setB2bModalOpen(false);
+    setWarrantyMonths(parseServiceWarrantyMonths(billingJob?.warrantyMonths) ?? null);
   }, [billingJob?.id]);
 
   function validateBeforeHandoverOtp(): boolean {
@@ -510,6 +524,10 @@ export function StoreBillingPage() {
         setMessage({ type: "err", text: "B2B billing requires company / legal name on the customer profile." });
         return false;
       }
+    }
+    if (!parseServiceWarrantyMonths(warrantyMonths)) {
+      setMessage({ type: "err", text: "Select service warranty (3, 4, 6, 9, or 12 months)." });
+      return false;
     }
     // Zero-value bills (e.g. warranty non-chargeable) collect no payment — skip payment validation.
     if (finalBillingAmount > 0) {
@@ -581,6 +599,7 @@ export function StoreBillingPage() {
       storeBillingSnapshot,
       handoverSessionId,
       billingCustomerKind,
+      warrantyMonths,
     });
   }
 
@@ -630,6 +649,7 @@ export function StoreBillingPage() {
         collectionAmountInr: finalAmount,
         collectionPaymentMode: payPayload.paymentMode,
         paymentDetails: payPayload.paymentDetails,
+        warrantyMonths,
       });
       const closeOut = await closeJob(jobId, snapshot);
       const cust = effectiveBillingCustomer;
@@ -641,6 +661,8 @@ export function StoreBillingPage() {
         company: cust?.company?.trim() || job.company,
         invoiceNumber: closeOut.invoiceNumber ?? job.invoiceNumber ?? null,
         storeBillingSnapshot: snapshot,
+        warrantyMonths,
+        warrantyTillDate: warrantyMonths ? addMonthsYmd(new Date(), warrantyMonths) : job.warrantyTillDate,
         edocIrn: closeOut.edoc?.irn ?? null,
         edocAckNo: closeOut.edoc?.ackNo ?? null,
         edocQr: closeOut.edoc?.qrUrl ?? null,
@@ -1042,6 +1064,19 @@ export function StoreBillingPage() {
                 ) : null}
               </div>
             ) : null}
+            {!isRejectedNoRepairFlow ? (
+              <div className="rounded-xl border border-zimson-200/80 bg-white p-4">
+                <p className="text-sm font-semibold text-zimson-900">
+                  Service warranty <span className="text-rose-600">*</span>
+                </p>
+                <p className="mt-0.5 text-xs text-stone-600">
+                  Printed on the tax invoice. Period starts from the invoice date.
+                </p>
+                <div className="mt-3">
+                  <WarrantyMonthsPicker value={warrantyMonths} onChange={setWarrantyMonths} />
+                </div>
+              </div>
+            ) : null}
             {useServiceBillLinesCard && billingJob ? (
               <ServiceBillLinesCard
                 watchBrand={billingJob.watchBrand}
@@ -1282,11 +1317,24 @@ export function StoreBillingPage() {
                   </tr>
                   ) : null}
                   <tr className="border-b border-zimson-100">
-                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Advance received</th>
+                    <th className="bg-zimson-50/70 px-3 py-2 font-semibold text-stone-700">Paid against SRF</th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
                       INR {advanceAmount.toFixed(2)}
                     </td>
                   </tr>
+                  {billingJob ? (
+                    <tr className="border-b border-zimson-100">
+                      <td colSpan={2} className="px-3 py-3">
+                        <SrfPaymentLogPanel
+                          srfId={billingJob.id}
+                          estimateInr={estimatedAmtInr}
+                          paidInr={advanceAmount}
+                          allowCollect
+                          onCollected={() => void refreshJobs()}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
                   {advanceAmount > 0 && billingJob?.advancePaymentMode ? (
                     <tr className="border-b border-zimson-100">
                       <th className="bg-zimson-50/70 px-3 py-2 align-top font-semibold text-stone-700">

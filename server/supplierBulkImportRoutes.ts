@@ -6,11 +6,12 @@ import type { DemoUser } from "../src/types/user";
 import { isValidGstin } from "./mastersIndiaEdoc/types";
 import {
   canonicalSupplierBulkHeader,
-  supplierBulkColumnKeys,
+  supplierBulkRequiredKeys,
   supplierBulkColumnLabel,
   supplierBulkHeaderLabels,
 } from "../src/lib/supplierBulkImportColumns";
 import { EXCEL_YES_NO, withExcelDropdowns } from "./excelListValidation";
+import { nextSupplierCode } from "./numberSequences";
 
 type Authed = Request & { userId: string };
 
@@ -28,6 +29,7 @@ const MAX_ERRORS = 80;
 type SupplierImportRow = {
   rowNum: number;
   supplierCode: string;
+  autoCode: boolean;
   name: string;
   contactName: string | null;
   email: string | null;
@@ -93,19 +95,29 @@ function sheetRows(sheet: XLSX.WorkSheet | undefined): Record<string, unknown>[]
   return out;
 }
 
+function findSuppliersSheet(wb: XLSX.WorkBook): XLSX.WorkSheet | undefined {
+  const named = findSheet(wb, "Suppliers") ?? findSheet(wb, "Vendor") ?? findSheet(wb, "Vendors");
+  if (named) return named;
+  for (const name of wb.SheetNames) {
+    if (name.trim().toLowerCase() === "readme") continue;
+    const sh = wb.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sh, { header: 1, defval: "" });
+    const headers = ((rows[0] as unknown[]) ?? []).map((h) => canonicalSupplierBulkHeader(h));
+    if (headers.includes("name")) return sh;
+  }
+  return undefined;
+}
+
 function assertHeaders(sheet: XLSX.WorkSheet | undefined): string[] {
-  if (!sheet) return ['Missing "Suppliers" sheet. Use the downloaded template.'];
+  if (!sheet) return ['Missing "Suppliers" sheet. Use the downloaded template or a file with a Supplier Name column.'];
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
   if (rows.length < 1) return ["Suppliers: sheet is empty."];
   const headerRaw = rows[0] as unknown[];
   const headers = headerRaw.map((h) => canonicalSupplierBulkHeader(h)).filter(Boolean);
-  const expectedKeys = supplierBulkColumnKeys();
-  const missing = expectedKeys.filter((e) => !headers.includes(e));
+  const missing = supplierBulkRequiredKeys().filter((e) => !headers.includes(e));
   if (missing.length) {
     const missingLabels = missing.map((k) => supplierBulkColumnLabel(k));
-    return [
-      `Suppliers: missing column(s): ${missingLabels.join(", ")}. First row must match the template (${HEADER_LABELS.join(", ")}).`,
-    ];
+    return [`Suppliers: missing required column(s): ${missingLabels.join(", ")}.`];
   }
   return [];
 }
@@ -131,24 +143,22 @@ function parseRows(
   rows.forEach((r, idx) => {
     const rowNum = idx + 2;
     const supplierCode = cellStr(r.supplier_code).toUpperCase();
-    if (!supplierCode) {
-      errors.push(`Suppliers row ${rowNum}: Supplier Code is required.`);
-      return;
-    }
     if (supplierCode.length > 64) {
       errors.push(`Suppliers row ${rowNum}: Supplier Code must be 64 characters or fewer.`);
       return;
     }
-    const prev = seenCodes.get(supplierCode);
-    if (prev) {
-      errors.push(`Suppliers row ${rowNum}: duplicate Supplier Code "${supplierCode}" (also on row ${prev}).`);
-      return;
+    if (supplierCode) {
+      const prev = seenCodes.get(supplierCode);
+      if (prev) {
+        errors.push(`Suppliers row ${rowNum}: duplicate Supplier Code "${supplierCode}" (also on row ${prev}).`);
+        return;
+      }
+      seenCodes.set(supplierCode, rowNum);
     }
-    seenCodes.set(supplierCode, rowNum);
 
     const name = cellStr(r.name);
     const rowErrs: string[] = [];
-    if (!name) rowErrs.push(`Suppliers row ${rowNum}: Supplier Name is required for "${supplierCode}".`);
+    if (!name) rowErrs.push(`Suppliers row ${rowNum}: Supplier Name is required.`);
     if (name.length > 240) rowErrs.push(`Suppliers row ${rowNum}: Supplier Name is too long.`);
 
     const contactName = cellStr(r.contact_name) || null;
@@ -209,6 +219,7 @@ function parseRows(
     parsed.push({
       rowNum,
       supplierCode,
+      autoCode: !supplierCode,
       name,
       contactName,
       email: emailRaw || null,
@@ -338,10 +349,10 @@ async function buildTemplateWorkbook(taxTypes: string[]): Promise<Buffer> {
     ["2. Replace or delete the sample rows, then add your suppliers from row 2."],
     ["3. Save as .xlsx and upload on Supplier Master → Bulk import."],
     ["4. Click Check file first. Import is enabled only after validation passes."],
-    ["5. Matching Supplier Code updates the existing supplier; new codes create suppliers."],
+    ["5. Matching Supplier Code (or GSTIN when code is blank) updates the existing supplier; new rows create suppliers."],
     [""],
     ["SHEET: Suppliers"],
-    ["  Supplier Code     – Unique. Stored uppercase. Required. Upsert key."],
+    ["  Supplier Code     – Optional. Leave blank and the system assigns SUP + year + sequence."],
     ["  Supplier Name     – Company / trading name. Required."],
     ["  Contact Person    – Optional."],
     ["  Phone             – Optional. 10–15 digits."],
@@ -389,12 +400,13 @@ async function parseUploaded(
   taxTypes: string[];
 }> {
   const wb = XLSX.read(buffer, { type: "buffer" });
-  const headerErrors = assertHeaders(findSheet(wb, "Suppliers"));
+  const sheet = findSuppliersSheet(wb);
+  const headerErrors = assertHeaders(sheet);
   const taxTypes = await loadTaxTypes(pool);
   if (headerErrors.length) {
     return { headerErrors, rows: [], parseErrors: [], taxTypes };
   }
-  const raw = sheetRows(findSheet(wb, "Suppliers"));
+  const raw = sheetRows(sheet);
   const { rows, errors } = parseRows(raw, taxTypes);
   const parseErrors = [...errors];
   if (rows.length === 0 && errors.length === 0) {
@@ -407,23 +419,43 @@ async function classifyAgainstDb(
   pool: Pool,
   rows: SupplierImportRow[],
 ): Promise<{ willCreate: number; willUpdate: number; preview: Array<{ supplierCode: string; name: string; action: "create" | "update" }> }> {
-  const codes = rows.map((r) => r.supplierCode);
-  const { rows: existing } = await pool.query<{ supplier_code: string }>(
-    `SELECT supplier_code FROM suppliers WHERE supplier_code = ANY($1::text[])`,
-    [codes],
-  );
-  const existingSet = new Set(existing.map((r) => String(r.supplier_code).toUpperCase()));
+  const codes = rows.map((r) => r.supplierCode).filter(Boolean);
+  const gstins = rows.map((r) => r.gst).filter((g): g is string => Boolean(g));
+  const { rows: existingByCode } = codes.length
+    ? await pool.query<{ supplier_code: string }>(
+        `SELECT supplier_code FROM suppliers WHERE supplier_code = ANY($1::text[])`,
+        [codes],
+      )
+    : { rows: [] as Array<{ supplier_code: string }> };
+  const { rows: existingByGst } = gstins.length
+    ? await pool.query<{ supplier_code: string; gst: string }>(
+        `SELECT supplier_code, gst FROM suppliers WHERE gst = ANY($1::text[])`,
+        [gstins],
+      )
+    : { rows: [] as Array<{ supplier_code: string; gst: string }> };
+  const existingSet = new Set(existingByCode.map((r) => String(r.supplier_code).toUpperCase()));
+  const gstToCode = new Map(existingByGst.map((r) => [String(r.gst).toUpperCase(), String(r.supplier_code)]));
   let willCreate = 0;
   let willUpdate = 0;
   const preview = rows.slice(0, 25).map((r) => {
-    const action: "create" | "update" = existingSet.has(r.supplierCode) ? "update" : "create";
+    const matched = r.supplierCode
+      ? existingSet.has(r.supplierCode)
+      : Boolean(r.gst && gstToCode.has(r.gst));
+    const action: "create" | "update" = matched ? "update" : "create";
     if (action === "update") willUpdate += 1;
     else willCreate += 1;
-    return { supplierCode: r.supplierCode, name: r.name, action };
+    return {
+      supplierCode: r.supplierCode || (r.gst ? gstToCode.get(r.gst) : "") || "(auto)",
+      name: r.name,
+      action,
+    };
   });
   if (rows.length > 25) {
     for (const r of rows.slice(25)) {
-      if (existingSet.has(r.supplierCode)) willUpdate += 1;
+      const matched = r.supplierCode
+        ? existingSet.has(r.supplierCode)
+        : Boolean(r.gst && gstToCode.has(r.gst));
+      if (matched) willUpdate += 1;
       else willCreate += 1;
     }
   }
@@ -434,6 +466,15 @@ async function commitRows(client: PoolClient, actorId: string, rows: SupplierImp
   for (const row of rows) {
     const locations = toLocations(row);
     const address = toLegacyAddress(locations);
+    let code = row.supplierCode;
+    if (!code && row.gst) {
+      const found = await client.query<{ supplier_code: string }>(
+        `SELECT supplier_code FROM suppliers WHERE gst = $1 LIMIT 1`,
+        [row.gst],
+      );
+      code = found.rows[0]?.supplier_code ?? "";
+    }
+    if (!code) code = await nextSupplierCode(client);
     await client.query(
       `INSERT INTO suppliers (
           supplier_code, name, contact_name, email, phone, address, locations_json,
@@ -453,7 +494,7 @@ async function commitRows(client: PoolClient, actorId: string, rows: SupplierImp
           modified_by = EXCLUDED.modified_by,
           updated_at = now()`,
       [
-        row.supplierCode,
+        code,
         row.name,
         row.contactName,
         row.email,

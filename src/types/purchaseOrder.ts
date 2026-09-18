@@ -5,6 +5,16 @@ export type PurchaseOrderItem = {
   qtyOrdered: number;
   unitPrice: number;
   receivedQty: number;
+  mrp?: number;
+  gstRate?: number;
+  cgstAmount?: number;
+  sgstAmount?: number;
+  igstAmount?: number;
+  uom?: string;
+  hsn?: string | null;
+  brand?: string | null;
+  partCode?: string | null;
+  productName?: string | null;
 };
 
 export type PurchaseOrder = {

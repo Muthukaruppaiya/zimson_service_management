@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { SparePicker } from "../../components/inventory/SparePicker";
@@ -9,7 +9,11 @@ import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
 import { buildPurchaseOrderDocument as _buildPurchaseOrderDocument, openPrintDocument as _openPrintDocument } from "../../lib/inventoryDocuments";
+import { computePoLineAmounts } from "../../lib/poLineAmounts";
+import { DEFAULT_LINE_GST_PERCENT } from "../../lib/serviceBillGst";
+import { taxPersonTypeFromGstin } from "../../lib/supplierGstFill";
 import type { PurchaseOrder } from "../../types/purchaseOrder";
+import type { SparePart, SparePriceLine } from "../../types/spare";
 import type { Supplier } from "../../types/supplier";
 
 
@@ -28,6 +32,149 @@ type ConsolidationRow = {
   supplierCandidateCount: number; mappedSupplierId: string | null; mappedSupplierName: string | null;
   supplierCandidates: Array<{ supplierId: string; supplierName: string }>;
 };
+type StandaloneLine = {
+  spareId: string;
+  partCode: string;
+  productName: string;
+  qty: string;
+  purchasePrice: string;
+  mrp: string;
+  gstPercent: string;
+  uom: string;
+  brand: string;
+  hsn: string;
+  cgst: string;
+  sgst: string;
+  igst: string;
+  totalMrp: string;
+  totalCost: string;
+  finalCost: string;
+  priceBrands: string[];
+};
+
+function emptyStandaloneLine(): StandaloneLine {
+  return {
+    spareId: "",
+    partCode: "",
+    productName: "",
+    qty: "1",
+    purchasePrice: "",
+    mrp: "",
+    gstPercent: String(DEFAULT_LINE_GST_PERCENT),
+    uom: "Nos",
+    brand: "",
+    hsn: "",
+    cgst: "0.00",
+    sgst: "0.00",
+    igst: "0.00",
+    totalMrp: "0.00",
+    totalCost: "0.00",
+    finalCost: "0.00",
+    priceBrands: [],
+  };
+}
+
+function withComputed(line: StandaloneLine, interstate: boolean): StandaloneLine {
+  const t = computePoLineAmounts({
+    qty: Number(line.qty) || 0,
+    purchasePrice: Number(line.purchasePrice) || 0,
+    mrp: Number(line.mrp) || 0,
+    gstPercent: Number(line.gstPercent) || 0,
+    interstate,
+  });
+  return {
+    ...line,
+    cgst: t.cgst.toFixed(2),
+    sgst: t.sgst.toFixed(2),
+    igst: t.igst.toFixed(2),
+    totalMrp: t.totalMrp.toFixed(2),
+    totalCost: t.totalCost.toFixed(2),
+    finalCost: t.finalCost.toFixed(2),
+  };
+}
+
+function lineFromSpare(spare: SparePart | undefined, prev: StandaloneLine): StandaloneLine {
+  if (!spare) return { ...emptyStandaloneLine(), qty: prev.qty || "1" };
+  return {
+    ...emptyStandaloneLine(),
+    spareId: spare.id,
+    partCode: spare.sku ?? "",
+    productName: spare.name ?? "",
+    qty: prev.qty || "1",
+    purchasePrice: spare.costPriceInr != null ? String(spare.costPriceInr) : "",
+    mrp: spare.mrpInr != null ? String(spare.mrpInr) : spare.sellingPriceInr != null ? String(spare.sellingPriceInr) : "",
+    gstPercent: spare.gstPercent != null ? String(spare.gstPercent) : String(DEFAULT_LINE_GST_PERCENT),
+    uom: prev.uom || "Nos",
+    brand: "",
+    hsn: spare.hsn ?? "",
+  };
+}
+
+function brandFromPriceLines(prices: SparePriceLine[]): { brand: string; priceBrands: string[] } {
+  const priceBrands = [...new Set(prices.map((p) => p.brand.trim()).filter(Boolean))];
+  return { brand: priceBrands.join(", "), priceBrands };
+}
+
+function fmtMoney(v: number) {
+  return v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const fieldCls =
+  "mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-rlx-green";
+const compactFieldCls =
+  "mt-0.5 h-8 w-full border border-rlx-rule bg-white px-2 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30";
+
+function FieldLabel({ children }: { children: ReactNode }) {
+  return <span className="block text-[10px] font-semibold uppercase tracking-widest text-stone-400">{children}</span>;
+}
+
+function LineMeta({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-rlx-rule bg-stone-50/60 px-3 py-1.5 text-[11px] text-stone-500">
+      {children}
+    </div>
+  );
+}
+
+function MetaItem({
+  label,
+  value,
+  emphasize,
+  muted,
+  mono,
+}: {
+  label: string;
+  value?: string | number | null;
+  emphasize?: boolean;
+  muted?: boolean;
+  mono?: boolean;
+}) {
+  if (value == null || value === "") return null;
+  return (
+    <span className={muted ? "opacity-40" : undefined}>
+      {label ? <>{label} </> : null}
+      <span
+        className={`${mono ? "font-mono" : ""} ${
+          emphasize ? "font-semibold text-rlx-green" : "font-medium text-stone-800"
+        }`}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
+
+function AmountChip({ label, value, emphasize, muted }: { label: string; value: number; emphasize?: boolean; muted?: boolean }) {
+  return (
+    <div className={muted ? "opacity-40" : undefined}>
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">{label}</p>
+      <p className={`mt-0.5 tabular-nums ${emphasize ? "text-base font-bold text-rlx-green" : "text-sm font-semibold text-stone-800"}`}>
+        ₹{fmtMoney(value)}
+      </p>
+    </div>
+  );
+}
+
 type BulkDraft = {
   supplierId: string; supplierName: string; regionId: string; regionName?: string;
   lines: Array<{
@@ -115,9 +262,7 @@ export function InventoryPurchaseOrdersPage() {
   const [supplierId, setSupplierId] = useState("");
   const [regionId, setRegionId] = useState(user?.regionId ?? "");
   const [notes, setNotes] = useState("");
-  const [standaloneLines, setStandaloneLines] = useState<Array<{ spareId: string; qty: string }>>([
-    { spareId: "", qty: "1" },
-  ]);
+  const [standaloneLines, setStandaloneLines] = useState<StandaloneLine[]>([emptyStandaloneLine()]);
   const [consolidationRows, setConsolidationRows] = useState<ConsolidationRow[]>([]);
   const [selectedDemand, setSelectedDemand] = useState<Record<string, boolean>>({});
   const [selectedSupplierByItem, setSelectedSupplierByItem] = useState<Record<string, string>>({});
@@ -129,6 +274,80 @@ export function InventoryPurchaseOrdersPage() {
     for (const s of spares) m.set(s.id, `${s.name} (${s.sku})`);
     return m;
   }, [spares]);
+
+  const spareById = useMemo(() => {
+    const m = new Map<string, SparePart>();
+    for (const s of spares) m.set(s.id, s);
+    return m;
+  }, [spares]);
+
+  const selectedSupplier = useMemo(
+    () => suppliers.find((s) => s.id === supplierId) ?? null,
+    [suppliers, supplierId],
+  );
+
+  const hoGstin = useMemo(() => {
+    const region = regions.find((r) => r.id === regionId) ?? regions[0];
+    return region?.gst?.trim() || null;
+  }, [regions, regionId]);
+
+  const interstate = useMemo(() => {
+    if (!selectedSupplier) return false;
+    if (selectedSupplier.taxPersonType === "INTERSTATE_TAXABLE_PERSON") return true;
+    if (selectedSupplier.taxPersonType === "INTRASTATE_TAXABLE_PERSON") return false;
+    if (selectedSupplier.gst) {
+      return taxPersonTypeFromGstin(selectedSupplier.gst, hoGstin) === "INTERSTATE_TAXABLE_PERSON";
+    }
+    return false;
+  }, [selectedSupplier, hoGstin]);
+
+  const standaloneTotals = useMemo(() => {
+    return standaloneLines.reduce(
+      (acc, line) => {
+        const cgst = Number(line.cgst) || 0;
+        const sgst = Number(line.sgst) || 0;
+        const igst = Number(line.igst) || 0;
+        return {
+          totalMrp: acc.totalMrp + (Number(line.totalMrp) || 0),
+          totalCost: acc.totalCost + (Number(line.totalCost) || 0),
+          cgst: acc.cgst + cgst,
+          sgst: acc.sgst + sgst,
+          igst: acc.igst + igst,
+          tax: acc.tax + cgst + sgst + igst,
+          finalCost: acc.finalCost + (Number(line.finalCost) || 0),
+        };
+      },
+      { totalMrp: 0, totalCost: 0, cgst: 0, sgst: 0, igst: 0, tax: 0, finalCost: 0 },
+    );
+  }, [standaloneLines]);
+
+  const readyLineCount = standaloneLines.filter((l) => l.spareId && (Number(l.qty) || 0) > 0).length;
+
+  function patchStandalone(idx: number, patch: Partial<StandaloneLine>) {
+    setStandaloneLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  }
+
+  function patchComputed(idx: number, patch: Partial<StandaloneLine>) {
+    setStandaloneLines((prev) => prev.map((l, i) => (i === idx ? withComputed({ ...l, ...patch }, interstate) : l)));
+  }
+
+  async function fillLineFromSpare(idx: number, spareId: string, prev: StandaloneLine) {
+    const base = withComputed(lineFromSpare(spareById.get(spareId), prev), interstate);
+    patchStandalone(idx, base);
+    if (!spareId) return;
+    try {
+      const q = regionId ? `?regionId=${encodeURIComponent(regionId)}` : "";
+      const data = await apiJson<{ prices: SparePriceLine[] }>(
+        `/api/catalog/spares/${encodeURIComponent(spareId)}/prices${q}`,
+      );
+      const mapped = brandFromPriceLines(data.prices);
+      setStandaloneLines((current) =>
+        current.map((l, i) => (i === idx ? { ...l, brand: mapped.brand || l.brand, priceBrands: mapped.priceBrands } : l)),
+      );
+    } catch {
+      setStandaloneLines((current) => current.map((l, i) => (i === idx ? { ...l, brand: "", priceBrands: [] } : l)));
+    }
+  }
 
   const loadAll = useCallback(async () => {
     try {
@@ -157,9 +376,27 @@ export function InventoryPurchaseOrdersPage() {
     if (!regionId && (user?.regionId || regions[0])) setRegionId(user?.regionId || regions[0]!.id);
   }, [regionId, regions, user?.regionId]);
 
+  useEffect(() => {
+    setStandaloneLines((prev) => prev.map((l) => withComputed(l, interstate)));
+  }, [interstate]);
+
   async function createStandalonePo() {
     const items = standaloneLines
-      .map((l) => ({ spareId: l.spareId, qtyOrdered: Number(l.qty), unitPrice: 0 }))
+      .map((l) => ({
+        spareId: l.spareId,
+        qtyOrdered: Number(l.qty) || 0,
+        unitPrice: Number(l.purchasePrice) || 0,
+        mrp: Number(l.mrp) || 0,
+        gstRate: Number(l.gstPercent) || 0,
+        cgstAmount: Number(l.cgst) || 0,
+        sgstAmount: Number(l.sgst) || 0,
+        igstAmount: Number(l.igst) || 0,
+        uom: l.uom.trim() || "Nos",
+        hsn: l.hsn.trim() || null,
+        brand: l.brand.trim() || null,
+        partCode: l.partCode.trim() || null,
+        productName: l.productName.trim() || null,
+      }))
       .filter((l) => l.spareId && l.qtyOrdered > 0);
     if (!supplierId) {
       setErr("Select a supplier.");
@@ -180,7 +417,7 @@ export function InventoryPurchaseOrdersPage() {
         method: "POST",
         json: { supplierId, regionId, notes, items },
       });
-      setStandaloneLines([{ spareId: "", qty: "1" }]);
+      setStandaloneLines([emptyStandaloneLine()]);
       setNotes("");
       setSuccessPoNumbers([data.poNumber]);
       await loadAll();
@@ -309,15 +546,15 @@ export function InventoryPurchaseOrdersPage() {
       {!ENABLE_PR_FLOW ? (
         <div className="border border-rlx-rule bg-white shadow-sm">
           <SectionHeader
-            title="Direct PO (no PR)"
-            subtitle="HO Purchase raises the PO first. Pricing is captured at GRN. Then transfer HO stock to the store."
+            title="Create purchase order"
+            subtitle="Choose supplier, add spares, then check price and tax before creating the PO."
           />
-          <div className="space-y-4 p-5">
-            <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-5 p-5">
+            <div className="grid gap-4 lg:grid-cols-2">
               <label>
-                <span className="block text-[11px] font-semibold uppercase tracking-widest text-stone-500">Supplier</span>
+                <FieldLabel>Supplier</FieldLabel>
                 <select
-                  className="mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
+                  className={fieldCls}
                   value={supplierId}
                   onChange={(e) => setSupplierId(e.target.value)}
                 >
@@ -326,11 +563,20 @@ export function InventoryPurchaseOrdersPage() {
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
+                {selectedSupplier ? (
+                  <p className="mt-1.5 text-[11px] text-stone-500">
+                    {selectedSupplier.gst ? `GSTIN ${selectedSupplier.gst}` : "No GSTIN"}
+                    {" · "}
+                    {interstate ? "Interstate — IGST" : "Intrastate — CGST + SGST"}
+                  </p>
+                ) : (
+                  <p className="mt-1.5 text-[11px] text-stone-400">Tax split (CGST/SGST or IGST) is set from the supplier.</p>
+                )}
               </label>
               <label>
-                <span className="block text-[11px] font-semibold uppercase tracking-widest text-stone-500">Region (HO stock)</span>
+                <FieldLabel>Region (HO stock)</FieldLabel>
                 <select
-                  className="mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
+                  className={fieldCls}
                   value={regionId}
                   disabled={Boolean(user?.regionId) && user?.role !== "super_admin"}
                   onChange={(e) => setRegionId(e.target.value)}
@@ -340,67 +586,134 @@ export function InventoryPurchaseOrdersPage() {
                   ))}
                 </select>
               </label>
-              <label className="sm:col-span-2">
-                <span className="block text-[11px] font-semibold uppercase tracking-widest text-stone-500">Notes</span>
+              <label className="lg:col-span-2">
+                <FieldLabel>Notes</FieldLabel>
                 <input
-                  className="mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
+                  className={fieldCls}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Optional"
+                  placeholder="Optional remarks for this PO"
                 />
               </label>
             </div>
-            <div className="space-y-3">
-              {standaloneLines.map((line, idx) => (
-                <div key={idx} className="grid gap-3 border border-rlx-rule p-3 sm:grid-cols-[1fr_8rem_auto]">
-                  <SparePicker
-                    value={line.spareId}
-                    onChange={(id) => setStandaloneLines((prev) => prev.map((l, i) => (i === idx ? { ...l, spareId: id } : l)))}
-                    spares={spares}
-                  />
-                  <label>
-                    <span className="block text-[11px] font-semibold uppercase tracking-widest text-stone-500">Qty</span>
-                    <input
-                      type="number"
-                      min={0.001}
-                      step={0.001}
-                      className="mt-1 w-full border border-rlx-rule px-2 py-2 text-sm outline-none focus:border-rlx-green"
-                      value={line.qty}
-                      onChange={(e) => setStandaloneLines((prev) => prev.map((l, i) => (i === idx ? { ...l, qty: e.target.value } : l)))}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="self-end border border-rlx-rule px-3 py-2 text-xs text-stone-500 hover:bg-stone-50"
-                    onClick={() => setStandaloneLines((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== idx)))}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="text-xs font-semibold text-rlx-green hover:underline"
-              onClick={() => setStandaloneLines((prev) => [...prev, { spareId: "", qty: "1" }])}
-            >
-              + Add line
-            </button>
-            <div className="flex flex-wrap gap-3 border-t border-rlx-rule pt-4">
+
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h4 className="text-xs font-bold uppercase tracking-[0.18em] text-stone-500">Line items</h4>
+                <span className="text-[11px] text-stone-400">{readyLineCount} spare{readyLineCount === 1 ? "" : "s"} ready</span>
+              </div>
+              <div className="space-y-3">
+                {standaloneLines.map((line, idx) => {
+                  return (
+                    <div key={idx} className="relative z-0 overflow-visible border border-rlx-rule bg-white focus-within:z-40">
+                      <div className="flex flex-wrap items-end gap-2 px-3 py-2">
+                        <div className="mb-px flex h-8 w-7 shrink-0 items-center justify-center bg-rlx-green text-[11px] font-bold text-white">
+                          {idx + 1}
+                        </div>
+                        <div className="relative min-w-[180px] flex-1">
+                          <FieldLabel>Select spare</FieldLabel>
+                          <SparePicker
+                            value={line.spareId}
+                            onChange={(id) => void fillLineFromSpare(idx, id, line)}
+                            spares={spares}
+                            className="relative mt-0.5"
+                            compact
+                            showSku={false}
+                          />
+                        </div>
+                        <label className="w-20 shrink-0">
+                          <FieldLabel>Qty *</FieldLabel>
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            inputMode="numeric"
+                            className={`${compactFieldCls} text-right font-semibold tabular-nums`}
+                            value={line.qty}
+                            onChange={(e) => patchComputed(idx, { qty: e.target.value })}
+                          />
+                        </label>
+                        <label className="w-28 shrink-0">
+                          <FieldLabel>Price *</FieldLabel>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className={`${compactFieldCls} text-right font-semibold tabular-nums`}
+                            value={line.purchasePrice}
+                            placeholder="0.00"
+                            onChange={(e) => patchComputed(idx, { purchasePrice: e.target.value })}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="mb-px h-8 shrink-0 px-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 hover:text-red-600"
+                          onClick={() =>
+                            setStandaloneLines((prev) => (prev.length === 1 ? [emptyStandaloneLine()] : prev.filter((_, i) => i !== idx)))
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      {line.spareId ? (
+                        <>
+                          <LineMeta>
+                            <MetaItem label="Part" value={line.partCode} mono />
+                            <MetaItem label="" value={line.productName} />
+                            <MetaItem label="Brand" value={line.brand} />
+                            <MetaItem label="HSN" value={line.hsn} mono />
+                            <MetaItem label="UOM" value={line.uom} />
+                          </LineMeta>
+                          <LineMeta>
+                            <MetaItem label="MRP" value={line.mrp ? `₹${fmtMoney(Number(line.mrp) || 0)}` : undefined} />
+                            <MetaItem label="GST" value={line.gstPercent ? `${line.gstPercent}%` : undefined} />
+                            <MetaItem label="CGST" value={`₹${fmtMoney(Number(line.cgst) || 0)}`} muted={interstate} />
+                            <MetaItem label="SGST" value={`₹${fmtMoney(Number(line.sgst) || 0)}`} muted={interstate} />
+                            <MetaItem label="IGST" value={`₹${fmtMoney(Number(line.igst) || 0)}`} muted={!interstate} />
+                            <MetaItem label="Total MRP" value={`₹${fmtMoney(Number(line.totalMrp) || 0)}`} />
+                            <MetaItem label="Total cost" value={`₹${fmtMoney(Number(line.totalCost) || 0)}`} />
+                            <MetaItem label="Final" value={`₹${fmtMoney(Number(line.finalCost) || 0)}`} emphasize />
+                          </LineMeta>
+                        </>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => void createStandalonePo()}
-                className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white transition hover:bg-rlx-green/90 disabled:opacity-40"
+                className="mt-3 w-full border border-dashed border-rlx-rule py-2 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green/5"
+                onClick={() => setStandaloneLines((prev) => [...prev, emptyStandaloneLine()])}
               >
-                {busy ? "Creating…" : "Create PO"}
+                + Add another spare
               </button>
-              <Link to="/inventory/po-inward" className="px-4 py-2.5 text-sm font-semibold text-rlx-green hover:underline">
-                Next: Post GRN →
-              </Link>
-              <Link to="/inventory/ho-transfer" className="px-4 py-2.5 text-sm font-semibold text-rlx-green hover:underline">
-                Transfer to store →
-              </Link>
+            </div>
+
+            <div className="sticky bottom-0 z-10 -mx-5 border-t border-rlx-rule bg-white px-5 py-4 shadow-[0_-8px_16px_rgba(0,0,0,0.04)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div className="grid flex-1 grid-cols-2 gap-3 sm:grid-cols-4">
+                  <AmountChip label="Total MRP" value={standaloneTotals.totalMrp} />
+                  <AmountChip label="Total cost" value={standaloneTotals.totalCost} />
+                  <AmountChip
+                    label={interstate ? "IGST" : "CGST + SGST"}
+                    value={standaloneTotals.tax}
+                  />
+                  <AmountChip label="Final cost" value={standaloneTotals.finalCost} emphasize />
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={busy || readyLineCount === 0 || !supplierId}
+                    onClick={() => void createStandalonePo()}
+                    className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white transition hover:bg-rlx-green/90 disabled:opacity-40"
+                  >
+                    {busy ? "Creating…" : "Create PO"}
+                  </button>
+                  <Link to="/inventory/po-inward" className="text-sm font-semibold text-stone-500 hover:text-rlx-green">
+                    Post GRN →
+                  </Link>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -528,7 +841,7 @@ export function InventoryPurchaseOrdersPage() {
                           <td className="px-4 py-2.5 text-stone-800">{spareLabel.get(l.spareId) ?? l.spareId}</td>
                           <td className="px-4 py-2.5">
                             <input
-                              type="number" min={0.001} step={0.001}
+                              type="number" min={1} step={1} inputMode="numeric"
                               className="w-24 border border-rlx-rule px-2 py-1 text-sm outline-none focus:border-rlx-green"
                               value={l.qtyOrdered}
                               onChange={(e) => updateDraftLine(d.supplierId, l.prItemId, { qtyOrdered: Math.max(0, Number(e.target.value) || 0) })}

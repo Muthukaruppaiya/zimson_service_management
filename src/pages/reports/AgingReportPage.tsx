@@ -101,6 +101,7 @@ function eventLabel(eventType: string) {
   if (eventType === "SPARE_CREATED") return "Spare created";
   if (eventType === "MANUAL_STOCK_SET") return "Manual stock update";
   if (eventType === "PURCHASE_IN") return "Purchase inward";
+  if (eventType === "PURCHASE_RETURN") return "Purchase return";
   if (eventType === "TRANSFER_OUT") return "Transfer out";
   if (eventType === "TRANSFER_IN") return "Transfer in";
   return eventType;

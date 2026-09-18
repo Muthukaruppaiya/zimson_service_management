@@ -1124,7 +1124,8 @@ export function ServiceBillingPage() {
                       <input
                         type="number"
                         min={0}
-                        step={0.01}
+                        step={1}
+                        inputMode="numeric"
                         value={line.qty}
                         onChange={(e) => updateLine(line.id, { qty: e.target.value })}
                         readOnly={spareLocked}

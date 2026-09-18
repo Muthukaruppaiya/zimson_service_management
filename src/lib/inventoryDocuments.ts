@@ -1,6 +1,7 @@
 import { getActiveTemplateByKind, loadDocumentTemplateStore } from "./documentTemplates";
 import { documentBarcodeImageSrc } from "./invoiceScanCodes";
 import { POPPINS_FONT_CSS, POPPINS_GOOGLE_HEAD } from "./appFonts";
+import { grnDocNumberLabel, grnModeLabel, grnTypeDetail, isDirectGrn } from "./grnMode";
 import type { DocumentKind } from "../types/documentTemplate";
 
 type PartyBlock = {
@@ -360,9 +361,11 @@ export function buildGrnDocument(input: {
       <div>
         <p>${barcode(input.grnNumber)}</p>
         <p><strong>GRN NUMBER:</strong> ${esc(input.grnNumber)}</p>
+        <p><strong>GRN TYPE:</strong> ${esc(grnTypeDetail(input.poNumber))}</p>
+        ${isDirectGrn(input.poNumber) ? "" : `<p><strong>PO NUMBER:</strong> ${esc(input.poNumber)}</p>`}
         <p><strong>DATE:</strong> ${esc(formatDate(input.createdAt))}</p>
-        <p><strong>INVOICE #:</strong> ${esc(input.invoiceNumber ?? "-")}</p>
-        <p><strong>MODE:</strong> ${input.mode === "WITH_BILL" ? "With Bill" : "Without Bill"}</p>
+        <p><strong>${esc(grnDocNumberLabel(input.mode).toUpperCase())}:</strong> ${esc(input.invoiceNumber ?? "-")}</p>
+        <p><strong>MODE:</strong> ${esc(grnModeLabel(input.mode))}</p>
       </div>
       <div class="meta" style="text-align:left;">
         <p><strong>${esc(branding.companyName)}</strong></p>
@@ -372,7 +375,7 @@ export function buildGrnDocument(input: {
     <div class="sec" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
       <div>
         <p><strong>${esc(lbl(tpl.labels, "deliveryInfoLabel", "DELIVERY INFORMATION"))}:</strong></p>
-        <p>Delivery note: ${esc(input.poNumber)}</p>
+        <p>Delivery note: ${esc(isDirectGrn(input.poNumber) ? "Direct GRN" : input.poNumber)}</p>
         <p>Delivery date: ${esc(formatDate(input.createdAt))}</p>
         <p>Carrier: -</p>
       </div>
@@ -469,6 +472,120 @@ export function buildTransferDocument(input: {
       </table>
     </div>
     <div class="sign"><div class="sign-line">${esc(tpl.signLabelPrimary)}</div><div class="sign-line">${esc(tpl.signLabelSecondary)}</div></div>
+  </div>
+  <style>${baseStyle()}</style>`;
+}
+
+export function buildPurchaseReturnDocument(input: {
+  prtNumber: string;
+  createdAt?: string;
+  returnDate?: string | null;
+  grnNumber: string;
+  poNumber: string;
+  supplierName: string;
+  reason: string;
+  debitNoteNumber?: string | null;
+  notes?: string;
+  lines: Array<{ description: string; qtyReturned: number; costPrice?: number; gstRate?: number; taxAmount?: number }>;
+}): string {
+  const { branding, tpl } = activeConfig("grn");
+  const lines = input.lines.length > 0 ? input.lines : [{ description: "-", qtyReturned: 0 }];
+  let subtotal = 0;
+  let totalTax = 0;
+  for (const l of lines) {
+    const cp = l.costPrice ?? 0;
+    const qty = l.qtyReturned;
+    const taxable = cp * qty;
+    const tax = l.taxAmount != null ? l.taxAmount : +(taxable * (l.gstRate ?? 18) / 100).toFixed(2);
+    subtotal += taxable;
+    totalTax += tax;
+  }
+  const grandTotal = subtotal + totalTax;
+  const hasPricing = lines.some((l) => (l.costPrice ?? 0) > 0);
+  const fmt = (v: number) => `&#8377;${v.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+
+  return `
+  <div class="doc">
+    <h1 class="title" style="text-align:${tpl.titleAlign};font-size:34px;">PURCHASE RETURN / SPARE RETURN</h1>
+    <div class="line"></div>
+    <div class="sec" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div>
+        <p>${barcode(input.prtNumber)}</p>
+        <p><strong>RETURN NO:</strong> ${esc(input.prtNumber)}</p>
+        <p><strong>DATE:</strong> ${esc(formatDate(input.returnDate || input.createdAt))}</p>
+        <p><strong>REASON:</strong> ${esc(input.reason || "-")}</p>
+        <p><strong>DEBIT NOTE:</strong> ${esc(input.debitNoteNumber ?? "-")}</p>
+      </div>
+      <div class="meta" style="text-align:left;">
+        <p><strong>${esc(branding.companyName)}</strong></p>
+        <p>${esc(branding.companyAddress)}</p>
+      </div>
+    </div>
+    <div class="sec" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div>
+        <p><strong>AGAINST:</strong></p>
+        <p>GRN: ${esc(input.grnNumber)}</p>
+        <p>PO: ${esc(input.poNumber)}</p>
+      </div>
+      <div>
+        <p><strong>${esc(lbl(tpl.labels, "supplierInfoLabel", "SUPPLIER INFORMATION"))}:</strong></p>
+        <p>Supplier Name: ${esc(input.supplierName)}</p>
+        <p>Supplier Contact: ${esc(branding.companyPhone)}</p>
+      </div>
+    </div>
+    <div class="sec">
+      <table>
+        <thead><tr>
+          <th>#</th>
+          <th>Description</th>
+          <th>UOM</th>
+          <th>Qty Returned</th>
+          <th>Unit Price (₹)</th>
+          <th>Taxable (₹)</th>
+          <th>GST %</th>
+          <th>Tax Amt (₹)</th>
+          <th>Total (₹)</th>
+        </tr></thead>
+        <tbody>
+          ${lines
+            .map((l, i) => {
+              const cp = l.costPrice ?? 0;
+              const qty = l.qtyReturned;
+              const gstRate = l.gstRate ?? 18;
+              const taxable = +(cp * qty).toFixed(2);
+              const tax = l.taxAmount != null ? l.taxAmount : +(taxable * gstRate / 100).toFixed(2);
+              const total = +(taxable + tax).toFixed(2);
+              const money = (v: number) => (hasPricing ? fmt(v) : "-");
+              return `<tr>
+                <td>${i + 1}</td>
+                <td>${esc(l.description)}</td>
+                <td>Nos</td>
+                <td style="text-align:center;">${qty}</td>
+                <td style="text-align:right;">${cp > 0 ? money(cp) : "-"}</td>
+                <td style="text-align:right;">${cp > 0 ? money(taxable) : "-"}</td>
+                <td style="text-align:center;">${cp > 0 ? `${gstRate}%` : "-"}</td>
+                <td style="text-align:right;">${cp > 0 ? money(tax) : "-"}</td>
+                <td style="text-align:right;">${cp > 0 ? money(total) : "-"}</td>
+              </tr>`;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+    <div class="sec" style="width:50%;margin-left:auto;">
+      <table>
+        <tbody>
+          <tr><td><strong>Total Items</strong></td><td style="text-align:right;">${lines.length}</td></tr>
+          ${hasPricing ? `
+          <tr><td><strong>Subtotal (Taxable)</strong></td><td style="text-align:right;">${fmt(subtotal)}</td></tr>
+          <tr><td><strong>Total GST</strong></td><td style="text-align:right;">${fmt(totalTax)}</td></tr>
+          <tr style="font-size:1.05em;"><td><strong>Grand Total</strong></td><td style="text-align:right;font-weight:bold;">${fmt(grandTotal)}</td></tr>
+          ` : `<tr><td><strong>Total Amount</strong></td><td style="text-align:right;">-</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div class="sec"><strong>Notes:</strong> ${esc(input.notes || "-")}</div>
+    <div class="sign"><div class="sign-line">Returned By</div><div class="sign-line">Supplier Acknowledgement</div></div>
   </div>
   <style>${baseStyle()}</style>`;
 }

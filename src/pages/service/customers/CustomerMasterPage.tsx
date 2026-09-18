@@ -35,6 +35,7 @@ type EditableCustomer = {
   gst: string;
   pan: string;
   customFields: CustomFieldValues;
+  registeredStoreName: string;
 };
 
 function toEditable(c: CustomerRecord): EditableCustomer {
@@ -51,6 +52,7 @@ function toEditable(c: CustomerRecord): EditableCustomer {
     gst: c.gst ?? "",
     pan: c.pan ?? "",
     customFields: parseCustomFieldValues(c.customFields),
+    registeredStoreName: c.registeredStoreName || c.registeredStoreId || "",
   };
 }
 
@@ -88,7 +90,7 @@ export function CustomerMasterPage() {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((c) =>
-      [c.displayName, c.phone, c.alternatePhone ?? "", c.email, c.city ?? "", c.company ?? "", c.customerCode ?? ""]
+      [c.displayName, c.phone, c.alternatePhone ?? "", c.email, c.city ?? "", c.company ?? "", c.customerCode ?? "", c.registeredStoreName ?? ""]
         .join(" ")
         .toLowerCase()
         .includes(q) || customFieldsMatchSearch(c.customFields, extraFieldDefs, q),
@@ -258,6 +260,7 @@ export function CustomerMasterPage() {
                     <th className="px-3 py-2 font-semibold">Email</th>
                     <th className="px-3 py-2 font-semibold">City</th>
                     <th className="px-3 py-2 font-semibold">Type</th>
+                    <th className="px-3 py-2 font-semibold">Registered at</th>
                     {listExtras.map((f) => (
                       <th key={f.id} className="px-3 py-2 font-semibold">{f.label}</th>
                     ))}
@@ -277,6 +280,7 @@ export function CustomerMasterPage() {
                       <td className="px-3 py-2">{c.email || "-"}</td>
                       <td className="px-3 py-2">{c.city || "-"}</td>
                       <td className="px-3 py-2">{c.customerKind}</td>
+                      <td className="px-3 py-2">{c.registeredStoreName || "—"}</td>
                       {listExtras.map((f) => (
                         <td key={f.id} className="px-3 py-2">{formatCustomFieldDisplay(f, c.customFields)}</td>
                       ))}
@@ -348,6 +352,7 @@ export function CustomerMasterPage() {
             <h3 className="text-lg font-semibold text-zimson-900">Edit customer</h3>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="text-sm">Customer name<input className={inputClass} value={edit.displayName} onChange={(e) => setEdit((p) => (p ? { ...p, displayName: e.target.value } : p))} /></label>
+              <label className="text-sm">Registered at<input className={inputClass} readOnly value={edit.registeredStoreName || "—"} /></label>
               <label className="text-sm">Primary mobile<input className={inputClass} value={edit.phone} onChange={(e) => setEdit((p) => (p ? { ...p, phone: e.target.value } : p))} /></label>
               <label className="text-sm">Email (optional)<input className={inputClass} type="email" value={edit.email} onChange={(e) => setEdit((p) => (p ? { ...p, email: e.target.value } : p))} /></label>
               <label className="text-sm">Alternate mobile<input className={inputClass} value={edit.alternatePhone} onChange={(e) => setEdit((p) => (p ? { ...p, alternatePhone: e.target.value } : p))} /></label>

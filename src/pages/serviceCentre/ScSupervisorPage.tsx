@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
-import { SearchableCombobox } from "../../components/service/SearchableCombobox";
+import { SrfPaymentLogPanel } from "../../components/service/SrfPaymentLogPanel";
+import { WorkDoneSparesModal } from "../../components/service/WorkDoneSparesModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
@@ -33,6 +34,7 @@ import {
 } from "../../lib/srfAccess";
 import { printAssignmentSlip, printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
 import type { SrfJob } from "../../types/srfJob";
+import type { SrfServicePackageSnapshot } from "../../types/servicePackage";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { TechnicianProfile } from "../../types/technician";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
@@ -370,8 +372,8 @@ export function ScSupervisorPage() {
     () => (repairPopupJobId ? jobs.find((j) => j.id === repairPopupJobId) ?? null : null),
     [repairPopupJobId, jobs],
   );
-  const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string }>>([{ spareId: "", qty: "1" }]);
-  const [repairWarrantyTillDate, setRepairWarrantyTillDate] = useState("");
+  const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string; fromPackage?: boolean }>>([{ spareId: "", qty: "1" }]);
+  const [repairPackage, setRepairPackage] = useState<SrfServicePackageSnapshot | null>(null);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
   const [hoStockBySpareId, setHoStockBySpareId] = useState<Record<string, number>>({});
   const [repairPopupError, setRepairPopupError] = useState("");
@@ -1892,11 +1894,6 @@ export function ScSupervisorPage() {
     setRepairPopupError("");
     const job = jobs.find((j) => j.id === jobId);
     const watchBrand = job?.watchBrand ?? "";
-    setRepairWarrantyTillDate(
-      job?.warrantyTillDate && /^\d{4}-\d{2}-\d{2}/.test(job.warrantyTillDate)
-        ? job.warrantyTillDate.slice(0, 10)
-        : "",
-    );
     const flow = spareFlowBySrfId.get(jobId);
     if (flow?.status === "FULFILLED" && flow.inwardReceivedAt && flow.lines.length > 0) {
       setUnitPriceBySpareId((prev) => {
@@ -1920,7 +1917,16 @@ export function ScSupervisorPage() {
         [jobId]: `Requested spares from ${flow.orderNumber} auto-loaded. Add extra rows only if needed.`,
       }));
     } else {
-      setRepairLines([{ spareId: "", qty: "1" }]);
+      const existing = job?.usedSpares ?? [];
+      setRepairLines(
+        existing.length > 0
+          ? existing.map((u) => ({
+              spareId: u.spareId ?? "",
+              qty: String(u.qty ?? 1),
+              fromPackage: Boolean(u.includedInPackage),
+            }))
+          : [{ spareId: "", qty: "1" }],
+      );
       if (flow && !flow.inwardReceivedAt) {
         setFeedback((f) => ({
           ...f,
@@ -1937,12 +1943,13 @@ export function ScSupervisorPage() {
       void fetchHoStockQty(spareId);
       void ensureSparePrice(spareId, watchBrand);
     }
+    setRepairPackage(job?.servicePackage && job.servicePackage.id ? job.servicePackage : null);
   }
 
   function closeRepairPopup() {
     setRepairPopupJobId(null);
     setRepairLines([{ spareId: "", qty: "1" }]);
-    setRepairWarrantyTillDate("");
+    setRepairPackage(null);
     setUnitPriceBySpareId({});
     setRepairPopupError("");
     setRepairSaving(false);
@@ -1994,14 +2001,11 @@ export function ScSupervisorPage() {
         qty,
         unitPriceInr,
         lineTotalInr: unitPriceInr * qty,
+        includedInPackage: Boolean(x.fromPackage) || Boolean(repairPackage?.spareIds.includes(spareId)),
       });
     }
     if (lines.length === 0) {
       setRepairPopupError("Add at least one used spare from inventory.");
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(repairWarrantyTillDate.trim())) {
-      setRepairPopupError("Warranty till date is required.");
       return;
     }
     if (lines.some((x) => Number(x.unitPriceInr ?? 0) <= 0)) {
@@ -2021,7 +2025,7 @@ export function ScSupervisorPage() {
     setRepairSaving(true);
     setRepairPopupError("");
     try {
-      await submitSparesSlip(jobId, lines, repairWarrantyTillDate.trim());
+      await submitSparesSlip(jobId, lines, repairPackage);
       await supervisorMarkRepairComplete(jobId);
       closeRepairPopup();
       const isInterHoReturnRepair =
@@ -3795,138 +3799,54 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
       {repairPopupJobId ? (
-        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
-          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
-            <h3 className="text-lg font-semibold text-zimson-900">Add used spares from inventory</h3>
-            <p className="mt-1 text-sm text-stone-600">
-              {repairPopupJob?.watchBrand ? (
-                <span className="block mt-1 text-xs text-stone-500">
-                  {/* Selling prices use watch brand <strong>{repairPopupJob.watchBrand}</strong> from spare catalogue. */}
-                </span>
-              ) : null}
-            </p>
-            {repairPopupError ? (
-              <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900" role="alert">
-                {repairPopupError}
-              </p>
-            ) : null}
-            <div className="mt-4 space-y-3">
-              {repairLines.map((line, idx) => {
-                const watchBrand = repairPopupJob?.watchBrand ?? "";
-                const unit = resolveSpareUnitPrice(line.spareId, watchBrand);
-                const qty = Number(line.qty || 0);
-                const hoStock = line.spareId ? hoStockBySpareId[line.spareId] : undefined;
-                const lineShort =
-                  line.spareId && hoStock != null && Number.isFinite(qty) && qty > 0 && qty > hoStock;
-                const spareOptions = activeSpares.map((s) => {
-                  const stock = hoStockBySpareId[s.id];
-                  const stockHint =
-                    stock != null ? (stock <= 0 ? " · Out of stock" : ` · HO ${stock}`) : "";
-                  return { value: s.id, label: `${s.sku} - ${s.name}${stockHint}` };
-                });
-                return (
-                <div key={idx} className="grid grid-cols-12 gap-2">
-                  <div className="col-span-8">
-                    <SearchableCombobox
-                      id={`ho-repair-spare-${idx}`}
-                      value={line.spareId}
-                      options={spareOptions}
-                      placeholder="Search spare by SKU or name…"
-                      disabled={repairSaving}
-                      inputClass="w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"
-                      onChange={(nextId) => {
-                        setRepairPopupError("");
-                        setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
-                        if (nextId) {
-                          void (async () => {
-                            const picked = activeSpares.find((s) => s.id === nextId);
-                            const price = await ensureSparePrice(nextId, watchBrand);
-                            if (price <= 0) {
-                              setRepairPopupError(
-                                `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? nextId})${watchBrand ? ` — add ${watchBrand} price in Inventory → Spare catalogue` : ""}.`,
-                              );
-                            }
-                            void fetchHoStockQty(nextId);
-                          })();
-                        }
-                      }}
-                    />
-                  </div>
-                  <input
-                    value={line.qty}
-                    onChange={(e) => {
-                      setRepairPopupError("");
-                      setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, qty: e.target.value } : x)));
-                    }}
-                    disabled={repairSaving}
-                    className={`col-span-3 rounded-xl border bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60 ${
-                      lineShort ? "border-rose-400" : "border-zimson-300"
-                    }`}
-                    placeholder="Qty"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setRepairLines((prev) => prev.filter((_, i) => i !== idx))}
-                    disabled={repairSaving || repairLines.length <= 1}
-                    className="col-span-1 rounded-xl border border-zimson-300 bg-white text-sm disabled:opacity-40"
-                  >
-                    x
-                  </button>
-                  <div className="col-span-12 text-xs text-stone-600">
-                    Amount: INR {(unit * (Number.isFinite(qty) ? qty : 0)).toFixed(2)}
-                    {line.spareId ? (
-                      <span className={lineShort ? " ml-2 font-semibold text-rose-700" : " ml-2 text-stone-500"}>
-                        · HO stock: {hoStock != null ? hoStock : "…"}
-                        {lineShort ? ` (need ${qty}, only ${hoStock} available)` : ""}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
+        <WorkDoneSparesModal
+          open
+          onClose={closeRepairPopup}
+          title="Add used spares from inventory"
+          saveLabel="Save"
+          job={
+            repairPopupJob
+              ? {
+                  reference: repairPopupJob.reference,
+                  customerName: repairPopupJob.customerName,
+                  watchBrand: repairPopupJob.watchBrand,
+                  watchModel: repairPopupJob.watchModel,
+                }
+              : null
+          }
+          lines={repairLines}
+          onLinesChange={setRepairLines}
+          selectedPackage={repairPackage}
+          onPackageChange={setRepairPackage}
+          saving={repairSaving}
+          error={repairPopupError}
+          onSave={() => void confirmRepairWithSpares()}
+          spareOptions={activeSpares.map((s) => {
+            const stock = hoStockBySpareId[s.id];
+            const stockHint = stock != null ? (stock <= 0 ? " · Out of stock" : ` · HO ${stock}`) : "";
+            return {
+              value: s.id,
+              label: `${s.sku}${s.altSku ? ` / ${s.altSku}` : ""} - ${s.name}${s.altName ? ` (${s.altName})` : ""}${stockHint}`,
+            };
+          })}
+          unitPrice={(spareId) => resolveSpareUnitPrice(spareId, repairPopupJob?.watchBrand ?? "")}
+          stockQty={(spareId) => hoStockBySpareId[spareId]}
+          stockLabel="HO stock"
+          onSparePicked={(spareId) => {
+            setRepairPopupError("");
+            const watchBrand = repairPopupJob?.watchBrand ?? "";
+            void (async () => {
+              const picked = activeSpares.find((s) => s.id === spareId);
+              const price = await ensureSparePrice(spareId, watchBrand);
+              if (price <= 0) {
+                setRepairPopupError(
+                  `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? spareId})${watchBrand ? ` — add ${watchBrand} price in Inventory → Spare catalogue` : ""}.`,
                 );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={() => setRepairLines((prev) => [...prev, { spareId: "", qty: "1" }])}
-              disabled={repairSaving}
-              className="mt-3 rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 disabled:opacity-60"
-            >
-              Add spare row
-            </button>
-            <label className="mt-4 block text-sm font-medium text-stone-800">
-              Warranty till date <span className="text-rose-600">*</span>
-              <input
-                type="date"
-                value={repairWarrantyTillDate}
-                onChange={(e) => {
-                  setRepairPopupError("");
-                  setRepairWarrantyTillDate(e.target.value);
-                }}
-                disabled={repairSaving}
-                required
-                className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60 sm:max-w-xs"
-              />
-            </label>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeRepairPopup}
-                disabled={repairSaving}
-                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void confirmRepairWithSpares()}
-                disabled={repairSaving}
-                className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-70"
-              >
-                {repairSaving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
+              }
+              void fetchHoStockQty(spareId);
+            })();
+          }}
+        />
       ) : null}
       {sendBrandPopupJobId ? (
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
@@ -4869,7 +4789,7 @@ export function ScSupervisorPage() {
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-0.5 pr-3 font-medium text-stone-600">Advance</td>
+                        <td className="py-0.5 pr-3 font-medium text-stone-600">Paid against SRF</td>
                         <td className="py-0.5">
                           {Number(listDetailJob.advanceInr ?? 0) > 0
                             ? Number(listDetailJob.advanceInr).toLocaleString(undefined, {
@@ -4897,6 +4817,18 @@ export function ScSupervisorPage() {
                     </tbody>
                   </table>
                 </section>
+                <div className="sm:col-span-2">
+                  <SrfPaymentLogPanel
+                    srfId={listDetailJob.id}
+                    estimateInr={Math.max(
+                      Number(listDetailJob.reestimateRequestedInr ?? 0),
+                      Number(listDetailJob.estimateTotalInr ?? 0),
+                    )}
+                    paidInr={Number(listDetailJob.advanceInr ?? 0)}
+                    allowCollect
+                    onCollected={() => void refreshJobs()}
+                  />
+                </div>
                 {listDetailMeta?.showReestimateDetails ? (
                   <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 sm:col-span-2">
                     <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-900">

@@ -18,6 +18,7 @@ import { useBrands } from "../../context/BrandsContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
+import { pickSpareByScannedSku } from "../../lib/spareIdentity";
 import {
   sanitizeAlphanumericInput,
   sanitizeDecimalInput,
@@ -220,6 +221,8 @@ type CompletionState =
 type QuickBillSpareOption = {
   id: string;
   sku: string;
+  altSku?: string | null;
+  brand?: string;
   name: string;
   hsn: string | null;
   gstPercent: number | null;
@@ -906,11 +909,15 @@ export function QuickBillPage() {
               const matchedPrice = priceData.prices.find(
                 (p) => p.brand.trim().toLowerCase() === watchBrand.trim().toLowerCase(),
               );
+              const spareBrand = spare.brand?.trim().toLowerCase() ?? "";
+              if (spareBrand && spareBrand !== watchBrand.trim().toLowerCase()) return null;
               if (!matchedPrice) return null;
               const stockQty = stockData.stock.reduce((sum, row) => sum + row.quantity, 0);
               return {
                 id: spare.id,
                 sku: spare.sku,
+                brand: spare.brand,
+                altSku: spare.altSku,
                 name: spare.name,
                 hsn: spare.hsn?.trim() || null,
                 gstPercent: spare.gstPercent ?? null,
@@ -1056,7 +1063,7 @@ export function QuickBillPage() {
   function addScannedSku() {
     const sku = barcodeSku.trim().toUpperCase();
     if (!sku) return;
-    const option = spareOptions.find((s) => s.sku.toUpperCase() === sku);
+    const option = pickSpareByScannedSku(spareOptions, sku, watchBrand);
     if (!option) {
       setError(
         `Scanned SKU ${sku} has no ${watchBrand} price in this region (or is out of stock).`,

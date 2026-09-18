@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type ComboboxOption = { value: string; label: string };
 
@@ -24,6 +25,8 @@ type SearchableComboboxProps = {
   onInputChange?: (text: string) => void;
 };
 
+type MenuPos = { top: number; left: number; width: number; maxHeight: number };
+
 export function SearchableCombobox({
   id,
   label,
@@ -43,8 +46,11 @@ export function SearchableCombobox({
 }: SearchableComboboxProps) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
 
   const selectedLabel = useMemo(
     () => options.find((o) => o.value === value)?.label ?? "",
@@ -59,6 +65,26 @@ export function SearchableCombobox({
     );
   }, [options, query]);
 
+  const showList = open && !freeText && !disabled;
+
+  function updateMenuPos() {
+    const el = inputRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - r.bottom - 10;
+    const spaceAbove = r.top - 10;
+    const openUp = spaceBelow < 200 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(120, Math.min(224, openUp ? spaceAbove : spaceBelow));
+    const width = Math.max(r.width, 220);
+    const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
+    setMenuPos({
+      top: openUp ? Math.max(8, r.top - maxHeight - 4) : r.bottom + 4,
+      left,
+      width,
+      maxHeight,
+    });
+  }
+
   useEffect(() => {
     if (freeText) {
       setOpen(false);
@@ -66,14 +92,31 @@ export function SearchableCombobox({
     }
   }, [freeText]);
 
+  useLayoutEffect(() => {
+    if (!showList) {
+      setMenuPos(null);
+      return;
+    }
+    updateMenuPos();
+    const onWin = () => updateMenuPos();
+    window.addEventListener("resize", onWin);
+    window.addEventListener("scroll", onWin, true);
+    return () => {
+      window.removeEventListener("resize", onWin);
+      window.removeEventListener("scroll", onWin, true);
+    };
+  }, [showList, query, filtered.length]);
+
   useEffect(() => {
-    if (!open) return;
+    if (!showList) return;
     function onDocMouseDown(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t) || listRef.current?.contains(t)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", onDocMouseDown);
     return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, [open]);
+  }, [showList]);
 
   const inputDisplay = freeText ? freeTextValue : open ? query : value ? selectedLabel : query;
 
@@ -96,6 +139,65 @@ export function SearchableCombobox({
 
   const fieldClass = inputClass.replace(/\bmt-1\b/g, "").trim();
 
+  const list = showList ? (
+    <ul
+      ref={listRef}
+      id={listId}
+      role="listbox"
+      style={
+        menuPos
+          ? {
+              position: "fixed",
+              top: menuPos.top,
+              left: menuPos.left,
+              width: menuPos.width,
+              maxHeight: menuPos.maxHeight,
+              zIndex: 90,
+            }
+          : { display: "none" }
+      }
+      className="overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-[0_16px_40px_rgba(15,23,42,0.18)]"
+    >
+      {filtered.length === 0 ? (
+        <li className="px-3 py-2.5 text-xs text-rlx-ink-muted">No matches</li>
+      ) : (
+        filtered.map((o) => (
+          <li key={o.value}>
+            <button
+              type="button"
+              role="option"
+              aria-selected={value === o.value}
+              className={`w-full px-3 py-2.5 text-left text-sm hover:bg-rlx-green-light ${
+                value === o.value ? "bg-rlx-green-light/80 font-semibold text-rlx-green" : "text-rlx-ink"
+              }`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(o)}
+            >
+              {o.label}
+            </button>
+          </li>
+        ))
+      )}
+      {actionOption ? (
+        <li className="border-t border-rlx-rule">
+          <button
+            type="button"
+            className="w-full px-3 py-2.5 text-left text-sm font-semibold text-rlx-green hover:bg-rlx-bg"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onActionSelect?.();
+              onChange(actionOption.value);
+              setQuery("");
+              setOpen(false);
+            }}
+          >
+            {actionOption.label}
+          </button>
+        </li>
+      ) : null}
+    </ul>
+  ) : null;
+
   return (
     <div ref={rootRef} className="relative min-w-0">
       {label ? (
@@ -104,16 +206,17 @@ export function SearchableCombobox({
         </label>
       ) : null}
       <input
+        ref={inputRef}
         id={id}
         type="text"
         role="combobox"
-        aria-expanded={open && !freeText}
+        aria-expanded={showList}
         aria-controls={listId}
         aria-autocomplete={freeText ? "none" : "list"}
         autoComplete="off"
         spellCheck={false}
         disabled={disabled}
-        required={required && !freeText ? !value : !freeTextValue?.trim()}
+        required={Boolean(required) && (freeText ? !freeTextValue?.trim() : !value)}
         value={inputDisplay}
         placeholder={placeholder}
         className={`${fieldClass} ${label ? "mt-1" : ""}`}
@@ -135,51 +238,7 @@ export function SearchableCombobox({
           }
         }}
       />
-      {open && !freeText && !disabled ? (
-        <ul
-          id={listId}
-          role="listbox"
-          className="absolute z-50 mt-0.5 max-h-56 w-full overflow-y-auto rounded-xl border border-zimson-300 bg-white shadow-lg"
-        >
-          {filtered.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-rlx-ink-muted">No matches</li>
-          ) : (
-            filtered.map((o) => (
-              <li key={o.value}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={value === o.value}
-                  className={`w-full px-3 py-2 text-left text-sm hover:bg-rlx-green-light ${
-                    value === o.value ? "bg-rlx-green-light/80 font-semibold text-rlx-green" : "text-rlx-ink"
-                  }`}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pick(o)}
-                >
-                  {o.label}
-                </button>
-              </li>
-            ))
-          )}
-          {actionOption ? (
-            <li className="border-t border-rlx-rule">
-              <button
-                type="button"
-                className="w-full px-3 py-2 text-left text-sm font-semibold text-rlx-green hover:bg-rlx-bg"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onActionSelect?.();
-                  onChange(actionOption.value);
-                  setQuery("");
-                  setOpen(false);
-                }}
-              >
-                {actionOption.label}
-              </button>
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
+      {list && typeof document !== "undefined" ? createPortal(list, document.body) : null}
     </div>
   );
 }

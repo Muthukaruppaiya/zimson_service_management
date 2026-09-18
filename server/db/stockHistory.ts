@@ -8,6 +8,7 @@ export type StockHistoryInput = {
     | "SPARE_CREATED"
     | "MANUAL_STOCK_SET"
     | "PURCHASE_IN"
+    | "PURCHASE_RETURN"
     | "TRANSFER_OUT"
     | "TRANSFER_IN";
   locationKey?: string | null;
@@ -16,7 +17,7 @@ export type StockHistoryInput = {
   storeId?: string | null;
   quantityChange?: number | null;
   balanceAfter?: number | null;
-  referenceType?: "PR" | "PO" | "GRN" | "MANUAL" | "TRANSFER" | null;
+  referenceType?: "PR" | "PO" | "GRN" | "PRT" | "MANUAL" | "TRANSFER" | null;
   referenceNumber?: string | null;
   note?: string | null;
   createdBy?: string | null;

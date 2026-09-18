@@ -55,3 +55,16 @@ export function hoNeedsOperatingStorePicker(
     (Array.isArray(userStoreIds) && userStoreIds.length > 0 ? String(userStoreIds[0]).trim() : "");
   return !fromLogin;
 }
+
+export function allStoresWithRegion(regions: SeedRegion[]): Array<{ id: string; name: string; regionName: string }> {
+  return regions.flatMap((r) =>
+    (r.stores ?? []).map((s) => ({ id: s.id, name: s.name, regionName: r.name })),
+  );
+}
+
+export function storeDisplayName(regions: SeedRegion[], storeId: string | null | undefined): string {
+  const id = String(storeId ?? "").trim();
+  if (!id) return "";
+  const hit = allStoresWithRegion(regions).find((s) => s.id === id);
+  return hit ? `${hit.name} (${hit.regionName})` : id;
+}

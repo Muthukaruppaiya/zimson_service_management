@@ -6,6 +6,7 @@ import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
 import { clearSpareGstCache } from "./hsnGstRates";
 import { validateEntityCustomFields } from "./customFields";
+import { normalizeAltName, normalizeAltSku, optionalMasterText } from "../src/lib/spareIdentity";
 
 function isHoAdminRole(role: string): boolean {
   return role === "super_admin" || role === "admin" || role === "admin";
@@ -48,9 +49,17 @@ type Authed = Request & { userId: string };
 function rowToSpare(r: {
   id: string;
   sku: string;
+  brand?: string | null;
+  alt_sku?: string | null;
   name: string;
+  alt_name?: string | null;
   description: string;
   category: string;
+  model_no?: string | null;
+  caliber?: string | null;
+  sub_category?: string | null;
+  size?: string | null;
+  colour?: string | null;
   hsn: string | null;
   gst_percent: number | string | null;
   mrp_inr: number | null;
@@ -72,9 +81,17 @@ function rowToSpare(r: {
   return {
     id: r.id,
     sku: r.sku,
+    brand: String(r.brand ?? "").trim(),
+    altSku: String(r.alt_sku ?? "").trim() || null,
     name: r.name,
+    altName: String(r.alt_name ?? "").trim() || null,
     description: r.description,
     category: r.category,
+    modelNo: String(r.model_no ?? "").trim() || null,
+    caliber: String(r.caliber ?? "").trim() || null,
+    subCategory: String(r.sub_category ?? "").trim() || null,
+    size: String(r.size ?? "").trim() || null,
+    colour: String(r.colour ?? "").trim() || null,
     hsn: r.hsn,
     gstPercent,
     costPriceInr: r.cost_price_inr == null ? null : Number(r.cost_price_inr),
@@ -89,7 +106,7 @@ function rowToSpare(r: {
   };
 }
 
-const SPARE_SELECT = `id, sku, name, description, category, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at, custom_fields`;
+const SPARE_SELECT = `id, sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at, custom_fields`;
 
 export function registerCatalogRoutes(
   app: Express,
@@ -111,6 +128,39 @@ export function registerCatalogRoutes(
     }
   });
 
+  app.get("/api/catalog/spares-by-brand", requireAuth, async (req, res) => {
+    const brand = String(req.query.brand ?? "").trim();
+    if (!brand) {
+      res.status(400).json({ error: "brand is required." });
+      return;
+    }
+    try {
+      const { rows } = await pool.query(
+        `SELECT ${SPARE_SELECT}
+         FROM spares s
+         WHERE s.is_active = true
+           AND (
+             LOWER(BTRIM(s.brand)) = LOWER(BTRIM($1))
+             OR (
+               BTRIM(s.brand) = ''
+               AND EXISTS (
+                 SELECT 1
+                 FROM spare_prices p
+                 WHERE p.spare_id = s.id
+                   AND LOWER(TRIM(p.brand)) = LOWER(TRIM($1))
+               )
+             )
+           )
+         ORDER BY s.name ASC, s.sku ASC`,
+        [brand],
+      );
+      res.json({ spares: rows.map((r) => rowToSpare(r as Parameters<typeof rowToSpare>[0])) });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load brand spares." });
+    }
+  });
+
   app.post("/api/spares", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || (actor.role !== "super_admin" && actor.role !== "admin" && actor.role !== "admin")) {
@@ -120,6 +170,7 @@ export function registerCatalogRoutes(
 
     const input = req.body as CreateSpareInput;
     const sku = input.sku.trim().toUpperCase();
+    const brandRaw = String(input.brand ?? "").trim();
     const name = input.name.trim();
     const description = input.description.trim();
     const category = input.category.trim();
@@ -129,8 +180,8 @@ export function registerCatalogRoutes(
       res.status(400).json({ error: "gstPercent must be between 0 and 100." });
       return;
     }
-    if (!sku || !name || !description || !category) {
-      res.status(400).json({ error: "sku, name, description and category are required." });
+    if (!sku || !brandRaw || !name || !description || !category) {
+      res.status(400).json({ error: "sku, brand, name, description and category are required." });
       return;
     }
     const customChecked = await validateEntityCustomFields(pool, "spare", input.customFields);
@@ -139,18 +190,42 @@ export function registerCatalogRoutes(
       return;
     }
     try {
+      const bRes = await pool.query<{ name: string }>(
+        `SELECT name FROM brands WHERE is_active = true AND LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1`,
+        [brandRaw],
+      );
+      if (bRes.rowCount === 0) {
+        res.status(400).json({ error: "Brand must match an active master brand from Inventory → Brands." });
+        return;
+      }
+      const brand = bRes.rows[0]!.name;
+      const altSku = normalizeAltSku(input.altSku);
+      const altName = normalizeAltName(input.altName);
+      const modelNo = optionalMasterText(input.modelNo);
+      const caliber = optionalMasterText(input.caliber);
+      const subCategory = optionalMasterText(input.subCategory);
+      const size = optionalMasterText(input.size, 80);
+      const colour = optionalMasterText(input.colour, 80);
       const ins = await pool.query(
-        `INSERT INTO spares (sku, name, description, category, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, custom_fields)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+        `INSERT INTO spares (sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, custom_fields)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb)
          RETURNING ${SPARE_SELECT}`,
         [
           sku,
+          brand,
+          altSku,
           name,
+          altName,
           description,
           category,
+          modelNo,
+          caliber,
+          subCategory,
+          size,
+          colour,
           input.hsn?.trim() || null,
           gstPercent ?? null,
-          input.sellingPriceInr ?? input.mrpInr ?? null,
+          input.mrpInr ?? input.sellingPriceInr ?? null,
           input.costPriceInr ?? null,
           input.sellingPriceInr ?? input.mrpInr ?? null,
           isActive,
@@ -170,7 +245,7 @@ export function registerCatalogRoutes(
     } catch (e: unknown) {
       const err = e as { code?: string };
       if (err.code === "23505") {
-        res.status(400).json({ error: "A spare with this SKU already exists." });
+        res.status(400).json({ error: "A spare with this part number and brand already exists." });
         return;
       }
       console.error(e);
@@ -188,8 +263,16 @@ export function registerCatalogRoutes(
     const body = req.body ?? {};
 
     const name = body.name != null ? String(body.name).trim() : undefined;
+    const brandRaw = body.brand != null ? String(body.brand).trim() : undefined;
+    const altSku = body.altSku !== undefined ? normalizeAltSku(body.altSku) : undefined;
+    const altName = body.altName !== undefined ? normalizeAltName(body.altName) : undefined;
     const description = body.description != null ? String(body.description).trim() : undefined;
     const category = body.category != null ? String(body.category).trim() : undefined;
+    const modelNo = body.modelNo !== undefined ? optionalMasterText(body.modelNo) : undefined;
+    const caliber = body.caliber !== undefined ? optionalMasterText(body.caliber) : undefined;
+    const subCategory = body.subCategory !== undefined ? optionalMasterText(body.subCategory) : undefined;
+    const size = body.size !== undefined ? optionalMasterText(body.size, 80) : undefined;
+    const colour = body.colour !== undefined ? optionalMasterText(body.colour, 80) : undefined;
     const hsn = body.hsn != null ? String(body.hsn).trim() || null : undefined;
     const gstPercentRaw = body.gstPercent;
     const gstPercent =
@@ -225,6 +308,10 @@ export function registerCatalogRoutes(
       res.status(400).json({ error: "Name is required." });
       return;
     }
+    if (brandRaw !== undefined && !brandRaw) {
+      res.status(400).json({ error: "Brand is required." });
+      return;
+    }
     if (category !== undefined && !category) {
       res.status(400).json({ error: "Category is required." });
       return;
@@ -253,6 +340,26 @@ export function registerCatalogRoutes(
       sets.push(`name = $${i++}`);
       vals.push(name);
     }
+    if (brandRaw !== undefined) {
+      const bRes = await pool.query<{ name: string }>(
+        `SELECT name FROM brands WHERE is_active = true AND LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1`,
+        [brandRaw],
+      );
+      if (bRes.rowCount === 0) {
+        res.status(400).json({ error: "Brand must match an active master brand from Inventory → Brands." });
+        return;
+      }
+      sets.push(`brand = $${i++}`);
+      vals.push(bRes.rows[0]!.name);
+    }
+    if (altSku !== undefined) {
+      sets.push(`alt_sku = $${i++}`);
+      vals.push(altSku);
+    }
+    if (altName !== undefined) {
+      sets.push(`alt_name = $${i++}`);
+      vals.push(altName);
+    }
     if (description !== undefined) {
       sets.push(`description = $${i++}`);
       vals.push(description);
@@ -260,6 +367,26 @@ export function registerCatalogRoutes(
     if (category !== undefined) {
       sets.push(`category = $${i++}`);
       vals.push(category);
+    }
+    if (modelNo !== undefined) {
+      sets.push(`model_no = $${i++}`);
+      vals.push(modelNo);
+    }
+    if (caliber !== undefined) {
+      sets.push(`caliber = $${i++}`);
+      vals.push(caliber);
+    }
+    if (subCategory !== undefined) {
+      sets.push(`sub_category = $${i++}`);
+      vals.push(subCategory);
+    }
+    if (size !== undefined) {
+      sets.push(`size = $${i++}`);
+      vals.push(size);
+    }
+    if (colour !== undefined) {
+      sets.push(`colour = $${i++}`);
+      vals.push(colour);
     }
     if (hsn !== undefined) {
       sets.push(`hsn = $${i++}`);
@@ -317,7 +444,12 @@ export function registerCatalogRoutes(
       }
       clearSpareGstCache();
       res.json({ spare: rowToSpare(upd.rows[0] as Parameters<typeof rowToSpare>[0]) });
-    } catch {
+    } catch (e: unknown) {
+      const err = e as { code?: string };
+      if (err.code === "23505") {
+        res.status(400).json({ error: "A spare with this part number and brand already exists." });
+        return;
+      }
       res.status(400).json({ error: "Could not update spare." });
     }
   });
@@ -391,12 +523,21 @@ export function registerCatalogRoutes(
         return;
       }
       const brandCanonical = bRes.rows[0]!.name;
+      const spareRes = await pool.query<{ brand: string }>(`SELECT brand FROM spares WHERE id = $1::uuid`, [spareId]);
+      const spareBrand = String(spareRes.rows[0]?.brand ?? "").trim();
+      if (spareBrand && spareBrand.toLowerCase() !== brandCanonical.toLowerCase()) {
+        res.status(400).json({
+          error: `This spare is for ${spareBrand}. Add a separate catalogue row for ${brandCanonical} with the same part number.`,
+        });
+        return;
+      }
+      const priceBrand = spareBrand || brandCanonical;
       await pool.query(
         `INSERT INTO spare_prices (spare_id, region_id, brand, price)
          VALUES ($1::uuid, $2::text, $3, $4)
          ON CONFLICT (spare_id, brand, region_id)
          DO UPDATE SET price = EXCLUDED.price, updated_at = now()`,
-        [spareId, regionId, brandCanonical, price],
+        [spareId, regionId, priceBrand, price],
       );
       res.json({ ok: true });
     } catch (e) {
@@ -853,6 +994,316 @@ export function registerCatalogRoutes(
     } catch (e) {
       console.error(e);
       res.status(400).json({ error: "Could not load stock history." });
+    }
+  });
+
+  async function loadServicePackages(filters: {
+    brand?: string;
+    serviceType?: string;
+    includeInactive?: boolean;
+  }) {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (filters.brand?.trim()) {
+      where.push(`LOWER(TRIM(p.brand)) = LOWER(TRIM($${i++}))`);
+      params.push(filters.brand.trim());
+    }
+    if (filters.serviceType === "quartz" || filters.serviceType === "mechanical") {
+      where.push(`p.service_type = $${i++}`);
+      params.push(filters.serviceType);
+    }
+    if (!filters.includeInactive) {
+      where.push("p.is_active = true");
+    }
+    const sqlWhere = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const { rows: pkgs } = await pool.query<{
+      id: string;
+      brand: string;
+      service_type: string;
+      package_type: string;
+      price_inr: number;
+      is_active: boolean;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, brand, service_type, package_type, price_inr::float8 AS price_inr,
+              is_active, created_at, updated_at
+       FROM service_packages p
+       ${sqlWhere}
+       ORDER BY p.brand, p.service_type, p.package_type`,
+      params,
+    );
+    if (pkgs.length === 0) return [];
+    const ids = pkgs.map((p) => p.id);
+    const { rows: spareRows } = await pool.query<{
+      package_id: string;
+      spare_id: string;
+      qty: number;
+      sort_order: number;
+      name: string;
+      sku: string;
+    }>(
+      `SELECT ps.package_id, ps.spare_id, ps.qty::float8 AS qty, ps.sort_order,
+              s.name, s.sku
+       FROM service_package_spares ps
+       JOIN spares s ON s.id = ps.spare_id
+       WHERE ps.package_id = ANY($1::uuid[])
+       ORDER BY ps.sort_order, s.name`,
+      [ids],
+    );
+    const byPkg = new Map<string, typeof spareRows>();
+    for (const row of spareRows) {
+      const list = byPkg.get(row.package_id) ?? [];
+      list.push(row);
+      byPkg.set(row.package_id, list);
+    }
+    return pkgs.map((p) => ({
+      id: p.id,
+      brand: p.brand,
+      serviceType: p.service_type,
+      packageType: p.package_type,
+      priceInr: Number(p.price_inr) || 0,
+      isActive: p.is_active,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at,
+      spares: (byPkg.get(p.id) ?? []).map((s) => ({
+        spareId: s.spare_id,
+        name: s.name,
+        sku: s.sku,
+        qty: Number(s.qty) || 1,
+      })),
+    }));
+  }
+
+  async function replacePackageSpares(
+    client: { query: Pool["query"] },
+    packageId: string,
+    spares: Array<{ spareId: string; qty?: number }>,
+  ) {
+    await client.query(`DELETE FROM service_package_spares WHERE package_id = $1::uuid`, [packageId]);
+    let sort = 0;
+    for (const sp of spares) {
+      const spareId = String(sp.spareId ?? "").trim();
+      if (!spareId) continue;
+      const qty = Number(sp.qty);
+      await client.query(
+        `INSERT INTO service_package_spares (package_id, spare_id, qty, sort_order)
+         VALUES ($1::uuid, $2::uuid, $3, $4)`,
+        [packageId, spareId, Number.isFinite(qty) && qty > 0 ? Math.round(qty) : 1, sort],
+      );
+      sort += 1;
+    }
+  }
+
+  app.get("/api/catalog/service-packages", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    try {
+      const packages = await loadServicePackages({
+        brand: String(req.query.brand ?? "").trim() || undefined,
+        serviceType: String(req.query.serviceType ?? "").trim() || undefined,
+        includeInactive: String(req.query.all ?? "") === "1" && isHoAdminRole(actor.role),
+      });
+      res.json({ packages });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load service packages." });
+    }
+  });
+
+  app.get("/api/catalog/service-packages/:packageId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const packageId = String(req.params.packageId ?? "").trim();
+    if (!packageId) {
+      res.status(400).json({ error: "packageId is required." });
+      return;
+    }
+    try {
+      const packages = await loadServicePackages({ includeInactive: true });
+      const found = packages.find((p) => p.id === packageId);
+      if (!found) {
+        res.status(404).json({ error: "Package not found." });
+        return;
+      }
+      res.json({ package: found });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load service package." });
+    }
+  });
+
+  app.post("/api/catalog/service-packages", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !isHoAdminRole(actor.role)) {
+      res.status(403).json({ error: "Only HO admins can manage service packages." });
+      return;
+    }
+    const brand = String(req.body?.brand ?? "").trim();
+    const serviceType = String(req.body?.serviceType ?? "").trim().toLowerCase();
+    const packageType = String(req.body?.packageType ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_")
+      .replace(/[^a-z0-9_]/g, "")
+      .slice(0, 40);
+    const priceInr = Number(req.body?.priceInr ?? 0);
+    const sparesRaw = Array.isArray(req.body?.spares) ? req.body.spares : [];
+    if (!brand) {
+      res.status(400).json({ error: "Brand is required." });
+      return;
+    }
+    if (serviceType !== "quartz" && serviceType !== "mechanical") {
+      res.status(400).json({ error: "Service type must be Quartz or Mechanical." });
+      return;
+    }
+    if (!packageType) {
+      res.status(400).json({ error: "Package type is required (Complete, Partial, …)." });
+      return;
+    }
+    if (!Number.isFinite(priceInr) || priceInr < 0) {
+      res.status(400).json({ error: "Enter a valid package price." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const ins = await client.query<{ id: string }>(
+        `INSERT INTO service_packages (brand, service_type, package_type, price_inr)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [brand, serviceType, packageType, priceInr],
+      );
+      const id = ins.rows[0]?.id;
+      if (!id) throw new Error("insert failed");
+      await replacePackageSpares(
+        client,
+        id,
+        sparesRaw.map((s: { spareId?: string; qty?: number }) => ({
+          spareId: String(s?.spareId ?? ""),
+          qty: Number(s?.qty ?? 1),
+        })),
+      );
+      await client.query("COMMIT");
+      const [created] = await loadServicePackages({ includeInactive: true, brand });
+      const match = created.find((p) => p.id === id) ?? (await loadServicePackages({ includeInactive: true })).find((p) => p.id === id);
+      res.json({ package: match });
+    } catch (e: unknown) {
+      await client.query("ROLLBACK").catch(() => {});
+      const msg = e instanceof Error ? e.message : "";
+      if (/unique|duplicate/i.test(msg)) {
+        res.status(400).json({ error: "A package already exists for this brand, service type, and package type." });
+        return;
+      }
+      console.error(e);
+      res.status(400).json({ error: "Could not save service package." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.patch("/api/catalog/service-packages/:packageId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !isHoAdminRole(actor.role)) {
+      res.status(403).json({ error: "Only HO admins can manage service packages." });
+      return;
+    }
+    const packageId = String(req.params.packageId ?? "").trim();
+    if (!packageId) {
+      res.status(400).json({ error: "packageId is required." });
+      return;
+    }
+    const brand = req.body?.brand != null ? String(req.body.brand).trim() : undefined;
+    const serviceType =
+      req.body?.serviceType != null ? String(req.body.serviceType).trim().toLowerCase() : undefined;
+    const packageType =
+      req.body?.packageType != null
+        ? String(req.body.packageType)
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, "_")
+            .replace(/[^a-z0-9_]/g, "")
+            .slice(0, 40)
+        : undefined;
+    const priceRaw = req.body?.priceInr;
+    const priceInr = priceRaw != null && priceRaw !== "" ? Number(priceRaw) : undefined;
+    const isActive = typeof req.body?.isActive === "boolean" ? req.body.isActive : undefined;
+    const sparesRaw = Array.isArray(req.body?.spares) ? req.body.spares : undefined;
+    if (serviceType != null && serviceType !== "quartz" && serviceType !== "mechanical") {
+      res.status(400).json({ error: "Service type must be Quartz or Mechanical." });
+      return;
+    }
+    if (priceInr != null && (!Number.isFinite(priceInr) || priceInr < 0)) {
+      res.status(400).json({ error: "Enter a valid package price." });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const sets: string[] = ["updated_at = now()"];
+      const params: unknown[] = [];
+      let i = 1;
+      if (brand) {
+        sets.push(`brand = $${i++}`);
+        params.push(brand);
+      }
+      if (serviceType) {
+        sets.push(`service_type = $${i++}`);
+        params.push(serviceType);
+      }
+      if (packageType) {
+        sets.push(`package_type = $${i++}`);
+        params.push(packageType);
+      }
+      if (priceInr != null) {
+        sets.push(`price_inr = $${i++}`);
+        params.push(priceInr);
+      }
+      if (isActive != null) {
+        sets.push(`is_active = $${i++}`);
+        params.push(isActive);
+      }
+      params.push(packageId);
+      const upd = await client.query(
+        `UPDATE service_packages SET ${sets.join(", ")} WHERE id = $${i}::uuid`,
+        params,
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Package not found." });
+        return;
+      }
+      if (sparesRaw) {
+        await replacePackageSpares(
+          client,
+          packageId,
+          sparesRaw.map((s: { spareId?: string; qty?: number }) => ({
+            spareId: String(s?.spareId ?? ""),
+            qty: Number(s?.qty ?? 1),
+          })),
+        );
+      }
+      await client.query("COMMIT");
+      const all = await loadServicePackages({ includeInactive: true });
+      res.json({ package: all.find((p) => p.id === packageId) ?? null });
+    } catch (e: unknown) {
+      await client.query("ROLLBACK").catch(() => {});
+      const msg = e instanceof Error ? e.message : "";
+      if (/unique|duplicate/i.test(msg)) {
+        res.status(400).json({ error: "A package already exists for this brand, service type, and package type." });
+        return;
+      }
+      console.error(e);
+      res.status(400).json({ error: "Could not update service package." });
+    } finally {
+      client.release();
     }
   });
 }

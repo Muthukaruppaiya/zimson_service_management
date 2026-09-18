@@ -16,6 +16,8 @@ export type ServiceInvoiceLineView = {
   grossValue: number;
   /** Spare part line — customer copy collapses these into one row. */
   isSpareLine?: boolean;
+  /** Printed Type column: Service or Spare. */
+  lineKind?: "service" | "spare";
 };
 
 export type ServiceInvoiceTaxRow = {

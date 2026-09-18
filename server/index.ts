@@ -102,6 +102,7 @@ type CustomerRegOtpSession = {
   emailCode: string | null;
   emailVerified: boolean;
   expiresAt: number;
+  existingCustomerId?: string | null;
 };
 
 const customerRegisterOtpSessions = new Map<string, CustomerRegOtpSession>();
@@ -148,7 +149,9 @@ const CUSTOMERS_SELECT_FIELDS = `
   email_verified_at AS "emailVerifiedAt",
   customer_data_source AS "customerDataSource",
   custom_fields AS "customFields",
-  created_at AS "createdAt"
+  created_at AS "createdAt",
+  registered_store_id AS "registeredStoreId",
+  (SELECT s.name FROM stores s WHERE s.id = customers.registered_store_id) AS "registeredStoreName"
 `;
 
 function normalizeCustomerAddressJson(v: unknown): CustomerRecord["billingAddress"] {
@@ -225,6 +228,8 @@ function rowToCustomer(r: Record<string, unknown>): CustomerRecord {
       r.customFields && typeof r.customFields === "object" && !Array.isArray(r.customFields)
         ? (r.customFields as CustomerRecord["customFields"])
         : {},
+    registeredStoreId: r.registeredStoreId != null ? String(r.registeredStoreId) : null,
+    registeredStoreName: r.registeredStoreName != null ? String(r.registeredStoreName) : null,
     createdAt: iso(r.createdAt) ?? new Date().toISOString(),
   };
 }
@@ -3077,25 +3082,46 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
     const spareParams: unknown[] = [];
     let spareWhere = "WHERE 1=1";
     if (qSearch) {
-      spareParams.push(`%${qSearch}%`, `%${qSearch}%`);
-      spareWhere += " AND (sku ILIKE $1 OR name ILIKE $2)";
+      spareParams.push(
+        `%${qSearch}%`,
+        `%${qSearch}%`,
+        `%${qSearch}%`,
+        `%${qSearch}%`,
+        `%${qSearch}%`,
+        `%${qSearch}%`,
+        `%${qSearch}%`,
+        `%${qSearch}%`,
+        `%${qSearch}%`,
+        `%${qSearch}%`,
+      );
+      spareWhere +=
+        " AND (sku ILIKE $1 OR name ILIKE $2 OR brand ILIKE $3 OR alt_sku ILIKE $4 OR alt_name ILIKE $5 OR model_no ILIKE $6 OR caliber ILIKE $7 OR sub_category ILIKE $8 OR size ILIKE $9 OR colour ILIKE $10)";
     }
     spareParams.push(500);
     const spareLimitIdx = spareParams.length;
     const { rows: spareRows } = await dbPool.query<{
       id: string;
       sku: string;
+      brand: string;
+      alt_sku: string | null;
       name: string;
+      alt_name: string | null;
       description: string;
       category: string;
+      model_no: string | null;
+      caliber: string | null;
+      sub_category: string | null;
+      size: string | null;
+      colour: string | null;
       hsn: string | null;
+      gst_percent: number | null;
       mrp_inr: number | null;
       cost_price_inr: number | null;
       selling_price_inr: number | null;
       is_active: boolean;
       created_at: Date;
     }>(
-      `SELECT id, sku, name, description, category, hsn, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at
+      `SELECT id, sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at
        FROM spares
        ${spareWhere}
        ORDER BY sku ASC
@@ -3207,10 +3233,19 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
         spare: {
           id: r.id,
           sku: r.sku,
+          brand: r.brand ?? "",
+          altSku: r.alt_sku?.trim() || null,
           name: r.name,
+          altName: r.alt_name?.trim() || null,
           description: r.description,
           category: r.category,
+          modelNo: r.model_no?.trim() || null,
+          caliber: r.caliber?.trim() || null,
+          subCategory: r.sub_category?.trim() || null,
+          size: r.size?.trim() || null,
+          colour: r.colour?.trim() || null,
           hsn: r.hsn,
+          gstPercent: r.gst_percent == null ? null : Number(r.gst_percent),
           costPriceInr: r.cost_price_inr == null ? null : Number(r.cost_price_inr),
           sellingPriceInr:
             r.selling_price_inr == null
@@ -3444,18 +3479,21 @@ app.post("/api/customers/register-otp/start-mobile", async (req, res) => {
     res.status(400).json({ error: "Primary mobile must be 10 digits." });
     return;
   }
+  let existingCustomerId: string | null = null;
   if (dbPool) {
-    const { rows: dupRows } = await dbPool.query(
-      `SELECT id FROM customers WHERE is_active = true AND phone_last10 = $1 LIMIT 1`,
+    const { rows: dupRows } = await dbPool.query<{ id: string; phone_verified_at: Date | null }>(
+      `SELECT id, phone_verified_at FROM customers WHERE is_active = true AND phone_last10 = $1 LIMIT 1`,
       [primaryP10],
     );
-    if (dupRows.length > 0) {
+    const dup = dupRows[0];
+    if (dup?.phone_verified_at) {
       res.status(400).json({
         error:
           "This mobile number is already registered. Open Customer master to view or edit the existing profile.",
       });
       return;
     }
+    existingCustomerId = dup?.id ?? null;
   }
   const target = otpPhone || primaryPhone;
   const p10 = phoneLast10(target);
@@ -3473,6 +3511,7 @@ app.post("/api/customers/register-otp/start-mobile", async (req, res) => {
     emailCode: null,
     emailVerified: false,
     expiresAt: Date.now() + CUSTOMER_OTP_TTL_MS,
+    existingCustomerId,
   });
   try {
     await deliverOtpToTargets(mobileCode, [{ type: "mobile", label: p10 }]);
@@ -3665,6 +3704,7 @@ app.post("/api/customers", async (req, res) => {
     referenceName?: string;
     representativeName?: string;
     additionalAddresses?: AddrIn[];
+    registeredStoreId?: string | null;
   };
 
   function addrOk(a: AddrIn | undefined): boolean {
@@ -3776,8 +3816,8 @@ app.post("/api/customers", async (req, res) => {
     return;
   }
   if (customerKind === "B2C") {
-    if (!firstName || !lastName) {
-      res.status(400).json({ error: "First name and last name are required for B2C." });
+    if (!firstName) {
+      res.status(400).json({ error: "First name is required for B2C." });
       return;
     }
   } else {
@@ -3848,19 +3888,118 @@ app.post("/api/customers", async (req, res) => {
   const id = createId("cust");
   const client = await dbPool.connect();
   try {
-    const { rows: dupRows } = await client.query(
-      `SELECT id FROM customers WHERE is_active = true AND phone_last10 = $1 LIMIT 1`,
+    const { rows: dupRows } = await client.query<{ id: string; phone_verified_at: Date | null }>(
+      `SELECT id, phone_verified_at FROM customers WHERE is_active = true AND phone_last10 = $1 LIMIT 1`,
       [p10Primary],
     );
-    if (dupRows.length > 0) {
+    const existingUnverified = dupRows.find((r) => !r.phone_verified_at) ?? null;
+    if (dupRows.length > 0 && !existingUnverified) {
       res.status(400).json({
         error:
           "This mobile number is already registered. Open Customer master to view or edit the existing profile.",
       });
       return;
     }
+    const updateId = existingUnverified?.id ?? sess.existingCustomerId ?? null;
     await client.query("BEGIN");
+    if (updateId) {
+      const upd = await client.query<{ id: string }>(
+        `UPDATE customers SET
+           display_name = $2,
+           salutation = $3,
+           first_name = $4,
+           last_name = $5,
+           phone = $6,
+           phone_last10 = $7,
+           alternate_phone = $8,
+           otp_phone = $9,
+           telephone = $10,
+           email = $11,
+           dob = $12::date,
+           anniversary_date = $13::date,
+           address = $14,
+           city = $15,
+           customer_kind = $16,
+           company = $17,
+           gst = $18,
+           pan = $19,
+           billing_address = $20::jsonb,
+           shipping_address = $21::jsonb,
+           tax_preference = $22,
+           b2b_trade_display_name = $23,
+           remark_attention = $24,
+           reference_name = $25,
+           representative_name = $26,
+           additional_addresses = $27::jsonb,
+           phone_verified_at = now(),
+           email_verified_at = CASE WHEN $28::boolean THEN now() ELSE email_verified_at END,
+           customer_data_source = 'registered',
+           custom_fields = $29::jsonb,
+           modified_by = $30,
+           updated_at = now()
+         WHERE id = $1 AND is_active = true AND phone_verified_at IS NULL
+         RETURNING id`,
+        [
+          updateId,
+          displayName,
+          salutation || null,
+          firstName || null,
+          lastName || null,
+          phone,
+          p10Primary,
+          alternatePhone,
+          otpPhoneStored,
+          telephone,
+          email,
+          dob,
+          anniversaryDate,
+          addressLegacy,
+          cityLegacy,
+          customerKind,
+          company,
+          gst,
+          pan,
+          billJson,
+          shipJson,
+          taxPreference,
+          customerKind === "B2B" ? b2bTradeDisplayName : null,
+          remarkAttention,
+          referenceName,
+          representativeName,
+          additionalJson,
+          Boolean(sess.emailVerified),
+          JSON.stringify(customChecked.values),
+          actor?.id ?? null,
+        ],
+      );
+      if (!upd.rows[0]) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "This mobile number is already verified. Open Customer master to view the profile.",
+        });
+        return;
+      }
+      const { rows } = await client.query(
+        `SELECT ${CUSTOMERS_SELECT_FIELDS} FROM customers WHERE id = $1`,
+        [updateId],
+      );
+      await client.query("COMMIT");
+      customerRegisterOtpSessions.delete(sessionId);
+      const customer = rowToCustomer(rows[0] as Record<string, unknown>);
+      res.json({ customer });
+      return;
+    }
     const customerCode = await nextCustomerCode(client);
+    const requestedStoreId = String(body.registeredStoreId ?? "").trim();
+    const sessionStoreId = String(actor?.storeId ?? "").trim();
+    let registeredStoreId: string | null = sessionStoreId || requestedStoreId || null;
+    if (registeredStoreId) {
+      const st = await client.query<{ id: string }>(
+        `SELECT id FROM stores WHERE id = $1::text LIMIT 1`,
+        [registeredStoreId],
+      );
+      registeredStoreId = st.rows[0]?.id ?? null;
+    }
     await client.query(
       `INSERT INTO customers (
          id, customer_code, display_name, salutation, first_name, last_name,
@@ -3874,7 +4013,7 @@ app.post("/api/customers", async (req, res) => {
          additional_addresses,
          phone_verified_at, email_verified_at, customer_data_source,
          custom_fields,
-         created_by, modified_by
+         created_by, modified_by, registered_store_id
        ) VALUES (
          $1, $2, $3, $4, $5, $6,
          $7, $8, $9, $10, $11, $12,
@@ -3887,7 +4026,7 @@ app.post("/api/customers", async (req, res) => {
          $28::jsonb,
          now(), now(), 'registered',
          $30::jsonb,
-         $29, $29
+         $29, $29, $31
        )`,
       [
         id,
@@ -3920,6 +4059,7 @@ app.post("/api/customers", async (req, res) => {
         additionalJson,
         actor?.id ?? null,
         JSON.stringify(customChecked.values),
+        registeredStoreId,
       ],
     );
     const { rows } = await client.query(

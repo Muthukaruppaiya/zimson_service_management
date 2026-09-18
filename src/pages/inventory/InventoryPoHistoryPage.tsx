@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
@@ -30,6 +30,14 @@ function statusBadge(status: string) {
   return `inline-block border px-2.5 py-0.5 text-[10px] font-bold tracking-wide ${PO_STATUS_COLOR[status] ?? "border-stone-300 bg-stone-50 text-stone-500"}`;
 }
 
+function poPendingQty(po: PurchaseOrder): number {
+  return po.items.reduce((n, i) => n + Math.max(0, i.qtyOrdered - i.receivedQty), 0);
+}
+
+function canAmendPo(po: PurchaseOrder): boolean {
+  return (po.status === "OPEN" || po.status === "PARTIAL") && poPendingQty(po) > 0;
+}
+
 function poPrReference(po: PurchaseOrder): string {
   if (po.prNumber) return po.prNumber;
   if (Array.isArray(po.prNumbers) && po.prNumbers.length > 0) return po.prNumbers.join(", ");
@@ -42,6 +50,7 @@ export function InventoryPoHistoryPage() {
   const { user } = useAuth();
   const { spares } = useSpares();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const isHo =
     user?.role === "admin" || user?.role === "super_admin" ||
@@ -54,6 +63,12 @@ export function InventoryPoHistoryPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [detailPoId, setDetailPoId] = useState<string | null>(null);
+  const [amendPoId, setAmendPoId] = useState<string | null>(null);
+  const [amendQty, setAmendQty] = useState<Record<string, string>>({});
+  const [amendNotes, setAmendNotes] = useState("");
+  const [amendBusy, setAmendBusy] = useState(false);
+  const [amendErr, setAmendErr] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
 
   const spareLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -100,6 +115,70 @@ export function InventoryPoHistoryPage() {
 
   const statuses = ["ALL", "OPEN", "PARTIAL", "CLOSED", "CANCELLED"];
 
+  function startAmend(po: PurchaseOrder) {
+    const next: Record<string, string> = {};
+    for (const i of po.items) next[i.id] = String(i.receivedQty);
+    setAmendQty(next);
+    setAmendNotes("");
+    setAmendErr(null);
+    setDetailPoId(null);
+    setAmendPoId(po.id);
+  }
+
+  useEffect(() => {
+    const id = searchParams.get("amend");
+    if (!id || loading) return;
+    const po = pos.find((p) => p.id === id);
+    if (po && canAmendPo(po)) startAmend(po);
+    if (searchParams.has("amend")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("amend");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open once from query after list loads
+  }, [loading, pos]);
+
+  async function submitAmend() {
+    const po = pos.find((p) => p.id === amendPoId);
+    if (!po) return;
+    setAmendErr(null);
+    const items = po.items.map((i) => {
+      const qty = Number(amendQty[i.id] ?? i.receivedQty);
+      return { poItemId: i.id, qtyOrdered: Number.isFinite(qty) ? qty : i.receivedQty };
+    });
+    for (const i of po.items) {
+      const next = items.find((x) => x.poItemId === i.id)!.qtyOrdered;
+      if (next < i.receivedQty) {
+        setAmendErr(`Cannot reduce a line below received qty (${i.receivedQty}).`);
+        return;
+      }
+      if (next > i.qtyOrdered) {
+        setAmendErr("Amendment can only reduce ordered qty, not increase it.");
+        return;
+      }
+    }
+    setAmendBusy(true);
+    try {
+      const data = await apiJson<{ poNumber: string; status: string; droppedLines: number }>(
+        `/api/inventory/pos/${po.id}/amend`,
+        { method: "PATCH", json: { items, notes: amendNotes.trim() } },
+      );
+      setAmendPoId(null);
+      setOkMsg(
+        data.status === "CLOSED"
+          ? `${data.poNumber} amended and closed. Remaining unreceived qty was removed.`
+          : data.status === "CANCELLED"
+            ? `${data.poNumber} cancelled — no received lines remained.`
+            : `${data.poNumber} amended. Status is now ${PO_STATUS_LABEL[data.status] ?? data.status}.`,
+      );
+      await loadAll();
+    } catch (e) {
+      setAmendErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setAmendBusy(false);
+    }
+  }
+
   function printPo(po: PurchaseOrder) {
     const supplier = suppliers.find((s) => s.id === po.supplierId);
     openPrintDocument(`PO ${po.poNumber}`, buildPurchaseOrderDocument({
@@ -113,8 +192,13 @@ export function InventoryPoHistoryPage() {
       notes: po.notes, requestedBy: user?.displayName ?? "-", requisitioner: user?.displayName ?? "-",
       shippedVia: "Road", fobPoint: "Destination", terms: "As per agreed rates and delivery schedule",
       lines: po.items.map((i) => ({
-        description: spareLabel.get(i.spareId) ?? i.spareId,
-        qty: i.qtyOrdered, unit: "Nos", unitPrice: i.unitPrice,
+        description: [
+          i.productName || spareLabel.get(i.spareId) || i.spareId,
+          i.partCode,
+          i.brand,
+          i.hsn ? `HSN ${i.hsn}` : null,
+        ].filter(Boolean).join(" · "),
+        qty: i.qtyOrdered, unit: i.uom || "Nos", unitPrice: i.unitPrice,
       })),
     }));
   }
@@ -124,7 +208,7 @@ export function InventoryPoHistoryPage() {
       <InventoryBreadcrumb current="PO History" />
       <PageHeader
         title="Purchase Order History"
-        description="All purchase orders raised by HO. Search, filter and print."
+        description="All purchase orders raised by HO. After a partial GRN, amend remaining qty to close the PO without inwarding leftover parts."
         actions={
           <div className="flex gap-2">
             {isHo && (
@@ -140,6 +224,12 @@ export function InventoryPoHistoryPage() {
       />
 
       {err && <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">✕ {err}</div>}
+      {okMsg && (
+        <div className="mb-4 flex items-start justify-between gap-3 border border-rlx-green/30 bg-rlx-green/10 px-4 py-3 text-sm text-rlx-green">
+          <span>✓ {okMsg}</span>
+          <button type="button" onClick={() => setOkMsg(null)} className="text-rlx-green/70 hover:text-rlx-green">✕</button>
+        </div>
+      )}
 
       {/* Stat summary */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -241,6 +331,13 @@ export function InventoryPoHistoryPage() {
                           onClick={() => setDetailPoId((x) => (x === po.id ? null : po.id))}
                           className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition"
                         >Details</button>
+                        {isHo && canAmendPo(po) && (
+                          <button
+                            type="button"
+                            onClick={() => startAmend(po)}
+                            className="border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 transition"
+                          >Amend</button>
+                        )}
                         <button
                           type="button"
                           onClick={() => printPo(po)}
@@ -260,12 +357,15 @@ export function InventoryPoHistoryPage() {
       {detailPoId && (() => {
         const po = pos.find((p) => p.id === detailPoId);
         if (!po) return null;
-        const totalValue = po.items.reduce((sum, i) => sum + i.qtyOrdered * i.unitPrice, 0);
+        const totalValue = po.items.reduce((sum, i) => {
+          const tax = (i.cgstAmount ?? 0) + (i.sgstAmount ?? 0) + (i.igstAmount ?? 0);
+          return sum + i.qtyOrdered * i.unitPrice + tax;
+        }, 0);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }}
             onMouseDown={(e) => { if (e.target === e.currentTarget) setDetailPoId(null); }}
           >
-            <div className="w-full max-w-3xl bg-white shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="w-full max-w-5xl bg-white shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
               {/* Header */}
               <div className="bg-rlx-green px-6 py-4 shrink-0 flex items-center justify-between">
                 <div>
@@ -299,41 +399,175 @@ export function InventoryPoHistoryPage() {
                 </div>
               </div>
               {/* Line items */}
-              <div className="overflow-y-auto flex-1">
-                <table className="w-full text-sm">
+              <div className="overflow-auto flex-1">
+                <table className="w-full min-w-[860px] text-sm">
                   <thead>
                     <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
                       <th className="px-6 py-3 text-left">Spare</th>
+                      <th className="px-4 py-3 text-center">UOM</th>
                       <th className="px-4 py-3 text-center">Ordered</th>
                       <th className="px-4 py-3 text-center">Received</th>
                       <th className="px-4 py-3 text-center">Pending</th>
-                      <th className="px-4 py-3 text-right">Unit Price</th>
-                      <th className="px-4 py-3 text-right">Total</th>
+                      <th className="px-4 py-3 text-right">Purchase</th>
+                      <th className="px-4 py-3 text-right">MRP</th>
+                      <th className="px-4 py-3 text-right">Tax</th>
+                      <th className="px-4 py-3 text-right">Final</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {po.items.map((i) => (
-                      <tr key={i.id} className="border-b border-rlx-rule last:border-0">
-                        <td className="px-6 py-3 font-medium text-stone-800">{spareLabel.get(i.spareId) ?? i.spareId}</td>
-                        <td className="px-4 py-3 text-center">{i.qtyOrdered}</td>
-                        <td className="px-4 py-3 text-center">{i.receivedQty}</td>
-                        <td className="px-4 py-3 text-center font-semibold text-amber-700">{Math.max(0, i.qtyOrdered - i.receivedQty)}</td>
-                        <td className="px-4 py-3 text-right text-stone-600">₹{i.unitPrice.toLocaleString("en-IN")}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-stone-800">₹{(i.qtyOrdered * i.unitPrice).toLocaleString("en-IN")}</td>
-                      </tr>
-                    ))}
+                    {po.items.map((i) => {
+                      const tax = (i.cgstAmount ?? 0) + (i.sgstAmount ?? 0) + (i.igstAmount ?? 0);
+                      const final = i.qtyOrdered * i.unitPrice + tax;
+                      return (
+                        <tr key={i.id} className="border-b border-rlx-rule last:border-0">
+                          <td className="px-6 py-3">
+                            <p className="font-medium text-stone-800">{i.productName || spareLabel.get(i.spareId) || i.spareId}</p>
+                            <p className="text-[11px] text-stone-400">
+                              {[i.partCode, i.brand, i.hsn ? `HSN ${i.hsn}` : null].filter(Boolean).join(" · ") || "—"}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3 text-center text-stone-600">{i.uom || "Nos"}</td>
+                          <td className="px-4 py-3 text-center">{i.qtyOrdered}</td>
+                          <td className="px-4 py-3 text-center">{i.receivedQty}</td>
+                          <td className="px-4 py-3 text-center font-semibold text-amber-700">{Math.max(0, i.qtyOrdered - i.receivedQty)}</td>
+                          <td className="px-4 py-3 text-right text-stone-600">₹{i.unitPrice.toLocaleString("en-IN")}</td>
+                          <td className="px-4 py-3 text-right text-stone-600">₹{(i.mrp ?? 0).toLocaleString("en-IN")}</td>
+                          <td className="px-4 py-3 text-right text-stone-600">₹{tax.toLocaleString("en-IN")}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-stone-800">₹{final.toLocaleString("en-IN")}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-rlx-rule bg-stone-50">
-                      <td colSpan={5} className="px-6 py-3 text-right text-xs font-bold uppercase tracking-widest text-stone-500">Total Order Value</td>
+                      <td colSpan={8} className="px-6 py-3 text-right text-xs font-bold uppercase tracking-widest text-stone-500">Total Order Value</td>
                       <td className="px-4 py-3 text-right text-base font-bold text-rlx-green">₹{totalValue.toLocaleString("en-IN")}</td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
               {/* Footer */}
-              <div className="shrink-0 border-t border-rlx-rule bg-rlx-bg px-6 py-4">
+              <div className="shrink-0 border-t border-rlx-rule bg-rlx-bg px-6 py-4 flex flex-wrap gap-2">
+                {isHo && canAmendPo(po) && (
+                  <button
+                    type="button"
+                    onClick={() => startAmend(po)}
+                    className="bg-rlx-green px-5 py-2 text-sm font-semibold text-white hover:bg-rlx-green/90 transition"
+                  >
+                    Amend remaining
+                  </button>
+                )}
                 <button type="button" onClick={() => setDetailPoId(null)} className="border border-rlx-rule px-5 py-2 text-sm text-stone-600 hover:bg-stone-50 transition">Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {amendPoId && (() => {
+        const po = pos.find((p) => p.id === amendPoId);
+        if (!po) return null;
+        const willClose = po.items.every((i) => {
+          const next = Number(amendQty[i.id] ?? i.receivedQty);
+          return !Number.isFinite(next) || next <= i.receivedQty;
+        });
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }}
+            onMouseDown={(e) => { if (e.target === e.currentTarget && !amendBusy) setAmendPoId(null); }}
+          >
+            <div className="w-full max-w-4xl bg-white shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+              <div className="bg-rlx-green px-6 py-4 shrink-0 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-white">Amend PO · {po.poNumber}</h3>
+                  <p className="text-[11px] text-white/60 mt-0.5">
+                    Reduce ordered qty to what was received. Unreceived lines are dropped. The PO then closes and will not stay pending for GRN.
+                  </p>
+                </div>
+                <button type="button" onClick={() => { if (!amendBusy) setAmendPoId(null); }} className="text-white/70 hover:text-white text-xl leading-none">×</button>
+              </div>
+              {amendErr && <div className="border-b border-red-200 bg-red-50 px-6 py-2.5 text-sm text-red-800">✕ {amendErr}</div>}
+              <div className="overflow-auto flex-1">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                      <th className="px-5 py-3 text-left">Spare</th>
+                      <th className="px-4 py-3 text-center">Ordered</th>
+                      <th className="px-4 py-3 text-center">Received</th>
+                      <th className="px-4 py-3 text-center">Pending</th>
+                      <th className="px-4 py-3 text-center">New ordered</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {po.items.map((i) => {
+                      const pending = Math.max(0, i.qtyOrdered - i.receivedQty);
+                      const next = Number(amendQty[i.id] ?? i.receivedQty);
+                      const drop = i.receivedQty === 0 && next === 0;
+                      return (
+                        <tr key={i.id} className="border-b border-rlx-rule last:border-0">
+                          <td className="px-5 py-3">
+                            <p className="font-medium text-stone-800">{i.productName || spareLabel.get(i.spareId) || i.spareId}</p>
+                            <p className="text-[11px] text-stone-400">
+                              {[i.partCode, i.brand].filter(Boolean).join(" · ") || "—"}
+                              {drop ? " · will be dropped" : ""}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3 text-center text-stone-600">{i.qtyOrdered}</td>
+                          <td className="px-4 py-3 text-center text-stone-700">{i.receivedQty}</td>
+                          <td className="px-4 py-3 text-center font-semibold text-amber-700">{pending}</td>
+                          <td className="px-4 py-3 text-center">
+                            <input
+                              type="number"
+                              min={i.receivedQty}
+                              max={i.qtyOrdered}
+                              step="1"
+                              value={amendQty[i.id] ?? String(i.receivedQty)}
+                              onChange={(e) => setAmendQty((m) => ({ ...m, [i.id]: e.target.value }))}
+                              className="mx-auto w-24 border border-rlx-rule bg-white px-2 py-1.5 text-center text-sm outline-none focus:border-rlx-green"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="shrink-0 border-t border-rlx-rule bg-rlx-bg px-6 py-4 space-y-3">
+                <input
+                  type="text"
+                  value={amendNotes}
+                  onChange={(e) => setAmendNotes(e.target.value)}
+                  placeholder="Amendment note (optional)"
+                  className="w-full border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
+                />
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-[12px] text-stone-500">
+                    {willClose
+                      ? "This will close the PO. Remaining parts will not appear for GRN."
+                      : "New ordered qty is still above received on some lines — PO will stay open/partial."}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next: Record<string, string> = {};
+                        for (const i of po.items) next[i.id] = String(i.receivedQty);
+                        setAmendQty(next);
+                      }}
+                      className="border border-rlx-rule px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition"
+                    >
+                      Set all to received
+                    </button>
+                    <button type="button" disabled={amendBusy} onClick={() => setAmendPoId(null)} className="border border-rlx-rule px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition">Cancel</button>
+                    <button
+                      type="button"
+                      disabled={amendBusy}
+                      onClick={() => void submitAmend()}
+                      className="bg-rlx-green px-5 py-2 text-sm font-semibold text-white hover:bg-rlx-green/90 transition disabled:opacity-40"
+                    >
+                      {amendBusy ? "Saving…" : willClose ? "Amend & close PO" : "Save amendment"}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

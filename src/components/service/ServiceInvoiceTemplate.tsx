@@ -336,6 +336,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
         <table className={`inv-items-table${isCustomerCopy ? " inv-items-table--customer" : ""}`}>
           <colgroup>
             <col className="inv-col-sno" />
+            <col className="inv-col-type" />
             {!isCustomerCopy ? <col className="inv-col-spare" /> : null}
             <col className="inv-col-item" />
             <col className="inv-col-hsn" />
@@ -346,6 +347,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           <thead>
             <tr>
               <th>S.No</th>
+              <th>Type</th>
               {!isCustomerCopy ? <th>Spare Code</th> : null}
               <th>Item Name</th>
               <th>HSN/SAC</th>
@@ -358,10 +360,13 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
             {data.lines.map((ln) => (
               <tr key={ln.slNo}>
                 <td className="inv-td-sno">{ln.slNo}</td>
+                <td className="inv-td-type">
+                  {ln.lineKind === "spare" || ln.isSpareLine ? "Spare" : "Service"}
+                </td>
                 {!isCustomerCopy ? (
                   <td className="inv-td-spare mono">{ln.spareCode ?? "—"}</td>
                 ) : null}
-                <td className="inv-td-item">{ln.description}</td>
+                <td className="inv-td-item" style={{ whiteSpace: "pre-line" }}>{ln.description}</td>
                 <td className="inv-td-hsn mono">{printedHsn(ln.hsnSac)}</td>
                 <td className="num">{fmt(ln.unitPrice)}</td>
                 <td className="num">{ln.qty}</td>
@@ -371,7 +376,7 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={isCustomerCopy ? 4 : 5}>
+              <td colSpan={isCustomerCopy ? 5 : 6}>
                 {data.amountInWords ? (
                   <span className="inv-amount-words">{data.amountInWords}</span>
                 ) : null}

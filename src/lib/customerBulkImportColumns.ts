@@ -7,7 +7,7 @@ export const CUSTOMER_BULK_IDENTITY_COLUMNS: BulkImportColumn[] = [
   { key: "customer_kind", label: "Customer Kind", required: true, note: "B2C or B2B — Excel dropdown in the template" },
   { key: "salutation", label: "Salutation", required: false, note: "Mr. / Mrs. / Ms. / Miss / Dr. — Excel dropdown" },
   { key: "first_name", label: "First Name", required: false, note: "Required for B2C" },
-  { key: "last_name", label: "Last Name", required: false, note: "Required for B2C" },
+  { key: "last_name", label: "Last Name", required: false, note: "Optional (second name)" },
   { key: "display_name", label: "Display Name", required: false, note: "Required for B2B (trade / display name)" },
   { key: "phone", label: "Primary Mobile", required: true, note: "10 digits. Upsert key — matching mobile updates the existing customer." },
   { key: "otp_phone", label: "OTP Mobile", required: false, note: "If SMS OTP should go to a different number later. Not verified on import." },
@@ -70,9 +70,16 @@ const CUSTOMER_HEADER_ALIASES: Record<string, string> = {
   customer_kind: "customer_kind",
   type: "customer_kind",
   kind: "customer_kind",
+  customer_code: "customer_code",
+  customer_number: "customer_code",
+  customer_no: "customer_code",
+  cust_id: "customer_code",
+  customer_id: "customer_code",
   salutation: "salutation",
   first_name: "first_name",
   last_name: "last_name",
+  second_name: "last_name",
+  surname: "last_name",
   display_name: "display_name",
   b2b_display_name: "display_name",
   trade_name: "display_name",
@@ -142,6 +149,10 @@ export function customerBulkHeaderLabels(): string[] {
 
 export function customerBulkColumnKeys(): string[] {
   return CUSTOMER_BULK_IMPORT_COLUMNS.map((c) => c.key);
+}
+
+export function customerBulkRequiredKeys(): string[] {
+  return CUSTOMER_BULK_IMPORT_COLUMNS.filter((c) => c.required).map((c) => c.key);
 }
 
 export function customerBulkColumnLabel(key: string): string {

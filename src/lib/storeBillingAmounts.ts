@@ -41,6 +41,7 @@ export function buildStoreBillingSnapshot(params: {
   collectionPaymentMode: string;
   paymentDetails?: import("./paymentModes").MultiPaymentDetails;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
+  warrantyMonths?: number | null;
 }): StoreBillingSnapshot {
   const invoiceLines: InvoiceBillLine[] = params.useServiceBillLinesCard
     ? editorLinesToInvoiceBillLines(
@@ -63,6 +64,7 @@ export function buildStoreBillingSnapshot(params: {
     collectionPaymentMode: params.collectionPaymentMode,
     paymentDetails: params.paymentDetails,
     closedAt: new Date().toISOString(),
+    warrantyMonths: params.warrantyMonths && params.warrantyMonths > 0 ? params.warrantyMonths : undefined,
   };
 }
 
@@ -318,6 +320,8 @@ export function buildStoreBillingInvoiceFromClosedJob(
           (snapshot.paymentDetails as import("./paymentModes").MultiPaymentDetails | undefined) ??
           undefined,
         natureOfRepair: job.natureOfRepair?.trim() || "Service completed",
+        warrantyMonths: snapshot.warrantyMonths ?? job.warrantyMonths ?? null,
+        warrantyTillDate: job.warrantyTillDate ?? null,
       },
       {
         taxSettings: options.taxSettings,
@@ -390,6 +394,8 @@ export function buildStoreBillingInvoiceFromClosedJob(
       collectionAmountInr: collectionAmount,
       collectionPaymentMode: options.collectionPaymentMode?.trim() || undefined,
       natureOfRepair: job.natureOfRepair?.trim() || "Service completed",
+      warrantyMonths: job.warrantyMonths ?? null,
+      warrantyTillDate: job.warrantyTillDate ?? null,
     },
     {
       taxSettings: options.taxSettings,

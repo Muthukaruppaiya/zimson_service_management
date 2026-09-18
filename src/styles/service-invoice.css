@@ -666,11 +666,14 @@
 .service-invoice-print-root.inv-doc .inv-col-sno {
   width: 5%;
 }
+.service-invoice-print-root.inv-doc .inv-col-type {
+  width: 9%;
+}
 .service-invoice-print-root.inv-doc .inv-col-spare {
-  width: 12%;
+  width: 11%;
 }
 .service-invoice-print-root.inv-doc .inv-col-item {
-  width: 38%;
+  width: 35%;
 }
 .service-invoice-print-root.inv-doc .inv-items-table--customer .inv-col-item {
   width: 40%;

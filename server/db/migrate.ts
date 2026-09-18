@@ -111,11 +111,21 @@ CREATE INDEX IF NOT EXISTS idx_brands_active_sort ON brands (is_active, sort_ord
 
 CREATE TABLE IF NOT EXISTS spares (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  sku VARCHAR(64) UNIQUE NOT NULL,
+  sku VARCHAR(64) NOT NULL,
+  brand VARCHAR(120) NOT NULL DEFAULT '',
+  alt_sku VARCHAR(64),
   name TEXT NOT NULL,
+  alt_name TEXT,
   description TEXT NOT NULL DEFAULT '',
   category VARCHAR(128) NOT NULL DEFAULT 'Other',
+  model_no VARCHAR(120),
+  caliber VARCHAR(120),
+  sub_category VARCHAR(120),
+  size VARCHAR(80),
+  colour VARCHAR(80),
   hsn VARCHAR(32),
+  gst_percent NUMERIC(5, 2)
+    CHECK (gst_percent IS NULL OR (gst_percent >= 0 AND gst_percent <= 100)),
   mrp_inr NUMERIC(14, 2),
   cost_price_inr NUMERIC(14, 2),
   selling_price_inr NUMERIC(14, 2),
@@ -345,6 +355,7 @@ CREATE TABLE IF NOT EXISTS grns (
   region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
   invoice_number VARCHAR(120),
   invoice_date DATE,
+  -- WITH_BILL = GRN against vendor invoice; WITHOUT_BILL = GRN against voucher
   mode VARCHAR(20) NOT NULL CHECK (mode IN ('WITH_BILL', 'WITHOUT_BILL')),
   notes TEXT NOT NULL DEFAULT '',
   created_by VARCHAR(80) NOT NULL,
@@ -1585,6 +1596,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
 
   await pool.query(`
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_till_date DATE;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_months INTEGER;
   `);
 
   await pool.query(`
@@ -1620,5 +1632,134 @@ export async function runMigrations(pool: Pool): Promise<void> {
 
   await pool.query(`
     ALTER TABLE quick_bill_lines ADD COLUMN IF NOT EXISTS hsn VARCHAR(16);
+  `);
+
+  await pool.query(`
+    ALTER TABLE grn_items ADD COLUMN IF NOT EXISTS qty_returned NUMERIC(18, 3) NOT NULL DEFAULT 0;
+
+    CREATE TABLE IF NOT EXISTS purchase_returns (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      prt_number VARCHAR(48) UNIQUE NOT NULL,
+      grn_id UUID NOT NULL REFERENCES grns(id) ON DELETE RESTRICT,
+      po_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE RESTRICT,
+      supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+      region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+      return_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      reason VARCHAR(32) NOT NULL DEFAULT 'OTHER',
+      debit_note_number VARCHAR(120),
+      notes TEXT NOT NULL DEFAULT '',
+      created_by VARCHAR(80) NOT NULL,
+      modified_by VARCHAR(80),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_grn ON purchase_returns (grn_id);
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_po ON purchase_returns (po_id);
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_region ON purchase_returns (region_id);
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_created ON purchase_returns (created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS purchase_return_items (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      purchase_return_id UUID NOT NULL REFERENCES purchase_returns(id) ON DELETE CASCADE,
+      grn_item_id UUID NOT NULL REFERENCES grn_items(id) ON DELETE RESTRICT,
+      po_item_id UUID NOT NULL REFERENCES purchase_order_items(id) ON DELETE RESTRICT,
+      spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE RESTRICT,
+      qty_returned NUMERIC(18, 3) NOT NULL CHECK (qty_returned > 0),
+      cost_price NUMERIC(14, 4) DEFAULT 0,
+      gst_rate NUMERIC(6, 2) DEFAULT 18,
+      tax_amount NUMERIC(14, 4) DEFAULT 0,
+      created_by VARCHAR(80),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_purchase_return_items_prt ON purchase_return_items (purchase_return_id);
+  `);
+
+  await pool.query(`
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS mrp NUMERIC(14, 4) NOT NULL DEFAULT 0;
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS gst_rate NUMERIC(6, 2) NOT NULL DEFAULT 0;
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS cgst_amount NUMERIC(14, 4) NOT NULL DEFAULT 0;
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS sgst_amount NUMERIC(14, 4) NOT NULL DEFAULT 0;
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS igst_amount NUMERIC(14, 4) NOT NULL DEFAULT 0;
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS uom VARCHAR(16) NOT NULL DEFAULT 'Nos';
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS hsn VARCHAR(16);
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS brand VARCHAR(120);
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS part_code VARCHAR(80);
+    ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS product_name VARCHAR(240);
+    ALTER TABLE grns ALTER COLUMN po_id DROP NOT NULL;
+    ALTER TABLE grn_items ALTER COLUMN po_item_id DROP NOT NULL;
+    ALTER TABLE purchase_return_items ALTER COLUMN po_item_id DROP NOT NULL;
+    ALTER TABLE purchase_returns ALTER COLUMN po_id DROP NOT NULL;
+    ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS support_doc_path TEXT;
+    ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS support_doc_name TEXT;
+  `);
+
+  await pool.query(`
+    ALTER TABLE customers
+      ADD COLUMN IF NOT EXISTS registered_store_id TEXT REFERENCES stores(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS idx_customers_registered_store ON customers (registered_store_id);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS srf_payments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      srf_id UUID NOT NULL REFERENCES srf_jobs(id) ON DELETE CASCADE,
+      kind VARCHAR(32) NOT NULL CHECK (kind IN ('booking_advance', 'additional')),
+      amount_inr NUMERIC(14, 2) NOT NULL CHECK (amount_inr > 0),
+      payment_mode VARCHAR(200) NOT NULL,
+      payment_details JSONB NOT NULL DEFAULT '{}'::jsonb,
+      note TEXT NOT NULL DEFAULT '',
+      collected_by VARCHAR(80),
+      collected_by_name VARCHAR(160),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_srf_payments_srf ON srf_payments (srf_id, created_at);
+  `);
+
+  await pool.query(`
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS service_package JSONB NOT NULL DEFAULT '{}'::jsonb;
+    CREATE TABLE IF NOT EXISTS service_packages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      brand VARCHAR(120) NOT NULL,
+      service_type VARCHAR(32) NOT NULL CHECK (service_type IN ('quartz', 'mechanical')),
+      package_type VARCHAR(40) NOT NULL,
+      price_inr NUMERIC(14, 2) NOT NULL CHECK (price_inr >= 0),
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (brand, service_type, package_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_service_packages_brand ON service_packages (brand, service_type, is_active);
+    CREATE TABLE IF NOT EXISTS service_package_spares (
+      package_id UUID NOT NULL REFERENCES service_packages(id) ON DELETE CASCADE,
+      spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE RESTRICT,
+      qty NUMERIC(12, 0) NOT NULL DEFAULT 1 CHECK (qty > 0),
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (package_id, spare_id)
+    );
+  `);
+
+  await pool.query(`
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS brand VARCHAR(120) NOT NULL DEFAULT '';
+    UPDATE spares s
+    SET brand = p.brand
+    FROM (
+      SELECT DISTINCT ON (spare_id) spare_id, brand
+      FROM spare_prices
+      WHERE BTRIM(COALESCE(brand, '')) <> ''
+      ORDER BY spare_id, created_at ASC
+    ) p
+    WHERE s.id = p.spare_id
+      AND BTRIM(s.brand) = '';
+    ALTER TABLE spares DROP CONSTRAINT IF EXISTS spares_sku_key;
+    DROP INDEX IF EXISTS spares_sku_key;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_spares_sku_brand
+      ON spares (UPPER(BTRIM(sku)), UPPER(BTRIM(brand)));
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS alt_sku VARCHAR(64);
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS alt_name TEXT;
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS model_no VARCHAR(120);
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS caliber VARCHAR(120);
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS sub_category VARCHAR(120);
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS size VARCHAR(80);
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS colour VARCHAR(80);
   `);
 }

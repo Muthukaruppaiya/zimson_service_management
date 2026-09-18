@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { FormPageShell } from "../../components/layout/FormPageShell";
 import { Card } from "../../components/ui/Card";
@@ -7,6 +7,8 @@ import { CustomerDetailsModal } from "../../components/service/CustomerDetailsMo
 import { RegistrationOtpModal } from "../../components/service/RegistrationOtpModal";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useCustomers } from "../../context/CustomersContext";
+import { useAuth } from "../../context/AuthContext";
+import { useRegions } from "../../context/RegionsContext";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
 import { isValidOtpCode, otpLengthLabel } from "../../lib/otp";
@@ -35,8 +37,10 @@ import {
 } from "../../lib/customerAddress";
 import type { CustomerAddressBlock, CustomerKind, CustomerRecord } from "../../types/customer";
 import { inputClass, inputClassReadOnly } from "../../lib/uiForm";
+import { isCustomerPhoneVerified } from "../../lib/customerVerification";
 import { clearPendingRegisterPhone } from "../../lib/pendingRegisterPhone";
 import { stashPendingResumeCustomer } from "../../lib/pendingResumeCustomer";
+import { allStoresWithRegion, storeDisplayName } from "../../lib/serviceOperatingContext";
 
 const contactVerifyPill =
   "inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-900";
@@ -64,6 +68,28 @@ function isValidEmail(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 }
 
+function toDateInputValue(raw: string | null | undefined): string {
+  const s = String(raw ?? "").trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m?.[1] ?? "";
+}
+
+function namesFromUnverifiedCustomer(c: CustomerRecord): { first: string; last: string; salutation: string } {
+  const salutation = (c.salutation ?? "").trim();
+  let first = (c.firstName ?? "").trim();
+  let last = (c.lastName ?? "").trim();
+  if (!first && !last) {
+    let rest = (c.displayName ?? "").trim();
+    if (salutation && rest.toLowerCase().startsWith(salutation.toLowerCase())) {
+      rest = rest.slice(salutation.length).trim();
+    }
+    const parts = rest.split(/\s+/).filter(Boolean);
+    first = parts[0] ?? "";
+    last = parts.slice(1).join(" ");
+  }
+  return { first, last, salutation };
+}
+
 type CountryRow = { id: string; name: string; sortOrder: number };
 
 export function SrfCustomerRegisterPage() {
@@ -71,6 +97,8 @@ export function SrfCustomerRegisterPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const api = useApiMode();
+  const { user } = useAuth();
+  const { regions } = useRegions();
   const {
     lookup,
     registerCustomer,
@@ -112,6 +140,9 @@ export function SrfCustomerRegisterPage() {
   const [remarkAttention, setRemarkAttention] = useState("");
   const [referenceName, setReferenceName] = useState("");
   const [representativeName, setRepresentativeName] = useState("");
+  const lockedStoreId = String(user?.storeId ?? "").trim();
+  const storeOptions = useMemo(() => allStoresWithRegion(regions), [regions]);
+  const [registeredStoreId, setRegisteredStoreId] = useState(lockedStoreId);
   const [customFields, setCustomFields] = useState<CustomFieldValues>({});
   const { fields: extraFieldDefs } = useCustomFields("customer");
   const [gstFetchBusy, setGstFetchBusy] = useState(false);
@@ -146,6 +177,7 @@ export function SrfCustomerRegisterPage() {
 
   useEffect(() => {
     if (!lockedRegisterPhone) return;
+    if (prefilledUnverifiedIdRef.current) return;
     setCustomerKind("B2C");
     setSalutation("Mr.");
     setFirstName("");
@@ -179,11 +211,18 @@ export function SrfCustomerRegisterPage() {
     setError(null);
   }, [lockedRegisterPhone, initialPhoneDigits]);
 
+  useEffect(() => {
+    if (lockedStoreId) setRegisteredStoreId(lockedStoreId);
+  }, [lockedStoreId]);
+
   const phoneKey = useMemo(() => digitsOnly(phone, 12), [phone]);
   const emailKey = useMemo(() => email.trim().toLowerCase(), [email]);
   const [existingCustomer, setExistingCustomer] = useState<CustomerRecord | null>(null);
   const [phoneCheckBusy, setPhoneCheckBusy] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const prefilledUnverifiedIdRef = useRef<string | null>(null);
+  const blockingExisting = Boolean(existingCustomer && isCustomerPhoneVerified(existingCustomer));
+  const verifyingExisting = Boolean(existingCustomer && !isCustomerPhoneVerified(existingCustomer));
 
   useEffect(() => {
     if (phoneKey.length < 10) {
@@ -215,6 +254,66 @@ export function SrfCustomerRegisterPage() {
       cancelled = true;
     };
   }, [api, lookup, phone, phoneKey]);
+
+  useEffect(() => {
+    if (!existingCustomer || isCustomerPhoneVerified(existingCustomer)) {
+      if (!existingCustomer) prefilledUnverifiedIdRef.current = null;
+      return;
+    }
+    if (prefilledUnverifiedIdRef.current === existingCustomer.id) return;
+    prefilledUnverifiedIdRef.current = existingCustomer.id;
+    const names = namesFromUnverifiedCustomer(existingCustomer);
+    const kind = existingCustomer.customerKind === "B2B" ? "B2B" : "B2C";
+    const bill = existingCustomer.billingAddress
+      ? { ...emptyCustomerAddress(), ...trimCustomerAddress(existingCustomer.billingAddress) }
+      : emptyCustomerAddress();
+    const shipRaw = existingCustomer.shippingAddress
+      ? { ...emptyCustomerAddress(), ...trimCustomerAddress(existingCustomer.shippingAddress) }
+      : emptyCustomerAddress();
+    const shipComplete = isCustomerAddressComplete(shipRaw);
+    const sameShip = !shipComplete || JSON.stringify(bill) === JSON.stringify(shipRaw);
+    const panValue = (existingCustomer.pan ?? "").trim().toUpperCase();
+    setCustomerKind(kind);
+    setSalutation(
+      SALUTATIONS.includes(names.salutation as (typeof SALUTATIONS)[number])
+        ? names.salutation
+        : "Mr.",
+    );
+    setFirstName(names.first);
+    setLastName(names.last);
+    setB2bDisplayName(
+      kind === "B2B"
+        ? (existingCustomer.b2bTradeDisplayName || existingCustomer.displayName || "").trim()
+        : "",
+    );
+    setAlternatePhone(digitsOnly(existingCustomer.alternatePhone ?? "", 10));
+    setTelephone(sanitizePhoneDigits(existingCustomer.telephone ?? "", 15));
+    setEmail(sanitizeEmailInput(existingCustomer.email ?? ""));
+    setDob(toDateInputValue(existingCustomer.dob));
+    setAnniversaryDate(toDateInputValue(existingCustomer.anniversaryDate));
+    setBilling(bill);
+    setShipping(sameShip ? bill : shipRaw);
+    setSameShippingAsBilling(sameShip);
+    setAdditionalAddresses(
+      (existingCustomer.additionalAddresses ?? []).map((a) => ({
+        ...emptyCustomerAddress(),
+        ...trimCustomerAddress(a),
+      })),
+    );
+    setCompany((existingCustomer.company ?? "").trim());
+    setGst((existingCustomer.gst ?? "").trim().toUpperCase());
+    setPan(panValue);
+    setGstLookupLocked(kind === "B2B" && Boolean((existingCustomer.gst ?? "").trim()));
+    setPanVerifiedValue(panValue);
+    setPanVerifiedName("");
+    setRemarkAttention((existingCustomer.remarkAttention ?? "").trim());
+    setReferenceName((existingCustomer.referenceName ?? "").trim());
+    setRepresentativeName((existingCustomer.representativeName ?? "").trim());
+    setCustomFields((existingCustomer.customFields as CustomFieldValues | undefined) ?? {});
+    if (existingCustomer.registeredStoreId && !lockedStoreId) {
+      setRegisteredStoreId(existingCustomer.registeredStoreId);
+    }
+  }, [existingCustomer, lockedStoreId]);
 
   useEffect(() => {
     setSessionId(null);
@@ -345,9 +444,9 @@ export function SrfCustomerRegisterPage() {
 
   async function handleStartMobileOtp() {
     setError(null);
-    if (existingCustomer) {
+    if (blockingExisting) {
       showOtpAlert(
-        `Mobile ${phoneKey} is already registered as “${existingCustomer.displayName}”. Use Customer master to view or edit that profile.`,
+        `Mobile ${phoneKey} is already registered as “${existingCustomer?.displayName}”. Use Customer master to view or edit that profile.`,
         "Already registered",
       );
       return;
@@ -462,9 +561,9 @@ export function SrfCustomerRegisterPage() {
 
   function validateAll(): boolean {
     setError(null);
-    if (existingCustomer) {
+    if (blockingExisting) {
       setError(
-        `This mobile is already on file for “${existingCustomer.displayName}”. You cannot create a second profile with the same number.`,
+        `This mobile is already on file for “${existingCustomer?.displayName}”. You cannot create a second profile with the same number.`,
       );
       return false;
     }
@@ -490,15 +589,15 @@ export function SrfCustomerRegisterPage() {
       return false;
     }
     if (customerKind === "B2C") {
-      if (!firstName.trim() || !lastName.trim()) {
-        setError("First name and last name are required.");
+      if (!firstName.trim()) {
+        setError("First name is required.");
         return false;
       }
       if (pan.trim() && !isValidPanFormat(pan)) {
         setError("Enter a valid 10-character PAN or leave it blank.");
         return false;
       }
-      if (pan.trim() && panVerifiedValue !== pan.trim().toUpperCase()) {
+      if (pan.trim() && !verifyingExisting && panVerifiedValue !== pan.trim().toUpperCase()) {
         setError("Verify PAN before creating the customer.");
         return false;
       }
@@ -507,7 +606,7 @@ export function SrfCustomerRegisterPage() {
         setError("B2B display name is required.");
         return false;
       }
-      if (!gstLookupLocked) {
+      if (!verifyingExisting && !gstLookupLocked) {
         setError("Fetch company from GST before registering.");
         return false;
       }
@@ -529,7 +628,7 @@ export function SrfCustomerRegisterPage() {
         setError("Enter a valid PAN or a GSTIN that contains a valid PAN.");
         return false;
       }
-      if (panVerifiedValue !== panValue.toUpperCase()) {
+      if (!verifyingExisting && panVerifiedValue !== panValue.toUpperCase()) {
         setError("Verify PAN from Master India before registering.");
         return false;
       }
@@ -583,8 +682,8 @@ export function SrfCustomerRegisterPage() {
           additionalAddresses.length > 0 ? additionalAddresses.map((a) => trimCustomerAddress(a)) : undefined,
         sameShippingAsBilling,
         b2bTradeDisplayName: customerKind === "B2B" ? b2bDisplayName.trim() : undefined,
-        company: customerKind === "B2B" ? company.trim() : undefined,
-        gst: customerKind === "B2B" ? gst.trim().toUpperCase() : undefined,
+        company: company.trim() || undefined,
+        gst: gst.trim().toUpperCase() || undefined,
         pan: (() => {
           const p = pan.trim().toUpperCase() || panFromGstin(gst) || "";
           return p || undefined;
@@ -593,6 +692,7 @@ export function SrfCustomerRegisterPage() {
         referenceName: referenceName.trim() || undefined,
         representativeName: representativeName.trim() || undefined,
         customFields,
+        registeredStoreId: registeredStoreId.trim() || undefined,
       });
       setCreatedCustomer(row);
       setSuccessInfo({ id: row.id, customerCode: row.customerCode, phoneDigits: row.phone });
@@ -666,14 +766,32 @@ export function SrfCustomerRegisterPage() {
         ) : null}
         {existingCustomer ? (
           <div className="border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-[11px] text-amber-950">
-            <p className="font-semibold">Mobile already registered</p>
-            <p className="mt-1">
-              <strong>{existingCustomer.displayName}</strong>
-              {existingCustomer.customerCode ? (
-                <> · Code <span className="font-mono">{existingCustomer.customerCode}</span></>
-              ) : null}
-              {" "}· {existingCustomer.phone}
-            </p>
+            {verifyingExisting ? (
+              <>
+                <p className="font-semibold">Unverified customer loaded</p>
+                <p className="mt-1">
+                  <strong>{existingCustomer.displayName}</strong>
+                  {existingCustomer.customerCode ? (
+                    <> · Code <span className="font-mono">{existingCustomer.customerCode}</span></>
+                  ) : null}
+                  {" "}· {existingCustomer.phone}
+                </p>
+                <p className="mt-1">
+                  Name, address and other master data are filled from this record. Verify the mobile OTP to complete.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold">Mobile already registered</p>
+                <p className="mt-1">
+                  <strong>{existingCustomer.displayName}</strong>
+                  {existingCustomer.customerCode ? (
+                    <> · Code <span className="font-mono">{existingCustomer.customerCode}</span></>
+                  ) : null}
+                  {" "}· {existingCustomer.phone}
+                </p>
+              </>
+            )}
             <p className="mt-2">
               <button
                 type="button"
@@ -718,6 +836,32 @@ export function SrfCustomerRegisterPage() {
           </div>
         </Card>
 
+        <Card title="Customer registered at">
+          <p className="mb-3 text-xs text-stone-500">
+            Captures the store where this customer is created. The customer remains available to every store.
+          </p>
+          {lockedStoreId ? (
+            <input
+              className={inputClassReadOnly}
+              readOnly
+              value={storeDisplayName(regions, lockedStoreId) || lockedStoreId}
+            />
+          ) : (
+            <select
+              className={inputClass}
+              value={registeredStoreId}
+              onChange={(e) => setRegisteredStoreId(e.target.value)}
+            >
+              <option value="">Select store…</option>
+              {storeOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.regionName})
+                </option>
+              ))}
+            </select>
+          )}
+        </Card>
+
         <Card title="Name">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -750,7 +894,7 @@ export function SrfCustomerRegisterPage() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-stone-600">Last name *</label>
+              <label className="text-xs font-medium text-stone-600">Last name</label>
               <input
                 value={lastName}
                 onChange={(e) => setLastName(sanitizeTextInput(e.target.value, 80))}
@@ -792,7 +936,7 @@ export function SrfCustomerRegisterPage() {
                 <button
                   type="button"
                   onClick={() => void handleStartMobileOtp()}
-                  disabled={otpStartBusy || phoneCheckBusy || !!existingCustomer}
+                  disabled={otpStartBusy || phoneCheckBusy || blockingExisting}
                   className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {otpStartBusy ? "…" : "Verify"}
@@ -1131,10 +1275,10 @@ export function SrfCustomerRegisterPage() {
         <div className="sticky bottom-2 z-10 flex flex-wrap gap-3 rounded-xl border border-zimson-200 bg-white/90 p-3 shadow-lg backdrop-blur">
           <button
             type="submit"
-            disabled={saving || !mobileOtpVerified || !!existingCustomer || phoneCheckBusy}
+            disabled={saving || !mobileOtpVerified || blockingExisting || phoneCheckBusy}
             className="rounded-xl bg-zimson-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? "Saving…" : "Create customer"}
+            {saving ? "Saving…" : verifyingExisting ? "Verify customer" : "Create customer"}
           </button>
           <Link
             to={
@@ -1152,8 +1296,12 @@ export function SrfCustomerRegisterPage() {
       {successInfo ? (
         <ProcessSuccessModal
           open
-          title="Customer created successfully"
-          description="The customer master record is saved. Mobile OTP verification is complete."
+          title={verifyingExisting ? "Customer verified successfully" : "Customer created successfully"}
+          description={
+            verifyingExisting
+              ? "Mobile OTP is complete. This customer is now verified from the existing master record."
+              : "The customer master record is saved. Mobile OTP verification is complete."
+          }
           actions={
             <>
               <button

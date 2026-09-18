@@ -315,8 +315,112 @@ function mergeBrandAttachmentMeta(
   return out;
 }
 
+function parseServicePackageSnapshot(raw: unknown): {
+  id: string;
+  brand: string;
+  serviceType: string;
+  packageType: string;
+  priceInr: number;
+  spareIds: string[];
+  spareNames: string[];
+} | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const id = String(o.id ?? "").trim();
+  const serviceType = String(o.serviceType ?? "").trim().toLowerCase();
+  const packageType = String(o.packageType ?? "").trim();
+  if (!id || !packageType) return null;
+  if (serviceType !== "quartz" && serviceType !== "mechanical") return null;
+  const priceInr = Number(o.priceInr ?? 0);
+  const spareIds = Array.isArray(o.spareIds)
+    ? o.spareIds.map((x) => String(x ?? "").trim()).filter(Boolean)
+    : [];
+  const spareNames = Array.isArray(o.spareNames)
+    ? o.spareNames.map((x) => String(x ?? "").trim()).filter(Boolean)
+    : [];
+  return {
+    id,
+    brand: String(o.brand ?? "").trim(),
+    serviceType,
+    packageType,
+    priceInr: Number.isFinite(priceInr) ? priceInr : 0,
+    spareIds,
+    spareNames,
+  };
+}
+
+function roleCanCollectSrfPayment(actor: DemoUser): boolean {
+  return (
+    STORE_ROLES.has(actor.role) ||
+    actor.role === "super_admin" ||
+    actor.role === "admin" ||
+    actor.role === "ho_manager" ||
+    actor.role === "service_centre_supervisor" ||
+    actor.role === "service_centre_clerk"
+  );
+}
+
 function roleCanCreateDraft(actor: DemoUser): boolean {
   return STORE_ROLES.has(actor.role) || actor.role === "super_admin" || actor.role === "admin";
+}
+
+type Queryable = Pool | PoolClient;
+
+async function insertSrfPayment(
+  executor: Queryable,
+  input: {
+    srfId: string;
+    kind: "booking_advance" | "additional";
+    amountInr: number;
+    paymentMode: string;
+    paymentDetails: AdvancePaymentDetails;
+    note?: string;
+    actor?: DemoUser | null;
+  },
+): Promise<void> {
+  await executor.query(
+    `INSERT INTO srf_payments
+       (srf_id, kind, amount_inr, payment_mode, payment_details, note, collected_by, collected_by_name)
+     VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+    [
+      input.srfId,
+      input.kind,
+      input.amountInr,
+      input.paymentMode,
+      JSON.stringify(input.paymentDetails ?? {}),
+      (input.note ?? "").trim(),
+      input.actor?.id ?? null,
+      input.actor?.displayName ?? input.actor?.id ?? null,
+    ],
+  );
+}
+
+async function ensureBookingAdvancePaymentRow(
+  executor: Queryable,
+  job: {
+    id: string;
+    advance_inr: number;
+    advance_payment_mode: string | null;
+    advance_payment_details: AdvancePaymentDetails | null;
+    created_by?: string | null;
+  },
+  actor?: DemoUser | null,
+): Promise<void> {
+  if (!Number.isFinite(job.advance_inr) || job.advance_inr <= 0) return;
+  const { rows } = await executor.query<{ c: number }>(
+    `SELECT COUNT(*)::int AS c FROM srf_payments WHERE srf_id = $1::uuid`,
+    [job.id],
+  );
+  if ((rows[0]?.c ?? 0) > 0) return;
+  await insertSrfPayment(executor, {
+    srfId: job.id,
+    kind: "booking_advance",
+    amountInr: job.advance_inr,
+    paymentMode: job.advance_payment_mode || "Cash",
+    paymentDetails: job.advance_payment_details ?? {},
+    note: "Booking advance (recorded from SRF)",
+    actor: actor ?? null,
+  });
 }
 
 function roleCanView(actor: DemoUser): boolean {
@@ -746,8 +850,6 @@ type ActionLogInput = {
   actor?: DemoUser | null;
   actorOverride?: { id?: string | null; role?: string | null; name?: string | null };
 };
-
-type Queryable = Pool | PoolClient;
 
 async function appendActionLog(executor: Queryable, srfId: string, input: ActionLogInput): Promise<void> {
   const actorId = input.actorOverride?.id ?? input.actor?.id ?? null;
@@ -1218,7 +1320,12 @@ export function registerSrfRoutes(
                   LIMIT 1
                 ) AS "trackingToken",
                 j.used_spares AS "usedSpares",
+                CASE
+                  WHEN j.service_package IS NULL OR j.service_package = '{}'::jsonb THEN NULL
+                  ELSE j.service_package
+                END AS "servicePackage",
                 j.warranty_till_date::text AS "warrantyTillDate",
+                j.warranty_months AS "warrantyMonths",
                 j.spares_slip_submitted_at AS "sparesSlipSubmittedAt",
                 j.spares_slip_submitted_by AS "sparesSlipSubmittedBy",
                 j.ho_spares_bill_ref AS "hoSparesBillRef",
@@ -2570,6 +2677,17 @@ export function registerSrfRoutes(
           JSON.stringify(customChecked.values),
         ],
       );
+      if (advanceInr > 0 && advancePaymentMode) {
+        await insertSrfPayment(client, {
+          srfId,
+          kind: "booking_advance",
+          amountInr: advanceInr,
+          paymentMode: advancePaymentMode,
+          paymentDetails: advancePaymentDetails,
+          note: "Advance collected at SRF booking",
+          actor,
+        });
+      }
       await client.query(
         `UPDATE srf_photo_sessions SET revoked_at = now() WHERE srf_id = $1::uuid AND revoked_at IS NULL`,
         [srfId],
@@ -2636,6 +2754,189 @@ export function registerSrfRoutes(
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
       res.status(400).json({ error: "Could not finalize SRF." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.get("/api/service/srf-jobs/:srfId/payments", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanView(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    if (!srfId) {
+      res.status(400).json({ error: "srfId is required." });
+      return;
+    }
+    try {
+      const scope = visibleWhere(actor);
+      const params: unknown[] = [...scope.params, srfId];
+      const { rows: jobRows } = await pool.query<{
+        id: string;
+        advance_inr: number;
+        advance_payment_mode: string | null;
+        advance_payment_details: AdvancePaymentDetails | null;
+        estimate_total_inr: number;
+        reestimate_requested_inr: number | null;
+        status: string;
+      }>(
+        `SELECT j.id,
+                j.advance_inr::float8 AS advance_inr,
+                j.advance_payment_mode,
+                j.advance_payment_details,
+                j.estimate_total_inr::float8 AS estimate_total_inr,
+                j.reestimate_requested_inr::float8 AS reestimate_requested_inr,
+                j.status
+         FROM srf_jobs j
+         WHERE ${scope.sql} AND j.id = $${scope.nextIdx}::uuid
+         LIMIT 1`,
+        params,
+      );
+      const job = jobRows[0];
+      if (!job) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      await ensureBookingAdvancePaymentRow(pool, job, actor);
+      const { rows } = await pool.query(
+        `SELECT id,
+                srf_id AS "srfId",
+                kind,
+                amount_inr::float8 AS "amountInr",
+                payment_mode AS "paymentMode",
+                payment_details AS "paymentDetails",
+                note,
+                collected_by AS "collectedBy",
+                collected_by_name AS "collectedByName",
+                created_at AS "createdAt"
+         FROM srf_payments
+         WHERE srf_id = $1::uuid
+         ORDER BY created_at ASC`,
+        [srfId],
+      );
+      const paidInr = rows.reduce((n, r) => n + Number(r.amountInr ?? 0), 0);
+      const estimateInr = Math.max(
+        Number(job.estimate_total_inr ?? 0),
+        Number(job.reestimate_requested_inr ?? 0),
+      );
+      res.json({
+        payments: rows,
+        paidInr: Math.round(paidInr * 100) / 100,
+        estimateInr,
+        status: job.status,
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load SRF payments." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/payments", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCollectSrfPayment(actor)) {
+      res.status(403).json({ error: "You cannot collect SRF payments." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const amountInr = Number(req.body?.amountInr ?? 0);
+    const note = String(req.body?.note ?? "").trim();
+    if (!srfId) {
+      res.status(400).json({ error: "srfId is required." });
+      return;
+    }
+    if (!Number.isFinite(amountInr) || amountInr <= 0) {
+      res.status(400).json({ error: "Enter a valid payment amount." });
+      return;
+    }
+    const payNorm = normalizePaymentForTotal(
+      amountInr,
+      String(req.body?.paymentMode ?? ""),
+      req.body?.paymentDetails,
+    );
+    if (!payNorm.ok) {
+      res.status(400).json({ error: payNorm.error });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const scope = visibleWhere(actor, 1);
+      const { rows: locked } = await client.query<{
+        id: string;
+        status: string;
+        advance_inr: number;
+        advance_payment_mode: string | null;
+        advance_payment_details: AdvancePaymentDetails | null;
+        estimate_total_inr: number;
+        reestimate_requested_inr: number | null;
+        reference: string;
+      }>(
+        `SELECT j.id, j.status,
+                j.advance_inr::float8 AS advance_inr,
+                j.advance_payment_mode,
+                j.advance_payment_details,
+                j.estimate_total_inr::float8 AS estimate_total_inr,
+                j.reestimate_requested_inr::float8 AS reestimate_requested_inr,
+                j.reference
+         FROM srf_jobs j
+         WHERE ${scope.sql} AND j.id = $${scope.nextIdx}::uuid
+         FOR UPDATE`,
+        [...scope.params, srfId],
+      );
+      const job = locked[0];
+      if (!job) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (job.status === "closed" || job.status === "cancelled") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Cannot collect payment on a closed or cancelled SRF." });
+        return;
+      }
+      await ensureBookingAdvancePaymentRow(client, job, actor);
+      await insertSrfPayment(client, {
+        srfId,
+        kind: "additional",
+        amountInr,
+        paymentMode: payNorm.value.paymentMode,
+        paymentDetails: payNorm.value.paymentDetails,
+        note: note || "Additional payment after estimate discussion",
+        actor,
+      });
+      const { rows: sumRows } = await client.query<{ s: number }>(
+        `SELECT COALESCE(SUM(amount_inr), 0)::float8 AS s FROM srf_payments WHERE srf_id = $1::uuid`,
+        [srfId],
+      );
+      const nextAdvance = Math.round(Number(sumRows[0]?.s ?? 0) * 100) / 100;
+      await client.query(
+        `UPDATE srf_jobs
+         SET advance_inr = $2,
+             updated_at = now(),
+             modified_by = $3
+         WHERE id = $1::uuid`,
+        [srfId, nextAdvance, actor.id],
+      );
+      await appendActionLog(client, srfId, {
+        action: "srf_additional_payment",
+        description: `Additional customer payment INR ${amountInr.toFixed(2)} against ${job.reference}. Total paid INR ${nextAdvance.toFixed(2)}.`,
+        amountInr,
+        actor,
+        details: {
+          paymentMode: payNorm.value.paymentMode,
+          paymentDetails: payNorm.value.paymentDetails,
+          note,
+          totalPaidInr: nextAdvance,
+        },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true, paidInr: nextAdvance, amountInr });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not record SRF payment." });
     } finally {
       client.release();
     }
@@ -3727,12 +4028,8 @@ export function registerSrfRoutes(
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
-    const warrantyTillRaw = String(req.body?.warrantyTillDate ?? "").trim();
-    const warrantyTillDate = /^\d{4}-\d{2}-\d{2}$/.test(warrantyTillRaw) ? warrantyTillRaw : "";
-    if (!warrantyTillDate) {
-      res.status(400).json({ error: "Warranty till date is required (YYYY-MM-DD)." });
-      return;
-    }
+    const pkg = parseServicePackageSnapshot(req.body?.servicePackage);
+    const pkgSpareIds = new Set(pkg?.spareIds ?? []);
     const lines = Array.isArray(req.body?.lines)
       ? req.body.lines
           .map((x: unknown) => ({
@@ -3741,6 +4038,7 @@ export function registerSrfRoutes(
             qty: Number((x as { qty?: unknown })?.qty ?? 0),
             unitPriceInr: Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0),
             lineTotalInr: Number((x as { lineTotalInr?: unknown })?.lineTotalInr ?? 0),
+            includedInPackage: Boolean((x as { includedInPackage?: unknown })?.includedInPackage),
           }))
           .filter(
             (x: { spareId: string; name: string; qty: number }) =>
@@ -3792,6 +4090,7 @@ export function registerSrfRoutes(
         lineTotalInr: Number.isFinite(l.lineTotalInr)
           ? l.lineTotalInr
           : (Number.isFinite(l.unitPriceInr) ? l.unitPriceInr : 0) * l.qty,
+        includedInPackage: Boolean(l.includedInPackage) || pkgSpareIds.has(l.spareId),
       }));
       const missingPrice = normalized.find((l) => l.unitPriceInr <= 0);
       if (missingPrice) {
@@ -3860,22 +4159,22 @@ export function registerSrfRoutes(
       await client.query(
         `UPDATE srf_jobs
          SET used_spares = $2::jsonb,
-             warranty_till_date = $4::date,
+             service_package = $4::jsonb,
              spares_slip_submitted_at = now(),
              spares_slip_submitted_by = $3,
              updated_at = now(),
              modified_by = $3
          WHERE id = $1::uuid`,
-        [srfId, JSON.stringify(normalized), actor.id, warrantyTillDate],
+        [srfId, JSON.stringify(normalized), actor.id, JSON.stringify(pkg ?? {})],
       );
       const totalInr = normalized.reduce((sum, l) => sum + l.lineTotalInr, 0);
       await appendStatusHistory(client, srfId, job.status, actor.id, "Store self-repair: used spares recorded.");
       await appendActionLog(client, srfId, {
         action: "store_self_spares_slip_submitted",
-        description: `Store recorded used spares (${normalized.length} line${normalized.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}). Warranty till ${warrantyTillDate}.`,
+        description: `Store recorded used spares (${normalized.length} line${normalized.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}).`,
         amountInr: totalInr,
         actor,
-        details: { lines: normalized, warrantyTillDate },
+        details: { lines: normalized },
       });
       await client.query("COMMIT");
       res.json({ ok: true });
@@ -6351,12 +6650,8 @@ export function registerSrfRoutes(
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
-    const warrantyTillRaw = String(req.body?.warrantyTillDate ?? "").trim();
-    const warrantyTillDate = /^\d{4}-\d{2}-\d{2}$/.test(warrantyTillRaw) ? warrantyTillRaw : "";
-    if (!warrantyTillDate) {
-      res.status(400).json({ error: "Warranty till date is required (YYYY-MM-DD)." });
-      return;
-    }
+    const pkg = parseServicePackageSnapshot(req.body?.servicePackage);
+    const pkgSpareIds = new Set(pkg?.spareIds ?? []);
     const lines = Array.isArray(req.body?.lines)
       ? req.body.lines
           .map((x: unknown) => ({
@@ -6365,8 +6660,13 @@ export function registerSrfRoutes(
             qty: Number((x as { qty?: unknown })?.qty ?? 0),
             unitPriceInr: Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0),
             lineTotalInr: Number((x as { lineTotalInr?: unknown })?.lineTotalInr ?? 0),
+            includedInPackage: Boolean((x as { includedInPackage?: unknown })?.includedInPackage),
           }))
-          .filter((x: { spareId: string; name: string; qty: number; unitPriceInr: number; lineTotalInr: number }) => x.spareId.length > 0 && x.name.length > 0 && Number.isFinite(x.qty) && x.qty > 0)
+          .filter((x: { spareId: string; name: string; qty: number }) => x.spareId.length > 0 && x.name.length > 0 && Number.isFinite(x.qty) && x.qty > 0)
+          .map((x) => ({
+            ...x,
+            includedInPackage: x.includedInPackage || pkgSpareIds.has(x.spareId),
+          }))
       : [];
     if (lines.length === 0) {
       res.status(400).json({ error: "Provide at least one spare line with spareId, name, and qty." });
@@ -6375,7 +6675,7 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const params: unknown[] = [srfId, actor.id, JSON.stringify(lines), warrantyTillDate];
+      const params: unknown[] = [srfId, actor.id, JSON.stringify(lines), JSON.stringify(pkg ?? {})];
       let where = `id = $1::uuid AND status IN ('assigned', 'estimate_ok')`;
       if (actor.role === "technician") {
         where += " AND assigned_technician_id = $5";
@@ -6384,7 +6684,7 @@ export function registerSrfRoutes(
       const upd = await client.query<{ region_id: string; reference: string }>(
         `UPDATE srf_jobs
          SET used_spares = $3::jsonb,
-             warranty_till_date = $4::date,
+             service_package = $4::jsonb,
              spares_slip_submitted_at = now(),
              spares_slip_submitted_by = $2,
              updated_at = now(),
@@ -6458,10 +6758,10 @@ export function registerSrfRoutes(
       );
       await appendActionLog(client, srfId, {
         action: "spares_slip_submitted",
-        description: `Used spares slip submitted (${lines.length} line${lines.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}). Warranty till ${warrantyTillDate}.`,
+        description: `Used spares slip submitted (${lines.length} line${lines.length === 1 ? "" : "s"}, INR ${totalInr.toFixed(2)}).`,
         amountInr: totalInr,
         actor,
-        details: { lines, warrantyTillDate },
+        details: { lines },
       });
       await client.query("COMMIT");
       res.json({ ok: true });
@@ -9010,6 +9310,20 @@ export function registerSrfRoutes(
     const billingCustomerKindRaw = String(req.body?.billingCustomerKind ?? "").trim().toUpperCase();
     const billingCustomerKind =
       billingCustomerKindRaw === "B2B" ? "B2B" : billingCustomerKindRaw === "B2C" ? "B2C" : null;
+    const snapObj =
+      storeBillingSnapshot && typeof storeBillingSnapshot === "object"
+        ? (storeBillingSnapshot as Record<string, unknown>)
+        : null;
+    const parseWarrantyMonths = (raw: unknown): number | null => {
+      const n = Number(raw);
+      return Number.isInteger(n) && [3, 4, 6, 9, 12].includes(n) ? n : null;
+    };
+    const warrantyMonths =
+      parseWarrantyMonths(req.body?.warrantyMonths) ?? parseWarrantyMonths(snapObj?.warrantyMonths);
+    if (!noBillingHandover && warrantyMonths == null) {
+      res.status(400).json({ error: "Select service warranty in months (3, 4, 6, 9, or 12)." });
+      return;
+    }
     const actorStoreId = String(actor.storeId ?? "").trim();
     const isAdmin = actor.role === "super_admin" || actor.role === "admin";
     const client = await pool.connect();
@@ -9100,6 +9414,11 @@ export function registerSrfRoutes(
                WHEN $6::boolean THEN COALESCE($5::jsonb, '{}'::jsonb)
                ELSE store_billing_snapshot
              END,
+             warranty_months = CASE WHEN $7::int IS NULL THEN warranty_months ELSE $7 END,
+             warranty_till_date = CASE
+               WHEN $7::int IS NULL THEN warranty_till_date
+               ELSE (CURRENT_DATE + ($7::int * INTERVAL '1 month'))::date
+             END,
              closed_at = now(),
              updated_at = now(),
              modified_by = $2::text
@@ -9111,6 +9430,7 @@ export function registerSrfRoutes(
           storeBillRef,
           storeBillingSnapshot ? JSON.stringify(storeBillingSnapshot) : null,
           Boolean(storeBillingSnapshot && !noBillingHandover),
+          warrantyMonths,
         ],
       );
       if (handoverSessionId) {

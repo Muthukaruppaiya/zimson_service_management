@@ -1,6 +1,7 @@
 import { billableLineAmount, billableServiceChargeInr } from "./natureOfRepair";
 import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "./hsnGst";
 import type { ServiceBillGstLine } from "./serviceBillGst";
+import { servicePackageInvoiceDescription } from "./servicePackage";
 import type { SrfJob } from "../types/srfJob";
 
 export type ServiceBillEditorLine = {
@@ -11,6 +12,7 @@ export type ServiceBillEditorLine = {
   hsn?: string | null;
   /** From supervisor spares slip — read-only on billing screen. */
   locked?: boolean;
+  lineKind?: "service" | "spare";
 };
 
 export function brandInvoiceToEditorLine(job: SrfJob, defaultSacHsn: string): ServiceBillEditorLine {
@@ -23,6 +25,7 @@ export function brandInvoiceToEditorLine(job: SrfJob, defaultSacHsn: string): Se
     amount: amt > 0 ? String(amt) : "",
     hsn: formatPrintedHsnSac(defaultSacHsn || DEFAULT_SERVICE_SAC),
     locked: true,
+    lineKind: "service",
   };
 }
 
@@ -30,7 +33,22 @@ export function usedSparesToEditorLines(
   job: SrfJob,
   resolveHsn: (spareId: string | null | undefined) => string | null,
 ): ServiceBillEditorLine[] {
-  return (job.usedSpares ?? []).map((s, i) => {
+  const pkg = job.servicePackage && job.servicePackage.id ? job.servicePackage : null;
+  const out: ServiceBillEditorLine[] = [];
+  if (pkg && Number(pkg.priceInr) > 0) {
+    out.push({
+      id: `pkg-${job.id}`,
+      description: servicePackageInvoiceDescription(pkg),
+      amount: String(pkg.priceInr),
+      hsn: formatPrintedHsnSac(DEFAULT_SERVICE_SAC),
+      locked: true,
+      lineKind: "service",
+    });
+  }
+  for (const [i, s] of (job.usedSpares ?? []).entries()) {
+    if (pkg && (s.includedInPackage || (s.spareId && pkg.spareIds.includes(s.spareId)))) {
+      continue;
+    }
     const lineTotal = Number(s.lineTotalInr ?? NaN);
     const qty = Number(s.qty ?? 0);
     const unit = Number(s.unitPriceInr ?? 0);
@@ -38,15 +56,17 @@ export function usedSparesToEditorLines(
       ? lineTotal
       : (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
     const desc = s.qty > 1 ? `${s.name} x ${s.qty}` : s.name;
-    return {
+    out.push({
       id: `slip-${job.id}-${i}`,
       description: desc,
       amount: amtRaw > 0 ? String(amtRaw) : "",
       spareId: s.spareId ?? undefined,
       hsn: resolveHsn(s.spareId) ?? null,
       locked: true,
-    };
-  });
+      lineKind: "spare",
+    });
+  }
+  return out;
 }
 
 export function editorLineAmountInr(line: ServiceBillEditorLine): number {
@@ -101,6 +121,7 @@ export type InvoiceBillLine = {
   amountInr: number;
   spareId?: string | null;
   hsnSac?: string | null;
+  lineKind?: "service" | "spare";
 };
 
 /** HSN/SAC for printed invoice — prefers saved line code, then spare master, then default SAC. */
@@ -138,6 +159,7 @@ export function editorLinesToInvoiceBillLines(
         amountInr: amt,
         spareId: l.spareId ?? null,
         hsnSac: formatPrintedHsnSac(l.hsn?.trim() || spareHsn || (l.spareId ? null : fallbackSac)),
+        lineKind: l.lineKind ?? (l.spareId ? "spare" : "service"),
       });
     }
   }
@@ -147,6 +169,7 @@ export function editorLinesToInvoiceBillLines(
       amountInr: serviceChargeBillable,
       spareId: null,
       hsnSac: fallbackSac,
+      lineKind: "service",
     });
   }
   return out;

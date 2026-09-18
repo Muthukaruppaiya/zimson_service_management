@@ -18,21 +18,21 @@ const SHEETS = [
     name: "Spares",
     color: "bg-rlx-green text-white",
     badge: "Sheet 1",
-    desc: "Master spare parts catalogue — one row per product code.",
+    desc: "Master spare parts — template or client Watch / Clock / Strap sheets (Part Reference, Brand, Description, Sub Category, Size, Colour…).",
     columns: BULK_IMPORT_SPARES_COLUMNS,
   },
   {
     name: "Prices",
     color: "bg-rlx-gold text-rlx-green",
     badge: "Sheet 2",
-    desc: "Region + brand specific selling prices.",
+    desc: "Region + brand specific selling prices (optional).",
     columns: BULK_IMPORT_PRICES_COLUMNS,
   },
   {
     name: "Stock",
     color: "bg-stone-700 text-white",
     badge: "Sheet 3",
-    desc: "Opening / adjustment stock per location.",
+    desc: "Opening / adjustment stock per location (optional — Qty on the Spares sheet is enough).",
     columns: BULK_IMPORT_STOCK_COLUMNS,
   },
 ];
@@ -246,7 +246,7 @@ export function InventoryBulkImportPage() {
       <InventoryBreadcrumb current="Spares bulk import" />
       <PageHeader
         title="Spares Bulk Import"
-        description="Download the Excel template, fill Spares / Prices / Stock sheets, validate, then import in one transaction."
+        description="Download the Excel template, or upload a client inventory file (Brand + Part Reference Number + Description). Prices / Stock sheets are optional. Part numbers can be left blank and are auto-generated."
         actions={
           <Link
             to="/inventory/spares"
@@ -339,7 +339,8 @@ export function InventoryBulkImportPage() {
                 Downloads a pre-filled Excel with <strong>20 real watch-service spare parts</strong> across Batteries, Glass, Crowns, Gaskets, Straps, Lubricants and Tools — complete with Prices and Stock sheets auto-filled from your regions and brands.
               </p>
               <ul className="mt-3 space-y-1 text-xs text-stone-500">
-                <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Excel dropdowns for Category, Active, Location Type, Region, Brand</li>
+                <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Client files with Watch / Clock / Strap sheets (Part Reference, Brand, Calibre, Clock Model, Sub Category, Size, Colour) are accepted</li>
+                <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Blank part numbers are auto-generated (PRT…). Missing brands are created</li>
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> 20 spare SKUs seeded (batteries, crystals, straps, tools…)</li>
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Prices auto-filled for all your regions &amp; brands</li>
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Opening stock of 20 (HO) + 5 (Store) per SKU</li>

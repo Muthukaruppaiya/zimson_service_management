@@ -14,6 +14,7 @@ import {
 } from "../../components/service/ResendSrfTrackingWhatsAppButton";
 import { uiPageTitleOnDarkClass } from "../../lib/pageTypography";
 import { ResendSrfApprovalWhatsAppButton } from "../../components/service/ResendSrfApprovalWhatsAppButton";
+import { SrfPaymentLogPanel } from "../../components/service/SrfPaymentLogPanel";
 import { canResendSrfTrackingWhatsApp, srfTrackingWhatsAppResultMessage } from "../../lib/resendSrfTrackingWhatsApp";
 import { canResendSrfApprovalWhatsApp } from "../../lib/srfApprovalWhatsApp";
 import {
@@ -216,7 +217,7 @@ function formatTableDate(iso: string): { date: string; time: string } {
 
 export function SrfBookingsRegisterPage() {
   const { user } = useAuth();
-  const { jobs, cancelDraftSrf } = useSrfJobs();
+  const { jobs, cancelDraftSrf, refreshJobs } = useSrfJobs();
   const { regions } = useRegions();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
@@ -850,7 +851,7 @@ export function SrfBookingsRegisterPage() {
                         </td>
                       </tr>
                       <tr>
-                        <td className="py-0.5 pr-2 font-medium text-rlx-ink-muted align-top">Advance</td>
+                        <td className="py-0.5 pr-2 font-medium text-rlx-ink-muted align-top">Paid against SRF</td>
                         <td className="py-0.5 text-rlx-ink">
                           {Number(detail.advanceInr ?? 0) > 0
                             ? Number(detail.advanceInr).toLocaleString(undefined, {
@@ -899,9 +900,22 @@ export function SrfBookingsRegisterPage() {
                     </tbody>
                   </table>
                 </section>
+
+                <div className="sm:col-span-2">
+                  <SrfPaymentLogPanel
+                    srfId={detail.id}
+                    estimateInr={Math.max(
+                      Number(detail.reestimateRequestedInr ?? 0),
+                      Number(detail.estimateTotalInr ?? 0),
+                    )}
+                    paidInr={Number(detail.advanceInr ?? 0)}
+                    allowCollect={detail.status !== "closed" && detail.status !== "cancelled"}
+                    onCollected={() => void refreshJobs()}
+                  />
+                </div>
               </div>
 
-              {detail.photos && detail.photos.length > 0 ? (
+                {detail.photos && detail.photos.length > 0 ? (
                 <section className="mt-3">
                   <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-rlx-gold">
                     Watch photos ({detail.photos.length})

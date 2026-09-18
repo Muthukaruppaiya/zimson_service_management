@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
-import { SearchableCombobox } from "../../components/service/SearchableCombobox";
+import { WorkDoneSparesModal } from "../../components/service/WorkDoneSparesModal";
+import { SrfPaymentLogPanel } from "../../components/service/SrfPaymentLogPanel";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -19,9 +20,11 @@ import {
 } from "../../lib/spareSellingPrice";
 import { srfReestimateNotifyMessage } from "../../lib/srfApprovalWhatsApp";
 import { repairRouteLabel, storeSelfStatusLabel, SRF_ROUTE_LABEL_INSTORE, SRF_ROUTE_LABEL_SEND_TO_SC } from "../../lib/srfRepairRoute";
+import { packageTypeLabel, watchServiceKindLabel } from "../../lib/servicePackage";
 import { inputClassReadOnly } from "../../lib/uiForm";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { SrfJob } from "../../types/srfJob";
+import type { SrfServicePackageSnapshot } from "../../types/servicePackage";
 
 type TechnicianProfile = {
   id: string;
@@ -54,7 +57,7 @@ function AssignCheckIcon({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
-type SpareLineDraft = { spareId: string; qty: string };
+type SpareLineDraft = { spareId: string; qty: string; fromPackage?: boolean };
 
 function isStoreSelfWorking(job: SrfJob): boolean {
   return (
@@ -71,8 +74,15 @@ function statusDisplay(status: string): string {
 export function StoreAssignPage() {
   const { user } = useAuth();
   const { activeSpares } = useSpares();
-  const { jobs, storeSelfAssignTechnician, storeSelfSubmitSparesSlip, storeSelfMarkRepairComplete, storeSelfRequestReestimate, storeSelfReturnWithoutRepair, storeSelfSendToHo } =
-    useSrfJobs();
+  const {
+    jobs,
+    storeSelfAssignTechnician,
+    storeSelfSubmitSparesSlip,
+    storeSelfMarkRepairComplete,
+    storeSelfRequestReestimate,
+    storeSelfReturnWithoutRepair,
+    storeSelfSendToHo,
+  } = useSrfJobs();
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [techByJob, setTechByJob] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -88,7 +98,7 @@ export function StoreAssignPage() {
 
   const [repairPopupJobId, setRepairPopupJobId] = useState<string | null>(null);
   const [repairLines, setRepairLines] = useState<SpareLineDraft[]>([{ spareId: "", qty: "1" }]);
-  const [repairWarrantyTillDate, setRepairWarrantyTillDate] = useState("");
+  const [repairPackage, setRepairPackage] = useState<SrfServicePackageSnapshot | null>(null);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
   const [storeStockBySpareId, setStoreStockBySpareId] = useState<Record<string, number>>({});
   const [repairPopupError, setRepairPopupError] = useState("");
@@ -383,19 +393,16 @@ export function StoreAssignPage() {
     const job = jobs.find((j) => j.id === jobId);
     setRepairPopupJobId(jobId);
     setRepairPopupError("");
-    setRepairWarrantyTillDate(
-      job?.warrantyTillDate && /^\d{4}-\d{2}-\d{2}/.test(job.warrantyTillDate)
-        ? job.warrantyTillDate.slice(0, 10)
-        : "",
-    );
     const initialLines =
       job?.usedSpares && job.usedSpares.length > 0
         ? job.usedSpares.map((u) => ({
             spareId: u.spareId ?? "",
             qty: String(u.qty ?? 1),
+            fromPackage: Boolean(u.includedInPackage),
           }))
         : [{ spareId: "", qty: "1" }];
     setRepairLines(initialLines);
+    setRepairPackage(job?.servicePackage && job.servicePackage.id ? job.servicePackage : null);
     const watchBrand = job?.watchBrand ?? "";
     for (const line of initialLines) {
       if (!line.spareId) continue;
@@ -407,7 +414,7 @@ export function StoreAssignPage() {
   function closeRepairPopup() {
     setRepairPopupJobId(null);
     setRepairLines([{ spareId: "", qty: "1" }]);
-    setRepairWarrantyTillDate("");
+    setRepairPackage(null);
     setRepairPopupError("");
     setUnitPriceBySpareId({});
     setStoreStockBySpareId({});
@@ -432,14 +439,11 @@ export function StoreAssignPage() {
         qty,
         unitPriceInr,
         lineTotalInr: unitPriceInr * qty,
+        includedInPackage: Boolean(x.fromPackage) || Boolean(repairPackage?.spareIds.includes(spareId)),
       });
     }
     if (lines.length === 0) {
       setRepairPopupError("Add at least one used spare from inventory.");
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(repairWarrantyTillDate.trim())) {
-      setRepairPopupError("Warranty till date is required.");
       return;
     }
     const noPrice = lines.find((x) => Number(x.unitPriceInr ?? 0) <= 0);
@@ -458,7 +462,7 @@ export function StoreAssignPage() {
     setRepairSaving(true);
     setRepairPopupError("");
     try {
-      await storeSelfSubmitSparesSlip(jobId, lines, repairWarrantyTillDate.trim());
+      await storeSelfSubmitSparesSlip(jobId, lines, repairPackage);
       await storeSelfMarkRepairComplete(jobId);
       closeRepairPopup();
       if (job) {
@@ -541,7 +545,7 @@ export function StoreAssignPage() {
       </Card>
 
       <div className="mt-6">
-        <Card title={`Working · ${working.length}`} subtitle="Technician is repairing the watch at your store.">
+        <Card title={`Working · ${working.length}`} subtitle="Record the service package and used spares, then complete the SRF for store billing.">
           {working.length === 0 ? (
             <p className="text-sm text-stone-600">No watches in repair right now.</p>
           ) : (
@@ -554,40 +558,56 @@ export function StoreAssignPage() {
                   extra={
                     <>
                       <p className="text-xs text-stone-600">Technician: {techName(job.assignedTechnicianId)}</p>
+                      {job.servicePackage?.id ? (
+                        <p className="text-xs text-rlx-green">
+                          Package on file · {packageTypeLabel(job.servicePackage.packageType)}{" "}
+                          {watchServiceKindLabel(job.servicePackage.serviceType)}
+                        </p>
+                      ) : null}
+                      {job.usedSpares && job.usedSpares.length > 0 ? (
+                        <p className="text-xs text-stone-500">
+                          {job.usedSpares.map((x) => `${x.name} ×${x.qty}`).join(" · ")}
+                        </p>
+                      ) : null}
                       {job.sparesSlipSubmittedAt ? (
                         <p className="text-xs text-emerald-700">Spares slip saved</p>
                       ) : null}
                     </>
                   }
                 >
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={busyId === job.id}
-                      onClick={() => openRepairPopup(job.id)}
-                      className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                    >
-                      Watch repair complete
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyId === job.id}
-                      onClick={() => openReestimatePopup(job.id)}
-                      className="rounded-xl border border-amber-500 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 disabled:opacity-50"
-                    >
-                      Need re-estimate
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyId === job.id}
-                      onClick={() => {
-                        setSendToHoJobId(job.id);
-                        setSendToHoNote("");
-                      }}
-                      className="rounded-xl border border-zimson-600 bg-white px-4 py-2 text-sm font-semibold text-zimson-800 hover:bg-zimson-50 disabled:opacity-50"
-                    >
-                      {SRF_ROUTE_LABEL_SEND_TO_SC}
-                    </button>
+                  <div className="rounded-xl border border-zimson-100 bg-zimson-50/50 p-3 sm:p-3.5">
+                    <p className="mb-3 text-xs text-stone-600">
+                      Record the service package and used spares, then complete this SRF for store billing.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={busyId === job.id}
+                        onClick={() => openRepairPopup(job.id)}
+                        className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-emerald-600 to-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-emerald-700 hover:to-emerald-800 disabled:opacity-50"
+                      >
+                        Watch repair complete
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === job.id}
+                        onClick={() => openReestimatePopup(job.id)}
+                        className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-950 transition hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        Need re-estimate
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === job.id}
+                        onClick={() => {
+                          setSendToHoJobId(job.id);
+                          setSendToHoNote("");
+                        }}
+                        className="rounded-xl border border-zimson-200 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-800 transition hover:bg-white hover:shadow-sm disabled:opacity-50"
+                      >
+                        {SRF_ROUTE_LABEL_SEND_TO_SC}
+                      </button>
+                    </div>
                   </div>
                 </JobRow>
               ))}
@@ -776,156 +796,67 @@ export function StoreAssignPage() {
       ) : null}
 
       {repairPopupJobId ? (
-        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
-          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-y-auto rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
-            <h3 className="text-lg font-semibold text-zimson-900">Used spares</h3>
-            <p className="mt-1 text-sm text-stone-600">
-              Record parts used for this repair, then the SRF will be marked complete and sent to billing.
-            </p>
-            {repairPopupError ? (
-              <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900" role="alert">
-                {repairPopupError}
-              </p>
-            ) : null}
-            <div className="mt-4 space-y-3">
-              {repairLines.map((line, idx) => {
-                const watchBrand = repairPopupJob?.watchBrand ?? "";
-                const unit = resolveSpareUnitPrice(line.spareId, watchBrand);
-                const qty = Number(line.qty || 0);
-                const storeStock = line.spareId ? storeStockBySpareId[line.spareId] : undefined;
-                const lineShort =
-                  line.spareId && storeStock != null && Number.isFinite(qty) && qty > 0 && qty > storeStock;
-                const outOfStock = line.spareId && storeStock != null && storeStock <= 0;
-                const noPrice = line.spareId && unit <= 0;
-                const spareOptions = activeSpares.map((s) => {
-                  const stock = storeStockBySpareId[s.id];
-                  const stockHint =
-                    stock != null ? (stock <= 0 ? " · Out of stock" : ` · Stock ${stock}`) : "";
-                  return { value: s.id, label: `${s.sku} — ${s.name}${stockHint}` };
-                });
-                return (
-                  <div key={idx} className="grid grid-cols-12 gap-2">
-                    <div className="col-span-8">
-                      <SearchableCombobox
-                        id={`store-repair-spare-${idx}`}
-                        value={line.spareId}
-                        options={spareOptions}
-                        placeholder="Search spare by SKU or name…"
-                        disabled={repairSaving}
-                        inputClass="w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60"
-                        onChange={(nextId) => {
-                          setRepairPopupError("");
-                          if (nextId) {
-                            void (async () => {
-                              const stock = await fetchStoreStockQty(nextId);
-                              if (stock <= 0) {
-                                const picked = activeSpares.find((s) => s.id === nextId);
-                                setRepairPopupError(
-                                  `${picked?.name ?? "Spare"} (${picked?.sku ?? nextId}) is out of stock at your store.`,
-                                );
-                                return;
-                              }
-                              const price = await ensureSparePrice(nextId, watchBrand);
-                              if (price <= 0) {
-                                const picked = activeSpares.find((s) => s.id === nextId);
-                                setRepairPopupError(
-                                  `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? nextId})${watchBrand ? ` — add ${watchBrand} price in Inventory` : ""}.`,
-                                );
-                                return;
-                              }
-                              setRepairLines((prev) =>
-                                prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)),
-                              );
-                            })();
-                            return;
-                          }
-                          setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
-                        }}
-                      />
-                    </div>
-                    <input
-                      value={line.qty}
-                      onChange={(e) => {
-                        setRepairPopupError("");
-                        setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, qty: e.target.value } : x)));
-                      }}
-                      disabled={repairSaving}
-                      className={`col-span-3 rounded-xl border bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60 ${
-                        lineShort ? "border-rose-400" : "border-zimson-300"
-                      }`}
-                      placeholder="Qty"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setRepairLines((prev) => prev.filter((_, i) => i !== idx))}
-                      disabled={repairSaving || repairLines.length <= 1}
-                      className="col-span-1 rounded-xl border border-zimson-300 bg-white text-sm disabled:opacity-40"
-                    >
-                      ×
-                    </button>
-                    <div className="col-span-12 text-xs text-stone-600">
-                      Line amount: {unit > 0 ? formatInr(unit * (Number.isFinite(qty) ? qty : 0)) : "—"}
-                      {line.spareId ? (
-                        <span
-                          className={
-                            lineShort || outOfStock || noPrice
-                              ? " ml-2 font-semibold text-rose-700"
-                              : " ml-2 text-stone-500"
-                          }
-                        >
-                          · Store stock: {storeStock != null ? storeStock : "…"}
-                          {outOfStock ? " (out of stock)" : ""}
-                          {lineShort && !outOfStock ? ` (need ${qty}, only ${storeStock} available)` : ""}
-                          {noPrice ? " · Selling price not assigned" : ""}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
+        <WorkDoneSparesModal
+          open
+          onClose={closeRepairPopup}
+          title="Used spares"
+          saveLabel="Save spares & complete SRF"
+          job={
+            repairPopupJob
+              ? {
+                  reference: repairPopupJob.reference,
+                  customerName: repairPopupJob.customerName,
+                  watchBrand: repairPopupJob.watchBrand,
+                  watchModel: repairPopupJob.watchModel,
+                }
+              : null
+          }
+          lines={repairLines}
+          onLinesChange={setRepairLines}
+          selectedPackage={repairPackage}
+          onPackageChange={setRepairPackage}
+          saving={repairSaving}
+          error={repairPopupError}
+          onSave={() => void confirmRepairWithSpares()}
+          spareOptions={activeSpares.map((s) => {
+            const stock = storeStockBySpareId[s.id];
+            const stockHint = stock != null ? (stock <= 0 ? " · Out of stock" : ` · Stock ${stock}`) : "";
+            return {
+              value: s.id,
+              label: `${s.sku}${s.altSku ? ` / ${s.altSku}` : ""} — ${s.name}${s.altName ? ` (${s.altName})` : ""}${stockHint}`,
+            };
+          })}
+          unitPrice={(spareId) => resolveSpareUnitPrice(spareId, repairPopupJob?.watchBrand ?? "")}
+          stockQty={(spareId) => storeStockBySpareId[spareId]}
+          stockLabel="Store stock"
+          onSpareChange={(idx, nextId) => {
+            setRepairPopupError("");
+            const watchBrand = repairPopupJob?.watchBrand ?? "";
+            if (!nextId) {
+              setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
+              return;
+            }
+            void (async () => {
+              const stock = await fetchStoreStockQty(nextId);
+              if (stock <= 0) {
+                const picked = activeSpares.find((s) => s.id === nextId);
+                setRepairPopupError(
+                  `${picked?.name ?? "Spare"} (${picked?.sku ?? nextId}) is out of stock at your store.`,
                 );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={() => setRepairLines((prev) => [...prev, { spareId: "", qty: "1" }])}
-              disabled={repairSaving}
-              className="mt-3 rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 disabled:opacity-60"
-            >
-              Add spare row
-            </button>
-            <label className="mt-4 block text-sm font-medium text-stone-800">
-              Warranty till date <span className="text-rose-600">*</span>
-              <input
-                type="date"
-                value={repairWarrantyTillDate}
-                onChange={(e) => {
-                  setRepairPopupError("");
-                  setRepairWarrantyTillDate(e.target.value);
-                }}
-                disabled={repairSaving}
-                required
-                className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm disabled:opacity-60 sm:max-w-xs"
-              />
-            </label>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeRepairPopup}
-                disabled={repairSaving}
-                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void confirmRepairWithSpares()}
-                disabled={repairSaving}
-                className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-70"
-              >
-                {repairSaving ? "Saving…" : "Save spares & complete SRF"}
-              </button>
-            </div>
-          </div>
-        </div>
+                return;
+              }
+              const price = await ensureSparePrice(nextId, watchBrand);
+              if (price <= 0) {
+                const picked = activeSpares.find((s) => s.id === nextId);
+                setRepairPopupError(
+                  `Selling price not assigned for ${picked?.name ?? "spare"} (${picked?.sku ?? nextId})${watchBrand ? ` — add ${watchBrand} price in Inventory` : ""}.`,
+                );
+                return;
+              }
+              setRepairLines((prev) => prev.map((x, i) => (i === idx ? { ...x, spareId: nextId } : x)));
+            })();
+          }}
+        />
       ) : null}
 
       {assignAck ? (
@@ -1109,6 +1040,7 @@ function JobRow({
   extra?: ReactNode;
   statusLabel?: string;
 }) {
+  const { refreshJobs } = useSrfJobs();
   return (
     <div className="group rounded-2xl border border-zimson-100 bg-white p-4 text-sm shadow-sm transition hover:border-zimson-200 hover:shadow-md sm:p-4.5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1125,6 +1057,18 @@ function JobRow({
         </span>
       </div>
       <div className="mt-3.5 border-t border-stone-100 pt-3.5">{children}</div>
+      {job.status !== "draft" ? (
+        <div className="mt-3">
+          <SrfPaymentLogPanel
+            srfId={job.id}
+            estimateInr={Math.max(Number(job.reestimateRequestedInr ?? 0), Number(job.estimateTotalInr ?? 0))}
+            paidInr={Number(job.advanceInr ?? 0)}
+            allowCollect={job.status !== "closed" && job.status !== "cancelled"}
+            defaultOpen={false}
+            onCollected={() => void refreshJobs()}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

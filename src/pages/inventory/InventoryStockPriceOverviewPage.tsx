@@ -41,6 +41,7 @@ function eventLabel(eventType: string) {
   if (eventType === "SPARE_CREATED") return "Spare created";
   if (eventType === "MANUAL_STOCK_SET") return "Manual stock update";
   if (eventType === "PURCHASE_IN") return "Purchase inward";
+  if (eventType === "PURCHASE_RETURN") return "Purchase return";
   if (eventType === "TRANSFER_OUT") return "Transfer out";
   if (eventType === "TRANSFER_IN") return "Transfer in";
   return eventType;
@@ -235,7 +236,7 @@ export function InventoryStockPriceOverviewPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className={inputClass}
-                placeholder="SKU, name, category"
+                placeholder="SKU, brand, name, category, size, colour"
               />
               <button type="button" onClick={() => void load()} className="shrink-0 rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zimson-700">
                 Refresh
@@ -261,6 +262,7 @@ export function InventoryStockPriceOverviewPage() {
                 <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
                   <tr>
                     <th className="px-3 py-2">SKU</th>
+                    <th className="px-3 py-2">Brand</th>
                     <th className="px-3 py-2">Name</th>
                     <th className="px-3 py-2">Category</th>
                     <th className="px-3 py-2">Selling price</th>
@@ -281,6 +283,7 @@ export function InventoryStockPriceOverviewPage() {
                       className={`cursor-pointer border-b border-zimson-100 ${selectedSpareId === row.spare.id ? "bg-zimson-100/70" : "hover:bg-zimson-50/80"}`}
                     >
                       <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{row.spare.sku}</td>
+                      <td className="px-3 py-2 text-stone-700">{row.spare.brand || "—"}</td>
                       <td className="px-3 py-2">{row.spare.name}</td>
                       <td className="px-3 py-2 text-stone-600">{row.spare.category}</td>
                       <td className="px-3 py-2">

@@ -130,5 +130,8 @@ export const EXCEL_SPARE_CATEGORIES = [
   "Tool",
   "Consumable",
   "Stem",
+  "Case Part",
+  "Movement Part",
+  "Bracelet",
   "Other",
 ] as const;

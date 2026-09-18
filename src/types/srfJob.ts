@@ -58,6 +58,23 @@ export type UsedSpareLine = {
   qty: number;
   unitPriceInr?: number | null;
   lineTotalInr?: number | null;
+  /** Spare is part of the chosen service package (billed in the package price). */
+  includedInPackage?: boolean;
+};
+
+export type SrfPaymentKind = "booking_advance" | "additional";
+
+export type SrfPaymentRecord = {
+  id: string;
+  srfId: string;
+  kind: SrfPaymentKind;
+  amountInr: number;
+  paymentMode: string;
+  paymentDetails?: AdvancePaymentDetails | null;
+  note: string;
+  collectedBy?: string | null;
+  collectedByName?: string | null;
+  createdAt: string;
 };
 
 export type SrfJob = {
@@ -90,6 +107,7 @@ export type SrfJob = {
   advanceInr?: number;
   advancePaymentMode?: string | null;
   advancePaymentDetails?: AdvancePaymentDetails | null;
+  /** Running customer collections against this SRF (booking advance + later top-ups). */
   selectedPartIds: string[];
   createdAt: string;
   status: SrfJobStatus;
@@ -181,7 +199,11 @@ export type SrfJob = {
   customerReestimateResponse?: "accepted" | "rejected" | null;
   customerReestimateRespondedAt?: string | null;
   usedSpares?: UsedSpareLine[];
-  /** Service/parts warranty end date (set when used spares are recorded). */
+  /** Service package applied at work-done (complete/partial rate card). */
+  servicePackage?: import("./servicePackage").SrfServicePackageSnapshot | null;
+  /** Service warranty period in months (set on the store invoice). */
+  warrantyMonths?: number | null;
+  /** Service/parts warranty end date (invoice date + months). */
   warrantyTillDate?: string | null;
   sparesSlipSubmittedAt?: string | null;
   sparesSlipSubmittedBy?: string | null;

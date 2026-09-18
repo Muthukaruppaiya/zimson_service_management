@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { NumberInputGuard } from "./components/ui/NumberInputGuard";
 import { InventorySupervisorGuard } from "./components/auth/InventorySupervisorGuard";
 import { ModuleRoute } from "./components/auth/ModuleRoute";
 import { RequireAuth } from "./components/auth/RequireAuth";
@@ -68,6 +69,8 @@ import { CustomFieldsSettingsPage } from "./pages/settings/CustomFieldsSettingsP
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
 import { InventoryPoInwardPage } from "./pages/inventory/InventoryPoInwardPage";
 import { InventoryGrnHistoryPage } from "./pages/inventory/InventoryGrnHistoryPage";
+import { InventoryPurchaseReturnPage } from "./pages/inventory/InventoryPurchaseReturnPage";
+import { InventoryPurchaseReturnHistoryPage } from "./pages/inventory/InventoryPurchaseReturnHistoryPage";
 import { InventoryPurchaseOrdersPage } from "./pages/inventory/InventoryPurchaseOrdersPage";
 import { InventoryPoHistoryPage } from "./pages/inventory/InventoryPoHistoryPage";
 import { InventorySuppliersPage } from "./pages/inventory/InventorySuppliersPage";
@@ -86,6 +89,8 @@ import { InventoryHoStoreTransferPage } from "./pages/inventory/InventoryHoStore
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
 import { InventoryHsnMasterPage } from "./pages/inventory/InventoryHsnMasterPage";
+import { InventoryServicePackagesPage } from "./pages/inventory/InventoryServicePackagesPage";
+import { InventoryServicePackageFormPage } from "./pages/inventory/InventoryServicePackageFormPage";
 import { SrfPhotoCapturePage } from "./pages/public/SrfPhotoCapturePage";
 import { SrfBillingHandoverCapturePage } from "./pages/public/SrfBillingHandoverCapturePage";
 import { QuickBillCapturePage } from "./pages/public/QuickBillCapturePage";
@@ -108,6 +113,7 @@ function RedirectPreserveSearch({ to }: { to: string }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <NumberInputGuard />
       <ToastProvider>
       <WhatsAppSendProvider>
       <AuthProvider>
@@ -806,6 +812,26 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/inventory/purchase-return"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryPurchaseReturnPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/purchase-return-history"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryPurchaseReturnHistoryPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/inventory/spares"
                   element={
                     <ModuleRoute module="inventory">
@@ -831,6 +857,36 @@ export default function App() {
                     <ModuleRoute module="inventory">
                       <InventorySupervisorGuard>
                         <InventoryHsnMasterPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/service-packages"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryServicePackagesPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/service-packages/new"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryServicePackageFormPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/service-packages/:id/edit"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryServicePackageFormPage />
                       </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
