@@ -37,11 +37,10 @@ const emptyForm = {
 
 // ── Section Header ──────────────────────────────────────────────────────────
 
-function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+function SectionHeader({ title }: { title: string; subtitle?: string }) {
   return (
     <div className="border-b border-rlx-rule bg-rlx-green px-5 py-4">
       <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-white">{title}</h3>
-      {subtitle && <p className="mt-0.5 text-[11px] text-white/55">{subtitle}</p>}
     </div>
   );
 }

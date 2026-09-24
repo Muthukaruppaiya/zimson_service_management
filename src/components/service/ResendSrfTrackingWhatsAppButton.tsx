@@ -45,6 +45,9 @@ export function ResendSrfTrackingWhatsAppButton({
         whatsappReason: "Customer mobile (10 digits) is required.",
         emailSent: false,
         emailReason: null,
+        smsSent: false,
+        smsReason: null,
+        smsPin: null,
       });
       return;
     }
@@ -52,12 +55,12 @@ export function ResendSrfTrackingWhatsAppButton({
       try {
         const result = await resendSrfTrackingWhatsApp(srfId, customerEmail);
         onResult?.(result);
-        if (result.whatsappSent) {
+        if (result.whatsappSent || result.smsSent) {
           return { ok: true, message: srfTrackingCustomerNotifyMessage(result) };
         }
         return {
           ok: false,
-          message: result.whatsappReason || "WhatsApp was not sent. Check messaging settings.",
+          message: result.whatsappReason || result.smsReason || "WhatsApp was not sent. Check messaging settings.",
         };
       } catch (e) {
         const fail: ResendSrfTrackingWhatsAppResult = {
@@ -65,6 +68,9 @@ export function ResendSrfTrackingWhatsAppButton({
           whatsappReason: e instanceof ApiError ? e.message : "Could not resend to customer.",
           emailSent: false,
           emailReason: null,
+          smsSent: false,
+          smsReason: null,
+          smsPin: null,
         };
         onResult?.(fail);
         return { ok: false, message: fail.whatsappReason ?? "Could not resend to customer." };

@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 export function phoneLast10(v: string): string {
   const digits = String(v ?? "").replace(/\D/g, "");
@@ -13,7 +13,7 @@ export function isValidCustomerEmail(value: string): boolean {
 
 /** Prefer explicit email from the form; otherwise look up customer master by mobile. */
 export async function resolveCustomerEmail(
-  pool: Pool,
+  pool: Pool | PoolClient,
   phone: string,
   explicitEmail?: string | null,
 ): Promise<string | null> {

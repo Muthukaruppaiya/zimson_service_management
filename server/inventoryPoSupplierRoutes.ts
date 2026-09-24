@@ -1437,6 +1437,8 @@ export function registerInventoryPoSupplierRoutes(
                 g.grn_number AS "grnNumber",
                 g.po_id AS "poId",
                 po.po_number AS "poNumber",
+                g.voucher_id AS "voucherId",
+                pv.voucher_number AS "voucherNumber",
                 g.supplier_id AS "supplierId",
                 s.name AS "supplierName",
                 g.region_id AS "regionId",
@@ -1465,9 +1467,10 @@ export function registerInventoryPoSupplierRoutes(
          FROM grns g
          JOIN suppliers s ON s.id = g.supplier_id
          LEFT JOIN purchase_orders po ON po.id = g.po_id
+         LEFT JOIN purchase_vouchers pv ON pv.id = g.voucher_id
          LEFT JOIN grn_items gi ON gi.grn_id = g.id
          ${where}
-         GROUP BY g.id, s.name, po.po_number
+         GROUP BY g.id, s.name, po.po_number, pv.voucher_number
          ORDER BY g.created_at DESC`,
         params,
       );

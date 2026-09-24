@@ -127,9 +127,24 @@ type SrfJobsContextValue = {
       chainCount6Phase?: string;
       chainCount?: string;
       customerRemarks?: string;
+      customerEmail?: string;
       customFields?: Record<string, string | number | boolean | null>;
+      servicePackage?: import("../types/servicePackage").SrfServicePackageSnapshot | null;
     },
-  ) => Promise<{ trackingUrl?: string; whatsappSent?: boolean; whatsappReason?: string | null }>;
+  ) => Promise<{
+    trackingUrl?: string;
+    whatsappSent?: boolean;
+    whatsappReason?: string | null;
+    emailSent?: boolean;
+    emailReason?: string | null;
+    smsSent?: boolean;
+    smsReason?: string | null;
+    smsPin?: string | null;
+    advanceReceipt?: { paymentId: string; receiptNo: string; token: string; url: string; smsPin?: string } | null;
+    paymentSmsSent?: boolean;
+    paymentSmsReason?: string | null;
+    paymentSmsPin?: string | null;
+  }>;
   storeSelfAssignTechnician: (jobId: string, technicianId: string) => Promise<void>;
   storeSelfSubmitSparesSlip: (
     jobId: string,
@@ -373,6 +388,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         customerRemarks?: string;
         customerEmail?: string;
         customFields?: Record<string, string | number | boolean | null>;
+        servicePackage?: import("../types/servicePackage").SrfServicePackageSnapshot | null;
       },
     ) => {
       const out = await apiJson<{
@@ -381,6 +397,13 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         whatsappReason?: string | null;
         emailSent?: boolean;
         emailReason?: string | null;
+        smsSent?: boolean;
+        smsReason?: string | null;
+        smsPin?: string | null;
+        advanceReceipt?: { paymentId: string; receiptNo: string; token: string; url: string; smsPin?: string } | null;
+        paymentSmsSent?: boolean;
+        paymentSmsReason?: string | null;
+        paymentSmsPin?: string | null;
       }>(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/finalize`, {
         method: "POST",
         json: payload,

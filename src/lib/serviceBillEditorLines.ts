@@ -36,14 +36,16 @@ export function usedSparesToEditorLines(
   const pkg = job.servicePackage && job.servicePackage.id ? job.servicePackage : null;
   const out: ServiceBillEditorLine[] = [];
   if (pkg && Number(pkg.priceInr) > 0) {
-    out.push({
-      id: `pkg-${job.id}`,
-      description: servicePackageInvoiceDescription(pkg),
-      amount: String(pkg.priceInr),
-      hsn: formatPrintedHsnSac(DEFAULT_SERVICE_SAC),
-      locked: true,
-      lineKind: "service",
-    });
+    return [
+      {
+        id: `pkg-${job.id}`,
+        description: servicePackageInvoiceDescription(pkg),
+        amount: String(pkg.priceInr),
+        hsn: formatPrintedHsnSac(DEFAULT_SERVICE_SAC),
+        locked: true,
+        lineKind: "service",
+      },
+    ];
   }
   for (const [i, s] of (job.usedSpares ?? []).entries()) {
     if (pkg && (s.includedInPackage || (s.spareId && pkg.spareIds.includes(s.spareId)))) {

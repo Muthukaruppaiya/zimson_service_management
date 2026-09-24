@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { WorkDoneSparesModal } from "../../components/service/WorkDoneSparesModal";
+import { linesFromPackageSnapshot } from "../../components/service/WorkDonePackagePicker";
 import { SrfPaymentLogPanel } from "../../components/service/SrfPaymentLogPanel";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { Card } from "../../components/ui/Card";
@@ -20,7 +21,7 @@ import {
 } from "../../lib/spareSellingPrice";
 import { srfReestimateNotifyMessage } from "../../lib/srfApprovalWhatsApp";
 import { repairRouteLabel, storeSelfStatusLabel, SRF_ROUTE_LABEL_INSTORE, SRF_ROUTE_LABEL_SEND_TO_SC } from "../../lib/srfRepairRoute";
-import { packageTypeLabel, watchServiceKindLabel } from "../../lib/servicePackage";
+import { packageDisplayName, watchServiceKindLabel } from "../../lib/servicePackage";
 import { inputClassReadOnly } from "../../lib/uiForm";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { SrfJob } from "../../types/srfJob";
@@ -400,7 +401,7 @@ export function StoreAssignPage() {
             qty: String(u.qty ?? 1),
             fromPackage: Boolean(u.includedInPackage),
           }))
-        : [{ spareId: "", qty: "1" }];
+        : linesFromPackageSnapshot(job?.servicePackage);
     setRepairLines(initialLines);
     setRepairPackage(job?.servicePackage && job.servicePackage.id ? job.servicePackage : null);
     const watchBrand = job?.watchBrand ?? "";
@@ -560,7 +561,7 @@ export function StoreAssignPage() {
                       <p className="text-xs text-stone-600">Technician: {techName(job.assignedTechnicianId)}</p>
                       {job.servicePackage?.id ? (
                         <p className="text-xs text-rlx-green">
-                          Package on file · {packageTypeLabel(job.servicePackage.packageType)}{" "}
+                          Package on file · {packageDisplayName(job.servicePackage)}{" "}
                           {watchServiceKindLabel(job.servicePackage.serviceType)}
                         </p>
                       ) : null}
@@ -815,6 +816,7 @@ export function StoreAssignPage() {
           onLinesChange={setRepairLines}
           selectedPackage={repairPackage}
           onPackageChange={setRepairPackage}
+          packageLocked={Boolean(repairPopupJob?.servicePackage?.id)}
           saving={repairSaving}
           error={repairPopupError}
           onSave={() => void confirmRepairWithSpares()}

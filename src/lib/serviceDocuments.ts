@@ -48,11 +48,7 @@ function barcodeBlock(reference: string): string {
 
 function backendOrigin(): string {
   if (typeof window === "undefined") return "";
-  const { protocol, hostname, origin } = window.location;
-  if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return `${protocol}//${hostname}:4000`;
-  }
-  return origin;
+  return window.location.origin;
 }
 
 function absolutePhotoSrc(filePath: string): string {

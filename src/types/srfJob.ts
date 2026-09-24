@@ -75,6 +75,8 @@ export type SrfPaymentRecord = {
   collectedBy?: string | null;
   collectedByName?: string | null;
   createdAt: string;
+  receiptNo?: string;
+  publicToken?: string;
 };
 
 export type SrfJob = {

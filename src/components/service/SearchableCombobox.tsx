@@ -1,7 +1,14 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-export type ComboboxOption = { value: string; label: string };
+export type ComboboxOption = {
+  value: string;
+  label: string;
+  /** Second line in the dropdown (brand, SKU, price, etc.). */
+  hint?: string;
+  /** Extra haystack for type-to-search (description, MRP, SKU, brand…). */
+  searchText?: string;
+};
 
 type SearchableComboboxProps = {
   id: string;
@@ -60,9 +67,11 @@ export function SearchableCombobox({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return options;
-    return options.filter(
-      (o) => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q),
-    );
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return options.filter((o) => {
+      const hay = `${o.label} ${o.value} ${o.hint ?? ""} ${o.searchText ?? ""}`.toLowerCase();
+      return tokens.every((t) => hay.includes(t));
+    });
   }, [options, query]);
 
   const showList = open && !freeText && !disabled;
@@ -75,7 +84,7 @@ export function SearchableCombobox({
     const spaceAbove = r.top - 10;
     const openUp = spaceBelow < 200 && spaceAbove > spaceBelow;
     const maxHeight = Math.max(120, Math.min(224, openUp ? spaceAbove : spaceBelow));
-    const width = Math.max(r.width, 220);
+    const width = Math.max(r.width, 320);
     const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
     setMenuPos({
       top: openUp ? Math.max(8, r.top - maxHeight - 4) : r.bottom + 4,
@@ -173,7 +182,10 @@ export function SearchableCombobox({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(o)}
             >
-              {o.label}
+              <span className="block truncate">{o.label}</span>
+              {o.hint ? (
+                <span className="mt-0.5 block truncate text-[11px] font-normal text-stone-400">{o.hint}</span>
+              ) : null}
             </button>
           </li>
         ))

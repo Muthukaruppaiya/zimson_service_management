@@ -61,24 +61,14 @@ export function LoginOtpEntryPanel({
 }: LoginOtpEntryProps) {
   return (
     <div className="zimson-login-otp">
-      <div className="zimson-login-otp__hero">
-        <div className="zimson-login-otp__icon" aria-hidden>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <path d="M12 3 5 6v5c0 4.8 2.9 8.2 7 10 4.1-1.8 7-5.2 7-10V6l-7-3Z" />
-            <path d="M9.5 12.2 11.2 14l3.5-4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
-        <h2 className="zimson-login-otp__title">Enter verification code</h2>
-        <p className="zimson-login-otp__subtitle">
-          {otpHint?.trim() || `Enter the ${otpLengthLabel()} OTP to complete sign in.`}
-        </p>
-      </div>
+      <p className="zimson-login-otp__subtitle">
+        {otpHint?.trim() || `Enter the ${otpLengthLabel()} OTP to complete sign in.`}
+      </p>
 
       {demoOtp ? (
         <div className="zimson-login-otp__temp" role="status">
           <span className="zimson-login-otp__temp-label">Temporary OTP</span>
           <span className="zimson-login-otp__temp-code">{demoOtp}</span>
-          <span className="zimson-login-otp__temp-note">Shown for testing — enter this code below</span>
         </div>
       ) : null}
 
@@ -92,7 +82,7 @@ export function LoginOtpEntryPanel({
           checked={rememberMe}
           onChange={(e) => onRememberMeChange(e.target.checked)}
         />
-        <span>Remember this device (skip OTP next time)</span>
+        <span>Remember this device</span>
       </label>
 
       {alreadyLoggedIn ? (
@@ -121,9 +111,6 @@ export function LoginOtpEntryPanel({
         disabled={otpBusy || otpCode.length !== OTP_LENGTH}
       >
         {otpBusy ? "Verifying…" : "Verify & sign in"}
-        <svg viewBox="0 0 24 24">
-          <path d="M13.5 5.5 19 11H5v2h14l-5.5 5.5 1.4 1.4L22.8 12l-7.9-7.9-1.4 1.4Z" />
-        </svg>
       </button>
 
       <div className="zimson-login-otp__actions">

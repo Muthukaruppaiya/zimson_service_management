@@ -1762,4 +1762,195 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE spares ADD COLUMN IF NOT EXISTS size VARCHAR(80);
     ALTER TABLE spares ADD COLUMN IF NOT EXISTS colour VARCHAR(80);
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchase_vouchers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      voucher_number VARCHAR(48) UNIQUE NOT NULL,
+      supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+      region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+      invoice_number VARCHAR(120),
+      invoice_date DATE,
+      status VARCHAR(20) NOT NULL CHECK (status IN ('OPEN', 'PARTIAL', 'CLOSED', 'CANCELLED')),
+      notes TEXT NOT NULL DEFAULT '',
+      created_by VARCHAR(80) NOT NULL,
+      modified_by VARCHAR(80),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_pv_region ON purchase_vouchers (region_id);
+    CREATE INDEX IF NOT EXISTS idx_pv_supplier ON purchase_vouchers (supplier_id);
+    CREATE INDEX IF NOT EXISTS idx_pv_status ON purchase_vouchers (status);
+
+    CREATE TABLE IF NOT EXISTS purchase_voucher_items (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      voucher_id UUID NOT NULL REFERENCES purchase_vouchers(id) ON DELETE CASCADE,
+      spare_id UUID NOT NULL REFERENCES spares(id) ON DELETE RESTRICT,
+      qty_ordered NUMERIC(18, 3) NOT NULL CHECK (qty_ordered > 0),
+      unit_price NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+      received_qty NUMERIC(18, 3) NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
+      mrp NUMERIC(14, 4) NOT NULL DEFAULT 0,
+      gst_rate NUMERIC(6, 2) NOT NULL DEFAULT 0,
+      cgst_amount NUMERIC(14, 4) NOT NULL DEFAULT 0,
+      sgst_amount NUMERIC(14, 4) NOT NULL DEFAULT 0,
+      igst_amount NUMERIC(14, 4) NOT NULL DEFAULT 0,
+      uom VARCHAR(16) NOT NULL DEFAULT 'Nos',
+      hsn VARCHAR(16),
+      brand VARCHAR(120),
+      part_code VARCHAR(80),
+      product_name VARCHAR(240),
+      created_by VARCHAR(80),
+      modified_by VARCHAR(80)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pvi_voucher ON purchase_voucher_items (voucher_id);
+
+    ALTER TABLE grns ADD COLUMN IF NOT EXISTS voucher_id UUID REFERENCES purchase_vouchers(id) ON DELETE RESTRICT;
+    CREATE INDEX IF NOT EXISTS idx_grn_voucher ON grns (voucher_id);
+    ALTER TABLE grn_items ADD COLUMN IF NOT EXISTS voucher_item_id UUID REFERENCES purchase_voucher_items(id) ON DELETE RESTRICT;
+  `);
+
+  await pool.query(`
+    ALTER TABLE service_packages ADD COLUMN IF NOT EXISTS name VARCHAR(80);
+    ALTER TABLE service_packages ALTER COLUMN package_type TYPE VARCHAR(80);
+    UPDATE service_packages
+    SET name = REGEXP_REPLACE(INITCAP(REPLACE(package_type, '_', ' ')), '[^A-Za-z0-9]', '', 'g')
+    WHERE name IS NULL OR BTRIM(name) = '';
+
+    CREATE TABLE IF NOT EXISTS service_package_types (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(80) NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_service_package_types_name
+      ON service_package_types (UPPER(BTRIM(name)));
+
+    INSERT INTO service_package_types (name)
+    SELECT v FROM (VALUES ('Complete'), ('Partial'), ('Overhaul')) AS t(v)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM service_package_types x WHERE UPPER(BTRIM(x.name)) = UPPER(BTRIM(v))
+    );
+
+    INSERT INTO service_package_types (name)
+    SELECT DISTINCT REGEXP_REPLACE(INITCAP(REPLACE(package_type, '_', ' ')), '[^A-Za-z0-9]', '', 'g') AS nm
+    FROM service_packages
+    WHERE BTRIM(COALESCE(package_type, '')) <> ''
+      AND REGEXP_REPLACE(INITCAP(REPLACE(package_type, '_', ' ')), '[^A-Za-z0-9]', '', 'g') <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM service_package_types x
+        WHERE UPPER(BTRIM(x.name)) = UPPER(BTRIM(REGEXP_REPLACE(INITCAP(REPLACE(service_packages.package_type, '_', ' ')), '[^A-Za-z0-9]', '', 'g')))
+      );
+
+    ALTER TABLE service_packages DROP CONSTRAINT IF EXISTS service_packages_brand_service_type_package_type_key;
+    DROP INDEX IF EXISTS service_packages_brand_service_type_package_type_key;
+    DO $drop_pkg_type_unique$
+    DECLARE
+      r record;
+    BEGIN
+      FOR r IN
+        SELECT c.conname
+        FROM pg_constraint c
+        JOIN pg_class t ON c.conrelid = t.oid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = 'public'
+          AND t.relname = 'service_packages'
+          AND c.contype = 'u'
+          AND pg_get_constraintdef(c.oid) ILIKE '%package_type%'
+      LOOP
+        EXECUTE format('ALTER TABLE service_packages DROP CONSTRAINT IF EXISTS %I', r.conname);
+      END LOOP;
+      FOR r IN
+        SELECT i.indexrelid::regclass::text AS indexname
+        FROM pg_index i
+        JOIN pg_class t ON t.oid = i.indrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_class ix ON ix.oid = i.indexrelid
+        WHERE n.nspname = 'public'
+          AND t.relname = 'service_packages'
+          AND i.indisunique
+          AND NOT i.indisprimary
+          AND ix.relname <> 'uq_service_packages_brand_service_name'
+          AND pg_get_indexdef(i.indexrelid) ILIKE '%package_type%'
+      LOOP
+        EXECUTE format('DROP INDEX IF EXISTS %s', r.indexname);
+      END LOOP;
+    END
+    $drop_pkg_type_unique$;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_service_packages_brand_service_name
+      ON service_packages (UPPER(BTRIM(brand)), service_type, UPPER(BTRIM(name)));
+
+    ALTER TABLE service_package_spares ADD COLUMN IF NOT EXISTS sale_price_inr NUMERIC(14, 2);
+    UPDATE service_package_spares ps
+    SET sale_price_inr = COALESCE(s.selling_price_inr, s.mrp_inr, 0)
+    FROM spares s
+    WHERE s.id = ps.spare_id
+      AND (ps.sale_price_inr IS NULL OR ps.sale_price_inr = 0);
+    UPDATE service_package_spares SET sale_price_inr = 0 WHERE sale_price_inr IS NULL;
+    ALTER TABLE service_package_spares ALTER COLUMN sale_price_inr SET DEFAULT 0;
+    ALTER TABLE service_package_spares ALTER COLUMN sale_price_inr SET NOT NULL;
+  `);
+
+  await pool.query(`
+    ALTER TABLE srf_payments ADD COLUMN IF NOT EXISTS public_token TEXT;
+    ALTER TABLE srf_payments ADD COLUMN IF NOT EXISTS receipt_no VARCHAR(48);
+    UPDATE srf_payments
+       SET public_token = replace(gen_random_uuid()::text, '-', '')
+     WHERE public_token IS NULL OR BTRIM(public_token) = '';
+    UPDATE srf_payments p
+       SET receipt_no = 'PV-' || COALESCE(NULLIF(regexp_replace(j.reference, '[^A-Za-z0-9]', '', 'g'), ''), 'SRF')
+           || '-' || lpad(n.n::text, 2, '0')
+      FROM srf_jobs j,
+           (SELECT id, srf_id, ROW_NUMBER() OVER (PARTITION BY srf_id ORDER BY created_at, id) AS n
+              FROM srf_payments) n
+     WHERE p.id = n.id
+       AND j.id = p.srf_id
+       AND (p.receipt_no IS NULL OR BTRIM(p.receipt_no) = '');
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_srf_payments_public_token ON srf_payments (public_token);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_srf_payments_receipt_no ON srf_payments (receipt_no);
+    ALTER TABLE srf_payments ALTER COLUMN public_token SET NOT NULL;
+    ALTER TABLE srf_payments ALTER COLUMN receipt_no SET NOT NULL;
+    ALTER TABLE srf_payments ADD COLUMN IF NOT EXISTS sms_pin VARCHAR(6);
+  `);
+
+  await pool.query(`
+    DO $sms_pin$
+    DECLARE
+      r RECORD;
+      pin TEXT;
+    BEGIN
+      FOR r IN SELECT id FROM srf_payments WHERE sms_pin IS NULL OR BTRIM(sms_pin) = '' LOOP
+        LOOP
+          pin := lpad((100000 + floor(random() * 900000)::int)::text, 6, '0');
+          EXIT WHEN NOT EXISTS (SELECT 1 FROM srf_payments WHERE sms_pin = pin);
+        END LOOP;
+        UPDATE srf_payments SET sms_pin = pin WHERE id = r.id;
+      END LOOP;
+    END
+    $sms_pin$;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_srf_payments_sms_pin ON srf_payments (sms_pin);
+    ALTER TABLE srf_payments ALTER COLUMN sms_pin SET NOT NULL;
+  `);
+
+  await pool.query(`
+    ALTER TABLE customer_tracking_tokens ADD COLUMN IF NOT EXISTS sms_pin VARCHAR(6);
+  `);
+  await pool.query(`
+    DO $track_pin$
+    DECLARE
+      r RECORD;
+      pin TEXT;
+    BEGIN
+      FOR r IN SELECT id FROM customer_tracking_tokens WHERE sms_pin IS NULL OR BTRIM(sms_pin) = '' LOOP
+        LOOP
+          pin := lpad((100000 + floor(random() * 900000)::int)::text, 6, '0');
+          EXIT WHEN NOT EXISTS (SELECT 1 FROM customer_tracking_tokens WHERE sms_pin = pin);
+        END LOOP;
+        UPDATE customer_tracking_tokens SET sms_pin = pin WHERE id = r.id;
+      END LOOP;
+    END
+    $track_pin$;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_tracking_tokens_sms_pin ON customer_tracking_tokens (sms_pin);
+    ALTER TABLE customer_tracking_tokens ALTER COLUMN sms_pin SET NOT NULL;
+  `);
 }

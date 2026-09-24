@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError } from "../../lib/api";
-import { resendSrfTrackingWhatsApp } from "../../lib/resendSrfTrackingWhatsApp";
+import { ApiError, apiJson } from "../../lib/api";
+import {
+  resendSrfTrackingWhatsApp,
+  srfTrackingCustomerNotifyMessage,
+} from "../../lib/resendSrfTrackingWhatsApp";
 import { ProcessSuccessModal } from "../ui/ProcessSuccessModal";
 import { useEmailSend, useMessagingSend } from "../messaging/WhatsAppSendProvider";
 import {
   IconEmail,
+  IconGstEinvoice,
   IconHome,
   IconPreview,
   IconPrint,
@@ -20,6 +24,8 @@ type Props = {
   customerEmail?: string;
   onPreviewSrf?: () => void;
   onPrintSrf?: () => void;
+  onPrintPaymentReceipt?: () => void;
+  paymentReceiptPaymentId?: string | null;
 };
 
 const iconPrimary =
@@ -33,22 +39,65 @@ export function SrfBookingSuccessOverlay({
   customerEmail = "",
   onPreviewSrf,
   onPrintSrf,
+  onPrintPaymentReceipt,
+  paymentReceiptPaymentId = null,
 }: Props) {
   const [note, setNote] = useState<string | null>(null);
+  const [receiptSending, setReceiptSending] = useState(false);
+  const printedReceipt = useRef(false);
   const { runWhatsAppSend, whatsappSending } = useMessagingSend();
   const { runEmailSend, emailSending } = useEmailSend();
-  const busy = whatsappSending || emailSending;
+  const busy = whatsappSending || emailSending || receiptSending;
+
+  useEffect(() => {
+    if (!onPrintPaymentReceipt || printedReceipt.current) return;
+    printedReceipt.current = true;
+    const t = window.setTimeout(() => onPrintPaymentReceipt(), 400);
+    return () => window.clearTimeout(t);
+  }, [onPrintPaymentReceipt]);
+
+  async function sendPaymentReceipt() {
+    if (!paymentReceiptPaymentId) return;
+    setNote(null);
+    setReceiptSending(true);
+    try {
+      const data = await apiJson<{
+        smsSent?: boolean;
+        whatsappSent?: boolean;
+        emailSent?: boolean;
+        smsPin?: string | null;
+        smsReason?: string | null;
+        whatsappReason?: string | null;
+        emailReason?: string | null;
+      }>(
+        `/api/service/srf-jobs/${encodeURIComponent(srfId)}/payments/${encodeURIComponent(paymentReceiptPaymentId)}/send-receipt`,
+        { method: "POST", json: { customerEmail } },
+      );
+      const parts: string[] = [];
+      if (data.smsSent) parts.push(data.smsPin ? `SMS (code ${data.smsPin})` : "SMS");
+      if (data.whatsappSent) parts.push("WhatsApp");
+      if (data.emailSent) parts.push("email");
+      setNote(
+        parts.length > 0
+          ? `Payment receipt sent on ${parts.join(", ")}.`
+          : data.smsReason || data.whatsappReason || data.emailReason || "Could not send payment receipt.",
+      );
+    } catch (e) {
+      setNote(e instanceof ApiError ? e.message : "Could not send payment receipt.");
+    } finally {
+      setReceiptSending(false);
+    }
+  }
 
   async function resendWhatsApp() {
     setNote(null);
     await runWhatsAppSend(async () => {
       try {
         const result = await resendSrfTrackingWhatsApp(srfId, customerEmail, "whatsapp");
-        const msg = result.whatsappSent
-          ? "Tracking link sent on WhatsApp."
-          : result.whatsappReason || "Could not send WhatsApp.";
+        const msg = srfTrackingCustomerNotifyMessage(result);
+        const ok = result.whatsappSent || result.smsSent;
         setNote(msg);
-        return { ok: result.whatsappSent, message: msg };
+        return { ok, message: msg };
       } catch (e) {
         const msg = e instanceof ApiError ? e.message : "Could not send WhatsApp.";
         setNote(msg);
@@ -61,9 +110,14 @@ export function SrfBookingSuccessOverlay({
     setNote(null);
     await runEmailSend(async () => {
       try {
+        if (!customerEmail.trim()) {
+          const msg = "Customer email is required.";
+          setNote(msg);
+          return { ok: false, message: msg };
+        }
         const result = await resendSrfTrackingWhatsApp(srfId, customerEmail, "email");
         const msg = result.emailSent
-          ? "Tracking link sent by email."
+          ? "SRF document sent by email."
           : result.emailReason || "Could not send email.";
         setNote(msg);
         return { ok: result.emailSent, message: msg };
@@ -103,6 +157,30 @@ export function SrfBookingSuccessOverlay({
               aria-label="Print SRF document"
             >
               <IconPrint className="h-6 w-6" />
+            </button>
+          ) : null}
+          {onPrintPaymentReceipt ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onPrintPaymentReceipt}
+              className={iconPrimary}
+              title="Print payment receipt"
+              aria-label="Print payment receipt"
+            >
+              <IconGstEinvoice className="h-6 w-6" />
+            </button>
+          ) : null}
+          {paymentReceiptPaymentId ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void sendPaymentReceipt()}
+              className={iconPrimary}
+              title={receiptSending ? "Sending payment receipt…" : "Send payment receipt"}
+              aria-label={receiptSending ? "Sending payment receipt" : "Send payment receipt"}
+            >
+              {receiptSending ? <IconSpinner className="h-6 w-6" /> : <IconEmail className="h-6 w-6" />}
             </button>
           ) : null}
           <button

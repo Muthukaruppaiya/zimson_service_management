@@ -18,7 +18,7 @@ export function PrFlowHeldNotice({ title }: { title: string }) {
             New PO →
           </Link>
           <Link to="/inventory/po-inward" className="font-semibold text-rlx-green hover:underline">
-            Post GRN →
+            GRN →
           </Link>
           <Link to="/inventory/ho-transfer" className="font-semibold text-rlx-green hover:underline">
             Transfer to store →

@@ -91,20 +91,37 @@ export function SrfTrackingResendModal({
       });
       return;
     }
+    if (!emailValue) {
+      setAck({
+        variant: "error",
+        title: "Email is required",
+        message: "Enter the customer email. The SRF document is always sent by email.",
+      });
+      return;
+    }
     setSending(true);
     setAck(null);
     try {
-      const result = await resendSrfTrackingWhatsApp(srfId, emailValue || undefined);
+      const result = await resendSrfTrackingWhatsApp(srfId, emailValue);
       onComplete(result);
-      const anySent = result.whatsappSent || result.emailSent;
+      const anySent = result.whatsappSent || result.emailSent || result.smsSent;
       const lines: string[] = [];
-      if (result.whatsappSent) lines.push("WhatsApp delivered with tracking link.");
-      else if (result.whatsappReason) lines.push(`WhatsApp: ${result.whatsappReason}`);
-      if (result.emailSent) lines.push("Email delivered with tracking link.");
+      if (result.emailSent) lines.push("Email delivered with SRF document.");
       else if (result.emailReason) lines.push(`Email: ${result.emailReason}`);
+      if (result.whatsappSent) lines.push("WhatsApp delivered with SRF document.");
+      else if (result.whatsappReason) lines.push(`WhatsApp: ${result.whatsappReason}`);
+      if (result.smsSent) {
+        lines.push(
+          result.smsPin
+            ? `SMS sent (code ${result.smsPin}) because WhatsApp failed.`
+            : "SMS sent because WhatsApp failed.",
+        );
+      } else if (result.smsReason) {
+        lines.push(`SMS: ${result.smsReason}`);
+      }
       setAck({
         variant: anySent ? "success" : "error",
-        title: anySent ? "Tracking link resent" : "Could not send",
+        title: anySent ? "SRF document sent" : "Could not send",
         message: lines.join(" ") || undefined,
       });
     } catch (e) {
@@ -146,7 +163,8 @@ export function SrfTrackingResendModal({
 
           <div className="max-h-[min(70vh,28rem)] space-y-4 overflow-y-auto px-5 py-5">
             <p className="text-sm text-stone-600">
-              Sends the same tracking page link as on booking (WhatsApp + email when configured).
+              Email is required. WhatsApp sends the SRF document; if WhatsApp fails, the same tracking link is sent by
+              SMS.
             </p>
 
             <label className="block text-sm">
@@ -159,7 +177,7 @@ export function SrfTrackingResendModal({
             </label>
 
             <label className="block text-sm">
-              <span className="text-xs font-medium text-stone-600">Email (optional override)</span>
+              <span className="text-xs font-medium text-stone-600">Email *</span>
               <input
                 type="email"
                 value={emailOverride}
@@ -182,7 +200,7 @@ export function SrfTrackingResendModal({
                 label="Email"
                 detail={emailValue || "No email on file"}
                 ok={emailSent}
-                hint={!emailValue ? "Add email above to send tracking by email." : null}
+                hint={!emailValue ? "Email is required to send the SRF document." : null}
               />
             </div>
           </div>

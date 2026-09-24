@@ -41,6 +41,8 @@ function bodyToDb(body: Record<string, unknown>): MessagingSettingsDb {
     smsSender: String(body.smsSender ?? "").trim().slice(0, 16) || undefined,
     smsService: String(body.smsService ?? "").trim().slice(0, 16) || undefined,
     smsOtpMessageTemplate: String(body.smsOtpMessageTemplate ?? "").trim().slice(0, 2000) || undefined,
+    smsPaymentTemplateId: String(body.smsPaymentTemplateId ?? "").trim().slice(0, 80) || undefined,
+    smsPaymentReceiptTemplate: String(body.smsPaymentReceiptTemplate ?? "").trim().slice(0, 2000) || undefined,
 
     emailEnabled: parseBool(body.emailEnabled),
     smtpHost: String(body.smtpHost ?? "").trim().slice(0, 200) || undefined,

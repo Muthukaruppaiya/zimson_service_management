@@ -30,6 +30,7 @@ export function LoginPage() {
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
   const [storeId, setStoreId] = useState("");
   const [storeOptions, setStoreOptions] = useState<{ id: string; name: string }[]>([]);
   const [storePickerOpen, setStorePickerOpen] = useState(false);
@@ -184,69 +185,34 @@ export function LoginPage() {
   return (
     <div className="zimson-login">
       <div className="zimson-login__bg" aria-hidden="true">
-        <div className="zimson-login__bg-texture" />
-        <svg className="zimson-login__swoosh zimson-login__swoosh--bl" viewBox="0 0 400 80" fill="none">
-          <defs>
-            <linearGradient id="sw-bl" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#A8850F" stopOpacity="0" />
-              <stop offset="40%" stopColor="#C9A227" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#C9A227" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path
-            d="M0 55 C80 20, 160 70, 240 40 S 360 10, 400 35"
-            stroke="url(#sw-bl)"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-          />
-        </svg>
-        <svg className="zimson-login__swoosh zimson-login__swoosh--br" viewBox="0 0 400 80" fill="none">
-          <defs>
-            <linearGradient id="sw-br" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#A8850F" stopOpacity="0" />
-              <stop offset="40%" stopColor="#C9A227" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#C9A227" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path
-            d="M0 55 C80 20, 160 70, 240 40 S 360 10, 400 35"
-            stroke="url(#sw-br)"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-          />
-        </svg>
         <div className="zimson-login__watermark">Z</div>
+        <div className="zimson-login__wave" />
       </div>
 
-      <main className="zimson-login__main">
-        <header className="zimson-login__brand">
+      <div className="zimson-login__stage">
+        <header className="zimson-login__hero">
           <div className="zimson-login__logo-wrap">
             <img className="zimson-login__logo" src="/zimson-logo.png" alt="ZIMSON" />
           </div>
-          <div className="zimson-login__tagline-row">
-            <span className="zimson-login__tagline-line">
-              <span className="zimson-login__tagline-dot" />
+          <span className="zimson-login__hero-rule" aria-hidden="true" />
+          <h2 className="zimson-login__hero-title">
+            <span>Manage Today.</span>
+            <span>
+              A <strong>Smarter</strong> Tomorrow.
             </span>
-            <span className="zimson-login__tagline-text">Service Management Suite</span>
-            <span className="zimson-login__tagline-line">
-              <span className="zimson-login__tagline-dot" />
-            </span>
-          </div>
+          </h2>
+          <p className="zimson-login__hero-kicker">People &nbsp;|&nbsp; Process &nbsp;|&nbsp; Progress</p>
         </header>
 
         <section className="zimson-login__card" aria-labelledby="login-title">
-          <div className="zimson-login__ribbon">
-            <p className="zimson-login__welcome">Welcome back</p>
-            <div className="zimson-login__title-row">
-              <span className="zimson-login__ornament" />
-              <h1 className="zimson-login__title" id="login-title">
-                {onOtpStep ? "Verify OTP" : "Sign in"}
-              </h1>
-              <span className="zimson-login__ornament zimson-login__ornament--right" />
-            </div>
-          </div>
-
           <div className="zimson-login__body">
+            <h1 className="zimson-login__heading" id="login-title">
+              {onOtpStep ? "Verify OTP" : "Sign in"}
+            </h1>
+            {!onOtpStep ? (
+              <p className="zimson-login__welcome">Welcome back! Please sign in to continue.</p>
+            ) : null}
+
             <form onSubmit={handleSubmit} noValidate>
               {!onOtpStep ? (
                 <>
@@ -254,73 +220,89 @@ export function LoginPage() {
                     <label className="zimson-login__label" htmlFor="login-emp">
                       Username
                     </label>
-                    <div className="zimson-login__input-row">
-                      <span className="zimson-login__input-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="8" r="3.5" />
-                          <path d="M5 20c0-3.5 3.13-6 7-6s7 2.5 7 6" />
+                    <div className="zimson-login__control">
+                      <span className="zimson-login__control-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                          <circle cx="12" cy="8" r="3.4" />
+                          <path d="M5.2 19.2c.7-3.1 3.6-5.2 6.8-5.2s6.1 2.1 6.8 5.2" strokeLinecap="round" />
                         </svg>
                       </span>
-                      <div className="zimson-login__input-box">
-                        <input
-                          className="zimson-login__input"
-                          id="login-emp"
-                          type="text"
-                          autoComplete="username"
-                          value={loginId}
-                          onChange={(e) => {
-                            setLoginId(sanitizeLoginIdInput(e.target.value));
-                            setAlreadyLoggedIn(false);
-                          }}
-                          placeholder="e.g. jsmith"
-                          required
-                        />
-                      </div>
+                      <input
+                        className="zimson-login__field-input"
+                        id="login-emp"
+                        type="text"
+                        autoComplete="username"
+                        value={loginId}
+                        onChange={(e) => {
+                          setLoginId(sanitizeLoginIdInput(e.target.value));
+                          setAlreadyLoggedIn(false);
+                        }}
+                        placeholder="Enter your username"
+                        required
+                      />
                     </div>
                   </div>
 
                   <div className="zimson-login__field">
-                    <div className="zimson-login__field-row">
-                      <label className="zimson-login__label" htmlFor="login-password">
-                        Password
-                      </label>
-                      <Link className="zimson-login__forgot" to="/login/forgot-password">
-                        Forgot password?
-                      </Link>
-                    </div>
-                    <div className="zimson-login__input-row">
-                      <span className="zimson-login__input-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="6" y="11" width="12" height="9" rx="1.5" />
-                          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                    <label className="zimson-login__label" htmlFor="login-password">
+                      Password
+                    </label>
+                    <div className="zimson-login__control">
+                      <span className="zimson-login__control-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                          <rect x="6" y="11" width="12" height="9" rx="1.6" />
+                          <path d="M8.5 11V8.2a3.5 3.5 0 0 1 7 0V11" strokeLinecap="round" />
                         </svg>
                       </span>
-                      <div className="zimson-login__input-box">
-                        <input
-                          className="zimson-login__input"
-                          id="login-password"
-                          type="password"
-                          autoComplete="current-password"
-                          value={password}
-                          onChange={(e) => {
-                            setPassword(sanitizePasswordInput(e.target.value));
-                            setAlreadyLoggedIn(false);
-                          }}
-                          placeholder="••••••••"
-                          required
-                        />
-                      </div>
+                      <input
+                        className="zimson-login__field-input"
+                        id="login-password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        value={password}
+                        onChange={(e) => {
+                          setPassword(sanitizePasswordInput(e.target.value));
+                          setAlreadyLoggedIn(false);
+                        }}
+                        placeholder="Enter your password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="zimson-login__eye"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                            <path d="M3 3l18 18" strokeLinecap="round" />
+                            <path d="M10.6 10.7a2.2 2.2 0 0 0 2.7 2.7" />
+                            <path d="M9.9 5.5A10.4 10.4 0 0 1 12 5.2c5 0 8.8 3.8 10.2 6.8a11.4 11.4 0 0 1-4.1 4.6" />
+                            <path d="M6.1 6.7A11.5 11.5 0 0 0 1.8 12c1.4 3 5.2 6.8 10.2 6.8 1.2 0 2.3-.2 3.4-.6" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        )}
+                      </button>
                     </div>
                   </div>
 
-                  <label className="zimson-login__remember">
-                    <input
-                      type="checkbox"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                    />
-                    <span>Remember this device (skip OTP next time)</span>
-                  </label>
+                  <div className="zimson-login__meta">
+                    <label className="zimson-login__remember">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                      />
+                      <span>Remember this device</span>
+                    </label>
+                    <Link className="zimson-login__forgot" to="/login/forgot-password">
+                      Forgot password?
+                    </Link>
+                  </div>
 
                   {alreadyLoggedIn ? (
                     <div className="zimson-login__alert zimson-login__alert--warn">
@@ -348,8 +330,8 @@ export function LoginPage() {
 
                   <button className="zimson-login__submit" type="submit" disabled={otpSending}>
                     {otpSending ? "Sending OTP…" : "Sign in"}
-                    <svg viewBox="0 0 24 24">
-                      <path d="M13.5 5.5 19 11H5v2h14l-5.5 5.5 1.4 1.4L22.8 12l-7.9-7.9-1.4 1.4Z" />
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M5 12h12M13 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </button>
                 </>
@@ -381,27 +363,16 @@ export function LoginPage() {
                   ) : null}
                 </>
               )}
-
-              <div className="zimson-login__or" aria-hidden="true">
-                or
-              </div>
             </form>
-          </div>
 
-          <div className="zimson-login__footer">
-            <div className="zimson-login__support">
-              <span className="zimson-login__support-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 3a8 8 0 0 0-8 8v5a3 3 0 0 0 3 3h1v-7H5a6 6 0 1 1 12 0h-3v7h1a3 3 0 0 0 3-3v-5a8 8 0 0 0-8-8Zm-5 13h2a2 2 0 0 1-2 2v2a2 2 0 0 0 2 2h1v-6H7Zm11 0v6h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-1Z" />
-                </svg>
-              </span>
-              <span>
-                Having trouble? <Link to="/">Go to home</Link>
-              </span>
-            </div>
+            {!onOtpStep ? (
+              <p className="zimson-login__help">
+                <span>Need help?</span>
+              </p>
+            ) : null}
           </div>
         </section>
-      </main>
+      </div>
 
       <LoginStorePickerModal
         open={storePickerOpen}

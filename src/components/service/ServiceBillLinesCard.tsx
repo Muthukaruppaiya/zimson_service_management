@@ -63,6 +63,8 @@ type Props = {
   topBanner?: ReactNode;
   /** Hide barcode / catalogue spare pickers (e.g. brand repair billing). */
   hideSpareCatalog?: boolean;
+  /** Package job: invoice is the package amount only. */
+  packageOnly?: boolean;
 };
 
 function emptyEditableLine(): ServiceBillEditorLine {
@@ -103,6 +105,7 @@ export function ServiceBillLinesCard({
   subtitle = "",
   topBanner,
   hideSpareCatalog = false,
+  packageOnly = false,
 }: Props) {
   const pricesTaxInclusive =
     pricesTaxInclusiveProp ?? Boolean(serviceTaxSettings?.pricesTaxInclusive);
@@ -370,7 +373,7 @@ export function ServiceBillLinesCard({
             );
           })
         )}
-        {!labourChargesOnly ? (
+        {!labourChargesOnly && !packageOnly ? (
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -381,6 +384,7 @@ export function ServiceBillLinesCard({
             </button>
           </div>
         ) : null}
+        {!packageOnly ? (
         <div className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[1fr_minmax(0,7rem)_minmax(0,9rem)_auto] sm:items-end">
           <div className="min-w-0">
             <span className="text-xs font-medium text-stone-600">Service / repair charge</span>
@@ -415,6 +419,7 @@ export function ServiceBillLinesCard({
             Clear
           </button>
         </div>
+        ) : null}
       </div>
 
       <div className="mt-4 space-y-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3 sm:p-4">

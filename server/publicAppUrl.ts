@@ -1,4 +1,5 @@
 import type { Request } from "express";
+import { listenPort } from "./listenPort";
 
 function header(req: Request, name: string): string {
   const v = req.headers[name];
@@ -43,7 +44,7 @@ export function resolvePublicAppBaseUrl(req: Request): string {
   }
 
   const webPort = String(process.env.WEB_DEV_PORT ?? "5173").trim() || "5173";
-  const apiPort = String(process.env.PORT ?? "4000").trim() || "4000";
+  const apiPort = String(process.env.PORT ?? listenPort()).trim() || String(listenPort());
   const scheme = req.protocol === "https" ? "https" : "http";
 
   if (hostHeader) {

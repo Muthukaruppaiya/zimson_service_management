@@ -2,9 +2,11 @@ import {
   formatIndiaMobileE164,
   getMessagingConfig,
   isEmailConfigured,
+  isSmsConfigured,
   isWhatsAppConfigured,
 } from "./messaging/config";
 import { sendCustomerTrackingLinkEmail } from "./messaging/customerTrackingLinkEmail";
+import { sendTrackingFallbackSms } from "./messaging/qikberrySms";
 import {
   sendSiteVisitApprovalWhatsAppTemplate,
   sendTrackingLinkWhatsAppBodyOnly,
@@ -20,6 +22,9 @@ type TrackingLinkPayload = {
   /** Public HTTPS URL to SRF acknowledgment PDF (required for WhatsApp template document header). */
   documentUrl?: string;
   documentFilename?: string;
+  documentPdf?: Buffer;
+  /** 6-digit pin for OTP SMS fallback when WhatsApp fails. */
+  smsPin?: string;
   /** Default: send both channels when configured. */
   channels?: { whatsapp?: boolean; email?: boolean };
 };
@@ -29,6 +34,9 @@ type TrackingLinkSendResult = {
   reason?: string;
   emailSent: boolean;
   emailReason?: string;
+  smsSent: boolean;
+  smsReason?: string;
+  smsPin?: string;
 };
 
 type ReestimateDecisionPayload = {
@@ -39,6 +47,74 @@ type ReestimateDecisionPayload = {
   note?: string;
 };
 
+async function sendTrackingWhatsApp(payload: {
+  phone: string;
+  customerName: string;
+  srfNumber: string;
+  trackingUrl: string;
+  documentUrl?: string;
+  documentFilename?: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  if (!isWhatsAppConfigured()) {
+    return { sent: false, reason: "WhatsApp not configured." };
+  }
+
+  let phone10 = "";
+  try {
+    phone10 = formatIndiaMobileE164(payload.phone).replace(/\D/g, "").slice(-10);
+  } catch {
+    return { sent: false, reason: "Invalid mobile number." };
+  }
+
+  const documentUrl = payload.documentUrl?.trim();
+  if (!documentUrl) {
+    try {
+      const messageId = await sendTrackingLinkWhatsAppBodyOnly({
+        phone10,
+        customerName: payload.customerName,
+        srfNumber: payload.srfNumber,
+        trackingUrl: payload.trackingUrl,
+      });
+      console.log(`[TRACKING LINK] WhatsApp (no PDF) sent | id=${messageId ?? "—"}`);
+      return { sent: true };
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : "WhatsApp send failed (no PDF).";
+      console.error("[TRACKING LINK] WhatsApp body-only send failed", e);
+      return { sent: false, reason };
+    }
+  }
+
+  const templateName = getMessagingConfig().whatsapp.trackingTemplateName;
+  try {
+    const messageId = await sendTrackingLinkWhatsAppTemplate({
+      phone10,
+      customerName: payload.customerName,
+      srfNumber: payload.srfNumber,
+      trackingUrl: payload.trackingUrl,
+      documentUrl,
+      documentFilename: payload.documentFilename,
+    });
+    console.log(`[TRACKING LINK] WhatsApp template sent | template=${templateName} | id=${messageId ?? "—"}`);
+    return { sent: true };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : "WhatsApp send failed.";
+    console.error("[TRACKING LINK] WhatsApp send failed", e);
+    try {
+      const messageId = await sendTrackingLinkWhatsAppBodyOnly({
+        phone10,
+        customerName: payload.customerName,
+        srfNumber: payload.srfNumber,
+        trackingUrl: payload.trackingUrl,
+      });
+      console.log(`[TRACKING LINK] WhatsApp fallback (body only) sent | id=${messageId ?? "—"}`);
+      return { sent: true };
+    } catch (fallbackErr) {
+      console.error("[TRACKING LINK] WhatsApp body-only fallback failed", fallbackErr);
+      return { sent: false, reason };
+    }
+  }
+}
+
 export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<TrackingLinkSendResult> {
   const customerName = payload.name.trim() || "Customer";
   const srfNumber = payload.srfReference.trim();
@@ -46,6 +122,7 @@ export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<Tr
   const email = payload.email?.trim();
   const documentUrl = payload.documentUrl?.trim();
   const documentFilename = payload.documentFilename?.trim();
+  const smsPin = String(payload.smsPin ?? "").trim();
 
   console.log(`[TRACKING LINK] Customer: ${customerName} | Phone: ${payload.phone}`);
   console.log(`[TRACKING LINK] SRF: ${srfNumber}`);
@@ -54,7 +131,12 @@ export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<Tr
 
   if (!srfNumber || !trackingUrl) {
     console.log("[TRACKING LINK] Missing SRF number or tracking URL.");
-    return { sent: false, reason: "Missing SRF number or tracking URL.", emailSent: false };
+    return {
+      sent: false,
+      reason: "Missing SRF number or tracking URL.",
+      emailSent: false,
+      smsSent: false,
+    };
   }
 
   const sendEmail = payload.channels?.email !== false;
@@ -64,92 +146,64 @@ export async function sendTrackingLink(payload: TrackingLinkPayload): Promise<Tr
   let emailReason: string | undefined;
   if (!sendEmail) {
     emailReason = "Skipped.";
-  } else if (email && isEmailConfigured()) {
+  } else if (!email) {
+    emailReason = "Customer email is required.";
+  } else if (!isEmailConfigured()) {
+    emailReason = "SMTP is not configured.";
+    console.log("[TRACKING LINK] Email on file but SMTP not configured — skipped email send.");
+  } else {
     try {
-      await sendCustomerTrackingLinkEmail(email, customerName, srfNumber, trackingUrl);
+      await sendCustomerTrackingLinkEmail(email, customerName, srfNumber, trackingUrl, {
+        pdfBuffer: payload.documentPdf,
+        documentFilename,
+      });
       emailSent = true;
     } catch (e) {
       emailReason = e instanceof Error ? e.message : "Email send failed.";
       console.error("[TRACKING LINK] Email send failed", e);
     }
-  } else if (email) {
-    emailReason = "SMTP is not configured.";
-    console.log("[TRACKING LINK] Email on file but SMTP not configured — skipped email send.");
-  } else {
-    emailReason = "No customer email on file.";
   }
 
-  if (!sendWhatsapp) {
-    return { sent: false, reason: "Skipped.", emailSent, emailReason };
-  }
-
-  if (!isWhatsAppConfigured()) {
-    console.log("[TRACKING LINK] WhatsApp not configured. Skipping template send.");
-    return { sent: false, reason: "WhatsApp not configured.", emailSent, emailReason };
-  }
-
-  if (!documentUrl) {
-    console.log("[TRACKING LINK] SRF document URL missing — trying body-only WhatsApp template.");
-    let phone10 = "";
-    try {
-      phone10 = formatIndiaMobileE164(payload.phone).replace(/\D/g, "").slice(-10);
-    } catch {
-      return { sent: false, reason: "Invalid mobile number.", emailSent, emailReason };
-    }
-    try {
-      const messageId = await sendTrackingLinkWhatsAppBodyOnly({
-        phone10,
-        customerName,
-        srfNumber,
-        trackingUrl,
-      });
-      console.log(`[TRACKING LINK] WhatsApp (no PDF) sent | id=${messageId ?? "—"}`);
-      return { sent: true, emailSent, emailReason };
-    } catch (e) {
-      const reason = e instanceof Error ? e.message : "WhatsApp send failed (no PDF).";
-      console.error("[TRACKING LINK] WhatsApp body-only send failed", e);
-      return { sent: false, reason, emailSent, emailReason };
-    }
-  }
-
-  let phone10 = "";
-  try {
-    phone10 = formatIndiaMobileE164(payload.phone).replace(/\D/g, "").slice(-10);
-  } catch {
-    console.log("[TRACKING LINK] Invalid phone number. Skipping WhatsApp send.");
-    return { sent: false, reason: "Invalid mobile number.", emailSent, emailReason };
-  }
-
-  const templateName = getMessagingConfig().whatsapp.trackingTemplateName;
-
-  try {
-    const messageId = await sendTrackingLinkWhatsAppTemplate({
-      phone10,
+  let wa: { sent: boolean; reason?: string } = { sent: false, reason: "Skipped." };
+  if (sendWhatsapp) {
+    wa = await sendTrackingWhatsApp({
+      phone: payload.phone,
       customerName,
       srfNumber,
       trackingUrl,
       documentUrl,
       documentFilename,
     });
-    console.log(`[TRACKING LINK] WhatsApp template sent | template=${templateName} | id=${messageId ?? "—"}`);
-    return { sent: true, emailSent, emailReason };
-  } catch (e) {
-    const reason = e instanceof Error ? e.message : "WhatsApp send failed.";
-    console.error("[TRACKING LINK] WhatsApp send failed", e);
-    try {
-      const messageId = await sendTrackingLinkWhatsAppBodyOnly({
-        phone10,
-        customerName,
-        srfNumber,
-        trackingUrl,
-      });
-      console.log(`[TRACKING LINK] WhatsApp fallback (body only) sent | id=${messageId ?? "—"}`);
-      return { sent: true, emailSent, emailReason };
-    } catch (fallbackErr) {
-      console.error("[TRACKING LINK] WhatsApp body-only fallback failed", fallbackErr);
-      return { sent: false, reason, emailSent, emailReason };
+  }
+
+  let smsSent = false;
+  let smsReason: string | undefined;
+  if (sendWhatsapp && !wa.sent) {
+    if (!isSmsConfigured()) {
+      smsReason = "WhatsApp failed and SMS is not configured.";
+    } else if (!/^\d{4,10}$/.test(smsPin)) {
+      smsReason = "WhatsApp failed and no SMS tracking code was available.";
+    } else {
+      try {
+        await sendTrackingFallbackSms(payload.phone, { srf: srfNumber, otp: smsPin });
+        smsSent = true;
+        console.log(`[TRACKING LINK] SMS fallback sent | pin=${smsPin} | srf=${srfNumber}`);
+      } catch (e) {
+        smsReason = e instanceof Error ? e.message : "SMS fallback failed.";
+        console.error("[TRACKING LINK] SMS fallback failed", e);
+      }
     }
   }
+
+  return {
+    sent: wa.sent,
+    reason: sendWhatsapp ? wa.reason : "Skipped.",
+    emailSent,
+    emailReason,
+    smsSent,
+    smsReason,
+    smsPin: smsSent ? smsPin : undefined,
+  };
 }
 
 export async function sendReestimateDecisionNotification(payload: ReestimateDecisionPayload): Promise<void> {
@@ -165,8 +219,8 @@ type SiteVisitApprovalPayload = {
   phone: string;
   name: string;
   srfReference: string;
-  approvalReason: string;
   trackingUrl: string;
+  approvalReason: string;
   documentUrl?: string;
   documentFilename?: string;
 };

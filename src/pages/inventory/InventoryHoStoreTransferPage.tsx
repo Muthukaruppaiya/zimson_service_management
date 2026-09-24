@@ -20,6 +20,42 @@ function FieldLabel({ children }: { children: ReactNode }) {
   return <span className="block text-[10px] font-semibold uppercase tracking-widest text-stone-400">{children}</span>;
 }
 
+function LineMeta({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-rlx-rule bg-stone-50/80 px-4 py-2 text-xs">
+      {children}
+    </div>
+  );
+}
+
+function MetaItem({
+  label,
+  value,
+  emphasize,
+  muted,
+  mono,
+}: {
+  label: string;
+  value?: string | number | null;
+  emphasize?: boolean;
+  muted?: boolean;
+  mono?: boolean;
+}) {
+  if (value == null || value === "") return null;
+  return (
+    <span className={`whitespace-nowrap ${muted ? "opacity-40" : ""}`.trim()}>
+      {label ? <span className="mr-1 text-[10px] font-semibold uppercase tracking-widest text-stone-400">{label}</span> : null}
+      <span
+        className={`${mono ? "font-mono" : ""} ${
+          emphasize ? "font-bold text-rlx-green" : "font-semibold text-stone-800"
+        }`}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
+
 type HoStockRow = { spareId: string; sku: string; name: string; qty: number };
 type ExtraLine = { key: string; spareId: string; qty: string };
 
@@ -161,8 +197,8 @@ export function InventoryHoStoreTransferPage() {
   if (!canTransfer) {
     return (
       <div>
-        <InventoryBreadcrumb current="HO transfer" />
-        <PageHeader title="Transfer to store" description="" />
+        <InventoryBreadcrumb current="Transfers" />
+        <PageHeader title="Transfers" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
           Only HO Purchase / HO Manager can transfer stock from HO to a store.
         </div>
@@ -172,23 +208,29 @@ export function InventoryHoStoreTransferPage() {
 
   return (
     <div>
-      <InventoryBreadcrumb current="HO transfer" />
+      <InventoryBreadcrumb current="Transfers" />
       <PageHeader
-        title="Transfer HO → Store"
+        title="Transfers"
         description="Move available HO stock to a store. Pick spares and quantity — no GRN is required."
         actions={
           <div className="flex gap-2">
             <Link
+              to="/inventory/transfer-history"
+              className="border border-rlx-green bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green transition hover:bg-rlx-green/5"
+            >
+              Transfers history
+            </Link>
+            <Link
               to="/inventory/purchase-return"
               className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 transition hover:bg-stone-50"
             >
-              Spare return
+              GRN return
             </Link>
             <Link
               to="/inventory/po-inward"
               className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 transition hover:bg-stone-50"
             >
-              Post GRN
+              GRN
             </Link>
           </div>
         }
@@ -201,7 +243,7 @@ export function InventoryHoStoreTransferPage() {
           <div className="flex flex-wrap items-end justify-between gap-3 border-b border-rlx-rule bg-rlx-green px-5 py-4">
             <div>
               <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-white">Destination</h3>
-              <p className="mt-0.5 text-[11px] text-white/55">Choose HO region and the store that will receive stock.</p>
+              <p className="mt-0.5 text-[11px] text-white/55"></p>
             </div>
             <div className="text-right text-[11px] text-white/75">
               <p className="font-semibold text-white">{hoSkuCount} spare{hoSkuCount === 1 ? "" : "s"} in HO</p>
@@ -210,7 +252,7 @@ export function InventoryHoStoreTransferPage() {
           </div>
           <div className="grid gap-3 p-4 sm:grid-cols-2">
             <label>
-              <span className={labelCls}>Region *</span>
+              <span className={labelCls}>Region name *</span>
               <select
                 className={inputCls}
                 value={regionId}
@@ -236,8 +278,8 @@ export function InventoryHoStoreTransferPage() {
               </select>
             </label>
             <label className="sm:col-span-2">
-              <span className={labelCls}>Notes</span>
-              <input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional remarks for this transfer" />
+              <span className={labelCls}>Remark</span>
+              <input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </label>
           </div>
         </div>
@@ -246,7 +288,7 @@ export function InventoryHoStoreTransferPage() {
           <div className="flex items-center justify-between gap-3 border-b border-rlx-rule bg-rlx-green px-5 py-4">
             <div>
               <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-white">Transfer lines</h3>
-              <p className="mt-0.5 text-[11px] text-white/55">Search HO stock and enter the quantity to send.</p>
+              <p className="mt-0.5 text-[11px] text-white/55"></p>
             </div>
             <span className="border border-white/30 px-2 py-0.5 text-[10px] font-bold text-white/80">
               {readyLines.length} ready
@@ -336,17 +378,18 @@ export function InventoryHoStoreTransferPage() {
                     </button>
                   </div>
                   {spare ? (
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-rlx-rule bg-stone-50/60 px-3 py-1.5 text-[11px] text-stone-500">
-                      <span>
-                        Part <span className="font-mono text-stone-800">{spare.sku}</span>
-                      </span>
-                      <span className="truncate text-stone-700">{spare.name}</span>
-                      {spare.category ? <span>{spare.category}</span> : null}
-                      <span>UOM Nos</span>
-                      <span className={remaining != null && remaining < 0 ? "text-red-600" : ""}>
-                        After {remaining}
-                      </span>
-                    </div>
+                    <LineMeta>
+                      <MetaItem label="Part" value={spare.sku} mono />
+                      <MetaItem label="Name" value={spare.name} />
+                      <MetaItem label="Category" value={spare.category} />
+                      <MetaItem label="UOM" value="Nos" />
+                      {remaining != null ? (
+                        <span className={`whitespace-nowrap ${remaining < 0 ? "font-semibold text-red-600" : ""}`}>
+                          <span className="mr-1 text-[10px] font-semibold uppercase tracking-widest text-stone-400">After</span>
+                          <span className={remaining < 0 ? undefined : "font-semibold text-stone-800"}>{remaining}</span>
+                        </span>
+                      ) : null}
+                    </LineMeta>
                   ) : null}
                   {exceeds ? (
                     <p className="px-3 pb-2 text-[11px] text-red-600">Cannot exceed HO stock ({avail}).</p>

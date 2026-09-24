@@ -287,10 +287,10 @@ export function InventoryPurchaseReturnHistoryPage() {
   if (!isHo) {
     return (
       <div>
-        <InventoryBreadcrumb current="Return History" />
-        <PageHeader title="Purchase Return History" description="" />
+        <InventoryBreadcrumb current="GRN return history" />
+        <PageHeader title="GRN return history" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only HO Manager, HO Purchase, or Admin can view spare return history.
+          Only HO Manager, HO Purchase, or Admin can view GRN return history.
         </div>
       </div>
     );
@@ -298,10 +298,10 @@ export function InventoryPurchaseReturnHistoryPage() {
 
   return (
     <div>
-      <InventoryBreadcrumb current="Return History" />
+      <InventoryBreadcrumb current="GRN return history" />
       <PageHeader
-        title="Purchase Return History"
-        description="Spare returns posted to suppliers against GRNs. HO stock was reduced for each document."
+        title="GRN return history"
+        description="Returns posted to suppliers against GRNs. HO stock was reduced for each document."
         actions={
           <div className="flex gap-2">
             <button
@@ -309,7 +309,7 @@ export function InventoryPurchaseReturnHistoryPage() {
               onClick={() => navigate("/inventory/purchase-return")}
               className="bg-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white hover:bg-rlx-green/90 transition"
             >
-              + New Return
+              + New GRN return
             </button>
             <button
               type="button"
@@ -348,7 +348,7 @@ export function InventoryPurchaseReturnHistoryPage() {
           <div className="px-5 py-10 text-center text-sm text-stone-400">Loading…</div>
         ) : filtered.length === 0 ? (
           <div className="px-5 py-10 text-center text-sm text-stone-400">
-            {rows.length === 0 ? "No spare returns posted yet." : "No records match your search."}
+            {rows.length === 0 ? "No GRN returns posted yet." : "No records match your search."}
           </div>
         ) : (
           <div className="overflow-x-auto">

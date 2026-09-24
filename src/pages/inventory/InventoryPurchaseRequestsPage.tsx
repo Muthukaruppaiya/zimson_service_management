@@ -359,8 +359,8 @@ function InventoryPurchaseRequestsForm() {
               <input type="date" min={minNeededByDate} className={inputCls} value={neededBy} onChange={(e) => setNeededBy(e.target.value)} />
             </div>
             <div>
-              <label className={labelCls}>Notes for HO (optional)</label>
-              <input className={inputCls} placeholder="Any special instructions…" value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <label className={labelCls}>Remark</label>
+              <input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
           </div>
 

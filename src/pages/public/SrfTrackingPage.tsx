@@ -216,6 +216,12 @@ function ZimsonHeader() {
 export function SrfTrackingPage() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const token = params.get("t")?.trim() ?? "";
+  const pin = params.get("p")?.trim() ?? "";
+  const trackQuery = token
+    ? `t=${encodeURIComponent(token)}`
+    : pin
+      ? `p=${encodeURIComponent(pin)}`
+      : "";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [disabled, setDisabled] = useState(false);
@@ -226,7 +232,7 @@ export function SrfTrackingPage() {
   const [lightboxPhoto, setLightboxPhoto] = useState<TrackPhoto | null>(null);
 
   async function load() {
-    if (!token) {
+    if (!trackQuery) {
       setError("Invalid tracking URL.");
       setLoading(false);
       return;
@@ -239,7 +245,7 @@ export function SrfTrackingPage() {
         customer: { name: string; phone: string } | null;
         job: TrackJob | null;
         jobs?: TrackJob[];
-      }>(`/api/public/srf-track?t=${encodeURIComponent(token)}`);
+      }>(`/api/public/srf-track?${trackQuery}`);
       setDisabled(Boolean(out.disabled));
       setCustomer(out.customer ?? null);
       const allJobs = out.jobs ?? (out.job ? [out.job] : []);
@@ -255,7 +261,7 @@ export function SrfTrackingPage() {
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [trackQuery]);
 
   useEffect(() => {
     if (!lightboxPhoto) return;
@@ -276,7 +282,7 @@ export function SrfTrackingPage() {
     try {
       await apiJson("/api/public/srf-track/reestimate-response", {
         method: "POST",
-        json: { token, srfId: jobId, accepted },
+        json: token ? { token, srfId: jobId, accepted } : { pin, srfId: jobId, accepted },
       });
       await load();
     } catch (e) {

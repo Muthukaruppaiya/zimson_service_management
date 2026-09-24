@@ -5,6 +5,8 @@ export type MessagingSettings = {
   smsSender: string;
   smsService: string;
   smsOtpMessageTemplate: string;
+  smsPaymentTemplateId: string;
+  smsPaymentReceiptTemplate: string;
   hasSmsToken: boolean;
   smsConfigured: boolean;
 

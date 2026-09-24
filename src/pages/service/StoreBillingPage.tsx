@@ -36,6 +36,7 @@ import {
 } from "../../lib/gstSupply";
 import { sanitizeDecimalInput } from "../../lib/inputSanitize";
 import { formatInr, formatApproxEstimateInr, formatApproxEstimateInrPlain, ESTIMATE_LABEL_APPROX } from "../../lib/formatInr";
+import { packageDisplayName } from "../../lib/servicePackage";
 import { customerPayableInr } from "../../lib/quickBillPayable";
 import {
   STORE_BILLING_PRICES_TAX_INCLUSIVE,
@@ -56,6 +57,16 @@ import { BillingHandoverPhotoCard } from "../../components/service/BillingHandov
 import { WarrantyMonthsPicker } from "../../components/service/WarrantyMonthsPicker";
 import { parseServiceWarrantyMonths, addMonthsYmd } from "../../lib/serviceWarranty";
 import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
+import {
+  IconClose,
+  IconEmail,
+  IconGstEinvoice,
+  IconNext,
+  IconPrint,
+  IconSpinner,
+  IconWhatsApp,
+  invoicePreviewIconBtn,
+} from "../../components/service/invoicePreviewIcons";
 import { isValidGstFormat } from "../../data/serviceSeed";
 import {
   buildStoreBillingGstLines,
@@ -91,11 +102,10 @@ type AdditionalChargeLine = {
   amount: string;
 };
 
-const billSuccessBtnBase =
-  "inline-flex w-full min-w-0 items-center justify-center rounded-xl px-4 py-2.5 text-center text-sm font-semibold shadow-sm transition sm:w-auto";
-const billSuccessBtnPrimary = `${billSuccessBtnBase} bg-zimson-600 text-white hover:bg-zimson-700`;
-const billSuccessBtnSecondary = `${billSuccessBtnBase} border border-zimson-400 bg-white text-zimson-900 hover:bg-zimson-50`;
-const billSuccessBtnOutline = `${billSuccessBtnBase} border border-stone-300 bg-white text-stone-800 hover:bg-stone-50`;
+const billSuccessIconPrimary =
+  `${invoicePreviewIconBtn} rounded-xl bg-rlx-green text-white shadow-sm hover:bg-rlx-green/90`;
+const billSuccessIconSecondary =
+  `${invoicePreviewIconBtn} rounded-xl border border-rlx-rule bg-white text-stone-700 hover:bg-stone-50`;
 
 function customerAddressText(c: CustomerRecord | null): string {
   if (!c) return "";
@@ -292,6 +302,9 @@ export function StoreBillingPage() {
   );
   const isBrandRepairFlow = billingAmounts?.isBrandRepair ?? false;
   const isInterHoReturnFlow = billingAmounts?.isInterHoReturn ?? false;
+  const isPackageBilling = Boolean(
+    billingJob?.servicePackage?.id && Number(billingJob.servicePackage.priceInr) > 0,
+  );
   const useServiceBillLinesCard = Boolean(billingJob && !isRejectedNoRepairFlow);
   /** @deprecated alias — same as useServiceBillLinesCard */
   const useQuickBillStyleLines = useServiceBillLinesCard;
@@ -1104,8 +1117,9 @@ export function StoreBillingPage() {
                 advanceInr={advanceAmount}
                 standardTotalInr={standardBillingTotal}
                 userRole={user?.role}
-                labourChargesOnly={user?.role === "store_user" && !isBrandRepairFlow}
-                hideSpareCatalog={isBrandRepairFlow}
+                labourChargesOnly={user?.role === "store_user" && !isBrandRepairFlow && !isPackageBilling}
+                hideSpareCatalog={isBrandRepairFlow || isPackageBilling}
+                packageOnly={isPackageBilling && !isBrandRepairFlow}
                 title="Service lines"
                 topBanner={
                   isBrandRepairFlow ? (
@@ -1136,6 +1150,17 @@ export function StoreBillingPage() {
                           </p>
                         </div>
                       ) : null}
+                    </div>
+                  ) : isPackageBilling && billingJob.servicePackage ? (
+                    <div className="rounded-xl border border-rlx-green/30 bg-rlx-green/5 p-3 text-sm">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-rlx-green">
+                        Service package
+                      </p>
+                      <p className="mt-0.5 font-semibold text-zimson-900">
+                        {packageDisplayName(billingJob.servicePackage)} ·{" "}
+                        {formatInr(Number(billingJob.servicePackage.priceInr) || 0)}
+                      </p>
+                      <p className="mt-1 text-xs text-stone-600">Final invoice uses this package amount only.</p>
                     </div>
                   ) : isInterHoReturnFlow ? (
                     <div className="grid gap-2 rounded-xl border border-indigo-200/80 bg-indigo-50/50 p-3 text-sm sm:grid-cols-2">
@@ -1553,42 +1578,60 @@ export function StoreBillingPage() {
           description={`Invoice ${billingInvoiceVm.invoiceNumber} · SRF ${billingInvoiceVm.serviceReference ?? ""}`}
           onBackdropClick={() => setBillSuccessModalOpen(false)}
           actions={
-            <>
-              <button type="button" className={billSuccessBtnPrimary} onClick={() => printServiceInvoice()}>
-                Print invoice
+            <div className="flex w-full flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                className={billSuccessIconPrimary}
+                onClick={() => printServiceInvoice()}
+                title="Print invoice"
+                aria-label="Print invoice"
+              >
+                <IconPrint className="h-6 w-6" />
               </button>
               <button
                 type="button"
-                className={billSuccessBtnSecondary}
+                className={billSuccessIconPrimary}
                 disabled={emailSending || whatsappSending}
                 onClick={() => void handleSendBillingInvoiceEmail()}
+                title={emailSending ? "Sending email…" : "Send invoice by email"}
+                aria-label={emailSending ? "Sending email" : "Send invoice by email"}
               >
-                {emailSending ? "Sending email…" : "Send invoice by email"}
+                {emailSending ? <IconSpinner className="h-6 w-6" /> : <IconEmail className="h-6 w-6" />}
               </button>
               <button
                 type="button"
-                className={billSuccessBtnSecondary}
+                className={billSuccessIconPrimary}
                 disabled={whatsappSending || emailSending}
                 onClick={() => void handleSendBillingInvoiceWhatsApp()}
+                title={whatsappSending ? "Sending on WhatsApp…" : "Send invoice on WhatsApp"}
+                aria-label={whatsappSending ? "Sending on WhatsApp" : "Send invoice on WhatsApp"}
               >
-                {whatsappSending ? "Sending on WhatsApp…" : "Send invoice on WhatsApp"}
-              </button>
-              <button type="button" className={billSuccessBtnOutline} onClick={() => setBillSuccessModalOpen(false)}>
-                Close
+                {whatsappSending ? <IconSpinner className="h-6 w-6" /> : <IconWhatsApp className="h-6 w-6" />}
               </button>
               {edocEnabled && billingInvoiceVm?.billTo?.gstin?.trim() && billingEdoc && !billingEdoc.ok && !billingEdoc.skipped ? (
                 <button
                   type="button"
-                  className={billSuccessBtnSecondary}
+                  className={billSuccessIconPrimary}
                   disabled={edocBusy}
                   onClick={() => void retryStoreBillingEdoc()}
+                  title={edocBusy ? "Generating IRN…" : "Retry e-invoice"}
+                  aria-label={edocBusy ? "Generating IRN" : "Retry e-invoice"}
                 >
-                  {edocBusy ? "Generating IRN…" : "Retry e-invoice"}
+                  {edocBusy ? <IconSpinner className="h-6 w-6" /> : <IconGstEinvoice className="h-6 w-6" />}
                 </button>
               ) : null}
               <button
                 type="button"
-                className={billSuccessBtnSecondary}
+                className={billSuccessIconSecondary}
+                onClick={() => setBillSuccessModalOpen(false)}
+                title="Close"
+                aria-label="Close"
+              >
+                <IconClose className="h-6 w-6" />
+              </button>
+              <button
+                type="button"
+                className={billSuccessIconPrimary}
                 onClick={() => {
                   autoWhatsAppSentRef.current = null;
                   setBillingInvoiceVm(null);
@@ -1598,10 +1641,12 @@ export function StoreBillingPage() {
                   setClosedSrfId(null);
                   setScreenMode("select");
                 }}
+                title="Done — next SRF"
+                aria-label="Done — next SRF"
               >
-                Done — next SRF
+                <IconNext className="h-6 w-6" />
               </button>
-            </>
+            </div>
           }
         >
           {billingEdoc && billingInvoiceVm?.billTo?.gstin?.trim() ? (
@@ -1639,8 +1684,8 @@ export function StoreBillingPage() {
             </p>
           ) : (
             <p className="text-sm text-stone-700">
-              The invoice is sent on WhatsApp automatically when e-invoice is registered (or for B2C). You can also use{" "}
-              <strong>Print invoice</strong>, <strong>Send invoice by email</strong>, or resend on WhatsApp below.
+              The invoice is sent on WhatsApp automatically when e-invoice is registered (or for B2C). Use the icons
+              below to print, email, resend on WhatsApp, retry e-invoice, or go to the next SRF.
             </p>
           )}
         </ProcessSuccessModal>

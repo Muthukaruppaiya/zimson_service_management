@@ -5,6 +5,7 @@ import type { SparePart } from "../types/spare";
 export type SpareStickerData = {
   itemNumber: string;
   sku: string;
+  internalSerial: string;
   mrpLabel: string;
   brandMark: string;
   barcodeSrc: string;
@@ -64,15 +65,35 @@ export function spareStickerSku(sku: string, locationCode?: string | null): stri
   return `${base}-${loc}`;
 }
 
+/**
+ * Internal serial printed on the sticker (system id, or custom field when set).
+ * When printing several copies, each copy gets a unique suffix.
+ */
+export function spareStickerInternalSerial(
+  spare: SparePart,
+  opts?: { locationCode?: string | null; copyIndex?: number },
+): string {
+  const cf = spare.customFields ?? {};
+  const fromCf = String(
+    cf.internal_serial ?? cf.internalSerial ?? cf.serial_no ?? cf.serialNo ?? cf.serial ?? "",
+  ).trim();
+  const loc = locationSuffix(opts?.locationCode);
+  const idPart = spare.id.replace(/-/g, "").slice(-8).toUpperCase();
+  const base = fromCf || (loc ? `${loc}-${idPart}` : idPart);
+  const copyIndex = Math.max(1, opts?.copyIndex ?? 1);
+  return `${base}-${String(copyIndex).padStart(3, "0")}`;
+}
+
 export function buildSpareStickerData(
   spare: SparePart,
-  opts?: { brand?: string | null; locationCode?: string | null },
+  opts?: { brand?: string | null; locationCode?: string | null; copyIndex?: number },
 ): SpareStickerData {
   const catalogSku = spare.sku.trim() || spare.id;
   const sku = spareStickerSku(catalogSku, opts?.locationCode);
   return {
     itemNumber: spareStickerItemNumber(spare),
     sku,
+    internalSerial: spareStickerInternalSerial(spare, opts),
     mrpLabel: spareStickerMrpLabel(spare),
     brandMark: spareStickerBrandMark(opts?.brand, opts?.locationCode),
     barcodeSrc: documentBarcodeImageSrc(catalogSku, { scale: 3, height: 10 }),
@@ -91,6 +112,7 @@ function stickerCardHtml(data: SpareStickerData): string {
   <div class="sticker-bar">
     <img src="${esc(data.barcodeSrc)}" alt="${esc(data.sku)}" />
   </div>
+  <div class="sticker-serial">ISN ${esc(data.internalSerial)}</div>
   <div class="sticker-bottom">
     <span class="sticker-mrp">${esc(data.mrpLabel)}</span>
     <span class="sticker-brand">${esc(data.brandMark)}</span>
@@ -143,9 +165,19 @@ const STICKER_CSS = `
   .sticker-bar img {
     display: block;
     width: 100%;
-    height: 9mm;
+    height: 7.2mm;
     object-fit: contain;
     object-position: center;
+  }
+  .sticker-serial {
+    font-weight: 700;
+    font-size: 7.5pt;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   @media print {
     @page { margin: 4mm; }
@@ -157,7 +189,18 @@ const STICKER_CSS = `
 export function printSpareStickers(stickers: SpareStickerData[], copies = 1): void {
   if (stickers.length === 0) return;
   const count = Math.max(1, Math.min(99, copies));
-  const cards = stickers.flatMap((s) => Array.from({ length: count }, () => stickerCardHtml(s))).join("");
+  const cards = stickers
+    .flatMap((s) =>
+      Array.from({ length: count }, (_, i) => {
+        const copyIndex = i + 1;
+        const serialBase = s.internalSerial.replace(/-\d{3}$/, "");
+        return stickerCardHtml({
+          ...s,
+          internalSerial: `${serialBase}-${String(copyIndex).padStart(3, "0")}`,
+        });
+      }),
+    )
+    .join("");
   openPrintDocument(
     `Spare sticker${stickers.length > 1 ? "s" : ""}`,
     `<style>${STICKER_CSS}</style><div class="sheet">${cards}</div>`,

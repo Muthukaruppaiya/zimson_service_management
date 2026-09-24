@@ -1,54 +1,36 @@
 /**
- * ZIMSON — Premium Login Screen (polished)
- * Royal navy + gold · Poppins · no inline styles
+ * ZIMSON login — navy stage + cream card.
+ * Card-only colours: blue #2f2a70, gold #b89345, cream #fbf4e6.
  */
 
-/* ─── Tokens ────────────────────────────────────────────────────── */
 :root {
   --z-navy: #0a1f44;
   --z-navy-deep: #071d49;
   --z-navy-secondary: #0c2d72;
-  --z-gold-deep: #a8850f;
   --z-gold: #c9a227;
   --z-gold-mid: #e8c14e;
   --z-gold-highlight: #f0dc90;
   --z-gold-glow: rgba(201, 162, 39, 0.55);
   --z-gold-glow-soft: rgba(201, 162, 39, 0.32);
-  --z-cream: #f4f6fb;
   --z-white: #ffffff;
-  --z-gray-footer: #f5f5f5;
-  --z-text-muted: #6b7280;
-  --z-link: #a8850f;
-  --z-radius-card: 32px;
-  --z-radius-input: 14px;
-  --z-radius-btn: 10px;
-  --z-ease: 0.3s ease;
   --z-font: "Poppins", system-ui, sans-serif;
-  --z-gold-grad: linear-gradient(
-    180deg,
-    var(--z-gold-deep) 0%,
-    var(--z-gold) 38%,
-    var(--z-gold-mid) 72%,
-    var(--z-gold-highlight) 100%
-  );
-  --z-card-width: 480px;
+  --z-ease: 0.3s ease;
 }
 
 /* ─── Page ──────────────────────────────────────────────────────── */
 .zimson-login {
+  --login-card-width: 400px;
   position: relative;
   min-height: 100dvh;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 1.75rem 1rem 2rem;
+  padding: 2.5rem clamp(2.5rem, 6vw, 6.5rem);
   font-family: var(--z-font);
-  background: linear-gradient(160deg, var(--z-navy-deep) 0%, var(--z-navy) 40%, var(--z-navy-secondary) 100%);
+  background: linear-gradient(160deg, var(--z-navy-deep) 0%, var(--z-navy) 42%, var(--z-navy-secondary) 100%);
   overflow: hidden;
   animation: z-fade-in 0.7s var(--z-ease) both;
 }
 
-/* ─── Background layers ─────────────────────────────────────────── */
 .zimson-login__bg {
   position: absolute;
   inset: 0;
@@ -56,343 +38,263 @@
   z-index: 0;
 }
 
-.zimson-login__bg-texture {
-  position: absolute;
-  inset: 0;
-  opacity: 0.5;
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
-  background-size: 26px 26px;
-}
-
 .zimson-login__watermark {
   position: absolute;
-  right: 0%;
-  top: 50%;
+  left: 0.5%;
+  top: 46%;
+  z-index: 1;
   transform: translateY(-50%);
-  font-size: clamp(16rem, 34vw, 28rem);
+  font-size: clamp(16rem, 36vw, 30rem);
   font-weight: 700;
-  line-height: 1;
+  line-height: 0.85;
   color: var(--z-white);
-  opacity: 0.06;
+  opacity: 0.09;
   user-select: none;
 }
 
-.zimson-login__swoosh {
+.zimson-login__wave {
   position: absolute;
-  width: min(60vw, 620px);
-  height: auto;
-  opacity: 0.85;
-  filter: drop-shadow(0 0 10px var(--z-gold-glow-soft));
+  inset: 0;
+  z-index: 0;
+  background-image: url("/LOGIN_BG.png");
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: cover;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 30%, rgba(0, 0, 0, 0.45) 42%, transparent 58%);
+  mask-image: linear-gradient(to top, #000 0%, #000 30%, rgba(0, 0, 0, 0.45) 42%, transparent 58%);
 }
 
-.zimson-login__swoosh--bl {
-  bottom: 2%;
-  left: -4%;
-  transform: rotate(-3deg);
-}
-
-.zimson-login__swoosh--br {
-  bottom: 4%;
-  right: -4%;
-  transform: rotate(3deg) scaleX(-1);
-}
-
-/* ─── Main column ───────────────────────────────────────────────── */
-.zimson-login__main {
+.zimson-login__stage {
   position: relative;
   z-index: 2;
   width: 100%;
-  max-width: var(--z-card-width);
+  display: grid;
+  grid-template-columns: 1fr var(--login-card-width);
+  align-items: center;
+  column-gap: clamp(1.5rem, 4vw, 3.5rem);
+}
+
+.zimson-login__hero {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.85rem;
-}
-
-/* ─── Logo block ────────────────────────────────────────────────── */
-.zimson-login__brand {
+  justify-content: center;
+  justify-self: center;
+  width: max-content;
+  max-width: 100%;
   text-align: center;
-  animation: z-fade-in 0.8s var(--z-ease) 0.05s both;
 }
 
 .zimson-login__logo-wrap {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: min(200px, 62vw);
-  height: 68px;
-  padding: 0.4rem 0.85rem;
-  border-radius: 10px !important;
+  width: min(260px, 70vw);
+  height: 78px;
+  padding: 0.45rem 1.1rem;
+  border-radius: 12px !important;
   background: var(--z-white);
-  border: 3px solid #F3C456;
-  box-shadow:
-    0 0 0 2px rgba(255, 215, 0, 0.4),
-    0 0 24px rgba(255, 215, 0, 0.5),
-    0 0 50px rgba(255, 215, 0, 0.28),
-    0 8px 24px rgba(0, 0, 0, 0.3);
+  border: 2px solid var(--z-gold-mid);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
 }
 
 .zimson-login__logo {
-  max-width: 88%;
-  max-height: 42px;
+  max-width: 92%;
+  max-height: 50px;
   width: auto;
   height: auto;
   object-fit: contain;
 }
 
-.zimson-login__tagline-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  margin-top: 0.7rem;
-  width: min(380px, 90vw);
-}
-
-.zimson-login__tagline-line {
-  flex: 1;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--z-gold-mid), var(--z-gold), transparent);
-  position: relative;
-}
-
-.zimson-login__tagline-dot {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+.zimson-login__hero-rule {
+  width: 2.5rem;
+  height: 1.5px;
+  margin: 1.45rem 0 0;
   background: var(--z-gold-mid);
-  box-shadow: 0 0 10px var(--z-gold-glow);
+  border-radius: 999px;
 }
 
-.zimson-login__tagline-text {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  color: var(--z-gold-highlight);
-  text-shadow: 0 0 16px var(--z-gold-glow);
+.zimson-login__hero-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin: 1.15rem 0 0;
+  color: rgba(255, 255, 255, 0.96);
+  font-size: clamp(1.7rem, 2.8vw, 2.4rem);
+  font-weight: 300;
+  line-height: 1.32;
+  letter-spacing: 0.01em;
+  text-align: left;
+}
+
+.zimson-login__hero-title span {
+  display: block;
   white-space: nowrap;
 }
 
-/* ─── Card ──────────────────────────────────────────────────────── */
-.zimson-login__card{
-  width:100%;
-  max-width:430px;
-  margin-top:30px;
-  background:#fff;
-  border:2px solid #d6a126;
-  border-radius:28px !important;
-  overflow:hidden;
-  box-shadow:0 20px 45px rgba(0,0,0,.22);
+.zimson-login__hero-title strong {
+  font-style: normal;
+  font-weight: 700;
 }
 
-/* Ribbon header — plain flat gold banner, no decorative shapes */
-.zimson-login__ribbon {
-  width: 100%;
-  padding: 22px 24px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
+.zimson-login__hero-kicker {
+  margin: 1.2rem 0 0;
+  color: rgba(226, 214, 188, 0.78);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
   text-align: center;
-  color: #fff;
-  background: #c99011;
+}
+
+/* ─── Card — scoped colour tokens only here ─────────────────────── */
+.zimson-login__card {
+  --login-blue: #2f2a70;
+  --login-gold: #b89345;
+  --login-cream: #fbf4e6;
+  width: var(--login-card-width);
+  max-width: 100%;
+  background: var(--login-cream);
+  border: 1px solid rgba(47, 42, 112, 0.08);
+  border-radius: 20px !important;
+  overflow: hidden;
+  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.28);
+  animation: z-slide-up 0.5s ease-out both;
+}
+
+.zimson-login__body {
+  padding: 2rem 1.85rem 1.5rem;
+}
+
+.zimson-login__heading {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--login-blue);
 }
 
 .zimson-login__welcome {
-  position: relative;
-  z-index: 10;
-  margin: 0;
-  font-size: 0.625rem;
-  font-weight: 500;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  opacity: 0.95;
-}
-
-.zimson-login__title-row {
-  position: relative;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.65rem;
-  margin-top: 0.3rem;
-}
-
-.zimson-login__ornament {
-  flex: 1;
-  max-width: 44px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7));
-  position: relative;
-}
-
-.zimson-login__ornament::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--z-white);
-  opacity: 0.85;
-}
-
-.zimson-login__ornament--right {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.7), transparent);
-}
-
-.zimson-login__ornament--right::after {
-  right: auto;
-  left: 0;
-}
-
-.zimson-login__title {
-  margin: 0;
-  font-size: clamp(1.35rem, 4vw, 1.65rem);
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.15);
-  white-space: nowrap;
-}
-
-/* ─── Form body ─────────────────────────────────────────────────── */
-.zimson-login__body {
-  padding: 30px 34px 22px;
+  margin: 0.35rem 0 1.45rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--login-blue) 72%, #6b7280);
 }
 
 .zimson-login__field {
-  margin-bottom: 0.85rem;
-  
+  margin-bottom: 1rem;
 }
 
 .zimson-login__label {
   display: block;
-  margin-bottom: 10px;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: #132b63;
+  margin-bottom: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  color: var(--login-blue);
 }
 
-.zimson-login__field-row {
+.zimson-login__control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.zimson-login__control-icon {
+  position: absolute;
+  left: 0.85rem;
+  width: 18px;
+  height: 18px;
+  color: color-mix(in srgb, var(--login-blue) 55%, #9ca3af);
+  pointer-events: none;
+}
+
+.zimson-login__control-icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.zimson-login__field-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 46px;
+  padding: 0 2.6rem 0 2.55rem;
+  border: 1px solid color-mix(in srgb, var(--login-blue) 16%, #e5e7eb);
+  border-radius: 10px;
+  background: var(--z-white);
+  font-family: var(--z-font);
+  font-size: 0.9375rem;
+  color: var(--login-blue);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.zimson-login__field-input::placeholder {
+  color: #9ca3af;
+}
+
+.zimson-login__field-input:hover {
+  border-color: color-mix(in srgb, var(--login-gold) 55%, #d1d5db);
+}
+
+.zimson-login__control:not(:has(.zimson-login__eye)) .zimson-login__field-input {
+  padding-right: 0.9rem;
+}
+
+.zimson-login__field-input:focus {
+  border-color: var(--login-gold);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-gold) 22%, transparent);
+}
+
+.zimson-login__eye {
+  position: absolute;
+  right: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--login-blue) 50%, #9ca3af);
+  cursor: pointer;
+}
+
+.zimson-login__eye svg {
+  width: 18px;
+  height: 18px;
+}
+
+.zimson-login__eye:hover {
+  color: var(--login-blue);
+}
+
+.zimson-login__meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.4rem;
-}
-
-.zimson-login__field-row .zimson-login__label {
-  margin-bottom: 0;
+  gap: 0.75rem;
+  margin: 0.05rem 0 1.2rem;
 }
 
 .zimson-login__forgot {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--z-link);
+  color: var(--login-gold);
   text-decoration: none;
-  transition: color var(--z-ease);
+  white-space: nowrap;
 }
 
 .zimson-login__forgot:hover {
   text-decoration: underline;
 }
 
-.zimson-login__input-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.zimson-login__input-row:focus-within .zimson-login__input-box {
-  border-color: #C9A227;
-  box-shadow: 0 0 8px rgba(212, 160, 23, 0.15);
-}
-
-/* Icon badge — fixed box-sizing so it's always a true circle */
-.zimson-login__input-icon {
-  box-sizing: border-box;
-  flex-shrink: 0;
-  min-width: 42px;
-  min-height: 42px;
-  width: 42px;
-  height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50% !important;
-  background: #fcf4e5;
-  border: 1px solid #ead3a0;
-  color: #c18a10;
-  box-shadow: none;
-  overflow: hidden;
-}
-
-.zimson-login__input-icon svg {
-  width: 19px;
-  height: 19px;
-  display: block;
-}
-
-.zimson-login__input-box{
-  flex:1;
-  display:flex;
-  align-items:center;
-  height:44px;
-  padding:0 16px;
-  border:1px solid #e5d6bd;
-  border-radius:14px !important;
-  background:#fff;
-  transition:.3s;
-}
-
-.zimson-login__input-box:hover{
-  border-color:#C9A227;
-}
-
-.zimson-login__input {
-  width: 100% !important;
-  height: 100%;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  font-family: var(--z-font);
-  font-size: 0.9375rem;
-  line-height: 1;
-  color: #111827;
-  outline: none !important;
-}
-
-.zimson-login__input:focus {
-  border: none !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-
-.zimson-login__input::placeholder {
-  color: #9ca3af;
-  font-weight: 300;
-}
-
-/* Remember me */
 .zimson-login__remember {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 18px;
-  margin-bottom: 22px;
+  margin: 0;
   cursor: pointer;
   user-select: none;
 }
@@ -403,19 +305,17 @@
   width: 16px !important;
   height: 16px !important;
   margin: 0 !important;
-  border: 2px solid #d1d5db !important;
-  border-radius: 3px !important;
+  border: 2px solid color-mix(in srgb, var(--login-gold) 70%, #d1d5db) !important;
+  border-radius: 4px !important;
   background: var(--z-white) !important;
   cursor: pointer !important;
   position: relative !important;
   flex-shrink: 0 !important;
-  transition: all var(--z-ease) !important;
 }
 
 .zimson-login__remember input:checked {
-  border-color: var(--z-gold-deep) !important;
-  background: var(--z-gold-grad) !important;
-  box-shadow: 0 0 10px var(--z-gold-glow-soft) !important;
+  border-color: var(--login-gold) !important;
+  background: var(--login-gold) !important;
 }
 
 .zimson-login__remember input:checked::after {
@@ -431,43 +331,38 @@
 }
 
 .zimson-login__remember span {
-  font-size: 14px;
-  color: #23336b;
+  font-size: 0.8125rem;
+  color: var(--login-blue);
 }
 
-/* Submit */
 .zimson-login__submit {
   width: 100%;
   height: 46px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.55rem;
   border: none;
-  border-radius: 12px !important;
-  background: linear-gradient(90deg, #bf8405, #ffd24d);
-  color: #09204a;
+  border-radius: 10px !important;
+  background: var(--login-gold);
+  color: var(--z-white);
   font-family: var(--z-font);
-  font-size: 15px;
+  font-size: 0.8125rem;
   font-weight: 700;
-  letter-spacing: 3px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;
-  box-shadow: 0 8px 20px rgba(212, 160, 23, 0.35);
-  transition:
-    filter var(--z-ease),
-    box-shadow var(--z-ease);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--login-gold) 38%, transparent);
+  transition: filter var(--z-ease), box-shadow var(--z-ease);
 }
 
 .zimson-login__submit svg {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
+  width: 16px;
+  height: 16px;
 }
 
 .zimson-login__submit:hover:not(:disabled) {
-  transform: none;
-  filter: brightness(1.05);
+  filter: brightness(1.06);
 }
 
 .zimson-login__submit:disabled {
@@ -475,13 +370,29 @@
   cursor: not-allowed;
 }
 
-/* "or" divider */
+.zimson-login__help {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin: 1.25rem 0 0;
+  color: color-mix(in srgb, var(--login-blue) 55%, #9ca3af);
+  font-size: 0.75rem;
+}
+
+.zimson-login__help::before,
+.zimson-login__help::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--login-blue) 12%, #e5e7eb);
+}
+
 .zimson-login__or {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   margin: 0.9rem 0 0;
-  color: #9ca3af;
+  color: color-mix(in srgb, var(--login-blue) 45%, #9ca3af);
   font-size: 0.6875rem;
   text-transform: lowercase;
 }
@@ -491,10 +402,9 @@
   content: "";
   flex: 1;
   height: 1px;
-  background: #e5e7eb;
+  background: color-mix(in srgb, var(--login-blue) 12%, #e5e7eb);
 }
 
-/* Alerts */
 .zimson-login__alert {
   margin-bottom: 0.75rem;
   padding: 0.75rem 0.875rem;
@@ -512,7 +422,7 @@
 .zimson-login__alert--warn {
   background: #fffbeb;
   border: 1px solid #fde68a;
-  color: #8B6914;
+  color: #8b6914;
 }
 
 .zimson-login__alert--success {
@@ -539,74 +449,18 @@
   width: 100%;
   padding: 0.5rem;
   border-radius: 8px;
-  border: 1px solid #C9A227;
+  border: 1px solid var(--login-gold);
   background: var(--z-white);
   font-family: var(--z-font);
   font-size: 0.625rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #8B6914;
+  color: var(--login-gold);
   cursor: pointer;
 }
 
-/* Footer strip */
-.zimson-login__footer {
-  padding: 18px;
-  background: #f6f6f6;
-  border-top: 1px solid #ececec;
-}
-
-.zimson-login__support {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.6rem;
-  font-size: 14px;
-  color: #1d2d62;
-}
-
-.zimson-login__support-icon {
-  box-sizing: border-box;
-  flex-shrink: 0;
-  min-width: 38px;
-  min-height: 38px;
-  width: 38px;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50% !important;
-  background: var(--z-cream);
-  border: 1px solid rgba(197, 145, 27, 0.4);
-  color: var(--z-gold-deep);
-}
-
-.zimson-login__support-icon svg {
-  width: 16px;
-  height: 16px;
-  display: block;
-  fill: currentColor;
-}
-
-.zimson-login__support a {
-  font-weight: 700;
-  color: #c68d11;
-  text-decoration: none;
-}
-
-.zimson-login__support a:hover {
-  color: var(--z-gold-deep);
-  text-decoration: underline;
-}
-
-.zimson-login__input-icon i,
-.zimson-login__support-icon i {
-  font-size: 0.9rem;
-  line-height: 1;
-}
-
-/* ─── Login OTP entry ───────────────────────────────────────────── */
+/* ─── Login OTP entry (inside card) ─────────────────────────────── */
 .zimson-login-otp {
   display: flex;
   flex-direction: column;
@@ -614,42 +468,11 @@
   animation: z-slide-up 0.35s ease-out both;
 }
 
-.zimson-login-otp__hero {
-  text-align: center;
-  margin-bottom: 0.15rem;
-}
-
-.zimson-login-otp__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 3.25rem;
-  height: 3.25rem;
-  margin-bottom: 0.65rem;
-  border-radius: 1rem;
-  color: #071d49;
-  background: linear-gradient(160deg, #f5e7b8 0%, #e8d48a 55%, #c9a227 100%);
-  box-shadow: 0 8px 20px rgba(201, 162, 39, 0.28);
-}
-
-.zimson-login-otp__icon svg {
-  width: 1.55rem;
-  height: 1.55rem;
-}
-
-.zimson-login-otp__title {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #071d49;
-}
-
 .zimson-login-otp__subtitle {
-  margin: 0.4rem 0 0;
+  margin: 0.15rem 0 0;
   font-size: 0.8125rem;
   line-height: 1.45;
-  color: #5c6b82;
+  color: color-mix(in srgb, var(--login-blue) 70%, #6b7280);
 }
 
 .zimson-login-otp__temp {
@@ -659,8 +482,8 @@
   gap: 0.2rem;
   padding: 0.75rem 0.9rem;
   border-radius: 0.9rem;
-  border: 1px solid rgba(201, 162, 39, 0.45);
-  background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1px solid color-mix(in srgb, var(--login-gold) 45%, transparent);
+  background: color-mix(in srgb, var(--login-gold) 12%, var(--z-white));
   text-align: center;
 }
 
@@ -669,20 +492,20 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #92610a;
+  color: var(--login-gold);
 }
 
 .zimson-login-otp__temp-code {
   font-size: 1.5rem;
   font-weight: 800;
   letter-spacing: 0.28em;
-  color: #071d49;
+  color: var(--login-blue);
   font-variant-numeric: tabular-nums;
 }
 
 .zimson-login-otp__temp-note {
   font-size: 0.7rem;
-  color: #8a6d1f;
+  color: var(--login-gold);
 }
 
 .zimson-login-otp__digits {
@@ -690,17 +513,16 @@
 }
 
 .zimson-login-otp__digits input {
-  border-color: rgba(7, 29, 73, 0.18) !important;
-  background: #fff !important;
-  color: #071d49 !important;
+  border-color: color-mix(in srgb, var(--login-blue) 18%, #e5e7eb) !important;
+  background: var(--z-white) !important;
+  color: var(--login-blue) !important;
   font-weight: 700;
-  box-shadow: inset 0 1px 2px rgba(7, 29, 73, 0.04);
 }
 
 .zimson-login-otp__digits input:focus {
-  border-color: #c9a227 !important;
+  border-color: var(--login-gold) !important;
   outline: none;
-  box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.22);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-gold) 22%, transparent);
 }
 
 .zimson-login-otp__remember {
@@ -724,7 +546,7 @@
   font: inherit;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #071d49;
+  color: var(--login-blue);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
@@ -736,7 +558,7 @@
 }
 
 .zimson-login-otp__dot {
-  color: #9aa5b5;
+  color: color-mix(in srgb, var(--login-blue) 40%, #9ca3af);
   font-size: 0.85rem;
 }
 
@@ -752,20 +574,38 @@
 }
 
 /* ─── Responsive ────────────────────────────────────────────────── */
+@media (max-width: 899.98px) {
+  .zimson-login {
+    padding: 1.5rem 1.25rem;
+  }
+
+  .zimson-login__stage {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    row-gap: 1.75rem;
+  }
+
+  .zimson-login__hero {
+    justify-self: center;
+  }
+
+  .zimson-login__card {
+    width: min(var(--login-card-width), 100%);
+  }
+}
+
 @media (max-width: 767.98px) {
-  .zimson-login { padding: 1.25rem 0.75rem 1.75rem; }
-  .zimson-login__logo-wrap { height: 58px; width: min(170px, 58vw); border-width: 3px; }
-  .zimson-login__logo { max-height: 36px; }
-  .zimson-login__body { padding: 1.6rem 1.15rem 0.85rem; }
-  .zimson-login__ribbon { padding: 18px 18px; }
-  .zimson-login__tagline-text { letter-spacing: 0.2em; font-size: 0.625rem; }
-  .zimson-login__input-box { height: 46px; }
-  .zimson-login__input-icon { width: 42px; height: 42px; min-width: 42px; min-height: 42px; }
-  .zimson-login__input-icon svg { width: 17px; height: 17px; }
+  .zimson-login {
+    padding: 1.25rem 0.85rem 1.75rem;
+  }
+
+  .zimson-login__body {
+    padding: 1.5rem 1.2rem 1.2rem;
+  }
 }
 
 @media (max-width: 399.98px) {
-  .zimson-login__field-row { flex-wrap: wrap; }
-  .zimson-login__tagline-row { gap: 0.5rem; }
-  .zimson-login__ribbon { padding: 16px 16px 22px; }
+  .zimson-login__meta {
+    flex-wrap: wrap;
+  }
 }

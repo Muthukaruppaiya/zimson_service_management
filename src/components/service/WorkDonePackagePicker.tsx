@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiJson } from "../../lib/api";
 import { formatInr } from "../../lib/formatInr";
 import {
+  packageDisplayName,
   packageTypeLabel,
   snapshotFromPackage,
   watchServiceKindLabel,
@@ -11,6 +12,14 @@ import type { ServicePackage, SrfServicePackageSnapshot, WatchServiceKind } from
 
 export type WorkDoneSpareLine = { spareId: string; qty: string; fromPackage?: boolean };
 
+export function linesFromPackageSnapshot(
+  pkg: SrfServicePackageSnapshot | null | undefined,
+): WorkDoneSpareLine[] {
+  const ids = (pkg?.spareIds ?? []).map((id) => String(id ?? "").trim()).filter(Boolean);
+  if (ids.length === 0) return [{ spareId: "", qty: "1" }];
+  return ids.map((spareId) => ({ spareId, qty: "1", fromPackage: true }));
+}
+
 type Props = {
   watchBrand: string;
   lines: WorkDoneSpareLine[];
@@ -18,6 +27,7 @@ type Props = {
   selected: SrfServicePackageSnapshot | null;
   onSelectedChange: (pkg: SrfServicePackageSnapshot | null) => void;
   disabled?: boolean;
+  lockSelection?: boolean;
 };
 
 export function WorkDonePackagePicker({
@@ -27,6 +37,7 @@ export function WorkDonePackagePicker({
   selected,
   onSelectedChange,
   disabled,
+  lockSelection,
 }: Props) {
   const [packages, setPackages] = useState<ServicePackage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -99,7 +110,7 @@ export function WorkDonePackagePicker({
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2.5">
         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Service package</p>
-        {selected ? (
+        {selected && !lockSelection ? (
           <button
             type="button"
             disabled={disabled}
@@ -120,7 +131,7 @@ export function WorkDonePackagePicker({
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
-                disabled={disabled}
+                disabled={disabled || lockSelection}
                 onClick={() => setServiceType("")}
                 className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-widest transition ${
                   serviceType === ""
@@ -134,7 +145,7 @@ export function WorkDonePackagePicker({
                 <button
                   key={k.value}
                   type="button"
-                  disabled={disabled}
+                  disabled={disabled || lockSelection}
                   onClick={() => {
                     const next = serviceType === k.value ? "" : k.value;
                     setServiceType(next);
@@ -159,8 +170,12 @@ export function WorkDonePackagePicker({
                   <button
                     key={p.id}
                     type="button"
-                    disabled={disabled}
-                    onClick={() => (active ? clearPackage() : applyPackage(p.id))}
+                    disabled={disabled || lockSelection}
+                    onClick={() => {
+                      if (lockSelection) return;
+                      if (active) clearPackage();
+                      else applyPackage(p.id);
+                    }}
                     className={`rounded-lg border px-3 py-3 text-left transition disabled:opacity-50 ${
                       active
                         ? "border-rlx-green bg-rlx-green/5 shadow-sm"
@@ -168,11 +183,12 @@ export function WorkDonePackagePicker({
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-800">{packageTypeLabel(p.packageType)}</p>
+                      <p className="text-sm font-semibold text-slate-800">{packageDisplayName(p)}</p>
                       <p className="text-sm font-semibold tabular-nums text-rlx-green">{formatInr(p.priceInr)}</p>
                     </div>
                     <p className="mt-0.5 text-[11px] uppercase tracking-widest text-slate-400">
-                      {watchServiceKindLabel(p.serviceType)} · {p.spares.length} spare{p.spares.length === 1 ? "" : "s"}
+                      {packageTypeLabel(p.packageType)} · {watchServiceKindLabel(p.serviceType)} · {p.spares.length} spare
+                      {p.spares.length === 1 ? "" : "s"}
                     </p>
                     {p.spares.length > 0 ? (
                       <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-500">

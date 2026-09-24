@@ -21,6 +21,7 @@ type Props = {
   onLinesChange: (lines: WorkDoneSpareLine[]) => void;
   selectedPackage: SrfServicePackageSnapshot | null;
   onPackageChange: (pkg: SrfServicePackageSnapshot | null) => void;
+  packageLocked?: boolean;
   saving?: boolean;
   error?: string | null;
   onSave: () => void;
@@ -47,6 +48,7 @@ export function WorkDoneSparesModal({
   onLinesChange,
   selectedPackage,
   onPackageChange,
+  packageLocked,
   saving,
   error,
   onSave,
@@ -138,6 +140,7 @@ export function WorkDoneSparesModal({
           selected={selectedPackage}
           onSelectedChange={onPackageChange}
           disabled={saving}
+          lockSelection={packageLocked}
         />
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">

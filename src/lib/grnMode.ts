@@ -8,9 +8,9 @@ export function isVoucherGrn(mode: string): boolean {
   return mode === "WITHOUT_BILL";
 }
 
-/** Stored value WITH_BILL = GRN against vendor invoice; WITHOUT_BILL = GRN against voucher. */
+/** Stored value WITH_BILL = GRN against vendor invoice; WITHOUT_BILL = GRN against internal voucher. */
 export function grnModeLabel(mode: string): string {
-  return isVoucherGrn(mode) ? "GRN against voucher" : "GRN against vendor invoice";
+  return isVoucherGrn(mode) ? "GRN against internal voucher" : "GRN against vendor invoice";
 }
 
 export function grnDocNumberLabel(mode: string): string {
@@ -44,12 +44,15 @@ export function isDirectGrn(poNumber?: string | null): boolean {
   return !v || v.toLowerCase() === "direct";
 }
 
-/** Against PO (with PO number) vs Direct GRN. */
-export function grnTypeLabel(poNumber?: string | null): string {
+/** Against PO / Against voucher / Direct GRN. */
+export function grnTypeLabel(poNumber?: string | null, voucherNumber?: string | null): string {
+  if (String(voucherNumber ?? "").trim()) return "Against voucher";
   return isDirectGrn(poNumber) ? "Direct GRN" : "Against PO";
 }
 
-export function grnTypeDetail(poNumber?: string | null): string {
+export function grnTypeDetail(poNumber?: string | null, voucherNumber?: string | null): string {
+  const v = String(voucherNumber ?? "").trim();
+  if (v) return `Against voucher ${v}`;
   const n = String(poNumber ?? "").trim();
   if (isDirectGrn(n)) return "Direct GRN";
   return `Against PO ${n}`;

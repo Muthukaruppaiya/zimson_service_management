@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { SparePicker } from "../../components/inventory/SparePicker";
+import { SupplierPicker } from "../../components/inventory/SupplierPicker";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
@@ -11,18 +12,19 @@ import {
   GRN_DOC_ACCEPT,
   grnAttachHint,
   grnDocDateLabel,
-  grnDocNumberLabel,
   grnDocNumberPlaceholder,
   grnModeLabel,
   grnUploadLabel,
   isAllowedGrnDocument,
   isVendorInvoiceGrn,
+  isVoucherGrn,
   type GrnMode,
 } from "../../lib/grnMode";
 import { buildGrnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import { DEFAULT_LINE_GST_PERCENT } from "../../lib/serviceBillGst";
 import { taxPersonTypeFromGstin } from "../../lib/supplierGstFill";
 import type { PurchaseOrder } from "../../types/purchaseOrder";
+import type { PurchaseVoucher } from "../../types/purchaseVoucher";
 import type { SparePart, SparePriceLine } from "../../types/spare";
 import type { Supplier } from "../../types/supplier";
 
@@ -51,8 +53,6 @@ function fmtMoney(v: number) {
 const inputCls =
   "mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30 transition-colors";
 const labelCls = "block text-[11px] font-semibold uppercase tracking-widest text-stone-500";
-const compactFieldCls =
-  "mt-0.5 h-8 w-full border border-rlx-rule bg-white px-2 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30";
 
 function FieldLabel({ children }: { children: ReactNode }) {
   return <span className="block text-[10px] font-semibold uppercase tracking-widest text-stone-400">{children}</span>;
@@ -60,7 +60,7 @@ function FieldLabel({ children }: { children: ReactNode }) {
 
 function LineMeta({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-rlx-rule bg-stone-50/60 px-3 py-1.5 text-[11px] text-stone-500">
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-rlx-rule bg-stone-50/80 px-4 py-2 text-xs">
       {children}
     </div>
   );
@@ -81,11 +81,11 @@ function MetaItem({
 }) {
   if (value == null || value === "") return null;
   return (
-    <span className={muted ? "opacity-40" : undefined}>
-      {label ? <>{label} </> : null}
+    <span className={`whitespace-nowrap ${muted ? "opacity-40" : ""}`.trim()}>
+      {label ? <span className="mr-1 text-[10px] font-semibold uppercase tracking-widest text-stone-400">{label}</span> : null}
       <span
         className={`${mono ? "font-mono" : ""} ${
-          emphasize ? "font-semibold text-rlx-green" : "font-medium text-stone-800"
+          emphasize ? "font-bold text-rlx-green" : "font-semibold text-stone-800"
         }`}
       >
         {value}
@@ -168,11 +168,10 @@ function GrnSuccessModal({ grnNumber, grnId, movedQty, poId, poStatus, poNumber,
 
 // ── Section Header ────────────────────────────────────────────────────────────
 
-function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+function SectionHeader({ title }: { title: string; subtitle?: string }) {
   return (
     <div className="border-b border-rlx-rule bg-rlx-green px-5 py-4">
       <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-white">{title}</h3>
-      {subtitle && <p className="mt-0.5 text-[11px] text-white/55">{subtitle}</p>}
     </div>
   );
 }
@@ -184,6 +183,7 @@ export function InventoryPoInwardPage() {
   const { spares } = useSpares();
   const { regions } = useRegions();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const isHo =
     user?.role === "super_admin" || user?.role === "admin" ||
@@ -191,8 +191,10 @@ export function InventoryPoInwardPage() {
 
   const [grnSource, setGrnSource] = useState<"PO" | "DIRECT">("PO");
   const [pos, setPos] = useState<PurchaseOrder[]>([]);
+  const [vouchers, setVouchers] = useState<PurchaseVoucher[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [selectedPoId, setSelectedPoId] = useState("");
+  const [selectedVoucherId, setSelectedVoucherId] = useState("");
   const [supplierId, setSupplierId] = useState("");
   const [regionId, setRegionId] = useState(user?.regionId ?? "");
   const [mode, setMode] = useState<GrnMode>("WITH_BILL");
@@ -217,36 +219,60 @@ export function InventoryPoInwardPage() {
   }, [spares]);
 
   const selectedPo = useMemo(() => pos.find((p) => p.id === selectedPoId) ?? null, [pos, selectedPoId]);
+  const selectedVoucher = useMemo(
+    () => vouchers.find((v) => v.id === selectedVoucherId) ?? null,
+    [vouchers, selectedVoucherId],
+  );
+  const againstVoucher = grnSource !== "DIRECT" && isVoucherGrn(mode);
   const selectedSupplier = useMemo(
-    () => suppliers.find((s) => s.id === supplierId) ?? null,
-    [suppliers, supplierId],
+    () => {
+      if (againstVoucher) {
+        return suppliers.find((s) => s.id === selectedVoucher?.supplierId) ?? null;
+      }
+      return suppliers.find((s) => s.id === supplierId) ?? null;
+    },
+    [againstVoucher, suppliers, supplierId, selectedVoucher],
   );
   const hoGstin = useMemo(() => {
     const region = regions.find((r) => r.id === regionId) ?? regions[0];
     return region?.gst?.trim() || null;
   }, [regions, regionId]);
   const isInterstate = useMemo(() => {
-    if (grnSource !== "DIRECT" || !selectedSupplier) return false;
+    if ((grnSource !== "DIRECT" && !againstVoucher) || !selectedSupplier) return false;
     if (selectedSupplier.taxPersonType === "INTERSTATE_TAXABLE_PERSON") return true;
     if (selectedSupplier.taxPersonType === "INTRASTATE_TAXABLE_PERSON") return false;
     if (selectedSupplier.gst) {
       return taxPersonTypeFromGstin(selectedSupplier.gst, hoGstin) === "INTERSTATE_TAXABLE_PERSON";
     }
     return false;
-  }, [grnSource, selectedSupplier, hoGstin]);
+  }, [grnSource, againstVoucher, selectedSupplier, hoGstin]);
 
   const loadData = useCallback(async () => {
     try {
-      const [poData, supData] = await Promise.all([
+      const [poData, supData, voucherData] = await Promise.all([
         apiJson<{ pos: PurchaseOrder[] }>("/api/inventory/pos"),
         apiJson<{ suppliers: Supplier[] }>("/api/inventory/suppliers"),
+        apiJson<{ vouchers: PurchaseVoucher[] }>("/api/inventory/vouchers"),
       ]);
       setPos(poData.pos);
       setSuppliers(supData.suppliers);
+      setVouchers(voucherData.vouchers);
     } catch (e) { setErr(e instanceof ApiError ? e.message : "Could not load data."); }
   }, []);
 
   useEffect(() => { if (isHo) void loadData(); }, [isHo, loadData]);
+
+  useEffect(() => {
+    const q = searchParams.get("voucher")?.trim() ?? "";
+    if (!q || vouchers.length === 0) return;
+    const match = vouchers.find((v) => v.id === q || v.voucherNumber === q);
+    if (match) {
+      setGrnSource("PO");
+      setMode("WITHOUT_BILL");
+      setSelectedVoucherId(match.id);
+      setSelectedPoId("");
+    }
+  }, [searchParams, vouchers]);
 
   useEffect(() => {
     if (!regionId && (user?.regionId || regions[0])) setRegionId(user?.regionId || regions[0]!.id);
@@ -287,11 +313,12 @@ export function InventoryPoInwardPage() {
     }
   }
 
-  // Initialise line states when PO changes
+  // Initialise line states when PO or voucher changes
   useEffect(() => {
-    if (!selectedPo) { setLineState({}); return; }
+    const sourceDoc = againstVoucher ? selectedVoucher : selectedPo;
+    if (!sourceDoc) { setLineState({}); return; }
     const next: Record<string, LineState> = {};
-    for (const i of selectedPo.items) {
+    for (const i of sourceDoc.items) {
       const pending = Math.max(0, i.qtyOrdered - i.receivedQty);
       const spare = spareById.get(i.spareId);
       next[i.id] = {
@@ -300,7 +327,7 @@ export function InventoryPoInwardPage() {
       };
     }
     setLineState(next);
-  }, [selectedPo, spareById]);
+  }, [againstVoucher, selectedPo, selectedVoucher, spareById]);
 
   function setLine(poItemId: string, patch: Partial<LineState>) {
     setLineState((prev) => ({ ...prev, [poItemId]: { ...prev[poItemId]!, ...patch } }));
@@ -308,9 +335,10 @@ export function InventoryPoInwardPage() {
 
   // Totals computation
   const totals = useMemo(() => {
-    if (!selectedPo) return null;
+    const sourceDoc = againstVoucher ? selectedVoucher : selectedPo;
+    if (!sourceDoc) return null;
     let subtotal = 0, totalTax = 0, totalCgst = 0, totalSgst = 0, totalIgst = 0;
-    for (const i of selectedPo.items) {
+    for (const i of sourceDoc.items) {
       const ls = lineState[i.id];
       if (!ls) continue;
       const qty = Number(ls.qty) || 0;
@@ -323,7 +351,7 @@ export function InventoryPoInwardPage() {
       totalIgst += t.igst;
     }
     return { subtotal: +subtotal.toFixed(2), totalTax: +totalTax.toFixed(2), grand: +(subtotal + totalTax).toFixed(2), totalCgst: +totalCgst.toFixed(2), totalSgst: +totalSgst.toFixed(2), totalIgst: +totalIgst.toFixed(2) };
-  }, [selectedPo, lineState, isInterstate]);
+  }, [againstVoucher, selectedPo, selectedVoucher, lineState, isInterstate]);
 
   async function createGrn(e: React.FormEvent) {
     e.preventDefault();
@@ -492,12 +520,81 @@ export function InventoryPoInwardPage() {
     finally { setBusy(false); }
   }
 
+  async function createVoucherGrn(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    if (!selectedVoucher) { setErr("Select a voucher."); return; }
+    const lines = selectedVoucher.items
+      .map((i) => {
+        const ls = lineState[i.id];
+        const qty = Number(ls?.qty ?? "0");
+        const costPrice = Number(ls?.costPrice ?? "0");
+        const gstRate = spareGstRate(i.spareId, i.gstRate);
+        const pending = Math.max(0, i.qtyOrdered - i.receivedQty);
+        const t = computeTax(costPrice, qty, gstRate, isInterstate);
+        return { voucherItemId: i.id, spareId: i.spareId, qtyReceived: qty, costPrice, gstRate, taxAmount: t.taxAmount, pending };
+      })
+      .filter((i) => i.qtyReceived > 0);
+    if (lines.length === 0) { setErr("Enter inward quantity for at least one line."); return; }
+    if (lines.some((l) => l.qtyReceived > l.pending)) { setErr("Received qty exceeds pending on one or more lines."); return; }
+    if (invoiceFile && !isAllowedGrnDocument(invoiceFile)) {
+      setErr("Upload PDF or DOC only. Images are not allowed.");
+      return;
+    }
+    setBusy(true);
+    try {
+      let data: { id?: string; grnNumber: string; movedQty: number; voucherStatus?: string };
+      const payloadItems = lines.map((l) => ({
+        voucherItemId: l.voucherItemId,
+        spareId: l.spareId,
+        qtyReceived: l.qtyReceived,
+        costPrice: l.costPrice,
+        gstRate: l.gstRate,
+        taxAmount: l.taxAmount,
+      }));
+      if (invoiceFile) {
+        const fd = new FormData();
+        fd.append("voucherId", selectedVoucher.id);
+        fd.append("notes", notes.trim());
+        fd.append("items", JSON.stringify(payloadItems));
+        fd.append("invoiceFile", invoiceFile);
+        const resp = await fetch("/api/inventory/grns/against-voucher", { method: "POST", body: fd, credentials: "include" });
+        if (!resp.ok) { const j = await resp.json() as { error: string }; throw new Error(j.error); }
+        data = await resp.json() as typeof data;
+      } else {
+        data = await apiJson<typeof data>("/api/inventory/grns/against-voucher", {
+          method: "POST",
+          json: { voucherId: selectedVoucher.id, notes: notes.trim(), items: payloadItems },
+        });
+      }
+      openPrintDocument(`GRN ${data.grnNumber}`, buildGrnDocument({
+        grnNumber: data.grnNumber, createdAt: new Date().toISOString(),
+        poNumber: "Direct", voucherNumber: selectedVoucher.voucherNumber, supplierName: selectedVoucher.supplierName,
+        mode: "WITHOUT_BILL", invoiceNumber: selectedVoucher.invoiceNumber,
+        invoiceDate: selectedVoucher.invoiceDate, notes: notes.trim(),
+        lines: lines.map((l) => ({
+          description: spareById.get(l.spareId)?.name ?? l.spareId,
+          qtyReceived: l.qtyReceived,
+          costPrice: l.costPrice,
+          gstRate: l.gstRate,
+          taxAmount: l.taxAmount,
+        })),
+      }));
+      setSuccessData({ grnNumber: data.grnNumber, grnId: data.id, movedQty: data.movedQty });
+      setSelectedVoucherId(""); setNotes(""); setLineState({}); setInvoiceFile(null);
+      if (fileRef.current) fileRef.current.value = "";
+      await loadData();
+    } catch (e) { setErr(e instanceof ApiError ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
   const openPos = pos.filter((p) => p.status === "OPEN" || p.status === "PARTIAL");
+  const openVouchers = vouchers.filter((v) => v.status === "OPEN" || v.status === "PARTIAL");
 
   if (!isHo) {
     return (
       <div>
-        <InventoryBreadcrumb current="PO Inward / GRN" />
+        <InventoryBreadcrumb current="GRN" />
         <PageHeader title="Goods Receipt (GRN)" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
           Only HO Manager, HO Purchase, or Admin can post GRN entries.
@@ -508,19 +605,23 @@ export function InventoryPoInwardPage() {
 
   return (
     <div>
-      <InventoryBreadcrumb current="PO Inward / GRN" />
+      <InventoryBreadcrumb current="GRN" />
       <PageHeader
         title="Goods Receipt (GRN)"
         description="Post physical receipt to HO stock. Cost price and tax are captured here and mapped to inventory."
         actions={
           <div className="flex gap-2">
+            <button type="button" onClick={() => navigate("/inventory/vouchers")}
+              className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition">
+              New voucher
+            </button>
             <button type="button" onClick={() => navigate("/inventory/grn-history")}
               className="border border-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green hover:bg-rlx-green/5 transition">
               GRN History
             </button>
             <button type="button" onClick={() => navigate("/inventory/purchase-return")}
               className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition">
-              Spare return
+              GRN return
             </button>
             <button type="button" onClick={() => navigate(-1)}
               className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition">
@@ -535,10 +636,7 @@ export function InventoryPoInwardPage() {
       {/* ── GRN Form ──────────────────────────────────────────────────────── */}
       <div className="mb-6 border border-rlx-rule bg-white shadow-sm">
         <SectionHeader
-          title={grnSource === "DIRECT" ? "Direct GRN (no PO)" : "Create GRN Against PO"}
-          subtitle={grnSource === "DIRECT"
-            ? "Receive stock at HO without a purchase order. Quantity and purchase price are entered here."
-            : "Inward updates HO stock and PO receive status. If leftover parts will not be received, amend the PO from history to close remaining qty."}
+          title={grnSource === "DIRECT" ? "Direct GRN Without PO" : againstVoucher ? "Create GRN Against Voucher" : "Create GRN Against PO"}
         />
         <div className="flex border-b border-rlx-rule">
           <button
@@ -550,16 +648,58 @@ export function InventoryPoInwardPage() {
           </button>
           <button
             type="button"
-            onClick={() => { setGrnSource("DIRECT"); setErr(null); }}
+            onClick={() => { setGrnSource("DIRECT"); setMode("WITH_BILL"); setErr(null); }}
             className={`px-5 py-2.5 text-xs font-semibold uppercase tracking-widest ${grnSource === "DIRECT" ? "border-b-2 border-rlx-green text-rlx-green" : "text-stone-400 hover:text-stone-600"}`}
           >
             Direct GRN
           </button>
         </div>
-        <form onSubmit={grnSource === "DIRECT" ? createDirectGrn : createGrn} className="p-5 space-y-5">
+        <form onSubmit={grnSource === "DIRECT" ? createDirectGrn : againstVoucher ? createVoucherGrn : createGrn} className="p-5 space-y-5">
 
           {grnSource === "PO" ? (
           <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelCls}>Supplier reference document *</label>
+              <select
+                className={inputCls}
+                value={mode}
+                onChange={(e) => {
+                  const next = e.target.value as GrnMode;
+                  setMode(next);
+                  setErr(null);
+                  if (isVoucherGrn(next)) setSelectedPoId("");
+                  else setSelectedVoucherId("");
+                }}
+              >
+                <option value="WITH_BILL">{grnModeLabel("WITH_BILL")}</option>
+                <option value="WITHOUT_BILL">{grnModeLabel("WITHOUT_BILL")}</option>
+              </select>
+            </div>
+            {againstVoucher ? (
+            <div>
+              <label className={labelCls}>Voucher *</label>
+              <select className={inputCls} value={selectedVoucherId} onChange={(e) => setSelectedVoucherId(e.target.value)}>
+                <option value="">Select open / partial voucher…</option>
+                {openVouchers.map((v) => (
+                  <option key={v.id} value={v.id}>{v.voucherNumber} · {v.supplierName} · {v.invoiceNumber ?? "no invoice"} · {v.status}</option>
+                ))}
+              </select>
+              {openVouchers.length === 0 && (
+                <p className="mt-1 text-[11px] text-stone-400">
+                  No open vouchers.{" "}
+                  <Link to="/inventory/vouchers" className="font-semibold text-rlx-green hover:underline">Create voucher →</Link>
+                </p>
+              )}
+              {selectedVoucher ? (
+                <p className="mt-1.5 text-[11px] text-stone-500">
+                  {selectedVoucher.supplierName}
+                  {selectedSupplier?.gst ? ` · GSTIN ${selectedSupplier.gst}` : ""}
+                  {" · "}
+                  {isInterstate ? "Interstate — IGST" : "Intrastate — CGST + SGST"}
+                </p>
+              ) : null}
+            </div>
+            ) : (
             <div>
               <label className={labelCls}>Purchase Order *</label>
               <select className={inputCls} value={selectedPoId} onChange={(e) => setSelectedPoId(e.target.value)}>
@@ -568,7 +708,7 @@ export function InventoryPoInwardPage() {
                   <option key={p.id} value={p.id}>{p.poNumber} · {p.supplierName} · {p.status}</option>
                 ))}
               </select>
-              {openPos.length === 0 && <p className="mt-1 text-[11px] text-stone-400">No open POs. Create POs first.</p>}
+              {openPos.length === 0 && <p className="mt-1 text-[11px] text-stone-400">No open POs.</p>}
               {selectedPo?.status === "PARTIAL" && (
                 <p className="mt-1.5 text-[11px] text-amber-700">
                   Partial PO. If remaining parts will not be inwarded, amend this PO from{" "}
@@ -579,36 +719,27 @@ export function InventoryPoInwardPage() {
                 </p>
               )}
             </div>
-            <div>
-              <label className={labelCls}>Mode *</label>
-              <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as GrnMode)}>
-                <option value="WITH_BILL">{grnModeLabel("WITH_BILL")}</option>
-                <option value="WITHOUT_BILL">{grnModeLabel("WITHOUT_BILL")}</option>
-              </select>
-            </div>
+            )}
           </div>
           ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelCls}>Supplier *</label>
-              <select className={inputCls} value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-                <option value="">Select supplier…</option>
-                {suppliers.filter((s) => s.isActive).map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+              <label className={labelCls}>Supplier name *</label>
+              <SupplierPicker
+                value={supplierId}
+                onChange={setSupplierId}
+                suppliers={suppliers.filter((s) => s.isActive)}
+              />
               {selectedSupplier ? (
                 <p className="mt-1.5 text-[11px] text-stone-500">
                   {selectedSupplier.gst ? `GSTIN ${selectedSupplier.gst}` : "No GSTIN"}
                   {" · "}
                   {isInterstate ? "Interstate — IGST" : "Intrastate — CGST + SGST"}
                 </p>
-              ) : (
-                <p className="mt-1.5 text-[11px] text-stone-400">Tax split is set from the supplier.</p>
-              )}
+              ) : null}
             </div>
             <div>
-              <label className={labelCls}>Region (HO stock) *</label>
+              <label className={labelCls}>Region name *</label>
               <select
                 className={inputCls}
                 value={regionId}
@@ -620,28 +751,35 @@ export function InventoryPoInwardPage() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className={labelCls}>Mode *</label>
-              <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as GrnMode)}>
-                <option value="WITH_BILL">{grnModeLabel("WITH_BILL")}</option>
-                <option value="WITHOUT_BILL">{grnModeLabel("WITHOUT_BILL")}</option>
-              </select>
-            </div>
           </div>
           )}
 
           {/* Row 2: Invoice / voucher details + file upload */}
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
-              <label className={labelCls}>{grnDocNumberLabel(mode)} {isVendorInvoiceGrn(mode) ? "*" : "(optional)"}</label>
-              <input className={inputCls} value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder={grnDocNumberPlaceholder(mode)} />
+              <label className={labelCls}>
+                {againstVoucher ? "Invoice number" : "Invoice number *"}
+              </label>
+              <input
+                className={inputCls}
+                value={againstVoucher ? (selectedVoucher?.invoiceNumber ?? "") : invoiceNumber}
+                readOnly={againstVoucher}
+                onChange={(e) => setInvoiceNumber(e.target.value)}
+                placeholder={againstVoucher ? "" : grnDocNumberPlaceholder("WITH_BILL")}
+              />
             </div>
             <div>
-              <label className={labelCls}>{grnDocDateLabel(mode)}</label>
-              <input type="date" className={inputCls} value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+              <label className={labelCls}>{againstVoucher ? "Invoice date" : grnDocDateLabel("WITH_BILL")}</label>
+              <input
+                type="date"
+                className={inputCls}
+                value={againstVoucher ? (selectedVoucher?.invoiceDate?.slice(0, 10) ?? "") : invoiceDate}
+                readOnly={againstVoucher}
+                onChange={(e) => setInvoiceDate(e.target.value)}
+              />
             </div>
             <div>
-              <label className={labelCls}>{grnUploadLabel(mode)}</label>
+              <label className={labelCls}>{againstVoucher ? grnUploadLabel("WITHOUT_BILL") : grnUploadLabel("WITH_BILL")}</label>
               <div
                 onClick={() => fileRef.current?.click()}
                 className="mt-1 flex cursor-pointer items-center gap-3 border border-dashed border-rlx-rule bg-stone-50/40 px-3 py-2 hover:border-rlx-green transition"
@@ -650,7 +788,7 @@ export function InventoryPoInwardPage() {
                   <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 <span className="text-sm text-stone-500 truncate">
-                  {invoiceFile ? invoiceFile.name : grnAttachHint(mode)}
+                  {invoiceFile ? invoiceFile.name : grnAttachHint(againstVoucher ? "WITHOUT_BILL" : "WITH_BILL")}
                 </span>
                 {invoiceFile && (
                   <button type="button" onClick={(e) => { e.stopPropagation(); setInvoiceFile(null); if (fileRef.current) fileRef.current.value = ""; }}
@@ -675,12 +813,12 @@ export function InventoryPoInwardPage() {
 
           {/* Notes */}
           <div>
-            <label className={labelCls}>Notes (optional)</label>
-            <input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Any remarks about this receipt…" />
+            <label className={labelCls}>Remark</label>
+            <input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
 
           {/* Line items table */}
-          {grnSource === "PO" && selectedPo && (
+          {(grnSource === "PO" && (againstVoucher ? selectedVoucher : selectedPo)) && (
             <div className="border border-rlx-rule">
               <div className="border-b border-rlx-rule bg-stone-50 px-4 py-2.5">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">
@@ -704,7 +842,7 @@ export function InventoryPoInwardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedPo.items.map((i) => {
+                    {(againstVoucher ? selectedVoucher!.items : selectedPo!.items).map((i) => {
                       const ls = lineState[i.id] ?? { qty: "0", costPrice: "0" };
                       const pending = Math.max(0, i.qtyOrdered - i.receivedQty);
                       const qty = Number(ls.qty) || 0;
@@ -715,7 +853,7 @@ export function InventoryPoInwardPage() {
                         <tr key={i.id} className="border-b border-rlx-rule last:border-0 hover:bg-stone-50/30">
                           <td className="px-4 py-3">
                             <p className="font-medium text-stone-800">{spare?.name ?? i.spareId}</p>
-                            <p className="text-[11px] text-stone-400 font-mono">{spare?.sku ?? ""} · HSN: {spare?.hsn ?? "—"}</p>
+                            <p className="mt-0.5 font-mono text-xs text-stone-400">{spare?.sku ?? ""} · HSN: {spare?.hsn ?? "—"}</p>
                           </td>
                           <td className="px-4 py-3 text-center text-stone-600">{i.qtyOrdered}</td>
                           <td className="px-4 py-3 text-center text-stone-600">{i.receivedQty}</td>
@@ -794,40 +932,39 @@ export function InventoryPoInwardPage() {
                   const totalMrp = qty * (Number(mrp) || 0);
                   return (
                     <div key={idx} className="relative z-0 overflow-visible border border-rlx-rule bg-white focus-within:z-40">
-                      <div className="flex flex-wrap items-end gap-2 px-3 py-2">
-                        <div className="mb-px flex h-8 w-7 shrink-0 items-center justify-center bg-rlx-green text-[11px] font-bold text-white">
+                      <div className="flex flex-wrap items-end gap-3 px-4 py-2">
+                        <div className="mb-px flex h-10 w-9 shrink-0 items-center justify-center bg-rlx-green text-sm font-bold text-white">
                           {idx + 1}
                         </div>
-                        <div className="relative min-w-[180px] flex-1">
+                        <div className="relative min-w-[220px] flex-1">
                           <FieldLabel>Select spare</FieldLabel>
                           <SparePicker
                             value={line.spareId}
                             onChange={(id) => void fillDirectSpare(idx, id, line)}
                             spares={spares}
-                            className="relative mt-0.5"
-                            compact
-                            showSku={false}
+                            className="relative mt-1"
+                            showSku
                           />
                         </div>
-                        <label className="w-20 shrink-0">
+                        <label className="w-24 shrink-0">
                           <FieldLabel>Qty *</FieldLabel>
                           <input
                             type="number"
                             min={1}
                             step={1}
                             inputMode="numeric"
-                            className={`${compactFieldCls} text-right font-semibold tabular-nums`}
+                            className={`${inputCls} text-right font-semibold tabular-nums`}
                             value={line.qty}
                             onChange={(e) => setDirectLines((prev) => prev.map((l, i) => (i === idx ? { ...l, qty: e.target.value } : l)))}
                           />
                         </label>
-                        <label className="w-28 shrink-0">
+                        <label className="w-32 shrink-0">
                           <FieldLabel>Price *</FieldLabel>
                           <input
                             type="number"
                             min={0}
                             step="0.01"
-                            className={`${compactFieldCls} text-right font-semibold tabular-nums`}
+                            className={`${inputCls} text-right font-semibold tabular-nums`}
                             value={line.costPrice}
                             placeholder="0.00"
                             onChange={(e) => setDirectLines((prev) => prev.map((l, i) => (i === idx ? { ...l, costPrice: e.target.value } : l)))}
@@ -835,7 +972,7 @@ export function InventoryPoInwardPage() {
                         </label>
                         <button
                           type="button"
-                          className="mb-px h-8 shrink-0 px-2 text-[11px] font-semibold uppercase tracking-widest text-stone-400 hover:text-red-600"
+                          className="mb-px h-10 shrink-0 px-3 text-xs font-semibold uppercase tracking-widest text-stone-400 hover:text-red-600"
                           onClick={() =>
                             setDirectLines((prev) => (prev.length === 1 ? [emptyDirectLine()] : prev.filter((_, i) => i !== idx)))
                           }
@@ -844,25 +981,21 @@ export function InventoryPoInwardPage() {
                         </button>
                       </div>
                       {spare ? (
-                        <>
-                          <LineMeta>
-                            <MetaItem label="Part" value={spare.sku} mono />
-                            <MetaItem label="" value={spare.name} />
-                            <MetaItem label="Brand" value={line.brand} />
-                            <MetaItem label="HSN" value={spare.hsn} mono />
-                            <MetaItem label="UOM" value="Nos" />
-                          </LineMeta>
-                          <LineMeta>
-                            <MetaItem label="MRP" value={`₹${fmtMoney(Number(mrp) || 0)}`} />
-                            <MetaItem label="GST" value={`${gstRate}%`} />
-                            <MetaItem label="CGST" value={`₹${fmtMoney(t.cgst)}`} muted={isInterstate} />
-                            <MetaItem label="SGST" value={`₹${fmtMoney(t.sgst)}`} muted={isInterstate} />
-                            <MetaItem label="IGST" value={`₹${fmtMoney(t.igst)}`} muted={!isInterstate} />
-                            <MetaItem label="Total MRP" value={`₹${fmtMoney(totalMrp)}`} />
-                            <MetaItem label="Total cost" value={`₹${fmtMoney(t.taxable)}`} />
-                            <MetaItem label="Final" value={`₹${fmtMoney(t.total)}`} emphasize />
-                          </LineMeta>
-                        </>
+                        <LineMeta>
+                          <MetaItem label="Part" value={spare.sku} mono />
+                          <MetaItem label="Name" value={spare.name} />
+                          <MetaItem label="Brand" value={line.brand} />
+                          <MetaItem label="HSN" value={spare.hsn} mono />
+                          <MetaItem label="UOM" value="Nos" />
+                          <MetaItem label="MRP" value={`₹${fmtMoney(Number(mrp) || 0)}`} />
+                          <MetaItem label="GST" value={`${gstRate}%`} />
+                          <MetaItem label="CGST" value={`₹${fmtMoney(t.cgst)}`} muted={isInterstate} />
+                          <MetaItem label="SGST" value={`₹${fmtMoney(t.sgst)}`} muted={isInterstate} />
+                          <MetaItem label="IGST" value={`₹${fmtMoney(t.igst)}`} muted={!isInterstate} />
+                          <MetaItem label="Total MRP" value={`₹${fmtMoney(totalMrp)}`} />
+                          <MetaItem label="Total cost" value={`₹${fmtMoney(t.taxable)}`} />
+                          <MetaItem label="Final" value={`₹${fmtMoney(t.total)}`} emphasize />
+                        </LineMeta>
                       ) : null}
                     </div>
                   );
@@ -906,7 +1039,7 @@ export function InventoryPoInwardPage() {
             </div>
           ) : (
             <div className="border-t border-rlx-rule pt-4">
-              <button type="submit" disabled={busy || !selectedPo}
+              <button type="submit" disabled={busy || (againstVoucher ? !selectedVoucher : !selectedPo)}
                 className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white hover:bg-rlx-green/90 transition disabled:opacity-40">
                 {busy ? "Posting GRN…" : "Post GRN"}
               </button>

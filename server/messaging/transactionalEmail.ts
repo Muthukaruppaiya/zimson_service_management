@@ -97,6 +97,7 @@ type SendTransactionalEmailInput = {
   text: string;
   blocks: TransactionalBodyBlock[];
   replyTo?: string;
+  attachments?: nodemailer.SendMailOptions["attachments"];
 };
 
 function renderBlocks(blocks: TransactionalBodyBlock[]): string {
@@ -171,6 +172,7 @@ export async function sendTransactionalEmail(input: SendTransactionalEmailInput)
     text: input.text,
     html,
     replyTo: input.replyTo,
+    attachments: input.attachments,
   });
 
   await getTransporter().sendMail(mail);

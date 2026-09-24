@@ -29,6 +29,10 @@ export type MessagingConfig = {
     service: string;
     /** DLT template body; use {{1}} for OTP digits (Qikberry replaces on send). */
     otpMessageTemplate: string;
+    /** Optional DLT template id for SRF payment receipts (falls back to templateId). */
+    paymentTemplateId: string;
+    /** DLT body: {{1}} amount, {{2}} SRF, {{3}} receipt URL. */
+    paymentReceiptTemplate: string;
   };
   email: {
     host: string;

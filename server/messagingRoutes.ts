@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import path from "node:path";
 import crypto from "node:crypto";
+import { listenPort } from "./listenPort";
 import {
   getMessagingPublicBaseUrl,
   isEmailConfigured,
@@ -185,7 +186,7 @@ export function registerMessagingRoutes(
           return;
         }
 
-        const port = Number(process.env.PORT) || 4000;
+        const port = listenPort();
 
         if (isWhatsAppInvoiceDryRun()) {
           const localViewUrl = pdfFilename

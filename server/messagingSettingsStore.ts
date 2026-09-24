@@ -12,6 +12,8 @@ export type MessagingSettingsDb = {
   smsSender?: string;
   smsService?: string;
   smsOtpMessageTemplate?: string;
+  smsPaymentTemplateId?: string;
+  smsPaymentReceiptTemplate?: string;
 
   emailEnabled?: boolean;
   smtpHost?: string;
@@ -56,6 +58,8 @@ export type MessagingSettingsPublic = {
   smsSender: string;
   smsService: string;
   smsOtpMessageTemplate: string;
+  smsPaymentTemplateId: string;
+  smsPaymentReceiptTemplate: string;
   hasSmsToken: boolean;
   smsConfigured: boolean;
 
@@ -108,6 +112,8 @@ type MessagingRow = {
 
 const DEFAULT_SMS_OTP_MESSAGE =
   "Dear Customer, Your One Time Password is {{1}}. Please use this code to complete your verification - ZIMSON";
+const DEFAULT_SMS_PAYMENT_RECEIPT =
+  "Dear Customer, payment of INR {{1}} received for SRF {{2}}. View/download your receipt: {{3}} - ZIMSON";
 const DEFAULT_EMAIL_OTP_SUBJECT = "Your Zimson verification code";
 const DEFAULT_EMAIL_OTP_TEXT =
   "Your verification code for Zimson Service Management is {{otp}}.\n\nThis code is valid for 20 minutes. Enter it on the screen where you requested verification.\n\nDo not share this code with anyone.\n\n— Zimson Watch Care";
@@ -211,6 +217,8 @@ function resolveMerged(db: MessagingSettingsDb): {
       sender: pickStr(db.smsSender, "ZIMSON"),
       service: pickStr(db.smsService, "SI"),
       otpMessageTemplate: pickStr(db.smsOtpMessageTemplate, DEFAULT_SMS_OTP_MESSAGE),
+      paymentTemplateId: str(db.smsPaymentTemplateId),
+      paymentReceiptTemplate: pickStr(db.smsPaymentReceiptTemplate, DEFAULT_SMS_PAYMENT_RECEIPT),
     },
     email: {
       host: pickStr(db.smtpHost, "smtp.gmail.com"),
@@ -343,6 +351,8 @@ export function toPublicSettings(): MessagingSettingsPublic {
     smsSender: c.sms.sender,
     smsService: c.sms.service,
     smsOtpMessageTemplate: c.sms.otpMessageTemplate,
+    smsPaymentTemplateId: c.sms.paymentTemplateId,
+    smsPaymentReceiptTemplate: c.sms.paymentReceiptTemplate,
     hasSmsToken: Boolean(c.sms.bearerToken),
     smsConfigured: isSmsChannelEnabled() && Boolean(c.sms.bearerToken && c.sms.templateId && c.sms.sender),
 

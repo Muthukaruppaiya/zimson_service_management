@@ -42,11 +42,10 @@ type EligibleGrn = {
   items: EligibleGrnItem[];
 };
 
-function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+function SectionHeader({ title }: { title: string; subtitle?: string }) {
   return (
     <div className="border-b border-rlx-rule bg-rlx-green px-5 py-4">
       <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-white">{title}</h3>
-      {subtitle && <p className="mt-0.5 text-[11px] text-white/55">{subtitle}</p>}
     </div>
   );
 }
@@ -260,10 +259,10 @@ export function InventoryPurchaseReturnPage() {
   if (!isHo) {
     return (
       <div>
-        <InventoryBreadcrumb current="Purchase Return" />
-        <PageHeader title="Purchase Return (Spare Return)" description="" />
+        <InventoryBreadcrumb current="GRN return" />
+        <PageHeader title="GRN return" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only HO Manager, HO Purchase, or Admin can post spare returns to suppliers.
+          Only HO Manager, HO Purchase, or Admin can post GRN returns to suppliers.
         </div>
       </div>
     );
@@ -271,9 +270,9 @@ export function InventoryPurchaseReturnPage() {
 
   return (
     <div>
-      <InventoryBreadcrumb current="Purchase Return" />
+      <InventoryBreadcrumb current="GRN return" />
       <PageHeader
-        title="Purchase Return (Spare Return)"
+        title="GRN return"
         description="Return unused HO stock to the supplier against a GRN. Transferred store stock cannot be returned from here."
         actions={
           <div className="flex gap-2">
@@ -282,7 +281,7 @@ export function InventoryPurchaseReturnPage() {
               onClick={() => navigate("/inventory/purchase-return-history")}
               className="border border-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green hover:bg-rlx-green/5 transition"
             >
-              Return History
+              GRN return history
             </button>
             <button
               type="button"
@@ -355,12 +354,11 @@ export function InventoryPurchaseReturnPage() {
               />
             </div>
             <div>
-              <label className={labelCls}>Notes (optional)</label>
+              <label className={labelCls}>Remark</label>
               <input
                 className={inputCls}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Remarks for this return…"
               />
             </div>
             <div>

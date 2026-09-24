@@ -5,7 +5,7 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { formatInr } from "../../lib/formatInr";
-import { packageTypeLabel, watchServiceKindLabel, WATCH_SERVICE_KINDS } from "../../lib/servicePackage";
+import { packageDisplayName, packageTypeLabel, watchServiceKindLabel, WATCH_SERVICE_KINDS } from "../../lib/servicePackage";
 import type { ServicePackage } from "../../types/servicePackage";
 
 type LocationState = { saved?: "created" | "updated" } | null;
@@ -70,8 +70,9 @@ export function InventoryServicePackagesPage() {
       const hay = [
         pkg.brand,
         pkg.serviceType,
+        pkg.name,
         pkg.packageType,
-        packageTypeLabel(pkg.packageType),
+        packageDisplayName(pkg),
         watchServiceKindLabel(pkg.serviceType),
         ...(pkg.spares ?? []).flatMap((s) => [s.name, s.sku]),
       ]
@@ -105,7 +106,7 @@ export function InventoryServicePackagesPage() {
       <InventoryBreadcrumb current="Service packages" />
       <PageHeader
         title="Service packages"
-        description="Complete / Partial rate cards by brand and Quartz or Mechanical. Each package is a spare list with one price."
+        description="Rate cards by brand, service type, and package name."
         actions={
           <div className="flex flex-wrap gap-2">
             {canManage ? (
@@ -114,6 +115,14 @@ export function InventoryServicePackagesPage() {
                 className="bg-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-rlx-green/90"
               >
                 + Add package
+              </Link>
+            ) : null}
+            {user?.role === "super_admin" ? (
+              <Link
+                to="/inventory/service-package-types"
+                className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 transition hover:bg-stone-50"
+              >
+                Package types
               </Link>
             ) : null}
             <Link
@@ -216,7 +225,8 @@ export function InventoryServicePackagesPage() {
                 <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
                   <th className="px-5 py-3 text-left">Brand</th>
                   <th className="px-5 py-3 text-left">Service type</th>
-                  <th className="px-5 py-3 text-left">Package</th>
+                  <th className="px-5 py-3 text-left">Package name</th>
+                  <th className="px-5 py-3 text-left">Package type</th>
                   <th className="px-5 py-3 text-left">Spare details</th>
                   <th className="px-5 py-3 text-right">Price</th>
                   <th className="px-5 py-3 text-center">Status</th>
@@ -238,6 +248,9 @@ export function InventoryServicePackagesPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5">
+                      <p className="font-semibold text-stone-800">{packageDisplayName(pkg)}</p>
+                    </td>
+                    <td className="px-5 py-3.5">
                       <span className="inline-flex rounded-full bg-rlx-green/10 px-2.5 py-0.5 text-[11px] font-semibold text-rlx-green">
                         {packageTypeLabel(pkg.packageType)}
                       </span>
@@ -254,6 +267,7 @@ export function InventoryServicePackagesPage() {
                             >
                               {s.name}
                               {s.qty > 1 ? ` ×${s.qty}` : ""}
+                              {s.salePriceInr > 0 ? ` · ${formatInr(s.salePriceInr)}` : ""}
                             </span>
                           ))
                         )}

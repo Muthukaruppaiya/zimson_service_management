@@ -115,22 +115,18 @@
     border-radius: 9999px !important;
   }
 
-  /* Login page — restore rounded card, fields, icons, button */
+  /* Login page — restore rounded card, fields, button */
   .zimson-login__card {
-    border-radius: 28px !important;
+    border-radius: 20px !important;
   }
   .zimson-login__logo-wrap {
     border-radius: 10px !important;
   }
-  .zimson-login__input-box {
-    border-radius: 14px !important;
-  }
-  .zimson-login__input-icon,
-  .zimson-login__support-icon {
-    border-radius: 9999px !important;
+  .zimson-login__field-input {
+    border-radius: 10px !important;
   }
   .zimson-login__submit {
-    border-radius: 12px !important;
+    border-radius: 10px !important;
   }
   .zimson-login__remember input {
     border-radius: 4px !important;

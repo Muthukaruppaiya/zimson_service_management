@@ -69,8 +69,11 @@ function SpareStickerPreview({ data }: { data: SpareStickerData }) {
         <span>{data.itemNumber}</span>
         <span className="truncate text-right">{data.sku}</span>
       </div>
-      <div className="flex min-h-[9mm] items-center justify-center px-3">
-        <img src={data.barcodeSrc} alt="" className="h-[9mm] w-full object-contain" />
+      <div className="flex min-h-[7.2mm] items-center justify-center px-3">
+        <img src={data.barcodeSrc} alt="" className="h-[7.2mm] w-full object-contain" />
+      </div>
+      <div className="truncate text-center text-[7.5pt] font-bold leading-none tracking-wide">
+        ISN {data.internalSerial}
       </div>
       <div className="flex items-baseline justify-between gap-2 text-[9pt] font-bold leading-none">
         <span>{data.mrpLabel}</span>

@@ -36,6 +36,14 @@ import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
 import { createServiceInvoice, sumUsedSparesTotal } from "./serviceInvoiceLedger";
 import {
+  allocateSmsPin,
+  buildPaymentReceiptPublicUrl,
+  loadPublicSrfPaymentReceipt,
+  loadSrfPaymentReceiptById,
+  notifySrfPaymentReceipt,
+} from "./srfPaymentReceipt";
+import { renderSrfPaymentReceiptPdf } from "./messaging/srfPaymentReceiptPdf";
+import {
   edocEnabled,
   edocEwayAutoEnabled,
   tryGenerateEinvoiceForInterHoInvoice,
@@ -318,6 +326,7 @@ function mergeBrandAttachmentMeta(
 function parseServicePackageSnapshot(raw: unknown): {
   id: string;
   brand: string;
+  name?: string;
   serviceType: string;
   packageType: string;
   priceInr: number;
@@ -338,9 +347,11 @@ function parseServicePackageSnapshot(raw: unknown): {
   const spareNames = Array.isArray(o.spareNames)
     ? o.spareNames.map((x) => String(x ?? "").trim()).filter(Boolean)
     : [];
+  const name = String(o.name ?? "").trim();
   return {
     id,
     brand: String(o.brand ?? "").trim(),
+    ...(name ? { name } : {}),
     serviceType,
     packageType,
     priceInr: Number.isFinite(priceInr) ? priceInr : 0,
@@ -377,11 +388,27 @@ async function insertSrfPayment(
     note?: string;
     actor?: DemoUser | null;
   },
-): Promise<void> {
-  await executor.query(
+): Promise<{ id: string; publicToken: string; receiptNo: string; smsPin: string }> {
+  const publicToken = crypto.randomBytes(24).toString("hex");
+  const smsPin = await allocateSmsPin(executor);
+  const { rows: refRows } = await executor.query<{ reference: string }>(
+    `SELECT reference FROM srf_jobs WHERE id = $1::uuid`,
+    [input.srfId],
+  );
+  const ref =
+    String(refRows[0]?.reference ?? "SRF")
+      .replace(/[^A-Za-z0-9]/g, "")
+      .slice(0, 20) || "SRF";
+  const { rows: cntRows } = await executor.query<{ c: number }>(
+    `SELECT COUNT(*)::int AS c FROM srf_payments WHERE srf_id = $1::uuid`,
+    [input.srfId],
+  );
+  const receiptNo = `PV-${ref}-${String((cntRows[0]?.c ?? 0) + 1).padStart(2, "0")}`;
+  const { rows } = await executor.query<{ id: string }>(
     `INSERT INTO srf_payments
-       (srf_id, kind, amount_inr, payment_mode, payment_details, note, collected_by, collected_by_name)
-     VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+       (srf_id, kind, amount_inr, payment_mode, payment_details, note, collected_by, collected_by_name, public_token, receipt_no, sms_pin)
+     VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11)
+     RETURNING id`,
     [
       input.srfId,
       input.kind,
@@ -391,8 +418,12 @@ async function insertSrfPayment(
       (input.note ?? "").trim(),
       input.actor?.id ?? null,
       input.actor?.displayName ?? input.actor?.id ?? null,
+      publicToken,
+      receiptNo,
+      smsPin,
     ],
   );
+  return { id: rows[0]!.id, publicToken, receiptNo, smsPin };
 }
 
 async function ensureBookingAdvancePaymentRow(
@@ -772,7 +803,19 @@ function phoneLast10(phone: string): string {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
-async function getOrCreateTrackingToken(client: PoolClient, phone: string): Promise<string> {
+async function allocateTrackingSmsPin(client: Queryable): Promise<string> {
+  for (let i = 0; i < 32; i++) {
+    const pin = String(100000 + crypto.randomInt(900000));
+    const { rows } = await client.query(`SELECT 1 FROM customer_tracking_tokens WHERE sms_pin = $1 LIMIT 1`, [pin]);
+    if (!rows[0]) return pin;
+  }
+  throw new Error("Could not allocate tracking SMS pin.");
+}
+
+async function getOrCreateTrackingToken(
+  client: Queryable,
+  phone: string,
+): Promise<{ token: string; smsPin: string }> {
   const p10 = phoneLast10(phone);
   if (!p10) throw new Error("Invalid customer phone for tracking.");
   const openRows = await client.query<{ c: number }>(
@@ -783,8 +826,8 @@ async function getOrCreateTrackingToken(client: PoolClient, phone: string): Prom
     [p10],
   );
   const hasOpenSrf = (openRows.rows[0]?.c ?? 0) > 0;
-  const existing = await client.query<{ token_plain: string }>(
-    `SELECT token_plain
+  const existing = await client.query<{ token_plain: string; sms_pin: string | null }>(
+    `SELECT token_plain, sms_pin
      FROM customer_tracking_tokens
      WHERE phone_last10 = $1
        AND is_active = true
@@ -792,20 +835,61 @@ async function getOrCreateTrackingToken(client: PoolClient, phone: string): Prom
      LIMIT 1`,
     [p10],
   );
-  if (existing.rows[0]?.token_plain && hasOpenSrf) return existing.rows[0].token_plain;
+  if (existing.rows[0]?.token_plain && hasOpenSrf) {
+    let smsPin = String(existing.rows[0].sms_pin ?? "").trim();
+    if (!/^\d{6}$/.test(smsPin)) {
+      smsPin = await allocateTrackingSmsPin(client);
+      await client.query(`UPDATE customer_tracking_tokens SET sms_pin = $1 WHERE phone_last10 = $2`, [smsPin, p10]);
+    }
+    return { token: existing.rows[0].token_plain, smsPin };
+  }
 
   const token = crypto.randomBytes(24).toString("hex");
-  await client.query(
-    `INSERT INTO customer_tracking_tokens (token_plain, token_hash, phone_last10, is_active)
-     VALUES ($1, $2, $3, true)
+  const smsPin = await allocateTrackingSmsPin(client);
+  const { rows } = await client.query<{ token_plain: string; sms_pin: string }>(
+    `INSERT INTO customer_tracking_tokens (token_plain, token_hash, phone_last10, is_active, sms_pin)
+     VALUES ($1, $2, $3, true, $4)
      ON CONFLICT (phone_last10) DO UPDATE SET
        token_plain = EXCLUDED.token_plain,
        token_hash = EXCLUDED.token_hash,
        is_active = true,
-       disabled_at = NULL`,
-    [token, tokenHash(token), p10],
+       disabled_at = NULL,
+       sms_pin = COALESCE(NULLIF(BTRIM(customer_tracking_tokens.sms_pin), ''), EXCLUDED.sms_pin)
+     RETURNING token_plain, sms_pin`,
+    [token, tokenHash(token), p10, smsPin],
   );
-  return token;
+  return { token: rows[0]!.token_plain, smsPin: rows[0]!.sms_pin };
+}
+
+async function findCustomerTrackingToken(
+  executor: Queryable,
+  input: { token?: string; pin?: string },
+  forUpdate = false,
+): Promise<{ phone_last10: string; disabled_at: Date | null; is_active: boolean } | null> {
+  const token = String(input.token ?? "").trim();
+  const pin = String(input.pin ?? "").trim();
+  const lock = forUpdate ? " FOR UPDATE" : "";
+  if (token) {
+    const { rows } = await executor.query<{ phone_last10: string; disabled_at: Date | null; is_active: boolean }>(
+      `SELECT phone_last10, disabled_at, is_active
+         FROM customer_tracking_tokens
+        WHERE token_hash = $1${lock}
+        LIMIT 1`,
+      [tokenHash(token)],
+    );
+    return rows[0] ?? null;
+  }
+  if (/^\d{6}$/.test(pin)) {
+    const { rows } = await executor.query<{ phone_last10: string; disabled_at: Date | null; is_active: boolean }>(
+      `SELECT phone_last10, disabled_at, is_active
+         FROM customer_tracking_tokens
+        WHERE sms_pin = $1${lock}
+        LIMIT 1`,
+      [pin],
+    );
+    return rows[0] ?? null;
+  }
+  return null;
 }
 
 async function maybeDisableTrackingToken(client: PoolClient, phone: string): Promise<void> {
@@ -1068,15 +1152,18 @@ async function notifyCustomerTrackingLink(
     name: string;
     trackingUrl: string;
     srfReference: string;
+    smsPin?: string;
     channels?: { whatsapp?: boolean; email?: boolean };
   },
 ) {
   let documentUrl: string | undefined;
   let documentFilename: string | undefined;
+  let documentPdf: Buffer | undefined;
   try {
     const doc = await publishSrfDocumentForWhatsApp(req, pool, srfId);
     documentUrl = doc.documentUrl;
     documentFilename = doc.documentFilename;
+    documentPdf = doc.pdfBuffer;
   } catch (e) {
     console.error("[TRACKING LINK] SRF PDF publish failed", e);
   }
@@ -1084,23 +1171,25 @@ async function notifyCustomerTrackingLink(
     ...payload,
     documentUrl,
     documentFilename,
+    documentPdf,
   }).catch(() => ({
     sent: false,
     reason: "Could not send WhatsApp message.",
     emailSent: false,
     emailReason: "Could not send customer notifications.",
+    smsSent: false,
   }));
 }
 
 async function resolveCustomerTrackingUrl(req: Request, client: Pool | PoolClient, phone: string): Promise<string> {
-  const trackingToken = await getOrCreateTrackingToken(client, phone);
+  const { token } = await getOrCreateTrackingToken(client, phone);
   let trackingBase: string;
   try {
     trackingBase = getEmailActionBaseUrl(req);
   } catch {
     trackingBase = getAppBaseUrl(req);
   }
-  return `${trackingBase}/track?t=${encodeURIComponent(trackingToken)}`;
+  return `${trackingBase}/track?t=${encodeURIComponent(token)}`;
 }
 
 async function notifyCustomerReadyForPickup(req: Request, pool: Pool, srfId: string) {
@@ -2527,6 +2616,9 @@ export function registerSrfRoutes(
     const srfId = String(req.params.srfId ?? "").trim();
     const complaint = String(req.body?.complaint ?? "").trim();
     const estimateTotalInr = Number(req.body?.estimateTotalInr ?? 0);
+    const servicePackage = parseServicePackageSnapshot(req.body?.servicePackage);
+    const billedEstimateInr =
+      servicePackage && Number(servicePackage.priceInr) > 0 ? Number(servicePackage.priceInr) : estimateTotalInr;
     const estimatedFinishDateRaw = String(req.body?.estimatedFinishDate ?? "").trim();
     const estimatedFinishDate =
       estimatedFinishDateRaw && /^\d{4}-\d{2}-\d{2}$/.test(estimatedFinishDateRaw)
@@ -2540,8 +2632,12 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "Complaint is required." });
       return;
     }
-    if (!Number.isFinite(estimateTotalInr) || estimateTotalInr < 0) {
+    if (!Number.isFinite(billedEstimateInr) || billedEstimateInr < 0) {
       res.status(400).json({ error: "estimateTotalInr must be a valid non-negative number." });
+      return;
+    }
+    if (servicePackage && billedEstimateInr <= 0) {
+      res.status(400).json({ error: "Selected package has no price." });
       return;
     }
     if (!estimatedFinishDate) {
@@ -2563,7 +2659,7 @@ export function registerSrfRoutes(
       res.status(400).json({ error: "advanceInr must be a valid non-negative number." });
       return;
     }
-    if (advanceInr > estimateTotalInr) {
+    if (advanceInr > billedEstimateInr) {
       res.status(400).json({ error: "Advance amount cannot be greater than the estimate amount." });
       return;
     }
@@ -2651,6 +2747,7 @@ export function registerSrfRoutes(
              chain_count_6_phase = $16,
              customer_remarks = $17,
              custom_fields = $18::jsonb,
+             service_package = $19::jsonb,
              photo_session_active = false,
              capture_link_disabled_at = now(),
              updated_at = now(),
@@ -2659,7 +2756,7 @@ export function registerSrfRoutes(
         [
           srfId,
           complaint,
-          estimateTotalInr,
+          billedEstimateInr,
           advanceInr,
           JSON.stringify(selectedPartIds),
           actor.id,
@@ -2675,10 +2772,12 @@ export function registerSrfRoutes(
           chainCount6Phase,
           customerRemarks,
           JSON.stringify(customChecked.values),
+          JSON.stringify(servicePackage ?? {}),
         ],
       );
+      let advancePay: { id: string; publicToken: string; receiptNo: string } | null = null;
       if (advanceInr > 0 && advancePaymentMode) {
-        await insertSrfPayment(client, {
+        advancePay = await insertSrfPayment(client, {
           srfId,
           kind: "booking_advance",
           amountInr: advanceInr,
@@ -2699,8 +2798,8 @@ export function registerSrfRoutes(
       await appendStatusHistory(client, srfId, nextStatus, actor.id, finalizeNote);
       await appendActionLog(client, srfId, {
         action: "srf_finalized",
-        description: `SRF finalized (${repairRoute === "store_self" ? "repair at in-store" : "send to centralized service centre"}) — estimate INR ${estimateTotalInr.toFixed(2)}, advance INR ${advanceInr.toFixed(2)}.`,
-        amountInr: estimateTotalInr,
+        description: `SRF finalized (${repairRoute === "store_self" ? "repair at in-store" : "send to centralized service centre"}) — estimate INR ${billedEstimateInr.toFixed(2)}, advance INR ${advanceInr.toFixed(2)}.`,
+        amountInr: billedEstimateInr,
         actor,
         details: {
           complaint,
@@ -2717,7 +2816,7 @@ export function registerSrfRoutes(
         [srfId],
       );
       const refRow = refRows.rows[0];
-      const trackingToken = await getOrCreateTrackingToken(client, refRow?.phone ?? "");
+      const tracking = await getOrCreateTrackingToken(client, refRow?.phone ?? "");
       await client.query(
         `UPDATE customer_tracking_tokens SET last_sent_at = now() WHERE phone_last10 = $1`,
         [phoneLast10(refRow?.phone ?? "")],
@@ -2729,7 +2828,7 @@ export function registerSrfRoutes(
       } catch {
         trackingBase = getAppBaseUrl(req);
       }
-      const trackingUrl = `${trackingBase}/track?t=${encodeURIComponent(trackingToken)}`;
+      const trackingUrl = `${trackingBase}/track?t=${encodeURIComponent(tracking.token)}`;
       const customerEmail = await resolveCustomerEmail(
         pool,
         refRow?.phone ?? "",
@@ -2741,7 +2840,14 @@ export function registerSrfRoutes(
         name: refRow?.customer_name ?? "Customer",
         trackingUrl,
         srfReference: refRow?.reference ?? "",
+        smsPin: tracking.smsPin,
       });
+      let paymentNotify: Awaited<ReturnType<typeof notifySrfPaymentReceipt>> | null = null;
+      if (advancePay) {
+        paymentNotify = await notifySrfPaymentReceipt(req, pool, advancePay.id, {
+          customerEmail,
+        });
+      }
       res.json({
         ok: true,
         trackingUrl,
@@ -2749,6 +2855,25 @@ export function registerSrfRoutes(
         whatsappReason: sent.reason ?? null,
         emailSent: sent.emailSent,
         emailReason: sent.emailReason ?? null,
+        smsSent: sent.smsSent,
+        smsReason: sent.smsReason ?? null,
+        smsPin: sent.smsPin ?? null,
+        advanceReceipt: advancePay
+          ? {
+              paymentId: advancePay.id,
+              receiptNo: advancePay.receiptNo,
+              token: advancePay.publicToken,
+              url: paymentNotify?.url ?? buildPaymentReceiptPublicUrl(req, advancePay.publicToken),
+              smsPin: paymentNotify?.smsPin ?? advancePay.smsPin,
+            }
+          : null,
+        paymentSmsSent: paymentNotify?.smsSent ?? false,
+        paymentSmsReason: paymentNotify?.smsReason ?? null,
+        paymentSmsPin: paymentNotify?.smsPin ?? advancePay?.smsPin ?? null,
+        paymentWhatsappSent: paymentNotify?.whatsappSent ?? false,
+        paymentWhatsappReason: paymentNotify?.whatsappReason ?? null,
+        paymentEmailSent: paymentNotify?.emailSent ?? false,
+        paymentEmailReason: paymentNotify?.emailReason ?? null,
       });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
@@ -2810,7 +2935,9 @@ export function registerSrfRoutes(
                 note,
                 collected_by AS "collectedBy",
                 collected_by_name AS "collectedByName",
-                created_at AS "createdAt"
+                created_at AS "createdAt",
+                receipt_no AS "receiptNo",
+                public_token AS "publicToken"
          FROM srf_payments
          WHERE srf_id = $1::uuid
          ORDER BY created_at ASC`,
@@ -2897,7 +3024,7 @@ export function registerSrfRoutes(
         return;
       }
       await ensureBookingAdvancePaymentRow(client, job, actor);
-      await insertSrfPayment(client, {
+      const payment = await insertSrfPayment(client, {
         srfId,
         kind: "additional",
         amountInr,
@@ -2932,13 +3059,113 @@ export function registerSrfRoutes(
         },
       });
       await client.query("COMMIT");
-      res.json({ ok: true, paidInr: nextAdvance, amountInr });
+      const paymentNotify = await notifySrfPaymentReceipt(req, pool, payment.id, {
+        customerEmail: String(req.body?.customerEmail ?? req.body?.email ?? "").trim() || null,
+      });
+      res.json({
+        ok: true,
+        paidInr: nextAdvance,
+        amountInr,
+        paymentId: payment.id,
+        receiptNo: payment.receiptNo,
+        receiptUrl: paymentNotify.url || buildPaymentReceiptPublicUrl(req, payment.publicToken),
+        smsPin: paymentNotify.smsPin || payment.smsPin,
+        smsSent: paymentNotify.smsSent,
+        smsReason: paymentNotify.smsReason ?? null,
+        whatsappSent: paymentNotify.whatsappSent,
+        whatsappReason: paymentNotify.whatsappReason ?? null,
+        emailSent: paymentNotify.emailSent,
+        emailReason: paymentNotify.emailReason ?? null,
+      });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
       res.status(400).json({ error: "Could not record SRF payment." });
     } finally {
       client.release();
+    }
+  });
+
+  app.get("/api/service/srf-jobs/:srfId/payments/:paymentId/receipt", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanView(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const paymentId = String(req.params.paymentId ?? "").trim();
+    if (!srfId || !paymentId) {
+      res.status(400).json({ error: "Payment is required." });
+      return;
+    }
+    try {
+      const scope = visibleWhere(actor);
+      const { rows } = await pool.query(
+        `SELECT j.id FROM srf_jobs j WHERE ${scope.sql} AND j.id = $${scope.nextIdx}::uuid LIMIT 1`,
+        [...scope.params, srfId],
+      );
+      if (!rows[0]) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      const receipt = await loadSrfPaymentReceiptById(pool, srfId, paymentId);
+      if (!receipt) {
+        res.status(404).json({ error: "Payment receipt not found." });
+        return;
+      }
+      res.json({ receipt, url: buildPaymentReceiptPublicUrl(req, receipt.publicToken) });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load payment receipt." });
+    }
+  });
+
+  app.post("/api/service/srf-jobs/:srfId/payments/:paymentId/send-receipt", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !roleCanCollectSrfPayment(actor)) {
+      res.status(403).json({ error: "You cannot send payment receipts." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const paymentId = String(req.params.paymentId ?? "").trim();
+    if (!srfId || !paymentId) {
+      res.status(400).json({ error: "Payment is required." });
+      return;
+    }
+    try {
+      const scope = visibleWhere(actor);
+      const { rows } = await pool.query(
+        `SELECT j.id FROM srf_jobs j WHERE ${scope.sql} AND j.id = $${scope.nextIdx}::uuid LIMIT 1`,
+        [...scope.params, srfId],
+      );
+      if (!rows[0]) {
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      const receipt = await loadSrfPaymentReceiptById(pool, srfId, paymentId);
+      if (!receipt) {
+        res.status(404).json({ error: "Payment receipt not found." });
+        return;
+      }
+      const notify = await notifySrfPaymentReceipt(req, pool, paymentId, {
+        customerEmail: String(req.body?.customerEmail ?? req.body?.email ?? "").trim() || null,
+      });
+      res.json({
+        ok: notify.smsSent || notify.whatsappSent || notify.emailSent,
+        smsSent: notify.smsSent,
+        smsReason: notify.smsReason ?? null,
+        smsPin: notify.smsPin || receipt.smsPin,
+        whatsappSent: notify.whatsappSent,
+        whatsappReason: notify.whatsappReason ?? null,
+        emailSent: notify.emailSent,
+        emailReason: notify.emailReason ?? null,
+        url: notify.url || buildPaymentReceiptPublicUrl(req, receipt.publicToken),
+        pinUrl: notify.pinUrl,
+        receiptNo: receipt.receiptNo,
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not send payment receipt SMS." });
     }
   });
 
@@ -2966,7 +3193,7 @@ export function registerSrfRoutes(
         res.status(404).json({ error: "SRF not found." });
         return;
       }
-      const trackingToken = await getOrCreateTrackingToken(client, refRow.phone ?? "");
+      const tracking = await getOrCreateTrackingToken(client, refRow.phone ?? "");
       await client.query(
         `UPDATE customer_tracking_tokens SET last_sent_at = now() WHERE phone_last10 = $1`,
         [phoneLast10(refRow.phone ?? "")],
@@ -2978,7 +3205,7 @@ export function registerSrfRoutes(
       } catch {
         trackingBase = getAppBaseUrl(req);
       }
-      const trackingUrl = `${trackingBase}/track?t=${encodeURIComponent(trackingToken)}`;
+      const trackingUrl = `${trackingBase}/track?t=${encodeURIComponent(tracking.token)}`;
       const customerEmail = await resolveCustomerEmail(
         pool,
         refRow.phone ?? "",
@@ -2993,6 +3220,7 @@ export function registerSrfRoutes(
         name: refRow.customer_name ?? "Customer",
         trackingUrl,
         srfReference: refRow.reference ?? "",
+        smsPin: tracking.smsPin,
         channels: {
           whatsapp: channel === "all" || channel === "whatsapp",
           email: channel === "all" || channel === "email",
@@ -3005,6 +3233,9 @@ export function registerSrfRoutes(
         whatsappReason: sent.reason ?? null,
         emailSent: sent.emailSent,
         emailReason: sent.emailReason ?? null,
+        smsSent: sent.smsSent,
+        smsReason: sent.smsReason ?? null,
+        smsPin: sent.smsPin ?? null,
       });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
@@ -9520,21 +9751,47 @@ export function registerSrfRoutes(
     }
   });
 
+  app.get("/api/public/srf-payment-receipt", async (req, res) => {
+    try {
+      const receipt = await loadPublicSrfPaymentReceipt(pool, req.query);
+      if (!receipt) {
+        res.status(404).json({ error: "Receipt not found." });
+        return;
+      }
+      res.json({ receipt });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load payment receipt." });
+    }
+  });
+
+  app.get("/api/public/srf-payment-receipt.pdf", async (req, res) => {
+    try {
+      const receipt = await loadPublicSrfPaymentReceipt(pool, req.query);
+      if (!receipt) {
+        res.status(404).json({ error: "Receipt not found." });
+        return;
+      }
+      const pdf = await renderSrfPaymentReceiptPdf(receipt);
+      const filename = `${receipt.receiptNo.replace(/[^\w.-]+/g, "_")}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(pdf);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not download payment receipt." });
+    }
+  });
+
   app.get("/api/public/srf-track", async (req, res) => {
     const token = String(req.query.t ?? "").trim();
-    if (!token) {
+    const pin = String(req.query.p ?? "").trim();
+    if (!token && !pin) {
       res.status(400).json({ error: "Tracking token is required." });
       return;
     }
     try {
-      const tokenRow = await pool.query<{ phone_last10: string; disabled_at: Date | null; is_active: boolean }>(
-        `SELECT phone_last10, disabled_at, is_active
-         FROM customer_tracking_tokens
-         WHERE token_hash = $1
-         LIMIT 1`,
-        [tokenHash(token)],
-      );
-      const row = tokenRow.rows[0];
+      const row = await findCustomerTrackingToken(pool, { token, pin });
       if (!row) {
         res.status(404).json({ error: "Invalid tracking link." });
         return;
@@ -9741,24 +9998,18 @@ export function registerSrfRoutes(
 
   app.post("/api/public/srf-track/reestimate-response", async (req, res) => {
     const token = String(req.body?.token ?? "").trim();
+    const pin = String(req.body?.pin ?? req.body?.p ?? "").trim();
     const srfId = String(req.body?.srfId ?? "").trim();
     const accepted = Boolean(req.body?.accepted);
     const note = String(req.body?.note ?? "").trim();
-    if (!token || !srfId) {
+    if ((!token && !pin) || !srfId) {
       res.status(400).json({ error: "token and srfId are required." });
       return;
     }
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const tokenRes = await client.query<{ phone_last10: string; disabled_at: Date | null; is_active: boolean }>(
-        `SELECT phone_last10, disabled_at, is_active
-         FROM customer_tracking_tokens
-         WHERE token_hash = $1
-         FOR UPDATE`,
-        [tokenHash(token)],
-      );
-      const tokenRow = tokenRes.rows[0];
+      const tokenRow = await findCustomerTrackingToken(client, { token, pin }, true);
       if (!tokenRow || tokenRow.disabled_at || tokenRow.is_active === false) {
         await client.query("ROLLBACK");
         res.status(400).json({ error: "This tracking link is disabled." });

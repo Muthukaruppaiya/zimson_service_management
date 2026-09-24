@@ -256,7 +256,7 @@ export function buildPurchaseOrderDocument(input: {
         </tfoot>
       </table>
     </div>
-    <div class="sec small"><strong>Notes:</strong> ${esc(input.notes || "-")}</div>
+    <div class="sec small"><strong>Remark:</strong> ${esc(input.notes || "-")}</div>
     <div class="sign"><div class="sign-line">${esc(tpl.signLabelPrimary)}</div><div class="sign-line">${esc(tpl.signLabelSecondary)}</div></div>
   </div>
   <style>${baseStyle()}</style>`;
@@ -318,16 +318,44 @@ export function buildPrDocument(input: {
         </tbody>
       </table>
     </div>
-    <div class="sec small"><strong>Notes:</strong> ${esc(input.notes || "-")}</div>
+    <div class="sec small"><strong>Remark:</strong> ${esc(input.notes || "-")}</div>
     <div class="sign"><div class="sign-line">${esc(tpl.signLabelPrimary)}</div><div class="sign-line">${esc(tpl.signLabelSecondary)}</div></div>
   </div>
   <style>${baseStyle()}</style>`;
+}
+
+export function buildPurchaseVoucherDocument(input: {
+  voucherNumber: string;
+  voucherDate?: string;
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  supplier: PartyBlock;
+  shipTo: PartyBlock;
+  notes?: string;
+  lines: Array<{ description: string; qty: number; unit: string; unitPrice: number }>;
+}): string {
+  const extra = [
+    input.invoiceNumber ? `Supplier invoice: ${input.invoiceNumber}` : "",
+    input.invoiceDate ? `Invoice date: ${formatDate(input.invoiceDate)}` : "",
+    input.notes ?? "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return buildPurchaseOrderDocument({
+    poNumber: input.voucherNumber,
+    poDate: input.voucherDate,
+    supplier: input.supplier,
+    shipTo: input.shipTo,
+    notes: extra,
+    lines: input.lines,
+  }).replace(">PURCHASE ORDER</h1>", ">PURCHASE VOUCHER</h1>");
 }
 
 export function buildGrnDocument(input: {
   grnNumber: string;
   createdAt?: string;
   poNumber: string;
+  voucherNumber?: string | null;
   supplierName: string;
   mode: string;
   invoiceNumber?: string | null;
@@ -361,11 +389,11 @@ export function buildGrnDocument(input: {
       <div>
         <p>${barcode(input.grnNumber)}</p>
         <p><strong>GRN NUMBER:</strong> ${esc(input.grnNumber)}</p>
-        <p><strong>GRN TYPE:</strong> ${esc(grnTypeDetail(input.poNumber))}</p>
-        ${isDirectGrn(input.poNumber) ? "" : `<p><strong>PO NUMBER:</strong> ${esc(input.poNumber)}</p>`}
+        <p><strong>GRN TYPE:</strong> ${esc(grnTypeDetail(input.poNumber, input.voucherNumber))}</p>
+        ${input.voucherNumber ? `<p><strong>VOUCHER NUMBER:</strong> ${esc(input.voucherNumber)}</p>` : isDirectGrn(input.poNumber) ? "" : `<p><strong>PO NUMBER:</strong> ${esc(input.poNumber)}</p>`}
         <p><strong>DATE:</strong> ${esc(formatDate(input.createdAt))}</p>
         <p><strong>${esc(grnDocNumberLabel(input.mode).toUpperCase())}:</strong> ${esc(input.invoiceNumber ?? "-")}</p>
-        <p><strong>MODE:</strong> ${esc(grnModeLabel(input.mode))}</p>
+        <p><strong>SUPPLIER REFERENCE DOCUMENT:</strong> ${esc(grnModeLabel(input.mode))}</p>
       </div>
       <div class="meta" style="text-align:left;">
         <p><strong>${esc(branding.companyName)}</strong></p>
@@ -375,7 +403,7 @@ export function buildGrnDocument(input: {
     <div class="sec" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
       <div>
         <p><strong>${esc(lbl(tpl.labels, "deliveryInfoLabel", "DELIVERY INFORMATION"))}:</strong></p>
-        <p>Delivery note: ${esc(isDirectGrn(input.poNumber) ? "Direct GRN" : input.poNumber)}</p>
+        <p>Delivery note: ${esc(input.voucherNumber || (isDirectGrn(input.poNumber) ? "Direct GRN" : input.poNumber))}</p>
         <p>Delivery date: ${esc(formatDate(input.createdAt))}</p>
         <p>Carrier: -</p>
       </div>
@@ -584,7 +612,7 @@ export function buildPurchaseReturnDocument(input: {
         </tbody>
       </table>
     </div>
-    <div class="sec"><strong>Notes:</strong> ${esc(input.notes || "-")}</div>
+    <div class="sec"><strong>Remark:</strong> ${esc(input.notes || "-")}</div>
     <div class="sign"><div class="sign-line">Returned By</div><div class="sign-line">Supplier Acknowledgement</div></div>
   </div>
   <style>${baseStyle()}</style>`;

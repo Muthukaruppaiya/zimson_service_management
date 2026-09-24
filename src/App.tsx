@@ -73,6 +73,8 @@ import { InventoryPurchaseReturnPage } from "./pages/inventory/InventoryPurchase
 import { InventoryPurchaseReturnHistoryPage } from "./pages/inventory/InventoryPurchaseReturnHistoryPage";
 import { InventoryPurchaseOrdersPage } from "./pages/inventory/InventoryPurchaseOrdersPage";
 import { InventoryPoHistoryPage } from "./pages/inventory/InventoryPoHistoryPage";
+import { InventoryVoucherCreatePage } from "./pages/inventory/InventoryVoucherCreatePage";
+import { InventoryVoucherHistoryPage } from "./pages/inventory/InventoryVoucherHistoryPage";
 import { InventorySuppliersPage } from "./pages/inventory/InventorySuppliersPage";
 import { InventorySupplierFormPage } from "./pages/inventory/InventorySupplierFormPage";
 import { InventorySupplierBulkImportPage } from "./pages/inventory/InventorySupplierBulkImportPage";
@@ -86,15 +88,18 @@ import { InventoryStockPriceOverviewPage } from "./pages/inventory/InventoryStoc
 import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPage";
 import { InventoryStockAdjustmentPage } from "./pages/inventory/InventoryStockAdjustmentPage";
 import { InventoryHoStoreTransferPage } from "./pages/inventory/InventoryHoStoreTransferPage";
+import { InventoryTransferHistoryPage } from "./pages/inventory/InventoryTransferHistoryPage";
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
 import { InventoryHsnMasterPage } from "./pages/inventory/InventoryHsnMasterPage";
 import { InventoryServicePackagesPage } from "./pages/inventory/InventoryServicePackagesPage";
 import { InventoryServicePackageFormPage } from "./pages/inventory/InventoryServicePackageFormPage";
+import { InventoryServicePackageTypesPage } from "./pages/inventory/InventoryServicePackageTypesPage";
 import { SrfPhotoCapturePage } from "./pages/public/SrfPhotoCapturePage";
 import { SrfBillingHandoverCapturePage } from "./pages/public/SrfBillingHandoverCapturePage";
 import { QuickBillCapturePage } from "./pages/public/QuickBillCapturePage";
 import { SrfTrackingPage } from "./pages/public/SrfTrackingPage";
+import { SrfPaymentReceiptPage } from "./pages/public/SrfPaymentReceiptPage";
 import { ReportsModulePage } from "./pages/reports/ReportsModulePage";
 import { StockInHandReportPage } from "./pages/reports/StockInHandReportPage";
 import { WatchNotReturnedReportPage } from "./pages/reports/WatchNotReturnedReportPage";
@@ -130,6 +135,7 @@ export default function App() {
             <Route path="/service/srf-handover-capture" element={<SrfBillingHandoverCapturePage />} />
             <Route path="/service/quick-bill-capture" element={<QuickBillCapturePage />} />
             <Route path="/track" element={<SrfTrackingPage />} />
+            <Route path="/pay-receipt" element={<SrfPaymentReceiptPage />} />
             <Route element={<RequireAuth />}>
               <Route element={<AppShell />}>
                 <Route
@@ -702,6 +708,16 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/inventory/transfer-history"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryTransferHistoryPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/inventory/allocation-review"
                   element={
                     <ModuleRoute module="inventory">
@@ -747,6 +763,26 @@ export default function App() {
                     <ModuleRoute module="inventory">
                       <InventorySupervisorGuard>
                         <InventoryPoHistoryPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/vouchers"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryVoucherCreatePage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/voucher-history"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryVoucherHistoryPage />
                       </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
@@ -857,6 +893,16 @@ export default function App() {
                     <ModuleRoute module="inventory">
                       <InventorySupervisorGuard>
                         <InventoryHsnMasterPage />
+                      </InventorySupervisorGuard>
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/inventory/service-package-types"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventorySupervisorGuard>
+                        <InventoryServicePackageTypesPage />
                       </InventorySupervisorGuard>
                     </ModuleRoute>
                   }

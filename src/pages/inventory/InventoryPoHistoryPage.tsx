@@ -295,7 +295,7 @@ export function InventoryPoHistoryPage() {
                 <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
                   <th className="px-5 py-3 text-left">PO#</th>
                   {ENABLE_PR_FLOW ? <th className="px-5 py-3 text-left">PR#</th> : null}
-                  <th className="px-5 py-3 text-left">Supplier</th>
+                  <th className="px-5 py-3 text-left">Supplier name</th>
                   {isHo && <th className="px-5 py-3 text-left">Store</th>}
                   <th className="px-5 py-3 text-left">Status</th>
                   <th className="px-5 py-3 text-center">Lines</th>
@@ -371,7 +371,7 @@ export function InventoryPoHistoryPage() {
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-wide text-white">{po.poNumber}</h3>
                   <p className="text-[11px] text-white/60 mt-0.5">
-                    {ENABLE_PR_FLOW ? `PR: ${poPrReference(po)} · ` : ""}Supplier: {po.supplierName}
+                    {ENABLE_PR_FLOW ? `PR: ${poPrReference(po)} · ` : ""}Supplier name: {po.supplierName}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -394,7 +394,7 @@ export function InventoryPoHistoryPage() {
                   <p className="mt-1 text-stone-700">{po.storeName ?? po.storeId ?? "—"}</p>
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold uppercase text-stone-400">Notes</span>
+                  <span className="text-[11px] font-bold uppercase text-stone-400">Remark</span>
                   <p className="mt-1 text-stone-700 truncate">{po.notes || "—"}</p>
                 </div>
               </div>
@@ -536,7 +536,7 @@ export function InventoryPoHistoryPage() {
                   type="text"
                   value={amendNotes}
                   onChange={(e) => setAmendNotes(e.target.value)}
-                  placeholder="Amendment note (optional)"
+                  placeholder="Remark"
                   className="w-full border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
                 />
                 <div className="flex flex-wrap items-center justify-between gap-3">

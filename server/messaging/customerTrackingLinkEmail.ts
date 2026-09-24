@@ -11,6 +11,7 @@ export async function sendCustomerTrackingLinkEmail(
   customerName: string,
   srfReference: string,
   trackingUrl: string,
+  opts?: { pdfBuffer?: Buffer; documentFilename?: string },
 ): Promise<void> {
   if (!isEmailConfigured()) {
     throw new Error("Email (SMTP) is not configured.");
@@ -23,13 +24,15 @@ export async function sendCustomerTrackingLinkEmail(
   const subject = `Your Zimson service request — ${ref}`;
   const preheader = `SRF ${ref} registered. Track your watch service online.`;
   const buttonLabel = "Track my service";
+  const hasPdf = Boolean(opts?.pdfBuffer && opts.pdfBuffer.length > 100);
+  const filename = (opts?.documentFilename?.trim() || `Zimson-SRF-${ref}.pdf`).replace(/[^\w.-]+/g, "_");
 
   const text = `Hello ${name},
 
 Your service request form (SRF) ${ref} has been registered at Zimson Watch Care.
 
 Please keep the printed SRF copy you received at the store for your records.
-
+${hasPdf ? "\nA PDF copy of your SRF is attached.\n" : ""}
 Track repair status online — open this email in HTML view and click "${buttonLabel}".
 
 If the button does not open, paste this link into your browser:
@@ -43,6 +46,9 @@ ${trackingUrl}
     subject,
     preheader,
     text,
+    attachments: hasPdf
+      ? [{ filename, content: opts!.pdfBuffer, contentType: "application/pdf" }]
+      : undefined,
     blocks: [
       { type: "paragraph", html: `Hello ${escapeHtml(name)},` },
       {
@@ -52,9 +58,11 @@ ${trackingUrl}
       { type: "link", href: trackingUrl, label: buttonLabel, showUrlFallback: true },
       {
         type: "paragraph",
-        html: "Bookmark this page to check updates at any time. If you did not request this email, you can ignore it.",
+        html: hasPdf
+          ? "A PDF copy of your SRF is attached. Bookmark the tracking page to check updates at any time. If you did not request this email, you can ignore it."
+          : "Bookmark this page to check updates at any time. If you did not request this email, you can ignore it.",
       },
     ],
   });
-  console.log("[smtp] Customer tracking link email sent to", toEmail);
+  console.log("[smtp] Customer tracking link email sent to", toEmail, hasPdf ? "(PDF attached)" : "");
 }

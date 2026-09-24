@@ -11,6 +11,7 @@ import {
   grnModeBadgeClass,
   grnModeLabel,
   grnTypeDetail,
+  grnTypeLabel,
   isDirectGrn,
 } from "../../lib/grnMode";
 import { buildGrnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
@@ -23,6 +24,7 @@ type GrnItem = {
 };
 type GrnRow = {
   id: string; grnNumber: string; poId: string | null; poNumber: string | null;
+  voucherId?: string | null; voucherNumber?: string | null;
   supplierId: string; supplierName: string; regionId: string;
   invoiceNumber: string | null; invoiceDate: string | null;
   mode: "WITH_BILL" | "WITHOUT_BILL"; notes: string;
@@ -93,12 +95,14 @@ function GrnDetailModal({ grn, spareNameById, onClose, onTransfer, onReturn }: {
         {/* Meta */}
         <div className="grid grid-cols-2 gap-4 border-b border-rlx-rule bg-stone-50 px-6 py-4 text-sm">
           <div className="space-y-1">
-            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">GRN Type</span><br /><span className="font-semibold text-stone-700">{isDirectGrn(grn.poNumber) ? "Direct GRN" : "Against PO"}</span></p>
-            {!isDirectGrn(grn.poNumber) && (
+            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">GRN Type</span><br /><span className="font-semibold text-stone-700">{grnTypeLabel(grn.poNumber, grn.voucherNumber)}</span></p>
+            {grn.voucherNumber ? (
+              <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Voucher Number</span><br /><span className="font-mono font-semibold text-stone-700">{grn.voucherNumber}</span></p>
+            ) : !isDirectGrn(grn.poNumber) ? (
               <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">PO Number</span><br /><span className="font-mono font-semibold text-stone-700">{grn.poNumber}</span></p>
-            )}
-            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Supplier</span><br /><span className="text-stone-700">{grn.supplierName}</span></p>
-            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Mode</span><br />
+            ) : null}
+            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Supplier name</span><br /><span className="text-stone-700">{grn.supplierName}</span></p>
+            <p><span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Supplier reference document</span><br />
               <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${grnModeBadgeClass(grn.mode)}`}>
                 {grnModeLabel(grn.mode)}
               </span>
@@ -168,14 +172,14 @@ function GrnDetailModal({ grn, spareNameById, onClose, onTransfer, onReturn }: {
         {/* Notes + Actions */}
         {grn.notes && (
           <div className="border-t border-rlx-rule bg-stone-50 px-6 py-3 text-xs text-stone-500">
-            <span className="font-semibold">Notes:</span> {grn.notes}
+            <span className="font-semibold">Remark:</span> {grn.notes}
           </div>
         )}
         <div className="flex gap-2 border-t border-rlx-rule bg-white px-6 py-4">
           <button type="button"
             onClick={() => openPrintDocument(`GRN ${grn.grnNumber}`, buildGrnDocument({
               grnNumber: grn.grnNumber, createdAt: grn.createdAt,
-              poNumber: grn.poNumber || "Direct", supplierName: grn.supplierName,
+              poNumber: grn.poNumber || "Direct", voucherNumber: grn.voucherNumber, supplierName: grn.supplierName,
               mode: grn.mode, invoiceNumber: grn.invoiceNumber, invoiceDate: grn.invoiceDate,
               notes: grn.notes,
               lines: grn.items.map((i) => ({
@@ -252,6 +256,7 @@ export function InventoryGrnHistoryPage() {
       return (
         g.grnNumber.toLowerCase().includes(q) ||
         (g.poNumber ?? "direct").toLowerCase().includes(q) ||
+        (g.voucherNumber ?? "").toLowerCase().includes(q) ||
         g.supplierName.toLowerCase().includes(q) ||
         (g.invoiceNumber ?? "").toLowerCase().includes(q)
       );
@@ -304,7 +309,7 @@ export function InventoryGrnHistoryPage() {
       {/* ── Stats ──────────────────────────────────────────────────────────── */}
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total GRNs" value={stats.total} />
-        <StatCard label="GRN against vendor invoice" value={stats.withBill} sub={`${stats.total - stats.withBill} against voucher`} />
+        <StatCard label="GRN against vendor invoice" value={stats.withBill} sub={`${stats.total - stats.withBill} against internal voucher`} />
         <StatCard label="Total Lines" value={stats.totalLines} sub="spare items received" />
         <StatCard label="Total Value" value={stats.totalValue > 0 ? fmt(stats.totalValue) : "—"} sub="incl. GST" />
       </div>
@@ -323,7 +328,7 @@ export function InventoryGrnHistoryPage() {
         </div>
         <select value={modeFilter} onChange={(e) => setModeFilter(e.target.value as typeof modeFilter)}
           className="border border-rlx-rule bg-white px-3 py-2 text-sm text-stone-700 outline-none focus:border-rlx-green">
-          <option value="">All Modes</option>
+          <option value="">All supplier reference documents</option>
           <option value="WITH_BILL">{grnModeLabel("WITH_BILL")}</option>
           <option value="WITHOUT_BILL">{grnModeLabel("WITHOUT_BILL")}</option>
         </select>
@@ -351,8 +356,8 @@ export function InventoryGrnHistoryPage() {
                 <tr className="border-b border-rlx-rule bg-stone-50 text-[10px] font-bold uppercase tracking-widest text-stone-400">
                   <th className="px-5 py-3 text-left">GRN#</th>
                   <th className="px-5 py-3 text-left">GRN Type / PO#</th>
-                  <th className="px-5 py-3 text-left">Supplier</th>
-                  <th className="px-5 py-3 text-left">Mode</th>
+                  <th className="px-5 py-3 text-left">Supplier name</th>
+                  <th className="px-5 py-3 text-left">Supplier reference document</th>
                   <th className="px-5 py-3 text-left">Invoice / Voucher</th>
                   <th className="px-5 py-3 text-center">Lines</th>
                   <th className="px-5 py-3 text-center">Pending</th>
@@ -371,7 +376,7 @@ export function InventoryGrnHistoryPage() {
                       onClick={() => setSelectedGrn(g)}
                       className="cursor-pointer border-b border-rlx-rule last:border-0 hover:bg-stone-50/60 transition">
                       <td className="px-5 py-3 font-mono text-xs font-bold text-rlx-green">{g.grnNumber}</td>
-                      <td className="px-5 py-3 font-mono text-xs text-stone-500">{grnTypeDetail(g.poNumber)}</td>
+                      <td className="px-5 py-3 font-mono text-xs text-stone-500">{grnTypeDetail(g.poNumber, g.voucherNumber)}</td>
                       <td className="px-5 py-3 font-medium text-stone-800">{g.supplierName}</td>
                       <td className="px-5 py-3">
                         <span className={`inline-block border px-2 py-0.5 text-[10px] font-bold ${grnModeBadgeClass(g.mode)}`}>
@@ -403,7 +408,7 @@ export function InventoryGrnHistoryPage() {
                           <button type="button"
                             onClick={() => openPrintDocument(`GRN ${g.grnNumber}`, buildGrnDocument({
                               grnNumber: g.grnNumber, createdAt: g.createdAt,
-                              poNumber: g.poNumber || "Direct", supplierName: g.supplierName,
+                              poNumber: g.poNumber || "Direct", voucherNumber: g.voucherNumber, supplierName: g.supplierName,
                               mode: g.mode, invoiceNumber: g.invoiceNumber, invoiceDate: g.invoiceDate,
                               notes: g.notes,
                               lines: g.items.map((i) => ({

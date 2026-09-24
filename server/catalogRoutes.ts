@@ -7,6 +7,12 @@ import { appendStockHistory } from "./db/stockHistory";
 import { clearSpareGstCache } from "./hsnGstRates";
 import { validateEntityCustomFields } from "./customFields";
 import { normalizeAltName, normalizeAltSku, optionalMasterText } from "../src/lib/spareIdentity";
+import {
+  isValidPackageName,
+  normalizePackageTypeKey,
+  packageTypesMatch,
+  sanitizePackageNameInput,
+} from "../src/lib/servicePackage";
 
 function isHoAdminRole(role: string): boolean {
   return role === "super_admin" || role === "admin" || role === "admin";
@@ -1020,6 +1026,7 @@ export function registerCatalogRoutes(
     const { rows: pkgs } = await pool.query<{
       id: string;
       brand: string;
+      name: string;
       service_type: string;
       package_type: string;
       price_inr: number;
@@ -1027,11 +1034,13 @@ export function registerCatalogRoutes(
       created_at: Date;
       updated_at: Date;
     }>(
-      `SELECT id, brand, service_type, package_type, price_inr::float8 AS price_inr,
+      `SELECT id, brand,
+              COALESCE(NULLIF(BTRIM(name), ''), package_type) AS name,
+              service_type, package_type, price_inr::float8 AS price_inr,
               is_active, created_at, updated_at
        FROM service_packages p
        ${sqlWhere}
-       ORDER BY p.brand, p.service_type, p.package_type`,
+       ORDER BY p.brand, p.service_type, COALESCE(NULLIF(BTRIM(p.name), ''), p.package_type)`,
       params,
     );
     if (pkgs.length === 0) return [];
@@ -1040,11 +1049,13 @@ export function registerCatalogRoutes(
       package_id: string;
       spare_id: string;
       qty: number;
+      sale_price_inr: number;
       sort_order: number;
       name: string;
       sku: string;
     }>(
       `SELECT ps.package_id, ps.spare_id, ps.qty::float8 AS qty, ps.sort_order,
+              COALESCE(ps.sale_price_inr, s.selling_price_inr, s.mrp_inr, 0)::float8 AS sale_price_inr,
               s.name, s.sku
        FROM service_package_spares ps
        JOIN spares s ON s.id = ps.spare_id
@@ -1061,6 +1072,7 @@ export function registerCatalogRoutes(
     return pkgs.map((p) => ({
       id: p.id,
       brand: p.brand,
+      name: p.name,
       serviceType: p.service_type,
       packageType: p.package_type,
       priceInr: Number(p.price_inr) || 0,
@@ -1072,6 +1084,7 @@ export function registerCatalogRoutes(
         name: s.name,
         sku: s.sku,
         qty: Number(s.qty) || 1,
+        salePriceInr: Number(s.sale_price_inr) || 0,
       })),
     }));
   }
@@ -1079,7 +1092,7 @@ export function registerCatalogRoutes(
   async function replacePackageSpares(
     client: { query: Pool["query"] },
     packageId: string,
-    spares: Array<{ spareId: string; qty?: number }>,
+    spares: Array<{ spareId: string; qty?: number; salePriceInr?: number }>,
   ) {
     await client.query(`DELETE FROM service_package_spares WHERE package_id = $1::uuid`, [packageId]);
     let sort = 0;
@@ -1087,14 +1100,129 @@ export function registerCatalogRoutes(
       const spareId = String(sp.spareId ?? "").trim();
       if (!spareId) continue;
       const qty = Number(sp.qty);
+      const salePrice = Number(sp.salePriceInr);
       await client.query(
-        `INSERT INTO service_package_spares (package_id, spare_id, qty, sort_order)
-         VALUES ($1::uuid, $2::uuid, $3, $4)`,
-        [packageId, spareId, Number.isFinite(qty) && qty > 0 ? Math.round(qty) : 1, sort],
+        `INSERT INTO service_package_spares (package_id, spare_id, qty, sale_price_inr, sort_order)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5)`,
+        [
+          packageId,
+          spareId,
+          Number.isFinite(qty) && qty > 0 ? Math.round(qty) : 1,
+          Number.isFinite(salePrice) && salePrice >= 0 ? salePrice : 0,
+          sort,
+        ],
       );
       sort += 1;
     }
   }
+
+  async function resolvePackageTypeKey(raw: string, opts?: { activeOnly?: boolean }): Promise<string | null> {
+    const key = normalizePackageTypeKey(raw);
+    if (!key) return null;
+    const { rows } = await pool.query<{ name: string }>(
+      opts?.activeOnly
+        ? `SELECT name FROM service_package_types WHERE is_active = true`
+        : `SELECT name FROM service_package_types`,
+    );
+    return rows.some((r) => packageTypesMatch(r.name, key)) ? key : null;
+  }
+
+  app.get("/api/catalog/service-package-types", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const includeInactive = String(req.query.all ?? "") === "1" && isHoAdminRole(actor.role);
+    try {
+      const { rows } = await pool.query<{ id: string; name: string; is_active: boolean }>(
+        includeInactive
+          ? `SELECT id, name, is_active FROM service_package_types ORDER BY name`
+          : `SELECT id, name, is_active FROM service_package_types WHERE is_active = true ORDER BY name`,
+      );
+      res.json({
+        types: rows.map((r) => ({ id: r.id, name: r.name, isActive: r.is_active })),
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Could not load package types." });
+    }
+  });
+
+  app.post("/api/catalog/service-package-types", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (actor.role !== "super_admin") {
+      res.status(403).json({ error: "Only Super Admin can add package types." });
+      return;
+    }
+    const name = sanitizePackageNameInput(String(req.body?.name ?? "")).trim();
+    if (!isValidPackageName(name)) {
+      res.status(400).json({ error: "Package type must be letters and numbers only, with no special characters." });
+      return;
+    }
+    try {
+      const ins = await pool.query<{ id: string; name: string; is_active: boolean }>(
+        `INSERT INTO service_package_types (name)
+         VALUES ($1)
+         RETURNING id, name, is_active`,
+        [name],
+      );
+      const row = ins.rows[0]!;
+      res.json({ type: { id: row.id, name: row.name, isActive: row.is_active } });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "";
+      if (/unique|duplicate/i.test(msg)) {
+        res.status(400).json({ error: "That package type already exists." });
+        return;
+      }
+      console.error(e);
+      res.status(400).json({ error: "Could not add package type." });
+    }
+  });
+
+  app.patch("/api/catalog/service-package-types/:typeId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (actor.role !== "super_admin") {
+      res.status(403).json({ error: "Only Super Admin can update package types." });
+      return;
+    }
+    const typeId = String(req.params.typeId ?? "").trim();
+    if (!typeId) {
+      res.status(400).json({ error: "typeId is required." });
+      return;
+    }
+    const isActive = typeof req.body?.isActive === "boolean" ? req.body.isActive : undefined;
+    if (isActive == null) {
+      res.status(400).json({ error: "Nothing to update." });
+      return;
+    }
+    try {
+      const upd = await pool.query<{ id: string; name: string; is_active: boolean }>(
+        `UPDATE service_package_types
+         SET is_active = $2, updated_at = now()
+         WHERE id = $1::uuid
+         RETURNING id, name, is_active`,
+        [typeId, isActive],
+      );
+      const row = upd.rows[0];
+      if (!row) {
+        res.status(404).json({ error: "Package type not found." });
+        return;
+      }
+      res.json({ type: { id: row.id, name: row.name, isActive: row.is_active } });
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "Could not update package type." });
+    }
+  });
 
   app.get("/api/catalog/service-packages", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
@@ -1148,12 +1276,8 @@ export function registerCatalogRoutes(
     }
     const brand = String(req.body?.brand ?? "").trim();
     const serviceType = String(req.body?.serviceType ?? "").trim().toLowerCase();
-    const packageType = String(req.body?.packageType ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, "_")
-      .replace(/[^a-z0-9_]/g, "")
-      .slice(0, 40);
+    const packageName = sanitizePackageNameInput(String(req.body?.name ?? "")).trim();
+    const packageType = await resolvePackageTypeKey(String(req.body?.packageType ?? ""), { activeOnly: true });
     const priceInr = Number(req.body?.priceInr ?? 0);
     const sparesRaw = Array.isArray(req.body?.spares) ? req.body.spares : [];
     if (!brand) {
@@ -1164,8 +1288,12 @@ export function registerCatalogRoutes(
       res.status(400).json({ error: "Service type must be Quartz or Mechanical." });
       return;
     }
+    if (!isValidPackageName(packageName)) {
+      res.status(400).json({ error: "Package name is required. Use letters and numbers only, with no special characters." });
+      return;
+    }
     if (!packageType) {
-      res.status(400).json({ error: "Package type is required (Complete, Partial, …)." });
+      res.status(400).json({ error: "Select a valid package type." });
       return;
     }
     if (!Number.isFinite(priceInr) || priceInr < 0) {
@@ -1176,30 +1304,33 @@ export function registerCatalogRoutes(
     try {
       await client.query("BEGIN");
       const ins = await client.query<{ id: string }>(
-        `INSERT INTO service_packages (brand, service_type, package_type, price_inr)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO service_packages (brand, service_type, package_type, name, price_inr)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id`,
-        [brand, serviceType, packageType, priceInr],
+        [brand, serviceType, packageType, packageName, priceInr],
       );
       const id = ins.rows[0]?.id;
       if (!id) throw new Error("insert failed");
       await replacePackageSpares(
         client,
         id,
-        sparesRaw.map((s: { spareId?: string; qty?: number }) => ({
+        sparesRaw.map((s: { spareId?: string; qty?: number; salePriceInr?: number }) => ({
           spareId: String(s?.spareId ?? ""),
           qty: Number(s?.qty ?? 1),
+          salePriceInr: Number(s?.salePriceInr ?? 0),
         })),
       );
       await client.query("COMMIT");
-      const [created] = await loadServicePackages({ includeInactive: true, brand });
-      const match = created.find((p) => p.id === id) ?? (await loadServicePackages({ includeInactive: true })).find((p) => p.id === id);
+      const created = await loadServicePackages({ includeInactive: true, brand });
+      const match =
+        created.find((p) => p.id === id) ??
+        (await loadServicePackages({ includeInactive: true })).find((p) => p.id === id);
       res.json({ package: match });
     } catch (e: unknown) {
       await client.query("ROLLBACK").catch(() => {});
       const msg = e instanceof Error ? e.message : "";
       if (/unique|duplicate/i.test(msg)) {
-        res.status(400).json({ error: "A package already exists for this brand, service type, and package type." });
+        res.status(400).json({ error: "A package with this name already exists for this brand and service type." });
         return;
       }
       console.error(e);
@@ -1223,19 +1354,22 @@ export function registerCatalogRoutes(
     const brand = req.body?.brand != null ? String(req.body.brand).trim() : undefined;
     const serviceType =
       req.body?.serviceType != null ? String(req.body.serviceType).trim().toLowerCase() : undefined;
-    const packageType =
-      req.body?.packageType != null
-        ? String(req.body.packageType)
-            .trim()
-            .toLowerCase()
-            .replace(/\s+/g, "_")
-            .replace(/[^a-z0-9_]/g, "")
-            .slice(0, 40)
-        : undefined;
+    const packageName =
+      req.body?.name != null ? sanitizePackageNameInput(String(req.body.name)).trim() : undefined;
+    const packageTypeRaw = req.body?.packageType != null ? String(req.body.packageType) : undefined;
+    const packageType = packageTypeRaw != null ? await resolvePackageTypeKey(packageTypeRaw) : undefined;
     const priceRaw = req.body?.priceInr;
     const priceInr = priceRaw != null && priceRaw !== "" ? Number(priceRaw) : undefined;
     const isActive = typeof req.body?.isActive === "boolean" ? req.body.isActive : undefined;
     const sparesRaw = Array.isArray(req.body?.spares) ? req.body.spares : undefined;
+    if (packageName != null && !isValidPackageName(packageName)) {
+      res.status(400).json({ error: "Package name must be letters and numbers only, with no special characters." });
+      return;
+    }
+    if (packageTypeRaw != null && !packageType) {
+      res.status(400).json({ error: "Select a valid package type." });
+      return;
+    }
     if (serviceType != null && serviceType !== "quartz" && serviceType !== "mechanical") {
       res.status(400).json({ error: "Service type must be Quartz or Mechanical." });
       return;
@@ -1262,6 +1396,10 @@ export function registerCatalogRoutes(
         sets.push(`package_type = $${i++}`);
         params.push(packageType);
       }
+      if (packageName) {
+        sets.push(`name = $${i++}`);
+        params.push(packageName);
+      }
       if (priceInr != null) {
         sets.push(`price_inr = $${i++}`);
         params.push(priceInr);
@@ -1284,9 +1422,10 @@ export function registerCatalogRoutes(
         await replacePackageSpares(
           client,
           packageId,
-          sparesRaw.map((s: { spareId?: string; qty?: number }) => ({
+          sparesRaw.map((s: { spareId?: string; qty?: number; salePriceInr?: number }) => ({
             spareId: String(s?.spareId ?? ""),
             qty: Number(s?.qty ?? 1),
+            salePriceInr: Number(s?.salePriceInr ?? 0),
           })),
         );
       }
@@ -1297,7 +1436,7 @@ export function registerCatalogRoutes(
       await client.query("ROLLBACK").catch(() => {});
       const msg = e instanceof Error ? e.message : "";
       if (/unique|duplicate/i.test(msg)) {
-        res.status(400).json({ error: "A package already exists for this brand, service type, and package type." });
+        res.status(400).json({ error: "A package with this name already exists for this brand and service type." });
         return;
       }
       console.error(e);

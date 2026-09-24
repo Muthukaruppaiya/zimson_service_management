@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { SrfPaymentLogPanel } from "../../components/service/SrfPaymentLogPanel";
 import { WorkDoneSparesModal } from "../../components/service/WorkDoneSparesModal";
+import { linesFromPackageSnapshot } from "../../components/service/WorkDonePackagePicker";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
@@ -1925,7 +1926,7 @@ export function ScSupervisorPage() {
               qty: String(u.qty ?? 1),
               fromPackage: Boolean(u.includedInPackage),
             }))
-          : [{ spareId: "", qty: "1" }],
+          : linesFromPackageSnapshot(job?.servicePackage),
       );
       if (flow && !flow.inwardReceivedAt) {
         setFeedback((f) => ({
@@ -3715,6 +3716,17 @@ export function ScSupervisorPage() {
                       Print technician sheet
                     </button>
                   </DecisionActionGroup>
+
+                  <SrfPaymentLogPanel
+                    srfId={j.id}
+                    estimateInr={Math.max(
+                      Number(j.reestimateRequestedInr ?? 0),
+                      Number(j.estimateTotalInr ?? 0),
+                    )}
+                    paidInr={Number(j.advanceInr ?? 0)}
+                    allowCollect={j.status !== "closed" && j.status !== "cancelled"}
+                    onCollected={() => void refreshJobs()}
+                  />
                 </div>
 
                 {feedback[j.id] ? (
@@ -3818,6 +3830,7 @@ export function ScSupervisorPage() {
           onLinesChange={setRepairLines}
           selectedPackage={repairPackage}
           onPackageChange={setRepairPackage}
+          packageLocked={Boolean(repairPopupJob?.servicePackage?.id)}
           saving={repairSaving}
           error={repairPopupError}
           onSave={() => void confirmRepairWithSpares()}

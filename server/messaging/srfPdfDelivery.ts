@@ -1,4 +1,5 @@
 import type { Request } from "express";
+import { listenPort } from "../listenPort";
 import { getMessagingPublicBaseUrl } from "./config";
 import { normalizeMessagingPublicBaseUrl } from "./publicHttpsUrl";
 import { publicSrfPdfApiPath } from "./srfPdfPublicUrl";
@@ -114,7 +115,7 @@ export async function resolveWhatsAppSrfDocumentUrl(
   const s3Url = await tryPresignedS3FromStoragePath(storagePath);
   if (s3Url) return s3Url;
 
-  const port = Number(process.env.PORT) || 4000;
+  const port = listenPort();
   const apiUrl = await tryPublicApiSrfUrl(req, filename, port);
   if (apiUrl) return apiUrl;
 

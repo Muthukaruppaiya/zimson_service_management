@@ -39,6 +39,8 @@ import {
   srfPhotoKindLabel,
 } from "../../lib/srfPhotoSlots";
 import { printEstimateDocument, printSrfDocument, srfPrintStoreFromSeed } from "../../lib/serviceDocuments";
+import { printSrfPaymentReceipt } from "../../lib/srfPaymentReceiptDoc";
+import type { SrfPaymentReceiptView } from "../../types/srfPaymentReceipt";
 import {
   isValidGstFormat,
   isValidPanFormat,
@@ -63,8 +65,11 @@ import {
   type WatchServiceDetailValues,
 } from "../../components/service/WatchServiceDetailFields";
 import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
-import { sanitizeDecimalInput } from "../../lib/inputSanitize";
+import { SrfBookingPackageField } from "../../components/service/SrfBookingPackageField";
+import type { SrfServicePackageSnapshot } from "../../types/servicePackage";
+import { sanitizeDecimalInput, isValidEmail } from "../../lib/inputSanitize";
 import { formatInr, formatApproxEstimateInr, ESTIMATE_AMOUNT_LABEL_APPROX, ESTIMATE_LABEL_APPROX } from "../../lib/formatInr";
+import { packageDisplayName } from "../../lib/servicePackage";
 import { natureOfRepairLabel } from "../../lib/natureOfRepair";
 import {
   SRF_REPAIR_ROUTE_OPTIONS,
@@ -263,6 +268,8 @@ export function SrfBookingV2Page() {
   /** Default: send to HO (standard dispatch flow). */
   const [repairRoute, setRepairRoute] = useState<SrfRepairRoute>("send_to_ho");
   const [complaint, setComplaint] = useState("");
+  const [workAsPackage, setWorkAsPackage] = useState<"" | "yes" | "no">("");
+  const [bookingPackage, setBookingPackage] = useState<SrfServicePackageSnapshot | null>(null);
   const [estimateAmount, setEstimateAmount] = useState("");
   const [estimatedFinishDate, setEstimatedFinishDate] = useState("");
   const [advanceAmount, setAdvanceAmount] = useState("");
@@ -287,6 +294,7 @@ export function SrfBookingV2Page() {
   const [srfRef, setSrfRef] = useState<string | null>(null);
   const [finalizedSrfId, setFinalizedSrfId] = useState<string | null>(null);
   const [finalizedRepairRoute, setFinalizedRepairRoute] = useState<SrfRepairRoute>("send_to_ho");
+  const [advanceReceiptPaymentId, setAdvanceReceiptPaymentId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
   const [photoPreview, setPhotoPreview] = useState<SrfPhotoThumb[]>([]);
@@ -440,6 +448,7 @@ export function SrfBookingV2Page() {
     [navigate],
   );
   const estimateTotal = Number.parseFloat(estimateAmount) || 0;
+  const packageEstimateLocked = workAsPackage === "yes" && Boolean(bookingPackage?.id);
   const advanceTotal = Number.parseFloat(advanceAmount) || 0;
   const advancePaymentSummary = useMemo(() => {
     if (advanceTotal <= 0) return "—";
@@ -452,6 +461,7 @@ export function SrfBookingV2Page() {
     setWatchFamily("");
     setWatchModel("");
     setSerial("");
+    setBookingPackage(null);
   }, []);
 
   useEffect(() => {
@@ -460,6 +470,21 @@ export function SrfBookingV2Page() {
       syncModelForBrand(brandNames[0]!);
     }
   }, [brandNames, watchBrand, syncModelForBrand]);
+
+  useEffect(() => {
+    if (workAsPackage !== "yes") return;
+    const amt = Number(bookingPackage?.priceInr ?? 0);
+    if (bookingPackage?.id && amt > 0) {
+      setEstimateAmount(String(amt));
+    }
+  }, [workAsPackage, bookingPackage]);
+
+  useEffect(() => {
+    if (!bookingPackage) return;
+    if (bookingPackage.brand.trim().toLowerCase() !== watchBrand.trim().toLowerCase()) {
+      setBookingPackage(null);
+    }
+  }, [watchBrand, bookingPackage]);
 
   useEffect(() => {
     if (!apiMode || user?.role !== "super_admin") return;
@@ -524,6 +549,10 @@ export function SrfBookingV2Page() {
         return false;
       }
     }
+    if (!isValidEmail(email)) {
+      setError("Customer email is required.");
+      return false;
+    }
     if (!customerChecked && !walkInPending) {
       setError("Please check customer mobile against DB first.");
       return false;
@@ -549,6 +578,14 @@ export function SrfBookingV2Page() {
   function validateEstimate() {
     if (!complaint.trim()) {
       setError("Watch complaint is required.");
+      return false;
+    }
+    if (!workAsPackage) {
+      setError("Choose whether this job is a service package.");
+      return false;
+    }
+    if (workAsPackage === "yes" && !bookingPackage?.id) {
+      setError("Select a service package.");
       return false;
     }
     if (!estimateAmount.trim() || estimateTotal <= 0) {
@@ -980,6 +1017,12 @@ export function SrfBookingV2Page() {
         setWatchModel(job.watchModel.trim());
         setSerial(job.serial);
         setWatchServiceDetails(watchServiceDetailsFromApi(job));
+        if (job.servicePackage?.id) {
+          setWorkAsPackage("yes");
+          setBookingPackage(job.servicePackage);
+          const pkgAmt = Number(job.servicePackage.priceInr ?? 0);
+          if (pkgAmt > 0) setEstimateAmount(String(pkgAmt));
+        }
 
         setCustomerChecked(true);
         setCustomerExists(true);
@@ -1280,6 +1323,7 @@ export function SrfBookingV2Page() {
 
   async function finalizeAndPrint() {
     setError(null);
+    if (!validateCustomer()) return;
     if (!validateWatch()) return;
     if (!estimatedFinishDate.trim()) {
       setError("Estimated delivery date is required.");
@@ -1314,15 +1358,29 @@ export function SrfBookingV2Page() {
         repairRoute,
         customerEmail: email.trim() || undefined,
         customFields,
+        servicePackage: workAsPackage === "yes" ? bookingPackage : null,
         ...watchServiceDetailsToApiPayload(watchServiceDetails),
       });
       setSrfRef(row.reference);
       setFinalizedSrfId(row.srfId);
       setFinalizedRepairRoute(repairRoute);
+      setAdvanceReceiptPaymentId(out.advanceReceipt?.paymentId ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create SRF.");
     } finally {
       setIsCreatingSrf(false);
+    }
+  }
+
+  async function printAdvanceReceipt() {
+    if (!finalizedSrfId || !advanceReceiptPaymentId) return;
+    try {
+      const data = await apiJson<{ receipt: SrfPaymentReceiptView }>(
+        `/api/service/srf-jobs/${encodeURIComponent(finalizedSrfId)}/payments/${encodeURIComponent(advanceReceiptPaymentId)}/receipt`,
+      );
+      printSrfPaymentReceipt(data.receipt);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open payment receipt.");
     }
   }
 
@@ -1447,6 +1505,8 @@ export function SrfBookingV2Page() {
         customerEmail={email}
         onPreviewSrf={printSrfOnly}
         onPrintSrf={printSrfOnly}
+        onPrintPaymentReceipt={advanceReceiptPaymentId ? () => void printAdvanceReceipt() : undefined}
+        paymentReceiptPaymentId={advanceReceiptPaymentId}
       />
     );
   }
@@ -1610,13 +1670,15 @@ export function SrfBookingV2Page() {
                 />
               </label>
               <label className="min-w-0 text-xs font-medium text-stone-600">
-                Email
+                Email *
                 <input
-                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
+                  className={customerLockedFromDb && isValidEmail(email) ? readOnlyCustomerFieldClass : bookingInputClass}
                   type="email"
                   value={email}
-                  readOnly={customerLockedFromDb}
-                  onChange={customerLockedFromDb ? undefined : (e) => setEmail(e.target.value)}
+                  readOnly={customerLockedFromDb && isValidEmail(email)}
+                  onChange={
+                    customerLockedFromDb && isValidEmail(email) ? undefined : (e) => setEmail(e.target.value)
+                  }
                 />
               </label>
               <label className="min-w-0 text-xs font-medium text-stone-600">
@@ -1975,12 +2037,35 @@ export function SrfBookingV2Page() {
                 onChange={(e) => setComplaint(e.target.value)}
               />
             </label>
+            <SrfBookingPackageField
+              watchBrand={watchBrand}
+              workAsPackage={workAsPackage}
+              onWorkAsPackageChange={(next) => {
+                setError(null);
+                setWorkAsPackage(next);
+                if (next === "no") setBookingPackage(null);
+              }}
+              selected={bookingPackage}
+              onSelectedChange={(pkg) => {
+                setError(null);
+                setBookingPackage(pkg);
+              }}
+            />
             <label className="block min-w-0 text-xs font-medium text-stone-600">
-              <span className="mb-0.5 block">{ESTIMATE_AMOUNT_LABEL_APPROX} (₹)</span>
+              <span className="mb-0.5 flex items-center gap-2">
+                {ESTIMATE_AMOUNT_LABEL_APPROX} (₹)
+                {packageEstimateLocked ? (
+                  <span className="rounded-full bg-rlx-green-light px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-rlx-green">
+                    Package
+                  </span>
+                ) : null}
+              </span>
               <input
-                className={bookingInputClass}
+                className={`${bookingInputClass} ${packageEstimateLocked ? "cursor-not-allowed bg-rlx-green-light font-semibold text-rlx-green" : ""}`}
                 value={estimateAmount}
+                readOnly={packageEstimateLocked}
                 onChange={(e) => {
+                  if (packageEstimateLocked) return;
                   setError(null);
                   setEstimateAmount(sanitizeDecimalInput(e.target.value));
                 }}
@@ -1989,7 +2074,7 @@ export function SrfBookingV2Page() {
             <label className="block min-w-0 text-xs font-medium text-stone-600">
               <span className="mb-0.5 block">Advance amount (₹)</span>
               <span className="mb-1 block text-[11px] font-normal leading-snug text-stone-500">
-                Optional at booking. If the estimate increases later, extra amounts can be collected and logged against this SRF.
+                
               </span>
               <input
                 className={bookingInputClass}
@@ -2112,6 +2197,11 @@ export function SrfBookingV2Page() {
               </div>
             </div>
             <div className="rounded-xl bg-rlx-green-light px-3 py-2 text-sm md:col-span-3">
+              {workAsPackage === "yes" && bookingPackage ? (
+                <>
+                  Package: <strong>{packageDisplayName(bookingPackage)}</strong> ·{" "}
+                </>
+              ) : null}
               {ESTIMATE_LABEL_APPROX}: <strong>{formatApproxEstimateInr(estimateTotal)}</strong> · Advance:{" "}
               <strong>{formatInr(advanceTotal)}</strong>
             </div>
@@ -2229,6 +2319,14 @@ export function SrfBookingV2Page() {
                 <tr>
                   <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Estimated delivery date</th>
                   <td className="px-3 py-2 text-stone-800">{estimatedFinishDate || "-"}</td>
+                </tr>
+                <tr>
+                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Service package</th>
+                  <td className="px-3 py-2 text-stone-800">
+                    {workAsPackage === "yes" && bookingPackage
+                      ? `${packageDisplayName(bookingPackage)} · ${formatInr(Number(bookingPackage.priceInr) || 0)}`
+                      : "No"}
+                  </td>
                 </tr>
                 <tr>
                   <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">{ESTIMATE_LABEL_APPROX}</th>

@@ -1,4 +1,5 @@
 import type { Request } from "express";
+import { listenPort } from "../listenPort";
 import { getMessagingPublicBaseUrl } from "./config";
 import { normalizeMessagingPublicBaseUrl } from "./publicHttpsUrl";
 import { publicInvoicePdfApiPath, verifyPublicInvoicePdfUrl } from "./invoicePdfPublicUrl";
@@ -112,7 +113,7 @@ export async function resolveWhatsAppInvoiceDocumentUrl(
   const s3Url = await tryPresignedS3FromStoragePath(storagePath);
   if (s3Url) return s3Url;
 
-  const port = Number(process.env.PORT) || 4000;
+  const port = listenPort();
   const apiUrl = await tryPublicApiInvoiceUrl(req, filename, port);
   if (apiUrl) return apiUrl;
 

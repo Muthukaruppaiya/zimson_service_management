@@ -445,7 +445,7 @@ function InventoryPrHistoryBody() {
                     <p className="mt-1 text-stone-700">{pr.neededBy ?? "—"}</p>
                   </div>
                   <div className="col-span-2">
-                    <span className="text-[11px] font-bold uppercase text-stone-400">Notes</span>
+                    <span className="text-[11px] font-bold uppercase text-stone-400">Remark</span>
                     <p className="mt-1 text-stone-700">{pr.notes || "—"}</p>
                   </div>
                 </div>

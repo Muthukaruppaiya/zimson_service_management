@@ -1,0 +1,24 @@
+export type SrfPaymentReceiptView = {
+  id: string;
+  receiptNo: string;
+  kind: "booking_advance" | "additional";
+  amountInr: number;
+  amountInWords: string;
+  paymentMode: string;
+  paymentSummary: string;
+  note: string;
+  collectedAt: string;
+  collectedByName: string | null;
+  srfReference: string;
+  customerName: string;
+  phone: string;
+  watchBrand: string;
+  watchModel: string;
+  serial: string;
+  storeName: string;
+  storePhone: string;
+  storeAddress: string;
+  storeGstin: string;
+  estimateTotalInr: number;
+  totalPaidInr: number;
+};

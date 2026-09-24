@@ -6,6 +6,9 @@ export type ResendSrfTrackingWhatsAppResult = {
   whatsappReason: string | null;
   emailSent: boolean;
   emailReason: string | null;
+  smsSent: boolean;
+  smsReason: string | null;
+  smsPin: string | null;
 };
 
 export type SrfTrackingResendChannel = "all" | "whatsapp" | "email";
@@ -23,6 +26,9 @@ export async function resendSrfTrackingWhatsApp(
     whatsappReason?: string | null;
     emailSent?: boolean;
     emailReason?: string | null;
+    smsSent?: boolean;
+    smsReason?: string | null;
+    smsPin?: string | null;
   }>(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/resend-tracking-whatsapp`, {
     method: "POST",
     json: body,
@@ -33,6 +39,9 @@ export async function resendSrfTrackingWhatsApp(
     whatsappReason: out.whatsappReason ?? null,
     emailSent: Boolean(out.emailSent),
     emailReason: out.emailReason ?? null,
+    smsSent: Boolean(out.smsSent),
+    smsReason: out.smsReason ?? null,
+    smsPin: out.smsPin ?? null,
   };
 }
 
@@ -43,10 +52,15 @@ export function canResendSrfTrackingWhatsApp(status: string): boolean {
 
 export function srfTrackingCustomerNotifyMessage(result: ResendSrfTrackingWhatsAppResult): string {
   const parts: string[] = [];
-  if (result.emailSent) parts.push("Email sent (SRF tracking link).");
+  if (result.emailSent) parts.push("Email sent with SRF document.");
   else if (result.emailReason) parts.push(`Email: ${result.emailReason}`);
-  if (result.whatsappSent) parts.push("WhatsApp sent.");
+  if (result.whatsappSent) parts.push("WhatsApp sent with SRF document.");
   else if (result.whatsappReason) parts.push(`WhatsApp: ${result.whatsappReason}`);
+  if (result.smsSent) {
+    parts.push(result.smsPin ? `SMS sent (code ${result.smsPin}) after WhatsApp failed.` : "SMS sent after WhatsApp failed.");
+  } else if (result.smsReason) {
+    parts.push(`SMS: ${result.smsReason}`);
+  }
   if (parts.length === 0) return "Could not send tracking link to customer.";
   return parts.join(" ");
 }

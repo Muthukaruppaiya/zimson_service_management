@@ -54,6 +54,8 @@ export function MessagingSettingsPage() {
   const [smsSender, setSmsSender] = useState("ZIMSON");
   const [smsService, setSmsService] = useState("SI");
   const [smsOtpMessageTemplate, setSmsOtpMessageTemplate] = useState("");
+  const [smsPaymentTemplateId, setSmsPaymentTemplateId] = useState("");
+  const [smsPaymentReceiptTemplate, setSmsPaymentReceiptTemplate] = useState("");
   const [hasSmsToken, setHasSmsToken] = useState(false);
 
   const [emailEnabled, setEmailEnabled] = useState(true);
@@ -100,6 +102,8 @@ export function MessagingSettingsPage() {
     setSmsSender(s.smsSender);
     setSmsService(s.smsService);
     setSmsOtpMessageTemplate(s.smsOtpMessageTemplate);
+    setSmsPaymentTemplateId(s.smsPaymentTemplateId ?? "");
+    setSmsPaymentReceiptTemplate(s.smsPaymentReceiptTemplate ?? "");
     setHasSmsToken(s.hasSmsToken);
     setSmsToken("");
 
@@ -175,6 +179,8 @@ export function MessagingSettingsPage() {
       smsSender: smsSender.trim(),
       smsService: smsService.trim(),
       smsOtpMessageTemplate: smsOtpMessageTemplate.trim(),
+      smsPaymentTemplateId: smsPaymentTemplateId.trim(),
+      smsPaymentReceiptTemplate: smsPaymentReceiptTemplate.trim(),
 
       emailEnabled,
       smtpHost: smtpHost.trim(),
@@ -313,6 +319,25 @@ export function MessagingSettingsPage() {
                     className={`${inputClass} min-h-[72px]`}
                     value={smsOtpMessageTemplate}
                     onChange={(e) => setSmsOtpMessageTemplate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <span className={labelClass}>Payment receipt template ID (DLT)</span>
+                  <input
+                    className={inputClass}
+                    value={smsPaymentTemplateId}
+                    onChange={(e) => setSmsPaymentTemplateId(e.target.value)}
+                    placeholder="Leave blank to use OTP template ID"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <span className={labelClass}>
+                    Payment receipt SMS (use {"{{1}}"} amount, {"{{2}}"} SRF, {"{{3}}"} receipt link)
+                  </span>
+                  <textarea
+                    className={`${inputClass} min-h-[72px]`}
+                    value={smsPaymentReceiptTemplate}
+                    onChange={(e) => setSmsPaymentReceiptTemplate(e.target.value)}
                   />
                 </div>
               </div>

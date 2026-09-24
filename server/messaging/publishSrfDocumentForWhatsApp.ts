@@ -11,6 +11,7 @@ export type PublishedSrfDocument = {
   documentFilename: string;
   storageFilename: string;
   source: "customer_upload" | "generated";
+  pdfBuffer: Buffer;
 };
 
 async function publishPdfBufferForWhatsApp(
@@ -22,7 +23,7 @@ async function publishPdfBufferForWhatsApp(
   const storageFilename = makeSrfPdfStorageFilename();
   const filePath = await saveSrfPdfToStorage(pdfBuffer, storageFilename);
   const documentUrl = await resolveWhatsAppSrfDocumentUrl(req, filePath, storageFilename, documentFilename);
-  return { documentUrl, documentFilename, storageFilename, source };
+  return { documentUrl, documentFilename, storageFilename, source, pdfBuffer };
 }
 
 export type PublishSrfDocumentOptions = {

@@ -574,8 +574,8 @@ export function SrfCustomerRegisterPage() {
       );
       return false;
     }
-    if (email.trim() && !isValidEmail(email)) {
-      setError("Enter a valid email or leave the field blank.");
+    if (!isValidEmail(email)) {
+      setError("Email is required.");
       return false;
     }
     const annErr = validateCustomerAnniversary(dob, anniversaryDate);
@@ -975,7 +975,7 @@ export function SrfCustomerRegisterPage() {
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-stone-600">Email (optional)</label>
+              <label className="text-xs font-medium text-stone-600">Email *</label>
               <p className="mt-1 text-xs text-stone-500">
                 {/* You can enter email anytime. Use Verify after mobile OTP is confirmed (or save with verification
                 pending). */}
@@ -1330,8 +1330,8 @@ export function SrfCustomerRegisterPage() {
             Internal ID: <span className="font-mono text-xs text-stone-600">{successInfo.id}</span>
           </p>
           <p className="mt-3 text-xs text-stone-500">
-            Email is optional; verify it later from customer master if needed. Older migrated records may still show
-            as unverified until mobile OTP is completed.
+            Email is required so the SRF document can be sent. Older migrated records may still show as unverified until
+            mobile OTP is completed.
           </p>
         </ProcessSuccessModal>
       ) : null}

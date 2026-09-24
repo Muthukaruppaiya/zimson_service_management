@@ -85,11 +85,12 @@ import {
   isTrustedDevice,
 } from "./trustedDeviceAuth";
 import { startDevPublicTunnel } from "./devPublicTunnel";
+import { listenPort } from "./listenPort";
 import { isS3StorageEnabled, s3Bucket } from "./storage/config";
 import { registerMediaRoutes } from "./storage/mediaRoutes";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const PORT = Number(process.env.PORT) || 4000;
+const PORT = listenPort();
 const HOST = process.env.HOST?.trim() || "0.0.0.0";
 const COOKIE = SESSION_COOKIE;
 const dbPool = createPool();
@@ -4299,7 +4300,8 @@ async function main() {
     },
   });
   app.listen(PORT, HOST, () => {
-    console.log(`Zimson API listening on http://${HOST}:${PORT} (browser: http://<server-ip>:${PORT})`);
+    const browserPort = process.env.NODE_ENV === "production" ? PORT : Number(process.env.WEB_DEV_PORT ?? 5173);
+    console.log(`Zimson listening — open http://localhost:${browserPort}`);
     void (async () => {
       await startDevPublicTunnel(PORT);
       if (!getMessagingPublicBaseUrl() && !isWhatsAppInvoiceDryRun()) {
