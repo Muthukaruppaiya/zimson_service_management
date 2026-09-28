@@ -418,6 +418,8 @@ export function ServiceBillingPage() {
         const spare = spares.find((s) => s.id === spareId);
         return spare?.gstPercent ?? null;
       },
+      spareTcsLookup: (spareId) => spares.find((s) => s.id === spareId)?.tcsEligible === 1,
+      buyerGstin: senderRegion?.gst?.trim() || null,
       defaultSacGstPercent: Number.parseFloat(taxPercent) || 18,
       pricesTaxInclusive: false,
       sellerStateCode: sellerState,
@@ -483,6 +485,7 @@ export function ServiceBillingPage() {
         const spare = spares.find((s) => s.id === spareId);
         return spare?.gstPercent ?? null;
       },
+      spareTcsFallback: (spareId) => spares.find((s) => s.id === spareId)?.tcsEligible === 1,
       generatedBy: user?.displayName ?? null,
       grandTotal,
       edocIrn: interHoEdoc?.irn,

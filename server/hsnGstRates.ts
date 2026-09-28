@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 
 let cache: { bySpareId: Map<string, number>; expMs: number } | null = null;
+let tcsCache: { bySpareId: Map<string, boolean>; expMs: number } | null = null;
 const CACHE_TTL_MS = 60 * 1000;
 
 /** GST % per spare id from Inventory catalogue (dynamic — not seeded). */
@@ -20,6 +21,23 @@ export async function loadSpareGstById(pool: Pool): Promise<Map<string, number>>
   return bySpareId;
 }
 
+/** TCS-eligible spare ids (tcs_eligible = 1). */
+export async function loadSpareTcsEligibleById(pool: Pool): Promise<Map<string, boolean>> {
+  const now = Date.now();
+  if (tcsCache && tcsCache.expMs > now) return tcsCache.bySpareId;
+
+  const { rows } = await pool.query<{ id: string; tcs_eligible: number | string | null }>(
+    `SELECT id::text, tcs_eligible FROM spares WHERE tcs_eligible = 1`,
+  );
+  const bySpareId = new Map<string, boolean>();
+  for (const row of rows) {
+    bySpareId.set(row.id, true);
+  }
+  tcsCache = { bySpareId, expMs: now + CACHE_TTL_MS };
+  return bySpareId;
+}
+
 export function clearSpareGstCache(): void {
   cache = null;
+  tcsCache = null;
 }

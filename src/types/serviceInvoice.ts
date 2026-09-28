@@ -22,6 +22,10 @@ export type ServiceInvoiceLineView = {
 
 export type ServiceInvoiceTaxRow = {
   description: string;
+  /** HSN/SAC printed in the HSN Breakup table. */
+  hsnSac?: string;
+  /** GST rate used for CGST/SGST/IGST column headers (e.g. 18). */
+  ratePercent?: number;
   taxable: number;
   cgst: number;
   sgst: number;
@@ -36,6 +40,8 @@ export type ServiceInvoiceViewModel = {
    * Internal copy is the current line-by-line layout. Unset is treated as internal.
    */
   copyKind?: ServiceInvoiceCopyKind;
+  /** Printed stamp: ORIGINAL / DUPLICATE / TRIPLICATE */
+  copyLabel?: string;
   /** Shown on layout e.g. "Quick Bill" / "Service bill" */
   invoiceType?: string;
   /** Service ref / SR no. (SRF ref or secondary id) */
@@ -93,6 +99,9 @@ export type ServiceInvoiceViewModel = {
   roundOffInr?: number;
   preRoundOffPayable?: number;
   netPayable?: number;
+  /** TCS on TCS-eligible luxury / motor vehicle lines over ₹10 lakh. */
+  tcsAmount?: number;
+  tcsRatePercent?: number;
   totalQty?: number;
   advanceAmount?: number;
   /** Balance collected at billing (after advance), e.g. UPI ₹4,440. */
@@ -104,6 +113,10 @@ export type ServiceInvoiceViewModel = {
   generatedBy?: string | null;
   /** "For ZIMSON TIMES PVT LTD" style footer */
   invoiceLegalFooter?: string;
+  /** Jurisdiction city printed above Terms (from region/store location). */
+  jurisdictionCity?: string;
+  /** Jurisdiction state printed above Terms (from region/store location). */
+  jurisdictionState?: string;
   /** Logo URL from settings (optional) */
   sellerLogoUrl?: string | null;
   /** GST e-invoice IRN (NIC / Masters India). */

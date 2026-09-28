@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { ServiceInvoicePrintSet } from "./ServiceInvoicePrintSet";
+import { useRegions } from "../../context/RegionsContext";
 import { SendInvoiceEmailButton } from "./SendInvoiceEmailButton";
 import { SendInvoiceWhatsAppButton } from "./SendInvoiceWhatsAppButton";
 import {
@@ -29,6 +30,7 @@ type Props = {
   generatedBy?: string | null;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
   spareGstLookup?: (spareId: string) => number | null | undefined;
+  spareTcsLookup?: (spareId: string) => boolean | null | undefined;
   onResult?: (message: string) => void;
   /** Compact buttons for trace modal header */
   layout?: "modal" | "inline" | "icons";
@@ -51,11 +53,13 @@ export function ResendClosedSrfInvoiceActions({
   generatedBy,
   spareHsnLookup,
   spareGstLookup,
+  spareTcsLookup,
   onResult,
   layout = "modal",
   leadingActions,
   trailingActions,
 }: Props) {
+  const { regions } = useRegions();
   const [downloadBusy, setDownloadBusy] = useState(false);
   const invoiceVm = useMemo(
     () =>
@@ -67,8 +71,10 @@ export function ResendClosedSrfInvoiceActions({
         defaultHsnSac: formatPrintedHsnSac(taxSettings?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC),
         spareHsnLookup,
         spareGstLookup,
+        spareTcsLookup,
+        regions,
       }),
-    [job, taxSettings, storeInvoice, generatedBy, customer, spareHsnLookup, spareGstLookup],
+    [job, taxSettings, storeInvoice, generatedBy, customer, spareHsnLookup, spareGstLookup, spareTcsLookup, regions],
   );
 
   const idPrefix = `resend-inv-${job.id}`;

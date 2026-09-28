@@ -236,6 +236,7 @@ export function Sidebar() {
         items: [
           { to: "/service/customers/master", label: "Customer master", module: "service" },
           { to: "/service/customers/bulk-import", label: "Customer bulk import", module: "service" },
+          { to: "/service/customers/admin-verify", label: "Customer verify (no OTP)", module: "service", roles: ["super_admin", "admin"] },
           { to: "/inventory/suppliers", label: "Supplier Master", module: "inventory" },
           { to: "/inventory/suppliers/new", label: "Add Supplier", module: "inventory" },
           { to: "/inventory/suppliers/bulk-import", label: "Supplier bulk import", module: "inventory" },
@@ -252,6 +253,7 @@ export function Sidebar() {
           { to: "/settings/edoc", label: "E-invoice & e-way", module: "settings", roles: ["super_admin"] },
           { to: "/settings/brand-eway-consignees", label: "Brand e-way consignees", module: "settings", roles: ["super_admin", "admin"] },
           { to: "/settings/messaging", label: "SMS, email & WhatsApp", module: "settings", roles: ["super_admin"] },
+          { to: "/settings/razorpay", label: "Razorpay", module: "settings", roles: ["super_admin"] },
           { to: "/settings/active-sessions", label: "Logged-in users", module: "settings", roles: ["super_admin"] },
           { to: "/settings/document-templates", label: "Document templates", module: "settings" },
           { to: "/settings/custom-fields", label: "Custom fields", module: "settings", roles: ["super_admin", "admin"] },

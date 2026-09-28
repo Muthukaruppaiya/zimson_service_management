@@ -14,11 +14,14 @@ import {
   type BulkImportColumn,
 } from "../src/lib/inventoryBulkImportColumns";
 import { appendStockHistory } from "./db/stockHistory";
-import { spareSkuBrandKey, normalizeAltName, normalizeAltSku, optionalMasterText } from "../src/lib/spareIdentity";
+import { clearSpareGstCache } from "./hsnGstRates";
+import { spareSkuBrandKey, normalizeAltName, normalizeAltSku, optionalMasterText, normalizeEanNumber } from "../src/lib/spareIdentity";
+import { parseTcsEligibleFlag } from "../src/lib/tcs";
 import { nextPartNumber } from "./numberSequences";
 import {
   EXCEL_LOCATION_TYPES,
   EXCEL_SPARE_CATEGORIES,
+  EXCEL_TCS_01,
   EXCEL_YES_NO,
   withExcelDropdowns,
 } from "./excelListValidation";
@@ -50,9 +53,11 @@ type SpareRow = {
   size: string | null;
   colour: string | null;
   hsn: string | null;
+  eanNumber: string | null;
   mrpInr: number | null;
   costInr: number | null;
   gstPercent: number | null;
+  tcsEligible: 0 | 1;
   quantity: number | null;
   isActive: boolean;
 };
@@ -255,6 +260,10 @@ function parseSpares(
     if (gst != null && (gst < 0 || gst > 100)) {
       rowErrs.push(`${loc(rowNum)}: Tax % must be between 0 and 100.`);
     }
+    const tcsParsed = parseTcsEligibleFlag(r.tcs_eligible);
+    if (!tcsParsed.ok) {
+      rowErrs.push(`${loc(rowNum)}: TCS Eligible must be 0 or 1.`);
+    }
     const qty = parseNum(r.quantity);
     if (r.quantity != null && cellStr(r.quantity) !== "" && blankNa(r.quantity) && (qty == null || qty < 0)) {
       rowErrs.push(`${loc(rowNum)}: Qty must be a non-negative number.`);
@@ -293,9 +302,11 @@ function parseSpares(
       size: optionalMasterText(blankNa(r.size), 80),
       colour: optionalMasterText(blankNa(r.colour), 80),
       hsn: hsnRaw || null,
+      eanNumber: normalizeEanNumber(r.ean),
       mrpInr: mrp,
       costInr: cost,
       gstPercent: gst,
+      tcsEligible: tcsParsed.ok ? tcsParsed.value : 0,
       quantity: qty,
       isActive,
     });
@@ -641,8 +652,8 @@ async function commitImport(
     );
     const wasExisting = before.rows.length > 0;
     const ins = await client.query<{ id: string }>(
-      `INSERT INTO spares (sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, custom_fields)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $15, $17, '{}'::jsonb)
+      `INSERT INTO spares (sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, ean_number, gst_percent, tcs_eligible, mrp_inr, cost_price_inr, selling_price_inr, is_active, custom_fields)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $17, $19, '{}'::jsonb)
        ON CONFLICT ((UPPER(BTRIM(sku))), (UPPER(BTRIM(brand)))) DO UPDATE SET
          alt_sku = COALESCE(EXCLUDED.alt_sku, spares.alt_sku),
          name = EXCLUDED.name,
@@ -655,7 +666,9 @@ async function commitImport(
          size = EXCLUDED.size,
          colour = EXCLUDED.colour,
          hsn = EXCLUDED.hsn,
+         ean_number = COALESCE(EXCLUDED.ean_number, spares.ean_number),
          gst_percent = EXCLUDED.gst_percent,
+         tcs_eligible = EXCLUDED.tcs_eligible,
          mrp_inr = EXCLUDED.mrp_inr,
          cost_price_inr = EXCLUDED.cost_price_inr,
          selling_price_inr = EXCLUDED.selling_price_inr,
@@ -680,7 +693,9 @@ async function commitImport(
         s.size,
         s.colour,
         s.hsn,
+        s.eanNumber,
         s.gstPercent,
+        s.tcsEligible,
         s.mrpInr,
         s.costInr,
         s.isActive,
@@ -894,7 +909,8 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
     ["  Product Description   – Optional if Product Name is filled."],
     ["  Category              – Mapped to catalogue categories (CASE PART → Case Part, Movement Part, Bracelet). Blank → Other."],
     ["  Sub Category          – Optional (Leather / Metal / BiMetal on Strap sheets)."],
-    ["  Model No / Clock Model / Caliber / Size / Colour / HSN / MRP / Cost / Tax % (or IGST %) — optional."],
+    ["  Model No / Clock Model / Caliber / Size / Colour / HSN / EAN Number / MRP / Cost / Tax % (or IGST %) — optional."],
+    ["  TCS Eligible          – 0 or 1 (dropdown). 1 = luxury / motor vehicle. TCS 1% if that item’s sale is over ₹10 lakh; 5% if buyer PAN is missing."],
     ["  Qty                   – Optional. Written as HO opening stock when a number is present."],
     ["  Active                – Y or N (default Y)."],
     [""],
@@ -913,7 +929,7 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
     ["  Quantity              – Non-negative integer."],
     [""],
     ["DROPDOWNS"],
-    ["Category, Active, Location Type, Region Name, and Watch Brand are Excel dropdowns."],
+    ["Category, Active, TCS Eligible, Location Type, Region Name, and Watch Brand are Excel dropdowns."],
     ["See the Dropdowns sheet. Check file still validates after upload."],
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(readme), "README");
@@ -933,9 +949,11 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
     "",
     "",
     row[4],
+    "",
     row[5],
     "",
     "18",
+    "0",
     "",
     row[6],
   ]);
@@ -976,6 +994,7 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
   return withExcelDropdowns(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer, [
     { sheetName: "Spares", header: "Category", values: [...EXCEL_SPARE_CATEGORIES] },
     { sheetName: "Spares", header: "Active", values: [...EXCEL_YES_NO] },
+    { sheetName: "Spares", header: "TCS Eligible", values: [...EXCEL_TCS_01] },
     { sheetName: "Spares", header: "Watch Brand", values: brands },
     { sheetName: "Prices", header: "Watch Brand", values: brands },
     { sheetName: "Prices", header: "Region Name", values: regionNames },
@@ -1099,6 +1118,7 @@ export function registerInventoryBulkImportRoutes(
           storeByRegionAndName,
         );
         await client.query("COMMIT");
+        clearSpareGstCache();
         res.json({ ok: true, summary });
       } catch (e) {
         await client.query("ROLLBACK").catch(() => {});

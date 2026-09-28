@@ -40,7 +40,13 @@ export function applyInvoiceRoundOff(preRoundOffInr: number): InvoiceRoundOffRes
   };
 }
 
-/** Payable from GST breakdown (taxable + tax), with invoice round-off applied. */
-export function invoicePayableFromGstParts(grossTaxableInr: number, totalTaxInr: number): InvoiceRoundOffResult {
-  return applyInvoiceRoundOff(round2(grossTaxableInr) + round2(Math.max(0, totalTaxInr)));
+/** Payable from GST breakdown (taxable + tax + optional TCS), with invoice round-off applied. */
+export function invoicePayableFromGstParts(
+  grossTaxableInr: number,
+  totalTaxInr: number,
+  tcsInr = 0,
+): InvoiceRoundOffResult {
+  return applyInvoiceRoundOff(
+    round2(grossTaxableInr) + round2(Math.max(0, totalTaxInr)) + round2(Math.max(0, tcsInr)),
+  );
 }

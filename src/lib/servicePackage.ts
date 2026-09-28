@@ -49,6 +49,15 @@ export function watchServiceKindLabel(raw: string | null | undefined): string {
   return v ? packageTypeLabel(v) : "—";
 }
 
+/** True when the invoice line is a service package (not a catalogue spare). */
+export function isServicePackageInvoiceDescription(raw: string): boolean {
+  const t = String(raw ?? "").trim();
+  if (!t) return false;
+  if (/maintenance\s+service/i.test(t)) return true;
+  if (/\bincludes:/i.test(t)) return true;
+  return /\(\s*(quartz|mechanical)\s*\)/i.test(t);
+}
+
 export function normalizePackageTypeKey(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "").slice(0, 80);
 }
@@ -59,10 +68,34 @@ export function servicePackageInvoiceDescription(pkg: {
   serviceType: string;
   spareNames?: string[];
 }): string {
-  const title = `${packageDisplayName(pkg)} maintenance Service (${watchServiceKindLabel(pkg.serviceType)})`;
+  const title = `${packageDisplayName(pkg)} (${watchServiceKindLabel(pkg.serviceType)})`;
   const names = (pkg.spareNames ?? []).map((n) => n.trim()).filter(Boolean);
   if (names.length === 0) return title;
-  return `${title}\nIncludes: ${names.join(", ")}`;
+  return `${title}\n${names.join(", ")}`;
+}
+
+/** Reprint older invoices that still say "maintenance Service" / "Includes:". */
+export function formatPrintedServiceItemDescription(raw: string): string {
+  const t = String(raw ?? "").trim();
+  if (!t) return t;
+  const old = t.match(
+    /^([\s\S]*?)\s+maintenance\s+Service\s*\(\s*(Quartz|Mechanical)\s*\)\s*(?:\n+\s*Includes:\s*([\s\S]*))?$/i,
+  );
+  if (old) {
+    const name = (old[1] ?? "").trim();
+    const kind = old[2];
+    const spares = (old[3] ?? "").trim();
+    return spares ? `${name} (${kind})\n${spares}` : `${name} (${kind})`;
+  }
+  return t.replace(/\n+\s*Includes:\s*/i, "\n").trim();
+}
+
+/** Package title vs spare names for invoice print (title is the first line). */
+export function splitPrintedServiceItemDescription(raw: string): { title: string; rest: string } {
+  const text = formatPrintedServiceItemDescription(raw);
+  const nl = text.indexOf("\n");
+  if (nl === -1) return { title: text, rest: "" };
+  return { title: text.slice(0, nl).trim(), rest: text.slice(nl + 1).trim() };
 }
 
 export function snapshotFromPackage(pkg: ServicePackage): SrfServicePackageSnapshot {

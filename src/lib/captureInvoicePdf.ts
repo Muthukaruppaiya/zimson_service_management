@@ -32,12 +32,10 @@ const CAPTURE_TEXT_SAFEGUARD_CSS = `
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
 }
-.service-invoice-print-root.inv-pdf-capture .inv-banner-title,
-.service-invoice-print-root.inv-pdf-capture .inv-sec-pill,
-.service-invoice-print-root.inv-pdf-capture .inv-sec-pill-txt {
-  letter-spacing: 0.05em !important;
+.service-invoice-print-root.inv-pdf-capture .inv-banner-title {
+  letter-spacing: 0.12em !important;
 }
-.service-invoice-print-root.inv-pdf-capture .inv-meta-val.mono,
+.service-invoice-print-root.inv-pdf-capture .inv-v.mono,
 .service-invoice-print-root.inv-pdf-capture .mono,
 .service-invoice-print-root.inv-pdf-capture .inv-field-value.mono {
   font-family: "Courier New", Consolas, monospace !important;
@@ -114,7 +112,7 @@ export async function captureInvoicePdfBlob(
         },
       },
       jsPDF: { unit: "in", format: "a4", orientation: "portrait" },
-      pagebreak: { mode: ["css", "legacy"], avoid: [".inv-footer"] },
+      pagebreak: { mode: ["css", "legacy"], avoid: [".inv-footer", ".inv-terms-block"] },
     })
     .from(root);
 

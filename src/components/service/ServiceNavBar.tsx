@@ -1,4 +1,6 @@
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+import { canBypassCustomerOtp } from "../../lib/customerVerification";
 
 const baseNavItems: Array<{ to: string; label: string }> = [
   { to: "/service", label: "Home" },
@@ -10,6 +12,9 @@ const baseNavItems: Array<{ to: string; label: string }> = [
   { to: "/service/watch-inventory", label: "Watch inventory" },
   { to: "/service/customers/master", label: "Customer master" },
   { to: "/service/customers/bulk-import", label: "Customer import" },
+];
+
+const afterCustomerItems: Array<{ to: string; label: string }> = [
   { to: "/service/store-assign", label: "Store assign" },
   { to: "/service/store-dispatch", label: "Store dispatch" },
   { to: "/service/store-logistics-history", label: "Inward & outward history" },
@@ -22,9 +27,15 @@ type ServiceNavBarProps = {
 };
 
 export function ServiceNavBar({ includeServiceCentre = false }: ServiceNavBarProps) {
-  const navItems = includeServiceCentre
-    ? [...baseNavItems, { to: "/service-centre", label: "Service centre" }]
-    : baseNavItems;
+  const { user } = useAuth();
+  const navItems = [
+    ...baseNavItems,
+    ...(canBypassCustomerOtp(user?.role)
+      ? [{ to: "/service/customers/admin-verify", label: "Customer verify" }]
+      : []),
+    ...afterCustomerItems,
+    ...(includeServiceCentre ? [{ to: "/service-centre", label: "Service centre" }] : []),
+  ];
 
   return (
     <div className="mb-4 overflow-x-auto border border-rlx-rule bg-rlx-bg p-1.5">

@@ -636,7 +636,7 @@ textarea.ui-field.ui-field--compact {
 @media print {
   @page {
     size: A4;
-    margin: 8mm;
+    margin: 5mm;
   }
 
   html,
@@ -680,14 +680,15 @@ textarea.ui-field.ui-field--compact {
   }
 
   .service-invoice-print-root .inv-terms-block {
+    page-break-inside: avoid;
+    break-inside: avoid;
     page-break-before: auto;
     break-before: auto;
-    margin-top: 4px;
+    margin-top: 2px;
   }
 
   .service-invoice-print-root.inv-copy-internal {
-    page-break-before: always;
-    break-before: page;
+    display: none !important;
   }
 
   .service-invoice-print-root .inv-terms-block .inv-terms {

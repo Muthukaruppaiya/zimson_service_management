@@ -89,6 +89,7 @@ import {
   validateMultiPaymentForm,
   type AdvancePaymentDetails,
 } from "../../lib/paymentModes";
+import { collectRazorpayIfNeeded } from "../../lib/razorpayCheckout";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
@@ -288,6 +289,11 @@ export function StoreBillingPage() {
     [activeSpares],
   );
 
+  const spareTcsLookup = useCallback(
+    (spareId: string) => activeSpares.find((s) => s.id === spareId)?.tcsEligible === 1,
+    [activeSpares],
+  );
+
   const spareHsnLookup = useCallback(
     (spareId: string) => {
       const sp = activeSpares.find((s) => s.id === spareId);
@@ -452,6 +458,9 @@ export function StoreBillingPage() {
       defaultHsnSac: invoiceSacHsn,
       spareHsnLookup,
       spareGstLookup,
+      spareTcsLookup,
+      buyerPan: effectiveBillingCustomer?.pan?.trim() || null,
+      buyerGstin: billingCustomerGst || null,
       defaultSacGstPercent: labourGstPercent,
       pricesTaxInclusive: STORE_BILLING_PRICES_TAX_INCLUSIVE,
       natureOfRepair: billingJob.natureOfRepair,
@@ -477,6 +486,9 @@ export function StoreBillingPage() {
     effectiveBillingCustomer?.city,
     spareHsnLookup,
     spareGstLookup,
+    spareTcsLookup,
+    effectiveBillingCustomer?.pan,
+    billingCustomerGst,
     billSubtotalBeforeAdvance,
   ]);
 
@@ -486,9 +498,10 @@ export function StoreBillingPage() {
       taxPreview?.totalTax ?? 0,
       STORE_BILLING_PRICES_TAX_INCLUSIVE,
       taxPreview?.grossTaxable,
+      taxPreview?.tcsAmount ?? 0,
     );
     return Number.isFinite(payable) ? payable : billSubtotalBeforeAdvance;
-  }, [billSubtotalBeforeAdvance, taxPreview?.totalTax, taxPreview?.grossTaxable]);
+  }, [billSubtotalBeforeAdvance, taxPreview?.totalTax, taxPreview?.grossTaxable, taxPreview?.tcsAmount]);
 
   const standardBillingTotal = useMemo(() => {
     const due = invoiceTotalInr - advanceAmount;
@@ -640,11 +653,38 @@ export function StoreBillingPage() {
       setMessage({ type: "err", text: payPayload.error });
       return;
     }
+    let collectionMode = payPayload.paymentMode;
+    let collectionDetails = payPayload.paymentDetails;
     if (finalAmount > 0) {
       const payErr = validateMultiPaymentForm(multiPaymentForm, finalAmount);
       if (payErr) {
         setMessage({ type: "err", text: payErr });
         return;
+      }
+      const collected = await collectRazorpayIfNeeded({
+        form: multiPaymentForm,
+        purpose: "store_bill",
+        name: job.customerName,
+        phone: job.phone,
+        email: billingCustomerEmail,
+        description: `Store bill ${job.reference}`,
+      });
+      if (!collected.ok) {
+        setMessage({ type: "err", text: collected.error });
+        return;
+      }
+      if (collected.form !== multiPaymentForm) {
+        setMultiPaymentForm(collected.form);
+        const rebuilt = buildMultiPaymentPayload(collected.form, finalAmount);
+        if ("error" in rebuilt) {
+          setMessage({ type: "err", text: rebuilt.error });
+          return;
+        }
+        collectionMode = rebuilt.paymentMode;
+        collectionDetails = rebuilt.paymentDetails;
+      }
+      if (collected.razorpay) {
+        collectionDetails = { ...collectionDetails, razorpay: collected.razorpay };
       }
     }
     setClosingAfterOtp(true);
@@ -660,8 +700,8 @@ export function StoreBillingPage() {
         spareHsnLookup,
         billSubtotalInr: billSubtotalBeforeAdvance,
         collectionAmountInr: finalAmount,
-        collectionPaymentMode: payPayload.paymentMode,
-        paymentDetails: payPayload.paymentDetails,
+        collectionPaymentMode: collectionMode,
+        paymentDetails: collectionDetails,
         warrantyMonths,
       });
       const closeOut = await closeJob(jobId, snapshot);
@@ -687,13 +727,16 @@ export function StoreBillingPage() {
           taxSettings: storeBillingTaxSettings,
           defaultHsnSac: invoiceSacHsn,
           storeInvoice: storeInvoiceForPrint,
+          regions,
           customer: cust ?? null,
           storeBillingSnapshot: snapshot,
           collectionAmountInr: finalAmount,
-          collectionPaymentMode: payPayload.paymentMode,
-          collectionPaymentDetails: payPayload.paymentDetails,
+          collectionPaymentMode: collectionMode,
+          collectionPaymentDetails: collectionDetails,
           spareHsnLookup,
           spareGstLookup,
+          spareTcsLookup,
+          customerPan: effectiveBillingCustomer?.pan?.trim() || null,
           generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
           edocIrn: closeOut.edoc?.irn,
           edocAckNo: closeOut.edoc?.ackNo,

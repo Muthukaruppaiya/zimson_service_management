@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import {
   APP_PAYMENT_MODES,
   cashBillTargetInr,
+  cashReceiptLimitError,
   sumMultiPaymentFormAmounts,
   type AppPaymentMode,
   type MultiPaymentFormState,
@@ -85,7 +86,7 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
           >
             <input
               type="checkbox"
-              checked={form[mode].enabled}
+              checked={Boolean(form[mode]?.enabled)}
               onChange={(e) => onChange(toggleMode(form, mode, e.target.checked))}
             />
             <span className="font-medium text-stone-800">{mode}</span>
@@ -93,7 +94,7 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
         ))}
       </div>
 
-      {APP_PAYMENT_MODES.filter((m) => form[m].enabled).map((mode) => {
+        {APP_PAYMENT_MODES.filter((m) => form[m]?.enabled).map((mode) => {
         const row = form[mode];
         const rowBillTarget = mode === "Cash" ? cashBillTargetInr(form, targetInr) : 0;
         const onlyCash =
@@ -130,6 +131,11 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
                   }
                   placeholder="0.00"
                 />
+                {mode === "Cash" && cashReceiptLimitError(Number.parseFloat(row.amount) || rowBillTarget) ? (
+                  <span className="mt-1 block font-medium text-red-700">
+                    {cashReceiptLimitError(Number.parseFloat(row.amount) || rowBillTarget)}
+                  </span>
+                ) : null}
               </label>
               {targetInr > 0 && !(mode === "Cash" && onlyCash) ? (
                 <button
@@ -145,21 +151,34 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
             {mode !== "Cash" ? (
               <label className="mt-3 block min-w-0 text-xs text-stone-600">
                 <span className="mb-1 block">
-                  {mode} reference {mode === "UPI" ? "(UTR / transaction id)" : "(optional)"}
+                  {mode === "Razorpay"
+                    ? "Razorpay payment id (filled after checkout)"
+                    : mode === "UPI"
+                      ? `${mode} reference (UTR / transaction id)`
+                      : `${mode} reference (optional)`}
                 </span>
+                {mode === "Razorpay" ? (
+                  <p className="mb-1 text-[11px] font-normal text-stone-500">
+                    Checkout opens when you save the bill / collect advance. UPI, cards and netbanking are accepted in
+                    the Razorpay window.
+                  </p>
+                ) : null}
                 <input
                   id={`${idPrefix}-${mode}-ref`}
                   className={inputClass}
                   value={row.reference}
+                  readOnly={mode === "Razorpay"}
                   onChange={(e) =>
                     onChange(patchRow(form, mode, { reference: sanitizeAlphanumericInput(e.target.value, 80) }))
                   }
                   placeholder={
-                    mode === "UPI"
-                      ? "UPI UTR / transaction reference"
-                      : mode === "Card"
-                        ? "Auth code / last 4 digits"
-                        : "Bank transfer reference"
+                    mode === "Razorpay"
+                      ? "pay_… after successful checkout"
+                      : mode === "UPI"
+                        ? "UPI UTR / transaction reference"
+                        : mode === "Card"
+                          ? "Auth code / last 4 digits"
+                          : "Bank transfer reference"
                   }
                   maxLength={500}
                 />

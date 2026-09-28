@@ -43,6 +43,8 @@ import { registerDeliveryHandoffRoutes } from "./deliveryHandoffRoutes";
 import { registerEdocRoutes } from "./edocRoutes";
 import { registerBrandEwayConsigneeRoutes } from "./brandEwayConsigneeRoutes";
 import { registerEdocSettingsRoutes } from "./edocSettingsRoutes";
+import { initRazorpaySettings } from "./razorpaySettingsStore";
+import { registerRazorpayRoutes } from "./razorpayRoutes";
 import { registerTechnicianRoutes } from "./technicianRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
@@ -531,7 +533,16 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json({ limit: "5mb" }));
+app.use(
+  express.json({
+    limit: "5mb",
+    verify: (req, _res, buf) => {
+      if (req.url?.startsWith("/api/payments/razorpay/webhook")) {
+        (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+      }
+    },
+  }),
+);
 registerMediaRoutes(app);
 app.use(
   "/uploads",
@@ -3115,14 +3126,16 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
       size: string | null;
       colour: string | null;
       hsn: string | null;
+      ean_number: string | null;
       gst_percent: number | null;
+      tcs_eligible: number | null;
       mrp_inr: number | null;
       cost_price_inr: number | null;
       selling_price_inr: number | null;
       is_active: boolean;
       created_at: Date;
     }>(
-      `SELECT id, sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at
+      `SELECT id, sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, ean_number, gst_percent, tcs_eligible, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at
        FROM spares
        ${spareWhere}
        ORDER BY sku ASC
@@ -3246,7 +3259,9 @@ app.get("/api/inventory/stock-price-overview", requireAuth, async (req, res) => 
           size: r.size?.trim() || null,
           colour: r.colour?.trim() || null,
           hsn: r.hsn,
+          eanNumber: r.ean_number?.trim() || null,
           gstPercent: r.gst_percent == null ? null : Number(r.gst_percent),
+          tcsEligible: Number(r.tcs_eligible) === 1 ? 1 : 0,
           costPriceInr: r.cost_price_inr == null ? null : Number(r.cost_price_inr),
           sellingPriceInr:
             r.selling_price_inr == null
@@ -3630,10 +3645,12 @@ app.get("/api/customers", (req, res) => {
         return;
       }
       if (!phone) {
+        const unverifiedOnly = String(req.query.unverified ?? "").trim() === "1";
         const { rows } = await dbPool.query(
           `SELECT ${CUSTOMERS_SELECT_FIELDS}
            FROM customers
            WHERE is_active = true
+             ${unverifiedOnly ? "AND phone_verified_at IS NULL" : ""}
            ORDER BY created_at DESC`,
         );
         const customers: CustomerRecord[] = rows.map((r) => rowToCustomer(r as Record<string, unknown>));
@@ -4215,6 +4232,62 @@ app.put("/api/customers/:id", async (req, res) => {
   }
 });
 
+app.post("/api/customers/:id/admin-verify", requireAuth, async (req, res) => {
+  if (!dbPool) {
+    res.status(503).json({ error: "Database is required." });
+    return;
+  }
+  const uid = (req as express.Request & { userId: string }).userId;
+  const actor = findUser(uid);
+  if (!actor || (actor.role !== "admin" && actor.role !== "super_admin")) {
+    res.status(403).json({ error: "Only admin or super admin can verify a customer without OTP." });
+    return;
+  }
+  const id = String(req.params.id ?? "").trim();
+  if (!id) {
+    res.status(400).json({ error: "Customer id is required." });
+    return;
+  }
+  try {
+    const existing = await dbPool.query(
+      `SELECT ${CUSTOMERS_SELECT_FIELDS} FROM customers WHERE id = $1 AND is_active = true`,
+      [id],
+    );
+    const row = existing.rows[0];
+    if (!row) {
+      res.status(404).json({ error: "Customer not found." });
+      return;
+    }
+    const current = rowToCustomer(row as Record<string, unknown>);
+    if (current.phoneVerifiedAt) {
+      res.status(400).json({ error: "This customer is already verified." });
+      return;
+    }
+    await dbPool.query(
+      `UPDATE customers
+       SET phone_verified_at = COALESCE(phone_verified_at, now()),
+           email_verified_at = COALESCE(email_verified_at, now()),
+           modified_by = $2,
+           updated_at = now()
+       WHERE id = $1`,
+      [id, actor.id],
+    );
+    const { rows } = await dbPool.query(
+      `SELECT ${CUSTOMERS_SELECT_FIELDS} FROM customers WHERE id = $1`,
+      [id],
+    );
+    const updated = rows[0];
+    if (!updated) {
+      res.status(404).json({ error: "Customer not found." });
+      return;
+    }
+    res.json({ customer: rowToCustomer(updated as Record<string, unknown>) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Could not verify customer." });
+  }
+});
+
 /** Static SPA when dist exists (production). */
 if (process.env.NODE_ENV === "production") {
   const dist = join(__dirname, "..", "dist");
@@ -4274,6 +4347,8 @@ async function main() {
   registerEdocSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   await initMessagingSettings(dbPool);
   registerMessagingSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  await initRazorpaySettings(dbPool);
+  registerRazorpayRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSupplierBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerCustomerBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

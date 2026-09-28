@@ -11,7 +11,8 @@ import { ApiError, apiJson, useApiMode } from "../lib/api";
 import { createId } from "../lib/id";
 import { STORAGE_SPARES } from "../lib/storageKeys";
 import type { CreateSpareInput, SparePart, UpdateSparePatch } from "../types/spare";
-import { normalizeAltName, normalizeAltSku, optionalMasterText, spareSkuBrandKey } from "../lib/spareIdentity";
+import { normalizeAltName, normalizeAltSku, optionalMasterText, spareSkuBrandKey, normalizeEanNumber } from "../lib/spareIdentity";
+import { parseTcsEligibleFlag } from "../lib/tcs";
 import { useAuth } from "./AuthContext";
 
 function loadSparesLocal(): SparePart[] {
@@ -30,6 +31,8 @@ function loadSparesLocal(): SparePart[] {
           subCategory: s.subCategory ?? null,
           size: s.size ?? null,
           colour: s.colour ?? null,
+          eanNumber: s.eanNumber ?? null,
+          tcsEligible: s.tcsEligible === 1 ? 1 : 0,
         }));
       }
     }
@@ -129,7 +132,12 @@ export function SparesProvider({ children }: { children: ReactNode }) {
         size: optionalMasterText(input.size, 80),
         colour: optionalMasterText(input.colour, 80),
         hsn: input.hsn?.trim() || null,
+        eanNumber: normalizeEanNumber(input.eanNumber),
         gstPercent: input.gstPercent ?? null,
+        tcsEligible: (() => {
+          const parsed = parseTcsEligibleFlag(input.tcsEligible);
+          return parsed.ok ? parsed.value : 0;
+        })(),
         costPriceInr: input.costPriceInr ?? null,
         sellingPriceInr: input.sellingPriceInr ?? input.mrpInr ?? null,
         mrpInr: input.mrpInr ?? input.sellingPriceInr ?? null,
@@ -155,6 +163,10 @@ export function SparesProvider({ children }: { children: ReactNode }) {
       }
       if (patch.gstPercent != null && (patch.gstPercent < 0 || patch.gstPercent > 100)) {
         return { error: "GST % must be between 0 and 100." };
+      }
+      if (patch.tcsEligible !== undefined) {
+        const tcsCheck = parseTcsEligibleFlag(patch.tcsEligible, { required: true });
+        if (!tcsCheck.ok) return { error: tcsCheck.error };
       }
       if (patch.costPriceInr != null && patch.costPriceInr < 0) {
         return { error: "Cost price must be a non-negative number." };
@@ -202,7 +214,10 @@ export function SparesProvider({ children }: { children: ReactNode }) {
         size: patch.size !== undefined ? optionalMasterText(patch.size, 80) : existing.size,
         colour: patch.colour !== undefined ? optionalMasterText(patch.colour, 80) : existing.colour,
         hsn: patch.hsn !== undefined ? patch.hsn?.trim() || null : existing.hsn,
+        eanNumber: patch.eanNumber !== undefined ? normalizeEanNumber(patch.eanNumber) : existing.eanNumber ?? null,
         gstPercent: patch.gstPercent !== undefined ? patch.gstPercent : existing.gstPercent,
+        tcsEligible:
+          patch.tcsEligible !== undefined ? (patch.tcsEligible === 1 ? 1 : 0) : existing.tcsEligible ?? 0,
         costPriceInr: patch.costPriceInr !== undefined ? patch.costPriceInr : existing.costPriceInr,
         sellingPriceInr: nextSelling,
         mrpInr:

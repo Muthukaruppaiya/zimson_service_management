@@ -4,7 +4,7 @@ import { normBulkImportHeader } from "./inventoryBulkImportColumns";
 export type { BulkImportColumn };
 
 export const CUSTOMER_BULK_IDENTITY_COLUMNS: BulkImportColumn[] = [
-  { key: "customer_kind", label: "Customer Kind", required: true, note: "B2C or B2B — Excel dropdown in the template" },
+  { key: "customer_kind", label: "Customer Type", required: true, note: "B2C or B2B — Excel dropdown in the template" },
   { key: "salutation", label: "Salutation", required: false, note: "Mr. / Mrs. / Ms. / Miss / Dr. — Excel dropdown" },
   { key: "first_name", label: "First Name", required: false, note: "Required for B2C" },
   { key: "last_name", label: "Last Name", required: false, note: "Optional (second name)" },
@@ -68,6 +68,7 @@ export const CUSTOMER_BULK_IMPORT_COLUMNS: BulkImportColumn[] = [
 
 const CUSTOMER_HEADER_ALIASES: Record<string, string> = {
   customer_kind: "customer_kind",
+  customer_type: "customer_kind",
   type: "customer_kind",
   kind: "customer_kind",
   customer_code: "customer_code",

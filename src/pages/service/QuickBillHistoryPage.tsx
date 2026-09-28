@@ -37,6 +37,7 @@ import {
   quickBillNeedsEinvoiceRetry,
 } from "../../lib/edocResultMessage";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
+import { findRegionForInvoice, mappingJurisdictionFromRegion } from "../../lib/invoiceJurisdiction";
 import type { QuickBillHistoryRow, QuickBillInvoice } from "../../types/quickBill";
 
 const TABLE_HEADERS: { key: string; label: string; align?: "right"; hide?: string }[] = [
@@ -243,10 +244,17 @@ export function QuickBillHistoryPage() {
   );
 
   const invoiceVmOptionsFor = useCallback(
-    (inv: QuickBillInvoice | null | undefined) => ({
+    (inv: QuickBillInvoice | null | undefined) => {
+      const store = storeForInvoice(inv?.storeId) ?? currentUserStore;
+      const region = findRegionForInvoice(regions, {
+        storeId: inv?.storeId || store?.id,
+        regionId: user?.regionId,
+      });
+      return {
       defaultHsnSac: invoiceHsnSac,
       taxSettings: serviceTaxSettings,
-      storeInvoice: seedStoreToInvoiceProfile(storeForInvoice(inv?.storeId) ?? currentUserStore),
+      storeInvoice: seedStoreToInvoiceProfile(store),
+      ...mappingJurisdictionFromRegion(region),
       customerBillingState: inv?.customerBillingState ?? null,
       customerType: inv?.customerType,
       customerGstin: inv?.gst ?? null,
@@ -255,8 +263,9 @@ export function QuickBillHistoryPage() {
       edocAckNo: inv?.edocAckNo ?? null,
       edocQr: inv?.edocQr ?? null,
       spareHsnLookup: (spareId: string) => spares.find((s) => s.id === spareId)?.hsn?.trim() || null,
-    }),
-    [invoiceHsnSac, serviceTaxSettings, storeForInvoice, currentUserStore, user?.displayName, user?.email, user?.id, spares],
+      };
+    },
+    [invoiceHsnSac, serviceTaxSettings, storeForInvoice, currentUserStore, regions, user?.regionId, user?.displayName, user?.email, user?.id, spares],
   );
 
   const invoiceVmOptions = useMemo(

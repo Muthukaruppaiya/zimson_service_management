@@ -34,6 +34,7 @@ import { ServiceModulePage } from "./pages/service/ServiceModulePage";
 import { CustomerRegisterPage } from "./pages/service/customers/CustomerRegisterPage";
 import { CustomerMasterPage } from "./pages/service/customers/CustomerMasterPage";
 import { CustomerBulkImportPage } from "./pages/service/customers/CustomerBulkImportPage";
+import { CustomerAdminVerifyPage } from "./pages/service/customers/CustomerAdminVerifyPage";
 import { ServiceBillingPage } from "./pages/service/ServiceBillingPage";
 import { ServiceBillingHomePage } from "./pages/service/ServiceBillingHomePage";
 import { SrfBookingsRegisterPage } from "./pages/service/SrfBookingsRegisterPage";
@@ -66,6 +67,7 @@ import { BrandEwayConsigneesSettingsPage } from "./pages/settings/BrandEwayConsi
 import { ActiveSessionsPage } from "./pages/settings/ActiveSessionsPage";
 import { DocumentTemplatesPage } from "./pages/settings/DocumentTemplatesPage";
 import { CustomFieldsSettingsPage } from "./pages/settings/CustomFieldsSettingsPage";
+import { RazorpaySettingsPage } from "./pages/settings/RazorpaySettingsPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
 import { InventoryPoInwardPage } from "./pages/inventory/InventoryPoInwardPage";
 import { InventoryGrnHistoryPage } from "./pages/inventory/InventoryGrnHistoryPage";
@@ -496,6 +498,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="service">
                       <CustomerBulkImportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/service/customers/admin-verify"
+                  element={
+                    <ModuleRoute module="service">
+                      <CustomerAdminVerifyPage />
                     </ModuleRoute>
                   }
                 />
@@ -1004,6 +1014,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="settings">
                       <MessagingSettingsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/settings/razorpay"
+                  element={
+                    <ModuleRoute module="settings">
+                      <RazorpaySettingsPage />
                     </ModuleRoute>
                   }
                 />

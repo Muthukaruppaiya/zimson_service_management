@@ -4,6 +4,7 @@ import type { ServiceInvoiceViewModel } from "../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../types/serviceTaxSettings";
 import type { StoreInvoicePrintProfile } from "../types/storeInvoice";
 import { formatRegionAddress } from "./transferDocumentKind";
+import { mappingJurisdictionFromRegion } from "./invoiceJurisdiction";
 
 export type InterHoBillingLine = {
   description: string;
@@ -54,6 +55,7 @@ export function buildInterHoRepairInvoiceViewModel(params: {
   taxSettings: ServiceTaxSettings | null;
   defaultSacHsn: string;
   spareGstFallback?: (spareId: string) => number | null;
+  spareTcsFallback?: (spareId: string) => boolean;
   generatedBy?: string | null;
   grandTotal: number;
   edocIrn?: string | null;
@@ -100,6 +102,7 @@ export function buildInterHoRepairInvoiceViewModel(params: {
       taxSettings: params.taxSettings,
       defaultHsnSac: params.defaultSacHsn,
       storeInvoice: regionToInvoiceProfile(params.repairRegion) ?? undefined,
+      ...mappingJurisdictionFromRegion(params.repairRegion),
       invoiceKind: "service_bill",
       customerType: "B2B",
       customerGstin: params.senderRegion?.gst?.trim() || undefined,
@@ -112,6 +115,7 @@ export function buildInterHoRepairInvoiceViewModel(params: {
         }
         return params.spareGstFallback?.(spareId) ?? null;
       },
+      spareTcsLookup: (spareId) => params.spareTcsFallback?.(spareId) === true,
       spareHsnLookup: (spareId) => {
         const line = params.lines.find((l) => l.spareId === spareId);
         return line?.hsn?.trim() || null;

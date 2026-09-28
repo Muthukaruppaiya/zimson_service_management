@@ -7,6 +7,8 @@ import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../../data/
 import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../../lib/gstLookupClient";
 import { validateCustomerB2bGstin } from "../../../lib/zimsonCompanyGst";
 import { apiJson } from "../../../lib/api";
+import { canBypassCustomerOtp, isFullyOtpVerified } from "../../../lib/customerVerification";
+import { useAuth } from "../../../context/AuthContext";
 import type { CustomerKind, CustomerRecord } from "../../../types/customer";
 import { CustomFieldsSection } from "../../../components/customFields/CustomFieldsSection";
 import { useCustomFields } from "../../../hooks/useCustomFields";
@@ -57,6 +59,8 @@ function toEditable(c: CustomerRecord): EditableCustomer {
 }
 
 export function CustomerMasterPage() {
+  const { user } = useAuth();
+  const canAdminVerify = canBypassCustomerOtp(user?.role);
   const { fields: extraFieldDefs } = useCustomFields("customer");
   const listExtras = useMemo(() => listCustomFieldDefs(extraFieldDefs), [extraFieldDefs]);
   const [rows, setRows] = useState<CustomerRecord[]>([]);
@@ -217,6 +221,14 @@ export function CustomerMasterPage() {
             >
               Bulk import
             </Link>
+            {canAdminVerify ? (
+              <Link
+                to="/service/customers/admin-verify"
+                className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
+              >
+                Verify without OTP
+              </Link>
+            ) : null}
             <Link
               to="/service/customers/register"
               className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
@@ -270,7 +282,7 @@ export function CustomerMasterPage() {
                 </thead>
                 <tbody>
                   {pagedRows.map((c) => {
-                    const fullyVerified = !!(c.phoneVerifiedAt && c.emailVerifiedAt);
+                    const fullyVerified = isFullyOtpVerified(c.phoneVerifiedAt);
                     return (
                     <tr key={c.id} className="border-t border-zimson-100">
                       <td className="px-3 py-2 font-mono text-xs text-stone-700">{c.customerCode || "—"}</td>

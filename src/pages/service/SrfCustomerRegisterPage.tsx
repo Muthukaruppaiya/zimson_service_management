@@ -37,7 +37,7 @@ import {
 } from "../../lib/customerAddress";
 import type { CustomerAddressBlock, CustomerKind, CustomerRecord } from "../../types/customer";
 import { inputClass, inputClassReadOnly } from "../../lib/uiForm";
-import { isCustomerPhoneVerified } from "../../lib/customerVerification";
+import { canBypassCustomerOtp, isCustomerPhoneVerified } from "../../lib/customerVerification";
 import { clearPendingRegisterPhone } from "../../lib/pendingRegisterPhone";
 import { stashPendingResumeCustomer } from "../../lib/pendingResumeCustomer";
 import { allStoresWithRegion, storeDisplayName } from "../../lib/serviceOperatingContext";
@@ -223,6 +223,7 @@ export function SrfCustomerRegisterPage() {
   const prefilledUnverifiedIdRef = useRef<string | null>(null);
   const blockingExisting = Boolean(existingCustomer && isCustomerPhoneVerified(existingCustomer));
   const verifyingExisting = Boolean(existingCustomer && !isCustomerPhoneVerified(existingCustomer));
+  const canAdminVerifyWithoutOtp = canBypassCustomerOtp(user?.role);
 
   useEffect(() => {
     if (phoneKey.length < 10) {
@@ -743,6 +744,32 @@ export function SrfCustomerRegisterPage() {
     navigateAfterRegistration(row);
   }
 
+  async function handleAdminVerifyWithoutOtp() {
+    if (!existingCustomer || !canAdminVerifyWithoutOtp) return;
+    setError(null);
+    setSaving(true);
+    try {
+      const out = await apiJson<{ customer: CustomerRecord }>(
+        `/api/customers/${encodeURIComponent(existingCustomer.id)}/admin-verify`,
+        { method: "POST" },
+      );
+      const row = out.customer;
+      setCreatedCustomer(row);
+      setSuccessInfo({
+        id: row.id,
+        customerCode: row.customerCode,
+        phoneDigits: digitsOnly(row.phone, 12) || phone,
+      });
+      if (forQuickBill || forSrf || returnTo) {
+        navigateAfterRegistration(row);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not verify customer without OTP.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const backHref = forQuickBill
     ? `/service/quick-bill${initialPhone ? `?restorePhone=${encodeURIComponent(initialPhone)}` : ""}`
     : `/service/srf${initialPhone ? `?restorePhone=${encodeURIComponent(initialPhone)}` : ""}`;
@@ -777,7 +804,10 @@ export function SrfCustomerRegisterPage() {
                   {" "}· {existingCustomer.phone}
                 </p>
                 <p className="mt-1">
-                  Name, address and other master data are filled from this record. Verify the mobile OTP to complete.
+                  Name, address and other master data are filled from this record. Verify the mobile OTP to complete
+                  {canAdminVerifyWithoutOtp
+                    ? ", or use Verify without OTP if the customer will not share the code."
+                    : "."}
                 </p>
               </>
             ) : (
@@ -792,7 +822,7 @@ export function SrfCustomerRegisterPage() {
                 </p>
               </>
             )}
-            <p className="mt-2">
+            <p className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setDetailsOpen(true)}
@@ -800,6 +830,16 @@ export function SrfCustomerRegisterPage() {
               >
                 Customer details
               </button>
+              {verifyingExisting && canAdminVerifyWithoutOtp ? (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void handleAdminVerifyWithoutOtp()}
+                  className="inline-flex border border-rlx-gold bg-rlx-green px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-rlx-green-deep disabled:opacity-50"
+                >
+                  {saving ? "Verifying…" : "Verify without OTP"}
+                </button>
+              ) : null}
             </p>
           </div>
         ) : null}
@@ -1280,6 +1320,16 @@ export function SrfCustomerRegisterPage() {
           >
             {saving ? "Saving…" : verifyingExisting ? "Verify customer" : "Create customer"}
           </button>
+          {verifyingExisting && canAdminVerifyWithoutOtp ? (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void handleAdminVerifyWithoutOtp()}
+              className="rounded-xl border border-rlx-gold bg-white px-5 py-2.5 text-sm font-semibold text-rlx-green shadow-sm transition hover:bg-rlx-green-light disabled:opacity-60"
+            >
+              {saving ? "Verifying…" : "Verify without OTP"}
+            </button>
+          ) : null}
           <Link
             to={
               forQuickBill

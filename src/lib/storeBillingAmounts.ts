@@ -15,6 +15,8 @@ import { formatCustomerBillingAddress } from "./customerLookup";
 import type { ServiceInvoiceViewModel } from "../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../types/serviceTaxSettings";
 import type { StoreInvoicePrintProfile } from "../types/storeInvoice";
+import type { SeedRegion } from "../data/seed";
+import { findRegionForInvoice, mappingJurisdictionFromRegion } from "./invoiceJurisdiction";
 import type { SrfJob } from "../types/srfJob";
 import type { InvoiceBillLine } from "./serviceBillEditorLines";
 import { editorLinesToInvoiceBillLines, resolveInvoiceBillLineHsn } from "./serviceBillEditorLines";
@@ -190,6 +192,7 @@ export type StoreBillingInvoiceBuildOptions = {
   defaultHsnSac?: string;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
   spareGstLookup?: (spareId: string) => number | null | undefined;
+  spareTcsLookup?: (spareId: string) => boolean | null | undefined;
   additionalCharges?: { description: string; amountInr: number }[];
   /** Balance collected at billing (overrides computed standard total). */
   collectionAmountInr?: number;
@@ -201,7 +204,15 @@ export type StoreBillingInvoiceBuildOptions = {
   edocIrn?: string | null;
   edocAckNo?: string | null;
   edocQr?: string | null;
+  /** Used to print jurisdiction city/state from the job's region. */
+  regions?: SeedRegion[];
 };
+
+function jurisdictionFromJob(job: SrfJob, regions?: SeedRegion[]) {
+  return mappingJurisdictionFromRegion(
+    findRegionForInvoice(regions ?? [], { regionId: job.regionId, storeId: job.storeId }),
+  );
+}
 
 function resolveBillingCustomerFields(
   job: SrfJob,
@@ -279,6 +290,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
       taxPreview?.totalTax ?? 0,
       pricesTaxInclusive,
       taxPreview?.grossTaxable,
+      taxPreview?.tcsAmount ?? 0,
     );
     const standardDue = Math.max(Math.round((invoiceTotalInr - advance) * 100) / 100, 0);
     const collectionAmount =
@@ -333,11 +345,14 @@ export function buildStoreBillingInvoiceFromClosedJob(
         customerBillingState: cust.customerBillingState,
         spareHsnLookup: options.spareHsnLookup,
         spareGstLookup: options.spareGstLookup,
+        spareTcsLookup: options.spareTcsLookup,
+        customerPan: cust.pan ?? null,
         generatedBy: options.generatedBy,
         invoiceNumber,
         edocIrn: edoc.edocIrn,
         edocAckNo: edoc.edocAckNo,
         edocQr: edoc.edocQr,
+        ...jurisdictionFromJob(job, options.regions),
       },
     );
   }
@@ -362,6 +377,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
     taxPreview?.totalTax ?? 0,
     pricesTaxInclusive,
     taxPreview?.grossTaxable,
+    taxPreview?.tcsAmount ?? 0,
   );
   const standardDue = Math.max(Math.round((invoiceTotalInr - advance) * 100) / 100, 0);
   const collectionAmount =
@@ -407,11 +423,14 @@ export function buildStoreBillingInvoiceFromClosedJob(
       customerBillingState: cust.customerBillingState,
       spareHsnLookup: options.spareHsnLookup,
       spareGstLookup: options.spareGstLookup,
+      spareTcsLookup: options.spareTcsLookup,
+      customerPan: cust.pan ?? null,
       generatedBy: options.generatedBy,
       invoiceNumber,
       edocIrn: edoc.edocIrn,
       edocAckNo: edoc.edocAckNo,
       edocQr: edoc.edocQr,
+      ...jurisdictionFromJob(job, options.regions),
     },
   );
 }
@@ -444,6 +463,9 @@ function computeStoreBillingTaxPreview(
     ),
     spareHsnLookup: options.spareHsnLookup,
     spareGstLookup: options.spareGstLookup,
+    spareTcsLookup: options.spareTcsLookup,
+    buyerPan: cust.pan ?? null,
+    buyerGstin: cust.customerGstin ?? cust.gst ?? null,
     defaultSacGstPercent: tax?.gstRatePercent ?? 18,
     pricesTaxInclusive: STORE_BILLING_PRICES_TAX_INCLUSIVE,
     natureOfRepair: job.natureOfRepair,

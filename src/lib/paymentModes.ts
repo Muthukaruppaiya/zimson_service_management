@@ -1,5 +1,5 @@
 /** Payment modes used across service flows (store billing, SRF advance, etc.). */
-export const APP_PAYMENT_MODES = ["UPI", "Cash", "Card", "Bank Transfer"] as const;
+export const APP_PAYMENT_MODES = ["UPI", "Cash", "Card", "Bank Transfer", "Razorpay"] as const;
 export type AppPaymentMode = (typeof APP_PAYMENT_MODES)[number];
 
 export type AdvancePaymentDetails = {
@@ -16,6 +16,11 @@ export type PaymentSplit = {
 
 export type MultiPaymentDetails = AdvancePaymentDetails & {
   splits?: PaymentSplit[];
+  razorpay?: {
+    orderId: string;
+    paymentId: string;
+    signature: string;
+  };
 };
 
 export type PaymentModeFormRow = {
@@ -25,6 +30,22 @@ export type PaymentModeFormRow = {
 };
 
 export type MultiPaymentFormState = Record<AppPaymentMode, PaymentModeFormRow>;
+
+/** Section 269ST: cash of ₹2,00,000 or more cannot be accepted. */
+export const CASH_RECEIPT_LIMIT_INR = 200_000;
+export const CASH_RECEIPT_MAX_INR = CASH_RECEIPT_LIMIT_INR - 1;
+
+export function cashReceiptLimitError(cashInr: number): string | null {
+  const n = Math.round(Number(cashInr) * 100) / 100;
+  if (!Number.isFinite(n) || n < CASH_RECEIPT_LIMIT_INR) return null;
+  return "Cash cannot be ₹2,00,000 or more. Maximum cash is ₹1,99,999 — use another payment mode for the balance.";
+}
+
+function cashAmountFromSplits(splits: PaymentSplit[]): number {
+  return Math.round(
+    splits.filter((s) => s.mode === "Cash").reduce((sum, s) => sum + s.amountInr, 0) * 100,
+  ) / 100;
+}
 
 export function emptyMultiPaymentForm(defaultEnabled: AppPaymentMode = "Cash"): MultiPaymentFormState {
   return Object.fromEntries(
@@ -142,6 +163,9 @@ export function buildMultiPaymentPayload(
     };
   }
 
+  const cashErr = cashReceiptLimitError(cashAmountFromSplits(splits));
+  if (cashErr) return { error: cashErr };
+
   if (enabled.length === 1) {
     const only = splits[0]!;
     if (only.mode === "Cash") {
@@ -212,6 +236,8 @@ export function normalizePaymentForTotal(
       };
     }
     const modes = splits.map((s) => s.mode);
+    const cashErr = cashReceiptLimitError(cashAmountFromSplits(splits));
+    if (cashErr) return { ok: false, error: cashErr };
     return {
       ok: true,
       value: {
@@ -226,11 +252,13 @@ export function normalizePaymentForTotal(
     if (paymentMode.includes("+")) {
       return { ok: false, error: "Multi-payment requires paymentDetails.splits array." };
     }
-    return { ok: false, error: "paymentMode must be Cash, Card, UPI, or Bank Transfer." };
+    return { ok: false, error: "paymentMode must be Cash, Card, UPI, Bank Transfer, or Razorpay." };
   }
   const mode = paymentMode as AppPaymentMode;
 
   if (mode === "Cash") {
+    const cashErr = cashReceiptLimitError(target);
+    if (cashErr) return { ok: false, error: cashErr };
     return {
       ok: true,
       value: { paymentMode: mode, paymentDetails: {} },
@@ -275,4 +303,29 @@ export function formatPaymentSummary(
   }
   const ref = details?.reference?.trim();
   return ref ? `${paymentMode} — ${ref}` : paymentMode;
+}
+
+/** Amount marked for Razorpay checkout (0 if that mode is off). */
+export function razorpayAmountFromForm(form: MultiPaymentFormState): number {
+  if (!form.Razorpay?.enabled) return 0;
+  const n = Number.parseFloat(form.Razorpay.amount);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+}
+
+export function razorpayRefLooksPaid(reference: string | undefined): boolean {
+  return /^pay_/i.test((reference ?? "").trim());
+}
+
+export function withRazorpayPaymentRef(
+  form: MultiPaymentFormState,
+  paymentId: string,
+): MultiPaymentFormState {
+  return {
+    ...form,
+    Razorpay: {
+      ...form.Razorpay,
+      enabled: true,
+      reference: paymentId,
+    },
+  };
 }

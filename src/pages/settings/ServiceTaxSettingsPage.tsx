@@ -208,6 +208,14 @@ export function ServiceTaxSettingsPage() {
                 SMS, email &amp; WhatsApp
               </Link>
             ) : null}
+            {user?.role === "super_admin" ? (
+              <Link
+                to="/settings/razorpay"
+                className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              >
+                Razorpay
+              </Link>
+            ) : null}
             <Link
               to="/service/billing"
               className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"

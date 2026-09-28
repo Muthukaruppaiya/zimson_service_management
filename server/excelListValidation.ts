@@ -113,6 +113,7 @@ export async function withExcelDropdowns(buffer: Buffer, rules: ExcelDropdownRul
 }
 
 export const EXCEL_YES_NO = ["Y", "N"] as const;
+export const EXCEL_TCS_01 = ["0", "1"] as const;
 export const EXCEL_CUSTOMER_KINDS = ["B2C", "B2B"] as const;
 export const EXCEL_SALUTATIONS = ["Mr.", "Mrs.", "Ms.", "Miss", "Dr."] as const;
 export const EXCEL_TAX_PREFERENCES = ["with_tax", "without_tax_exhibited"] as const;

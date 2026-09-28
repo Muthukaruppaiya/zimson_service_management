@@ -5,6 +5,7 @@ import { BulkImportSuccessModal } from "../../../components/ui/BulkImportSuccess
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { useAuth } from "../../../context/AuthContext";
 import { useApiMode } from "../../../lib/api";
+import { canBypassCustomerOtp } from "../../../lib/customerVerification";
 import {
   CUSTOMER_BULK_BILLING_COLUMNS,
   CUSTOMER_BULK_EXTRA_COLUMNS,
@@ -285,14 +286,24 @@ export function CustomerBulkImportPage() {
       <ServiceBreadcrumb current="Customer bulk import" />
       <PageHeader
         title="Customer Bulk Import"
-        description="Download the template, check the file, then import. Customer numbers are assigned by the system. Matching primary mobile updates the existing customer. SMS and email OTP are not sent."
+        description="Download the template, check the file, then import. Customer numbers are assigned by the system. Matching primary mobile updates the existing customer. SMS and email OTP are not sent. Admin or super admin can later verify imported customers without OTP on Customer verify."
         actions={
-          <Link
-            to="/service/customers/master"
-            className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green transition hover:bg-stone-50"
-          >
-            ← Customer master
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/service/customers/master"
+              className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green transition hover:bg-stone-50"
+            >
+              Customer master
+            </Link>
+            {canBypassCustomerOtp(user?.role) ? (
+              <Link
+                to="/service/customers/admin-verify"
+                className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green transition hover:bg-stone-50"
+              >
+                Verify without OTP
+              </Link>
+            ) : null}
+          </div>
         }
       />
 
@@ -376,7 +387,7 @@ export function CustomerBulkImportPage() {
               </p>
               <ul className="mt-3 space-y-1 text-xs text-stone-500">
                 <li className="flex items-center gap-2">
-                  <span className="font-bold text-rlx-green">✓</span> Excel dropdowns for Customer Kind (B2C/B2B), Salutation, Tax Preference, Same Shipping
+                  <span className="font-bold text-rlx-green">✓</span> Excel dropdowns for Customer Type (B2C/B2B), Salutation, Tax Preference, Same Shipping
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="font-bold text-rlx-green">✓</span> Email is optional (same as manual create)
@@ -559,8 +570,13 @@ export function CustomerBulkImportPage() {
         <p className="mt-4 text-center text-[11px] text-stone-400">
           Keep header row on row 1 of the Customers sheet.
           <Link to="/service/customers/master" className="ml-2 font-semibold text-rlx-green hover:underline">
-            View Customer master →
+            View Customer master
           </Link>
+          {canBypassCustomerOtp(user?.role) ? (
+            <Link to="/service/customers/admin-verify" className="ml-2 font-semibold text-rlx-green hover:underline">
+              Verify without OTP
+            </Link>
+          ) : null}
         </p>
       </div>
     </div>

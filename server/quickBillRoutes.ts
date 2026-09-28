@@ -31,7 +31,7 @@ import {
 import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../src/lib/hsnGst";
 import { appendStockHistory } from "./db/stockHistory";
 import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
-import { loadSpareGstById } from "./hsnGstRates";
+import { loadSpareGstById, loadSpareTcsEligibleById } from "./hsnGstRates";
 import { phoneLast10 } from "./messaging/customerContact";
 import { finalizeQuickBillCaptureSession } from "./quickBillCaptureRoutes";
 import { registerWatchCatalogRoutes } from "./watchCatalogRoutes";
@@ -961,6 +961,7 @@ export function registerQuickBillRoutes(
     const spareIds = [...new Set(lines.map((l) => l.spareId).filter(Boolean))] as string[];
     const hsnBySpareId = new Map<string, string>();
     const gstBySpareId = await loadSpareGstById(pool);
+    const tcsBySpareId = await loadSpareTcsEligibleById(pool);
     if (spareIds.length > 0) {
       const hsnRes = await pool.query<{ id: string; hsn: string | null }>(
         `SELECT id::text, hsn FROM spares WHERE id = ANY($1::uuid[])`,
@@ -984,6 +985,9 @@ export function registerQuickBillRoutes(
       defaultHsnSac: defaultSacHsn,
       spareHsnLookup: (id) => hsnBySpareId.get(id) ?? null,
       spareGstLookup: (id) => gstBySpareId.get(id) ?? null,
+      spareTcsLookup: (id) => tcsBySpareId.get(id) === true,
+      buyerPan: pan,
+      buyerGstin: gst,
       defaultSacGstPercent: configuredGst,
       pricesTaxInclusive,
       natureOfRepair,
@@ -997,6 +1001,7 @@ export function registerQuickBillRoutes(
       gstResult.totalTax,
       pricesTaxInclusive,
       gstResult.grossTaxable,
+      gstResult.tcsAmount ?? 0,
     );
 
     // Zero-value bills (e.g. warranty non-chargeable) collect no payment — skip payment normalization.

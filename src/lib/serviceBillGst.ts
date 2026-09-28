@@ -3,6 +3,7 @@ import { formatPrintedHsnSac, gstRateFromHsn } from "./hsnGst";
 import { isInterstateSupply, splitGstAmount } from "./gstSupply";
 import type { ServiceInvoiceTaxRow } from "../types/serviceInvoice";
 import { invoicePayableFromGstParts } from "./invoiceRoundOff";
+import { tcsOnConsiderationInr, tcsRatePercentForBuyer } from "./tcs";
 
 export const DEFAULT_LINE_GST_PERCENT = 18;
 
@@ -29,6 +30,10 @@ export type ServiceBillGstResult = {
   preRoundOffPayable?: number;
   /** Round-off adjustment to whole rupees (e.g. -0.01). */
   roundOffInr?: number;
+  /** TCS on TCS-eligible spare consideration (luxury / motor vehicle over ₹10 lakh). */
+  tcsAmount?: number;
+  /** 1 with PAN, 5 without PAN — only set when TCS applies. */
+  tcsRatePercent?: number;
 };
 
 function round2(n: number): number {
@@ -67,6 +72,11 @@ export function computeServiceBillGst(params: {
   defaultHsnSac: string;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
   spareGstLookup?: (spareId: string) => number | null | undefined;
+  /** True when the spare master TCS eligible flag is 1 (luxury / motor vehicle). */
+  spareTcsLookup?: (spareId: string) => boolean | null | undefined;
+  /** Buyer PAN (or GSTIN so PAN can be derived). Missing PAN → 5% TCS if threshold is met. */
+  buyerPan?: string | null;
+  buyerGstin?: string | null;
   /** GST % for labour / service charge (default SAC). */
   defaultSacGstPercent?: number;
   /** @deprecated Ignored — use defaultSacGstPercent + spareGstLookup. */
@@ -90,6 +100,9 @@ export function computeServiceBillGst(params: {
     defaultHsnSac,
     spareHsnLookup,
     spareGstLookup,
+    spareTcsLookup,
+    buyerPan,
+    buyerGstin,
     defaultSacGstPercent,
     pricesTaxInclusive,
     natureOfRepair,
@@ -104,6 +117,7 @@ export function computeServiceBillGst(params: {
 
   type Bucket = { hsnSac: string; ratePercent: number; taxable: number };
   const buckets = new Map<string, Bucket>();
+  let tcsAmount = 0;
 
   for (const ln of lines) {
     const amt = Number(ln.amountInr) || 0;
@@ -128,6 +142,11 @@ export function computeServiceBillGst(params: {
     const prev = buckets.get(key);
     if (prev) prev.taxable += taxable;
     else buckets.set(key, { hsnSac: hsn, ratePercent: effectiveRate, taxable });
+
+    if (ln.spareId && spareTcsLookup?.(ln.spareId)) {
+      const consideration = lineTaxInclusive ? amt : round2(taxable + taxable * g);
+      tcsAmount += tcsOnConsiderationInr(consideration, buyerPan, buyerGstin);
+    }
   }
 
   let grossTaxable = 0;
@@ -157,6 +176,8 @@ export function computeServiceBillGst(params: {
         description: interstate
           ? `${b.ratePercent}% IGST (HSN ${b.hsnSac})`
           : `${b.ratePercent}% CGST+SGST (HSN ${b.hsnSac})`,
+        hsnSac: b.hsnSac,
+        ratePercent: b.ratePercent,
         taxable,
         cgst,
         sgst,
@@ -203,7 +224,9 @@ export function computeServiceBillGst(params: {
     igst += r.igst;
   }
 
-  const payable = invoicePayableFromGstParts(grossTaxable, totalTax);
+  tcsAmount = round2(tcsAmount);
+  const tcsRatePercent = tcsAmount > 0 ? tcsRatePercentForBuyer(buyerPan, buyerGstin) : 0;
+  const payable = invoicePayableFromGstParts(grossTaxable, totalTax, tcsAmount);
 
   return {
     isInterstate: interstate,
@@ -214,6 +237,8 @@ export function computeServiceBillGst(params: {
     sgst: round2(sgst),
     igst: round2(igst),
     totalTax: round2(totalTax),
+    tcsAmount,
+    tcsRatePercent: tcsRatePercent || undefined,
     preRoundOffPayable: payable.preRoundOffInr,
     roundOffInr: payable.roundOffInr,
     netPayable: payable.netPayableInr,

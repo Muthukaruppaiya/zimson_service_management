@@ -299,7 +299,7 @@ function parseRows(
     const p10 = phoneLast10(phoneRaw);
     const rowErrs: string[] = [];
 
-    if (!kind) rowErrs.push(`Customers row ${rowNum}: Customer Kind must be B2C or B2B.`);
+    if (!kind) rowErrs.push(`Customers row ${rowNum}: Customer Type must be B2C or B2B.`);
     if (p10.length !== 10) {
       rowErrs.push(`Customers row ${rowNum}: Primary Mobile must be a 10-digit number.`);
     } else {
@@ -545,13 +545,13 @@ async function buildTemplateWorkbook(): Promise<Buffer> {
     ["Dates (Date of Birth, Anniversary): use DD/MM/YYYY, e.g. 12/04/1988."],
     [""],
     ["DROPDOWNS"],
-    ["Customer Kind, Salutation, Tax Preference, and Same Shipping As Billing are Excel dropdowns."],
+    ["Customer Type, Salutation, Tax Preference, and Same Shipping As Billing are Excel dropdowns."],
     ["Pick from the list (see the Dropdowns sheet). Check file still validates after upload."],
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(readme), "README");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([HEADER_LABELS, ...SEED_CUSTOMERS]), "Customers");
   return withExcelDropdowns(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer, [
-    { sheetName: "Customers", header: "Customer Kind", values: [...EXCEL_CUSTOMER_KINDS] },
+    { sheetName: "Customers", header: "Customer Type", values: [...EXCEL_CUSTOMER_KINDS] },
     { sheetName: "Customers", header: "Salutation", values: [...EXCEL_SALUTATIONS] },
     { sheetName: "Customers", header: "Tax Preference", values: [...EXCEL_TAX_PREFERENCES] },
     { sheetName: "Customers", header: "Same Shipping As Billing", values: [...EXCEL_YES_NO] },

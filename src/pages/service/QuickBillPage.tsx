@@ -35,6 +35,7 @@ import {
   emptyMultiPaymentForm,
   validateMultiPaymentForm,
 } from "../../lib/paymentModes";
+import { collectRazorpayIfNeeded } from "../../lib/razorpayCheckout";
 import { ServiceInvoicePrintSet } from "../../components/service/ServiceInvoicePrintSet";
 import {
   QuickBillEinvoiceStatus,
@@ -75,6 +76,7 @@ import {
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
+import { findRegionForInvoice, mappingJurisdictionFromRegion } from "../../lib/invoiceJurisdiction";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import {
   isValidGstFormat,
@@ -96,6 +98,7 @@ import type { TechnicianProfile } from "../../types/technician";
 import {
   isFullyOtpVerified,
   UNVERIFIED_CUSTOMER_ALERT_MESSAGE,
+  canBypassCustomerOtp,
 } from "../../lib/customerVerification";
 import {
   clearPendingRegisterPhone,
@@ -254,9 +257,6 @@ function QuickBillInvoicePanel({
     <div className="space-y-6">
       <div className="print:hidden">
         <ServiceInvoicePrintSet data={viewModel} idPrefix="qb" />
-        <p className="mt-3 text-xs text-stone-500">
-          Print includes two pages: Customer Copy (spares combined) and Internal Copy (line-by-line).
-        </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <button
             type="button"
@@ -1442,6 +1442,35 @@ export function QuickBillPage() {
         setError(paymentPayload.error);
         return;
       }
+      let payMode = paymentPayload.paymentMode;
+      let payDetails = paymentPayload.paymentDetails;
+      if (payableTotal > 0) {
+        const collected = await collectRazorpayIfNeeded({
+          form: multiPaymentForm,
+          purpose: "quick_bill",
+          name: customerName,
+          phone,
+          email,
+          description: "Quick bill",
+        });
+        if (!collected.ok) {
+          setError(collected.error);
+          return;
+        }
+        if (collected.form !== multiPaymentForm) {
+          setMultiPaymentForm(collected.form);
+          const rebuilt = buildMultiPaymentPayload(collected.form, payableTotal);
+          if ("error" in rebuilt) {
+            setError(rebuilt.error);
+            return;
+          }
+          payMode = rebuilt.paymentMode;
+          payDetails = rebuilt.paymentDetails;
+        }
+        if (collected.razorpay) {
+          payDetails = { ...payDetails, razorpay: collected.razorpay };
+        }
+      }
       setIsSavingBill(true);
       try {
         const { invoice, edoc } = await apiJson<{
@@ -1475,8 +1504,8 @@ export function QuickBillPage() {
             captureSessionId: captureSession?.sessionId ?? null,
             technicianId: technicianId || null,
             technicianName: tech?.fullName ?? null,
-            paymentMode: paymentPayload.paymentMode,
-            paymentDetails: paymentPayload.paymentDetails,
+            paymentMode: payMode,
+            paymentDetails: payDetails,
             notes: notes.trim(),
             persistNewWatchModel: watchModelIsNew,
             persistNewWatchFamily: watchFamilyIsNew,
@@ -1560,9 +1589,23 @@ export function QuickBillPage() {
     return currentUserStore;
   }, [regions, effectiveBillingStoreId, user?.storeId, currentUserStore]);
 
+  const billingRegion = useMemo(
+    () =>
+      findRegionForInvoice(regions, {
+        regionId: user?.regionId,
+        storeId: billingStore?.id || effectiveBillingStoreId || user?.storeId,
+      }),
+    [regions, user?.regionId, user?.storeId, billingStore?.id, effectiveBillingStoreId],
+  );
+
   const spareGstLookup = useCallback(
     (spareId: string) => resolveSpareGst(spareId),
     [lines, spareOptions, spares],
+  );
+
+  const spareTcsLookup = useCallback(
+    (spareId: string) => spares.find((s) => s.id === spareId)?.tcsEligible === 1,
+    [spares],
   );
 
   const spareHsnLookup = useCallback(
@@ -1580,21 +1623,28 @@ export function QuickBillPage() {
       defaultHsnSac: invoiceHsnSac,
       taxSettings: quickBillTaxSettings,
       storeInvoice: seedStoreToInvoiceProfile(billingStore),
+      ...mappingJurisdictionFromRegion(billingRegion),
       customerBillingState: customerBillingState.trim() || null,
       customerType,
       customerGstin: gst.trim().toUpperCase() || null,
+      customerPan: pan.trim().toUpperCase() || null,
       spareHsnLookup,
       spareGstLookup,
+      spareTcsLookup,
       generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
     }),
     [
       invoiceHsnSac,
       quickBillTaxSettings,
       billingStore,
+      billingRegion,
       customerBillingState,
       customerType,
       gst,
+      pan,
       spareHsnLookup,
+      spareGstLookup,
+      spareTcsLookup,
       user?.displayName,
       user?.email,
       user?.id,
@@ -1644,6 +1694,9 @@ export function QuickBillPage() {
       defaultHsnSac: serviceSacHsn,
       spareHsnLookup,
       spareGstLookup,
+      spareTcsLookup,
+      buyerPan: pan.trim() || null,
+      buyerGstin: gst.trim() || null,
       defaultSacGstPercent: labourGstPercent,
       pricesTaxInclusive: QUICK_BILL_PRICES_TAX_INCLUSIVE,
       natureOfRepair,
@@ -1666,6 +1719,9 @@ export function QuickBillPage() {
     serviceChargeBillable,
     spareHsnLookup,
     spareGstLookup,
+    spareTcsLookup,
+    pan,
+    gst,
     total,
   ]);
 
@@ -1676,6 +1732,7 @@ export function QuickBillPage() {
         taxPreview?.totalTax ?? 0,
         QUICK_BILL_PRICES_TAX_INCLUSIVE,
         taxPreview?.grossTaxable,
+        taxPreview?.tcsAmount ?? 0,
       ),
     [total, taxPreview],
   );
@@ -2241,7 +2298,26 @@ export function QuickBillPage() {
                   />
                 </div>
               </>
-            ) : null}
+            ) : (
+              <div className={qbField}>
+                <label htmlFor="qb-pan-b2c" className="text-xs font-medium text-stone-600">
+                  PAN (for TCS)
+                </label>
+                <input
+                  id="qb-pan-b2c"
+                  value={pan}
+                  readOnly={customerLockedFromDb}
+                  onChange={
+                    customerLockedFromDb
+                      ? undefined
+                      : (e) => setPan(sanitizeGstPanInput(e.target.value, 10))
+                  }
+                  className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                  placeholder="For 1% TCS if item is over ₹10 lakh"
+                  maxLength={10}
+                />
+              </div>
+            )}
             <div className={qbField}>
               <label htmlFor="qb-name" className="text-xs font-medium text-stone-600">
                 {customerType === "B2B" ? "Contact person *" : "Customer name (optional)"}
@@ -2293,6 +2369,14 @@ export function QuickBillPage() {
                 >
                   Verify now
                 </button>
+                {canBypassCustomerOtp(user?.role) ? (
+                  <Link
+                    to={`/service/customers/admin-verify?id=${encodeURIComponent(loadedCustomerId)}&returnTo=${encodeURIComponent("/service/quick-bill")}`}
+                    className="ml-2 font-semibold text-zimson-900 underline"
+                  >
+                    Verify without OTP
+                  </Link>
+                ) : null}
               </div>
             ) : null}
           </div>

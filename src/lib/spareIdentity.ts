@@ -43,3 +43,10 @@ export function optionalMasterText(raw: string | null | undefined, maxLen = 120)
   if (!s) return null;
   return s.slice(0, maxLen);
 }
+
+/** EAN / barcode on spare master (optional, max 18). */
+export function normalizeEanNumber(raw: unknown): string | null {
+  const s = String(raw ?? "").trim().replace(/\s+/g, "");
+  if (!s) return null;
+  return s.slice(0, 18);
+}

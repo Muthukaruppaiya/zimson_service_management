@@ -172,11 +172,13 @@ export function StoreBillingMasterPage() {
     return buildStoreBillingInvoiceFromClosedJob(job, {
       taxSettings: serviceTaxSettings,
       storeInvoice: storeInvoiceForPrint,
+      regions,
       generatedBy: user?.displayName?.trim() || user?.email?.trim() || user?.id || null,
       customer: cust,
       defaultHsnSac: formatPrintedHsnSac(serviceTaxSettings?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC),
       spareHsnLookup: (spareId) => activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null,
       spareGstLookup: (spareId) => activeSpares.find((s) => s.id === spareId)?.gstPercent ?? null,
+      spareTcsLookup: (spareId) => activeSpares.find((s) => s.id === spareId)?.tcsEligible === 1,
     });
   }
 
@@ -248,6 +250,10 @@ export function StoreBillingMasterPage() {
   );
   const spareGstLookup = useMemo(
     () => (spareId: string) => activeSpares.find((s) => s.id === spareId)?.gstPercent ?? null,
+    [activeSpares],
+  );
+  const spareTcsLookup = useMemo(
+    () => (spareId: string) => activeSpares.find((s) => s.id === spareId)?.tcsEligible === 1,
     [activeSpares],
   );
 
@@ -505,6 +511,7 @@ export function StoreBillingMasterPage() {
               generatedBy={user?.displayName?.trim() || user?.email?.trim() || user?.id || null}
               spareHsnLookup={spareHsnLookup}
               spareGstLookup={spareGstLookup}
+              spareTcsLookup={spareTcsLookup}
               onResult={setResendNote}
               leadingActions={
                 <>

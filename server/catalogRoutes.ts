@@ -6,7 +6,8 @@ import type { DemoUser } from "../src/types/user";
 import { appendStockHistory } from "./db/stockHistory";
 import { clearSpareGstCache } from "./hsnGstRates";
 import { validateEntityCustomFields } from "./customFields";
-import { normalizeAltName, normalizeAltSku, optionalMasterText } from "../src/lib/spareIdentity";
+import { normalizeAltName, normalizeAltSku, optionalMasterText, normalizeEanNumber } from "../src/lib/spareIdentity";
+import { parseTcsEligibleFlag } from "../src/lib/tcs";
 import {
   isValidPackageName,
   normalizePackageTypeKey,
@@ -67,7 +68,9 @@ function rowToSpare(r: {
   size?: string | null;
   colour?: string | null;
   hsn: string | null;
+  ean_number?: string | null;
   gst_percent: number | string | null;
+  tcs_eligible?: number | string | null;
   mrp_inr: number | null;
   cost_price_inr: number | null;
   selling_price_inr: number | null;
@@ -99,7 +102,12 @@ function rowToSpare(r: {
     size: String(r.size ?? "").trim() || null,
     colour: String(r.colour ?? "").trim() || null,
     hsn: r.hsn,
+    eanNumber: String(r.ean_number ?? "").trim() || null,
     gstPercent,
+    tcsEligible: (() => {
+      const parsed = parseTcsEligibleFlag(r.tcs_eligible);
+      return parsed.ok ? parsed.value : 0;
+    })(),
     costPriceInr: r.cost_price_inr == null ? null : Number(r.cost_price_inr),
     sellingPriceInr: r.selling_price_inr == null ? (r.mrp_inr == null ? null : Number(r.mrp_inr)) : Number(r.selling_price_inr),
     mrpInr: r.mrp_inr == null ? null : Number(r.mrp_inr),
@@ -112,7 +120,7 @@ function rowToSpare(r: {
   };
 }
 
-const SPARE_SELECT = `id, sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at, custom_fields`;
+const SPARE_SELECT = `id, sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, ean_number, gst_percent, tcs_eligible, mrp_inr, cost_price_inr, selling_price_inr, is_active, created_at, custom_fields`;
 
 export function registerCatalogRoutes(
   app: Express,
@@ -186,6 +194,12 @@ export function registerCatalogRoutes(
       res.status(400).json({ error: "gstPercent must be between 0 and 100." });
       return;
     }
+    const tcsParsed = parseTcsEligibleFlag(input.tcsEligible);
+    if (!tcsParsed.ok) {
+      res.status(400).json({ error: tcsParsed.error });
+      return;
+    }
+    const eanNumber = normalizeEanNumber(input.eanNumber);
     if (!sku || !brandRaw || !name || !description || !category) {
       res.status(400).json({ error: "sku, brand, name, description and category are required." });
       return;
@@ -213,8 +227,8 @@ export function registerCatalogRoutes(
       const size = optionalMasterText(input.size, 80);
       const colour = optionalMasterText(input.colour, 80);
       const ins = await pool.query(
-        `INSERT INTO spares (sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, gst_percent, mrp_inr, cost_price_inr, selling_price_inr, is_active, custom_fields)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb)
+        `INSERT INTO spares (sku, brand, alt_sku, name, alt_name, description, category, model_no, caliber, sub_category, size, colour, hsn, ean_number, gst_percent, tcs_eligible, mrp_inr, cost_price_inr, selling_price_inr, is_active, custom_fields)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb)
          RETURNING ${SPARE_SELECT}`,
         [
           sku,
@@ -230,7 +244,9 @@ export function registerCatalogRoutes(
           size,
           colour,
           input.hsn?.trim() || null,
+          eanNumber,
           gstPercent ?? null,
+          tcsParsed.value,
           input.mrpInr ?? input.sellingPriceInr ?? null,
           input.costPriceInr ?? null,
           input.sellingPriceInr ?? input.mrpInr ?? null,
@@ -280,6 +296,14 @@ export function registerCatalogRoutes(
     const size = body.size !== undefined ? optionalMasterText(body.size, 80) : undefined;
     const colour = body.colour !== undefined ? optionalMasterText(body.colour, 80) : undefined;
     const hsn = body.hsn != null ? String(body.hsn).trim() || null : undefined;
+    const eanNumber = body.eanNumber !== undefined ? normalizeEanNumber(body.eanNumber) : undefined;
+    const tcsEligibleRaw = body.tcsEligible;
+    const tcsEligibleParsed =
+      tcsEligibleRaw === undefined ? undefined : parseTcsEligibleFlag(tcsEligibleRaw, { required: true });
+    if (tcsEligibleParsed && !tcsEligibleParsed.ok) {
+      res.status(400).json({ error: tcsEligibleParsed.error });
+      return;
+    }
     const gstPercentRaw = body.gstPercent;
     const gstPercent =
       gstPercentRaw === undefined
@@ -398,9 +422,17 @@ export function registerCatalogRoutes(
       sets.push(`hsn = $${i++}`);
       vals.push(hsn);
     }
+    if (eanNumber !== undefined) {
+      sets.push(`ean_number = $${i++}`);
+      vals.push(eanNumber);
+    }
     if (gstPercent !== undefined) {
       sets.push(`gst_percent = $${i++}`);
       vals.push(gstPercent);
+    }
+    if (tcsEligibleParsed?.ok) {
+      sets.push(`tcs_eligible = $${i++}`);
+      vals.push(tcsEligibleParsed.value);
     }
     if (costPriceInr !== undefined) {
       sets.push(`cost_price_inr = $${i++}`);

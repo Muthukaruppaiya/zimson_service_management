@@ -36,27 +36,32 @@ export function usedSparesToEditorLines(
   const pkg = job.servicePackage && job.servicePackage.id ? job.servicePackage : null;
   const out: ServiceBillEditorLine[] = [];
   if (pkg && Number(pkg.priceInr) > 0) {
-    return [
-      {
-        id: `pkg-${job.id}`,
-        description: servicePackageInvoiceDescription(pkg),
-        amount: String(pkg.priceInr),
-        hsn: formatPrintedHsnSac(DEFAULT_SERVICE_SAC),
-        locked: true,
-        lineKind: "service",
-      },
-    ];
+    const usedFromPkg = (job.usedSpares ?? [])
+      .filter((s) => s.includedInPackage || (s.spareId && pkg.spareIds.includes(s.spareId)))
+      .map((s) => String(s.name ?? "").trim())
+      .filter(Boolean);
+    const spareNames = usedFromPkg.length > 0 ? usedFromPkg : pkg.spareNames ?? [];
+    out.push({
+      id: `pkg-${job.id}`,
+      description: servicePackageInvoiceDescription({ ...pkg, spareNames }),
+      amount: String(pkg.priceInr),
+      hsn: formatPrintedHsnSac(DEFAULT_SERVICE_SAC),
+      locked: true,
+      lineKind: "service",
+    });
   }
   for (const [i, s] of (job.usedSpares ?? []).entries()) {
     if (pkg && (s.includedInPackage || (s.spareId && pkg.spareIds.includes(s.spareId)))) {
       continue;
     }
+    if (pkg && Number(pkg.priceInr) > 0 && !s.spareId && !s.name?.trim()) continue;
     const lineTotal = Number(s.lineTotalInr ?? NaN);
     const qty = Number(s.qty ?? 0);
     const unit = Number(s.unitPriceInr ?? 0);
     const amtRaw = Number.isFinite(lineTotal)
       ? lineTotal
       : (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
+    if (!(amtRaw > 0) && pkg) continue;
     const desc = s.qty > 1 ? `${s.name} x ${s.qty}` : s.name;
     out.push({
       id: `slip-${job.id}-${i}`,

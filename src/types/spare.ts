@@ -19,8 +19,12 @@ export type SparePart = {
   size: string | null;
   colour: string | null;
   hsn: string | null;
+  /** EAN / barcode (optional). */
+  eanNumber: string | null;
   /** GST % for billing — set per spare in Inventory catalogue. */
   gstPercent: number | null;
+  /** 1 = collect TCS on this spare; 0 = no TCS. */
+  tcsEligible: 0 | 1;
   costPriceInr?: number | null;
   sellingPriceInr?: number | null;
   mrpInr: number | null;
@@ -43,7 +47,9 @@ export type CreateSpareInput = {
   size?: string | null;
   colour?: string | null;
   hsn?: string | null;
+  eanNumber?: string | null;
   gstPercent?: number | null;
+  tcsEligible?: 0 | 1;
   costPriceInr?: number | null;
   sellingPriceInr?: number | null;
   mrpInr?: number | null;
@@ -65,7 +71,9 @@ export type UpdateSparePatch = {
   size?: string | null;
   colour?: string | null;
   hsn?: string | null;
+  eanNumber?: string | null;
   gstPercent?: number | null;
+  tcsEligible?: 0 | 1;
   costPriceInr?: number | null;
   sellingPriceInr?: number | null;
   mrpInr?: number | null;

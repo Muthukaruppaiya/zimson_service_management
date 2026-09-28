@@ -29,7 +29,7 @@ import {
   resolveEdocSellerGstin,
 } from "./config";
 import { defaultPincodeForState, gstinStateCode, edocPartyLocation, parsePincode, pincodeForEdocParty, stateNameFromCode, formatDocumentDate } from "./gstState";
-import { loadSpareGstById } from "../hsnGstRates";
+import { loadSpareGstById, loadSpareTcsEligibleById } from "../hsnGstRates";
 import {
   isServiceSacCode,
   resolveEdocHsnSac,
@@ -330,6 +330,7 @@ export async function tryGenerateEinvoiceForQuickBill(
   const billRes = await pool.query<{
     customer_type: string;
     gst: string | null;
+    pan: string | null;
     company: string | null;
     customer_name: string | null;
     phone: string | null;
@@ -346,7 +347,7 @@ export async function tryGenerateEinvoiceForQuickBill(
     total_inr: string;
     edoc_irn: string | null;
   }>(
-    `SELECT customer_type, gst, company, customer_name, phone, email, address, city,
+    `SELECT customer_type, gst, pan, company, customer_name, phone, email, address, city,
             customer_billing_state, invoice_number, bill_number, created_at, store_id, region_id,
             nature_of_repair, total_inr::text, edoc_irn
      FROM quick_bills WHERE id = $1::uuid`,
@@ -420,6 +421,7 @@ export async function tryGenerateEinvoiceForQuickBill(
   );
 
   const spareGstMap = await loadSpareGstById(pool);
+  const spareTcsMap = await loadSpareTcsEligibleById(pool);
 
   const resolvedQbLines = await resolveStoreBillingEdocLines(
     pool,
@@ -449,9 +451,18 @@ export async function tryGenerateEinvoiceForQuickBill(
     customerStateCode,
     billTotalInr: subtotalInr,
     spareGstLookup: (spareId) => (spareId ? spareGstMap.get(spareId) ?? null : null),
+    spareTcsLookup: (spareId) => (spareId ? spareTcsMap.get(spareId) === true : false),
+    buyerPan: bill.pan ?? null,
+    buyerGstin: buyerGst,
   });
 
-  const netPayable = customerPayableInr(subtotalInr, gstResult.totalTax, pricesTaxInclusive, gstResult.grossTaxable);
+  const netPayable = customerPayableInr(
+    subtotalInr,
+    gstResult.totalTax,
+    pricesTaxInclusive,
+    gstResult.grossTaxable,
+    gstResult.tcsAmount ?? 0,
+  );
   const totals = totalsFromGstResult(gstResult, netPayable);
   const flagsByHsn = new Map(resolvedQbLines.map((r) => [r.hsnSac, r.isService]));
   const descriptions = gstResult.lines.map((ln, i) => {
@@ -555,6 +566,7 @@ export async function tryGenerateEinvoiceForSrfClose(
   const phoneLast10 = job.phone.replace(/\D/g, "").slice(-10);
   const custRes = await pool.query<{
     gst: string | null;
+    pan: string | null;
     company: string | null;
     display_name: string;
     email: string;
@@ -562,7 +574,7 @@ export async function tryGenerateEinvoiceForSrfClose(
     city: string | null;
     billing_address: unknown;
   }>(
-    `SELECT gst, company, display_name, email, address, city, billing_address
+    `SELECT gst, pan, company, display_name, email, address, city, billing_address
      FROM customers WHERE phone_last10 = $1 LIMIT 1`,
     [phoneLast10],
   );
@@ -587,6 +599,7 @@ export async function tryGenerateEinvoiceForSrfClose(
   const defaultSacHsn = String(taxRow?.default_sac_hsn ?? "9987").trim() || "9987";
   const billLines = await resolveStoreBillingEdocLines(pool, rawBillLines, defaultSacHsn);
   const spareGstMap = await loadSpareGstById(pool);
+  const spareTcsMap = await loadSpareTcsEligibleById(pool);
   const st = await pool.query<{ invoice_gstin: string | null; invoice_legal_entity_name: string | null; invoice_display_name: string | null; invoice_address: string | null; invoice_phone: string | null; invoice_email: string | null; name: string }>(
     `SELECT invoice_gstin, invoice_legal_entity_name, invoice_display_name, invoice_address, invoice_phone, invoice_email, name
      FROM stores WHERE id = $1::text`,
@@ -638,8 +651,17 @@ export async function tryGenerateEinvoiceForSrfClose(
     customerStateCode,
     billTotalInr: subtotalInr,
     spareGstLookup: (spareId) => (spareId ? spareGstMap.get(spareId) ?? null : null),
+    spareTcsLookup: (spareId) => (spareId ? spareTcsMap.get(spareId) === true : false),
+    buyerPan: customer?.pan ?? null,
+    buyerGstin: buyerGst,
   });
-  const netPayable = customerPayableInr(subtotalInr, gstResult.totalTax, pricesTaxInclusive, gstResult.grossTaxable);
+  const netPayable = customerPayableInr(
+    subtotalInr,
+    gstResult.totalTax,
+    pricesTaxInclusive,
+    gstResult.grossTaxable,
+    gstResult.tcsAmount ?? 0,
+  );
   const totals = totalsFromGstResult(gstResult, netPayable);
   const flagsByHsn = new Map(billLines.map((r) => [r.hsnSac, r.isService]));
   const descriptions = gstResult.lines.map((ln, i) => {
@@ -829,6 +851,7 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
   }
 
   const spareGstMap = await loadSpareGstById(pool);
+  const spareTcsMap = await loadSpareTcsEligibleById(pool);
   const spareIds = [...new Set(usedSpares.map((l) => l.spareId).filter((id): id is string => !!id))];
   const hsnBySpareId = new Map<string, string>();
   if (spareIds.length > 0) {
@@ -884,6 +907,8 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
     customerStateCode: buyerStateCode,
     billTotalInr: subtotalInr,
     spareGstLookup: (spareId) => (spareId ? spareGstMap.get(spareId) ?? null : null),
+    spareTcsLookup: (spareId) => (spareId ? spareTcsMap.get(spareId) === true : false),
+    buyerGstin: buyerGst,
   });
 
   const netPayable = gstResult.netPayable;

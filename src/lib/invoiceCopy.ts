@@ -1,5 +1,6 @@
 import type { ServiceInvoiceLineView, ServiceInvoiceViewModel } from "../types/serviceInvoice";
 import { formatPrintedHsnSac } from "./hsnGst";
+import { isServicePackageInvoiceDescription } from "./servicePackage";
 
 const NON_SPARE_DESC_RE = /labour|service\s*\/\s*repair|service charge|brand repair/i;
 
@@ -16,12 +17,12 @@ function spareDisplayName(line: ServiceInvoiceLineView): string {
 /** Spare part lines are collapsed on the customer copy; labour / other charges stay separate. */
 export function isSpareInvoiceLine(line: ServiceInvoiceLineView): boolean {
   if (line.lineKind === "service") return false;
+  if (isServicePackageInvoiceDescription(line.description)) return false;
   if (line.lineKind === "spare") return true;
   if (line.isSpareLine === false) return false;
   if (NON_SPARE_DESC_RE.test(line.description)) return false;
   if (line.isSpareLine === true) return true;
   if (line.spareCode?.trim()) return true;
-  // Quick Bill + SRF: any remaining billed item is a part line (not labour).
   return true;
 }
 

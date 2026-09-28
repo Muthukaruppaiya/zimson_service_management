@@ -63,6 +63,7 @@ export function buildInvoiceVmFromHistoryRecord(
   const defaultSacHsn = formatPrintedHsnSac(ctx.taxSettings?.defaultSacHsn?.trim() || DEFAULT_SERVICE_SAC);
   const spareHsnLookup = (spareId: string) => ctx.spares.find((s) => s.id === spareId)?.hsn?.trim() || null;
   const spareGstLookup = (spareId: string) => ctx.spares.find((s) => s.id === spareId)?.gstPercent ?? null;
+  const spareTcsLookup = (spareId: string) => ctx.spares.find((s) => s.id === spareId)?.tcsEligible === 1;
   const job = ctx.job ?? null;
 
   if (record.sourceType === "srf_store") {
@@ -77,11 +78,13 @@ export function buildInvoiceVmFromHistoryRecord(
     return buildStoreBillingInvoiceFromClosedJob(job, {
       taxSettings: ctx.taxSettings,
       storeInvoice: seedStoreToInvoiceProfile(store),
+      regions: ctx.regions,
       generatedBy: ctx.generatedBy ?? null,
       customer,
       defaultHsnSac: defaultSacHsn,
       spareHsnLookup,
       spareGstLookup,
+      spareTcsLookup,
       storeBillingSnapshot: snapshot,
       collectionAmountInr: record.totalInr,
       invoiceNumberOverride: record.invoiceNumber,
@@ -123,6 +126,7 @@ export function buildInvoiceVmFromHistoryRecord(
       taxSettings: ctx.taxSettings,
       defaultSacHsn,
       spareGstFallback: spareGstLookup,
+      spareTcsFallback: spareTcsLookup,
       generatedBy: ctx.generatedBy ?? null,
       grandTotal: record.totalInr,
       edocIrn: record.edocIrn,

@@ -124,8 +124,10 @@ CREATE TABLE IF NOT EXISTS spares (
   size VARCHAR(80),
   colour VARCHAR(80),
   hsn VARCHAR(32),
+  ean_number VARCHAR(18),
   gst_percent NUMERIC(5, 2)
     CHECK (gst_percent IS NULL OR (gst_percent >= 0 AND gst_percent <= 100)),
+  tcs_eligible SMALLINT NOT NULL DEFAULT 0 CHECK (tcs_eligible IN (0, 1)),
   mrp_inr NUMERIC(14, 2),
   cost_price_inr NUMERIC(14, 2),
   selling_price_inr NUMERIC(14, 2),
@@ -140,6 +142,8 @@ ALTER TABLE spares ADD COLUMN IF NOT EXISTS cost_price_inr NUMERIC(14, 2);
 ALTER TABLE spares ADD COLUMN IF NOT EXISTS selling_price_inr NUMERIC(14, 2);
 ALTER TABLE spares ADD COLUMN IF NOT EXISTS gst_percent NUMERIC(5, 2)
   CHECK (gst_percent IS NULL OR (gst_percent >= 0 AND gst_percent <= 100));
+ALTER TABLE spares ADD COLUMN IF NOT EXISTS ean_number VARCHAR(18);
+ALTER TABLE spares ADD COLUMN IF NOT EXISTS tcs_eligible SMALLINT NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS spare_prices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1761,6 +1765,10 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE spares ADD COLUMN IF NOT EXISTS sub_category VARCHAR(120);
     ALTER TABLE spares ADD COLUMN IF NOT EXISTS size VARCHAR(80);
     ALTER TABLE spares ADD COLUMN IF NOT EXISTS colour VARCHAR(80);
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS ean_number VARCHAR(18);
+    ALTER TABLE spares ADD COLUMN IF NOT EXISTS tcs_eligible SMALLINT NOT NULL DEFAULT 0;
+    ALTER TABLE spares DROP CONSTRAINT IF EXISTS spares_tcs_eligible_check;
+    ALTER TABLE spares ADD CONSTRAINT spares_tcs_eligible_check CHECK (tcs_eligible IN (0, 1));
   `);
 
   await pool.query(`
@@ -1952,5 +1960,35 @@ export async function runMigrations(pool: Pool): Promise<void> {
     $track_pin$;
     CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_tracking_tokens_sms_pin ON customer_tracking_tokens (sms_pin);
     ALTER TABLE customer_tracking_tokens ALTER COLUMN sms_pin SET NOT NULL;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS razorpay_settings (
+      id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by VARCHAR(200)
+    );
+  `);
+  await pool.query(`INSERT INTO razorpay_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS razorpay_orders (
+      id VARCHAR(64) PRIMARY KEY,
+      razorpay_order_id VARCHAR(64) NOT NULL UNIQUE,
+      amount_paise INTEGER NOT NULL,
+      currency VARCHAR(8) NOT NULL DEFAULT 'INR',
+      purpose VARCHAR(40) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'created',
+      payment_id VARCHAR(64),
+      signature VARCHAR(256),
+      customer_name VARCHAR(200),
+      customer_phone VARCHAR(20),
+      customer_email VARCHAR(200),
+      notes JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by VARCHAR(200),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      paid_at TIMESTAMPTZ
+    );
   `);
 }

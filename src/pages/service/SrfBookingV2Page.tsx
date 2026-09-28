@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
 import { useOtpSentSuccess } from "../../hooks/useOtpSentSuccess";
@@ -29,6 +29,7 @@ import {
   formatPaymentSummary,
   validateMultiPaymentForm,
 } from "../../lib/paymentModes";
+import { collectRazorpayIfNeeded } from "../../lib/razorpayCheckout";
 import { MultiPaymentFields } from "../../components/service/MultiPaymentFields";
 import { SrfBookingSuccessOverlay } from "../../components/service/SrfBookingSuccessOverlay";
 import { ProcessLoadingOverlay } from "../../components/ui/ProcessLoadingOverlay";
@@ -50,6 +51,7 @@ import type { SrfJob } from "../../types/srfJob";
 import {
   isFullyOtpVerified,
   UNVERIFIED_CUSTOMER_ALERT_MESSAGE,
+  canBypassCustomerOtp,
 } from "../../lib/customerVerification";
 import {
   clearPendingRegisterPhone,
@@ -727,6 +729,7 @@ export function SrfBookingV2Page() {
           !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt)
         ) {
           window.alert(UNVERIFIED_CUSTOMER_ALERT_MESSAGE);
+          return;
         }
       }
       if (step === 1) {
@@ -1341,19 +1344,48 @@ export function SrfBookingV2Page() {
     setIsCreatingSrf(true);
     try {
       const row = await ensureDraft();
-      const advancePay =
+      let advancePay =
         advanceTotal > 0 ? buildMultiPaymentPayload(advancePaymentForm, advanceTotal) : null;
       if (advancePay && "error" in advancePay) {
         setError(advancePay.error);
         return;
+      }
+      if (advanceTotal > 0 && advancePay && !("error" in advancePay)) {
+        const collected = await collectRazorpayIfNeeded({
+          form: advancePaymentForm,
+          purpose: "srf_advance",
+          name: customerName,
+          phone,
+          email,
+          description: "SRF advance",
+        });
+        if (!collected.ok) {
+          setError(collected.error);
+          return;
+        }
+        if (collected.form !== advancePaymentForm) {
+          setAdvancePaymentForm(collected.form);
+          const rebuilt = buildMultiPaymentPayload(collected.form, advanceTotal);
+          if ("error" in rebuilt) {
+            setError(rebuilt.error);
+            return;
+          }
+          advancePay = rebuilt;
+        }
+        if (collected.razorpay && advancePay && !("error" in advancePay)) {
+          advancePay = {
+            ...advancePay,
+            paymentDetails: { ...advancePay.paymentDetails, razorpay: collected.razorpay },
+          };
+        }
       }
       const out = await finalizeJob(row.srfId, {
         complaint,
         estimateTotalInr: estimateTotal,
         estimatedFinishDate: estimatedFinishDate || null,
         advanceInr: advanceTotal,
-        advancePaymentMode: advancePay ? advancePay.paymentMode : null,
-        advancePaymentDetails: advancePay ? advancePay.paymentDetails : {},
+        advancePaymentMode: advancePay && !("error" in advancePay) ? advancePay.paymentMode : null,
+        advancePaymentDetails: advancePay && !("error" in advancePay) ? advancePay.paymentDetails : {},
         selectedPartIds: [],
         repairRoute,
         customerEmail: email.trim() || undefined,
@@ -1701,15 +1733,25 @@ export function SrfBookingV2Page() {
               {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
                 <div className="flex flex-col gap-2 rounded-xl border border-rlx-gold/40 bg-rlx-green-light/90 px-3 py-2.5 md:col-span-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs text-rlx-green">
-                    Complete mobile OTP on customer registration to mark this customer verified.
+                    Complete mobile OTP on customer registration to mark this customer verified. Admin and super admin can also verify without OTP.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => redirectToCustomerRegister(phone.trim())}
-                    className="shrink-0 rounded-lg bg-rlx-green px-3 py-1.5 text-xs font-semibold text-white hover:bg-rlx-green-deep"
-                  >
-                    Verify with OTP
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => redirectToCustomerRegister(phone.trim())}
+                      className="shrink-0 rounded-lg bg-rlx-green px-3 py-1.5 text-xs font-semibold text-white hover:bg-rlx-green-deep"
+                    >
+                      Verify with OTP
+                    </button>
+                    {canBypassCustomerOtp(user?.role) && loadedCustomerId ? (
+                      <Link
+                        to={`/service/customers/admin-verify?id=${encodeURIComponent(loadedCustomerId)}&returnTo=${encodeURIComponent("/service/srf")}`}
+                        className="shrink-0 rounded-lg border border-rlx-gold bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
+                      >
+                        Verify without OTP
+                      </Link>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
               <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-3">

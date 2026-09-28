@@ -72,7 +72,12 @@ export async function captureInvoicePdfFromViewModel(
   const root = createRoot(host);
   try {
     flushSync(() => {
-      root.render(<ServiceInvoiceTemplate data={vm} idPrefix={idPrefix} />);
+      root.render(
+        <ServiceInvoiceTemplate
+          data={{ ...vm, copyKind: vm.copyKind ?? "customer", copyLabel: "ORIGINAL" }}
+          idPrefix={idPrefix}
+        />,
+      );
     });
     const printRoot = await waitForInvoiceLayout(host);
     return await captureInvoicePdfBlob(printRoot);

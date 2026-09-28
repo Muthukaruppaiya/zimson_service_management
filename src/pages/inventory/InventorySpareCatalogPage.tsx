@@ -165,10 +165,14 @@ export function InventorySpareCatalogPage() {
   const [size, setSize] = useState("");
   const [colour, setColour] = useState("");
   const [hsn, setHsn] = useState("");
+  const [eanNumber, setEanNumber] = useState("");
   const [gstPercent, setGstPercent] = useState("18");
+  const [tcsEligible, setTcsEligible] = useState<"0" | "1">("0");
   const [mrpInr, setMrpInr] = useState("");
   const [editHsn, setEditHsn] = useState("");
+  const [editEanNumber, setEditEanNumber] = useState("");
   const [editGstPercent, setEditGstPercent] = useState("");
+  const [editTcsEligible, setEditTcsEligible] = useState<"0" | "1">("0");
   const [editName, setEditName] = useState("");
   const [editBrand, setEditBrand] = useState("");
   const [editAltSku, setEditAltSku] = useState("");
@@ -310,7 +314,9 @@ export function InventorySpareCatalogPage() {
     setEditSize(selectedSpare.size ?? "");
     setEditColour(selectedSpare.colour ?? "");
     setEditHsn(selectedSpare.hsn ?? "");
+    setEditEanNumber(selectedSpare.eanNumber ?? "");
     setEditGstPercent(selectedSpare.gstPercent != null ? String(selectedSpare.gstPercent) : "");
+    setEditTcsEligible(selectedSpare.tcsEligible === 1 ? "1" : "0");
     setEditCostPriceInr(selectedSpare.costPriceInr != null ? String(selectedSpare.costPriceInr) : "");
     setEditMrpInr(selectedSpare.mrpInr != null ? String(selectedSpare.mrpInr) : "");
     setEditSellingPriceInr(
@@ -337,7 +343,9 @@ export function InventorySpareCatalogPage() {
     selectedSpare?.size,
     selectedSpare?.colour,
     selectedSpare?.hsn,
+    selectedSpare?.eanNumber,
     selectedSpare?.gstPercent,
+    selectedSpare?.tcsEligible,
     selectedSpare?.costPriceInr,
     selectedSpare?.sellingPriceInr,
     selectedSpare?.mrpInr,
@@ -465,7 +473,9 @@ export function InventorySpareCatalogPage() {
       size,
       colour,
       hsn: hsn.trim() || null,
+      eanNumber: eanNumber.trim() || null,
       gstPercent: gstValue,
+      tcsEligible: tcsEligible === "1" ? 1 : 0,
       costPriceInr: costValue,
       sellingPriceInr: sellingValue ?? mrpValue,
       mrpInr: mrpValue ?? sellingValue,
@@ -490,7 +500,9 @@ export function InventorySpareCatalogPage() {
     setSize("");
     setColour("");
     setHsn("");
+    setEanNumber("");
     setGstPercent("18");
+    setTcsEligible("0");
     setCostPriceInr("");
     setSellingPriceInr("");
     setMrpInr("");
@@ -581,7 +593,9 @@ export function InventorySpareCatalogPage() {
         size: editSize,
         colour: editColour,
         hsn: editHsn.trim() || null,
+        eanNumber: editEanNumber.trim() || null,
         gstPercent: gstValue,
+        tcsEligible: editTcsEligible === "1" ? 1 : 0,
         costPriceInr: costValue,
         sellingPriceInr: sellingValue,
         mrpInr: mrpValue,
@@ -1142,6 +1156,19 @@ export function InventorySpareCatalogPage() {
                   />
                 </div>
                 <div>
+                  <label htmlFor="sp-ean" className="text-xs font-medium text-stone-600">
+                    EAN number
+                  </label>
+                  <input
+                    id="sp-ean"
+                    value={eanNumber}
+                    onChange={(e) => setEanNumber(sanitizeAlphanumericInput(e.target.value, 18))}
+                    className={inputClass}
+                    placeholder="Optional barcode"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
                   <label htmlFor="sp-gst" className="text-xs font-medium text-stone-600">
                     Tax % *
                   </label>
@@ -1156,6 +1183,21 @@ export function InventorySpareCatalogPage() {
                     className={inputClass}
                     required
                   />
+                </div>
+                <div>
+                  <label htmlFor="sp-tcs" className="text-xs font-medium text-stone-600">
+                    TCS eligible *
+                  </label>
+                  <select
+                    id="sp-tcs"
+                    value={tcsEligible}
+                    onChange={(e) => setTcsEligible(e.target.value === "1" ? "1" : "0")}
+                    className={inputClass}
+                    required
+                  >
+                    <option value="0">0 — No TCS</option>
+                    <option value="1">1 — Luxury / motor vehicle (TCS if over ₹10 lakh)</option>
+                  </select>
                 </div>
                 <div>
                   <label htmlFor="sp-cost" className="text-xs font-medium text-stone-600">
@@ -1502,6 +1544,18 @@ export function InventorySpareCatalogPage() {
                                 {selectedSpare.gstPercent != null ? ` · ${selectedSpare.gstPercent}%` : ""}
                               </td>
                             </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                EAN number
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.eanNumber || "—"}</td>
+                            </tr>
+                            <tr className="border-b border-rlx-rule">
+                              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                                TCS eligible
+                              </th>
+                              <td className="px-3 py-2.5">{selectedSpare.tcsEligible === 1 ? "1" : "0"}</td>
+                            </tr>
                           </>
                         ) : null}
                       </tbody>
@@ -1665,6 +1719,15 @@ export function InventorySpareCatalogPage() {
                           />
                         </div>
                         <div>
+                          <label className="text-xs font-medium text-stone-600">EAN number</label>
+                          <input
+                            value={editEanNumber}
+                            onChange={(e) => setEditEanNumber(sanitizeAlphanumericInput(e.target.value, 18))}
+                            className={inputClass}
+                            placeholder="Optional barcode"
+                          />
+                        </div>
+                        <div>
                           <label className="text-xs font-medium text-stone-600">Tax %</label>
                           <input
                             type="number"
@@ -1675,6 +1738,18 @@ export function InventorySpareCatalogPage() {
                             onChange={(e) => setEditGstPercent(sanitizeDecimalInput(e.target.value))}
                             className={inputClass}
                           />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-stone-600">TCS eligible *</label>
+                          <select
+                            value={editTcsEligible}
+                            onChange={(e) => setEditTcsEligible(e.target.value === "1" ? "1" : "0")}
+                            className={inputClass}
+                            required
+                          >
+                            <option value="0">0 — No TCS</option>
+                            <option value="1">1 — Luxury / motor vehicle (TCS if over ₹10 lakh)</option>
+                          </select>
                         </div>
                         <div>
                           <label className="text-xs font-medium text-stone-600">Cost</label>

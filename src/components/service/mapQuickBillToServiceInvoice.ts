@@ -12,6 +12,8 @@ import {
 import { computeServiceBillGst, resolveLineGstPercent } from "../../lib/serviceBillGst";
 import { COUNTER_PRICES_TAX_INCLUSIVE } from "../../lib/quickBillPricing";
 import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../../lib/hsnGst";
+import { isServicePackageInvoiceDescription } from "../../lib/servicePackage";
+import { resolveInvoiceJurisdiction } from "../../lib/invoiceJurisdiction";
 import type { QuickBillInvoice, QuickBillLineInvoice } from "../../types/quickBill";
 import type {
   PaymentSplit,
@@ -45,11 +47,17 @@ export type ServiceInvoiceMappingOptions = {
   customerGstin?: string | null;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
   spareGstLookup?: (spareId: string) => number | null | undefined;
+  spareTcsLookup?: (spareId: string) => boolean | null | undefined;
+  customerPan?: string | null;
   edocIrn?: string | null;
   edocAckNo?: string | null;
   edocQr?: string | null;
   /** Catalogue spare lines (with spareId) are tax-inclusive; manual lines stay exclusive. */
   catalogueTaxInclusiveOnly?: boolean;
+  /** Region/store city for “Subject to jurisdiction at …”. */
+  jurisdictionCity?: string | null;
+  jurisdictionState?: string | null;
+  jurisdictionRegionName?: string | null;
 };
 
 function resolvedHsnSac(options?: ServiceInvoiceMappingOptions): string {
@@ -117,7 +125,7 @@ function mergeSellerFromSettings(
   const b = SERVICE_INVOICE_BRANDING;
   if (!tax && !store) {
     return {
-      legalName: b.sellerLegalName,
+      legalName: b.sellerDisplayName,
       addressLines: [...b.sellerAddressLines],
       gstin: b.sellerGstin,
       phone: b.sellerPhone,
@@ -125,14 +133,14 @@ function mergeSellerFromSettings(
       stateCode: b.sellerStateCode,
       tagline: "",
       logoUrl: null,
-      legalFooter: b.sellerLegalName,
+      legalFooter: b.legalFooter,
       footerTerms: [...b.footerTerms],
     };
   }
   const name =
     store?.invoiceStoreDisplayName?.trim() ||
     tax?.invoiceStoreDisplayName?.trim() ||
-    b.sellerLegalName;
+    b.sellerDisplayName;
   const addrRaw =
     store?.invoiceStoreAddress?.trim() || tax?.invoiceStoreAddress?.trim();
   const addressLines = addrRaw
@@ -149,7 +157,7 @@ function mergeSellerFromSettings(
   const legalFooter =
     store?.invoiceLegalEntityName?.trim() ||
     tax?.invoiceLegalEntityName?.trim() ||
-    name;
+    b.legalFooter;
   const termsRaw =
     store?.invoiceTerms?.trim() || tax?.invoiceTerms?.trim();
   const footerTerms = termsRaw
@@ -171,6 +179,20 @@ function mergeSellerFromSettings(
   };
 }
 
+function jurisdictionFields(
+  sellerPack: { addressLines: string[]; gstin: string },
+  options?: ServiceInvoiceMappingOptions,
+): { jurisdictionCity: string; jurisdictionState: string } {
+  const resolved = resolveInvoiceJurisdiction({
+    city: options?.jurisdictionCity,
+    state: options?.jurisdictionState,
+    addressLines: sellerPack.addressLines,
+    gstin: sellerPack.gstin,
+    regionName: options?.jurisdictionRegionName,
+  });
+  return { jurisdictionCity: resolved.city, jurisdictionState: resolved.state };
+}
+
 function buildGstLines(
   invLines: QuickBillLineInvoice[],
   defaultHsnSac: string,
@@ -182,6 +204,9 @@ function buildGstLines(
   spareHsnLookup?: (spareId: string) => string | null | undefined,
   spareGstLookup?: (spareId: string) => number | null | undefined,
   catalogueTaxInclusiveOnly = false,
+  spareTcsLookup?: (spareId: string) => boolean | null | undefined,
+  buyerPan?: string | null,
+  buyerGstin?: string | null,
 ): {
   lines: ServiceInvoiceLineView[];
   taxRows: ServiceInvoiceTaxRow[];
@@ -195,6 +220,8 @@ function buildGstLines(
   preRoundOffPayable: number;
   totalQty: number;
   isInterstate: boolean;
+  tcsAmount: number;
+  tcsRatePercent?: number;
 } {
   const defaultSacGstPercent = tax?.gstRatePercent ?? 18;
   const gstResult = computeServiceBillGst({
@@ -210,6 +237,9 @@ function buildGstLines(
     defaultHsnSac,
     spareHsnLookup,
     spareGstLookup,
+    spareTcsLookup,
+    buyerPan,
+    buyerGstin,
     defaultSacGstPercent,
     pricesTaxInclusive: catalogueTaxInclusiveOnly ? false : COUNTER_PRICES_TAX_INCLUSIVE,
     natureOfRepair,
@@ -242,11 +272,15 @@ function buildGstLines(
     totalQty += qty;
     const spareFromCode = parseSpareCodeFromDescription(ln.description);
     const labourLike = /labour|service\s*\/\s*repair|service charge|brand repair/i.test(ln.description);
-    const lineKind = ln.lineKind === "service" || ln.lineKind === "spare"
-      ? ln.lineKind
-      : Boolean(ln.spareId) || Boolean(spareFromCode) || !labourLike
-        ? "spare"
-        : "service";
+    const packageLike = isServicePackageInvoiceDescription(ln.description);
+    const lineKind =
+      ln.lineKind === "service" || ln.lineKind === "spare"
+        ? ln.lineKind
+        : packageLike || (labourLike && !ln.spareId)
+          ? "service"
+          : Boolean(ln.spareId) || Boolean(spareFromCode)
+            ? "spare"
+            : "service";
     outLines.push({
       slNo: ln.lineNo || i + 1,
       spareCode: spareFromCode,
@@ -273,6 +307,8 @@ function buildGstLines(
     net: gstResult.netPayable,
     totalQty,
     isInterstate: gstResult.isInterstate,
+    tcsAmount: gstResult.tcsAmount ?? 0,
+    tcsRatePercent: gstResult.tcsRatePercent,
   };
 }
 
@@ -378,6 +414,10 @@ export function buildDemoServiceInvoiceViewModel(
     supply.customerStateCode,
     options?.spareHsnLookup,
     options?.spareGstLookup,
+    false,
+    options?.spareTcsLookup,
+    options?.customerPan,
+    options?.customerGstin,
   );
   const serviceMeta = watchDetailMetaRows(input);
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
@@ -438,6 +478,8 @@ export function buildDemoServiceInvoiceViewModel(
     totalSgst: gst.sgst,
     totalIgst: gst.igst,
     totalTax: gst.tax,
+    tcsAmount: gst.tcsAmount,
+    tcsRatePercent: gst.tcsRatePercent,
     roundOffInr: gst.roundOffInr,
     preRoundOffPayable: gst.preRoundOffPayable,
     netPayable: gst.net,
@@ -448,6 +490,7 @@ export function buildDemoServiceInvoiceViewModel(
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
     invoiceLegalFooter: sellerPack.legalFooter,
+    ...jurisdictionFields(sellerPack, options),
   };
 }
 
@@ -519,6 +562,10 @@ export function mapQuickBillInvoiceToViewModel(
     supply.customerStateCode,
     options?.spareHsnLookup,
     options?.spareGstLookup,
+    false,
+    options?.spareTcsLookup,
+    options?.customerPan,
+    options?.customerGstin,
   );
   const kind = options?.invoiceKind === "service_bill" ? "Service bill" : "Quick Bill";
 
@@ -585,6 +632,8 @@ export function mapQuickBillInvoiceToViewModel(
     totalSgst: gst.sgst,
     totalIgst: gst.igst,
     totalTax: gst.tax,
+    tcsAmount: gst.tcsAmount,
+    tcsRatePercent: gst.tcsRatePercent,
     roundOffInr: gst.roundOffInr,
     preRoundOffPayable: gst.preRoundOffPayable,
     totalQty: gst.totalQty,
@@ -592,6 +641,7 @@ export function mapQuickBillInvoiceToViewModel(
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
     invoiceLegalFooter: sellerPack.legalFooter,
+    ...jurisdictionFields(sellerPack, options),
     irn: inv.edocIrn?.trim() || null,
     ackNo: inv.edocAckNo?.trim() || null,
     einvoiceQr: inv.edocQr?.trim() || null,
@@ -687,6 +737,9 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     options?.spareHsnLookup,
     options?.spareGstLookup,
     Boolean(options?.catalogueTaxInclusiveOnly),
+    options?.spareTcsLookup,
+    options?.customerPan,
+    options?.customerGstin,
   );
   const serviceMeta: { label: string; value: string }[] = [];
   if (input.complaint.trim()) serviceMeta.push({ label: "Complaint", value: input.complaint.trim() });
@@ -760,12 +813,15 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     totalSgst: gst.sgst,
     totalIgst: gst.igst,
     totalTax: gst.tax,
+    tcsAmount: gst.tcsAmount,
+    tcsRatePercent: gst.tcsRatePercent,
     roundOffInr: gst.roundOffInr,
     preRoundOffPayable: gst.preRoundOffPayable,
     totalQty: gst.totalQty,
     taxBreakdownRows: gst.taxRows,
     generatedBy: options?.generatedBy ?? null,
     invoiceLegalFooter: sellerPack.legalFooter,
+    ...jurisdictionFields(sellerPack, options),
     irn: options?.edocIrn?.trim() || null,
     ackNo: options?.edocAckNo?.trim() || null,
     einvoiceQr: options?.edocQr?.trim() || null,
