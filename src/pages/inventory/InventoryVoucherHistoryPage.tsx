@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { IconDetails, IconDoc, IconPrint, tableActionBtnClass, TableActionButton } from "../../components/ui/TableActionIcons";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
@@ -234,22 +235,22 @@ export function InventoryVoucherHistoryPage() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setDetailId((x) => (x === v.id ? null : v.id))}
-                          className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition"
-                        >Details</button>
+                        <TableActionButton label="Details" onClick={() => setDetailId((x) => (x === v.id ? null : v.id))}>
+                          <IconDetails />
+                        </TableActionButton>
                         {isHo && voucherPendingQty(v) > 0 && (v.status === "OPEN" || v.status === "PARTIAL") && (
                           <Link
                             to={`/inventory/po-inward?voucher=${encodeURIComponent(v.id)}`}
-                            className="border border-rlx-green px-2.5 py-1 text-[11px] font-semibold text-rlx-green hover:bg-rlx-green/5 transition"
-                          >GRN</Link>
+                            title="Post GRN"
+                            aria-label="Post GRN"
+                            className={tableActionBtnClass}
+                          >
+                            <IconDoc />
+                          </Link>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => printVoucher(v)}
-                          className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition"
-                        >Print</button>
+                        <TableActionButton label="Print voucher" onClick={() => printVoucher(v)}>
+                          <IconPrint />
+                        </TableActionButton>
                       </div>
                     </td>
                   </tr>

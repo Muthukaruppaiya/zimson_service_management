@@ -8,6 +8,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { buildTransferDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import { modalBtnPrimary, modalBtnSecondary } from "../../lib/appModalStyles";
 
 const inputCls =
@@ -84,6 +85,8 @@ export function InventoryHoStoreTransferPage() {
     transferNumber: string;
     movedQty: number;
     storeName: string;
+    regionName: string;
+    lines: Array<{ description: string; qty: number }>;
   } | null>(null);
   const [lines, setLines] = useState<ExtraLine[]>(() => [newExtraLine()]);
   const [hoStock, setHoStock] = useState<HoStockRow[]>([]);
@@ -183,7 +186,19 @@ export function InventoryHoStoreTransferPage() {
           items: readyLines.map((l) => ({ spareId: l.spareId, qty: l.qtyN })),
         },
       });
-      setResult(data);
+      setResult({
+        transferNumber: data.transferNumber,
+        movedQty: data.movedQty,
+        storeName: data.storeName,
+        regionName,
+        lines: readyLines.map((l) => {
+          const sp = spareById.get(l.spareId);
+          const ho = hoStock.find((r) => r.spareId === l.spareId);
+          const name = sp?.name ?? ho?.name ?? l.spareId;
+          const sku = sp?.sku ?? ho?.sku ?? "";
+          return { description: sku ? `${name} (${sku})` : name, qty: l.qtyN };
+        }),
+      });
       setNotes("");
       setLines([newExtraLine()]);
       await loadHoStock();
@@ -441,6 +456,26 @@ export function InventoryHoStoreTransferPage() {
         onBackdropClick={() => setResult(null)}
         actions={
           <>
+            {result ? (
+              <button
+                type="button"
+                className={modalBtnSecondary}
+                onClick={() =>
+                  openPrintDocument(
+                    `Transfer ${result.transferNumber}`,
+                    buildTransferDocument({
+                      refNumber: result.transferNumber,
+                      date: new Date().toISOString(),
+                      fromLocation: `HO — ${result.regionName}`,
+                      toLocation: `Store — ${result.storeName}`,
+                      lines: result.lines,
+                    }),
+                  )
+                }
+              >
+                Print transfer
+              </button>
+            ) : null}
             <button type="button" className={modalBtnSecondary} onClick={() => setResult(null)}>
               Transfer another
             </button>

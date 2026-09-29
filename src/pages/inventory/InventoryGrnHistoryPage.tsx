@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { IconDetails, IconPrint, IconReturn, TableActionButton } from "../../components/ui/TableActionIcons";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
@@ -399,13 +400,12 @@ export function InventoryGrnHistoryPage() {
                         {new Date(g.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                       </td>
                       <td className="px-5 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-2">
-                          <button type="button"
-                            onClick={() => setSelectedGrn(g)}
-                            className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition">
-                            Details
-                          </button>
-                          <button type="button"
+                        <div className="flex items-center justify-center gap-1.5">
+                          <TableActionButton label="Details" onClick={() => setSelectedGrn(g)}>
+                            <IconDetails />
+                          </TableActionButton>
+                          <TableActionButton
+                            label="Print GRN"
                             onClick={() => openPrintDocument(`GRN ${g.grnNumber}`, buildGrnDocument({
                               grnNumber: g.grnNumber, createdAt: g.createdAt,
                               poNumber: g.poNumber || "Direct", voucherNumber: g.voucherNumber, supplierName: g.supplierName,
@@ -417,15 +417,16 @@ export function InventoryGrnHistoryPage() {
                                 costPrice: i.costPrice, gstRate: i.gstRate, taxAmount: i.taxAmount,
                               })),
                             }))}
-                            className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition">
-                            Print
-                          </button>
+                          >
+                            <IconPrint />
+                          </TableActionButton>
                           {pending > 0 ? (
-                            <button type="button"
+                            <TableActionButton
+                              label="Return to supplier"
                               onClick={() => navigate(`/inventory/purchase-return?grnId=${encodeURIComponent(g.id)}`)}
-                              className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition">
-                              Return
-                            </button>
+                            >
+                              <IconReturn />
+                            </TableActionButton>
                           ) : null}
                         </div>
                       </td>

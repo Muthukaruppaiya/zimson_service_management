@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { IconAmend, IconDetails, IconPrint, TableActionButton } from "../../components/ui/TableActionIcons";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
@@ -326,23 +327,17 @@ export function InventoryPoHistoryPage() {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setDetailPoId((x) => (x === po.id ? null : po.id))}
-                          className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition"
-                        >Details</button>
+                        <TableActionButton label="Details" onClick={() => setDetailPoId((x) => (x === po.id ? null : po.id))}>
+                          <IconDetails />
+                        </TableActionButton>
                         {isHo && canAmendPo(po) && (
-                          <button
-                            type="button"
-                            onClick={() => startAmend(po)}
-                            className="border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 transition"
-                          >Amend</button>
+                          <TableActionButton label="Amend PO" onClick={() => startAmend(po)}>
+                            <IconAmend />
+                          </TableActionButton>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => printPo(po)}
-                          className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition"
-                        >Print</button>
+                        <TableActionButton label="Print PO" onClick={() => printPo(po)}>
+                          <IconPrint />
+                        </TableActionButton>
                       </div>
                     </td>
                   </tr>
@@ -375,7 +370,13 @@ export function InventoryPoHistoryPage() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => printPo(po)} className="border border-white/30 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-white/10 transition">Print</button>
+                  <TableActionButton
+                    label="Print PO"
+                    onClick={() => printPo(po)}
+                    className="border-white/30 bg-white/10 text-white hover:border-white/60 hover:bg-white/20"
+                  >
+                    <IconPrint />
+                  </TableActionButton>
                   <button type="button" onClick={() => setDetailPoId(null)} className="text-white/70 hover:text-white text-xl leading-none">×</button>
                 </div>
               </div>

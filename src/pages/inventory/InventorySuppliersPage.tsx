@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { IconDetails, tableActionBtnClass } from "../../components/ui/TableActionIcons";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
@@ -555,8 +556,8 @@ export function InventorySuppliersPage() {
                       <td key={f.id} className="px-5 py-3 text-stone-600">{formatCustomFieldDisplay(f, s.customFields)}</td>
                     ))}
                     <td className="px-5 py-3 text-center">
-                      <span className="inline-block border border-rlx-rule px-2 py-0.5 text-[10px] font-bold text-stone-500">
-                        View →
+                      <span className={`${tableActionBtnClass} pointer-events-none`} title="View supplier">
+                        <IconDetails />
                       </span>
                     </td>
                     <td className="px-5 py-3 text-center">

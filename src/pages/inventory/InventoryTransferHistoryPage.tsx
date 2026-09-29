@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { IconDetails, IconPrint, TableActionButton } from "../../components/ui/TableActionIcons";
 import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { buildTransferDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 
 type TransferItem = { spareId: string; sku: string; name: string; qty: number };
 
@@ -22,6 +24,23 @@ type TransferRow = {
   createdAt: string;
   items: TransferItem[];
 };
+
+function printTransferRow(row: TransferRow) {
+  const against = row.grnNumber ? ` (against GRN ${row.grnNumber})` : "";
+  openPrintDocument(
+    `Transfer ${row.transferNumber}`,
+    buildTransferDocument({
+      refNumber: row.transferNumber,
+      date: row.createdAt,
+      fromLocation: `HO — ${row.regionName ?? row.regionId ?? "—"}${against}`,
+      toLocation: `Store — ${row.storeName ?? row.storeId ?? "—"}`,
+      lines: row.items.map((it) => ({
+        description: it.sku ? `${it.name} (${it.sku})` : it.name,
+        qty: it.qty,
+      })),
+    }),
+  );
+}
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -48,9 +67,18 @@ function TransferDetailModal({
             <p className="text-[10px] font-bold uppercase tracking-widest text-white/60">Transfer details</p>
             <p className="font-mono text-lg font-bold text-white">{row.transferNumber}</p>
           </div>
-          <button type="button" onClick={onClose} className="text-xl leading-none text-white/60 hover:text-white">
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            <TableActionButton
+              label="Print transfer"
+              onClick={() => printTransferRow(row)}
+              className="border-white/30 bg-white/10 text-white hover:border-white/60 hover:bg-white/20"
+            >
+              <IconPrint />
+            </TableActionButton>
+            <button type="button" onClick={onClose} className="text-xl leading-none text-white/60 hover:text-white">
+              ✕
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-4 border-b border-rlx-rule bg-stone-50 px-6 py-4 text-sm">
           <p>
@@ -265,13 +293,14 @@ export function InventoryTransferHistoryPage() {
                       })}
                     </td>
                     <td className="px-5 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => setSelected(r)}
-                        className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 transition hover:bg-stone-50"
-                      >
-                        Details
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <TableActionButton label="Details" onClick={() => setSelected(r)}>
+                          <IconDetails />
+                        </TableActionButton>
+                        <TableActionButton label="Print transfer" onClick={() => printTransferRow(r)}>
+                          <IconPrint />
+                        </TableActionButton>
+                      </div>
                     </td>
                   </tr>
                 ))}

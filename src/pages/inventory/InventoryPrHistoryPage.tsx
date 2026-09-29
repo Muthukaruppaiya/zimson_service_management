@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { IconDetails, IconPrint, TableActionButton } from "../../components/ui/TableActionIcons";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
@@ -338,13 +339,12 @@ function InventoryPrHistoryBody() {
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex flex-wrap items-center justify-center gap-1.5">
-                          <button
-                            type="button"
+                          <TableActionButton
+                            label="Details"
                             onClick={() => setDetailPrId((x) => (x === pr.id ? null : pr.id))}
-                            className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition"
                           >
-                            Details
-                          </button>
+                            <IconDetails />
+                          </TableActionButton>
                           {isStore && pr.status === "SUBMITTED" && (
                             <button
                               type="button"
@@ -420,8 +420,8 @@ function InventoryPrHistoryBody() {
                   <p className="text-[11px] text-white/60 mt-0.5">{pr.storeName ?? pr.storeId} · {pr.regionName ?? pr.regionId}</p>
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
+                  <TableActionButton
+                    label="Print PR"
                     onClick={() => openPrintDocument(`PR ${pr.prNumber}`, buildPrDocument({
                       prNumber: pr.prNumber, createdAt: pr.createdAt,
                       regionId: pr.regionId, regionName: pr.regionName,
@@ -429,8 +429,10 @@ function InventoryPrHistoryBody() {
                       neededBy: pr.neededBy, notes: pr.notes,
                       lines: pr.items.map((i) => ({ description: spareNameById.get(i.spareId) ?? i.spareId, qty: i.qty, reason: i.reason })),
                     }))}
-                    className="border border-white/30 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-white/10 transition"
-                  >Print</button>
+                    className="border-white/30 bg-white/10 text-white hover:border-white/60 hover:bg-white/20"
+                  >
+                    <IconPrint />
+                  </TableActionButton>
                   <button type="button" onClick={() => setDetailPrId(null)} className="text-white/70 hover:text-white text-xl">×</button>
                 </div>
               </div>

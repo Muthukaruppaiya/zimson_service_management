@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { IconDetails, IconDoc, IconPrint, tableActionBtnClass, TableActionButton } from "../../components/ui/TableActionIcons";
 import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
@@ -392,31 +393,25 @@ export function InventoryPurchaseReturnHistoryPage() {
                         })}
                       </td>
                       <td className="px-5 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex items-center justify-center gap-1.5">
                           {r.supportDocPath ? (
                             <a
                               href={publicMediaUrl(r.supportDocPath)}
                               target="_blank"
                               rel="noreferrer"
-                              className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-rlx-green hover:bg-rlx-green/5 transition"
+                              title="Support document"
+                              aria-label="Support document"
+                              className={tableActionBtnClass}
                             >
-                              Doc
+                              <IconDoc />
                             </a>
                           ) : null}
-                          <button
-                            type="button"
-                            onClick={() => setSelected(r)}
-                            className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition"
-                          >
-                            Details
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => printReturn(r, spareNameById)}
-                            className="border border-rlx-rule px-2.5 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition"
-                          >
-                            Print
-                          </button>
+                          <TableActionButton label="Details" onClick={() => setSelected(r)}>
+                            <IconDetails />
+                          </TableActionButton>
+                          <TableActionButton label="Print return" onClick={() => printReturn(r, spareNameById)}>
+                            <IconPrint />
+                          </TableActionButton>
                         </div>
                       </td>
                     </tr>
