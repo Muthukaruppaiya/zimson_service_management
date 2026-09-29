@@ -16,6 +16,8 @@ import {
   isDirectGrn,
 } from "../../lib/grnMode";
 import { buildGrnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
+import { setPrintSuppliers } from "../../lib/printContext";
+import type { Supplier } from "../../types/supplier";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -55,6 +57,22 @@ function grnPendingQty(items: GrnItem[]) {
 
 function fmt(v: number) {
   return `₹${v.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+}
+
+function printGrn(grn: GrnRow) {
+  openPrintDocument(`GRN ${grn.grnNumber}`, buildGrnDocument({
+    grnNumber: grn.grnNumber, createdAt: grn.createdAt,
+    poNumber: grn.poNumber || "Direct", voucherNumber: grn.voucherNumber,
+    regionId: grn.regionId, supplierId: grn.supplierId, supplierName: grn.supplierName,
+    mode: grn.mode, invoiceNumber: grn.invoiceNumber, invoiceDate: grn.invoiceDate,
+    notes: grn.notes,
+    lines: grn.items.map((i) => ({
+      spareId: i.spareId,
+      description: "",
+      qtyReceived: i.qtyReceived,
+      costPrice: i.costPrice, gstRate: i.gstRate, taxAmount: i.taxAmount,
+    })),
+  }));
 }
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
@@ -178,17 +196,7 @@ function GrnDetailModal({ grn, spareNameById, onClose, onTransfer, onReturn }: {
         )}
         <div className="flex gap-2 border-t border-rlx-rule bg-white px-6 py-4">
           <button type="button"
-            onClick={() => openPrintDocument(`GRN ${grn.grnNumber}`, buildGrnDocument({
-              grnNumber: grn.grnNumber, createdAt: grn.createdAt,
-              poNumber: grn.poNumber || "Direct", voucherNumber: grn.voucherNumber, supplierName: grn.supplierName,
-              mode: grn.mode, invoiceNumber: grn.invoiceNumber, invoiceDate: grn.invoiceDate,
-              notes: grn.notes,
-              lines: grn.items.map((i) => ({
-                description: spareNameById.get(i.spareId) ?? i.spareId,
-                qtyReceived: i.qtyReceived,
-                costPrice: i.costPrice, gstRate: i.gstRate, taxAmount: i.taxAmount,
-              })),
-            }))}
+            onClick={() => printGrn(grn)}
             className="bg-rlx-green px-6 py-2 text-sm font-semibold text-white hover:bg-rlx-green/90 transition">
             Print GRN
           </button>
@@ -241,7 +249,11 @@ export function InventoryGrnHistoryPage() {
   const loadGrns = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await apiJson<{ grns: GrnRow[] }>("/api/inventory/grns");
+      const [data, supData] = await Promise.all([
+        apiJson<{ grns: GrnRow[] }>("/api/inventory/grns"),
+        apiJson<{ suppliers: Supplier[] }>("/api/inventory/suppliers").catch(() => ({ suppliers: [] as Supplier[] })),
+      ]);
+      setPrintSuppliers(supData.suppliers);
       setGrns(data.grns);
     } catch (e) { setErr(e instanceof ApiError ? e.message : "Could not load GRN data."); }
     finally { setLoading(false); }
@@ -406,17 +418,7 @@ export function InventoryGrnHistoryPage() {
                           </TableActionButton>
                           <TableActionButton
                             label="Print GRN"
-                            onClick={() => openPrintDocument(`GRN ${g.grnNumber}`, buildGrnDocument({
-                              grnNumber: g.grnNumber, createdAt: g.createdAt,
-                              poNumber: g.poNumber || "Direct", voucherNumber: g.voucherNumber, supplierName: g.supplierName,
-                              mode: g.mode, invoiceNumber: g.invoiceNumber, invoiceDate: g.invoiceDate,
-                              notes: g.notes,
-                              lines: g.items.map((i) => ({
-                                description: spareNameById.get(i.spareId) ?? i.spareId,
-                                qtyReceived: i.qtyReceived,
-                                costPrice: i.costPrice, gstRate: i.gstRate, taxAmount: i.taxAmount,
-                              })),
-                            }))}
+                            onClick={() => printGrn(g)}
                           >
                             <IconPrint />
                           </TableActionButton>

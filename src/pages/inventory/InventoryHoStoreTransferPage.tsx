@@ -86,7 +86,10 @@ export function InventoryHoStoreTransferPage() {
     movedQty: number;
     storeName: string;
     regionName: string;
-    lines: Array<{ description: string; qty: number }>;
+    regionId: string;
+    storeId: string;
+    notes: string;
+    lines: Array<{ spareId: string; description: string; sku: string; qty: number }>;
   } | null>(null);
   const [lines, setLines] = useState<ExtraLine[]>(() => [newExtraLine()]);
   const [hoStock, setHoStock] = useState<HoStockRow[]>([]);
@@ -191,12 +194,18 @@ export function InventoryHoStoreTransferPage() {
         movedQty: data.movedQty,
         storeName: data.storeName,
         regionName,
+        regionId,
+        storeId,
+        notes,
         lines: readyLines.map((l) => {
           const sp = spareById.get(l.spareId);
           const ho = hoStock.find((r) => r.spareId === l.spareId);
-          const name = sp?.name ?? ho?.name ?? l.spareId;
-          const sku = sp?.sku ?? ho?.sku ?? "";
-          return { description: sku ? `${name} (${sku})` : name, qty: l.qtyN };
+          return {
+            spareId: l.spareId,
+            description: sp?.name ?? ho?.name ?? l.spareId,
+            sku: sp?.sku ?? ho?.sku ?? "",
+            qty: l.qtyN,
+          };
         }),
       });
       setNotes("");
@@ -466,8 +475,12 @@ export function InventoryHoStoreTransferPage() {
                     buildTransferDocument({
                       refNumber: result.transferNumber,
                       date: new Date().toISOString(),
-                      fromLocation: `HO — ${result.regionName}`,
-                      toLocation: `Store — ${result.storeName}`,
+                      fromLocation: result.regionName,
+                      toLocation: result.storeName,
+                      regionId: result.regionId,
+                      storeId: result.storeId,
+                      notes: result.notes,
+                      preparedBy: user?.displayName,
                       lines: result.lines,
                     }),
                   )

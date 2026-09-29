@@ -7,6 +7,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { buildPurchaseReturnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
+import { setPrintSuppliers } from "../../lib/printContext";
+import type { Supplier } from "../../types/supplier";
 import { publicMediaUrl } from "../../lib/mediaUrl";
 import { purchaseReturnReasonLabel } from "../../lib/purchaseReturn";
 
@@ -78,12 +80,15 @@ function printReturn(row: ReturnRow, spareNameById: Map<string, string>) {
       returnDate: row.returnDate,
       grnNumber: row.grnNumber,
       poNumber: row.poNumber,
+      regionId: row.regionId,
+      supplierId: row.supplierId,
       supplierName: row.supplierName,
       reason: purchaseReturnReasonLabel(row.reason),
       debitNoteNumber: row.debitNoteNumber,
       notes: row.notes,
       lines: row.items.map((i) => ({
-        description: spareNameById.get(i.spareId) ?? i.spareId,
+        spareId: i.spareId,
+        description: spareNameById.has(i.spareId) ? "" : i.spareId,
         qtyReturned: i.qtyReturned,
         costPrice: i.costPrice,
         gstRate: i.gstRate,
@@ -253,7 +258,11 @@ export function InventoryPurchaseReturnHistoryPage() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await apiJson<{ purchaseReturns: ReturnRow[] }>("/api/inventory/purchase-returns");
+      const [data, supData] = await Promise.all([
+        apiJson<{ purchaseReturns: ReturnRow[] }>("/api/inventory/purchase-returns"),
+        apiJson<{ suppliers: Supplier[] }>("/api/inventory/suppliers").catch(() => ({ suppliers: [] as Supplier[] })),
+      ]);
+      setPrintSuppliers(supData.suppliers);
       setRows(data.purchaseReturns);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not load purchase returns.");

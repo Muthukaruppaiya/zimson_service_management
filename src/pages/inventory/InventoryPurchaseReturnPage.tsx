@@ -6,6 +6,8 @@ import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { GRN_DOC_ACCEPT, grnDocNumberLabel, isAllowedGrnDocument } from "../../lib/grnMode";
 import { buildPurchaseReturnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
+import { setPrintSuppliers } from "../../lib/printContext";
+import type { Supplier } from "../../types/supplier";
 import { PURCHASE_RETURN_REASONS, purchaseReturnReasonLabel, type PurchaseReturnReason } from "../../lib/purchaseReturn";
 
 const inputCls =
@@ -121,7 +123,11 @@ export function InventoryPurchaseReturnPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const data = await apiJson<{ grns: EligibleGrn[] }>("/api/inventory/purchase-returns/eligible-grns");
+      const [data, supData] = await Promise.all([
+        apiJson<{ grns: EligibleGrn[] }>("/api/inventory/purchase-returns/eligible-grns"),
+        apiJson<{ suppliers: Supplier[] }>("/api/inventory/suppliers").catch(() => ({ suppliers: [] as Supplier[] })),
+      ]);
+      setPrintSuppliers(supData.suppliers);
       setGrns(data.grns);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not load returnable GRNs.");
@@ -228,12 +234,17 @@ export function InventoryPurchaseReturnPage() {
           returnDate,
           grnNumber: selectedGrn.grnNumber,
           poNumber: selectedGrn.poNumber || "Direct",
+          regionId: selectedGrn.regionId,
+          supplierId: selectedGrn.supplierId,
           supplierName: selectedGrn.supplierName,
+          preparedBy: user?.displayName,
           reason: purchaseReturnReasonLabel(reason),
           debitNoteNumber: debitNoteNumber.trim() || null,
           notes: notes.trim(),
           lines: lines.map((l) => ({
-            description: `${l.item.name} (${l.item.sku})`,
+            spareId: l.item.spareId,
+            description: l.item.name,
+            sku: l.item.sku,
             qtyReturned: l.qty,
             costPrice: l.item.costPrice,
             gstRate: l.item.gstRate,

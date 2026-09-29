@@ -9,6 +9,7 @@ import {
 } from "react";
 import { ApiError, apiJson, useApiMode } from "../lib/api";
 import { createId } from "../lib/id";
+import { setPrintSpares } from "../lib/printContext";
 import { STORAGE_SPARES } from "../lib/storageKeys";
 import type { CreateSpareInput, SparePart, UpdateSparePatch } from "../types/spare";
 import { normalizeAltName, normalizeAltSku, optionalMasterText, spareSkuBrandKey, normalizeEanNumber } from "../lib/spareIdentity";
@@ -75,6 +76,10 @@ export function SparesProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [api, authReady, user?.id]);
+
+  useEffect(() => {
+    setPrintSpares(spares);
+  }, [spares]);
 
   const addSpare = useCallback(
     async (input: CreateSpareInput): Promise<{ ok: SparePart } | { error: string }> => {

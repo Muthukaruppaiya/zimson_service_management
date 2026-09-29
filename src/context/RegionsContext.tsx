@@ -11,6 +11,7 @@ import { type RegionAddressBlock, type SeedRegion, type SeedStore, type SeedWare
 export type { RegionAddressBlock };
 import { apiJson, useApiMode } from "../lib/api";
 import { createId } from "../lib/id";
+import { setPrintRegions } from "../lib/printContext";
 import { STORAGE_REGIONS } from "../lib/storageKeys";
 import { useAuth } from "./AuthContext";
 
@@ -103,6 +104,10 @@ export function RegionsProvider({ children }: { children: ReactNode }) {
     if (api) return;
     localStorage.setItem(STORAGE_REGIONS, JSON.stringify(regions));
   }, [api, regions]);
+
+  useEffect(() => {
+    setPrintRegions(regions);
+  }, [regions]);
 
   const addRegion = useCallback(
     async (payload: RegionUpsertPayload): Promise<void> => {

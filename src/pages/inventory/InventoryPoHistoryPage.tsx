@@ -184,22 +184,24 @@ export function InventoryPoHistoryPage() {
     const supplier = suppliers.find((s) => s.id === po.supplierId);
     openPrintDocument(`PO ${po.poNumber}`, buildPurchaseOrderDocument({
       poNumber: po.poNumber, poDate: po.createdAt,
-      prNumber: po.prNumber ?? null,
+      prNumber: poPrReference(po) === "—" ? null : poPrReference(po),
+      regionId: po.regionId,
+      supplierId: po.supplierId,
       supplier: {
-        name: supplier?.name ?? po.supplierName, phone: supplier?.phone ?? undefined,
-        email: supplier?.email ?? undefined, address: supplier?.address ?? undefined, gstin: supplier?.gst ?? undefined,
+        name: supplier?.name ?? po.supplierName, phone: supplier?.phone,
+        email: supplier?.email, address: supplier?.address, gstin: supplier?.gst,
       },
-      shipTo: { name: `Store ${po.storeName ?? po.storeId ?? "-"} · Region ${po.regionName ?? po.regionId}` },
-      notes: po.notes, requestedBy: user?.displayName ?? "-", requisitioner: user?.displayName ?? "-",
-      shippedVia: "Road", fobPoint: "Destination", terms: "As per agreed rates and delivery schedule",
+      shipTo: { name: po.storeName ?? po.regionName ?? po.regionId },
+      shipToStoreId: po.storeId ?? null,
+      status: PO_STATUS_LABEL[po.status] ?? po.status,
+      notes: po.notes, requestedBy: user?.displayName ?? undefined, requisitioner: user?.displayName ?? undefined,
+      shippedVia: "Road", fobPoint: "Door delivery", terms: "As per agreed rates and delivery schedule",
       lines: po.items.map((i) => ({
-        description: [
-          i.productName || spareLabel.get(i.spareId) || i.spareId,
-          i.partCode,
-          i.brand,
-          i.hsn ? `HSN ${i.hsn}` : null,
-        ].filter(Boolean).join(" · "),
-        qty: i.qtyOrdered, unit: i.uom || "Nos", unitPrice: i.unitPrice,
+        spareId: i.spareId,
+        description: i.productName || spareLabel.get(i.spareId) || i.spareId,
+        sku: i.partCode, brand: i.brand, hsn: i.hsn, uom: i.uom,
+        qty: i.qtyOrdered, unitPrice: i.unitPrice, gstRate: i.gstRate,
+        taxAmount: (i.cgstAmount ?? 0) + (i.sgstAmount ?? 0) + (i.igstAmount ?? 0),
       })),
     }));
   }

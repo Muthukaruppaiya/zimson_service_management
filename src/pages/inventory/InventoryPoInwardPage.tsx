@@ -21,6 +21,7 @@ import {
   type GrnMode,
 } from "../../lib/grnMode";
 import { buildGrnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
+import { setPrintSuppliers } from "../../lib/printContext";
 import { DEFAULT_LINE_GST_PERCENT } from "../../lib/serviceBillGst";
 import { taxPersonTypeFromGstin } from "../../lib/supplierGstFill";
 import type { PurchaseOrder } from "../../types/purchaseOrder";
@@ -256,6 +257,7 @@ export function InventoryPoInwardPage() {
       ]);
       setPos(poData.pos);
       setSuppliers(supData.suppliers);
+      setPrintSuppliers(supData.suppliers);
       setVouchers(voucherData.vouchers);
     } catch (e) { setErr(e instanceof ApiError ? e.message : "Could not load data."); }
   }, []);
@@ -411,9 +413,11 @@ export function InventoryPoInwardPage() {
       openPrintDocument(`GRN ${data.grnNumber}`, buildGrnDocument({
         grnNumber: data.grnNumber, createdAt: new Date().toISOString(),
         poNumber: selectedPo.poNumber, supplierName: selectedPo.supplierName,
+        regionId: selectedPo.regionId, supplierId: selectedPo.supplierId, receivedBy: user?.displayName,
         mode, invoiceNumber: docNumber,
         invoiceDate: docDate, notes: notes.trim(),
         lines: lines.map((l) => ({
+          spareId: l.spareId,
           description: spareById.get(l.spareId)?.name ?? l.spareId,
           qtyReceived: l.qtyReceived,
           costPrice: l.costPrice,
@@ -501,9 +505,11 @@ export function InventoryPoInwardPage() {
       openPrintDocument(`GRN ${data.grnNumber}`, buildGrnDocument({
         grnNumber: data.grnNumber, createdAt: new Date().toISOString(),
         poNumber: "Direct", supplierName,
+        regionId, supplierId, receivedBy: user?.displayName,
         mode, invoiceNumber: invoiceNumber.trim() || null,
         invoiceDate: invoiceDate || null, notes: notes.trim(),
         lines: lines.map((l) => ({
+          spareId: l.spareId,
           description: spareById.get(l.spareId)?.name ?? l.spareId,
           qtyReceived: l.qtyReceived,
           costPrice: l.costPrice,
@@ -570,9 +576,11 @@ export function InventoryPoInwardPage() {
       openPrintDocument(`GRN ${data.grnNumber}`, buildGrnDocument({
         grnNumber: data.grnNumber, createdAt: new Date().toISOString(),
         poNumber: "Direct", voucherNumber: selectedVoucher.voucherNumber, supplierName: selectedVoucher.supplierName,
+        regionId: selectedVoucher.regionId, supplierId: selectedVoucher.supplierId, receivedBy: user?.displayName,
         mode: "WITHOUT_BILL", invoiceNumber: selectedVoucher.invoiceNumber,
         invoiceDate: selectedVoucher.invoiceDate, notes: notes.trim(),
         lines: lines.map((l) => ({
+          spareId: l.spareId,
           description: spareById.get(l.spareId)?.name ?? l.spareId,
           qtyReceived: l.qtyReceived,
           costPrice: l.costPrice,

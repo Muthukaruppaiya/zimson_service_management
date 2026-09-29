@@ -1,5 +1,7 @@
 import { documentBarcodeImageSrc } from "./invoiceScanCodes";
-import { openPrintDocument } from "./inventoryDocuments";
+import { openPrintDocument, standardDoc } from "./inventoryDocuments";
+import { inrAmountToWords } from "./inrAmountToWords";
+import { printSpare } from "./printContext";
 import { getAppLogoUrl } from "./appBranding";
 import { POPPINS_FONT_CSS, POPPINS_GOOGLE_HEAD } from "./appFonts";
 import type { AdvancePaymentDetails } from "./paymentModes";
@@ -1087,7 +1089,7 @@ export function printTransferFromMeta(
     hoInvoiceRef?: string;
     storeInvoiceRef?: string;
     preparedBy?: string;
-    transferDate?: Date;
+    transferDate?: Date | string | null;
     direction?: "IN" | "OUT";
   },
 ): void {
@@ -1919,7 +1921,7 @@ export function printBrandDispatchDocument(job: SrfJob, payload?: { dispatchRef?
       (x, idx) =>
         `<tr>
           <td class="c">${idx + 1}</td>
-          <td class="mono">${escHtml(x.spareId ?? "—")}</td>
+          <td class="mono">${escHtml(printSpare(x.spareId)?.sku ?? "—")}</td>
           <td>${escHtml(x.name)}</td>
           <td class="c">${escHtml(String(Number(x.qty ?? 0)))}</td>
           <td class="amt">${escHtml(Number(x.unitPriceInr ?? 0).toFixed(2))}</td>
@@ -2026,111 +2028,109 @@ export function printEstimateDocument(
     suggestedRepairs?: Partial<Record<"movementOverhaul" | "polishing" | "waterKit" | "bezel" | "crownStem" | "glassCrystal" | "dialHands", string>>;
   },
 ): void {
-  const spareRows = (job.usedSpares ?? [])
-    .map(
-      (x) =>
-        `<tr>
-          <td style="padding:6px;border:1px solid #111">A</td>
-          <td style="padding:6px;border:1px solid #111">${x.name}</td>
-          <td style="padding:6px;border:1px solid #111;text-align:right">INR ${Number(x.lineTotalInr ?? Number(x.unitPriceInr ?? 0) * Number(x.qty ?? 0)).toFixed(2)}</td>
-        </tr>`,
-    )
-    .join("");
+  const d = standardDoc;
+  const spares = (job.usedSpares ?? []).map((x) => {
+    const qty = Number(x.qty ?? 0) || 0;
+    const rate = Number(x.unitPriceInr ?? 0) || 0;
+    const line = x.lineTotalInr != null && Number.isFinite(Number(x.lineTotalInr)) ? Number(x.lineTotalInr) : rate * qty;
+    return { ...x, qty, rate, line, sku: printSpare(x.spareId)?.sku ?? "" };
+  });
   const baseRepair = Number(job.estimateTotalInr ?? 0);
-  const spareTotal = (job.usedSpares ?? []).reduce((sum, x) => {
-    const lineTotal = Number(x.lineTotalInr ?? NaN);
-    if (Number.isFinite(lineTotal)) return sum + lineTotal;
-    return sum + Number(x.unitPriceInr ?? 0) * Number(x.qty ?? 0);
-  }, 0);
-  const mandatoryRepair = Math.max(baseRepair - spareTotal, 0);
+  const spareTotal = spares.reduce((s, x) => s + x.line, 0);
+  const labour = Math.max(baseRepair - spareTotal, 0);
   const obs = payload?.observations ?? {};
   const repairs = payload?.suggestedRepairs ?? {};
-  const html = base(
-    `Estimate ${job.reference}`,
-    `${barcodeBlock(job.reference)}
-     <h2 style="margin:0 0 6px">WATCH OBSERVATION &amp; SERVICE ESTIMATION</h2>
-     <table style="width:100%;border-collapse:collapse;margin-top:10px" border="1" cellspacing="0" cellpadding="6">
-       <tbody>
-         <tr><td><strong>SRF No</strong></td><td>${job.reference}</td><td><strong>Date of Estimation</strong></td><td>${new Date().toLocaleDateString()}</td></tr>
-         <tr><td><strong>Customer</strong></td><td>${job.customerName}</td><td><strong>Phone</strong></td><td>${job.phone}</td></tr>
-         <tr><td><strong>Brand</strong></td><td>${job.watchBrand}</td><td><strong>Model</strong></td><td>${job.watchModel}</td></tr>
-         <tr><td><strong>Serial Number</strong></td><td>${job.serial}</td><td><strong>Service Ref</strong></td><td>${job.reference}</td></tr>
-        <tr><td><strong>Estimated service finish</strong></td><td>${job.estimatedFinishDate || "-"}</td><td><strong></strong></td><td></td></tr>
-       </tbody>
-     </table>
+  const issuer = job.storeId ? d.storeParty(job.storeId, job.storeName) : d.hoParty(job.regionId, job.regionName);
+  const today = new Date().toISOString();
 
-     <h3 style="margin:14px 0 6px">Watch Condition / Observation</h3>
-     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
-       <thead><tr><th>Component</th><th>Condition / Observation</th></tr></thead>
-       <tbody>
-         <tr><td>Case / Crystal</td><td>${obs.caseCrystal || job.complaint || "-"}</td></tr>
-         <tr><td>Glass / Crystal</td><td>${obs.glassCrystal || "-"}</td></tr>
-         <tr><td>Strap / Bracelet</td><td>${obs.strapBracelet || "-"}</td></tr>
-         <tr><td>Hands</td><td>${obs.hands || "-"}</td></tr>
-         <tr><td>Crown / Pushers</td><td>${obs.crownPushers || "-"}</td></tr>
-         <tr><td>Movement</td><td>${obs.movement || "-"}</td></tr>
-         <tr><td>Water resistance</td><td>${obs.waterResistance || "-"}</td></tr>
-         <tr><td>Additional notes</td><td>${obs.additionalNotes || job.complaint || "-"}</td></tr>
-       </tbody>
-     </table>
+  const obsRows: Array<[string, string | undefined]> = [
+    ["Case", obs.caseCrystal],
+    ["Glass / crystal", obs.glassCrystal],
+    ["Strap / bracelet", obs.strapBracelet],
+    ["Hands", obs.hands],
+    ["Crown / pushers", obs.crownPushers],
+    ["Movement", obs.movement],
+    ["Water resistance", obs.waterResistance],
+    ["Additional notes", obs.additionalNotes],
+  ];
+  const repairRows: Array<[string, string | undefined]> = [
+    ["Movement overhaul", repairs.movementOverhaul],
+    ["Polishing (case / bracelet)", repairs.polishing],
+    ["Water resistance kit", repairs.waterKit],
+    ["Bezel", repairs.bezel],
+    ["Crown / stem", repairs.crownStem],
+    ["Glass / crystal", repairs.glassCrystal],
+    ["Dial / hands", repairs.dialHands],
+  ];
+  const twoCol = (head: string, rows: Array<[string, string | undefined]>) => `<table class="lines">
+      <thead><tr><th style="width:38%">${d.esc(head)}</th><th>Condition / remarks</th></tr></thead>
+      <tbody>${rows
+        .map(([k, v]) => `<tr><td class="b">${d.esc(k)}</td><td>${v?.trim() ? d.esc(v) : "—"}</td></tr>`)
+        .join("")}</tbody>
+    </table>`;
 
-     <h3 style="margin:14px 0 6px">Suggested Repairs</h3>
-     <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
-       <thead><tr><th>Repair / Service Item</th><th>Remarks</th></tr></thead>
-       <tbody>
-         <tr><td>Movement overhaul</td><td>${repairs.movementOverhaul || "-"}</td></tr>
-         <tr><td>Polishing (Case / Bracelet)</td><td>${repairs.polishing || "-"}</td></tr>
-         <tr><td>Replace water resistant kit</td><td>${repairs.waterKit || "-"}</td></tr>
-         <tr><td>Replace bezel</td><td>${repairs.bezel || "-"}</td></tr>
-         <tr><td>Replace Crown / Stem</td><td>${repairs.crownStem || "-"}</td></tr>
-         <tr><td>Replace Glass / Crystal</td><td>${repairs.glassCrystal || "-"}</td></tr>
-         <tr><td>Replace Dial / Hands</td><td>${repairs.dialHands || "-"}</td></tr>
-       </tbody>
-     </table>
+  const costRows = [
+    `<tr><td class="c">1</td><td><div class="it-name">Service / labour charges</div></td><td class="c">—</td><td class="r">1</td><td class="r">${d.formatMoney(labour)}</td><td class="r b">${d.formatMoney(labour)}</td></tr>`,
+    ...spares.map(
+      (x, i) => `<tr>
+        <td class="c">${i + 2}</td>
+        <td><div class="it-name">${d.esc(x.name)}</div>${x.includedInPackage ? `<div class="it-sub">Included in service package</div>` : ""}</td>
+        <td class="c mono">${x.sku ? d.esc(x.sku) : "—"}</td>
+        <td class="r">${x.qty}</td>
+        <td class="r">${d.formatMoney(x.rate)}</td>
+        <td class="r b">${d.formatMoney(x.line)}</td>
+      </tr>`,
+    ),
+  ].join("");
 
-     <h3 style="margin:14px 0 6px">Service Cost Breakdown</h3>
-     <table style="width:100%;border-collapse:collapse" cellspacing="0" cellpadding="0">
-       <tbody>
-         <tr>
-           <td style="width:100%;vertical-align:top">
-             <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="6">
-               <thead><tr><th style="width:80px">Mandatory Repair (A)</th><th>Description</th><th style="width:180px">Amount (INR)</th></tr></thead>
-               <tbody>
-                 <tr><td style="border:1px solid #111;padding:6px">A</td><td style="border:1px solid #111;padding:6px">Service / Labour</td><td style="border:1px solid #111;padding:6px;text-align:right">INR ${mandatoryRepair.toFixed(2)}</td></tr>
-                 ${spareRows || '<tr><td style="border:1px solid #111;padding:6px">A</td><td style="border:1px solid #111;padding:6px">Spare parts</td><td style="border:1px solid #111;padding:6px;text-align:right">INR 0.00</td></tr>'}
-                 <tr><td colspan="2" style="border:1px solid #111;padding:6px;text-align:right"><strong>TOTAL (A)</strong></td><td style="border:1px solid #111;padding:6px;text-align:right"><strong>INR ${baseRepair.toFixed(2)}</strong></td></tr>
-               </tbody>
-             </table>
-             <table style="width:100%;border-collapse:collapse;margin-top:6px" border="1" cellspacing="0" cellpadding="6">
-               <thead><tr><th style="width:80px">Optional Repair (B)</th><th>Description</th><th style="width:180px">Amount (INR)</th></tr></thead>
-               <tbody>
-                 <tr><td style="border:1px solid #111;padding:6px">B</td><td style="border:1px solid #111;padding:6px">-</td><td style="border:1px solid #111;padding:6px;text-align:right">INR 0.00</td></tr>
-                 <tr><td colspan="2" style="border:1px solid #111;padding:6px;text-align:right"><strong>TOTAL (B)</strong></td><td style="border:1px solid #111;padding:6px;text-align:right"><strong>INR 0.00</strong></td></tr>
-               </tbody>
-             </table>
-           </td>
-         </tr>
-       </tbody>
-     </table>
-
-     <div style="margin-top:10px;border:1px solid #111;padding:8px;text-align:right"><strong>Total Estimated Cost (approximate) (A+B): Approximate INR ${baseRepair.toFixed(2)}</strong></div>
-     <div style="margin-top:8px;font-size:12px"><strong>Rupees:</strong> ${baseRepair.toLocaleString("en-IN")} only</div>
-
-     <h3 style="margin:14px 0 6px">Terms and Conditions</h3>
-     <ol style="margin:0;padding-left:18px;font-size:12px;line-height:1.45">
-       <li>The estimation provided is an approximate cost. Final cost may vary based on actual condition.</li>
-       <li>Customer approval is required before initiating service.</li>
-       <li>Any additional faults found during service will be informed with revised cost.</li>
-       <li>Watch should be collected within 30 days after service completion.</li>
-       <li>Replaced parts will be discarded unless requested at submission time.</li>
-       <li>Functional warranty is applicable only for serviced components.</li>
-       <li>Computer-generated document; physical signature may be captured where needed.</li>
-     </ol>
-
-     <div style="margin-top:26px">Customer Signature: ____________________________</div>
-     <div style="margin-top:16px">Date: ____________________________</div>
-     <div style="margin-top:16px">Authorized Personnel: ____________________________</div>`,
-  );
+  const html = d.wrap(`
+    ${d.header({ title: "Service Estimate", docNo: job.reference, docDate: today, issuer, subtitle: "Watch observation & approximate cost" })}
+    <div class="accent"></div>
+    ${d.meta([
+      ["SRF No.", job.reference],
+      ["Estimate date", d.formatDate(today)],
+      ["Booked on", d.formatDate(job.createdAt)],
+      ["Est. completion", d.formatDate(job.estimatedFinishDate ?? null)],
+      ["Customer", job.customerName],
+      ["Mobile", job.phone],
+      ["Watch", `${job.watchBrand ?? ""} ${job.watchModel ?? ""}`.trim()],
+      ["Serial no.", job.serial],
+    ])}
+    ${job.complaint?.trim() ? d.notes([["Customer complaint", job.complaint]]) : ""}
+    <div class="parties cols-2">
+      <div>${twoCol("Component", obsRows)}</div>
+      <div>${twoCol("Suggested repair", repairRows)}</div>
+    </div>
+    <table class="lines">
+      <thead><tr>
+        <th class="c" style="width:26px">#</th><th>Description</th><th class="c" style="width:110px">Part no.</th>
+        <th class="r" style="width:44px">Qty</th><th class="r" style="width:90px">Rate (₹)</th><th class="r" style="width:100px">Amount (₹)</th>
+      </tr></thead>
+      <tbody>${costRows}</tbody>
+      <tfoot><tr><td></td><td class="b" colspan="4">Total estimated cost (approximate)</td><td class="r b">${d.formatMoney(baseRepair)}</td></tr></tfoot>
+    </table>
+    <div class="sum">
+      <div class="sum-words"><div class="meta-k">Amount in words</div><div class="words">${d.esc(inrAmountToWords(baseRepair))}</div></div>
+      <table class="sum-t"><tbody>
+        ${Number(job.advanceInr ?? 0) > 0 ? `<tr><td>Advance received</td><td class="r">${d.formatMoney(Number(job.advanceInr))}</td></tr>` : ""}
+        <tr class="grand"><td>Approx. total</td><td class="r">₹ ${d.formatMoney(baseRepair)}</td></tr>
+      </tbody></table>
+    </div>
+    ${d.notes([
+      [
+        "Terms & conditions",
+        [
+          "1. This estimate is approximate. Final cost may vary based on the actual condition found during service.",
+          "2. Customer approval is required before the service is started.",
+          "3. Any additional fault found during service will be informed with a revised estimate.",
+          "4. Please collect the watch within 30 days of service completion.",
+          "5. Replaced parts will be discarded unless requested at the time of booking.",
+          "6. Warranty applies only to the serviced components.",
+        ].join("\n"),
+      ],
+    ])}
+    ${d.signatures(["Customer signature", "Service advisor", "Authorised signatory"], d.companyName())}
+  `);
   openPrintDocument(`Estimate ${job.reference}`, html);
 }
 

@@ -26,16 +26,21 @@ type TransferRow = {
 };
 
 function printTransferRow(row: TransferRow) {
-  const against = row.grnNumber ? ` (against GRN ${row.grnNumber})` : "";
   openPrintDocument(
     `Transfer ${row.transferNumber}`,
     buildTransferDocument({
       refNumber: row.transferNumber,
       date: row.createdAt,
-      fromLocation: `HO — ${row.regionName ?? row.regionId ?? "—"}${against}`,
-      toLocation: `Store — ${row.storeName ?? row.storeId ?? "—"}`,
+      fromLocation: row.regionName ?? row.regionId ?? "HO",
+      toLocation: row.storeName ?? row.storeId ?? "Store",
+      regionId: row.regionId,
+      storeId: row.storeId,
+      grnNumber: row.grnNumber,
+      notes: row.note,
       lines: row.items.map((it) => ({
-        description: it.sku ? `${it.name} (${it.sku})` : it.name,
+        spareId: it.spareId,
+        description: it.name,
+        sku: it.sku,
         qty: it.qty,
       })),
     }),

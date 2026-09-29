@@ -104,6 +104,9 @@ export function InventoryVoucherHistoryPage() {
       voucherDate: v.createdAt,
       invoiceNumber: v.invoiceNumber,
       invoiceDate: v.invoiceDate,
+      regionId: v.regionId,
+      supplierId: v.supplierId,
+      status: STATUS_LABEL[v.status] ?? v.status,
       supplier: {
         name: v.supplierName,
         address: supplier?.address,
@@ -114,10 +117,13 @@ export function InventoryVoucherHistoryPage() {
       shipTo: { name: v.regionName ?? v.regionId },
       notes: v.notes,
       lines: v.items.map((i) => ({
-        description: [spareLabel.get(i.spareId) ?? i.productName ?? i.spareId, i.partCode, i.hsn].filter(Boolean).join(" · "),
+        spareId: i.spareId,
+        description: i.productName || spareLabel.get(i.spareId) || i.spareId,
+        sku: i.partCode, brand: i.brand, hsn: i.hsn, uom: i.uom,
         qty: i.qtyOrdered,
-        unit: i.uom || "Nos",
         unitPrice: i.unitPrice,
+        gstRate: i.gstRate,
+        taxAmount: (i.cgstAmount ?? 0) + (i.sgstAmount ?? 0) + (i.igstAmount ?? 0),
       })),
     }));
   }

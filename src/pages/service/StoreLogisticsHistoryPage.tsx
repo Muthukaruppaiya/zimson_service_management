@@ -6,7 +6,7 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
-import { isArchivedSrfJob, jobVisibleToStoreUser } from "../../lib/srfAccess";
+import { isArchivedSrfJob, jobMatchesRoleScope } from "../../lib/srfAccess";
 import { printTransferFromMeta } from "../../lib/serviceDocuments";
 import { resolveHoToStorePrint, resolveStoreToHoPrint } from "../../lib/transferDocumentKind";
 import type { SrfJob } from "../../types/srfJob";
@@ -160,6 +160,34 @@ function lifecycleBadge(row: StoreHistoryRow) {
   );
 }
 
+const OUTWARD_STATUSES = new Set([
+  "pending_ho_transit",
+  "in_transit_sc",
+  "awaiting_sc_inward",
+]);
+const INWARD_STATUSES = new Set([
+  "pending_store_transit",
+  "dispatched_to_store",
+  "awaiting_store_inward",
+  "received_at_store",
+]);
+
+function jobHasOutward(j: SrfJob, storeId: string | null): boolean {
+  if (storeId && j.storeId !== storeId) return false;
+  if (j.dcNumber || j.dispatchedToScAt) return true;
+  if (OUTWARD_STATUSES.has(j.status)) return true;
+  if (j.inwardAt) return true;
+  return false;
+}
+
+function jobHasInward(j: SrfJob, storeId: string | null): boolean {
+  const isDest = !storeId || j.destinationStoreId === storeId || j.storeId === storeId;
+  if (!isDest) return false;
+  if (j.outwardDcNumber || j.dispatchedToStoreAt || j.receivedBackAtStoreAt) return true;
+  if (INWARD_STATUSES.has(j.status)) return true;
+  return false;
+}
+
 export function StoreLogisticsHistoryPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
@@ -171,34 +199,36 @@ export function StoreLogisticsHistoryPage() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<StoreHistoryRow | null>(null);
+  const [storeFilter, setStoreFilter] = useState(user?.storeId ?? "");
   const pageSize = 12;
 
-  const storeId = user?.storeId ?? "";
+  const lockedStoreId = (user?.storeId ?? "").trim();
+  const storeId = (lockedStoreId || storeFilter).trim();
 
-  const regionForStore = useMemo(
-    () => regions.find((r) => r.stores.some((s) => s.id === storeId)),
-    [regions, storeId],
-  );
+  const regionForStore = useMemo(() => {
+    if (storeId) return regions.find((r) => r.stores.some((s) => s.id === storeId)) ?? null;
+    return regions.find((r) => r.id === user?.regionId) ?? regions[0] ?? null;
+  }, [regions, storeId, user?.regionId]);
   const storeRecord = useMemo(
-    () => regionForStore?.stores.find((s) => s.id === storeId),
+    () => (storeId ? regionForStore?.stores.find((s) => s.id === storeId) ?? null : null),
     [regionForStore, storeId],
   );
+  const storeOptions = useMemo(() => {
+    const region = regions.find((r) => r.id === user?.regionId) ?? regionForStore;
+    return region?.stores ?? regions.flatMap((r) => r.stores);
+  }, [regions, user?.regionId, regionForStore]);
 
   const visibleJobs = useMemo(() => {
     if (!user) return [];
-    return jobs.filter((j) => !isArchivedSrfJob(j) && jobVisibleToStoreUser(j, user));
+    return jobs.filter((j) => !isArchivedSrfJob(j) && jobMatchesRoleScope(j, user));
   }, [jobs, user]);
 
   const historyRows = useMemo((): StoreHistoryRow[] => {
-    if (!user?.storeId) return [];
+    const sid = storeId || null;
     const rows: StoreHistoryRow[] = [];
     for (const j of visibleJobs) {
-      const isOriginStore = j.storeId === user.storeId;
-      const isDestStore = j.destinationStoreId === user.storeId;
-      const hasOutward = isOriginStore && Boolean(j.dcNumber || j.dispatchedToScAt);
-      const hasInward =
-        isDestStore && Boolean(j.outwardDcNumber || j.dispatchedToStoreAt || j.receivedBackAtStoreAt);
-
+      const hasOutward = jobHasOutward(j, sid);
+      const hasInward = jobHasInward(j, sid);
       if (!hasOutward && !hasInward) continue;
 
       let dir: StoreHistoryRow["direction"] = "outward";
@@ -206,7 +236,7 @@ export function StoreLogisticsHistoryPage() {
       else if (hasInward) dir = "inward";
 
       const transferNo =
-        dir === "inward" ? (j.outwardDcNumber ?? "") : (j.dcNumber ?? j.outwardDcNumber ?? "");
+        dir === "inward" ? (j.outwardDcNumber ?? j.dcNumber ?? "") : (j.dcNumber ?? j.outwardDcNumber ?? "");
 
       const eventAt =
         dir === "inward"
@@ -223,7 +253,7 @@ export function StoreLogisticsHistoryPage() {
       });
     }
     return rows.sort((a, b) => new Date(b.eventAt).getTime() - new Date(a.eventAt).getTime());
-  }, [visibleJobs, user?.storeId]);
+  }, [visibleJobs, storeId]);
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -283,10 +313,26 @@ export function StoreLogisticsHistoryPage() {
     return { outward, inward, inTransit, awaitingInward };
   }, [historyRows]);
 
+  function findStoreRegion(id: string | null | undefined) {
+    const sid = (id ?? "").trim();
+    if (!sid) return null;
+    for (const region of regions) {
+      const store = region.stores.find((s) => s.id === sid);
+      if (store) return { region, store };
+    }
+    return null;
+  }
+
+  function storeLabel(id: string | null | undefined, fallback?: string | null) {
+    const hit = findStoreRegion(id);
+    return hit?.store.name ?? fallback?.trim() ?? "—";
+  }
+
   function printTransferForJob(job: SrfJob, transferNumber: string, flow: "store_to_ho" | "ho_to_store") {
-    if (!regionForStore || !storeRecord) return;
+    const origin = findStoreRegion(job.storeId) ?? (storeRecord && regionForStore ? { store: storeRecord, region: regionForStore } : null);
+    if (!origin) return;
     if (flow === "store_to_ho") {
-      const r = resolveStoreToHoPrint(storeRecord, regionForStore);
+      const r = resolveStoreToHoPrint(origin.store, origin.region);
       printTransferFromMeta(
         {
           printKind: r.printKind,
@@ -300,10 +346,11 @@ export function StoreLogisticsHistoryPage() {
       );
       return;
     }
-    const destStore =
-      regionForStore.stores.find((s) => s.id === job.destinationStoreId) ?? storeRecord;
-    const destRegion = regions.find((r) => r.stores.some((s) => s.id === job.destinationStoreId));
-    const r = resolveHoToStorePrint(regionForStore, destStore, destRegion);
+    const dest =
+      findStoreRegion(job.destinationStoreId) ??
+      findStoreRegion(job.storeId) ??
+      origin;
+    const r = resolveHoToStorePrint(origin.region, dest.store, dest.region);
     printTransferFromMeta(
       {
         printKind: r.printKind,
@@ -324,7 +371,7 @@ export function StoreLogisticsHistoryPage() {
       <ServiceBreadcrumb current="Inward & outward history" />
       <PageHeader
         title="Store inward & outward history"
-        description=""
+        description="SRF watches sent from store to HO and returned to store. Inventory spare transfers are under Inventory → Transfer history."
         actions={
           <Link
             to="/service/store-dispatch"
@@ -336,22 +383,72 @@ export function StoreLogisticsHistoryPage() {
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-zimson-200 bg-zimson-50/60 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Outward (store → HO)</p>
-          <p className="mt-1 text-2xl font-bold text-zimson-900">{stats.outward}</p>
-        </div>
-        <div className="rounded-xl border border-zimson-200 bg-zimson-50/60 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Inward (HO → store)</p>
-          <p className="mt-1 text-2xl font-bold text-zimson-900">{stats.inward}</p>
-        </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">In transit to HO</p>
-          <p className="mt-1 text-2xl font-bold text-amber-950">{stats.inTransit}</p>
-        </div>
-        <div className="rounded-xl border border-violet-200 bg-violet-50/80 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-800">Awaiting store inward</p>
-          <p className="mt-1 text-2xl font-bold text-violet-950">{stats.awaitingInward}</p>
-        </div>
+        {(
+          [
+            {
+              key: "outward",
+              label: "Outward (store → HO)",
+              value: stats.outward,
+              className: "border-zimson-200 bg-zimson-50/60",
+              labelClass: "text-stone-500",
+              valueClass: "text-zimson-900",
+              onClick: () => {
+                setDirection("outward");
+                setStatusFilter("all");
+                setPage(1);
+              },
+            },
+            {
+              key: "inward",
+              label: "Inward (HO → store)",
+              value: stats.inward,
+              className: "border-zimson-200 bg-zimson-50/60",
+              labelClass: "text-stone-500",
+              valueClass: "text-zimson-900",
+              onClick: () => {
+                setDirection("inward");
+                setStatusFilter("all");
+                setPage(1);
+              },
+            },
+            {
+              key: "inTransit",
+              label: "In transit to HO",
+              value: stats.inTransit,
+              className: "border-amber-200 bg-amber-50/80",
+              labelClass: "text-amber-800",
+              valueClass: "text-amber-950",
+              onClick: () => {
+                setDirection("outward");
+                setStatusFilter("in_transit");
+                setPage(1);
+              },
+            },
+            {
+              key: "awaitingInward",
+              label: "Awaiting store inward",
+              value: stats.awaitingInward,
+              className: "border-violet-200 bg-violet-50/80",
+              labelClass: "text-violet-800",
+              valueClass: "text-violet-950",
+              onClick: () => {
+                setDirection("inward");
+                setStatusFilter("awaiting_inward");
+                setPage(1);
+              },
+            },
+          ] as const
+        ).map((card) => (
+          <button
+            key={card.key}
+            type="button"
+            onClick={card.onClick}
+            className={`rounded-xl border px-4 py-3 text-left ${card.className}`}
+          >
+            <p className={`text-[10px] font-bold uppercase tracking-wider ${card.labelClass}`}>{card.label}</p>
+            <p className={`mt-1 text-2xl font-bold ${card.valueClass}`}>{card.value}</p>
+          </button>
+        ))}
       </div>
 
       <Card title={`Transfer history (${filteredRows.length})`}>
@@ -382,7 +479,24 @@ export function StoreLogisticsHistoryPage() {
           ))}
         </div>
 
-        <div className="mb-4 grid gap-2 md:grid-cols-2 lg:grid-cols-5">
+        <div className="mb-4 grid gap-2 md:grid-cols-2 lg:grid-cols-6">
+          {lockedStoreId ? null : (
+            <select
+              value={storeFilter}
+              onChange={(e) => {
+                setStoreFilter(e.target.value);
+                setPage(1);
+              }}
+              className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
+            >
+              <option value="">All stores</option>
+              {storeOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             type="search"
             value={query}
@@ -437,6 +551,7 @@ export function StoreLogisticsHistoryPage() {
             setFromDate("");
             setToDate("");
             setQuery("");
+            if (!lockedStoreId) setStoreFilter("");
             setPage(1);
           }}
           className="mb-4 rounded-xl border border-zimson-300 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
@@ -445,7 +560,42 @@ export function StoreLogisticsHistoryPage() {
         </button>
 
         {filteredRows.length === 0 ? (
-          <div className="min-h-[2rem]" aria-hidden />
+          <div className="rounded-xl border border-dashed border-zimson-300 bg-zimson-50/40 px-4 py-8 text-center">
+            <p className="text-sm font-semibold text-zimson-900">
+              {historyRows.length === 0
+                ? "No store ↔ HO transfers yet"
+                : "No transfers match the current filters"}
+            </p>
+            <p className="mx-auto mt-2 max-w-xl text-sm text-stone-600">
+              {historyRows.length === 0
+                ? "This list is SRF delivery notes (TD/DC) between store and HO — not inventory spare transfers. Dispatch from Store dispatch, or wait until a watch is sent to HO / returned to store."
+                : "Clear the status, store, or date filters to see all transfers."}
+            </p>
+            {historyRows.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setDirection("all");
+                  setStatusFilter("all");
+                  setFromDate("");
+                  setToDate("");
+                  setQuery("");
+                  if (!lockedStoreId) setStoreFilter("");
+                  setPage(1);
+                }}
+                className="mt-4 rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+              >
+                Clear filters
+              </button>
+            ) : (
+              <Link
+                to="/service/store-dispatch"
+                className="mt-4 inline-flex rounded-xl bg-zimson-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-700"
+              >
+                Open store dispatch
+              </Link>
+            )}
+          </div>
         ) : (
           <div className="space-y-3">
             <div className="overflow-x-auto rounded-xl border border-zimson-200/80">
@@ -454,6 +604,7 @@ export function StoreLogisticsHistoryPage() {
                   <tr>
                     <th className="px-3 py-2">Direction / status</th>
                     <th className="px-3 py-2">Date</th>
+                    {lockedStoreId ? null : <th className="px-3 py-2">Store</th>}
                     <th className="px-3 py-2">SRF</th>
                     <th className="px-3 py-2">Transfer (TD/DC)</th>
                     <th className="px-3 py-2">Outward TD</th>
@@ -473,6 +624,9 @@ export function StoreLogisticsHistoryPage() {
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-stone-600">
                         {new Date(j.eventAt).toLocaleString()}
                       </td>
+                      {lockedStoreId ? null : (
+                        <td className="px-3 py-2 text-xs text-stone-700">{storeLabel(j.storeId, j.storeName)}</td>
+                      )}
                       <td className="px-3 py-2 font-mono text-xs font-semibold text-zimson-900">{j.reference}</td>
                       <td className="px-3 py-2">
                         <span className="font-mono text-xs font-semibold text-zimson-900">{j.transferNo || "—"}</span>

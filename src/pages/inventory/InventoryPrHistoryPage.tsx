@@ -176,11 +176,19 @@ function InventoryPrHistoryBody() {
       openPrintDocument(`Transfer ${pr.prNumber}`, buildTransferDocument({
         refNumber: pr.prNumber,
         date: new Date().toISOString(),
-        fromLocation: `HO: ${pr.regionName ?? pr.regionId}`,
-        toLocation: `STORE: ${pr.storeName ?? pr.storeId}`,
+        fromLocation: pr.regionName ?? pr.regionId,
+        toLocation: pr.storeName ?? pr.storeId,
+        regionId: pr.regionId,
+        storeId: pr.storeId,
+        prNumber: pr.prNumber,
+        notes: pr.notes,
         lines: items.map((it) => {
           const line = pr.items.find((x) => x.id === it.itemId);
-          return { description: spareNameById.get(line?.spareId ?? "") ?? it.itemId, qty: it.qty };
+          return {
+            spareId: line?.spareId,
+            description: line && spareNameById.has(line.spareId) ? "" : it.itemId,
+            qty: it.qty,
+          };
         }),
       }));
       setFulfillPrId(null);
@@ -427,7 +435,13 @@ function InventoryPrHistoryBody() {
                       regionId: pr.regionId, regionName: pr.regionName,
                       storeId: pr.storeId, storeName: pr.storeName,
                       neededBy: pr.neededBy, notes: pr.notes,
-                      lines: pr.items.map((i) => ({ description: spareNameById.get(i.spareId) ?? i.spareId, qty: i.qty, reason: i.reason })),
+                      status: statusLabel(pr.status),
+                      lines: pr.items.map((i) => ({
+                        spareId: i.spareId,
+                        description: spareNameById.has(i.spareId) ? "" : i.spareId,
+                        qty: i.qty,
+                        reason: i.reason,
+                      })),
                     }))}
                     className="border-white/30 bg-white/10 text-white hover:border-white/60 hover:bg-white/20"
                   >

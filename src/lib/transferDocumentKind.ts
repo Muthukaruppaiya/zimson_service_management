@@ -34,9 +34,24 @@ export function transferPrintKindFromGstins(fromGstin?: string | null, toGstin?:
 }
 
 export function formatRegionAddress(region: Pick<SeedRegion, "address" | "addressJson">): string {
-  const json = region.addressJson as { line1?: string; city?: string; state?: string; pincode?: string } | null | undefined;
+  const json = region.addressJson as
+    | (Partial<NonNullable<SeedRegion["addressJson"]>> & { line1?: string; line2?: string })
+    | null
+    | undefined;
   if (json && typeof json === "object") {
-    const parts = [json.line1, json.city, json.state, json.pincode].map((x) => String(x ?? "").trim()).filter(Boolean);
+    const pinSuffix = String(json.pincode ?? "").trim();
+    const state = String(json.state ?? "").trim();
+    const parts = [
+      json.doorNo,
+      json.line1,
+      json.street,
+      json.line2,
+      json.city,
+      json.district && json.district !== json.city ? json.district : "",
+      state && pinSuffix ? `${state} - ${pinSuffix}` : state || pinSuffix,
+    ]
+      .map((x) => String(x ?? "").trim())
+      .filter(Boolean);
     if (parts.length) return parts.join(", ");
   }
   return String(region.address ?? "").trim() || "—";
