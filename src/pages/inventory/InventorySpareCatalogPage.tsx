@@ -272,12 +272,6 @@ export function InventorySpareCatalogPage() {
     [spares, selectedId],
   );
 
-  const stickerLocationCode = useMemo(() => {
-    const region = regions.find((r) => r.id === (regionId || user?.regionId));
-    const store = region?.stores.find((s) => s.id === user?.storeId);
-    return store?.invoiceNumberStoreCode?.trim() || region?.regionCode?.trim() || "";
-  }, [regions, regionId, user?.regionId, user?.storeId]);
-
   const categoryOptions = useMemo(() => {
     const set = new Set<string>();
     for (const s of spares) {
@@ -421,7 +415,7 @@ export function InventorySpareCatalogPage() {
     const n = Number.parseInt(stickerPrintCount.trim(), 10);
     const copies = Number.isFinite(n) ? Math.max(1, Math.min(99, n)) : 1;
     printSpareStickers(
-      [buildSpareStickerData(stickerPrintSpare, { brand: stickerPrintBrand, locationCode: stickerLocationCode })],
+      [buildSpareStickerData(stickerPrintSpare, { brand: stickerPrintBrand })],
       copies,
     );
     setStickerPrintSpare(null);
@@ -1567,7 +1561,6 @@ export function InventorySpareCatalogPage() {
                       brand:
                         selectedSpare.brand?.trim() ||
                         ((brand && prices.some((p) => p.brand === brand) ? brand : prices[0]?.brand) ?? ""),
-                      locationCode: stickerLocationCode,
                     });
                     return (
                       <div className="border border-rlx-rule bg-stone-200/70 p-4">
@@ -2025,7 +2018,6 @@ export function InventorySpareCatalogPage() {
               <SpareStickerPreview
                 data={buildSpareStickerData(stickerPrintSpare, {
                   brand: stickerPrintBrand,
-                  locationCode: stickerLocationCode,
                 })}
               />
             </div>

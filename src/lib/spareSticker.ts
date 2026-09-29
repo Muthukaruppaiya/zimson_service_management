@@ -38,31 +38,17 @@ export function spareStickerMrpLabel(spare: SparePart): string {
   return `MRP: ${shown}`;
 }
 
-export function spareStickerBrandMark(brand: string | null | undefined, locationCode: string | null | undefined): string {
+export function spareStickerBrandMark(brand: string | null | undefined): string {
   const b = String(brand ?? "")
     .trim()
     .toUpperCase()
     .replace(/\s+/g, "");
-  const loc = locationSuffix(locationCode);
-  if (b && loc) return `${b}-${loc}`;
-  return b || loc || "ZIMSON";
+  return b || "ZIMSON";
 }
 
-function locationSuffix(locationCode: string | null | undefined): string {
-  return String(locationCode ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 4);
-}
-
-/** SKU as printed on the sticker (catalogue SKU + store code, e.g. 10SI35485-CB). */
-export function spareStickerSku(sku: string, locationCode?: string | null): string {
-  const base = sku.trim();
-  const loc = locationSuffix(locationCode);
-  if (!base || !loc) return base;
-  if (base.toUpperCase().endsWith(`-${loc}`)) return base;
-  return `${base}-${loc}`;
+/** Catalogue SKU only — no region / store suffix (CBE, BGL, …). */
+export function spareStickerSku(sku: string): string {
+  return sku.trim();
 }
 
 /**
@@ -71,31 +57,30 @@ export function spareStickerSku(sku: string, locationCode?: string | null): stri
  */
 export function spareStickerInternalSerial(
   spare: SparePart,
-  opts?: { locationCode?: string | null; copyIndex?: number },
+  opts?: { copyIndex?: number },
 ): string {
   const cf = spare.customFields ?? {};
   const fromCf = String(
     cf.internal_serial ?? cf.internalSerial ?? cf.serial_no ?? cf.serialNo ?? cf.serial ?? "",
   ).trim();
-  const loc = locationSuffix(opts?.locationCode);
   const idPart = spare.id.replace(/-/g, "").slice(-8).toUpperCase();
-  const base = fromCf || (loc ? `${loc}-${idPart}` : idPart);
+  const base = fromCf || idPart;
   const copyIndex = Math.max(1, opts?.copyIndex ?? 1);
   return `${base}-${String(copyIndex).padStart(3, "0")}`;
 }
 
 export function buildSpareStickerData(
   spare: SparePart,
-  opts?: { brand?: string | null; locationCode?: string | null; copyIndex?: number },
+  opts?: { brand?: string | null; copyIndex?: number },
 ): SpareStickerData {
   const catalogSku = spare.sku.trim() || spare.id;
-  const sku = spareStickerSku(catalogSku, opts?.locationCode);
+  const sku = spareStickerSku(catalogSku);
   return {
     itemNumber: spareStickerItemNumber(spare),
     sku,
     internalSerial: spareStickerInternalSerial(spare, opts),
     mrpLabel: spareStickerMrpLabel(spare),
-    brandMark: spareStickerBrandMark(opts?.brand, opts?.locationCode),
+    brandMark: spareStickerBrandMark(opts?.brand),
     barcodeSrc: documentBarcodeImageSrc(catalogSku, { scale: 3, height: 10 }),
   };
 }

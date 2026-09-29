@@ -1316,9 +1316,11 @@ export function registerInventoryDirectPurchaseRoutes(
       return;
     }
     const regionId =
-      actor.role === "super_admin" || actor.role === "admin" ? String(req.query.regionId ?? "").trim() || null : actor.regionId || null;
+      actor.role === "super_admin" || actor.role === "admin"
+        ? String(req.query.regionId ?? "").trim() || null
+        : actor.regionId || null;
     try {
-      const headers = await pool.query<{
+      const lines = await pool.query<{
         id: string;
         transfer_number: string;
         reference_type: string | null;
@@ -1326,92 +1328,121 @@ export function registerInventoryDirectPurchaseRoutes(
         region_name: string | null;
         store_id: string | null;
         store_name: string | null;
-        line_count: number;
+        spare_id: string;
+        sku: string | null;
+        spare_name: string | null;
         qty: number;
         note: string | null;
         created_by: string | null;
         created_at: string;
       }>(
         `SELECT
-           MIN(h.id::text) AS id,
-           h.reference_number AS transfer_number,
-           h.reference_type,
-           h.region_id,
+           h.id::text AS id,
+           BTRIM(h.reference_number::text) AS transfer_number,
+           h.reference_type::text AS reference_type,
+           h.region_id::text AS region_id,
            r.name AS region_name,
-           h.store_id,
+           h.store_id::text AS store_id,
            s.name AS store_name,
-           COUNT(*)::int AS line_count,
-           COALESCE(SUM(h.quantity_change), 0)::float8 AS qty,
-           MAX(h.note) AS note,
-           MAX(h.created_by) AS created_by,
-           MIN(h.created_at) AS created_at
+           h.spare_id::text AS spare_id,
+           sp.sku,
+           sp.name AS spare_name,
+           COALESCE(h.quantity_change, 0)::float8 AS qty,
+           h.note,
+           h.created_by,
+           h.created_at
          FROM spare_stock_history h
-         LEFT JOIN regions r ON r.id = h.region_id
-         LEFT JOIN stores s ON s.id = h.store_id
-         WHERE h.event_type = 'TRANSFER_IN'
-           AND NULLIF(TRIM(h.reference_number), '') IS NOT NULL
-           AND ($1::text IS NULL OR h.region_id = $1)
-         GROUP BY h.reference_number, h.reference_type, h.region_id, h.store_id
-         ORDER BY MIN(h.created_at) DESC
-         LIMIT 500`,
+         LEFT JOIN regions r ON r.id::text = h.region_id::text
+         LEFT JOIN stores s ON s.id::text = h.store_id::text
+         LEFT JOIN spares sp ON sp.id = h.spare_id
+         WHERE h.event_type::text = 'TRANSFER_IN'
+           AND NULLIF(BTRIM(COALESCE(h.reference_number::text, '')), '') IS NOT NULL
+           AND ($1::text IS NULL OR h.region_id::text = $1::text)
+         ORDER BY h.created_at DESC
+         LIMIT 4000`,
         [regionId],
       );
-      const refs = headers.rows.map((r) => r.transfer_number).filter(Boolean);
-      const itemsByRef = new Map<
-        string,
-        Array<{ spareId: string; sku: string; name: string; qty: number }>
-      >();
-      if (refs.length > 0) {
-        const items = await pool.query<{
-          reference_number: string;
-          spare_id: string;
-          sku: string;
-          name: string;
-          qty: number;
-        }>(
-          `SELECT
-             h.reference_number,
-             h.spare_id::text AS spare_id,
-             sp.sku,
-             sp.name,
-             h.quantity_change::float8 AS qty
-           FROM spare_stock_history h
-           JOIN spares sp ON sp.id = h.spare_id
-           WHERE h.event_type = 'TRANSFER_IN'
-             AND h.reference_number = ANY($1::text[])
-           ORDER BY h.created_at ASC`,
-          [refs],
-        );
-        for (const it of items.rows) {
-          const list = itemsByRef.get(it.reference_number) ?? [];
-          list.push({ spareId: it.spare_id, sku: it.sku, name: it.name, qty: it.qty });
-          itemsByRef.set(it.reference_number, list);
+
+      type Agg = {
+        id: string;
+        transferNumber: string;
+        referenceType: string | null;
+        regionId: string | null;
+        regionName: string | null;
+        storeId: string | null;
+        storeName: string | null;
+        qty: number;
+        note: string | null;
+        createdBy: string | null;
+        createdAt: string;
+        items: Array<{ spareId: string; sku: string; name: string; qty: number }>;
+      };
+      const grouped = new Map<string, Agg>();
+      for (const row of lines.rows) {
+        const key = [row.transfer_number, row.reference_type ?? "", row.region_id ?? "", row.store_id ?? ""].join("|");
+        let agg = grouped.get(key);
+        if (!agg) {
+          agg = {
+            id: row.id,
+            transferNumber: row.transfer_number,
+            referenceType: row.reference_type,
+            regionId: row.region_id,
+            regionName: row.region_name,
+            storeId: row.store_id,
+            storeName: row.store_name,
+            qty: 0,
+            note: row.note,
+            createdBy: row.created_by,
+            createdAt: row.created_at,
+            items: [],
+          };
+          grouped.set(key, agg);
         }
+        agg.qty += Number(row.qty) || 0;
+        if (row.created_at && new Date(row.created_at).getTime() < new Date(agg.createdAt).getTime()) {
+          agg.createdAt = row.created_at;
+          agg.id = row.id;
+        }
+        if (!agg.note && row.note) agg.note = row.note;
+        agg.items.push({
+          spareId: row.spare_id,
+          sku: row.sku ?? "—",
+          name: row.spare_name ?? "—",
+          qty: Number(row.qty) || 0,
+        });
       }
-      res.json({
-        transfers: headers.rows.map((r) => {
-          const parts = String(r.transfer_number).split(" / ").map((p) => p.trim()).filter(Boolean);
-          const againstGrn = r.reference_type === "GRN" && parts.length > 1;
+
+      const transfers = Array.from(grouped.values())
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 500)
+        .map((r) => {
+          const parts = String(r.transferNumber)
+            .split(" / ")
+            .map((p) => p.trim())
+            .filter(Boolean);
+          const againstGrn = r.referenceType === "GRN" && parts.length > 1;
           return {
             id: r.id,
-            transferNumber: againstGrn ? parts[parts.length - 1] : r.transfer_number,
+            transferNumber: againstGrn ? parts[parts.length - 1] : r.transferNumber,
             grnNumber: againstGrn ? parts[0] : null,
-            regionId: r.region_id,
-            regionName: r.region_name,
-            storeId: r.store_id,
-            storeName: r.store_name,
-            lineCount: r.line_count,
+            regionId: r.regionId,
+            regionName: r.regionName,
+            storeId: r.storeId,
+            storeName: r.storeName,
+            lineCount: r.items.length,
             qty: r.qty,
             note: r.note,
-            createdBy: r.created_by,
-            createdAt: r.created_at,
-            items: itemsByRef.get(r.transfer_number) ?? [],
+            createdBy: r.createdBy,
+            createdAt: r.createdAt,
+            items: r.items,
           };
-        }),
-      });
+        });
+
+      res.json({ transfers });
     } catch (e) {
-      console.error(e);
-      res.status(500).json({ error: "Could not load transfer history." });
+      console.error("[inventory/transfers]", e);
+      const detail = e instanceof Error ? e.message : String(e);
+      res.status(500).json({ error: "Could not load transfer history.", detail });
     }
   });
 }

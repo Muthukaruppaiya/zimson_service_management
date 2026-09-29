@@ -130,7 +130,13 @@ export function InventoryTransferHistoryPage() {
       const data = await apiJson<{ transfers: TransferRow[] }>("/api/inventory/transfers");
       setRows(data.transfers);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not load transfer history.");
+      if (e instanceof ApiError) {
+        const body = e.body as { detail?: string } | null;
+        const detail = typeof body?.detail === "string" && body.detail.trim() ? body.detail.trim() : "";
+        setErr(detail ? `${e.message} — ${detail}` : e.message);
+      } else {
+        setErr("Could not load transfer history.");
+      }
     } finally {
       setLoading(false);
     }

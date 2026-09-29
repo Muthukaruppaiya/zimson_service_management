@@ -536,6 +536,21 @@ ALTER TABLE service_tax_settings ADD COLUMN IF NOT EXISTS supplier_tax_person_ty
 ALTER TABLE quick_bills ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
 ALTER TABLE spare_stock ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
 
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS event_type VARCHAR(48);
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS location_key VARCHAR(200);
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS location_type VARCHAR(16);
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS region_id TEXT;
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS quantity_change NUMERIC(18, 3);
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS balance_after NUMERIC(18, 3);
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS reference_type VARCHAR(24);
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS reference_number VARCHAR(160);
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS note TEXT;
+ALTER TABLE spare_stock_history ADD COLUMN IF NOT EXISTS created_by VARCHAR(80);
+ALTER TABLE spare_stock_history ALTER COLUMN reference_number TYPE VARCHAR(160);
+CREATE INDEX IF NOT EXISTS idx_spare_stock_history_event_ref
+  ON spare_stock_history (event_type, reference_number);
+
 ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
 ALTER TABLE purchase_request_items ADD COLUMN IF NOT EXISTS created_by VARCHAR(80);
 ALTER TABLE purchase_request_items ADD COLUMN IF NOT EXISTS modified_by VARCHAR(80);
