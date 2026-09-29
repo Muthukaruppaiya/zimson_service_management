@@ -1119,6 +1119,36 @@ export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(48);
   `);
+  await pool.query(`
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_ref_srf_id UUID REFERENCES srf_jobs(id) ON DELETE SET NULL;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_ref_invoice_number VARCHAR(48);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_ref_srf_reference VARCHAR(64);
+  `);
+
+  await pool.query(`
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS ho_return_without_repair BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS cannot_repair_at VARCHAR(24);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS cannot_repair_note TEXT;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_advance_voucher_code VARCHAR(120);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_advance_voucher_value_inr NUMERIC(14, 2);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_advance_voucher_issued_at TIMESTAMPTZ;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_advance_voucher_valid_until DATE;
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS store_advance_voucher_issued_by VARCHAR(80);
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_srf_jobs_store_advance_voucher_code
+      ON srf_jobs (store_advance_voucher_code)
+      WHERE store_advance_voucher_code IS NOT NULL AND btrim(store_advance_voucher_code) <> '';
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS store_advance_voucher_sequences (
+      store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+      fy_key VARCHAR(8) NOT NULL,
+      last_value INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (store_id, fy_key)
+    );
+  `);
 
   // Separate formatted invoice number for quick bills (store sequence) vs QB reference (bill_number)
   await pool.query(`
@@ -1532,7 +1562,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
     WHERE NOT EXISTS (SELECT 1 FROM hsn_master LIMIT 1);
   `);
 
-  // ── Delivery boy handoff (Store ↔ HO internal transfers) ────────────────
+  // ── Delivery agent handoff (Store ↔ HO internal transfers) ────────────────
   await pool.query(`
     ALTER TABLE app_users ADD COLUMN IF NOT EXISTS phone VARCHAR(80);
   `);
@@ -1630,6 +1660,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
 
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS alternate_phone VARCHAR(64);
     ALTER TABLE spares ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb;
   `);

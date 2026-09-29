@@ -63,6 +63,7 @@ const btnIcon =
 const btnIconAction = `${btnIcon} border-rlx-gold/60 bg-white text-rlx-green hover:border-rlx-gold hover:bg-rlx-green-light`;
 const btnIconMuted = `${btnIcon} border-rlx-rule bg-rlx-bg text-rlx-ink-muted hover:border-rlx-ink-muted/30 hover:bg-white`;
 const btnIconEinvoice = `${btnIcon} border-amber-400/70 bg-amber-50 text-amber-900 hover:bg-amber-100`;
+const btnIconDanger = `${btnIcon} border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100`;
 
 const iconSm = "h-[1.125rem] w-[1.125rem]";
 
@@ -99,6 +100,7 @@ function paymentDetailText(inv: QuickBillInvoice): string {
 export function QuickBillHistoryPage() {
   const apiMode = useApiMode();
   const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const { regions } = useRegions();
   const { spares } = useSpares();
   const [searchParams] = useSearchParams();
@@ -124,6 +126,21 @@ export function QuickBillHistoryPage() {
   const [edocSettings, setEdocSettings] = useState<{ enabled?: boolean } | null>(null);
   const [edocBusyId, setEdocBusyId] = useState<string | null>(null);
   const [edocMsg, setEdocMsg] = useState<string | null>(null);
+  const [editBill, setEditBill] = useState<QuickBillHistoryRow | null>(null);
+  const [editForm, setEditForm] = useState({
+    customerName: "",
+    phone: "",
+    email: "",
+    company: "",
+    gst: "",
+    address: "",
+    city: "",
+    notes: "",
+  });
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteBill, setDeleteBill] = useState<QuickBillHistoryRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const edocEnabled = Boolean(edocSettings?.enabled);
 
@@ -428,6 +445,72 @@ export function QuickBillHistoryPage() {
     }
   }
 
+  function openEditBill(row: QuickBillHistoryRow) {
+    setEditError(null);
+    setEditBill(row);
+    setEditForm({
+      customerName: row.customerName ?? "",
+      phone: row.phone ?? "",
+      email: row.email ?? "",
+      company: row.company ?? "",
+      gst: row.gst ?? "",
+      address: row.address ?? "",
+      city: row.city ?? "",
+      notes: row.notes ?? "",
+    });
+  }
+
+  async function saveEditBill() {
+    if (!editBill) return;
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      const out = await apiJson<{ ok: boolean; invoice: QuickBillInvoice }>(
+        `/api/service/quick-bills/${encodeURIComponent(editBill.id)}`,
+        {
+          method: "PATCH",
+          json: {
+            customerName: editForm.customerName.trim(),
+            phone: editForm.phone.trim(),
+            email: editForm.email.trim(),
+            company: editForm.company.trim(),
+            gst: editForm.gst.trim(),
+            address: editForm.address.trim(),
+            city: editForm.city.trim(),
+            notes: editForm.notes,
+          },
+        },
+      );
+      await load();
+      if (selected?.id === editBill.id && out.invoice) setDetailInvoice(out.invoice);
+      setEditBill(null);
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : "Could not save invoice.");
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function confirmDeleteBill() {
+    if (!deleteBill) return;
+    setDeleteBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/service/quick-bills/${encodeURIComponent(deleteBill.id)}`, { method: "DELETE" });
+      if (selected?.id === deleteBill.id) {
+        setSelected(null);
+        setDetailInvoice(null);
+      }
+      setDeleteBill(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete invoice.");
+      setDeleteBill(null);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   return (
     <div className="ui-page-bleed relative font-sans text-rlx-ink">
       <div className={`min-h-0 bg-rlx-bg ${selected ? "print:hidden" : ""}`}>
@@ -707,6 +790,39 @@ export function QuickBillHistoryPage() {
                                 )}
                               </button>
                             ) : null}
+                            {isSuperAdmin ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEditBill(r);
+                                  }}
+                                  className={`${btnIconAction} disabled:opacity-40`}
+                                  title="Edit invoice"
+                                  aria-label="Edit invoice"
+                                >
+                                  <svg className={iconSm} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                  </svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteBill(r);
+                                  }}
+                                  className={`${btnIconDanger} disabled:opacity-40`}
+                                  title="Delete invoice"
+                                  aria-label="Delete invoice"
+                                >
+                                  <svg className={iconSm} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-9 0h12" />
+                                  </svg>
+                                </button>
+                              </>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -824,6 +940,33 @@ export function QuickBillHistoryPage() {
                       >
                         {edocBusyId === detailInvoice.id ? <IconSpinner /> : <IconGstEinvoice />}
                       </button>
+                    ) : null}
+                    {isSuperAdmin && selected ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => openEditBill(selected)}
+                          className={`${invoicePreviewIconBtn} border-white/30 bg-white/10 text-white transition hover:bg-white/20`}
+                          title="Edit invoice"
+                          aria-label="Edit invoice"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteBill(selected)}
+                          className={`${invoicePreviewIconBtn} border-rose-300/70 bg-rose-600 text-white transition hover:bg-rose-700`}
+                          title="Delete invoice"
+                          aria-label="Delete invoice"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-9 0h12" />
+                          </svg>
+                        </button>
+                      </>
                     ) : null}
                     <SendInvoiceEmailButton
                       email={detailInvoice.email ?? ""}
@@ -1050,6 +1193,83 @@ export function QuickBillHistoryPage() {
               ) : !detailLoading && !detailError ? (
                 <p className="text-sm text-rlx-ink-muted print:hidden">No detail loaded.</p>
               ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSuperAdmin && editBill ? (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-rlx-ink/70 p-0 sm:items-center sm:p-4 print:hidden">
+          <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto bg-white shadow-xl">
+            <div className="bg-rlx-green px-5 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.4em] text-rlx-gold">Edit invoice</p>
+              <h3 className="text-lg font-semibold text-white">{editBill.invoiceNumber || editBill.billNumber}</h3>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              <label className="block text-xs">
+                Customer name
+                <input className="ui-field mt-1" value={editForm.customerName} onChange={(e) => setEditForm((f) => ({ ...f, customerName: e.target.value }))} />
+              </label>
+              <label className="block text-xs">
+                Phone
+                <input className="ui-field mt-1" value={editForm.phone} onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))} />
+              </label>
+              <label className="block text-xs">
+                Email
+                <input className="ui-field mt-1" value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} />
+              </label>
+              <label className="block text-xs">
+                Company
+                <input className="ui-field mt-1" value={editForm.company} onChange={(e) => setEditForm((f) => ({ ...f, company: e.target.value }))} />
+              </label>
+              <label className="block text-xs">
+                GSTIN
+                <input className="ui-field mt-1" value={editForm.gst} onChange={(e) => setEditForm((f) => ({ ...f, gst: e.target.value.toUpperCase() }))} />
+              </label>
+              <label className="block text-xs">
+                Address
+                <input className="ui-field mt-1" value={editForm.address} onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))} />
+              </label>
+              <label className="block text-xs">
+                City
+                <input className="ui-field mt-1" value={editForm.city} onChange={(e) => setEditForm((f) => ({ ...f, city: e.target.value }))} />
+              </label>
+              <label className="block text-xs">
+                Notes
+                <input className="ui-field mt-1" value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} />
+              </label>
+              {editError ? <p className="text-xs text-rose-700">{editError}</p> : null}
+            </div>
+            <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-5 py-3">
+              <button type="button" className="ui-btn-secondary flex-1" disabled={editBusy} onClick={() => setEditBill(null)}>
+                Cancel
+              </button>
+              <button type="button" className="flex-1 bg-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green-deep disabled:opacity-50" disabled={editBusy} onClick={() => void saveEditBill()}>
+                {editBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSuperAdmin && deleteBill ? (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-rlx-ink/70 p-0 sm:items-center sm:p-4 print:hidden">
+          <div className="w-full max-w-md bg-white shadow-xl">
+            <div className="bg-rose-800 px-5 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.4em] text-rose-100">Delete invoice</p>
+              <h3 className="text-lg font-semibold text-white">{deleteBill.invoiceNumber || deleteBill.billNumber}</h3>
+            </div>
+            <p className="px-5 py-4 text-sm text-stone-700">
+              This permanently deletes the quick bill invoice. Super admin only.
+              {deleteBill.edocIrn?.trim() ? " GST IRN will not be cancelled on the portal." : ""}
+            </p>
+            <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-5 py-3">
+              <button type="button" className="ui-btn-secondary flex-1" disabled={deleteBusy} onClick={() => setDeleteBill(null)}>
+                Cancel
+              </button>
+              <button type="button" className="flex-1 bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={deleteBusy} onClick={() => void confirmDeleteBill()}>
+                {deleteBusy ? "Deleting…" : "Delete"}
+              </button>
             </div>
           </div>
         </div>

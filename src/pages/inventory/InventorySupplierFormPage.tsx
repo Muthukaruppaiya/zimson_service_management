@@ -30,7 +30,7 @@ const labelCls = "block text-[11px] font-semibold uppercase tracking-widest text
 const emptyLocation: SupplierLocation = { doorNo: "", street: "", place: "", district: "", state: "Tamil Nadu", pinCode: "" };
 
 const emptyForm = {
-  supplierCode: "", name: "", contactName: "", email: "", phone: "",
+  supplierCode: "", name: "", contactName: "", email: "", phone: "", alternatePhone: "",
   gst: "", taxPersonType: "",
   locations: [{ ...emptyLocation }] as SupplierLocation[],
 };
@@ -141,6 +141,7 @@ export function InventorySupplierFormPage() {
           contactName: s.contactName ?? "",
           email: s.email ?? "",
           phone: s.phone ?? "",
+          alternatePhone: s.alternatePhone ?? "",
           gst: s.gst ?? "",
           taxPersonType: s.taxPersonType ?? "",
           locations: s.locations && s.locations.length > 0 ? s.locations : [{ ...emptyLocation }],
@@ -240,6 +241,7 @@ export function InventorySupplierFormPage() {
       contactName: form.contactName.trim() || null,
       email: form.email.trim() || null,
       phone: form.phone.trim() || null,
+      alternatePhone: form.alternatePhone.trim() || null,
       locations: form.locations,
       gst: form.gst.trim().toUpperCase() || null,
       taxPersonType: form.taxPersonType.trim() || null,
@@ -376,6 +378,12 @@ export function InventorySupplierFormPage() {
               <input className={inputCls} value={form.phone} type="tel"
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                 placeholder="+91 XXXXX XXXXX" />
+            </div>
+            <div>
+              <label className={labelCls}>Alternate Phone</label>
+              <input className={inputCls} value={form.alternatePhone} type="tel"
+                onChange={(e) => setForm((f) => ({ ...f, alternatePhone: e.target.value }))}
+                placeholder="Second number if any" />
             </div>
             <div className="sm:col-span-2">
               <label className={labelCls}>Email</label>

@@ -60,6 +60,8 @@ export type UsedSpareLine = {
   lineTotalInr?: number | null;
   /** Spare is part of the chosen service package (billed in the package price). */
   includedInPackage?: boolean;
+  /** Extra used-spare row: service is included in package amount; spare is billed separately. */
+  chargeType?: "service" | "spare";
 };
 
 export type SrfPaymentKind = "booking_advance" | "additional";
@@ -99,6 +101,10 @@ export type SrfJob = {
   caseType?: string;
   strapChainType?: string;
   natureOfRepair?: string;
+  /** Prior invoiced SRF mapped on a warranty non-chargeable follow-up (reference only). */
+  warrantyRefSrfId?: string | null;
+  warrantyRefInvoiceNumber?: string | null;
+  warrantyRefSrfReference?: string | null;
   chainCount12Phase?: string;
   chainCount6Phase?: string;
   /** @deprecated Legacy field — use chainCount12Phase / chainCount6Phase. */
@@ -154,6 +160,15 @@ export type SrfJob = {
   brandDispatchClerkNote?: string | null;
   brandDispatchClerkAt?: string | null;
   interHoReturnWithoutRepair?: boolean;
+  /** HO decided the watch cannot be repaired (store / this HO / other HO / brand) and queued return unrepaired. */
+  hoReturnWithoutRepair?: boolean;
+  cannotRepairAt?: "store" | "ho" | "other_ho" | "brand" | null;
+  cannotRepairNote?: string | null;
+  /** Store credit issued for booking advance when the watch is handed back unrepaired. */
+  storeAdvanceVoucherCode?: string | null;
+  storeAdvanceVoucherValueInr?: number | null;
+  storeAdvanceVoucherIssuedAt?: string | null;
+  storeAdvanceVoucherValidUntil?: string | null;
   /** Brand will return watch unrepaired — skip brand invoice; outward to store after receipt. */
   brandReturnWithoutRepair?: boolean;
   brandOdcNumber?: string | null;
@@ -262,4 +277,18 @@ export type CreateSrfJobInput = {
   estimatedFinishDate?: string | null;
   advanceInr?: number;
   selectedPartIds: string[];
+};
+
+/** Closed/invoiced SRF listed when mapping a warranty follow-up. */
+export type InvoicedSrfRef = {
+  id: string;
+  reference: string;
+  invoiceNumber: string;
+  customerName: string;
+  phone: string;
+  watchBrand: string;
+  watchFamily?: string | null;
+  watchModel: string;
+  serial: string;
+  createdAt: string;
 };

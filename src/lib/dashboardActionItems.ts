@@ -119,9 +119,9 @@ function buildServiceCentreLogisticsItems(jobs: SrfJob[], user: SessionUser): Da
       count: pendingTransit.watches,
       sublabel:
         pendingTransit.documents > 0
-          ? `${pendingTransit.documents} TD${pendingTransit.documents === 1 ? "" : "s"} — handoff to delivery boy`
+          ? `${pendingTransit.documents} TD${pendingTransit.documents === 1 ? "" : "s"} — handoff to delivery agent`
           : undefined,
-      hint: "Outward TD ready — send with delivery boy OTP",
+      hint: "Outward TD ready — send with delivery agent OTP",
       to: "/service-centre/delivery-handoff",
       urgent: pendingTransit.watches > 0,
       accent: "border-l-amber-500",
@@ -134,7 +134,7 @@ function buildServiceCentreLogisticsItems(jobs: SrfJob[], user: SessionUser): Da
         inTransit.documents > 0
           ? `${inTransit.documents} TD${inTransit.documents === 1 ? "" : "s"} on the way to HO`
           : undefined,
-      hint: "With delivery boy — receive OTP at front desk",
+      hint: "With delivery agent — receive OTP at front desk",
       to: "/service-centre/delivery-handoff",
       urgent: inTransit.watches > 0,
       accent: "border-l-blue-500",
@@ -243,9 +243,9 @@ function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem
       count: pendingTransit.watches,
       sublabel:
         pendingTransit.documents > 0
-          ? `${pendingTransit.documents} TD${pendingTransit.documents === 1 ? "" : "s"} — handoff to delivery boy`
+          ? `${pendingTransit.documents} TD${pendingTransit.documents === 1 ? "" : "s"} — handoff to delivery agent`
           : undefined,
-      hint: "Dispatch done — send with delivery boy OTP",
+      hint: "Dispatch done — send with delivery agent OTP",
       to: "/service/delivery-handoff",
       urgent: pendingTransit.watches > 0,
       accent: "border-l-amber-500",
@@ -256,7 +256,7 @@ function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem
       count: inTransitWatches,
       sublabel:
         inTransitDocs > 0
-          ? `${inTransitDocs} TD${inTransitDocs === 1 ? "" : "s"} with delivery boy`
+          ? `${inTransitDocs} TD${inTransitDocs === 1 ? "" : "s"} with delivery agent`
           : undefined,
       hint: "On the road Store ↔ HO",
       to: "/service/delivery-handoff",

@@ -23,6 +23,6 @@ if command -v ufw >/dev/null 2>&1; then
 fi
 
 echo ""
-echo "OK — ensure Node is running:  cd ~/zimson_service_management && npm start"
+echo "OK — ensure Node is running:  cd ~/zimson_service_management && bash scripts/setup-pm2-ubuntu.sh"
 echo "Open in browser:  http://zimsonwatchcare.com"
 echo "AWS security group: allow inbound TCP 80 (and 443 after SSL), NOT 4000."

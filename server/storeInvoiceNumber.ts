@@ -99,3 +99,37 @@ export async function allocateStoreInvoiceNumber(client: PoolClient, storeId: st
     .replace(/\{FYLABEL\}/gi, fy.fyLabel)
     .replace(/\{SEQ\}/gi, seqStr);
 }
+
+/** Store credit number for unrepaired SRF handover, e.g. SAV-CHN0126-001. */
+export async function allocateStoreAdvanceVoucherNumber(
+  client: PoolClient,
+  storeId: string,
+  issuedAt = new Date(),
+): Promise<string> {
+  const fy = indianFinancialYearParts(issuedAt);
+  const { rows: st } = await client.query<{ name: string; invoice_number_store_code: string | null }>(
+    `SELECT name, invoice_number_store_code FROM stores WHERE id = $1::text`,
+    [storeId],
+  );
+  if (!st[0]) throw new Error("Store not found for store credit number.");
+  const codeRaw = String(st[0].invoice_number_store_code ?? "").trim();
+  const code = (
+    codeRaw ||
+    defaultInvoiceCodeFromStoreName(st[0].name)
+  )
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 16) || "STOR";
+
+  const seqRow = await client.query<{ last_value: number }>(
+    `INSERT INTO store_advance_voucher_sequences (store_id, fy_key, last_value)
+     VALUES ($1::text, $2::text, 1)
+     ON CONFLICT (store_id, fy_key)
+     DO UPDATE SET last_value = store_advance_voucher_sequences.last_value + 1, updated_at = now()
+     RETURNING last_value`,
+    [storeId, fy.fyKey],
+  );
+  const seq = seqRow.rows[0]!.last_value;
+  const seqStr = String(seq).padStart(3, "0");
+  return `SAV-${code}${fy.fy2}-${seqStr}`;
+}

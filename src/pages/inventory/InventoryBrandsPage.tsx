@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { Card } from "../../components/ui/Card";
@@ -24,6 +24,16 @@ export function InventoryBrandsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((b) => {
+      const hay = `${b.name} ${b.code}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [rows, search]);
 
   const load = useCallback(async () => {
     if (!api) {
@@ -217,9 +227,55 @@ export function InventoryBrandsPage() {
         </Card>
       ) : null}
 
-      <Card title="Brands" subtitle={canManage ? "Active brands appear in dropdowns; you can deactivate unused rows." : "Active brands in your organization"}>
+      <Card
+        title="Brands"
+        subtitle={
+          canManage
+            ? "Active brands appear in dropdowns; you can deactivate unused rows."
+            : "Active brands in your organization"
+        }
+      >
         {err ? <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{err}</p> : null}
         {ok ? <p className="mb-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{ok}</p> : null}
+        <div className="relative mb-3 min-w-[220px] max-w-md">
+          <label htmlFor="brand-master-search" className="sr-only">
+            Search brands
+          </label>
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stone-400"
+            aria-hidden
+          >
+            <circle cx="6.5" cy="6.5" r="4.5" />
+            <line x1="10" y1="10" x2="14" y2="14" />
+          </svg>
+          <input
+            id="brand-master-search"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search brand name or code…"
+            className="w-full rounded-xl border border-zimson-300/80 bg-white py-2.5 pl-9 pr-9 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2"
+          />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 text-sm text-stone-400 hover:text-stone-700"
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
+        <p className="mb-2 text-xs text-stone-500">
+          {search.trim()
+            ? `${filteredRows.length} of ${rows.length} brand${rows.length === 1 ? "" : "s"}`
+            : `${rows.length} brand${rows.length === 1 ? "" : "s"}`}
+        </p>
         <div className="max-h-[480px] overflow-auto rounded-xl border border-zimson-200/80">
           <table className="min-w-full text-left text-sm">
             <thead className="sticky top-0 border-b border-zimson-200 bg-zimson-50/95 text-xs font-semibold uppercase text-stone-600">
@@ -233,7 +289,7 @@ export function InventoryBrandsPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((b) => (
+              {filteredRows.map((b) => (
                 <tr key={b.id} className="border-b border-zimson-100">
                   <td className="px-3 py-2 font-mono text-xs">{b.code}</td>
                   <td className="px-3 py-2 font-medium text-stone-900">{b.name}</td>
@@ -267,6 +323,9 @@ export function InventoryBrandsPage() {
         </div>
         {api && rows.length === 0 && !err ? (
           <p className="mt-3 text-sm text-stone-500">No brands loaded yet.</p>
+        ) : null}
+        {api && rows.length > 0 && filteredRows.length === 0 ? (
+          <p className="mt-3 text-sm text-stone-500">No brands match “{search.trim()}”.</p>
         ) : null}
       </Card>
     </div>

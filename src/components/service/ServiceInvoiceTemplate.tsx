@@ -64,6 +64,7 @@ function printedLineType(ln: {
   isSpareLine?: boolean;
   description: string;
 }): string {
+  if (/extra charges/i.test(ln.description)) return "Extra";
   if (ln.lineKind === "service" || isServicePackageInvoiceDescription(ln.description)) return "Service";
   if (ln.lineKind === "spare" || ln.isSpareLine) return "Spare";
   return "Service";
@@ -514,6 +515,9 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
                     <InvKv label="Tax Amount" value={rupee(data.totalTax ?? 0)} />
                     {(data.tcsAmount ?? 0) > 0 ? (
                       <InvKv label={tcsInvoiceLabel(data.tcsRatePercent)} value={rupee(data.tcsAmount ?? 0)} />
+                    ) : null}
+                    {(data.extraChargesInr ?? 0) > 0 ? (
+                      <InvKv label="Extra charges (not taxable)" value={rupee(data.extraChargesInr ?? 0)} />
                     ) : null}
                     <InvKv label="Round off" value={`₹ ${fmtSigned(data.roundOffInr ?? 0)}`} />
                     <InvKv label="Net Payable" value={rupee(data.netPayable ?? data.totalAmount)} />

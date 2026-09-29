@@ -72,7 +72,7 @@ export function registerDeliveryHandoffRoutes(
   requireAuth: RequireAuth,
   getUserById: (id: string) => DemoUser | null | undefined,
 ): void {
-  /** Directory of delivery boys in the actor's region (or all for super_admin). */
+  /** Directory of delivery agents in the actor's region (or all for super_admin). */
   app.get("/api/service/delivery-boys", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor) {
@@ -91,7 +91,7 @@ export function registerDeliveryHandoffRoutes(
     try {
       const params: unknown[] = [];
       let where = `WHERE role = 'delivery_boy' AND COALESCE(can_login, false) = COALESCE(can_login, false)`;
-      // Include both login-disabled and login-enabled delivery boys
+      // Include both login-disabled and login-enabled delivery agents
       where = `WHERE role = 'delivery_boy'`;
       if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId) {
@@ -125,7 +125,7 @@ export function registerDeliveryHandoffRoutes(
       });
     } catch (e) {
       console.error(e);
-      res.status(500).json({ error: "Could not load delivery boys." });
+      res.status(500).json({ error: "Could not load delivery agents." });
     }
   });
 
@@ -284,7 +284,7 @@ export function registerDeliveryHandoffRoutes(
     }
   });
 
-  /** Completed and active delivery-boy carrying history, scoped to the actor's store/region. */
+  /** Completed and active delivery-agent carrying history, scoped to the actor's store/region. */
   app.get("/api/service/delivery-handoff/history", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor) {
@@ -357,7 +357,7 @@ export function registerDeliveryHandoffRoutes(
       res.json({ rows });
     } catch (e) {
       console.error(e);
-      res.status(500).json({ error: "Could not load delivery-boy history." });
+      res.status(500).json({ error: "Could not load delivery agent history." });
     }
   });
 
@@ -373,7 +373,7 @@ export function registerDeliveryHandoffRoutes(
       ? req.body.dcNumbers.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
       : [];
     if (!deliveryBoyUserId || dcNumbers.length === 0) {
-      res.status(400).json({ error: "Select delivery boy and at least one transfer document." });
+      res.status(400).json({ error: "Select delivery agent and at least one transfer document." });
       return;
     }
     const allowedKinds: HandoffKind[] = [
@@ -417,7 +417,7 @@ export function registerDeliveryHandoffRoutes(
       );
       const boy = boys[0];
       if (!boy) {
-        res.status(404).json({ error: "Delivery boy not found." });
+        res.status(404).json({ error: "Delivery agent not found." });
         return;
       }
       if (
@@ -427,7 +427,7 @@ export function registerDeliveryHandoffRoutes(
         boy.region_id &&
         boy.region_id !== actor.regionId
       ) {
-        res.status(403).json({ error: "Delivery boy is not in your region." });
+        res.status(403).json({ error: "Delivery agent is not in your region." });
         return;
       }
 
@@ -438,7 +438,7 @@ export function registerDeliveryHandoffRoutes(
       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) targets.push({ type: "email", label: email });
       if (targets.length === 0) {
         res.status(400).json({
-          error: "Delivery boy needs a valid 10-digit mobile and/or email for OTP.",
+          error: "Delivery agent needs a valid 10-digit mobile and/or email for OTP.",
         });
         return;
       }
@@ -477,7 +477,7 @@ export function registerDeliveryHandoffRoutes(
             return;
           }
           if (dc.delivery_boy_user_id !== deliveryBoyUserId) {
-            res.status(400).json({ error: `TD ${dc.dc_number} was not handed to this delivery boy.` });
+            res.status(400).json({ error: `TD ${dc.dc_number} was not handed to this delivery agent.` });
             return;
           }
         } else if (kind === "ho_to_store_send") {
@@ -491,7 +491,7 @@ export function registerDeliveryHandoffRoutes(
             return;
           }
           if (dc.delivery_boy_user_id !== deliveryBoyUserId) {
-            res.status(400).json({ error: `TD ${dc.dc_number} was not handed to this delivery boy.` });
+            res.status(400).json({ error: `TD ${dc.dc_number} was not handed to this delivery agent.` });
             return;
           }
         }
@@ -597,13 +597,13 @@ export function registerDeliveryHandoffRoutes(
                 line.srf_id,
                 "in_transit_sc",
                 actor.id,
-                `Handed to delivery boy for HO — transfer ${dcNumber}.`,
+                `Handed to delivery agent for HO — transfer ${dcNumber}.`,
               );
               await appendActionLog(
                 client,
                 line.srf_id,
                 "delivery_handoff_store_send",
-                `Handed to delivery boy (OTP) for HO via ${dcNumber}.`,
+                `Handed to delivery agent (OTP) for HO via ${dcNumber}.`,
                 actor,
                 dcNumber,
               );
@@ -633,13 +633,13 @@ export function registerDeliveryHandoffRoutes(
                 line.srf_id,
                 "awaiting_sc_inward",
                 actor.id,
-                `Received from delivery boy at HO — waiting for inward (${dcNumber}).`,
+                `Received from delivery agent at HO — waiting for inward (${dcNumber}).`,
               );
               await appendActionLog(
                 client,
                 line.srf_id,
                 "delivery_handoff_ho_receive",
-                `Front desk received from delivery boy (OTP). Waiting for inward — ${dcNumber}.`,
+                `Front desk received from delivery agent (OTP). Waiting for inward — ${dcNumber}.`,
                 actor,
                 dcNumber,
               );
@@ -674,13 +674,13 @@ export function registerDeliveryHandoffRoutes(
                 line.srf_id,
                 "dispatched_to_store",
                 actor.id,
-                `Handed to delivery boy for store — transfer ${dcNumber}.`,
+                `Handed to delivery agent for store — transfer ${dcNumber}.`,
               );
               await appendActionLog(
                 client,
                 line.srf_id,
                 "delivery_handoff_ho_send",
-                `Handed to delivery boy (OTP) for store via ${dcNumber}.`,
+                `Handed to delivery agent (OTP) for store via ${dcNumber}.`,
                 actor,
                 dcNumber,
               );
@@ -711,13 +711,13 @@ export function registerDeliveryHandoffRoutes(
                 line.srf_id,
                 "awaiting_store_inward",
                 actor.id,
-                `Received from delivery boy at store — waiting for inward (${dcNumber}).`,
+                `Received from delivery agent at store — waiting for inward (${dcNumber}).`,
               );
               await appendActionLog(
                 client,
                 line.srf_id,
                 "delivery_handoff_store_receive",
-                `Store received from delivery boy (OTP). Waiting for inward — ${dcNumber}.`,
+                `Store received from delivery agent (OTP). Waiting for inward — ${dcNumber}.`,
                 actor,
                 dcNumber,
               );

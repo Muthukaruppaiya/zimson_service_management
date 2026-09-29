@@ -96,8 +96,8 @@ Restart Node:
 
 ```bash
 cd ~/zimson_service_management
-# Ctrl+C if npm start is in foreground, or: pm2 restart zimson
-npm start
+pm2 restart zimson
+# first time only: bash scripts/setup-pm2-ubuntu.sh
 ```
 
 Open: **https://zimsonwatchcare.com** (no port number).

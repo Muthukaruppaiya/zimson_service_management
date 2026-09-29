@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { WorkDoneSparesModal } from "../../components/service/WorkDoneSparesModal";
-import { linesFromPackageSnapshot } from "../../components/service/WorkDonePackagePicker";
+import { linesFromPackageSnapshot, draftLineFromUsedSpare, usedSparePersistFlags } from "../../components/service/WorkDonePackagePicker";
 import { SrfPaymentLogPanel } from "../../components/service/SrfPaymentLogPanel";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { Card } from "../../components/ui/Card";
@@ -58,7 +58,7 @@ function AssignCheckIcon({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
-type SpareLineDraft = { spareId: string; qty: string; fromPackage?: boolean };
+type SpareLineDraft = { spareId: string; qty: string; fromPackage?: boolean; chargeType?: "service" | "spare" };
 
 function isStoreSelfWorking(job: SrfJob): boolean {
   return (
@@ -98,7 +98,7 @@ export function StoreAssignPage() {
   } | null>(null);
 
   const [repairPopupJobId, setRepairPopupJobId] = useState<string | null>(null);
-  const [repairLines, setRepairLines] = useState<SpareLineDraft[]>([{ spareId: "", qty: "1" }]);
+  const [repairLines, setRepairLines] = useState<SpareLineDraft[]>([{ spareId: "", qty: "1", chargeType: "spare" }]);
   const [repairPackage, setRepairPackage] = useState<SrfServicePackageSnapshot | null>(null);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
   const [storeStockBySpareId, setStoreStockBySpareId] = useState<Record<string, number>>({});
@@ -396,11 +396,7 @@ export function StoreAssignPage() {
     setRepairPopupError("");
     const initialLines =
       job?.usedSpares && job.usedSpares.length > 0
-        ? job.usedSpares.map((u) => ({
-            spareId: u.spareId ?? "",
-            qty: String(u.qty ?? 1),
-            fromPackage: Boolean(u.includedInPackage),
-          }))
+        ? job.usedSpares.map((u) => draftLineFromUsedSpare(u, job.servicePackage?.spareIds))
         : linesFromPackageSnapshot(job?.servicePackage);
     setRepairLines(initialLines);
     setRepairPackage(job?.servicePackage && job.servicePackage.id ? job.servicePackage : null);
@@ -414,7 +410,7 @@ export function StoreAssignPage() {
 
   function closeRepairPopup() {
     setRepairPopupJobId(null);
-    setRepairLines([{ spareId: "", qty: "1" }]);
+    setRepairLines([{ spareId: "", qty: "1", chargeType: "spare" }]);
     setRepairPackage(null);
     setRepairPopupError("");
     setUnitPriceBySpareId({});
@@ -440,7 +436,8 @@ export function StoreAssignPage() {
         qty,
         unitPriceInr,
         lineTotalInr: unitPriceInr * qty,
-        includedInPackage: Boolean(x.fromPackage) || Boolean(repairPackage?.spareIds.includes(spareId)),
+        includedInPackage: usedSparePersistFlags(x).includedInPackage,
+        chargeType: usedSparePersistFlags(x).chargeType,
       });
     }
     if (lines.length === 0) {

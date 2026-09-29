@@ -108,6 +108,30 @@ export function allowsZeroBillTotal(natureOfRepair: string | null | undefined): 
   return norm === "warranty_non_chargeable" || norm === "internal_service";
 }
 
+export function formatWarrantyPriorSrfLabel(opts: {
+  invoiceNumber?: string | null;
+  srfReference?: string | null;
+  watchBrand?: string | null;
+  watchModel?: string | null;
+  serial?: string | null;
+}): string {
+  const inv = String(opts.invoiceNumber ?? "").trim();
+  const ref = String(opts.srfReference ?? "").trim();
+  const watch = [opts.watchBrand, opts.watchModel]
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+  const serial = String(opts.serial ?? "").trim();
+  return [
+    inv ? `Inv. ${inv}` : "",
+    ref,
+    watch,
+    serial ? `S/N ${serial}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function natureOfRepairBillingNote(raw: string | null | undefined): string {
   const norm = normalizeNatureOfRepair(raw);
   if (norm === "warranty_non_chargeable") {

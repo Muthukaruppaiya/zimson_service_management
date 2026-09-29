@@ -121,6 +121,8 @@ export function ScSrfHistoryPage() {
       bookingDate: j.createdAt,
       repairRoute: j.repairRoute,
       natureOfRepair: j.repairRoute ? repairRouteLabel(j.repairRoute) : undefined,
+      warrantyRefInvoiceNumber: j.warrantyRefInvoiceNumber,
+      warrantyRefSrfReference: j.warrantyRefSrfReference,
       modelNumber: j.serial,
       storeInfo: printStoreForJob(j),
     };

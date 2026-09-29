@@ -2,7 +2,39 @@ import { billableLineAmount, billableServiceChargeInr } from "./natureOfRepair";
 import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "./hsnGst";
 import type { ServiceBillGstLine } from "./serviceBillGst";
 import { servicePackageInvoiceDescription } from "./servicePackage";
-import type { SrfJob } from "../types/srfJob";
+import type { SrfJob, UsedSpareLine } from "../types/srfJob";
+
+/** Spare-type extras are billed separately; service / package items stay in the package amount.
+ * A second used-spare row with the same spare id as a package item is billed separately
+ * (even on older slips that marked both as included). */
+export function usedSparePackageIncludeFlags(
+  used: UsedSpareLine[] | null | undefined,
+  pkgSpareIds?: readonly string[] | null,
+): boolean[] {
+  const claimed = new Set<string>();
+  return (used ?? []).map((s) => {
+    if (s.chargeType === "spare") return false;
+    const id = String(s.spareId ?? "").trim();
+    if (s.chargeType === "service") {
+      if (id) claimed.add(id);
+      return true;
+    }
+    if (s.includedInPackage === false) return false;
+    const inPkgList = Boolean(id && pkgSpareIds?.includes(id));
+    const wantsPkg = s.includedInPackage === true || inPkgList;
+    if (!wantsPkg) return false;
+    if (id && claimed.has(id)) return false;
+    if (id) claimed.add(id);
+    return true;
+  });
+}
+
+export function usedSpareIsPackageIncluded(
+  s: Pick<UsedSpareLine, "chargeType" | "includedInPackage" | "spareId">,
+  pkgSpareIds?: readonly string[] | null,
+): boolean {
+  return usedSparePackageIncludeFlags([s as UsedSpareLine], pkgSpareIds)[0] === true;
+}
 
 export type ServiceBillEditorLine = {
   id: string;
@@ -34,10 +66,11 @@ export function usedSparesToEditorLines(
   resolveHsn: (spareId: string | null | undefined) => string | null,
 ): ServiceBillEditorLine[] {
   const pkg = job.servicePackage && job.servicePackage.id ? job.servicePackage : null;
+  const includeFlags = usedSparePackageIncludeFlags(job.usedSpares, pkg?.spareIds);
   const out: ServiceBillEditorLine[] = [];
   if (pkg && Number(pkg.priceInr) > 0) {
     const usedFromPkg = (job.usedSpares ?? [])
-      .filter((s) => s.includedInPackage || (s.spareId && pkg.spareIds.includes(s.spareId)))
+      .filter((_, i) => includeFlags[i])
       .map((s) => String(s.name ?? "").trim())
       .filter(Boolean);
     const spareNames = usedFromPkg.length > 0 ? usedFromPkg : pkg.spareNames ?? [];
@@ -51,7 +84,7 @@ export function usedSparesToEditorLines(
     });
   }
   for (const [i, s] of (job.usedSpares ?? []).entries()) {
-    if (pkg && (s.includedInPackage || (s.spareId && pkg.spareIds.includes(s.spareId)))) {
+    if (pkg && includeFlags[i]) {
       continue;
     }
     if (pkg && Number(pkg.priceInr) > 0 && !s.spareId && !s.name?.trim()) continue;
@@ -61,7 +94,6 @@ export function usedSparesToEditorLines(
     const amtRaw = Number.isFinite(lineTotal)
       ? lineTotal
       : (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(unit) ? unit : 0);
-    if (!(amtRaw > 0) && pkg) continue;
     const desc = s.qty > 1 ? `${s.name} x ${s.qty}` : s.name;
     out.push({
       id: `slip-${job.id}-${i}`,

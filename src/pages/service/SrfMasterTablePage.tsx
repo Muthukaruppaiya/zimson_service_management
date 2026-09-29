@@ -552,12 +552,24 @@ export function SrfMasterTablePage() {
                         {formatApproxEstimateCurrency(Number(detailJob.estimateTotalInr ?? 0))}
                       </td>
                     </tr>
-                    <tr className="bg-white">
+                    <tr className="border-b border-rlx-rule bg-white">
                       <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
                         Store
                       </th>
                       <td className="px-3 py-2.5 text-rlx-ink">{detailJob.storeName ?? detailJob.storeId}</td>
                     </tr>
+                    {detailJob.warrantyRefInvoiceNumber || detailJob.warrantyRefSrfReference ? (
+                      <tr className="border-b border-rlx-rule bg-rlx-bg">
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
+                          Warranty ref.
+                        </th>
+                        <td className="px-3 py-2.5 font-mono text-rlx-ink">
+                          {[detailJob.warrantyRefInvoiceNumber, detailJob.warrantyRefSrfReference]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </td>
+                      </tr>
+                    ) : null}
                   </tbody>
                 </table>
               </div>

@@ -681,6 +681,8 @@ export function SrfBookingsRegisterPage() {
                       bookingDate: detail.createdAt,
                       repairRoute: detail.repairRoute,
                       natureOfRepair: detail.repairRoute ? repairRouteLabel(detail.repairRoute) : undefined,
+                      warrantyRefInvoiceNumber: detail.warrantyRefInvoiceNumber,
+                      warrantyRefSrfReference: detail.warrantyRefSrfReference,
                       modelNumber: detail.serial,
                       storeInfo: printStoreForJob(detail),
                     })

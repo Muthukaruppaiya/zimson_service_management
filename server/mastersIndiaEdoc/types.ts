@@ -56,6 +56,8 @@ export type EdocValueTotals = {
   igst: number;
   total: number;
   roundOff?: number;
+  /** Non-GST extra charges (not in assessable value). */
+  otherCharges?: number;
   isInterstate: boolean;
 };
 

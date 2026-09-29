@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { SrfTraceModal } from "../../components/service/SrfTraceModal";
 import { SrfPaymentLogPanel } from "../../components/service/SrfPaymentLogPanel";
 import { WorkDoneSparesModal } from "../../components/service/WorkDoneSparesModal";
-import { linesFromPackageSnapshot } from "../../components/service/WorkDonePackagePicker";
+import { linesFromPackageSnapshot, draftLineFromUsedSpare, usedSparePersistFlags } from "../../components/service/WorkDonePackagePicker";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
@@ -34,6 +34,11 @@ import {
   shouldHideReceiverBrandDeskFromSenderHo,
 } from "../../lib/srfAccess";
 import { printAssignmentSlip, printEstimateDocument, printSrfDocument } from "../../lib/serviceDocuments";
+import {
+  CANNOT_REPAIR_AT_OPTIONS,
+  cannotRepairAtLabel,
+  type CannotRepairAt,
+} from "../../lib/srfUnrepairedReturn";
 import type { SrfJob } from "../../types/srfJob";
 import type { SrfServicePackageSnapshot } from "../../types/servicePackage";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
@@ -340,6 +345,7 @@ export function ScSupervisorPage() {
     supervisorMarkRepairComplete,
     supervisorProceedAcceptedReestimate,
     supervisorMoveRejectedToOdc,
+    supervisorCannotRepair,
     supervisorLogBrandEstimate,
     supervisorApproveBrandEstimate,
     supervisorForwardBrandEstimateToCustomer,
@@ -373,7 +379,7 @@ export function ScSupervisorPage() {
     () => (repairPopupJobId ? jobs.find((j) => j.id === repairPopupJobId) ?? null : null),
     [repairPopupJobId, jobs],
   );
-  const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string; fromPackage?: boolean }>>([{ spareId: "", qty: "1" }]);
+  const [repairLines, setRepairLines] = useState<Array<{ spareId: string; qty: string; fromPackage?: boolean; chargeType?: "service" | "spare" }>>([{ spareId: "", qty: "1", chargeType: "spare" }]);
   const [repairPackage, setRepairPackage] = useState<SrfServicePackageSnapshot | null>(null);
   const [unitPriceBySpareId, setUnitPriceBySpareId] = useState<Record<string, number>>({});
   const [hoStockBySpareId, setHoStockBySpareId] = useState<Record<string, number>>({});
@@ -400,6 +406,10 @@ export function ScSupervisorPage() {
   const [moveToOdcPopupJobId, setMoveToOdcPopupJobId] = useState<string | null>(null);
   const [moveToOdcInterHo, setMoveToOdcInterHo] = useState(false);
   const [moveToOdcNote, setMoveToOdcNote] = useState("");
+  const [cannotRepairPopupJobId, setCannotRepairPopupJobId] = useState<string | null>(null);
+  const [cannotRepairAt, setCannotRepairAt] = useState<CannotRepairAt>("ho");
+  const [cannotRepairNote, setCannotRepairNote] = useState("");
+  const [cannotRepairSaving, setCannotRepairSaving] = useState(false);
   const [estimateNotAcceptedPopupJobId, setEstimateNotAcceptedPopupJobId] = useState<string | null>(null);
   const [estimateNotAcceptedNote, setEstimateNotAcceptedNote] = useState("");
   const [estimateNotAcceptedSaving, setEstimateNotAcceptedSaving] = useState(false);
@@ -1174,6 +1184,45 @@ export function ScSupervisorPage() {
     setMoveToOdcNote("");
   }
 
+  function openCannotRepairPopup(jobId: string) {
+    const job = jobs.find((j) => j.id === jobId);
+    setCannotRepairPopupJobId(jobId);
+    setCannotRepairAt(job && isInterHoReceiverLocal(job) ? "other_ho" : "ho");
+    setCannotRepairNote("");
+    setCannotRepairSaving(false);
+  }
+
+  function closeCannotRepairPopup() {
+    setCannotRepairPopupJobId(null);
+    setCannotRepairNote("");
+    setCannotRepairSaving(false);
+  }
+
+  async function confirmCannotRepair() {
+    if (!cannotRepairPopupJobId) return;
+    setCannotRepairSaving(true);
+    try {
+      const out = await supervisorCannotRepair(cannotRepairPopupJobId, {
+        cannotRepairAt,
+        note: cannotRepairNote.trim(),
+      });
+      setFeedback((f) => ({
+        ...f,
+        [cannotRepairPopupJobId]: out.interHoReceiver
+          ? `${cannotRepairAtLabel(cannotRepairAt)}. Queued return to sender HO. Logistics: create return DC. Sender HO will dispatch to store for store credit handover.`
+          : `${cannotRepairAtLabel(cannotRepairAt)}. Moved to outward queue. Logistics: dispatch to store. Store will issue store credit and hand over the watch.`,
+      }));
+      closeCannotRepairPopup();
+    } catch (e) {
+      setFeedback((f) => ({
+        ...f,
+        [cannotRepairPopupJobId]: e instanceof Error ? e.message : "Could not mark cannot-repair.",
+      }));
+    } finally {
+      setCannotRepairSaving(false);
+    }
+  }
+
   async function confirmMoveToOdc() {
     if (!moveToOdcPopupJobId) return;
     try {
@@ -1910,8 +1959,8 @@ export function ScSupervisorPage() {
         return next;
       });
       setRepairLines([
-        ...flow.lines.map((l) => ({ spareId: l.spareId, qty: String(Number(l.qty || 0)) })),
-        { spareId: "", qty: "1" },
+        ...flow.lines.map((l) => ({ spareId: l.spareId, qty: String(Number(l.qty || 0)), chargeType: "spare" as const })),
+        { spareId: "", qty: "1", chargeType: "spare" },
       ]);
       setFeedback((f) => ({
         ...f,
@@ -1921,11 +1970,7 @@ export function ScSupervisorPage() {
       const existing = job?.usedSpares ?? [];
       setRepairLines(
         existing.length > 0
-          ? existing.map((u) => ({
-              spareId: u.spareId ?? "",
-              qty: String(u.qty ?? 1),
-              fromPackage: Boolean(u.includedInPackage),
-            }))
+          ? existing.map((u) => draftLineFromUsedSpare(u, job?.servicePackage?.spareIds))
           : linesFromPackageSnapshot(job?.servicePackage),
       );
       if (flow && !flow.inwardReceivedAt) {
@@ -1949,7 +1994,7 @@ export function ScSupervisorPage() {
 
   function closeRepairPopup() {
     setRepairPopupJobId(null);
-    setRepairLines([{ spareId: "", qty: "1" }]);
+    setRepairLines([{ spareId: "", qty: "1", chargeType: "spare" }]);
     setRepairPackage(null);
     setUnitPriceBySpareId({});
     setRepairPopupError("");
@@ -2002,7 +2047,8 @@ export function ScSupervisorPage() {
         qty,
         unitPriceInr,
         lineTotalInr: unitPriceInr * qty,
-        includedInPackage: Boolean(x.fromPackage) || Boolean(repairPackage?.spareIds.includes(spareId)),
+        includedInPackage: usedSparePersistFlags(x).includedInPackage,
+        chargeType: usedSparePersistFlags(x).chargeType,
       });
     }
     if (lines.length === 0) {
@@ -3638,6 +3684,16 @@ export function ScSupervisorPage() {
                           ? "Need re-estimate (sender HO)"
                           : "Need re-estimate"}
                     </button>
+                    {canOpenRepair ? (
+                      <button
+                        type="button"
+                        onClick={() => openCannotRepairPopup(j.id)}
+                        disabled={acceptedReestimateNeedsProceed}
+                        className={dqBtnDanger}
+                      >
+                        {interHoReceiverLocal ? "Cannot repair — return to sender HO" : "Cannot repair — return to store"}
+                      </button>
+                    ) : null}
                     {j.status === "customer_rejected" ? (
                       <button type="button" onClick={() => openMoveToOdcPopup(j.id)} className={dqBtnDanger}>
                         {interHoReceiverLocal
@@ -4666,6 +4722,61 @@ export function ScSupervisorPage() {
         </div>
       ) : null}
 
+      {cannotRepairPopupJobId ? (
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)] p-5">
+            <h3 className="text-lg font-semibold text-rose-900">Cannot repair — return unrepaired</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Use this when the watch cannot be repaired at the store, this HO, another HO, or brand. The watch goes back
+              unrepaired. The store will issue store credit for any advance collected and hand over the watch with that store credit.
+            </p>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm">
+                Cannot repair at
+                <select
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  value={cannotRepairAt}
+                  onChange={(e) => setCannotRepairAt(e.target.value as CannotRepairAt)}
+                >
+                  {CANNOT_REPAIR_AT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                Note (optional)
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                  rows={3}
+                  value={cannotRepairNote}
+                  onChange={(e) => setCannotRepairNote(e.target.value)}
+                  placeholder="e.g. Movement beyond economical repair; brand will not accept this model."
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeCannotRepairPopup}
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={cannotRepairSaving}
+                onClick={() => void confirmCannotRepair()}
+                className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {cannotRepairSaving ? "Saving…" : "Confirm — return unrepaired"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {listDetailJob ? (
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -5015,6 +5126,8 @@ export function ScSupervisorPage() {
                       serial: listDetailJob.serial,
                       complaint: listDetailJob.complaint || "-",
                       estimateTotalInr: Number(listDetailJob.estimateTotalInr ?? 0),
+                      warrantyRefInvoiceNumber: listDetailJob.warrantyRefInvoiceNumber,
+                      warrantyRefSrfReference: listDetailJob.warrantyRefSrfReference,
                       photos: listDetailJob.photos ?? [],
                     })
                   }

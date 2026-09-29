@@ -29,6 +29,7 @@ function roleLabel(role: string) {
     store_manager: "Store Manager",
     store_accounts: "Store Accounts",
     technician: "Technician",
+    delivery_boy: "Delivery Agent",
   };
   return map[role] ?? role;
 }

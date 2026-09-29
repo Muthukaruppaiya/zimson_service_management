@@ -1,5 +1,5 @@
 import { SearchableCombobox, type ComboboxOption } from "./SearchableCombobox";
-import { WorkDonePackagePicker, type WorkDoneSpareLine } from "./WorkDonePackagePicker";
+import { lineChargeType, WorkDonePackagePicker, type WorkDoneSpareLine } from "./WorkDonePackagePicker";
 import { AppModal } from "../ui/AppModal";
 import { formatInr } from "../../lib/formatInr";
 import type { SrfServicePackageSnapshot } from "../../types/servicePackage";
@@ -65,20 +65,20 @@ export function WorkDoneSparesModal({
 
   function removeLine(idx: number) {
     if (lines.length <= 1) {
-      onLinesChange([{ spareId: "", qty: "1" }]);
+      onLinesChange([{ spareId: "", qty: "1", chargeType: "spare" }]);
       return;
     }
     onLinesChange(lines.filter((_, i) => i !== idx));
   }
 
-  const extraAmount = lines.reduce((sum, line) => {
-    if (line.fromPackage || !line.spareId) return sum;
+  const extraSpareAmount = lines.reduce((sum, line) => {
+    if (!line.spareId || lineChargeType(line) !== "spare") return sum;
     const qty = Number(line.qty || 0);
     const unit = unitPrice(line.spareId);
     return sum + (unit > 0 && Number.isFinite(qty) ? unit * qty : 0);
   }, 0);
   const packageAmount = selectedPackage ? Number(selectedPackage.priceInr) || 0 : 0;
-  const extraCount = lines.filter((l) => !l.fromPackage && l.spareId).length;
+  const extraSpareCount = lines.filter((l) => l.spareId && lineChargeType(l) === "spare").length;
 
   return (
     <AppModal
@@ -95,13 +95,13 @@ export function WorkDoneSparesModal({
             {selectedPackage ? (
               <span>
                 Package {formatInr(packageAmount)}
-                {extraCount > 0 ? ` + extra ${formatInr(extraAmount)}` : ""}
+                {extraSpareCount > 0 ? ` + spare ${formatInr(extraSpareAmount)}` : ""}
                 <span className="mx-1.5 text-slate-300">·</span>
-                <span className="font-semibold text-slate-800">{formatInr(packageAmount + extraAmount)}</span>
+                <span className="font-semibold text-slate-800">{formatInr(packageAmount + extraSpareAmount)}</span>
               </span>
-            ) : extraAmount > 0 ? (
+            ) : extraSpareAmount > 0 ? (
               <span>
-                Extra spares <span className="font-semibold text-slate-800">{formatInr(extraAmount)}</span>
+                Extra spares <span className="font-semibold text-slate-800">{formatInr(extraSpareAmount)}</span>
               </span>
             ) : null}
           </div>
@@ -156,27 +156,37 @@ export function WorkDoneSparesModal({
                 line.spareId && stock != null && Number.isFinite(qty) && qty > 0 && qty > stock;
               const outOfStock = line.spareId && stock != null && stock <= 0;
               const noPrice = Boolean(line.spareId) && unit <= 0;
-              const warn = Boolean(lineShort || outOfStock || noPrice);
               const fromPackage = Boolean(line.fromPackage);
-              const amountLabel = fromPackage
+              const chargeType = lineChargeType(line);
+              const includedInPackage = chargeType === "service";
+              const amountLabel = includedInPackage
                 ? "Incl."
                 : unit > 0
                   ? formatInr(unit * (Number.isFinite(qty) ? qty : 0))
                   : "—";
+              const hasStock = stock != null && Number.isFinite(stock);
+              const inStock = hasStock && stock > 0;
+              const stockClass = !line.spareId
+                ? "text-slate-400"
+                : inStock
+                  ? "font-semibold text-emerald-700"
+                  : "font-semibold text-rose-700";
               const stockText = !line.spareId
                 ? ""
                 : `${stockLabel} ${stock != null ? stock : "…"}${outOfStock ? " · Out" : ""}${
                     lineShort && !outOfStock ? ` · need ${qty}` : ""
-                  }${noPrice && !fromPackage ? " · no price" : ""}`;
+                  }${noPrice && !includedInPackage ? " · no price" : ""}`;
               return (
                 <div
                   key={`${idx}-${fromPackage ? "pkg" : "extra"}`}
                   className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${
-                    warn
+                    outOfStock || lineShort
                       ? "border-rose-300 bg-rose-50/40"
-                      : fromPackage
-                        ? "border-rlx-green/25 bg-rlx-green/[0.03]"
-                        : "border-slate-200 bg-white"
+                      : inStock
+                        ? "border-emerald-200 bg-emerald-50/30"
+                        : fromPackage
+                          ? "border-rlx-green/25 bg-rlx-green/[0.03]"
+                          : "border-slate-200 bg-white"
                   }`}
                 >
                   <div className="min-w-0 flex-1">
@@ -197,12 +207,24 @@ export function WorkDoneSparesModal({
                             onSpareChange(idx, nextId);
                             return;
                           }
-                          updateLine(idx, { spareId: nextId });
+                          updateLine(idx, { spareId: nextId, chargeType: line.chargeType ?? "spare" });
                           if (nextId) onSparePicked?.(nextId);
                         }}
                       />
                     )}
                   </div>
+                  <select
+                    aria-label="Line type"
+                    value={chargeType}
+                    disabled={saving}
+                    onChange={(e) =>
+                      updateLine(idx, { chargeType: e.target.value === "service" ? "service" : "spare" })
+                    }
+                    className="w-[5.5rem] shrink-0 rounded-md border border-rlx-rule bg-white px-1.5 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-rlx-green disabled:opacity-60"
+                  >
+                    <option value="service">Service</option>
+                    <option value="spare">Spare</option>
+                  </select>
                   <input
                     type="number"
                     min={1}
@@ -219,11 +241,7 @@ export function WorkDoneSparesModal({
                   <p className="w-24 shrink-0 truncate text-right text-xs font-semibold tabular-nums text-slate-800">
                     {amountLabel}
                   </p>
-                  <p
-                    className={`hidden w-28 shrink-0 truncate text-right text-[11px] sm:block ${
-                      warn ? "font-semibold text-rose-700" : "text-slate-500"
-                    }`}
-                  >
+                  <p className={`hidden w-28 shrink-0 truncate text-right text-[11px] sm:block ${stockClass}`}>
                     {stockText}
                   </p>
                   <button
@@ -241,7 +259,7 @@ export function WorkDoneSparesModal({
             })}
             <button
               type="button"
-              onClick={() => onLinesChange([...lines, { spareId: "", qty: "1" }])}
+              onClick={() => onLinesChange([...lines, { spareId: "", qty: "1", chargeType: "spare" }])}
               disabled={saving}
               className="w-full rounded-lg border border-dashed border-rlx-rule bg-white py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green/5 disabled:opacity-50"
             >

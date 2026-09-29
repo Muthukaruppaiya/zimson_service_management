@@ -19,8 +19,9 @@ import type { SeedRegion } from "../data/seed";
 import { findRegionForInvoice, mappingJurisdictionFromRegion } from "./invoiceJurisdiction";
 import type { SrfJob } from "../types/srfJob";
 import type { InvoiceBillLine } from "./serviceBillEditorLines";
-import { editorLinesToInvoiceBillLines, resolveInvoiceBillLineHsn } from "./serviceBillEditorLines";
+import { editorLinesToInvoiceBillLines, resolveInvoiceBillLineHsn, usedSparePackageIncludeFlags } from "./serviceBillEditorLines";
 import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "./hsnGst";
+import { servicePackageInvoiceDescription } from "./servicePackage";
 import type { ServiceBillEditorLine } from "./serviceBillEditorLines";
 import {
   normalizeStoreBillingSnapshot,
@@ -44,6 +45,7 @@ export function buildStoreBillingSnapshot(params: {
   paymentDetails?: import("./paymentModes").MultiPaymentDetails;
   spareHsnLookup?: (spareId: string) => string | null | undefined;
   warrantyMonths?: number | null;
+  extraChargesInr?: number;
 }): StoreBillingSnapshot {
   const invoiceLines: InvoiceBillLine[] = params.useServiceBillLinesCard
     ? editorLinesToInvoiceBillLines(
@@ -67,6 +69,10 @@ export function buildStoreBillingSnapshot(params: {
     paymentDetails: params.paymentDetails,
     closedAt: new Date().toISOString(),
     warrantyMonths: params.warrantyMonths && params.warrantyMonths > 0 ? params.warrantyMonths : undefined,
+    extraChargesInr:
+      params.extraChargesInr != null && Number.isFinite(params.extraChargesInr) && params.extraChargesInr > 0
+        ? Math.round(params.extraChargesInr * 100) / 100
+        : undefined,
   };
 }
 
@@ -151,7 +157,26 @@ export function buildStoreBillingInvoiceLines(
   }
 
   if (!amounts.isBrandRepair) {
-    for (const spare of job.usedSpares ?? []) {
+    const pkg = job.servicePackage && job.servicePackage.id ? job.servicePackage : null;
+    const includeFlags = usedSparePackageIncludeFlags(job.usedSpares, pkg?.spareIds);
+    if (pkg && Number(pkg.priceInr) > 0) {
+      const pkgAmt = billableStoreLineAmount(job.natureOfRepair, Number(pkg.priceInr), { isSpareLine: false });
+      if (pkgAmt > 0) {
+        const usedFromPkg = (job.usedSpares ?? [])
+          .filter((_, i) => includeFlags[i])
+          .map((s) => String(s.name ?? "").trim())
+          .filter(Boolean);
+        lines.push({
+          description: servicePackageInvoiceDescription({
+            ...pkg,
+            spareNames: usedFromPkg.length > 0 ? usedFromPkg : pkg.spareNames ?? [],
+          }),
+          amountInr: pkgAmt,
+        });
+      }
+    }
+    for (const [i, spare] of (job.usedSpares ?? []).entries()) {
+      if (pkg && includeFlags[i]) continue;
       const lineTotal = Number(spare.lineTotalInr ?? NaN);
       const qty = Number(spare.qty ?? 0);
       const unit = Number(spare.unitPriceInr ?? 0);
@@ -285,13 +310,16 @@ export function buildStoreBillingInvoiceFromClosedJob(
     }));
     const taxPreview = computeStoreBillingTaxPreview(job, options, gstLines, billSubtotal);
     const pricesTaxInclusive = STORE_BILLING_PRICES_TAX_INCLUSIVE;
-    const invoiceTotalInr = customerPayableInr(
-      billSubtotal,
-      taxPreview?.totalTax ?? 0,
-      pricesTaxInclusive,
-      taxPreview?.grossTaxable,
-      taxPreview?.tcsAmount ?? 0,
-    );
+    const extraChargesInr = Number(snapshot.extraChargesInr ?? 0);
+    const extraAmt = Number.isFinite(extraChargesInr) && extraChargesInr > 0 ? extraChargesInr : 0;
+    const invoiceTotalInr =
+      customerPayableInr(
+        billSubtotal,
+        taxPreview?.totalTax ?? 0,
+        pricesTaxInclusive,
+        taxPreview?.grossTaxable,
+        taxPreview?.tcsAmount ?? 0,
+      ) + extraAmt;
     const standardDue = Math.max(Math.round((invoiceTotalInr - advance) * 100) / 100, 0);
     const collectionAmount =
       snapshot.collectionAmountInr != null && Number.isFinite(snapshot.collectionAmountInr)
@@ -334,6 +362,7 @@ export function buildStoreBillingInvoiceFromClosedJob(
         natureOfRepair: job.natureOfRepair?.trim() || "Service completed",
         warrantyMonths: snapshot.warrantyMonths ?? job.warrantyMonths ?? null,
         warrantyTillDate: job.warrantyTillDate ?? null,
+        extraChargesInr: extraAmt > 0 ? extraAmt : undefined,
       },
       {
         taxSettings: options.taxSettings,

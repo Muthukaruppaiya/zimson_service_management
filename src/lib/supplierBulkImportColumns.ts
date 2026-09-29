@@ -5,10 +5,10 @@ export type { BulkImportColumn };
 
 /** One supplier per row. Location columns map to the primary address. */
 export const SUPPLIER_BULK_IMPORT_COLUMNS: BulkImportColumn[] = [
-  { key: "supplier_code", label: "Supplier Code", required: false, note: "Leave blank to auto-generate (SUP…). Matching code or GSTIN updates the existing supplier." },
   { key: "name", label: "Supplier Name", required: true, note: "Company / trading name" },
   { key: "contact_name", label: "Contact Person", required: false, note: "Primary contact name" },
-  { key: "phone", label: "Phone", required: false, note: "10–15 digits; +91 allowed" },
+  { key: "phone", label: "Phone", required: false, note: "10–15 digits. Two numbers (e.g. 4347777 / 4347700) are stored as phone + alternate." },
+  { key: "alternate_phone", label: "Alternate Phone", required: false, note: "Optional second number. Also filled from a second number in Phone." },
   { key: "email", label: "Email", required: false, note: "Valid email if provided" },
   { key: "gstin", label: "GSTIN", required: false, note: "15-character GSTIN if registered" },
   { key: "tax_person_type", label: "Tax Person Type", required: false, note: "Excel dropdown from Tax Types sheet (Tax & billing settings)" },
@@ -22,12 +22,13 @@ export const SUPPLIER_BULK_IMPORT_COLUMNS: BulkImportColumn[] = [
 ];
 
 const SUPPLIER_HEADER_ALIASES: Record<string, string> = {
-  supplier_code: "supplier_code",
-  supplier_number: "supplier_code",
-  supplier_no: "supplier_code",
-  vendor_code: "supplier_code",
-  vendor_number: "supplier_code",
-  code: "supplier_code",
+  /** Ignored if present on older templates — codes are always auto-generated. */
+  supplier_code: "_ignored_supplier_code",
+  supplier_number: "_ignored_supplier_code",
+  supplier_no: "_ignored_supplier_code",
+  vendor_code: "_ignored_supplier_code",
+  vendor_number: "_ignored_supplier_code",
+  code: "_ignored_supplier_code",
   name: "name",
   supplier_name: "name",
   contact_name: "contact_name",
@@ -35,6 +36,10 @@ const SUPPLIER_HEADER_ALIASES: Record<string, string> = {
   contact: "contact_name",
   phone: "phone",
   mobile: "phone",
+  alternate_phone: "alternate_phone",
+  alternate_mobile: "alternate_phone",
+  alt_phone: "alternate_phone",
+  alternative_phone: "alternate_phone",
   email: "email",
   gstin: "gstin",
   gst: "gstin",

@@ -48,7 +48,8 @@ TRUNCATE TABLE
   spare_stock,
   password_reset_tokens,
   auth_sessions,
-  store_invoice_sequences
+  store_invoice_sequences,
+  store_advance_voucher_sequences
 RESTART IDENTITY CASCADE;
 
 COMMIT;

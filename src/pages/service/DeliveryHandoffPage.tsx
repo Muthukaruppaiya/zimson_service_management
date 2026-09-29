@@ -51,28 +51,28 @@ const QUEUE_META: Record<
 > = {
   store_send: {
     title: SRF_ROUTE_LABEL_SEND_TO_SC,
-    blurb: "1) Choose delivery boy → 2) All pending transfers load → 3) Send OTP → confirm.",
+    blurb: "1) Choose delivery agent → 2) All pending transfers load → 3) Send OTP → confirm.",
     kind: "store_to_ho_send",
     storeSide: true,
     receiveMode: false,
   },
   ho_receive: {
     title: "Receive at HO",
-    blurb: "1) Choose delivery boy → 2) All carried transfers load → 3) OTP → Waiting for inward.",
+    blurb: "1) Choose delivery agent → 2) All carried transfers load → 3) OTP → Waiting for inward.",
     kind: "ho_receive_from_db",
     storeSide: false,
     receiveMode: true,
   },
   ho_send: {
     title: "Send to Store",
-    blurb: "1) Choose delivery boy → 2) All pending transfers load → 3) Send OTP → confirm.",
+    blurb: "1) Choose delivery agent → 2) All pending transfers load → 3) Send OTP → confirm.",
     kind: "ho_to_store_send",
     storeSide: false,
     receiveMode: false,
   },
   store_receive: {
     title: "Receive at Store",
-    blurb: "1) Choose delivery boy → 2) All carried transfers load → 3) OTP → Waiting for inward.",
+    blurb: "1) Choose delivery agent → 2) All carried transfers load → 3) OTP → Waiting for inward.",
     kind: "store_receive_from_db",
     storeSide: true,
     receiveMode: true,
@@ -109,7 +109,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
 
   /**
    * Receive queues: only boys who still have pending in-transit TDs.
-   * Send queues: all delivery boys (TDs are not assigned yet).
+   * Send queues: all delivery agents (TDs are not assigned yet).
    */
   const selectableBoys = useMemo(() => {
     if (!meta.receiveMode) return boys;
@@ -119,7 +119,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
     return boys.filter((b) => pendingBoyIds.has(b.id));
   }, [boys, meta.receiveMode, rows]);
 
-  /** TDs for the chosen delivery boy (receive) or all pending TDs after boy chosen (send). */
+  /** TDs for the chosen delivery agent (receive) or all pending TDs after boy chosen (send). */
   const visibleRows = useMemo(() => {
     if (!boyId) return [];
     if (meta.receiveMode) {
@@ -195,11 +195,11 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
     setError(null);
     setOk(null);
     if (!boyId) {
-      setError("Select a delivery boy first.");
+      setError("Select a delivery agent first.");
       return;
     }
     if (allDcNumbers.length === 0) {
-      setError("No transfer documents for this delivery boy.");
+      setError("No transfer documents for this delivery agent.");
       return;
     }
     setBusy(true);
@@ -217,7 +217,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
       setSessionId(data.sessionId);
       setDemoOtp(data.demoOtp ?? null);
       setOk(
-        `OTP sent to ${data.deliveryBoyName ?? "delivery boy"} via SMS/email. Enter the code to confirm.`,
+        `OTP sent to ${data.deliveryBoyName ?? "delivery agent"} via SMS/email. Enter the code to confirm.`,
       );
       showOtpSent(formatOtpSentSubtitle(data.sentTo ?? []));
     } catch (e) {
@@ -271,8 +271,8 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
         ]}
       />
       <PageHeader
-        title="Delivery boy handoff"
-        subtitle="Choose delivery boy first, then transfers and OTP. Store ↔ HO only."
+        title="Delivery agent handoff"
+        subtitle="Choose delivery agent first, then transfers and OTP. Store ↔ HO only."
       />
 
       {queues.length > 1 ? (
@@ -309,7 +309,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
         <div className="mb-4 max-w-md">
           <label className="block text-sm">
             <span className="mb-1 block font-semibold text-stone-700">
-              Step 1 — Delivery boy (name / mobile)
+              Step 1 — Delivery agent (name / mobile)
             </span>
             <select
               className={inputClass}
@@ -317,7 +317,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
               onChange={(e) => onBoyChange(e.target.value)}
               disabled={busy || loading}
             >
-              <option value="">Select delivery boy…</option>
+              <option value="">Select delivery agent…</option>
               {selectableBoys.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.displayName}
@@ -328,9 +328,9 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
             {!loading && selectableBoys.length === 0 ? (
               <span className="mt-1 block text-xs text-amber-700">
                 {meta.receiveMode
-                  ? "No delivery boy has pending in-transit transfers right now."
+                  ? "No delivery agent has pending in-transit transfers right now."
                   : boys.length === 0
-                    ? "No delivery boys in this region. Create one under Users (role: Delivery Boy) with mobile + email."
+                    ? "No delivery agents in this region. Create one under Users (role: Delivery Agent) with mobile + email."
                     : "No pending transfers in this queue."}
               </span>
             ) : null}
@@ -339,7 +339,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
 
         {!boyId ? (
           <p className="rounded-xl border border-dashed border-rlx-rule bg-stone-50 px-4 py-6 text-center text-sm text-stone-600">
-            Select a delivery boy above to see the transfers they {meta.receiveMode ? "are carrying" : "will take"}.
+            Select a delivery agent above to see the transfers they {meta.receiveMode ? "are carrying" : "will take"}.
           </p>
         ) : loading ? (
           <p className="text-sm text-stone-500">Loading…</p>
@@ -349,12 +349,12 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
               Step 2 — Transfers{" "}
               {meta.receiveMode && selectedBoy
                 ? `carried by ${selectedBoy.displayName}`
-                : `to assign to ${selectedBoy?.displayName ?? "delivery boy"}`}
+                : `to assign to ${selectedBoy?.displayName ?? "delivery agent"}`}
             </p>
             {visibleRows.length === 0 ? (
               <p className="rounded-xl border border-zimson-100 bg-white px-4 py-5 text-sm text-stone-500">
                 {meta.receiveMode
-                  ? "No in-transit transfers for this delivery boy."
+                  ? "No in-transit transfers for this delivery agent."
                   : "No pending transfers in this queue."}
               </p>
             ) : (
@@ -426,7 +426,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
           className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
-          aria-label={otpSending ? "Sending delivery boy OTP" : "Enter delivery boy OTP"}
+          aria-label={otpSending ? "Sending delivery agent OTP" : "Enter delivery agent OTP"}
         >
           <div className="relative w-full max-w-lg rounded-2xl border border-white/20 bg-white p-4 shadow-2xl sm:p-5">
             {sessionId && !busy ? (
@@ -446,12 +446,12 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
             ) : null}
             {otpSending ? (
               <OtpSendingIndicator
-                label={`Sending OTP to ${selectedBoy?.displayName ?? "delivery boy"}…`}
-                description="Delivering to the delivery boy’s registered mobile and email…"
+                label={`Sending OTP to ${selectedBoy?.displayName ?? "delivery agent"}…`}
+                description="Delivering to the delivery agent’s registered mobile and email…"
               />
             ) : (
               <DemoOtpGate
-                title="Enter delivery boy OTP"
+                title="Enter delivery agent OTP"
                 issuedCode={demoOtp ?? undefined}
                 value={otpInput}
                 onChange={setOtpInput}

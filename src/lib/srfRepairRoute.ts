@@ -10,7 +10,7 @@ export const SRF_REPAIR_ROUTE_OPTIONS: Array<{ value: SrfRepairRoute; label: str
   {
     value: "send_to_ho",
     label: SRF_ROUTE_LABEL_SEND_TO_SC,
-    hint: "Watch is sent to the centralized service centre for repair and return.",
+    hint: "",
   },
   {
     value: "store_self",

@@ -108,7 +108,7 @@ export function StoreInwardQcDispositionModal({
         >
           <p className="text-sm font-bold text-rlx-gold-dark">Send back to HO for re-repair</p>
           <p className="mt-1 text-xs leading-relaxed text-slate-600">
-            Moves to store outward queue. Create a new transfer, delivery-boy handoff, and HO inward — normal flow.
+            Moves to store outward queue. Create a new transfer, delivery agent handoff, and HO inward — normal flow.
           </p>
         </button>
       </div>

@@ -682,6 +682,8 @@ export type SrfServiceBillPreviewInput = {
   customerCode?: string;
   warrantyMonths?: number | null;
   warrantyTillDate?: string | null;
+  /** Non-GST extra charges — added to payable, excluded from GST. */
+  extraChargesInr?: number;
 };
 
 export function mapSrfPreviewToServiceInvoiceViewModel(
@@ -741,6 +743,22 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     options?.customerPan,
     options?.customerGstin,
   );
+  const extraCharges = Number(input.extraChargesInr ?? 0);
+  const extraAmt = Number.isFinite(extraCharges) && extraCharges > 0 ? Math.round(extraCharges * 100) / 100 : 0;
+  const extraLine =
+    extraAmt > 0
+      ? {
+          slNo: gst.lines.length + 1,
+          description: "Extra charges (not taxable)",
+          hsnSac: "",
+          unitPrice: extraAmt,
+          qty: 1,
+          grossValue: extraAmt,
+          isSpareLine: false as const,
+          lineKind: "service" as const,
+        }
+      : null;
+  const invoiceNet = Math.round((gst.net + extraAmt) * 100) / 100;
   const serviceMeta: { label: string; value: string }[] = [];
   if (input.complaint.trim()) serviceMeta.push({ label: "Complaint", value: input.complaint.trim() });
   if (input.warrantyMonths && input.warrantyMonths > 0) {
@@ -759,7 +777,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
   const paymentFields = buildServiceInvoicePaymentSection({
     advanceInr: adv,
     balanceCollectedInr: net,
-    invoiceNetPayable: gst.net,
+    invoiceNetPayable: invoiceNet,
     paymentMode: payMode,
     paymentDetails: input.collectionPaymentDetails ?? undefined,
   });
@@ -804,7 +822,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
       natureOfRepair:
         natureOfRepairLabel(input.natureOfRepair) || input.natureOfRepair?.trim() || "Service completed",
     },
-    lines: gst.lines,
+    lines: extraLine ? [...gst.lines, extraLine] : gst.lines,
     ...paymentFields,
     bankDetailsLines: [...SERVICE_INVOICE_BRANDING.bankDetailsLines],
     footerTerms: sellerPack.footerTerms,
@@ -815,6 +833,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
     totalTax: gst.tax,
     tcsAmount: gst.tcsAmount,
     tcsRatePercent: gst.tcsRatePercent,
+    extraChargesInr: extraAmt > 0 ? extraAmt : undefined,
     roundOffInr: gst.roundOffInr,
     preRoundOffPayable: gst.preRoundOffPayable,
     totalQty: gst.totalQty,

@@ -47,7 +47,7 @@ import {
   isValidPanFormat,
 } from "../../data/serviceSeed";
 import type { CustomerAddressBlock, CustomerRecord } from "../../types/customer";
-import type { SrfJob } from "../../types/srfJob";
+import type { InvoicedSrfRef, SrfJob } from "../../types/srfJob";
 import {
   isFullyOtpVerified,
   UNVERIFIED_CUSTOMER_ALERT_MESSAGE,
@@ -70,9 +70,10 @@ import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
 import { SrfBookingPackageField } from "../../components/service/SrfBookingPackageField";
 import type { SrfServicePackageSnapshot } from "../../types/servicePackage";
 import { sanitizeDecimalInput, isValidEmail } from "../../lib/inputSanitize";
+import { SearchableSelect } from "../../components/service/SearchableSelect";
 import { formatInr, formatApproxEstimateInr, ESTIMATE_AMOUNT_LABEL_APPROX, ESTIMATE_LABEL_APPROX } from "../../lib/formatInr";
 import { packageDisplayName } from "../../lib/servicePackage";
-import { natureOfRepairLabel } from "../../lib/natureOfRepair";
+import { formatWarrantyPriorSrfLabel, natureOfRepairLabel } from "../../lib/natureOfRepair";
 import {
   SRF_REPAIR_ROUTE_OPTIONS,
   SRF_ROUTE_LABEL_INSTORE,
@@ -265,6 +266,8 @@ export function SrfBookingV2Page() {
   const [watchServiceDetails, setWatchServiceDetails] = useState<WatchServiceDetailValues>(
     emptyWatchServiceDetailValues,
   );
+  const [warrantyRefSrfId, setWarrantyRefSrfId] = useState("");
+  const [invoicedSrfJobs, setInvoicedSrfJobs] = useState<InvoicedSrfRef[]>([]);
   const [stockWatchStoreId, setStockWatchStoreId] = useState("");
   const [handoverStoreId, setHandoverStoreId] = useState("");
   /** Default: send to HO (standard dispatch flow). */
@@ -535,6 +538,43 @@ export function SrfBookingV2Page() {
   }, [watchServiceDetails.natureOfRepair, handoverStoreOptions, stockWatchStoreId]);
 
   useEffect(() => {
+    if (watchServiceDetails.natureOfRepair !== "warranty_non_chargeable") {
+      setInvoicedSrfJobs([]);
+      return;
+    }
+    const p10 = phone.replace(/\D/g, "").slice(-10);
+    if (p10.length !== 10) {
+      setInvoicedSrfJobs([]);
+      return;
+    }
+    let cancelled = false;
+    const qs = new URLSearchParams({ phone: p10 });
+    if (draft?.srfId) qs.set("excludeId", draft.srfId);
+    void apiJson<{ jobs: InvoicedSrfRef[] }>(`/api/service/srf-jobs/invoiced?${qs.toString()}`)
+      .then((data) => {
+        if (cancelled) return;
+        setInvoicedSrfJobs(data.jobs ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setInvoicedSrfJobs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [watchServiceDetails.natureOfRepair, phone, draft?.srfId]);
+
+  const selectedWarrantyRefJob = invoicedSrfJobs.find((j) => j.id === warrantyRefSrfId) ?? null;
+  const selectedWarrantyRefLabel = selectedWarrantyRefJob
+    ? formatWarrantyPriorSrfLabel({
+        invoiceNumber: selectedWarrantyRefJob.invoiceNumber,
+        srfReference: selectedWarrantyRefJob.reference,
+        watchBrand: selectedWarrantyRefJob.watchBrand,
+        watchModel: selectedWarrantyRefJob.watchModel,
+        serial: selectedWarrantyRefJob.serial,
+      })
+    : "";
+
+  useEffect(() => {
     if (!ENABLE_SRF_HANDOVER_STORE_SELECT && operatingStoreId) {
       setHandoverStoreId(operatingStoreId);
     }
@@ -570,6 +610,12 @@ export function SrfBookingV2Page() {
     if (watchServiceDetails.natureOfRepair === "internal_service" && !stockWatchStoreId) {
       setError("For Stock Watch, select the stock watch location store.");
       return false;
+    }
+    if (watchServiceDetails.natureOfRepair === "warranty_non_chargeable") {
+      if (!warrantyRefSrfId.trim()) {
+        setError("Select the previous invoiced SRF as reference for this warranty (non-chargeable) booking.");
+        return false;
+      }
     }
     if (serialNumberRequired && !serial.trim()) {
       setError(`Serial number is required for ${watchBrand}.`);
@@ -741,6 +787,8 @@ export function SrfBookingV2Page() {
           watchModel: watchModel.trim(),
           serial: serial.trim(),
           ...watchServiceDetailsToApiPayload(watchServiceDetails),
+          warrantyRefSrfId:
+            watchServiceDetails.natureOfRepair === "warranty_non_chargeable" ? warrantyRefSrfId.trim() : "",
         });
       }
       if (step === 2 && !watchPhotosReady(photoPreview)) {
@@ -796,6 +844,8 @@ export function SrfBookingV2Page() {
         watchModel: watchModel.trim(),
         serial,
         ...watchServiceDetailsToApiPayload(watchServiceDetails),
+        warrantyRefSrfId:
+          watchServiceDetails.natureOfRepair === "warranty_non_chargeable" ? warrantyRefSrfId.trim() : "",
       });
       setStep(1);
     } catch (e) {
@@ -1020,6 +1070,7 @@ export function SrfBookingV2Page() {
         setWatchModel(job.watchModel.trim());
         setSerial(job.serial);
         setWatchServiceDetails(watchServiceDetailsFromApi(job));
+        setWarrantyRefSrfId(job.warrantyRefSrfId?.trim() ?? "");
         if (job.servicePackage?.id) {
           setWorkAsPackage("yes");
           setBookingPackage(job.servicePackage);
@@ -1392,6 +1443,8 @@ export function SrfBookingV2Page() {
         customFields,
         servicePackage: workAsPackage === "yes" ? bookingPackage : null,
         ...watchServiceDetailsToApiPayload(watchServiceDetails),
+        warrantyRefSrfId:
+          watchServiceDetails.natureOfRepair === "warranty_non_chargeable" ? warrantyRefSrfId.trim() : "",
       });
       setSrfRef(row.reference);
       setFinalizedSrfId(row.srfId);
@@ -1457,6 +1510,8 @@ export function SrfBookingV2Page() {
       natureOfRepair:
         natureOfRepairLabel(watchServiceDetails.natureOfRepair) ||
         (finalizedRepairRoute === "store_self" ? SRF_ROUTE_LABEL_INSTORE : SRF_ROUTE_LABEL_SEND_TO_SC),
+      warrantyRefInvoiceNumber: selectedWarrantyRefJob?.invoiceNumber,
+      warrantyRefSrfReference: selectedWarrantyRefJob?.reference,
       receptionistRemarks: estimateRemarks.trim() || obsAdditionalNotes.trim(),
       comments: srfComments || complaint,
       modelNumber: serial.trim(),
@@ -1886,7 +1941,12 @@ export function SrfBookingV2Page() {
               inputClass={bookingInputClass}
               columns={3}
               values={watchServiceDetails}
-              onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
+              onChange={(patch) => {
+                setWatchServiceDetails((prev) => ({ ...prev, ...patch }));
+                if (patch.natureOfRepair !== undefined && patch.natureOfRepair !== "warranty_non_chargeable") {
+                  setWarrantyRefSrfId("");
+                }
+              }}
               stockWatchStoreOptions={handoverStoreOptions}
               stockWatchStoreId={stockWatchStoreId}
               onStockWatchStoreChange={setStockWatchStoreId}
@@ -1902,6 +1962,39 @@ export function SrfBookingV2Page() {
                 </label>
               }
             />
+            {watchServiceDetails.natureOfRepair === "warranty_non_chargeable" ? (
+              <div className="rounded-xl border border-rlx-gold/50 bg-rlx-green-light/40 p-3">
+                <SearchableSelect
+                  id="srf-warranty-ref"
+                  label="Previous invoiced SRF (reference only)"
+                  value={warrantyRefSrfId}
+                  onChange={setWarrantyRefSrfId}
+                  options={invoicedSrfJobs.map((j) => ({
+                    value: j.id,
+                    label: formatWarrantyPriorSrfLabel({
+                      invoiceNumber: j.invoiceNumber,
+                      srfReference: j.reference,
+                      watchBrand: j.watchBrand,
+                      watchModel: j.watchModel,
+                      serial: j.serial,
+                    }),
+                  }))}
+                  inputClass={bookingInputClass}
+                  placeholder="Select invoiced SRF…"
+                  searchPlaceholder="Search by invoice / SRF / serial…"
+                  required
+                  emptyOption={{ value: "", label: "Select invoiced SRF…" }}
+                />
+                <p className="mt-1.5 text-[11px] text-stone-600">
+                  
+                </p>
+                {phone.replace(/\D/g, "").slice(-10).length === 10 && invoicedSrfJobs.length === 0 ? (
+                  <p className="mt-1 text-[11px] font-medium text-rose-700">
+                    No invoiced SRF found for this customer mobile.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
               <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-1">
                 Repair routing
@@ -2316,6 +2409,16 @@ export function SrfBookingV2Page() {
                       Stock watch location
                     </th>
                     <td className="px-3 py-2 text-stone-800">{selectedStockWatchStoreName || "-"}</td>
+                  </tr>
+                ) : null}
+                {watchServiceDetails.natureOfRepair === "warranty_non_chargeable" ? (
+                  <tr className="border-b border-rlx-rule">
+                    <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">
+                      Previous invoiced SRF
+                    </th>
+                    <td className="px-3 py-2 text-stone-800">
+                      {selectedWarrantyRefLabel || "—"}
+                    </td>
                   </tr>
                 ) : null}
                 <tr className="border-b border-rlx-rule">

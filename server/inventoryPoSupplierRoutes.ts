@@ -211,6 +211,7 @@ export function registerInventoryPoSupplierRoutes(
                 contact_name AS "contactName",
                 email,
                 phone,
+                alternate_phone AS "alternatePhone",
                 address,
                 locations_json AS locations,
                 gst,
@@ -290,6 +291,7 @@ export function registerInventoryPoSupplierRoutes(
     const contactName = String(req.body?.contactName ?? "").trim() || null;
     const email = String(req.body?.email ?? "").trim() || null;
     const phone = String(req.body?.phone ?? "").trim() || null;
+    const alternatePhone = String(req.body?.alternatePhone ?? "").trim() || null;
     const locations = normalizeLocations(req.body?.locations);
     const address = toLegacyAddress(locations);
     const taxPersonType = String(req.body?.taxPersonType ?? "").trim().toUpperCase() || null;
@@ -300,14 +302,15 @@ export function registerInventoryPoSupplierRoutes(
     }
     try {
       const { rows } = await pool.query(
-        `INSERT INTO suppliers (supplier_code, name, contact_name, email, phone, address, locations_json, gst, tax_person_type, custom_fields, created_by, modified_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $11::jsonb, $10, $10)
+        `INSERT INTO suppliers (supplier_code, name, contact_name, email, phone, alternate_phone, address, locations_json, gst, tax_person_type, custom_fields, created_by, modified_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $12::jsonb, $11, $11)
          RETURNING id,
                    supplier_code AS "supplierCode",
                    name,
                    contact_name AS "contactName",
                    email,
                    phone,
+                   alternate_phone AS "alternatePhone",
                    address,
                    locations_json AS locations,
                    gst,
@@ -316,7 +319,7 @@ export function registerInventoryPoSupplierRoutes(
                    custom_fields AS "customFields",
                    created_at AS "createdAt",
                    updated_at AS "updatedAt"`,
-        [supplierCode, name, contactName, email, phone, address, JSON.stringify(locations), gst, taxPersonType, actor?.id ?? null, JSON.stringify(customChecked.values)],
+        [supplierCode, name, contactName, email, phone, alternatePhone, address, JSON.stringify(locations), gst, taxPersonType, actor?.id ?? null, JSON.stringify(customChecked.values)],
       );
       res.json({ supplier: rows[0] });
     } catch (e) {
@@ -345,6 +348,8 @@ export function registerInventoryPoSupplierRoutes(
     const contactName = req.body?.contactName !== undefined ? String(req.body.contactName ?? "").trim() || null : undefined;
     const email = req.body?.email !== undefined ? String(req.body.email ?? "").trim() || null : undefined;
     const phone = req.body?.phone !== undefined ? String(req.body.phone ?? "").trim() || null : undefined;
+    const alternatePhone =
+      req.body?.alternatePhone !== undefined ? String(req.body.alternatePhone ?? "").trim() || null : undefined;
     const locations = req.body?.locations !== undefined ? normalizeLocations(req.body?.locations) : undefined;
     const address =
       req.body?.address !== undefined
@@ -396,6 +401,10 @@ export function registerInventoryPoSupplierRoutes(
       sets.push(`phone = $${i++}`);
       params.push(phone);
     }
+    if (alternatePhone !== undefined) {
+      sets.push(`alternate_phone = $${i++}`);
+      params.push(alternatePhone);
+    }
     if (address !== undefined) {
       sets.push(`address = $${i++}`);
       params.push(address);
@@ -441,6 +450,7 @@ export function registerInventoryPoSupplierRoutes(
                 contact_name AS "contactName",
                 email,
                 phone,
+                alternate_phone AS "alternatePhone",
                 address,
                 locations_json AS locations,
                 gst,

@@ -102,6 +102,8 @@ export type ServiceInvoiceViewModel = {
   /** TCS on TCS-eligible luxury / motor vehicle lines over ₹10 lakh. */
   tcsAmount?: number;
   tcsRatePercent?: number;
+  /** Non-GST extra charges (courier, packing). Not included in GST. */
+  extraChargesInr?: number;
   totalQty?: number;
   advanceAmount?: number;
   /** Balance collected at billing (after advance), e.g. UPI ₹4,440. */

@@ -20,6 +20,8 @@ import { useSrfJobs } from "../../context/SrfJobsContext";
 import { apiJson, ApiError } from "../../lib/api";
 import { phoneLast10 } from "../../lib/customerLookup";
 import { printServiceInvoice } from "../../lib/printServiceInvoice";
+import { printStoreAdvanceVoucherDocument } from "../../lib/serviceDocuments";
+import { cannotRepairAtLabel, isUnrepairedReturnJob } from "../../lib/srfUnrepairedReturn";
 import { sendInvoiceWhatsApp } from "../../lib/sendInvoiceWhatsApp";
 import { useMessagingSend } from "../../components/messaging/WhatsAppSendProvider";
 import { invoiceWhatsAppResultMessage } from "../../lib/whatsappInvoiceUi";
@@ -126,7 +128,7 @@ export function StoreBillingPage() {
   const { regions } = useRegions();
   const { customers } = useCustomers();
   const { activeSpares } = useSpares();
-  const { jobs, closeWithInvoice, refreshJobs } = useSrfJobs();
+  const { jobs, closeWithInvoice, refreshJobs, issueStoreAdvanceVoucher } = useSrfJobs();
   const [serviceTaxSettings, setServiceTaxSettings] = useState<ServiceTaxSettings | null>(null);
   const [billingInvoiceVm, setBillingInvoiceVm] = useState<ServiceInvoiceViewModel | null>(null);
   const [billSuccessModalOpen, setBillSuccessModalOpen] = useState(false);
@@ -149,6 +151,7 @@ export function StoreBillingPage() {
   const [handoverModalOpen, setHandoverModalOpen] = useState(false);
   const [handoverModalMode, setHandoverModalMode] = useState<HandoverOtpMode>("primary");
   const [closingAfterOtp, setClosingAfterOtp] = useState(false);
+  const [voucherIssuing, setVoucherIssuing] = useState(false);
   const [billingEdoc, setBillingEdoc] = useState<QuickBillEdocInfo | null>(null);
   const [closedSrfId, setClosedSrfId] = useState<string | null>(null);
   const [edocEnabled, setEdocEnabled] = useState(false);
@@ -157,7 +160,9 @@ export function StoreBillingPage() {
     { id: `${Date.now()}-charge`, lineType: "charge", description: "", spareId: "", qty: "1", amount: "" },
   ]);
   const [billLines, setBillLines] = useState<ServiceBillEditorLine[]>([]);
+  const billLinesJobIdRef = useRef<string | null>(null);
   const [serviceChargeInr, setServiceChargeInr] = useState("");
+  const [extraChargesInr, setExtraChargesInr] = useState("");
   const [billingStateInput, setBillingStateInput] = useState("");
   const [traceJobId, setTraceJobId] = useState<string | null>(null);
   const [billingKindOverride, setBillingKindOverride] = useState<"B2C" | "B2B" | null>(null);
@@ -227,7 +232,8 @@ export function StoreBillingPage() {
     return receivedAtStore.find((j) => j.id === billingSelectedId) ?? null;
   }, [receivedAtStore, billingSelectedId]);
 
-  const isRejectedNoRepairFlow = billingJob?.customerReestimateResponse === "rejected";
+  const isUnrepairedReturnFlow = Boolean(billingJob && isUnrepairedReturnJob(billingJob));
+  const isRejectedNoRepairFlow = isUnrepairedReturnFlow;
   const billingCustomer = useMemo(() => {
     if (!billingJob?.phone) return null;
     const p10 = phoneLast10(billingJob.phone);
@@ -341,23 +347,39 @@ export function StoreBillingPage() {
     if (!billingJob || !useServiceBillLinesCard) {
       setBillLines([]);
       setServiceChargeInr("");
+      setExtraChargesInr("");
       setBillingStateInput("");
+      billLinesJobIdRef.current = null;
       return;
     }
-    if (isBrandRepairFlow) {
-      setBillLines([brandInvoiceToEditorLine(billingJob, invoiceSacHsn)]);
-    } else {
-      setBillLines(
-        usedSparesToEditorLines(billingJob, (spareId) => {
+    const slip = isBrandRepairFlow
+      ? [brandInvoiceToEditorLine(billingJob, invoiceSacHsn)]
+      : usedSparesToEditorLines(billingJob, (spareId) => {
           if (!spareId) return null;
           return activeSpares.find((s) => s.id === spareId)?.hsn?.trim() || null;
-        }),
+        });
+    const jobChanged = billLinesJobIdRef.current !== billingJob.id;
+    billLinesJobIdRef.current = billingJob.id;
+    setBillLines((prev) => {
+      if (jobChanged) return slip;
+      const extras = prev.filter(
+        (l) => !l.locked && (Boolean(l.spareId) || l.lineKind === "spare" || l.lineKind === "service"),
       );
+      if (extras.length === 0) return slip;
+      const slipSpareIds = new Set(slip.map((l) => l.spareId).filter(Boolean));
+      const keep = extras.filter((l) => {
+        if (l.spareId && slipSpareIds.has(l.spareId) && l.locked) return false;
+        return true;
+      });
+      return keep.length > 0 ? [...slip, ...keep] : slip;
+    });
+    if (jobChanged) {
+      setServiceChargeInr("");
+      setExtraChargesInr("");
+      setBillingStateInput(billingCustomerState);
     }
-    setServiceChargeInr("");
-    setBillingStateInput(billingCustomerState);
   }, [
-    billingJob?.id,
+    billingJob,
     useServiceBillLinesCard,
     isBrandRepairFlow,
     billingCustomerState,
@@ -492,6 +514,11 @@ export function StoreBillingPage() {
     billSubtotalBeforeAdvance,
   ]);
 
+  const extraChargesAmount = useMemo(() => {
+    const n = Number.parseFloat(extraChargesInr);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+  }, [extraChargesInr]);
+
   const invoiceTotalInr = useMemo(() => {
     const payable = customerPayableInr(
       billSubtotalBeforeAdvance,
@@ -500,8 +527,9 @@ export function StoreBillingPage() {
       taxPreview?.grossTaxable,
       taxPreview?.tcsAmount ?? 0,
     );
-    return Number.isFinite(payable) ? payable : billSubtotalBeforeAdvance;
-  }, [billSubtotalBeforeAdvance, taxPreview?.totalTax, taxPreview?.grossTaxable, taxPreview?.tcsAmount]);
+    const gstPayable = Number.isFinite(payable) ? payable : billSubtotalBeforeAdvance;
+    return Math.round((gstPayable + extraChargesAmount) * 100) / 100;
+  }, [billSubtotalBeforeAdvance, taxPreview?.totalTax, taxPreview?.grossTaxable, taxPreview?.tcsAmount, extraChargesAmount]);
 
   const standardBillingTotal = useMemo(() => {
     const due = invoiceTotalInr - advanceAmount;
@@ -534,6 +562,16 @@ export function StoreBillingPage() {
   }, [billingJob?.id]);
 
   function validateBeforeHandoverOtp(): boolean {
+    if (isUnrepairedReturnFlow) {
+      if (advanceAmount > 0 && !String(billingJob?.storeAdvanceVoucherCode ?? "").trim()) {
+        setMessage({
+          type: "err",
+          text: "Create the store credit for the collected advance before handover OTP.",
+        });
+        return false;
+      }
+      return true;
+    }
     if (!Number.isFinite(finalBillingAmount) || finalBillingAmount < 0) {
       setMessage({ type: "err", text: "Enter a valid final billing amount." });
       return false;
@@ -576,7 +614,30 @@ export function StoreBillingPage() {
     setHandoverVerified(true);
     setHandoverModalOpen(false);
     setClosingAfterOtp(true);
-    if (billingJob) void finalizeInvoiceAfterOtp(billingJob.id);
+    if (!billingJob) return;
+    if (isUnrepairedReturnFlow) {
+      void closeRejectedNoBilling(billingJob.id)
+        .then(() => {
+          setMessage({
+            type: "ok",
+            text: billingJob.storeAdvanceVoucherCode
+              ? `Watch handed over with store credit ${billingJob.storeAdvanceVoucherCode}. SRF closed.`
+              : "Watch handed over unrepaired. SRF closed without billing.",
+          });
+          setBillingSelectedId("");
+          setBillingRefInput("");
+          setScreenMode("select");
+        })
+        .catch((e) => {
+          setMessage({
+            type: "err",
+            text: e instanceof Error ? e.message : "Could not complete unrepaired handover.",
+          });
+        })
+        .finally(() => setClosingAfterOtp(false));
+      return;
+    }
+    void finalizeInvoiceAfterOtp(billingJob.id);
   }
 
   function addChargeLine() {
@@ -703,6 +764,7 @@ export function StoreBillingPage() {
         collectionPaymentMode: collectionMode,
         paymentDetails: collectionDetails,
         warrantyMonths,
+        extraChargesInr: extraChargesAmount,
       });
       const closeOut = await closeJob(jobId, snapshot);
       const cust = effectiveBillingCustomer;
@@ -1001,6 +1063,11 @@ export function StoreBillingPage() {
                           >
                             {j.reference}
                           </button>
+                          {isUnrepairedReturnJob(j) ? (
+                            <span className="mt-1 block w-fit rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-800">
+                              Return without repair
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2">{j.customerName}</td>
                         <td className="px-3 py-2">{j.watchBrand} {j.watchModel}</td>
@@ -1161,8 +1228,10 @@ export function StoreBillingPage() {
                 standardTotalInr={standardBillingTotal}
                 userRole={user?.role}
                 labourChargesOnly={user?.role === "store_user" && !isBrandRepairFlow && !isPackageBilling}
-                hideSpareCatalog={isBrandRepairFlow || isPackageBilling}
+                hideSpareCatalog={isBrandRepairFlow}
                 packageOnly={isPackageBilling && !isBrandRepairFlow}
+                extraChargesInr={extraChargesInr}
+                onExtraChargesInrChange={setExtraChargesInr}
                 title="Service lines"
                 topBanner={
                   isBrandRepairFlow ? (
@@ -1203,7 +1272,9 @@ export function StoreBillingPage() {
                         {packageDisplayName(billingJob.servicePackage)} ·{" "}
                         {formatInr(Number(billingJob.servicePackage.priceInr) || 0)}
                       </p>
-                      <p className="mt-1 text-xs text-stone-600">Final invoice uses this package amount only.</p>
+                      <p className="mt-1 text-xs text-stone-600">
+                        Package amount uses HSN 9987. Extra spares typed as Spare are billed as separate line items.
+                      </p>
                     </div>
                   ) : isInterHoReturnFlow ? (
                     <div className="grid gap-2 rounded-xl border border-indigo-200/80 bg-indigo-50/50 p-3 text-sm sm:grid-cols-2">
@@ -1548,23 +1619,144 @@ export function StoreBillingPage() {
               </>
             ) : null}
             {isRejectedNoRepairFlow ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void closeRejectedNoBilling(billingJob.id)
-                    .then(() => {
-                      setMessage({ type: "ok", text: "Watch handed over and SRF closed without billing (re-estimate rejected)." });
-                      setBillingSelectedId("");
-                      setBillingRefInput("");
-                    })
-                    .catch((e) => {
-                      setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not complete no-billing handover." });
-                    });
-                }}
-                className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
-              >
-                Handover to customer without billing
-              </button>
+              <div className="space-y-4">
+                <div className="rounded-xl border border-rose-200 bg-rose-50/80 p-4 text-sm text-rose-950">
+                  <p className="font-semibold">Watch returned without repair — no service invoice</p>
+                  <p className="mt-1 text-xs leading-relaxed text-rose-900/90">
+                    {billingJob.cannotRepairAt
+                      ? cannotRepairAtLabel(billingJob.cannotRepairAt)
+                      : billingJob.brandReturnWithoutRepair
+                        ? "Brand returned the watch without repair."
+                        : billingJob.customerReestimateResponse === "rejected"
+                          ? "Customer declined the re-estimate."
+                          : "HO returned the watch unrepaired."}
+                    {billingJob.cannotRepairNote ? ` — ${billingJob.cannotRepairNote}` : ""}
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <p>
+                      Estimate:{" "}
+                      <strong>{formatApproxEstimateInrPlain(Number(billingJob.estimateTotalInr ?? 0))}</strong>
+                    </p>
+                    <p>
+                      Advance collected: <strong>INR {advanceAmount.toFixed(2)}</strong>
+                      {billingJob.advancePaymentMode ? ` (${billingJob.advancePaymentMode})` : ""}
+                    </p>
+                  </div>
+                </div>
+                {advanceAmount > 0 ? (
+                  <div className="rounded-xl border border-zimson-200 bg-white p-4">
+                    <p className="text-sm font-semibold text-zimson-900">Store credit</p>
+                    <p className="mt-1 text-xs text-stone-600">
+                      Issue store credit for the advance, print it, then hand over the watch with the store credit after OTP.
+                    </p>
+                    {billingJob.storeAdvanceVoucherCode ? (
+                      <div className="mt-3 space-y-2">
+                        <p className="font-mono text-lg font-bold tracking-wide text-zimson-900">
+                          {billingJob.storeAdvanceVoucherCode}
+                        </p>
+                        <p className="text-sm text-stone-700">
+                          Value INR {Number(billingJob.storeAdvanceVoucherValueInr ?? advanceAmount).toFixed(2)}
+                          {billingJob.storeAdvanceVoucherValidUntil
+                            ? ` · Valid until ${new Date(billingJob.storeAdvanceVoucherValidUntil).toLocaleDateString("en-IN")}`
+                            : ""}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            printStoreAdvanceVoucherDocument({
+                              voucherCode: billingJob.storeAdvanceVoucherCode!,
+                              valueInr: Number(billingJob.storeAdvanceVoucherValueInr ?? advanceAmount),
+                              validUntil: billingJob.storeAdvanceVoucherValidUntil,
+                              issuedAt: billingJob.storeAdvanceVoucherIssuedAt,
+                              srfReference: billingJob.reference,
+                              customerName: billingJob.customerName,
+                              phone: billingJob.phone,
+                              advanceInr: advanceAmount,
+                              cannotRepairAt: billingJob.cannotRepairAt,
+                              storeName: currentUserStore?.name ?? null,
+                            })
+                          }
+                          className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
+                        >
+                          Print store credit
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={voucherIssuing}
+                        onClick={() => {
+                          setVoucherIssuing(true);
+                          void issueStoreAdvanceVoucher(billingJob.id)
+                            .then((voucher) => {
+                              printStoreAdvanceVoucherDocument({
+                                voucherCode: voucher.voucherCode,
+                                valueInr: voucher.valueInr,
+                                validUntil: voucher.validUntil,
+                                issuedAt: voucher.issuedAt,
+                                srfReference: voucher.reference,
+                                customerName: voucher.customerName,
+                                phone: voucher.phone,
+                                advanceInr: voucher.advanceInr,
+                                cannotRepairAt: billingJob.cannotRepairAt,
+                                storeName: currentUserStore?.name ?? null,
+                              });
+                              setMessage({
+                                type: "ok",
+                                text: `Store credit ${voucher.voucherCode} issued. Print a copy and hand it over with the watch.`,
+                              });
+                            })
+                            .catch((e) => {
+                              setMessage({
+                                type: "err",
+                                text: e instanceof Error ? e.message : "Could not issue store credit.",
+                              });
+                            })
+                            .finally(() => setVoucherIssuing(false));
+                        }}
+                        className="mt-3 rounded-xl bg-zimson-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-900 disabled:opacity-60"
+                      >
+                        {voucherIssuing ? "Issuing…" : "Create store credit"}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-stone-600">No advance was collected. Hand over the unrepaired watch after OTP.</p>
+                )}
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openHandoverOtp("primary")}
+                    disabled={
+                      handoverVerified ||
+                      closingAfterOtp ||
+                      voucherIssuing ||
+                      (advanceAmount > 0 && !String(billingJob.storeAdvanceVoucherCode ?? "").trim()) ||
+                      (phoneLast10(billingJob.phone).length !== 10 &&
+                        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(billingCustomerEmail))
+                    }
+                    className="rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send OTP to primary (mobile / email)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openHandoverOtp("custom")}
+                    disabled={
+                      handoverVerified ||
+                      closingAfterOtp ||
+                      voucherIssuing ||
+                      (advanceAmount > 0 && !String(billingJob.storeAdvanceVoucherCode ?? "").trim())
+                    }
+                    className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send OTP to other number / email
+                  </button>
+                </div>
+                {advanceAmount > 0 && !billingJob.storeAdvanceVoucherCode ? (
+                  <p className="text-xs text-rose-800">Issue the store credit before sending handover OTP.</p>
+                ) : null}
+              </div>
             ) : (
               <div className="flex flex-wrap items-center gap-3">
                 <button

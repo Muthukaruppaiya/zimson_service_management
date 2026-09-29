@@ -363,6 +363,158 @@ export async function syncInvoicesFromLegacySources(pool: Pool): Promise<number>
   }
 }
 
+export type ServiceInvoiceHeaderPatch = {
+  customerName?: string;
+  customerPhone?: string | null;
+  customerGstin?: string | null;
+  invoiceDate?: string;
+  totalInr?: number;
+};
+
+export async function updateServiceInvoiceHeader(
+  client: PoolClient,
+  invoiceId: string,
+  patch: ServiceInvoiceHeaderPatch,
+): Promise<void> {
+  const locked = await client.query<{
+    id: string;
+    source_type: string;
+    source_id: string | null;
+    customer_name: string;
+    customer_phone: string | null;
+    customer_gstin: string | null;
+    invoice_date: string;
+    total_inr: string;
+    paid_inr: string;
+  }>(
+    `SELECT id, source_type, source_id, customer_name, customer_phone, customer_gstin,
+            invoice_date::text, total_inr::text, paid_inr::text
+     FROM service_invoices WHERE id = $1::uuid FOR UPDATE`,
+    [invoiceId],
+  );
+  const row = locked.rows[0];
+  if (!row) throw new Error("Invoice not found.");
+
+  const customerName =
+    patch.customerName !== undefined ? String(patch.customerName).trim() : row.customer_name;
+  if (!customerName) throw new Error("Customer name is required.");
+  const customerPhone =
+    patch.customerPhone !== undefined
+      ? String(patch.customerPhone ?? "").trim() || null
+      : row.customer_phone;
+  const customerGstin =
+    patch.customerGstin !== undefined
+      ? String(patch.customerGstin ?? "").trim().toUpperCase() || null
+      : row.customer_gstin;
+  const invoiceDate =
+    patch.invoiceDate !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(patch.invoiceDate.trim())
+      ? patch.invoiceDate.trim()
+      : row.invoice_date.slice(0, 10);
+  const total =
+    patch.totalInr !== undefined ? round2(Math.max(0, Number(patch.totalInr) || 0)) : round2(Number(row.total_inr));
+  const paid = round2(Number(row.paid_inr));
+  const balance = round2(Math.max(0, total - paid));
+  const status = paymentStatus(total, paid);
+
+  await client.query(
+    `UPDATE service_invoices
+     SET customer_name = $2,
+         customer_phone = $3,
+         customer_gstin = $4,
+         invoice_date = $5::date,
+         total_inr = $6,
+         balance_due_inr = $7,
+         payment_status = $8,
+         updated_at = now()
+     WHERE id = $1::uuid`,
+    [invoiceId, customerName, customerPhone, customerGstin, invoiceDate, total, balance, status],
+  );
+
+  const sourceId = String(row.source_id ?? "").trim();
+  if (!sourceId) return;
+  if (row.source_type === "srf_store" || row.source_type === "inter_ho_repair") {
+    await client.query(
+      `UPDATE srf_jobs
+       SET customer_name = $2, phone = COALESCE($3, phone), updated_at = now()
+       WHERE id = $1::uuid`,
+      [sourceId, customerName, customerPhone],
+    );
+  }
+  if (row.source_type === "quick_bill") {
+    await client.query(
+      `UPDATE quick_bills
+       SET customer_name = $2, phone = COALESCE($3, phone), gst = $4, total_inr = $5
+       WHERE id = $1::uuid`,
+      [sourceId, customerName, customerPhone, customerGstin, total],
+    );
+  }
+}
+
+export async function deleteServiceInvoice(client: PoolClient, invoiceId: string): Promise<void> {
+  const locked = await client.query<{
+    id: string;
+    source_type: string;
+    source_id: string | null;
+    invoice_number: string;
+  }>(
+    `SELECT id, source_type, source_id, invoice_number
+     FROM service_invoices WHERE id = $1::uuid FOR UPDATE`,
+    [invoiceId],
+  );
+  const row = locked.rows[0];
+  if (!row) throw new Error("Invoice not found.");
+
+  const pays = await client.query<{ id: string }>(
+    `SELECT id FROM invoice_payments WHERE invoice_id = $1::uuid`,
+    [invoiceId],
+  );
+  const payIds = pays.rows.map((p) => p.id);
+  if (payIds.length > 0) {
+    await client.query(
+      `DELETE FROM ledger_entries
+       WHERE reference_type = 'invoice_payment' AND reference_id = ANY($1::text[])`,
+      [payIds],
+    );
+  }
+  await client.query(
+    `DELETE FROM ledger_entries
+     WHERE reference_type = 'service_invoice' AND reference_id = $1`,
+    [invoiceId],
+  );
+  await client.query(`DELETE FROM invoice_payments WHERE invoice_id = $1::uuid`, [invoiceId]);
+  await client.query(`DELETE FROM service_invoices WHERE id = $1::uuid`, [invoiceId]);
+
+  const sourceId = String(row.source_id ?? "").trim();
+  if (!sourceId) return;
+
+  if (row.source_type === "quick_bill") {
+    await client.query(`DELETE FROM quick_bills WHERE id = $1::uuid`, [sourceId]);
+    return;
+  }
+  if (row.source_type === "srf_store") {
+    await client.query(
+      `UPDATE srf_jobs
+       SET invoice_number = NULL,
+           store_bill_ref = NULL,
+           store_billing_snapshot = NULL,
+           closed_at = NULL,
+           status = CASE WHEN status = 'closed' THEN 'received_at_store' ELSE status END,
+           updated_at = now()
+       WHERE id = $1::uuid`,
+      [sourceId],
+    );
+    return;
+  }
+  if (row.source_type === "inter_ho_repair") {
+    await client.query(
+      `UPDATE srf_jobs
+       SET ho_spares_bill_ref = NULL, updated_at = now()
+       WHERE id = $1::uuid AND ho_spares_bill_ref = $2`,
+      [sourceId, row.invoice_number],
+    );
+  }
+}
+
 export function sumUsedSparesTotal(usedSpares: unknown): number {
   if (!Array.isArray(usedSpares)) return 0;
   return round2(

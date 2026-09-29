@@ -228,7 +228,7 @@ export function StoreDispatchPage() {
         okText += ` ${out.pendingOnTransfer} still pending on this transfer.`;
       }
       if (action === "return_to_ho") {
-        okText += " Use Outward SRF to create a new transfer and delivery-boy handoff.";
+        okText += " Use Outward SRF to create a new transfer and delivery agent handoff.";
       }
       setMessage({ type: "ok", text: okText });
     } catch (e) {

@@ -205,6 +205,11 @@ export function watchLocationAfterAction(
     case "store_close_with_invoice":
     case "store_no_billing_handover":
       return ctx.destStoreLabel;
+    case "supervisor_move_to_odc":
+    case "supervisor_cannot_repair":
+      return ctx.scLabel;
+    case "store_advance_voucher_issued":
+      return ctx.destStoreLabel;
     default:
       return null;
   }

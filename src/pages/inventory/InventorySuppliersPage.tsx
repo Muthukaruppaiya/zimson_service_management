@@ -209,6 +209,7 @@ function SupplierModal({
                   { label: "Name", value: supplier.name },
                   { label: "Contact", value: supplier.contactName ?? "—" },
                   { label: "Phone", value: supplier.phone ?? "—" },
+                  { label: "Alternate Phone", value: supplier.alternatePhone ?? "—" },
                   { label: "Email", value: supplier.email ?? "—" },
                   { label: "GST", value: supplier.gst ?? "—" },
                   { label: "Tax Person Type", value: supplier.taxPersonType ?? "—" },
@@ -415,6 +416,7 @@ export function InventorySuppliersPage() {
         s.supplierCode.toLowerCase().includes(q) ||
         (s.contactName ?? "").toLowerCase().includes(q) ||
         (s.phone ?? "").includes(q) ||
+        (s.alternatePhone ?? "").includes(q) ||
         customFieldsMatchSearch(s.customFields, extraFieldDefs, q),
     );
   }, [suppliers, search, extraFieldDefs]);
@@ -542,7 +544,12 @@ export function InventorySuppliersPage() {
                       {s.email && <p className="text-[11px] text-stone-400">{s.email}</p>}
                     </td>
                     <td className="px-5 py-3 text-stone-600">{s.contactName ?? "—"}</td>
-                    <td className="px-5 py-3 text-stone-600">{s.phone ?? "—"}</td>
+                    <td className="px-5 py-3 text-stone-600">
+                      {s.phone ?? "—"}
+                      {s.alternatePhone ? (
+                        <p className="text-[11px] text-stone-400">{s.alternatePhone}</p>
+                      ) : null}
+                    </td>
                     <td className="px-5 py-3 font-mono text-xs text-stone-500">{s.gst ?? "—"}</td>
                     {listExtras.map((f) => (
                       <td key={f.id} className="px-5 py-3 text-stone-600">{formatCustomFieldDisplay(f, s.customFields)}</td>

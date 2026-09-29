@@ -3,8 +3,8 @@ import { normalizeHsnCode } from "../../src/lib/hsnGst";
 /** Default goods HSN for watch spare parts when catalogue HSN is missing or invalid. */
 export const WATCH_SPARE_FALLBACK_HSN = "91149000";
 
-/** Valid 6-digit SAC for repair/labour on IRP (legacy settings often used 4-digit 9987). */
-export const DEFAULT_SERVICE_SAC = "998714";
+/** Default SAC for service packages, labour, and e-invoice service lines. */
+export const DEFAULT_SERVICE_SAC = "9987";
 
 export function isServiceSacCode(hsn: string | null | undefined): boolean {
   const digits = normalizeHsnCode(hsn).replace(/\D/g, "");
@@ -15,13 +15,13 @@ function digitsOnly(hsn: string | null | undefined): string {
   return normalizeHsnCode(hsn).replace(/\D/g, "");
 }
 
-/** SAC codes for IRP — must be 6 digits for Masters India / NIC. */
+/** SAC for IRP / e-invoice — packages and labour default to 9987. */
 export function formatSacCodeForEdoc(hsn: string, fallback = DEFAULT_SERVICE_SAC): string {
   const d = digitsOnly(hsn);
   if (!d.startsWith("99")) return fallback;
-  if (d === "9987") return DEFAULT_SERVICE_SAC;
+  if (d === "9987" || d === "998714" || d.startsWith("998714")) return DEFAULT_SERVICE_SAC;
   if (d.length >= 6) return d.slice(0, 6);
-  if (d.length >= 4) return d.padEnd(6, "0");
+  if (d.length >= 4) return d;
   return fallback;
 }
 

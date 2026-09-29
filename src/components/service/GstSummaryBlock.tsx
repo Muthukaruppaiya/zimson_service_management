@@ -9,13 +9,16 @@ export function GstSummaryBlock({
   billSubtotalInr,
   advanceInr,
   standardTotalInr,
+  extraChargesInr = 0,
 }: {
   taxPreview: NonNullable<ReturnType<typeof computeServiceBillGst>>;
   pricesTaxInclusive: boolean;
   billSubtotalInr: number;
   advanceInr: number;
   standardTotalInr: number;
+  extraChargesInr?: number;
 }) {
+  const extra = Number.isFinite(extraChargesInr) && extraChargesInr > 0 ? Math.round(extraChargesInr * 100) / 100 : 0;
   const payable = customerPayableInr(
     billSubtotalInr,
     taxPreview.totalTax,
@@ -23,8 +26,9 @@ export function GstSummaryBlock({
     taxPreview.grossTaxable,
     taxPreview.tcsAmount ?? 0,
   );
+  const invoiceTotal = Math.round((payable + extra) * 100) / 100;
   const roundOffInr = taxPreview.roundOffInr ?? 0;
-  const afterAdvance = Math.max(payable - advanceInr, 0);
+  const afterAdvance = Math.max(invoiceTotal - advanceInr, 0);
   const tcsAmt = taxPreview.tcsAmount ?? 0;
   return (
     <div className="space-y-2.5 rounded-lg border border-stone-200 bg-stone-50/80 px-4 py-4 text-base text-stone-800">
@@ -56,9 +60,14 @@ export function GstSummaryBlock({
           </strong>
         </p>
       ) : null}
+      {extra > 0 ? (
+        <p className="leading-snug text-sm text-stone-700">
+          Extra charges (not taxable): <strong>{formatInr(extra)}</strong>
+        </p>
+      ) : null}
       <p className="leading-snug">
         Invoice total {pricesTaxInclusive ? "(tax inclusive)" : "(incl. GST)"}:{" "}
-        <strong className="text-lg text-zimson-900">{formatInr(payable)}</strong>
+        <strong className="text-lg text-zimson-900">{formatInr(invoiceTotal)}</strong>
       </p>
       {advanceInr > 0 ? (
         <p className="leading-snug">
@@ -71,7 +80,7 @@ export function GstSummaryBlock({
         </p>
       ) : (
         <p className="leading-snug">
-          Amount to collect: <strong className="text-xl font-bold text-zimson-900">{formatInr(payable)}</strong>
+          Amount to collect: <strong className="text-xl font-bold text-zimson-900">{formatInr(invoiceTotal)}</strong>
         </p>
       )}
     </div>

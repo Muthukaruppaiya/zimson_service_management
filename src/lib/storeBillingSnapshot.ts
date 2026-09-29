@@ -19,6 +19,8 @@ export type StoreBillingSnapshot = {
   closedAt?: string;
   /** Service warranty period selected at store invoice (months). */
   warrantyMonths?: number;
+  /** Non-GST add-on (courier, packing). Not included in GST. */
+  extraChargesInr?: number;
 };
 
 const LABOUR_DESC_RE = /labour|service\s*\/\s*repair|service charge/i;
@@ -58,6 +60,10 @@ export function normalizeStoreBillingSnapshot(raw: unknown): StoreBillingSnapsho
     warrantyMonths:
       Number.isInteger(Number(o.warrantyMonths)) && Number(o.warrantyMonths) > 0
         ? Number(o.warrantyMonths)
+        : undefined,
+    extraChargesInr:
+      Number.isFinite(Number(o.extraChargesInr)) && Number(o.extraChargesInr) > 0
+        ? Number(o.extraChargesInr)
         : undefined,
   };
 }

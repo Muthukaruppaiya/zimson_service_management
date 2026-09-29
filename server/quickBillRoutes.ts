@@ -36,6 +36,7 @@ import { phoneLast10 } from "./messaging/customerContact";
 import { finalizeQuickBillCaptureSession } from "./quickBillCaptureRoutes";
 import { registerWatchCatalogRoutes } from "./watchCatalogRoutes";
 import { edocEnabled, tryGenerateEinvoiceForQuickBill } from "./mastersIndiaEdoc";
+import { deleteServiceInvoice, updateServiceInvoiceHeader } from "./serviceInvoiceLedger";
 
 type Authed = Request & { userId: string };
 
@@ -1211,6 +1212,143 @@ export function registerQuickBillRoutes(
           ? e.message.trim()
           : "Could not save quick bill.";
       res.status(400).json({ error: message });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.patch("/api/service/quick-bills/:billId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || actor.role !== "super_admin") {
+      res.status(403).json({ error: "Only super admin can edit invoices." });
+      return;
+    }
+    const billId = String(req.params.billId ?? "").trim();
+    const customerName =
+      typeof req.body?.customerName === "string" ? String(req.body.customerName).trim() : undefined;
+    const phone = req.body?.phone !== undefined ? String(req.body.phone ?? "").trim() || null : undefined;
+    const email = req.body?.email !== undefined ? String(req.body.email ?? "").trim() || null : undefined;
+    const company = req.body?.company !== undefined ? String(req.body.company ?? "").trim() || null : undefined;
+    const gst = req.body?.gst !== undefined ? String(req.body.gst ?? "").trim().toUpperCase() || null : undefined;
+    const pan = req.body?.pan !== undefined ? String(req.body.pan ?? "").trim().toUpperCase() || null : undefined;
+    const address = req.body?.address !== undefined ? String(req.body.address ?? "").trim() || null : undefined;
+    const city = req.body?.city !== undefined ? String(req.body.city ?? "").trim() || null : undefined;
+    const notes = req.body?.notes !== undefined ? String(req.body.notes ?? "") : undefined;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const existing = await client.query<{ id: string }>(`SELECT id FROM quick_bills WHERE id = $1::uuid`, [billId]);
+      if (!existing.rows[0]) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Invoice not found." });
+        return;
+      }
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      let i = 1;
+      if (customerName !== undefined) {
+        if (!customerName) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Customer name is required." });
+          return;
+        }
+        sets.push(`customer_name = $${i++}`);
+        vals.push(customerName);
+      }
+      if (phone !== undefined) {
+        sets.push(`phone = $${i++}`);
+        vals.push(phone);
+      }
+      if (email !== undefined) {
+        sets.push(`email = $${i++}`);
+        vals.push(email);
+      }
+      if (company !== undefined) {
+        sets.push(`company = $${i++}`);
+        vals.push(company);
+      }
+      if (gst !== undefined) {
+        sets.push(`gst = $${i++}`);
+        vals.push(gst);
+      }
+      if (pan !== undefined) {
+        sets.push(`pan = $${i++}`);
+        vals.push(pan);
+      }
+      if (address !== undefined) {
+        sets.push(`address = $${i++}`);
+        vals.push(address);
+      }
+      if (city !== undefined) {
+        sets.push(`city = $${i++}`);
+        vals.push(city);
+      }
+      if (notes !== undefined) {
+        sets.push(`notes = $${i++}`);
+        vals.push(notes);
+      }
+      if (sets.length === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "No updatable fields supplied." });
+        return;
+      }
+      vals.push(billId);
+      await client.query(`UPDATE quick_bills SET ${sets.join(", ")} WHERE id = $${i}::uuid`, vals);
+
+      const linked = await client.query<{ id: string }>(
+        `SELECT id FROM service_invoices WHERE source_type = 'quick_bill' AND source_id = $1 LIMIT 1`,
+        [billId],
+      );
+      if (linked.rows[0]) {
+        await updateServiceInvoiceHeader(client, linked.rows[0].id, {
+          customerName,
+          customerPhone: phone,
+          customerGstin: gst,
+        });
+      }
+      await client.query("COMMIT");
+      const invoice = await loadQuickBillInvoiceById(pool, billId);
+      res.json({ ok: true, invoice });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: e instanceof Error ? e.message : "Could not update invoice." });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.delete("/api/service/quick-bills/:billId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || actor.role !== "super_admin") {
+      res.status(403).json({ error: "Only super admin can delete invoices." });
+      return;
+    }
+    const billId = String(req.params.billId ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const existing = await client.query<{ id: string }>(`SELECT id FROM quick_bills WHERE id = $1::uuid`, [billId]);
+      if (!existing.rows[0]) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Invoice not found." });
+        return;
+      }
+      const linked = await client.query<{ id: string }>(
+        `SELECT id FROM service_invoices WHERE source_type = 'quick_bill' AND source_id = $1 LIMIT 1`,
+        [billId],
+      );
+      if (linked.rows[0]) {
+        await deleteServiceInvoice(client, linked.rows[0].id);
+      } else {
+        await client.query(`DELETE FROM quick_bills WHERE id = $1::uuid`, [billId]);
+      }
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: e instanceof Error ? e.message : "Could not delete invoice." });
     } finally {
       client.release();
     }

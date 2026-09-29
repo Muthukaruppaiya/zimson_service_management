@@ -194,22 +194,22 @@ export function gstRateFromHsn(
   return DEFAULT_HSN_GST_PERCENT;
 }
 
-/** Valid 6-digit SAC for repair/labour (IRP rejects legacy 4-digit 9987). */
-export const DEFAULT_SERVICE_SAC = "998714";
+/** Default SAC for service packages, labour, and e-invoice service lines. */
+export const DEFAULT_SERVICE_SAC = "9987";
 
 /** Normalize SAC for billing display and GST lookup. */
 export function formatSacForBilling(sac: string | null | undefined): string {
   const d = normalizeHsnCode(sac).replace(/\D/g, "");
   if (!d.startsWith("99")) return DEFAULT_SERVICE_SAC;
-  if (d === "9987") return DEFAULT_SERVICE_SAC;
+  if (d === "9987" || d === "998714" || d.startsWith("998714")) return DEFAULT_SERVICE_SAC;
   if (d.length >= 6) return d.slice(0, 6);
-  if (d.length >= 4) return d.padEnd(6, "0");
+  if (d.length >= 4) return d;
   return DEFAULT_SERVICE_SAC;
 }
 
 /**
  * HSN/SAC for printed invoices and GST buckets.
- * - Service SAC (starts with 99, or missing): always print valid 6-digit SAC (9987 → 998714).
+ * - Service SAC (starts with 99, or missing): default 9987 for packages / labour.
  * - Goods HSN (does not start with 99): keep inventory digits as stored.
  */
 export function formatPrintedHsnSac(hsnSac: string | null | undefined): string {

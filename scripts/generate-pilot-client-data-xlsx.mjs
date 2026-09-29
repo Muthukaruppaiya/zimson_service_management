@@ -244,8 +244,8 @@ wb.title = "Pilot run — data the client must prepare";
   const ws = addSheetTable(wb, {
     name: "3. Staff",
     title: "3. People who will use the system tomorrow",
-    subtitle: "One row per person. Roles needed: Store staff, HO clerk, Supervisor, Technician, Delivery boy.",
-    note: "Required. Delivery boy needs a 10-digit mobile (no login). Technician needs a grade.",
+    subtitle: "One row per person. Roles needed: Store staff, HO clerk, Supervisor, Technician, Delivery agent.",
+    note: "Required. Delivery agent needs a 10-digit mobile (no login). Technician needs a grade.",
     headers: [
       "Full name *",
       "Employee code *",
@@ -264,7 +264,7 @@ wb.title = "Pilot run — data the client must prepare";
     "HO clerk",
     "Supervisor",
     "Technician",
-    "Delivery boy",
+    "Delivery agent",
   ];
   for (let r = 5; r <= 19; r++) {
     ws.getCell(r, 5).dataValidation = {

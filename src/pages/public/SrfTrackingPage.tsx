@@ -29,6 +29,9 @@ type TrackJob = {
   brandCouponValueInr?: number | null;
   brandCouponReceivedAt?: string | null;
   brandCouponValidUntil?: string | null;
+  storeAdvanceVoucherCode?: string | null;
+  storeAdvanceVoucherValueInr?: number | null;
+  storeAdvanceVoucherValidUntil?: string | null;
   customerCouponNotifiedAt?: string | null;
   reestimateHistory?: Array<{ amountInr: number | null; note: string; requestedAt: string }>;
   /** Current re-estimate cycle number (1 = first customer approval). */
@@ -544,6 +547,29 @@ export function SrfTrackingPage() {
                               </>
                             );
                           })()}
+                        </section>
+                      ) : null}
+
+                      {j.storeAdvanceVoucherCode ? (
+                        <section className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-[#faf6ef] p-5 sm:p-6">
+                          <h2 className="text-base font-bold text-amber-950">Store credit</h2>
+                          <p className="mt-2 text-sm text-[#1a2332]">
+                            Code <strong className="font-mono text-[#0a1f3d]">{j.storeAdvanceVoucherCode}</strong>
+                            {j.storeAdvanceVoucherValueInr ? (
+                              <span>
+                                {" "}
+                                · <strong>{formatInr(Number(j.storeAdvanceVoucherValueInr))}</strong>
+                              </span>
+                            ) : null}
+                            {j.storeAdvanceVoucherValidUntil ? (
+                              <span className="mt-1 block text-xs text-[#5c6b7a]">
+                                Valid until {new Date(j.storeAdvanceVoucherValidUntil).toLocaleDateString()}
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="mt-2 text-xs text-[#5c6b7a]">
+                            Issued for the advance paid on this service request. Redeem this store credit at a Zimson store.
+                          </p>
                         </section>
                       ) : null}
 

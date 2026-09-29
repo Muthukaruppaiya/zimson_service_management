@@ -49,6 +49,8 @@ const ACTION_LABELS: Record<string, string> = {
   store_negotiate_after_rejection: "Store negotiated after customer rejection",
   supervisor_negotiate_after_rejection: "Supervisor negotiated after rejection",
   supervisor_move_to_odc: "Supervisor moved to ODC (no repair)",
+  supervisor_cannot_repair: "Cannot repair — returned unrepaired",
+  store_advance_voucher_issued: "Store credit issued",
   supervisor_transfer_other_ho: "Queued transfer to other HO",
   inter_ho_dispatch_to_repair: "Dispatched to repair HO",
   inter_ho_return_to_sender: "Returned to sender HO",

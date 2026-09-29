@@ -28,12 +28,11 @@ const MAX_ERRORS = 80;
 
 type SupplierImportRow = {
   rowNum: number;
-  supplierCode: string;
-  autoCode: boolean;
   name: string;
   contactName: string | null;
   email: string | null;
   phone: string | null;
+  alternatePhone: string | null;
   gst: string | null;
   taxPersonType: string | null;
   isActive: boolean;
@@ -56,7 +55,20 @@ function canImport(actor: DemoUser | null): boolean {
 
 function cellStr(v: unknown): string {
   if (v == null) return "";
-  if (typeof v === "number") return Number.isFinite(v) ? String(Math.trunc(v) === v ? v : v) : "";
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) return "";
+    if (Math.abs(v) >= 1e12) return String(Math.round(v));
+    return String(Math.trunc(v) === v ? v : v);
+  }
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if (typeof o.text === "string") return o.text.trim();
+    if (Array.isArray(o.richText)) {
+      return (o.richText as { text?: string }[]).map((p) => p.text ?? "").join("").trim();
+    }
+    if (typeof o.w === "string") return o.w.trim();
+    if ("v" in o) return cellStr(o.v);
+  }
   return String(v).trim();
 }
 
@@ -130,48 +142,135 @@ function digitsOnly(raw: string): string {
   return raw.replace(/[^\d]/g, "");
 }
 
+const EMAIL_FIND_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const PHONE_SPLIT_RE = /[/|,;／∕⁄\n\r]+|\band\b|\bor\b/i;
+
+/** Prefix a short local number with the STD taken from the first (e.g. 0124 4098292 / 4098293). */
+function withStdFromFirst(first: string, next: string): string {
+  if (next.length >= 10 || !first.startsWith("0") || first.length < 10) return next;
+  if (next.length < 6 || next.length > 8) return next;
+  const std = first.slice(0, first.length - next.length);
+  if (std.length >= 2 && std.length <= 5) return std + next;
+  const m = first.match(/^(0\d{2,4})/);
+  return m?.[1] ? m[1] + next : next;
+}
+
+function phoneKey(digits: string): string {
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
+/** Split "080-40395900 / ravi.as@seiko.in" or "4347777 / 4347700" into phones + emails. */
+function parsePhoneCell(raw: string): { phones: string[]; emails: string[] } {
+  const emails: string[] = [];
+  const withoutEmail = String(raw ?? "").replace(EMAIL_FIND_RE, (m) => {
+    emails.push(m.trim().toLowerCase());
+    return "|";
+  });
+  const parts = withoutEmail
+    .split(PHONE_SPLIT_RE)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const phones: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const d = digitsOnly(p);
+    if (d.length < 6 || d.length > 15) continue;
+    const key = phoneKey(d);
+    if (seen.has(d) || seen.has(key)) continue;
+    seen.add(d);
+    seen.add(key);
+    phones.push(d);
+  }
+  if (phones.length === 0) {
+    const d = digitsOnly(withoutEmail);
+    if (d.length >= 10 && d.length <= 15) phones.push(d);
+  }
+  if (phones.length >= 2) {
+    const first = phones[0]!;
+    for (let i = 1; i < phones.length; i++) {
+      phones[i] = withStdFromFirst(first, phones[i]!);
+    }
+    const deduped: string[] = [];
+    const seenAfter = new Set<string>();
+    for (const d of phones) {
+      const key = phoneKey(d);
+      if (seenAfter.has(d) || seenAfter.has(key)) continue;
+      seenAfter.add(d);
+      seenAfter.add(key);
+      deduped.push(d);
+    }
+    return { phones: deduped, emails };
+  }
+  return { phones, emails };
+}
+
+function phoneDigitsOk(digits: string): boolean {
+  return digits.length >= 6 && digits.length <= 15;
+}
+
 function parseRows(
   rows: Record<string, unknown>[],
   taxTypes: string[],
 ): { rows: SupplierImportRow[]; errors: string[] } {
   const errors: string[] = [];
   const parsed: SupplierImportRow[] = [];
-  const seenCodes = new Map<string, number>();
   const seenGst = new Map<string, number>();
+  const seenPhones = new Map<string, { rowNum: number; who: string }>();
   const taxSet = new Set(taxTypes.map((t) => normalizeTaxType(t)));
 
   rows.forEach((r, idx) => {
     const rowNum = idx + 2;
-    const supplierCode = cellStr(r.supplier_code).toUpperCase();
-    if (supplierCode.length > 64) {
-      errors.push(`Suppliers row ${rowNum}: Supplier Code must be 64 characters or fewer.`);
-      return;
-    }
-    if (supplierCode) {
-      const prev = seenCodes.get(supplierCode);
-      if (prev) {
-        errors.push(`Suppliers row ${rowNum}: duplicate Supplier Code "${supplierCode}" (also on row ${prev}).`);
-        return;
-      }
-      seenCodes.set(supplierCode, rowNum);
-    }
-
     const name = cellStr(r.name);
     const rowErrs: string[] = [];
     if (!name) rowErrs.push(`Suppliers row ${rowNum}: Supplier Name is required.`);
     if (name.length > 240) rowErrs.push(`Suppliers row ${rowNum}: Supplier Name is too long.`);
+    const who = name || `row ${rowNum}`;
 
     const contactName = cellStr(r.contact_name) || null;
-    const emailRaw = cellStr(r.email);
-    if (emailRaw && !EMAIL_RE.test(emailRaw)) {
-      rowErrs.push(`Suppliers row ${rowNum}: Email is not valid for "${supplierCode}".`);
-    }
+    let emailRaw = cellStr(r.email);
     const phoneRaw = cellStr(r.phone);
-    let phone: string | null = phoneRaw || null;
-    if (phoneRaw) {
-      const d = digitsOnly(phoneRaw);
-      if (d.length < 10 || d.length > 15) {
-        rowErrs.push(`Suppliers row ${rowNum}: Phone must have 10–15 digits for "${supplierCode}".`);
+    const altColRaw = cellStr(r.alternate_phone);
+    const fromPhone = phoneRaw ? parsePhoneCell(phoneRaw) : { phones: [] as string[], emails: [] as string[] };
+    const fromAlt = altColRaw ? parsePhoneCell(altColRaw) : { phones: [] as string[], emails: [] as string[] };
+    if (!emailRaw && (fromPhone.emails[0] || fromAlt.emails[0])) {
+      emailRaw = fromPhone.emails[0] || fromAlt.emails[0] || "";
+    }
+    if (emailRaw && !EMAIL_RE.test(emailRaw)) {
+      rowErrs.push(`Suppliers row ${rowNum}: Email is not valid for "${who}".`);
+    }
+    const phones: string[] = [];
+    const seenPhone = new Set<string>();
+    for (const d of [...fromPhone.phones, ...fromAlt.phones]) {
+      const key = phoneKey(d);
+      if (seenPhone.has(d) || seenPhone.has(key)) continue;
+      seenPhone.add(d);
+      seenPhone.add(key);
+      phones.push(d);
+    }
+    let phone: string | null = null;
+    let alternatePhone: string | null = null;
+    const hadPhoneInput = Boolean(phoneRaw || altColRaw);
+    const pulledEmailOnly = phones.length === 0 && (fromPhone.emails.length > 0 || fromAlt.emails.length > 0);
+    if (hadPhoneInput && !pulledEmailOnly) {
+      const invalid = phones.filter((d) => !phoneDigitsOk(d));
+      if (phones.length === 0 || invalid.length > 0) {
+        rowErrs.push(
+          `Suppliers row ${rowNum}: Phone must have 10–15 digits for "${who}" (two numbers in one cell are stored as alternate).`,
+        );
+      } else {
+        phone = phones[0] ?? null;
+        alternatePhone = phones.slice(1).join(" / ") || null;
+        for (const d of phones) {
+          const key = phoneKey(d);
+          const prev = seenPhones.get(key);
+          if (prev) {
+            rowErrs.push(
+              `Suppliers row ${rowNum}: Phone ${d} is duplicated (also on row ${prev.rowNum} — ${prev.who}).`,
+            );
+          } else {
+            seenPhones.set(key, { rowNum, who });
+          }
+        }
       }
     }
 
@@ -179,7 +278,9 @@ function parseRows(
     let gst: string | null = gstRaw || null;
     if (gstRaw) {
       if (!isValidGstin(gstRaw)) {
-        rowErrs.push(`Suppliers row ${rowNum}: GSTIN must be a valid 15-character GSTIN for "${supplierCode}".`);
+        rowErrs.push(
+          `Suppliers row ${rowNum}: GSTIN must be a valid 15-character GSTIN for "${who}" (got ${gstRaw.length} character${gstRaw.length === 1 ? "" : "s"}: ${gstRaw}).`,
+        );
       } else {
         const gstPrev = seenGst.get(gstRaw);
         if (gstPrev) {
@@ -205,12 +306,12 @@ function parseRows(
 
     const activeP = parseBool(r.is_active);
     if (activeP === null && cellStr(r.is_active) !== "") {
-      rowErrs.push(`Suppliers row ${rowNum}: Active must be Y/N or true/false for "${supplierCode}".`);
+      rowErrs.push(`Suppliers row ${rowNum}: Active must be Y/N or true/false for "${who}".`);
     }
 
     const pinCode = cellStr(r.pin_code).replace(/\s/g, "");
     if (pinCode && !PIN_RE.test(pinCode)) {
-      rowErrs.push(`Suppliers row ${rowNum}: PIN Code must be a 6-digit Indian PIN for "${supplierCode}".`);
+      rowErrs.push(`Suppliers row ${rowNum}: PIN Code must be a 6-digit Indian PIN for "${who}".`);
     }
 
     errors.push(...rowErrs);
@@ -218,12 +319,11 @@ function parseRows(
 
     parsed.push({
       rowNum,
-      supplierCode,
-      autoCode: !supplierCode,
       name,
       contactName,
       email: emailRaw || null,
       phone,
+      alternatePhone,
       gst,
       taxPersonType,
       isActive: activeP ?? true,
@@ -289,10 +389,10 @@ async function loadTaxTypes(pool: Pool): Promise<string[]> {
 
 const SEED_SUPPLIERS: string[][] = [
   [
-    "SUP-BAT-01",
     "Southern Watch Batteries Pvt Ltd",
     "R. Krishnan",
     "9876543210",
+    "",
     "sales@swbatteries.example",
     "33AABCS1234A1Z5",
     "INTRASTATE_TAXABLE_PERSON",
@@ -305,10 +405,10 @@ const SEED_SUPPLIERS: string[][] = [
     "641004",
   ],
   [
-    "SUP-GLS-01",
     "Precision Crystal House",
     "Meera Shah",
     "9988776655",
+    "",
     "orders@pchcrystal.example",
     "29AABCT5678B1ZC",
     "INTERSTATE_TAXABLE_PERSON",
@@ -321,10 +421,10 @@ const SEED_SUPPLIERS: string[][] = [
     "560001",
   ],
   [
-    "SUP-STR-01",
     "Kerala Strap Works",
     "Anil Kumar",
     "9123456780",
+    "",
     "anil@keralastrap.example",
     "32AABCU9012C1ZO",
     "INTERSTATE_TAXABLE_PERSON",
@@ -349,15 +449,16 @@ async function buildTemplateWorkbook(taxTypes: string[]): Promise<Buffer> {
     ["2. Replace or delete the sample rows, then add your suppliers from row 2."],
     ["3. Save as .xlsx and upload on Supplier Master → Bulk import."],
     ["4. Click Check file first. Import is enabled only after validation passes."],
-    ["5. Matching Supplier Code (or GSTIN when code is blank) updates the existing supplier; new rows create suppliers."],
+    ["5. Matching GSTIN updates the existing supplier. New GSTINs (or rows without GSTIN) create a supplier with an auto-generated code (SUP + year + sequence)."],
+    ["6. Do not enter Supplier Code. The system always assigns it. An old Supplier Code column in the file is ignored."],
     [""],
     ["SHEET: Suppliers"],
-    ["  Supplier Code     – Optional. Leave blank and the system assigns SUP + year + sequence."],
-    ["  Supplier Name     – Company / trading name. Required."],
+    ["  Supplier Name     – Company / trading name. Required. Supplier Code is auto-generated (not a column)."],
     ["  Contact Person    – Optional."],
-    ["  Phone             – Optional. 10–15 digits."],
+    ["  Phone             – Optional. 10–15 digits. Two numbers in one cell (4347777 / 4347700) are saved as Phone + Alternate Phone. An email in the phone cell is moved to Email."],
+    ["  Alternate Phone   – Optional second number."],
     ["  Email             – Optional. Must be a valid email if filled."],
-    ["  GSTIN             – Optional. Must be a valid 15-character GSTIN if filled."],
+    ["  GSTIN             – Optional. Must be a valid 15-character GSTIN if filled. Duplicate GSTINs in the file are rejected."],
     ["  Tax Person Type   – Optional. Must match values on the Tax Types sheet."],
     ["  Active            – Y or N (default Y)."],
     ["  Door / Plot No., Street, Place / Area, District, State, PIN Code – primary address."],
@@ -419,43 +520,30 @@ async function classifyAgainstDb(
   pool: Pool,
   rows: SupplierImportRow[],
 ): Promise<{ willCreate: number; willUpdate: number; preview: Array<{ supplierCode: string; name: string; action: "create" | "update" }> }> {
-  const codes = rows.map((r) => r.supplierCode).filter(Boolean);
   const gstins = rows.map((r) => r.gst).filter((g): g is string => Boolean(g));
-  const { rows: existingByCode } = codes.length
-    ? await pool.query<{ supplier_code: string }>(
-        `SELECT supplier_code FROM suppliers WHERE supplier_code = ANY($1::text[])`,
-        [codes],
-      )
-    : { rows: [] as Array<{ supplier_code: string }> };
   const { rows: existingByGst } = gstins.length
     ? await pool.query<{ supplier_code: string; gst: string }>(
         `SELECT supplier_code, gst FROM suppliers WHERE gst = ANY($1::text[])`,
         [gstins],
       )
     : { rows: [] as Array<{ supplier_code: string; gst: string }> };
-  const existingSet = new Set(existingByCode.map((r) => String(r.supplier_code).toUpperCase()));
   const gstToCode = new Map(existingByGst.map((r) => [String(r.gst).toUpperCase(), String(r.supplier_code)]));
   let willCreate = 0;
   let willUpdate = 0;
   const preview = rows.slice(0, 25).map((r) => {
-    const matched = r.supplierCode
-      ? existingSet.has(r.supplierCode)
-      : Boolean(r.gst && gstToCode.has(r.gst));
-    const action: "create" | "update" = matched ? "update" : "create";
+    const existingCode = r.gst ? gstToCode.get(r.gst) : undefined;
+    const action: "create" | "update" = existingCode ? "update" : "create";
     if (action === "update") willUpdate += 1;
     else willCreate += 1;
     return {
-      supplierCode: r.supplierCode || (r.gst ? gstToCode.get(r.gst) : "") || "(auto)",
+      supplierCode: existingCode || "(auto)",
       name: r.name,
       action,
     };
   });
   if (rows.length > 25) {
     for (const r of rows.slice(25)) {
-      const matched = r.supplierCode
-        ? existingSet.has(r.supplierCode)
-        : Boolean(r.gst && gstToCode.has(r.gst));
-      if (matched) willUpdate += 1;
+      if (r.gst && gstToCode.has(r.gst)) willUpdate += 1;
       else willCreate += 1;
     }
   }
@@ -466,8 +554,8 @@ async function commitRows(client: PoolClient, actorId: string, rows: SupplierImp
   for (const row of rows) {
     const locations = toLocations(row);
     const address = toLegacyAddress(locations);
-    let code = row.supplierCode;
-    if (!code && row.gst) {
+    let code = "";
+    if (row.gst) {
       const found = await client.query<{ supplier_code: string }>(
         `SELECT supplier_code FROM suppliers WHERE gst = $1 LIMIT 1`,
         [row.gst],
@@ -477,15 +565,16 @@ async function commitRows(client: PoolClient, actorId: string, rows: SupplierImp
     if (!code) code = await nextSupplierCode(client);
     await client.query(
       `INSERT INTO suppliers (
-          supplier_code, name, contact_name, email, phone, address, locations_json,
+          supplier_code, name, contact_name, email, phone, alternate_phone, address, locations_json,
           gst, tax_person_type, is_active, created_by, modified_by
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $12)
         ON CONFLICT (supplier_code) DO UPDATE SET
           name = EXCLUDED.name,
           contact_name = EXCLUDED.contact_name,
           email = EXCLUDED.email,
           phone = EXCLUDED.phone,
+          alternate_phone = EXCLUDED.alternate_phone,
           address = EXCLUDED.address,
           locations_json = EXCLUDED.locations_json,
           gst = EXCLUDED.gst,
@@ -499,6 +588,7 @@ async function commitRows(client: PoolClient, actorId: string, rows: SupplierImp
         row.contactName,
         row.email,
         row.phone,
+        row.alternatePhone,
         address,
         JSON.stringify(locations),
         row.gst,

@@ -78,6 +78,7 @@ const ROLE_LABELS: Record<string, string> = {
   store_manager: "Store Manager",
   store_accounts: "Store Accounts",
   technician: "Technician",
+  delivery_boy: "Delivery Agent",
 };
 
 function initialsOf(name: string): string {
@@ -209,11 +210,11 @@ export function Sidebar() {
         items: [
           { to: "/service/store-dispatch", label: "Store dispatch", module: "service" },
           { to: "/service/delivery-handoff", label: "Delivery handoff (Store)", module: "service" },
-          { to: "/service/delivery-boy-history", label: "Delivery-boy history (Store)", module: "service" },
+          { to: "/service/delivery-boy-history", label: "Delivery agent history (Store)", module: "service" },
           { to: "/service/store-logistics-history", label: "Inward & outward history", module: "service" },
           { to: "/service-centre/logistics?tab=inward", label: "Internal inward (Store → HO)", module: "service_centre", roles: ["service_centre_clerk", "service_centre_clerk"] },
           { to: "/service-centre/delivery-handoff", label: "Delivery handoff (HO)", module: "service_centre", roles: ["service_centre_clerk", "ho_manager"] },
-          { to: "/service-centre/delivery-boy-history", label: "Delivery-boy history (HO)", module: "service_centre", roles: ["service_centre_clerk", "ho_manager"] },
+          { to: "/service-centre/delivery-boy-history", label: "Delivery agent history (HO)", module: "service_centre", roles: ["service_centre_clerk", "ho_manager"] },
           { to: "/service-centre/logistics?tab=outward", label: "Internal outward (HO → Store)", module: "service_centre", roles: ["service_centre_clerk", "service_centre_clerk"] },
           { to: "/service-centre/logistics-history", label: "DC / ODC history", module: "service_centre", roles: ["service_centre_clerk", "service_centre_clerk", "service_centre_clerk"] },
         ],

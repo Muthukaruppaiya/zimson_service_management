@@ -155,7 +155,7 @@ export function UserCreationPanel() {
       return;
     }
     if (role === "delivery_boy" && sanitizePhoneDigits(phone).replace(/\D/g, "").slice(-10).length !== 10) {
-      setFormMessage({ type: "err", text: "Delivery boy requires a valid 10-digit mobile for OTP." });
+      setFormMessage({ type: "err", text: "Delivery agent requires a valid 10-digit mobile for OTP." });
       return;
     }
     if (canLogin && (!employeeCode.trim() || password.length < 4)) {

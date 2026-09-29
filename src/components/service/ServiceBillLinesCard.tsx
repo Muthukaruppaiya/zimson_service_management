@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Card } from "../ui/Card";
 import { GstSummaryBlock } from "./GstSummaryBlock";
 import { sanitizeDecimalInput, sanitizeTextInput } from "../../lib/inputSanitize";
-import { normalizeHsnCode } from "../../lib/hsnGst";
+import { formatPrintedHsnSac, normalizeHsnCode } from "../../lib/hsnGst";
 import { computeServiceBillGst, resolveLineGstPercent } from "../../lib/serviceBillGst";
 import {
   formatPlaceOfSupplyLabel,
@@ -63,8 +63,11 @@ type Props = {
   topBanner?: ReactNode;
   /** Hide barcode / catalogue spare pickers (e.g. brand repair billing). */
   hideSpareCatalog?: boolean;
-  /** Package job: invoice is the package amount only. */
+  /** Package job: hide extra labour row (package amount is the service line). */
   packageOnly?: boolean;
+  /** Non-GST add-on (courier, packing, etc.) — added to payable, excluded from GST. */
+  extraChargesInr?: string;
+  onExtraChargesInrChange?: (value: string) => void;
 };
 
 function emptyEditableLine(): ServiceBillEditorLine {
@@ -106,6 +109,8 @@ export function ServiceBillLinesCard({
   topBanner,
   hideSpareCatalog = false,
   packageOnly = false,
+  extraChargesInr = "",
+  onExtraChargesInrChange,
 }: Props) {
   const pricesTaxInclusive =
     pricesTaxInclusiveProp ?? Boolean(serviceTaxSettings?.pricesTaxInclusive);
@@ -266,11 +271,10 @@ export function ServiceBillLinesCard({
           <div className="rounded-xl border border-dashed border-zimson-200 bg-zimson-50/40 px-3 py-4" aria-hidden />
         ) : (
           lines.map((line, index) => {
+            const isServiceLine = (line.lineKind ?? (line.spareId ? "spare" : "service")) === "service";
             const lineHsn = line.spareId
               ? normalizeHsnCode(line.hsn) || "—"
-              : line.hsn?.trim()
-                ? normalizeHsnCode(line.hsn) || line.hsn.trim()
-                : null;
+              : formatPrintedHsnSac(line.hsn || serviceSacHsn);
             const lineGstRate =
               lineHsn && lineHsn !== "—"
                 ? resolveLineGstPercent({
@@ -279,7 +283,7 @@ export function ServiceBillLinesCard({
                     spareGstLookup: resolveSpareGst,
                   })
                 : null;
-            const showHsnColumn = Boolean(line.spareId || (line.locked && lineHsn));
+            const showHsnColumn = Boolean(line.spareId || isServiceLine || (line.locked && lineHsn));
             const readOnly = labourChargesOnly || Boolean(line.spareId) || Boolean(line.locked);
             const lineLabel = line.locked && line.lineKind === "service"
               ? "Service package"
@@ -420,6 +424,43 @@ export function ServiceBillLinesCard({
           </button>
         </div>
         ) : null}
+        {onExtraChargesInrChange ? (
+        <div className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-amber-200/80 bg-amber-50/40 p-3 sm:grid-cols-[1fr_minmax(0,7rem)_minmax(0,9rem)_auto] sm:items-end">
+          <div className="min-w-0">
+            <span className="text-xs font-medium text-stone-600">Extra charges</span>
+            <input readOnly value="Extra charges" className={`${inputClass} cursor-default bg-stone-100`} />
+            <p className="mt-0.5 text-[10px] text-amber-800">Not included in GST</p>
+          </div>
+          <div className="min-w-0 w-full">
+            <span className="text-xs font-medium text-stone-600">HSN / SAC</span>
+            <input
+              readOnly
+              value="—"
+              className={`${inputClass} cursor-not-allowed bg-stone-100 font-mono text-xs`}
+            />
+            <p className="mt-0.5 text-[10px] text-stone-500">Non-taxable</p>
+          </div>
+          <div className="min-w-0 w-full">
+            <span className="text-xs font-medium text-stone-600">Amount (INR)</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={extraChargesInr}
+              onChange={(e) => onExtraChargesInrChange(sanitizeDecimalInput(e.target.value))}
+              className={inputClass}
+              placeholder="0"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => onExtraChargesInrChange("")}
+            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 sm:w-auto"
+          >
+            Clear
+          </button>
+        </div>
+        ) : null}
       </div>
 
       <div className="mt-4 space-y-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3 sm:p-4">
@@ -511,6 +552,7 @@ export function ServiceBillLinesCard({
                 billSubtotalInr={billSubtotalInr}
                 advanceInr={advanceInr}
                 standardTotalInr={standardTotalInr}
+                extraChargesInr={Number.parseFloat(extraChargesInr) || 0}
               />
             </div>
           </div>

@@ -1,7 +1,9 @@
 import dotenv from "dotenv";
 dotenv.config();
-dotenv.config({ path: ".env.development", override: true });
-dotenv.config({ path: ".env.local", override: true });
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: ".env.development", override: true });
+  dotenv.config({ path: ".env.local", override: true });
+}
 import cors from "cors";
 import express from "express";
 import type { Pool } from "pg";
@@ -928,7 +930,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
   const phone =
     phoneRaw.length >= 10 ? phoneRaw.slice(-10) : String(input.phone ?? "").trim() || null;
   if (input.role === "delivery_boy" && (!phone || phone.replace(/\D/g, "").length < 10)) {
-    res.status(400).json({ ok: false, message: "Delivery boy requires a valid 10-digit mobile number for OTP." });
+    res.status(400).json({ ok: false, message: "Delivery agent requires a valid 10-digit mobile number for OTP." });
     return;
   }
   const employeeCode = normalizeEmployeeCode(String(input.employeeCode ?? ""));

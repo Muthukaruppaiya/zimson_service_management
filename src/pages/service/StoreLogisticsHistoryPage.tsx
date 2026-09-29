@@ -78,7 +78,7 @@ function lifecycleBadge(row: StoreHistoryRow) {
     if (lc === "waiting_delivery_boy") {
       return (
         <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-          Outward to HO · Waiting for delivery boy
+          Outward to HO · Waiting for delivery agent
         </span>
       );
     }
@@ -99,14 +99,14 @@ function lifecycleBadge(row: StoreHistoryRow) {
     if (lc === "return_waiting_delivery_boy") {
       return (
         <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-          Return from HO · Waiting for delivery boy
+          Return from HO · Waiting for delivery agent
         </span>
       );
     }
     if (lc === "return_in_transit") {
       return (
         <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">
-          Return from HO · With delivery boy
+          Return from HO · With delivery agent
         </span>
       );
     }
@@ -142,14 +142,14 @@ function lifecycleBadge(row: StoreHistoryRow) {
   if (row.inwardLifecycle === "waiting_delivery_boy") {
     return (
       <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-        Inward from HO · Waiting for delivery boy
+        Inward from HO · Waiting for delivery agent
       </span>
     );
   }
   if (row.inwardLifecycle === "in_transit_to_store") {
     return (
       <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">
-        Inward from HO · With delivery boy
+        Inward from HO · With delivery agent
       </span>
     );
   }
@@ -402,11 +402,11 @@ export function StoreLogisticsHistoryPage() {
             className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
           >
             <option value="all">All statuses</option>
-            {direction !== "inward" ? <option value="waiting_delivery_boy_to_ho">Waiting for delivery boy to HO</option> : null}
+            {direction !== "inward" ? <option value="waiting_delivery_boy_to_ho">Waiting for delivery agent to HO</option> : null}
             {direction !== "inward" ? <option value="in_transit">In transit to HO</option> : null}
             {direction !== "inward" ? <option value="at_ho">At service centre</option> : null}
-            {direction !== "outward" ? <option value="waiting_delivery_boy">Waiting for delivery boy</option> : null}
-            {direction !== "outward" ? <option value="in_transit_to_store">With delivery boy to store</option> : null}
+            {direction !== "outward" ? <option value="waiting_delivery_boy">Waiting for delivery agent</option> : null}
+            {direction !== "outward" ? <option value="in_transit_to_store">With delivery agent to store</option> : null}
             {direction !== "outward" ? <option value="awaiting_inward">Awaiting store inward</option> : null}
             {direction !== "outward" ? <option value="received">Received at store</option> : null}
           </select>

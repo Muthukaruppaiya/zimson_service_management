@@ -5,6 +5,8 @@ import {
   createServiceInvoice,
   recordInvoicePayment,
   syncInvoicesFromLegacySources,
+  updateServiceInvoiceHeader,
+  deleteServiceInvoice,
 } from "./serviceInvoiceLedger";
 import {
   edocEnabled,
@@ -23,6 +25,10 @@ function canAccessAccounts(actor: DemoUser): boolean {
     actor.role === "store_accounts" ||
     actor.role === "service_centre_supervisor"
   );
+}
+
+function isSuperAdmin(actor: DemoUser | null): boolean {
+  return actor?.role === "super_admin";
 }
 
 function invoiceScopeSql(
@@ -418,6 +424,68 @@ export function registerServiceInvoiceRoutes(
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Could not generate e-invoice." });
+    }
+  });
+
+  app.patch("/api/accounts/invoices/:invoiceId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!isSuperAdmin(actor)) {
+      res.status(403).json({ error: "Only super admin can edit invoices." });
+      return;
+    }
+    const invoiceId = String(req.params.invoiceId ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await updateServiceInvoiceHeader(client, invoiceId, {
+        customerName: typeof req.body?.customerName === "string" ? req.body.customerName : undefined,
+        customerPhone: req.body?.customerPhone !== undefined ? String(req.body.customerPhone ?? "") : undefined,
+        customerGstin: req.body?.customerGstin !== undefined ? String(req.body.customerGstin ?? "") : undefined,
+        invoiceDate: typeof req.body?.invoiceDate === "string" ? req.body.invoiceDate : undefined,
+        totalInr: req.body?.totalInr !== undefined ? Number(req.body.totalInr) : undefined,
+      });
+      await client.query("COMMIT");
+      const inv = await pool.query(
+        `SELECT ${INVOICE_SRF_SELECT}
+         FROM service_invoices si
+         ${INVOICE_SRF_JOIN}
+         WHERE si.id = $1::uuid`,
+        [invoiceId],
+      );
+      const row = inv.rows[0];
+      if (!row) {
+        res.status(404).json({ error: "Invoice not found." });
+        return;
+      }
+      res.json({ ok: true, invoice: mapInvoiceRow(row as Record<string, unknown>) });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      const message = e instanceof Error && e.message.trim() ? e.message.trim() : "Could not update invoice.";
+      res.status(400).json({ error: message });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.delete("/api/accounts/invoices/:invoiceId", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!isSuperAdmin(actor)) {
+      res.status(403).json({ error: "Only super admin can delete invoices." });
+      return;
+    }
+    const invoiceId = String(req.params.invoiceId ?? "").trim();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await deleteServiceInvoice(client, invoiceId);
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      const message = e instanceof Error && e.message.trim() ? e.message.trim() : "Could not delete invoice.";
+      res.status(400).json({ error: message });
+    } finally {
+      client.release();
     }
   });
 

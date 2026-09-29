@@ -52,7 +52,7 @@ function formatDate(value: string | null): string {
 function transferStatusLabel(status: string): string {
   const labels: Record<string, string> = {
     CREATED: "Waiting for handoff",
-    IN_TRANSIT: "With delivery boy",
+    IN_TRANSIT: "With delivery agent",
     AWAITING_INWARD: "Delivered · awaiting inward",
     INWARDED: "Inward completed",
     RECEIVED: "Received",
@@ -80,7 +80,7 @@ export function DeliveryBoyHistoryPage() {
         if (!cancelled) setTransfers(out.rows ?? []);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof ApiError ? e.message : "Could not load delivery-boy history.");
+        if (!cancelled) setError(e instanceof ApiError ? e.message : "Could not load delivery agent history.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -154,12 +154,12 @@ export function DeliveryBoyHistoryPage() {
       <ServiceBreadcrumb
         items={[
           { label: "Service", to: storeSide ? "/service" : "/service-centre" },
-          { label: "Delivery-boy history" },
+          { label: "Delivery agent history" },
         ]}
       />
       <PageHeader
-        title="Delivery-boy carrying history"
-        subtitle="Track which delivery boy carried each SRF and transfer document."
+        title="Delivery agent carrying history"
+        subtitle="Track which delivery agent carried each SRF and transfer document."
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -168,7 +168,7 @@ export function DeliveryBoyHistoryPage() {
           <p className="mt-1 text-2xl font-bold text-blue-950">{lines.length}</p>
         </div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-amber-700">Currently with delivery boy</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-amber-700">Currently with delivery agent</p>
           <p className="mt-1 text-2xl font-bold text-amber-950">{activeCount}</p>
         </div>
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
@@ -190,7 +190,7 @@ export function DeliveryBoyHistoryPage() {
             onChange={(e) => setBoyId(e.target.value)}
             className="rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
           >
-            <option value="all">All delivery boys</option>
+            <option value="all">All delivery agents</option>
             {boys.map((boy) => (
               <option key={boy.id} value={boy.id}>
                 {boy.name}{boy.phone ? ` · ${boy.phone}` : ""}
@@ -212,13 +212,13 @@ export function DeliveryBoyHistoryPage() {
         {loading ? (
           <p className="py-8 text-center text-sm text-stone-500">Loading carrying history…</p>
         ) : filtered.length === 0 ? (
-          <p className="py-8 text-center text-sm text-stone-500">No delivery-boy carrying records found.</p>
+          <p className="py-8 text-center text-sm text-stone-500">No delivery agent carrying records found.</p>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-zimson-200">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-zimson-50 text-xs uppercase tracking-wide text-stone-600">
                 <tr>
-                  <th className="px-3 py-2">Delivery boy</th>
+                  <th className="px-3 py-2">Delivery agent</th>
                   <th className="px-3 py-2">Trip no.</th>
                   <th className="px-3 py-2">SRF</th>
                   <th className="px-3 py-2">TD</th>
@@ -297,7 +297,7 @@ export function DeliveryBoyHistoryPage() {
 
             <div className="grid gap-3 bg-slate-50 p-5 sm:grid-cols-2">
               <section className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Delivery boy</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Delivery agent</p>
                 <p className="mt-2 font-semibold text-slate-900">{selected.deliveryBoyName}</p>
                 <p className="text-sm text-slate-600">{selected.deliveryBoyPhone || "No mobile number"}</p>
               </section>
@@ -317,7 +317,7 @@ export function DeliveryBoyHistoryPage() {
                 <p className="text-sm text-slate-600">{selected.status.replace(/_/g, " ")}</p>
               </section>
               <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Handed to delivery boy</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Handed to delivery agent</p>
                 <p className="mt-2 text-sm font-semibold text-amber-950">{formatDate(selected.handedAt)}</p>
               </section>
               <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">

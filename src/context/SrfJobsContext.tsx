@@ -130,6 +130,7 @@ type SrfJobsContextValue = {
       customerEmail?: string;
       customFields?: Record<string, string | number | boolean | null>;
       servicePackage?: import("../types/servicePackage").SrfServicePackageSnapshot | null;
+      warrantyRefSrfId?: string | null;
     },
   ) => Promise<{
     trackingUrl?: string;
@@ -199,6 +200,21 @@ type SrfJobsContextValue = {
   supervisorTransferToOtherHo: (jobId: string, payload: { targetRegionId: string; note?: string }) => Promise<{ queued?: boolean }>;
   supervisorMarkRepairComplete: (jobId: string) => Promise<void>;
   supervisorMoveRejectedToOdc: (jobId: string, note?: string) => Promise<void>;
+  supervisorCannotRepair: (
+    jobId: string,
+    payload: { cannotRepairAt: "store" | "ho" | "other_ho" | "brand"; note?: string },
+  ) => Promise<{ interHoReceiver?: boolean }>;
+  issueStoreAdvanceVoucher: (jobId: string) => Promise<{
+    voucherCode: string;
+    valueInr: number;
+    validUntil: string | null;
+    issuedAt?: string | null;
+    alreadyIssued?: boolean;
+    reference: string;
+    customerName: string;
+    phone: string;
+    advanceInr: number;
+  }>;
   technicianEstimateOk: (jobId: string, technicianProfileId: string) => Promise<void>;
   technicianRequestReestimate: (jobId: string, technicianProfileId: string, note: string) => Promise<SrfReestimateNotifyResult>;
   technicianRecommendBrand: (jobId: string, note?: string) => Promise<void>;
@@ -331,6 +347,7 @@ type SrfJobsContextValue = {
       chainCount6Phase?: string;
       chainCount?: string;
       customerRemarks?: string;
+      warrantyRefSrfId?: string | null;
     },
   ) => Promise<void>;
 };
@@ -389,6 +406,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         customerEmail?: string;
         customFields?: Record<string, string | number | boolean | null>;
         servicePackage?: import("../types/servicePackage").SrfServicePackageSnapshot | null;
+        warrantyRefSrfId?: string | null;
       },
     ) => {
       const out = await apiJson<{
@@ -683,6 +701,45 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
     });
     await refreshJobs();
   }, [refreshJobs]);
+
+  const supervisorCannotRepair = useCallback(
+    async (
+      jobId: string,
+      payload: { cannotRepairAt: "store" | "ho" | "other_ho" | "brand"; note?: string },
+    ) => {
+      const out = await apiJson<{ interHoReceiver?: boolean }>(
+        `/api/service/srf-jobs/${encodeURIComponent(jobId)}/supervisor/cannot-repair`,
+        {
+          method: "POST",
+          json: { cannotRepairAt: payload.cannotRepairAt, note: payload.note ?? "" },
+        },
+      );
+      await refreshJobs();
+      return { interHoReceiver: Boolean(out.interHoReceiver) };
+    },
+    [refreshJobs],
+  );
+
+  const issueStoreAdvanceVoucher = useCallback(
+    async (jobId: string) => {
+      const out = await apiJson<{
+        voucherCode: string;
+        valueInr: number;
+        validUntil: string | null;
+        issuedAt?: string | null;
+        alreadyIssued?: boolean;
+        reference: string;
+        customerName: string;
+        phone: string;
+        advanceInr: number;
+      }>(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/store/advance-voucher`, {
+        method: "POST",
+      });
+      await refreshJobs();
+      return out;
+    },
+    [refreshJobs],
+  );
 
   const technicianEstimateOk = useCallback(async (jobId: string, technicianProfileId: string) => {
     await apiJson(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/technician/estimate-ok`, {
@@ -1055,6 +1112,7 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
         chainCount6Phase?: string;
         chainCount?: string;
         customerRemarks?: string;
+        warrantyRefSrfId?: string | null;
       },
     ) => {
       await apiJson(`/api/service/srf-jobs/${encodeURIComponent(srfId)}/store-draft`, {
@@ -1094,6 +1152,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
       supervisorMoveRejectedToOdc,
+      supervisorCannotRepair,
+      issueStoreAdvanceVoucher,
       technicianEstimateOk,
       technicianRequestReestimate,
       technicianRecommendBrand,
@@ -1162,6 +1222,8 @@ export function SrfJobsProvider({ children }: { children: ReactNode }) {
       supervisorTransferToOtherHo,
       supervisorMarkRepairComplete,
       supervisorMoveRejectedToOdc,
+      supervisorCannotRepair,
+      issueStoreAdvanceVoucher,
       technicianEstimateOk,
       technicianRequestReestimate,
       technicianRecommendBrand,

@@ -14,6 +14,8 @@ export type Supplier = {
   contactName: string | null;
   email: string | null;
   phone: string | null;
+  /** Second number when Phone has "4347777 / 4347700" or a dedicated Alternate Phone column. */
+  alternatePhone?: string | null;
   address: string | null;
   locations?: SupplierLocation[];
   gst: string | null;

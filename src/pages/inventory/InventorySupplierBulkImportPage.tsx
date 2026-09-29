@@ -236,7 +236,7 @@ export function InventorySupplierBulkImportPage() {
       <InventoryBreadcrumb current="Supplier bulk import" />
       <PageHeader
         title="Supplier Bulk Import"
-        description="Download the Excel template, fill the Suppliers sheet, check the file, then import. Leave Supplier Code blank to auto-generate. Matching codes or GSTIN are updated."
+        description="Download the Excel template, fill the Suppliers sheet, check the file, then import. Supplier Code is always auto-generated. Matching GSTIN updates the existing supplier."
         actions={
           <Link
             to="/inventory/suppliers"
@@ -252,7 +252,7 @@ export function InventorySupplierBulkImportPage() {
       <BulkImportSuccessModal
         open={successOpen && !!importResult}
         entityLabel="Suppliers"
-        description="Suppliers have been saved. Matching supplier codes were updated."
+        description="Suppliers have been saved. Matching GSTIN rows were updated; new rows received an auto-generated supplier code."
         stats={
           importResult
             ? [
@@ -329,13 +329,13 @@ export function InventorySupplierBulkImportPage() {
                   <span className="font-bold text-rlx-green">✓</span> Excel dropdowns for Active (Y/N) and Tax Person Type
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="font-bold text-rlx-green">✓</span> Same columns as Add Supplier (code, GSTIN, address)
+                  <span className="font-bold text-rlx-green">✓</span> Same columns as Add Supplier (GSTIN, address). Supplier Code is auto-generated
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="font-bold text-rlx-green">✓</span> Check file validates GSTIN, email, PIN, tax type, duplicates
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="font-bold text-rlx-green">✓</span> Matching Supplier Code updates; new codes create
+                  <span className="font-bold text-rlx-green">✓</span> Matching GSTIN updates; new rows get SUP + year + sequence
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="text-stone-400">i</span> Delete sample rows before a live import
@@ -439,8 +439,8 @@ export function InventorySupplierBulkImportPage() {
               </tr>
             </thead>
             <tbody>
-              {preview.map((row) => (
-                <tr key={row.supplierCode} className="border-t border-rlx-rule">
+              {preview.map((row, i) => (
+                <tr key={`${row.supplierCode}-${row.name}-${i}`} className="border-t border-rlx-rule">
                   <td className="px-5 py-2 font-mono text-xs text-stone-700">{row.supplierCode}</td>
                   <td className="px-5 py-2 text-stone-800">{row.name}</td>
                   <td className="px-5 py-2">
@@ -491,7 +491,7 @@ export function InventorySupplierBulkImportPage() {
             <span className="text-[10px] font-semibold opacity-70">Sheet 1</span>
           </div>
           <p className="border-b border-rlx-rule px-4 py-2 text-[11px] text-stone-500">
-            One row per supplier. Location columns become the primary address.
+            One row per supplier. Location columns become the primary address. Supplier Code is assigned by the system (SUP + year + sequence), not entered in Excel.
           </p>
           <table className="w-full text-xs">
             <thead>

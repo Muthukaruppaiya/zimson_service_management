@@ -108,6 +108,8 @@ export type SrfPrintInput = {
   company?: string;
   storeInfo?: SrfPrintStoreInfo;
   natureOfRepair?: string;
+  warrantyRefInvoiceNumber?: string | null;
+  warrantyRefSrfReference?: string | null;
   repairRoute?: SrfRepairRoute | string;
   caseType?: string;
   strapChainType?: string;
@@ -626,6 +628,16 @@ export function printSrfDocument(job: SrfPrintInput): void {
           ${srfField("Brand Model", srfDisplay(brandModel))}
           ${srfField("Case Type", srfDisplay(job.caseType))}
           ${srfField("Nature of Repair", srfDisplay(nature))}
+          ${
+            job.warrantyRefInvoiceNumber || job.warrantyRefSrfReference
+              ? srfField(
+                  "Warranty ref. (invoiced SRF)",
+                  srfDisplay(
+                    [job.warrantyRefInvoiceNumber, job.warrantyRefSrfReference].filter(Boolean).join(" · "),
+                  ),
+                )
+              : ""
+          }
           ${srfField("Invoice Number", srfDisplay(job.invoiceNumber))}
           ${srfField("Invoice Date", srfDisplay(job.invoiceDate ? formatDateOnly(job.invoiceDate) : null))}
         </div>
@@ -749,6 +761,11 @@ export function printFullSrfDocument(
          <tr><td><strong>Customer</strong></td><td>${job.customerName}</td><td><strong>Phone</strong></td><td>${job.phone}</td></tr>
          <tr><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td><td><strong>Serial</strong></td><td>${job.serial}</td></tr>
          <tr><td><strong>Complaint</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
+         ${
+           job.warrantyRefInvoiceNumber || job.warrantyRefSrfReference
+             ? `<tr><td><strong>Warranty ref. (invoiced SRF)</strong></td><td colspan="3">${[job.warrantyRefInvoiceNumber, job.warrantyRefSrfReference].filter(Boolean).join(" · ") || "-"}</td></tr>`
+             : ""
+         }
          <tr><td><strong>Estimate (approximate)</strong></td><td>Approximate INR ${Number(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Created at</strong></td><td>${new Date(job.createdAt).toLocaleString()}</td></tr>
        </tbody>
      </table>
@@ -1763,6 +1780,11 @@ export function printAssignmentSlip(
       </div>
       <div class="meta-col">
         <div class="meta-row"><span class="lbl">Chargeable / Free :</span><span class="val">${escHtml(chargeable)}</span></div>
+        ${
+          job.warrantyRefInvoiceNumber || job.warrantyRefSrfReference
+            ? `<div class="meta-row"><span class="lbl">Warranty ref. :</span><span class="val">${escHtml([job.warrantyRefInvoiceNumber, job.warrantyRefSrfReference].filter(Boolean).join(" · "))}</span></div>`
+            : ""
+        }
         <div class="meta-row"><span class="lbl">Model No. :</span><span class="val">${escHtml(job.watchModel || "")}</span></div>
         <div class="meta-row"><span class="lbl">Serial No. :</span><span class="val">${escHtml(job.serial || "")}</span></div>
         <div class="meta-row"><span class="lbl">Family :</span><span class="val">${escHtml(job.watchFamily || "")}</span></div>
@@ -2184,4 +2206,67 @@ export function printStoreServiceInvoice(
      <div style="margin-top:16px">Store Sign: _____________________</div>`,
   );
   openPrintDocument(`Invoice ${job.reference}`, html);
+}
+
+export type StoreAdvanceVoucherPrintInput = {
+  voucherCode: string;
+  valueInr: number;
+  validUntil?: string | null;
+  issuedAt?: string | null;
+  srfReference: string;
+  customerName: string;
+  phone?: string | null;
+  advanceInr: number;
+  cannotRepairAt?: string | null;
+  storeName?: string | null;
+};
+
+export function printStoreAdvanceVoucherDocument(input: StoreAdvanceVoucherPrintInput): void {
+  const code = String(input.voucherCode ?? "").trim();
+  const amount = Number(input.valueInr ?? input.advanceInr ?? 0);
+  const valid = input.validUntil
+    ? new Date(input.validUntil).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : "12 months from issue";
+  const issued = input.issuedAt
+    ? new Date(input.issuedAt).toLocaleString("en-IN", { hour12: false })
+    : new Date().toLocaleString("en-IN", { hour12: false });
+  const reason = input.cannotRepairAt ? cannotRepairAtPrintLabel(input.cannotRepairAt) : "Returned without repair";
+  const html = `
+    <div style="max-width:720px;margin:0 auto;border:2px solid #0d1b2a;padding:24px;color:#0d1b2a">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+        <div>
+          ${srfLogoImgHtml()}
+          <p style="margin:8px 0 0;font-size:11px;letter-spacing:0.18em;font-weight:700;text-transform:uppercase">Zimson Watch Care</p>
+          <h1 style="margin:8px 0 0;font-size:22px">Store credit</h1>
+          <p style="margin:6px 0 0;font-size:13px;color:#334155">Issued against booking advance — watch returned without repair.</p>
+        </div>
+        ${barcodeBlock(code)}
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-top:20px" border="1" cellspacing="0" cellpadding="8">
+        <tbody>
+          <tr><td style="width:38%"><strong>Store credit no.</strong></td><td style="font-family:Consolas,'Courier New',monospace;font-size:18px;letter-spacing:0.06em">${escHtml(code)}</td></tr>
+          <tr><td><strong>Credit value</strong></td><td style="font-size:18px;font-weight:700">INR ${amount.toFixed(2)}</td></tr>
+          <tr><td><strong>Valid until</strong></td><td>${escHtml(valid)}</td></tr>
+          <tr><td><strong>Issued</strong></td><td>${escHtml(issued)}${input.storeName ? ` · ${escHtml(input.storeName)}` : ""}</td></tr>
+          <tr><td><strong>SRF</strong></td><td>${escHtml(input.srfReference)}</td></tr>
+          <tr><td><strong>Customer</strong></td><td>${escHtml(input.customerName || "-")}${input.phone ? ` · ${escHtml(input.phone)}` : ""}</td></tr>
+          <tr><td><strong>Advance collected</strong></td><td>INR ${Number(input.advanceInr ?? amount).toFixed(2)}</td></tr>
+          <tr><td><strong>Reason</strong></td><td>${escHtml(reason)}</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:16px;font-size:12px;line-height:1.5">Present this store credit at the store to redeem the advance. This store credit is issued because the watch could not be repaired and is handed back with the original piece.</p>
+      <div style="display:flex;justify-content:space-between;margin-top:36px;font-size:13px">
+        <div>Customer sign: _____________________</div>
+        <div>Store sign: _____________________</div>
+      </div>
+    </div>`;
+  openPrintDocument(`Store credit ${code}`, html);
+}
+
+function cannotRepairAtPrintLabel(value: string): string {
+  if (value === "store") return "Cannot repair at store";
+  if (value === "ho") return "Cannot repair at HO";
+  if (value === "other_ho") return "Cannot repair at other HO";
+  if (value === "brand") return "Cannot repair at brand";
+  return "Returned without repair";
 }

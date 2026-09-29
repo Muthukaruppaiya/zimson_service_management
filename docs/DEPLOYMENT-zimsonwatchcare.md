@@ -157,12 +157,18 @@ cp env.production.example .env
 # edit .env (DATABASE_URL, S3, SMTP, APP_BASE_URL, …)
 npm run certs:rds
 npm run build
-NODE_ENV=production npm start
+bash scripts/setup-pm2-ubuntu.sh
+```
+
+Do **not** leave `npm start` / `npm run dev` running in PuTTY — closing the SSH window kills it. PM2 keeps `zimson` running on port `4000` and starts it again after reboot.
+
+```bash
+pm2 status
+pm2 logs zimson
+pm2 restart zimson
 ```
 
 Migrations run automatically when the API starts.
-
-Use **pm2** or **systemd** to keep the process running on port `4000`.
 
 ### Optional: dev mode on server (not recommended)
 
@@ -203,7 +209,7 @@ APP_BASE_URL=http://zimsonwatchcare.com
 MESSAGING_PUBLIC_BASE_URL=http://zimsonwatchcare.com
 ```
 
-Keep Node running (`npm start` or pm2), then open:
+Keep Node running with pm2 (`pm2 status` should show `zimson` online), then open:
 
 **http://zimsonwatchcare.com** (no `:4000`)
 

@@ -142,6 +142,7 @@ export function buildEinvoicePayload(input: EinvoicingBuildInput): Record<string
       total_invoice_value: round2(totals.total),
       total_cess_value: 0,
       total_discount: 0,
+      other_charges: round2(totals.otherCharges ?? 0),
       round_off_amount: round2(totals.roundOff ?? 0),
     },
   };

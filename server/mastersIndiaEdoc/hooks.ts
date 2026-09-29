@@ -9,6 +9,7 @@ import {
 import { customerPayableInr } from "../../src/lib/quickBillPayable";
 import { buildEwayDistancePrefill } from "../../src/lib/ewayDistance";
 import { billableLineAmount } from "../../src/lib/natureOfRepair";
+import { isServicePackageInvoiceDescription } from "../../src/lib/servicePackage";
 import { isValidGstFormat } from "../../src/data/serviceSeed";
 import { validateCustomerB2bGstin } from "../../src/lib/zimsonCompanyGst";
 import type { TransferPrintMeta } from "../transferDocMeta";
@@ -180,6 +181,7 @@ function buildPartyFromBillFields(args: {
 function totalsFromGstResult(
   gstResult: ReturnType<typeof computeServiceBillGst>,
   netPayable: number,
+  otherCharges = 0,
 ): EdocValueTotals {
   return {
     taxable: gstResult.grossTaxable,
@@ -188,6 +190,7 @@ function totalsFromGstResult(
     igst: gstResult.igst,
     total: netPayable,
     roundOff: gstResult.roundOffInr ?? 0,
+    otherCharges: otherCharges > 0 ? otherCharges : 0,
     isInterstate: gstResult.isInterstate,
   };
 }
@@ -228,11 +231,22 @@ type SnapshotBillLine = {
   amountInr: number;
   hsnSac?: string | null;
   spareId?: string | null;
+  lineKind?: "service" | "spare";
 };
 
 function isLabourSnapshotLine(line: SnapshotBillLine): boolean {
   if (String(line.spareId ?? "").trim()) return false;
   return /labour|service\s*\/\s*repair|service charge/i.test(line.description);
+}
+
+function isServiceSnapshotLine(line: SnapshotBillLine): boolean {
+  if (String(line.spareId ?? "").trim()) return false;
+  if (line.lineKind === "spare") return false;
+  if (line.lineKind === "service") return true;
+  if (isServicePackageInvoiceDescription(line.description)) return true;
+  if (isLabourSnapshotLine(line)) return true;
+  const hsn = String(line.hsnSac ?? "").replace(/\D/g, "");
+  return hsn.startsWith("99");
 }
 
 async function resolveStoreBillingEdocLines(
@@ -256,14 +270,14 @@ async function resolveStoreBillingEdocLines(
 
   return billLines.map((line) => {
     const spareId = String(line.spareId ?? "").trim() || null;
-    const labour = isLabourSnapshotLine(line);
+    const serviceLine = isServiceSnapshotLine(line);
     const catalogueHsn = spareId ? hsnBySpareId.get(spareId) : undefined;
     const snapshotHsn = String(line.hsnSac ?? "").trim();
-    const rawHsn = labour ? defaultSacHsn : (catalogueHsn || snapshotHsn || "").trim();
+    const rawHsn = serviceLine ? (snapshotHsn || defaultSacHsn) : (catalogueHsn || snapshotHsn || "").trim();
     const resolved = resolveEdocHsnSac(rawHsn || null, {
-      labourLine: labour,
+      labourLine: serviceLine,
       defaultSacHsn,
-      preferGoods: !labour,
+      preferGoods: !serviceLine,
     });
     return {
       ...line,
@@ -586,7 +600,10 @@ export async function tryGenerateEinvoiceForSrfClose(
     return r;
   }
 
-  const snapshot = job.store_billing_snapshot as { billLines?: SnapshotBillLine[] } | null;
+  const snapshot = job.store_billing_snapshot as {
+    billLines?: SnapshotBillLine[];
+    extraChargesInr?: number;
+  } | null;
   const rawBillLines = Array.isArray(snapshot?.billLines) ? snapshot!.billLines! : [];
   if (rawBillLines.length === 0) {
     const r = skip("No billing lines on SRF for e-invoice");
@@ -655,14 +672,17 @@ export async function tryGenerateEinvoiceForSrfClose(
     buyerPan: customer?.pan ?? null,
     buyerGstin: buyerGst,
   });
-  const netPayable = customerPayableInr(
-    subtotalInr,
-    gstResult.totalTax,
-    pricesTaxInclusive,
-    gstResult.grossTaxable,
-    gstResult.tcsAmount ?? 0,
-  );
-  const totals = totalsFromGstResult(gstResult, netPayable);
+  const extraCharges = Number(snapshot?.extraChargesInr ?? 0);
+  const extraAmt = Number.isFinite(extraCharges) && extraCharges > 0 ? extraCharges : 0;
+  const netPayable =
+    customerPayableInr(
+      subtotalInr,
+      gstResult.totalTax,
+      pricesTaxInclusive,
+      gstResult.grossTaxable,
+      gstResult.tcsAmount ?? 0,
+    ) + extraAmt;
+  const totals = totalsFromGstResult(gstResult, netPayable, extraAmt);
   const flagsByHsn = new Map(billLines.map((r) => [r.hsnSac, r.isService]));
   const descriptions = gstResult.lines.map((ln, i) => {
     const parts = billLines.filter((r) => r.hsnSac === ln.hsnSac).map((r) => r.description);

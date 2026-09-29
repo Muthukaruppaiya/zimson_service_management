@@ -62,6 +62,7 @@ TRUNCATE TABLE
   customers,
   number_sequences,
   store_invoice_sequences,
+  store_advance_voucher_sequences,
   supplier_spares,
   suppliers,
   spare_stock,

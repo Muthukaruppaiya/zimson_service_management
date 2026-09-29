@@ -33,7 +33,7 @@ import { sendReadyPickupWhatsAppTemplate } from "./messaging/qikchatWhatsApp";
 import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { finalizeSrfBillingHandoverSession } from "./srfBillingHandoverRoutes";
 import { appendStockHistory } from "./db/stockHistory";
-import { allocateStoreInvoiceNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
+import { allocateStoreInvoiceNumber, allocateStoreAdvanceVoucherNumber, defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
 import { createServiceInvoice, sumUsedSparesTotal } from "./serviceInvoiceLedger";
 import {
   allocateSmsPin,
@@ -53,6 +53,7 @@ import {
 } from "./mastersIndiaEdoc";
 import { buildHoOutwardPrintMeta, buildStoreToHoPrintMeta, rebuildPrintMetaForChallan } from "./transferDocMeta";
 import { validateEntityCustomFields } from "./customFields";
+import { normalizeNatureOfRepair } from "../src/lib/natureOfRepair";
 
 type Authed = Request & { userId: string };
 
@@ -141,6 +142,16 @@ function canApproveBrandCreditNoteStatus(actor: DemoUser | null, status: string)
       status === "brand_credit_note_pending") &&
     canApproveBrandCreditNote(actor)
   );
+}
+
+const CANNOT_REPAIR_AT_VALUES = new Set(["store", "ho", "other_ho", "brand"]);
+
+function cannotRepairAtLabel(value: string): string {
+  if (value === "store") return "Cannot repair at store";
+  if (value === "ho") return "Cannot repair at this HO";
+  if (value === "other_ho") return "Cannot repair at other HO";
+  if (value === "brand") return "Cannot repair at brand";
+  return "Cannot repair";
 }
 
 function generateBrandVoucherCode(): string {
@@ -358,6 +369,45 @@ function parseServicePackageSnapshot(raw: unknown): {
     spareIds,
     spareNames,
   };
+}
+
+function parseSparesSlipChargeType(
+  raw: unknown,
+  spareId: string,
+  includedInPackage: boolean,
+  pkgSpareIds: Set<string>,
+): "service" | "spare" {
+  const t = String((raw as { chargeType?: unknown })?.chargeType ?? "").trim().toLowerCase();
+  if (t === "spare") return "spare";
+  if (t === "service") return "service";
+  return includedInPackage || pkgSpareIds.has(spareId) ? "service" : "spare";
+}
+
+function parseSparesSlipLines(rawLines: unknown, pkgSpareIds: Set<string>) {
+  if (!Array.isArray(rawLines)) return [];
+  return rawLines
+    .map((x: unknown) => {
+      const spareId = String((x as { spareId?: unknown })?.spareId ?? "").trim();
+      const name = String((x as { name?: unknown })?.name ?? "").trim();
+      const qty = Number((x as { qty?: unknown })?.qty ?? 0);
+      const unitPriceInr = Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0);
+      const lineTotalInr = Number((x as { lineTotalInr?: unknown })?.lineTotalInr ?? 0);
+      const includedFlag = Boolean((x as { includedInPackage?: unknown })?.includedInPackage);
+      const chargeType = parseSparesSlipChargeType(x, spareId, includedFlag, pkgSpareIds);
+      return {
+        spareId,
+        name,
+        qty,
+        unitPriceInr,
+        lineTotalInr,
+        chargeType,
+        includedInPackage: chargeType === "service",
+      };
+    })
+    .filter(
+      (x: { spareId: string; name: string; qty: number }) =>
+        x.spareId.length > 0 && x.name.length > 0 && Number.isFinite(x.qty) && x.qty > 0,
+    );
 }
 
 function roleCanCollectSrfPayment(actor: DemoUser): boolean {
@@ -801,6 +851,82 @@ function tokenHash(token: string): string {
 function phoneLast10(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function looksLikeUuid(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+type WarrantyRefSnapshot = {
+  warrantyRefSrfId: string | null;
+  warrantyRefInvoiceNumber: string | null;
+  warrantyRefSrfReference: string | null;
+};
+
+async function resolveWarrantyRefSnapshot(
+  executor: Queryable,
+  opts: {
+    natureOfRepair: string;
+    warrantyRefSrfIdRaw: unknown;
+    currentSrfId: string;
+    currentPhone: string;
+    required: boolean;
+  },
+): Promise<({ ok: true } & WarrantyRefSnapshot) | { ok: false; error: string }> {
+  const empty: WarrantyRefSnapshot = {
+    warrantyRefSrfId: null,
+    warrantyRefInvoiceNumber: null,
+    warrantyRefSrfReference: null,
+  };
+  const nature = normalizeNatureOfRepair(opts.natureOfRepair);
+  if (nature !== "warranty_non_chargeable") {
+    return { ok: true, ...empty };
+  }
+  const refId = String(opts.warrantyRefSrfIdRaw ?? "").trim();
+  if (!refId) {
+    if (!opts.required) return { ok: true, ...empty };
+    return {
+      ok: false,
+      error: "Select the previous invoiced SRF as reference for this warranty (non-chargeable) booking.",
+    };
+  }
+  if (refId === opts.currentSrfId) {
+    return { ok: false, error: "Warranty reference cannot be this SRF." };
+  }
+  if (!looksLikeUuid(refId)) {
+    return { ok: false, error: "Invalid previous SRF selected." };
+  }
+  const { rows } = await executor.query<{
+    id: string;
+    reference: string;
+    invoice_number: string | null;
+    phone: string;
+  }>(
+    `SELECT id, reference, invoice_number, phone
+     FROM srf_jobs
+     WHERE id = $1::uuid
+     LIMIT 1`,
+    [refId],
+  );
+  const ref = rows[0];
+  if (!ref) {
+    return { ok: false, error: "Previous SRF not found." };
+  }
+  const inv = String(ref.invoice_number ?? "").trim();
+  if (!inv) {
+    return { ok: false, error: "Map an invoiced SRF only. The selected job has no invoice." };
+  }
+  const curP = phoneLast10(opts.currentPhone);
+  const refP = phoneLast10(ref.phone);
+  if (curP && refP && curP !== refP) {
+    return { ok: false, error: "Previous SRF must belong to the same customer mobile number." };
+  }
+  return {
+    ok: true,
+    warrantyRefSrfId: ref.id,
+    warrantyRefInvoiceNumber: inv,
+    warrantyRefSrfReference: String(ref.reference ?? "").trim() || null,
+  };
 }
 
 async function allocateTrackingSmsPin(client: Queryable): Promise<string> {
@@ -1372,6 +1498,9 @@ export function registerSrfRoutes(
                 j.case_type AS "caseType",
                 j.strap_chain_type AS "strapChainType",
                 j.nature_of_repair AS "natureOfRepair",
+                j.warranty_ref_srf_id AS "warrantyRefSrfId",
+                j.warranty_ref_invoice_number AS "warrantyRefInvoiceNumber",
+                j.warranty_ref_srf_reference AS "warrantyRefSrfReference",
                 j.chain_count_12_phase AS "chainCount12Phase",
                 j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",
@@ -1462,6 +1591,13 @@ export function registerSrfRoutes(
                 j.brand_dispatch_clerk_note AS "brandDispatchClerkNote",
                 j.brand_dispatch_clerk_at AS "brandDispatchClerkAt",
                 j.inter_ho_return_without_repair AS "interHoReturnWithoutRepair",
+                j.ho_return_without_repair AS "hoReturnWithoutRepair",
+                j.cannot_repair_at AS "cannotRepairAt",
+                j.cannot_repair_note AS "cannotRepairNote",
+                j.store_advance_voucher_code AS "storeAdvanceVoucherCode",
+                j.store_advance_voucher_value_inr::float8 AS "storeAdvanceVoucherValueInr",
+                j.store_advance_voucher_issued_at AS "storeAdvanceVoucherIssuedAt",
+                j.store_advance_voucher_valid_until AS "storeAdvanceVoucherValidUntil",
                 j.brand_return_without_repair AS "brandReturnWithoutRepair",
                 j.brand_odc_number AS "brandOdcNumber",
                 j.brand_inward_ref AS "brandInwardRef",
@@ -1532,6 +1668,67 @@ export function registerSrfRoutes(
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Failed to load SRFs." });
+    }
+  });
+
+  app.get("/api/service/srf-jobs/invoiced", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!roleCanCreateDraft(actor)) {
+      res.status(403).json({ error: "Forbidden." });
+      return;
+    }
+    const phone = phoneLast10(String(req.query.phone ?? ""));
+    if (phone.length !== 10) {
+      res.status(400).json({ error: "Customer mobile (10 digits) is required to list invoiced SRFs." });
+      return;
+    }
+    const q = String(req.query.q ?? "").trim();
+    const excludeId = String(req.query.excludeId ?? "").trim();
+    try {
+      const params: unknown[] = [phone];
+      let i = 2;
+      let extra = "";
+      if (excludeId && looksLikeUuid(excludeId)) {
+        extra += ` AND j.id <> $${i++}::uuid`;
+        params.push(excludeId);
+      }
+      if (q) {
+        extra += ` AND (
+          j.invoice_number ILIKE $${i}
+          OR j.reference ILIKE $${i}
+          OR COALESCE(j.serial, '') ILIKE $${i}
+          OR COALESCE(j.watch_model, '') ILIKE $${i}
+        )`;
+        params.push(`%${q}%`);
+      }
+      const { rows } = await pool.query(
+        `SELECT j.id,
+                j.reference,
+                j.invoice_number AS "invoiceNumber",
+                j.customer_name AS "customerName",
+                j.phone,
+                j.watch_brand AS "watchBrand",
+                j.watch_family AS "watchFamily",
+                j.watch_model AS "watchModel",
+                j.serial,
+                j.created_at AS "createdAt"
+         FROM srf_jobs j
+         WHERE TRIM(COALESCE(j.invoice_number, '')) <> ''
+           AND j.status <> 'cancelled'
+           AND RIGHT(regexp_replace(j.phone, '\\D', '', 'g'), 10) = $1
+           ${extra}
+         ORDER BY j.invoice_number DESC, j.created_at DESC
+         LIMIT 80`,
+        params,
+      );
+      res.json({ jobs: rows });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load invoiced SRFs." });
     }
   });
 
@@ -1636,6 +1833,9 @@ export function registerSrfRoutes(
                 j.case_type AS "caseType",
                 j.strap_chain_type AS "strapChainType",
                 j.nature_of_repair AS "natureOfRepair",
+                j.warranty_ref_srf_id AS "warrantyRefSrfId",
+                j.warranty_ref_invoice_number AS "warrantyRefInvoiceNumber",
+                j.warranty_ref_srf_reference AS "warrantyRefSrfReference",
                 j.chain_count_12_phase AS "chainCount12Phase",
                 j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",
@@ -1672,6 +1872,13 @@ export function registerSrfRoutes(
                 j.brand_dispatch_clerk_note AS "brandDispatchClerkNote",
                 j.brand_dispatch_clerk_at AS "brandDispatchClerkAt",
                 j.inter_ho_return_without_repair AS "interHoReturnWithoutRepair",
+                j.ho_return_without_repair AS "hoReturnWithoutRepair",
+                j.cannot_repair_at AS "cannotRepairAt",
+                j.cannot_repair_note AS "cannotRepairNote",
+                j.store_advance_voucher_code AS "storeAdvanceVoucherCode",
+                j.store_advance_voucher_value_inr::float8 AS "storeAdvanceVoucherValueInr",
+                j.store_advance_voucher_issued_at AS "storeAdvanceVoucherIssuedAt",
+                j.store_advance_voucher_valid_until AS "storeAdvanceVoucherValidUntil",
                 j.brand_return_without_repair AS "brandReturnWithoutRepair",
                 j.brand_odc_number AS "brandOdcNumber",
                 j.brand_inward_ref AS "brandInwardRef",
@@ -2689,8 +2896,10 @@ export function registerSrfRoutes(
         repair_route: string;
         watch_brand: string;
         serial: string;
+        phone: string;
+        warranty_ref_srf_id: string | null;
       }>(
-        `SELECT id, status, store_id, repair_route, watch_brand, serial
+        `SELECT id, status, store_id, repair_route, watch_brand, serial, phone, warranty_ref_srf_id
          FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
@@ -2729,6 +2938,19 @@ export function registerSrfRoutes(
         });
         return;
       }
+      const wr = await resolveWarrantyRefSnapshot(client, {
+        natureOfRepair,
+        warrantyRefSrfIdRaw:
+          req.body?.warrantyRefSrfId !== undefined ? req.body.warrantyRefSrfId : locked[0].warranty_ref_srf_id,
+        currentSrfId: srfId,
+        currentPhone: locked[0].phone,
+        required: true,
+      });
+      if (!wr.ok) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: wr.error });
+        return;
+      }
       await client.query(
         `UPDATE srf_jobs
          SET complaint = $2,
@@ -2748,6 +2970,9 @@ export function registerSrfRoutes(
              customer_remarks = $17,
              custom_fields = $18::jsonb,
              service_package = $19::jsonb,
+             warranty_ref_srf_id = $20::uuid,
+             warranty_ref_invoice_number = $21,
+             warranty_ref_srf_reference = $22,
              photo_session_active = false,
              capture_link_disabled_at = now(),
              updated_at = now(),
@@ -2773,6 +2998,9 @@ export function registerSrfRoutes(
           customerRemarks,
           JSON.stringify(customChecked.values),
           JSON.stringify(servicePackage ?? {}),
+          wr.warrantyRefSrfId,
+          wr.warrantyRefInvoiceNumber,
+          wr.warrantyRefSrfReference,
         ],
       );
       let advancePay: { id: string; publicToken: string; receiptNo: string } | null = null;
@@ -3388,8 +3616,11 @@ export function registerSrfRoutes(
         store_id: string;
         watch_brand: string;
         serial: string;
+        phone: string;
+        nature_of_repair: string | null;
+        warranty_ref_srf_id: string | null;
       }>(
-        `SELECT id, status, region_id, store_id, watch_brand, serial
+        `SELECT id, status, region_id, store_id, watch_brand, serial, phone, nature_of_repair, warranty_ref_srf_id
          FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
@@ -3486,6 +3717,37 @@ export function registerSrfRoutes(
       if (typeof body.customerRemarks === "string") {
         sets.push(`customer_remarks = $${pi++}`);
         vals.push(String(body.customerRemarks).trim());
+      }
+      const natureForRef =
+        typeof body.natureOfRepair === "string" ? String(body.natureOfRepair).trim() : String(row.nature_of_repair ?? "");
+      if (typeof body.natureOfRepair === "string" || Object.prototype.hasOwnProperty.call(body, "warrantyRefSrfId")) {
+        const wr = await resolveWarrantyRefSnapshot(client, {
+          natureOfRepair: natureForRef,
+          warrantyRefSrfIdRaw: Object.prototype.hasOwnProperty.call(body, "warrantyRefSrfId")
+            ? body.warrantyRefSrfId
+            : row.warranty_ref_srf_id,
+          currentSrfId: srfId,
+          currentPhone: typeof body.phone === "string" ? String(body.phone).trim() : row.phone,
+          required:
+            normalizeNatureOfRepair(natureForRef) === "warranty_non_chargeable" &&
+            Object.prototype.hasOwnProperty.call(body, "warrantyRefSrfId"),
+        });
+        if (!wr.ok) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: wr.error });
+          return;
+        }
+        if (
+          Object.prototype.hasOwnProperty.call(body, "warrantyRefSrfId") ||
+          normalizeNatureOfRepair(natureForRef) !== "warranty_non_chargeable"
+        ) {
+          sets.push(`warranty_ref_srf_id = $${pi++}::uuid`);
+          vals.push(wr.warrantyRefSrfId);
+          sets.push(`warranty_ref_invoice_number = $${pi++}`);
+          vals.push(wr.warrantyRefInvoiceNumber);
+          sets.push(`warranty_ref_srf_reference = $${pi++}`);
+          vals.push(wr.warrantyRefSrfReference);
+        }
       }
       if (body.customFields !== undefined) {
         const customChecked = await validateEntityCustomFields(pool, "srf", body.customFields);
@@ -3594,10 +3856,10 @@ export function registerSrfRoutes(
            WHERE id = $1::uuid`,
           [srfId, dcNumber, actor.id],
         );
-        await appendStatusHistory(client, srfId, "pending_ho_transit", actor.id, `Transfer ${dcNumber} created — pending delivery boy handoff.`);
+        await appendStatusHistory(client, srfId, "pending_ho_transit", actor.id, `Transfer ${dcNumber} created — pending delivery agent handoff.`);
         await appendActionLog(client, srfId, {
           action: "store_dc_dispatch",
-          description: `Transfer ${dcNumber} ready — pending delivery boy send to centralized service centre.`,
+          description: `Transfer ${dcNumber} ready — pending delivery agent send to centralized service centre.`,
           actor,
           referenceDoc: dcNumber,
         });
@@ -3894,7 +4156,7 @@ export function registerSrfRoutes(
           row.status = "in_transit_sc";
         }
         if (row.status !== "in_transit_sc" && row.status !== "awaiting_sc_inward") continue;
-        // Delivery-boy flow: must be awaiting_sc_inward (or legacy in_transit without delivery boy).
+        // Delivery-agent flow: must be awaiting_sc_inward (or legacy in_transit without delivery agent).
         if (row.status === "in_transit_sc") {
           const { rows: dcMeta } = await client.query<{ delivery_boy_user_id: string | null; status: string }>(
             `SELECT delivery_boy_user_id, status FROM delivery_challans WHERE id = $1::uuid`,
@@ -3902,7 +4164,7 @@ export function registerSrfRoutes(
           );
           const meta = dcMeta[0];
           if (meta?.delivery_boy_user_id) {
-            // New flow — must receive from delivery boy first
+            // New flow — must receive from delivery agent first
             continue;
           }
         } else if (row.status === "awaiting_sc_inward") {
@@ -4261,21 +4523,7 @@ export function registerSrfRoutes(
     const srfId = String(req.params.srfId ?? "").trim();
     const pkg = parseServicePackageSnapshot(req.body?.servicePackage);
     const pkgSpareIds = new Set(pkg?.spareIds ?? []);
-    const lines = Array.isArray(req.body?.lines)
-      ? req.body.lines
-          .map((x: unknown) => ({
-            spareId: String((x as { spareId?: unknown })?.spareId ?? "").trim(),
-            name: String((x as { name?: unknown })?.name ?? "").trim(),
-            qty: Number((x as { qty?: unknown })?.qty ?? 0),
-            unitPriceInr: Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0),
-            lineTotalInr: Number((x as { lineTotalInr?: unknown })?.lineTotalInr ?? 0),
-            includedInPackage: Boolean((x as { includedInPackage?: unknown })?.includedInPackage),
-          }))
-          .filter(
-            (x: { spareId: string; name: string; qty: number }) =>
-              x.spareId.length > 0 && x.name.length > 0 && Number.isFinite(x.qty) && x.qty > 0,
-          )
-      : [];
+    const lines = parseSparesSlipLines(req.body?.lines, pkgSpareIds);
     if (lines.length === 0) {
       res.status(400).json({ error: "Add at least one spare line with spare, name, and quantity." });
       return;
@@ -4321,7 +4569,8 @@ export function registerSrfRoutes(
         lineTotalInr: Number.isFinite(l.lineTotalInr)
           ? l.lineTotalInr
           : (Number.isFinite(l.unitPriceInr) ? l.unitPriceInr : 0) * l.qty,
-        includedInPackage: Boolean(l.includedInPackage) || pkgSpareIds.has(l.spareId),
+        chargeType: l.chargeType,
+        includedInPackage: l.includedInPackage,
       }));
       const missingPrice = normalized.find((l) => l.unitPriceInr <= 0);
       if (missingPrice) {
@@ -5891,6 +6140,114 @@ export function registerSrfRoutes(
   });
 
   /**
+   * HO: watch cannot be repaired at store, this HO, other HO, or brand.
+   * Queue unrepaired return (to origin store, or sender HO if this is an inter-HO receiver job).
+   */
+  app.post("/api/service/srf-jobs/:srfId/supervisor/cannot-repair", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor || !canSupervisorDecide(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can mark cannot-repair." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const cannotRepairAt = String(req.body?.cannotRepairAt ?? "").trim().toLowerCase();
+    const note = String(req.body?.note ?? "").trim();
+    if (!CANNOT_REPAIR_AT_VALUES.has(cannotRepairAt)) {
+      res.status(400).json({
+        error: "Select where the watch cannot be repaired: store, this HO, other HO, or brand.",
+      });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const locked = await client.query<{
+        id: string;
+        status: string;
+        reference: string;
+        transfer_source_reference: string | null;
+        requires_local_conversion: boolean;
+        ho_return_without_repair: boolean;
+        brand_return_without_repair: boolean;
+        inter_ho_return_without_repair: boolean;
+      }>(
+        `SELECT id, status, reference, transfer_source_reference, requires_local_conversion,
+                ho_return_without_repair, brand_return_without_repair, inter_ho_return_without_repair
+         FROM srf_jobs
+         WHERE id = $1::uuid
+         FOR UPDATE`,
+        [srfId],
+      );
+      const row = locked.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      const allowed = row.status === "assigned" || row.status === "estimate_ok" || row.status === "customer_rejected";
+      if (!allowed) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "Cannot-repair is only available while the watch is assigned at HO (or after customer declined repair).",
+        });
+        return;
+      }
+      const interHoReceiver = isInterHoReceiverLocalRow(row);
+      const reasonLabel = cannotRepairAtLabel(cannotRepairAt);
+      const historyNote =
+        note ||
+        (interHoReceiver
+          ? `${reasonLabel} — returning unrepaired to sender HO for store handover.`
+          : `${reasonLabel} — returning unrepaired to store for customer handover.`);
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'ready_for_outward',
+             completed_at_sc = COALESCE(completed_at_sc, now()),
+             ready_for_outward_at = now(),
+             ho_return_without_repair = true,
+             inter_ho_return_without_repair = CASE WHEN $3::boolean THEN true ELSE inter_ho_return_without_repair END,
+             cannot_repair_at = $4,
+             cannot_repair_note = NULLIF($5::text, ''),
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid`,
+        [srfId, actor.id, interHoReceiver, cannotRepairAt, note],
+      );
+      if (interHoReceiver) {
+        const arch = await findInterHoArchivedSenderRow(client, srfId);
+        if (arch?.id) {
+          await client.query(
+            `UPDATE srf_jobs
+             SET ho_return_without_repair = true,
+                 inter_ho_return_without_repair = true,
+                 cannot_repair_at = $2,
+                 cannot_repair_note = NULLIF($3::text, ''),
+                 updated_at = now(),
+                 modified_by = $4
+             WHERE id = $1::uuid`,
+            [arch.id, cannotRepairAt, note, actor.id],
+          );
+        }
+      }
+      await appendStatusHistory(client, srfId, "ready_for_outward", actor.id, historyNote);
+      await appendActionLog(client, srfId, {
+        action: "supervisor_cannot_repair",
+        description: historyNote,
+        actor,
+        details: { cannotRepairAt, note, interHoReceiver },
+      });
+      await client.query("COMMIT");
+      res.json({ ok: true, interHoReceiver });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not mark cannot-repair." });
+    } finally {
+      client.release();
+    }
+  });
+
+  /**
    * Sender HO: customer will not accept the inter-HO estimate after negotiation.
    * Repair HO must return the watch with a logistics/service invoice (not no-billing).
    */
@@ -6883,22 +7240,7 @@ export function registerSrfRoutes(
     const srfId = String(req.params.srfId ?? "").trim();
     const pkg = parseServicePackageSnapshot(req.body?.servicePackage);
     const pkgSpareIds = new Set(pkg?.spareIds ?? []);
-    const lines = Array.isArray(req.body?.lines)
-      ? req.body.lines
-          .map((x: unknown) => ({
-            spareId: String((x as { spareId?: unknown })?.spareId ?? "").trim(),
-            name: String((x as { name?: unknown })?.name ?? "").trim(),
-            qty: Number((x as { qty?: unknown })?.qty ?? 0),
-            unitPriceInr: Number((x as { unitPriceInr?: unknown })?.unitPriceInr ?? 0),
-            lineTotalInr: Number((x as { lineTotalInr?: unknown })?.lineTotalInr ?? 0),
-            includedInPackage: Boolean((x as { includedInPackage?: unknown })?.includedInPackage),
-          }))
-          .filter((x: { spareId: string; name: string; qty: number }) => x.spareId.length > 0 && x.name.length > 0 && Number.isFinite(x.qty) && x.qty > 0)
-          .map((x) => ({
-            ...x,
-            includedInPackage: x.includedInPackage || pkgSpareIds.has(x.spareId),
-          }))
-      : [];
+    const lines = parseSparesSlipLines(req.body?.lines, pkgSpareIds);
     if (lines.length === 0) {
       res.status(400).json({ error: "Provide at least one spare line with spareId, name, and qty." });
       return;
@@ -9255,10 +9597,10 @@ export function registerSrfRoutes(
              WHERE id = $1::uuid`,
             [it.srfId, finalDestinationStoreId, dcNumber, actor.id, storeInvoiceRef],
           );
-          await appendStatusHistory(client, it.srfId, "pending_store_transit", actor.id, `Outward transfer ${dcNumber} created — pending delivery boy handoff.`);
+          await appendStatusHistory(client, it.srfId, "pending_store_transit", actor.id, `Outward transfer ${dcNumber} created — pending delivery agent handoff.`);
           await appendActionLog(client, it.srfId, {
             action: "ho_dispatch_to_store",
-            description: `Transfer ${dcNumber} ready for store ${finalDestinationStoreId} — pending delivery boy${storeInvoiceRef ? ` (Store invoice ref ${storeInvoiceRef})` : ""}.`,
+            description: `Transfer ${dcNumber} ready for store ${finalDestinationStoreId} — pending delivery agent${storeInvoiceRef ? ` (Store invoice ref ${storeInvoiceRef})` : ""}.`,
             actor,
             referenceDoc: dcNumber,
             details: { destinationStoreId: finalDestinationStoreId, storeInvoiceRef },
@@ -9518,6 +9860,161 @@ export function registerSrfRoutes(
     }
   });
 
+  app.post("/api/service/srf-jobs/:srfId/store/advance-voucher", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    const canIssue =
+      actor &&
+      (STORE_ROLES.has(actor.role) || actor.role === "super_admin" || actor.role === "admin");
+    if (!canIssue) {
+      res.status(403).json({ error: "Only store roles can issue store credit." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const actorStoreId = String(actor.storeId ?? "").trim();
+    const isAdmin = actor.role === "super_admin" || actor.role === "admin";
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const storeEligibleSql = isAdmin
+        ? "TRUE"
+        : `($2::text <> '' AND (destination_store_id = $2::text OR store_id = $2::text))`;
+      const lockParams: string[] = isAdmin ? [srfId] : [srfId, actorStoreId];
+      const locked = await client.query<{
+        store_id: string;
+        destination_store_id: string | null;
+        reference: string;
+        customer_name: string;
+        phone: string;
+        advance_inr: number;
+        status: string;
+        customer_reestimate_response: string | null;
+        ho_return_without_repair: boolean;
+        brand_return_without_repair: boolean;
+        inter_ho_return_without_repair: boolean;
+        store_advance_voucher_code: string | null;
+        store_advance_voucher_value_inr: number | null;
+        store_advance_voucher_valid_until: string | null;
+        store_advance_voucher_issued_at: string | null;
+      }>(
+        `SELECT store_id, destination_store_id, reference, customer_name, phone,
+                COALESCE(advance_inr, 0)::float8 AS advance_inr,
+                status, customer_reestimate_response,
+                ho_return_without_repair, brand_return_without_repair, inter_ho_return_without_repair,
+                store_advance_voucher_code,
+                store_advance_voucher_value_inr::float8 AS store_advance_voucher_value_inr,
+                store_advance_voucher_valid_until::text,
+                store_advance_voucher_issued_at
+         FROM srf_jobs
+         WHERE id = $1::uuid
+           AND status = 'received_at_store'
+           AND (${storeEligibleSql})
+         FOR UPDATE`,
+        lockParams,
+      );
+      const row = locked.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "SRF must be received at your store to issue store credit.",
+        });
+        return;
+      }
+      const unrepaired =
+        row.customer_reestimate_response === "rejected" ||
+        row.ho_return_without_repair ||
+        row.brand_return_without_repair ||
+        row.inter_ho_return_without_repair;
+      if (!unrepaired) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "Store credit is only for watches returned without repair.",
+        });
+        return;
+      }
+      const advance = Number(row.advance_inr ?? 0);
+      if (!(advance > 0)) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "This SRF has no collected advance to voucher." });
+        return;
+      }
+      if (String(row.store_advance_voucher_code ?? "").trim()) {
+        await client.query("COMMIT");
+        res.json({
+          ok: true,
+          alreadyIssued: true,
+          voucherCode: row.store_advance_voucher_code,
+          valueInr: Number(row.store_advance_voucher_value_inr ?? advance),
+          validUntil: row.store_advance_voucher_valid_until,
+          issuedAt: row.store_advance_voucher_issued_at,
+          reference: row.reference,
+          customerName: row.customer_name,
+          phone: row.phone,
+          advanceInr: advance,
+        });
+        return;
+      }
+      const billingStoreId = String(row.destination_store_id ?? row.store_id ?? "").trim();
+      if (!billingStoreId) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Store not found on SRF for voucher numbering." });
+        return;
+      }
+      const voucherCode = await allocateStoreAdvanceVoucherNumber(client, billingStoreId);
+      const issued = await client.query<{
+        store_advance_voucher_code: string;
+        store_advance_voucher_value_inr: number;
+        store_advance_voucher_valid_until: string | null;
+        store_advance_voucher_issued_at: string;
+      }>(
+        `UPDATE srf_jobs
+         SET store_advance_voucher_code = $2,
+             store_advance_voucher_value_inr = $3,
+             store_advance_voucher_issued_at = now(),
+             store_advance_voucher_valid_until = (CURRENT_DATE + INTERVAL '12 months')::date,
+             store_advance_voucher_issued_by = $4,
+             updated_at = now(),
+             modified_by = $4
+         WHERE id = $1::uuid
+         RETURNING store_advance_voucher_code,
+                   store_advance_voucher_value_inr::float8 AS store_advance_voucher_value_inr,
+                   store_advance_voucher_valid_until::text,
+                   store_advance_voucher_issued_at`,
+        [srfId, voucherCode, advance, actor.id],
+      );
+      const out = issued.rows[0]!;
+      await appendActionLog(client, srfId, {
+        action: "store_advance_voucher_issued",
+        description: `Store credit ${out.store_advance_voucher_code} issued for INR ${advance.toFixed(2)} (unrepaired return).`,
+        actor,
+        referenceDoc: out.store_advance_voucher_code,
+        details: {
+          voucherCode: out.store_advance_voucher_code,
+          valueInr: advance,
+          validUntil: out.store_advance_voucher_valid_until,
+        },
+      });
+      await client.query("COMMIT");
+      res.json({
+        ok: true,
+        alreadyIssued: false,
+        voucherCode: out.store_advance_voucher_code,
+        valueInr: Number(out.store_advance_voucher_value_inr ?? advance),
+        validUntil: out.store_advance_voucher_valid_until,
+        issuedAt: out.store_advance_voucher_issued_at,
+        reference: row.reference,
+        customerName: row.customer_name,
+        phone: row.phone,
+        advanceInr: advance,
+      });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not issue store credit." });
+    } finally {
+      client.release();
+    }
+  });
+
   app.post("/api/service/srf-jobs/:srfId/close", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     const canClose =
@@ -9560,7 +10057,12 @@ export function registerSrfRoutes(
     const client = await pool.connect();
     let invoiceNumber: string | null = null;
     const repairEligibleSql = noBillingHandover
-      ? `customer_reestimate_response = 'rejected'`
+      ? `(
+           customer_reestimate_response = 'rejected'
+           OR ho_return_without_repair = true
+           OR brand_return_without_repair = true
+           OR inter_ho_return_without_repair = true
+         )`
       : `(
            repair_route = 'store_self'
            OR spares_slip_submitted_at IS NOT NULL
@@ -9583,8 +10085,12 @@ export function registerSrfRoutes(
         destination_store_id: string | null;
         phone: string;
         invoice_number: string | null;
+        advance_inr: number;
+        store_advance_voucher_code: string | null;
       }>(
-        `SELECT store_id, destination_store_id, phone, invoice_number
+        `SELECT store_id, destination_store_id, phone, invoice_number,
+                COALESCE(advance_inr, 0)::float8 AS advance_inr,
+                store_advance_voucher_code
          FROM srf_jobs
          WHERE id = $1::uuid
            AND status = 'received_at_store'
@@ -9602,6 +10108,14 @@ export function registerSrfRoutes(
         return;
       }
       const row = locked.rows[0]!;
+      if (noBillingHandover && Number(row.advance_inr) > 0 && !String(row.store_advance_voucher_code ?? "").trim()) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error:
+            "Create store credit for the collected advance before handing over the unrepaired watch.",
+        });
+        return;
+      }
       if (billingCustomerKind) {
         if (billingCustomerKind === "B2B") {
           const phoneLast10 = String(row.phone ?? "")
@@ -9673,21 +10187,26 @@ export function registerSrfRoutes(
         "closed",
         actor.id,
         noBillingHandover
-          ? "Closed after customer handover without billing (re-estimate rejected)."
+          ? row.store_advance_voucher_code
+            ? `Closed after unrepaired handover with store credit ${row.store_advance_voucher_code}.`
+            : "Closed after customer handover without billing (returned without repair)."
           : "Closed after customer invoice.",
       );
       await appendActionLog(client, srfId, {
         action: noBillingHandover ? "store_no_billing_handover" : "store_close_with_invoice",
         description: noBillingHandover
-          ? "Watch handed over to customer without billing (re-estimate rejected)."
+          ? row.store_advance_voucher_code
+            ? `Watch handed over unrepaired with store credit ${row.store_advance_voucher_code}.`
+            : "Watch handed over to customer without billing (returned without repair)."
           : `Customer invoice raised and SRF closed. Invoice ${invoiceNumber ?? "-"}; HO ref: ${hoSparesBillRef || "-"}; Store ref: ${storeBillRef || "-"}.`,
         actor,
-        referenceDoc: storeBillRef || hoSparesBillRef || invoiceNumber || null,
+        referenceDoc: storeBillRef || hoSparesBillRef || invoiceNumber || row.store_advance_voucher_code || null,
         details: {
           hoSparesBillRef,
           storeBillRef,
           noBillingHandover,
           invoiceNumber,
+          storeAdvanceVoucherCode: row.store_advance_voucher_code,
           storeBillingSnapshot: storeBillingSnapshot ?? undefined,
         },
       });
@@ -9847,6 +10366,9 @@ export function registerSrfRoutes(
                 j.case_type AS "caseType",
                 j.strap_chain_type AS "strapChainType",
                 j.nature_of_repair AS "natureOfRepair",
+                j.warranty_ref_srf_id AS "warrantyRefSrfId",
+                j.warranty_ref_invoice_number AS "warrantyRefInvoiceNumber",
+                j.warranty_ref_srf_reference AS "warrantyRefSrfReference",
                 j.chain_count_12_phase AS "chainCount12Phase",
                 j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",
@@ -9861,6 +10383,14 @@ export function registerSrfRoutes(
                 j.brand_coupon_received_at AS "brandCouponReceivedAt",
                 j.brand_coupon_valid_until AS "brandCouponValidUntil",
                 j.customer_coupon_notified_at AS "customerCouponNotifiedAt",
+                j.store_advance_voucher_code AS "storeAdvanceVoucherCode",
+                j.store_advance_voucher_value_inr::float8 AS "storeAdvanceVoucherValueInr",
+                j.store_advance_voucher_issued_at AS "storeAdvanceVoucherIssuedAt",
+                j.store_advance_voucher_valid_until AS "storeAdvanceVoucherValidUntil",
+                j.ho_return_without_repair AS "hoReturnWithoutRepair",
+                j.cannot_repair_at AS "cannotRepairAt",
+                j.brand_return_without_repair AS "brandReturnWithoutRepair",
+                j.inter_ho_return_without_repair AS "interHoReturnWithoutRepair",
                 j.created_at AS "createdAt",
                 COALESCE((
                   SELECT json_agg(

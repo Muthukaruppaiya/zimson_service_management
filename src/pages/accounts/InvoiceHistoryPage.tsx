@@ -39,6 +39,7 @@ const btnIcon =
   "inline-flex h-9 w-9 shrink-0 items-center justify-center border transition disabled:cursor-not-allowed disabled:opacity-50";
 const btnIconAction = `${btnIcon} border-rlx-gold/60 bg-white text-rlx-green hover:border-rlx-gold hover:bg-rlx-green-light`;
 const btnIconMuted = `${btnIcon} border-rlx-rule bg-rlx-bg text-rlx-ink-muted hover:border-rlx-ink-muted/30 hover:bg-white`;
+const btnIconDanger = `${btnIcon} border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100`;
 const iconSm = "h-[1.125rem] w-[1.125rem]";
 
 function IconOpen({ className = iconSm }: { className?: string }) {
@@ -50,6 +51,23 @@ function IconOpen({ className = iconSm }: { className?: string }) {
         strokeWidth={2}
         d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
       />
+    </svg>
+  );
+}
+
+function IconEdit({ className = iconSm }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+
+function IconTrash({ className = iconSm }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-9 0h12" />
     </svg>
   );
 }
@@ -112,6 +130,7 @@ function invoiceNeedsEdoc(record: ServiceInvoiceRecord, edocEnabled: boolean): b
 export function InvoiceHistoryPage() {
   const apiMode = useApiMode();
   const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const { jobs } = useSrfJobs();
   const { regions } = useRegions();
   const { customers } = useCustomers();
@@ -141,6 +160,18 @@ export function InvoiceHistoryPage() {
   const [edocSettings, setEdocSettings] = useState<EdocSettings | null>(null);
   const [edocBusyId, setEdocBusyId] = useState<string | null>(null);
   const [edocMsg, setEdocMsg] = useState<string | null>(null);
+  const [editRecord, setEditRecord] = useState<ServiceInvoiceRecord | null>(null);
+  const [editForm, setEditForm] = useState({
+    customerName: "",
+    customerPhone: "",
+    customerGstin: "",
+    invoiceDate: "",
+    totalInr: "",
+  });
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteRecord, setDeleteRecord] = useState<ServiceInvoiceRecord | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const edocEnabled = Boolean(edocSettings?.enabled);
 
@@ -364,6 +395,67 @@ export function InvoiceHistoryPage() {
     }
   }
 
+  function openEdit(record: ServiceInvoiceRecord) {
+    setEditError(null);
+    setEditRecord(record);
+    setEditForm({
+      customerName: record.customerName,
+      customerPhone: record.customerPhone ?? "",
+      customerGstin: record.customerGstin ?? "",
+      invoiceDate: String(record.invoiceDate ?? "").slice(0, 10),
+      totalInr: String(record.totalInr ?? ""),
+    });
+  }
+
+  async function saveEdit() {
+    if (!editRecord) return;
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      const out = await apiJson<{ ok: boolean; invoice: ServiceInvoiceRecord }>(
+        `/api/accounts/invoices/${encodeURIComponent(editRecord.id)}`,
+        {
+          method: "PATCH",
+          json: {
+            customerName: editForm.customerName.trim(),
+            customerPhone: editForm.customerPhone.trim(),
+            customerGstin: editForm.customerGstin.trim(),
+            invoiceDate: editForm.invoiceDate.trim(),
+            totalInr: Number(editForm.totalInr),
+          },
+        },
+      );
+      setRows((prev) => prev.map((r) => (r.id === out.invoice.id ? out.invoice : r)));
+      if (detail?.id === out.invoice.id) setDetail(out.invoice);
+      setEditRecord(null);
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : "Could not save invoice.");
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteRecord) return;
+    setDeleteBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/accounts/invoices/${encodeURIComponent(deleteRecord.id)}`, { method: "DELETE" });
+      setRows((prev) => prev.filter((r) => r.id !== deleteRecord.id));
+      if (selectedId === deleteRecord.id) {
+        setSelectedId(null);
+        setDetail(null);
+      }
+      if (editRecord?.id === deleteRecord.id) setEditRecord(null);
+      setDeleteRecord(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete invoice.");
+      setDeleteRecord(null);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   return (
     <div className="ui-page-bleed font-sans text-rlx-ink">
       <div className="bg-rlx-bg px-4 py-4 md:px-6">
@@ -567,6 +659,28 @@ export function InvoiceHistoryPage() {
                           >
                             <IconOpen />
                           </button>
+                          {isSuperAdmin ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openEdit(r)}
+                                className={btnIconAction}
+                                title="Edit invoice"
+                                aria-label="Edit invoice"
+                              >
+                                <IconEdit />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteRecord(r)}
+                                className={btnIconDanger}
+                                title="Delete invoice"
+                                aria-label="Delete invoice"
+                              >
+                                <IconTrash />
+                              </button>
+                            </>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -628,6 +742,20 @@ export function InvoiceHistoryPage() {
                     <button type="button" className="ui-btn-secondary text-xs" onClick={() => printInvoice(detail)}>
                       Print
                     </button>
+                    {isSuperAdmin ? (
+                      <>
+                        <button type="button" className="ui-btn-secondary text-xs" onClick={() => openEdit(detail)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100"
+                          onClick={() => setDeleteRecord(detail)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : null}
                     {(detail.sourceType === "inter_ho_repair" || detail.sourceType === "srf_store") &&
                     edocEnabled &&
                     !detail.edocIrn?.trim() ? (
@@ -774,6 +902,117 @@ export function InvoiceHistoryPage() {
             </div>
             <div className="p-4 md:p-6">
               <ServiceInvoicePrintSet data={previewVm} idPrefix={`inv-hist-preview-${previewRecord.id.slice(0, 8)}`} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSuperAdmin && editRecord ? (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-rlx-ink/70 p-0 sm:items-center sm:p-4">
+          <div className="w-full max-w-lg bg-white shadow-xl">
+            <div className="bg-rlx-green px-5 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.4em] text-rlx-gold">Edit invoice</p>
+              <h3 className="text-lg font-semibold text-white">{editRecord.invoiceNumber}</h3>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              <label className="block text-xs">
+                Customer name
+                <input
+                  className="ui-field mt-1"
+                  value={editForm.customerName}
+                  onChange={(e) => setEditForm((f) => ({ ...f, customerName: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs">
+                Phone
+                <input
+                  className="ui-field mt-1"
+                  value={editForm.customerPhone}
+                  onChange={(e) => setEditForm((f) => ({ ...f, customerPhone: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs">
+                GSTIN
+                <input
+                  className="ui-field mt-1"
+                  value={editForm.customerGstin}
+                  onChange={(e) => setEditForm((f) => ({ ...f, customerGstin: e.target.value.toUpperCase() }))}
+                />
+              </label>
+              <label className="block text-xs">
+                Invoice date
+                <input
+                  type="date"
+                  className="ui-field mt-1"
+                  value={editForm.invoiceDate}
+                  onChange={(e) => setEditForm((f) => ({ ...f, invoiceDate: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs">
+                Total (INR)
+                <input
+                  className="ui-field mt-1"
+                  value={editForm.totalInr}
+                  onChange={(e) => setEditForm((f) => ({ ...f, totalInr: e.target.value }))}
+                />
+              </label>
+              {editError ? <p className="text-xs text-rose-700">{editError}</p> : null}
+            </div>
+            <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-5 py-3">
+              <button type="button" className="ui-btn-secondary flex-1" onClick={() => setEditRecord(null)} disabled={editBusy}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="flex-1 bg-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green-deep disabled:opacity-50"
+                disabled={editBusy}
+                onClick={() => void saveEdit()}
+              >
+                {editBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSuperAdmin && deleteRecord ? (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-rlx-ink/70 p-0 sm:items-center sm:p-4">
+          <div className="w-full max-w-md bg-white shadow-xl">
+            <div className="bg-rose-800 px-5 py-4">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.4em] text-rose-100">Delete invoice</p>
+              <h3 className="text-lg font-semibold text-white">{deleteRecord.invoiceNumber}</h3>
+            </div>
+            <div className="space-y-2 px-5 py-4 text-sm text-stone-700">
+              <p>
+                This removes the invoice, its payments, and ledger postings. Super admin only.
+              </p>
+              {deleteRecord.sourceType === "srf_store" ? (
+                <p>The linked SRF will be reopened for billing (invoice number cleared).</p>
+              ) : null}
+              {deleteRecord.sourceType === "quick_bill" ? (
+                <p>The quick bill will also be deleted.</p>
+              ) : null}
+              {deleteRecord.edocIrn?.trim() ? (
+                <p className="text-rose-800">This invoice has a GST IRN. Deleting it does not cancel the IRN on the portal.</p>
+              ) : null}
+            </div>
+            <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-5 py-3">
+              <button
+                type="button"
+                className="ui-btn-secondary flex-1"
+                onClick={() => setDeleteRecord(null)}
+                disabled={deleteBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="flex-1 bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                disabled={deleteBusy}
+                onClick={() => void confirmDelete()}
+              >
+                {deleteBusy ? "Deleting…" : "Delete"}
+              </button>
             </div>
           </div>
         </div>
