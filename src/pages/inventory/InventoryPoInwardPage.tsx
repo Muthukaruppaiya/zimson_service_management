@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { SparePicker } from "../../components/inventory/SparePicker";
 import { SupplierPicker } from "../../components/inventory/SupplierPicker";
+import { SupplierBranchSelect, supplierNeedsBranch } from "../../components/inventory/SupplierBranchSelect";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
@@ -197,6 +198,7 @@ export function InventoryPoInwardPage() {
   const [selectedPoId, setSelectedPoId] = useState("");
   const [selectedVoucherId, setSelectedVoucherId] = useState("");
   const [supplierId, setSupplierId] = useState("");
+  const [supplierBranchId, setSupplierBranchId] = useState("");
   const [regionId, setRegionId] = useState(user?.regionId ?? "");
   const [mode, setMode] = useState<GrnMode>("WITH_BILL");
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -413,7 +415,8 @@ export function InventoryPoInwardPage() {
       openPrintDocument(`GRN ${data.grnNumber}`, buildGrnDocument({
         grnNumber: data.grnNumber, createdAt: new Date().toISOString(),
         poNumber: selectedPo.poNumber, supplierName: selectedPo.supplierName,
-        regionId: selectedPo.regionId, supplierId: selectedPo.supplierId, receivedBy: user?.displayName,
+        regionId: selectedPo.regionId, supplierId: selectedPo.supplierId,
+        supplierBranchId: selectedPo.supplierBranchId ?? null, receivedBy: user?.displayName,
         mode, invoiceNumber: docNumber,
         invoiceDate: docDate, notes: notes.trim(),
         lines: lines.map((l) => ({
@@ -456,6 +459,7 @@ export function InventoryPoInwardPage() {
     e.preventDefault();
     setErr(null);
     if (!supplierId) { setErr("Select a supplier."); return; }
+    if (supplierNeedsBranch(selectedSupplier) && !supplierBranchId) { setErr("Select the supplier branch."); return; }
     if (!regionId) { setErr("Select a region."); return; }
     const lines = directLines
       .map((line) => {
@@ -479,7 +483,7 @@ export function InventoryPoInwardPage() {
     try {
       let data: { id?: string; grnNumber: string; movedQty: number };
       const payload = {
-        supplierId, regionId, mode,
+        supplierId, supplierBranchId: supplierBranchId || null, regionId, mode,
         invoiceNumber: invoiceNumber.trim() || null,
         invoiceDate: invoiceDate || null,
         notes: notes.trim(),
@@ -488,6 +492,7 @@ export function InventoryPoInwardPage() {
       if (invoiceFile) {
         const fd = new FormData();
         fd.append("supplierId", supplierId);
+        if (supplierBranchId) fd.append("supplierBranchId", supplierBranchId);
         fd.append("regionId", regionId);
         fd.append("mode", mode);
         fd.append("invoiceNumber", invoiceNumber.trim());
@@ -505,7 +510,7 @@ export function InventoryPoInwardPage() {
       openPrintDocument(`GRN ${data.grnNumber}`, buildGrnDocument({
         grnNumber: data.grnNumber, createdAt: new Date().toISOString(),
         poNumber: "Direct", supplierName,
-        regionId, supplierId, receivedBy: user?.displayName,
+        regionId, supplierId, supplierBranchId: supplierBranchId || null, receivedBy: user?.displayName,
         mode, invoiceNumber: invoiceNumber.trim() || null,
         invoiceDate: invoiceDate || null, notes: notes.trim(),
         lines: lines.map((l) => ({
@@ -576,7 +581,8 @@ export function InventoryPoInwardPage() {
       openPrintDocument(`GRN ${data.grnNumber}`, buildGrnDocument({
         grnNumber: data.grnNumber, createdAt: new Date().toISOString(),
         poNumber: "Direct", voucherNumber: selectedVoucher.voucherNumber, supplierName: selectedVoucher.supplierName,
-        regionId: selectedVoucher.regionId, supplierId: selectedVoucher.supplierId, receivedBy: user?.displayName,
+        regionId: selectedVoucher.regionId, supplierId: selectedVoucher.supplierId,
+        supplierBranchId: selectedVoucher.supplierBranchId ?? null, receivedBy: user?.displayName,
         mode: "WITHOUT_BILL", invoiceNumber: selectedVoucher.invoiceNumber,
         invoiceDate: selectedVoucher.invoiceDate, notes: notes.trim(),
         lines: lines.map((l) => ({
@@ -735,7 +741,10 @@ export function InventoryPoInwardPage() {
               <label className={labelCls}>Supplier name *</label>
               <SupplierPicker
                 value={supplierId}
-                onChange={setSupplierId}
+                onChange={(v) => {
+                  setSupplierId(v);
+                  setSupplierBranchId("");
+                }}
                 suppliers={suppliers.filter((s) => s.isActive)}
               />
               {selectedSupplier ? (
@@ -746,6 +755,17 @@ export function InventoryPoInwardPage() {
                 </p>
               ) : null}
             </div>
+            {supplierNeedsBranch(selectedSupplier) && (
+              <div className="sm:col-span-2 max-w-xl">
+                <SupplierBranchSelect
+                  supplier={selectedSupplier}
+                  value={supplierBranchId}
+                  onChange={setSupplierBranchId}
+                  className={inputCls}
+                  labelClassName={labelCls}
+                />
+              </div>
+            )}
             <div>
               <label className={labelCls}>Region name *</label>
               <select

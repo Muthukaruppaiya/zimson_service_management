@@ -28,7 +28,7 @@ type GrnItem = {
 type GrnRow = {
   id: string; grnNumber: string; poId: string | null; poNumber: string | null;
   voucherId?: string | null; voucherNumber?: string | null;
-  supplierId: string; supplierName: string; regionId: string;
+  supplierId: string; supplierBranchId?: string | null; supplierName: string; regionId: string;
   invoiceNumber: string | null; invoiceDate: string | null;
   mode: "WITH_BILL" | "WITHOUT_BILL"; notes: string;
   createdBy: string; createdAt: string; items: GrnItem[];
@@ -63,7 +63,7 @@ function printGrn(grn: GrnRow) {
   openPrintDocument(`GRN ${grn.grnNumber}`, buildGrnDocument({
     grnNumber: grn.grnNumber, createdAt: grn.createdAt,
     poNumber: grn.poNumber || "Direct", voucherNumber: grn.voucherNumber,
-    regionId: grn.regionId, supplierId: grn.supplierId, supplierName: grn.supplierName,
+    regionId: grn.regionId, supplierId: grn.supplierId, supplierBranchId: grn.supplierBranchId ?? null, supplierName: grn.supplierName,
     mode: grn.mode, invoiceNumber: grn.invoiceNumber, invoiceDate: grn.invoiceDate,
     notes: grn.notes,
     lines: grn.items.map((i) => ({

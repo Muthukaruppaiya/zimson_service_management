@@ -104,6 +104,7 @@ export function InventorySupplierFormPage() {
   const [gstFetchBusy, setGstFetchBusy] = useState(false);
   const [gstFilled, setGstFilled] = useState(false);
   const [existingSuppliers, setExistingSuppliers] = useState<Supplier[]>([]);
+  const [dupSupplier, setDupSupplier] = useState<Supplier | null>(null);
   const [taxPersonTypeOptions, setTaxPersonTypeOptions] = useState([
     "INTRASTATE_TAXABLE_PERSON", "INTERSTATE_TAXABLE_PERSON",
   ]);
@@ -186,9 +187,13 @@ export function InventorySupplierFormPage() {
       (s) => (s.gst ?? "").trim().toUpperCase() === gstin && s.id !== editId,
     );
     if (dup) {
-      setErr(`GSTIN already registered for supplier ${dup.supplierCode} (${dup.name}).`);
+      setDupSupplier(dup);
+      setErr(
+        `GSTIN already registered for supplier ${dup.supplierCode} (${dup.name}). Same GSTIN at another address is a branch — add it on that supplier.`,
+      );
       return;
     }
+    setDupSupplier(null);
     setGstFetchBusy(true);
     setErr(null);
     try {
@@ -214,7 +219,7 @@ export function InventorySupplierFormPage() {
         name: name || f.name,
         supplierCode: supplierCode || f.supplierCode,
         taxPersonType: taxPersonTypeOptions.includes(taxPersonType) ? taxPersonType : f.taxPersonType,
-        locations: [loc],
+        locations: [{ ...f.locations[0], ...loc }, ...f.locations.slice(1)],
       }));
       setGstFilled(true);
     } catch (e) {
@@ -304,7 +309,20 @@ export function InventorySupplierFormPage() {
         }
       />
 
-      {err && <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">✕ {err}</div>}
+      {err && (
+        <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          ✕ {err}
+          {dupSupplier && (
+            <button
+              type="button"
+              onClick={() => navigate(`/inventory/suppliers/${encodeURIComponent(dupSupplier.id)}/edit`)}
+              className="ml-3 border border-red-300 bg-white px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+            >
+              Open {dupSupplier.supplierCode} to add branch
+            </button>
+          )}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
 
@@ -413,12 +431,15 @@ export function InventorySupplierFormPage() {
 
         {/* Locations */}
         <div className="border border-rlx-rule bg-white shadow-sm">
-          <SectionHeader title="Supplier Locations" subtitle="Add one or more delivery / office addresses." />
+          <SectionHeader title="Branches / Locations" />
           <div className="p-5 space-y-4">
             {form.locations.map((loc, idx) => (
-              <div key={idx} className="border border-rlx-rule p-4">
+              <div key={loc.id ?? `new-${idx}`} className="border border-rlx-rule p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-widest text-stone-400">Location {idx + 1}</span>
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-stone-400">
+                    {form.locations.length > 1 ? `Branch ${idx + 1}` : "Location"}
+                    {loc.branchName ? ` — ${loc.branchName}` : ""}
+                  </span>
                   {form.locations.length > 1 && (
                     <button type="button"
                       onClick={() => setForm((f) => ({ ...f, locations: f.locations.filter((_, i) => i !== idx) }))}
@@ -429,6 +450,10 @@ export function InventorySupplierFormPage() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {[
+                    { key: "branchName", label: "Branch Name" },
+                    { key: "contactName", label: "Branch Contact" },
+                    { key: "phone", label: "Branch Phone" },
+                    { key: "email", label: "Branch Email" },
                     { key: "doorNo", label: "Door / Plot No." },
                     { key: "street", label: "Street" },
                     { key: "place", label: "Place / Area" },
@@ -457,7 +482,7 @@ export function InventorySupplierFormPage() {
             <button type="button"
               onClick={() => setForm((f) => ({ ...f, locations: [...f.locations, { ...emptyLocation }] }))}
               className="flex w-full items-center justify-center gap-2 border border-dashed border-rlx-rule py-3 text-xs font-semibold text-stone-400 hover:border-rlx-green hover:text-rlx-green transition">
-              + Add Another Location
+              + Add Branch / Location
             </button>
           </div>
         </div>

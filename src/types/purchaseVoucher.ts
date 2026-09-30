@@ -20,6 +20,7 @@ export type PurchaseVoucher = {
   id: string;
   voucherNumber: string;
   supplierId: string;
+  supplierBranchId?: string | null;
   supplierName: string;
   regionId: string;
   regionName?: string;

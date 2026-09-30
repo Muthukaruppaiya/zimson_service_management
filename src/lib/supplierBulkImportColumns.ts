@@ -19,6 +19,12 @@ export const SUPPLIER_BULK_IMPORT_COLUMNS: BulkImportColumn[] = [
   { key: "district", label: "District", required: false, note: "Primary location" },
   { key: "state", label: "State", required: false, note: "e.g. Tamil Nadu" },
   { key: "pin_code", label: "PIN Code", required: false, note: "6-digit PIN if provided" },
+  {
+    key: "branch_name",
+    label: "Branch Name",
+    required: false,
+    note: "Rows with the same GSTIN become one supplier with branches. Blank = taken from the end of the name (e.g. LBKA / CCPT).",
+  },
 ];
 
 const SUPPLIER_HEADER_ALIASES: Record<string, string> = {
@@ -58,6 +64,10 @@ const SUPPLIER_HEADER_ALIASES: Record<string, string> = {
   pin_code: "pin_code",
   pincode: "pin_code",
   pin: "pin_code",
+  branch_name: "branch_name",
+  branch: "branch_name",
+  location_name: "branch_name",
+  branch_code: "branch_name",
 };
 
 export function canonicalSupplierBulkHeader(raw: unknown): string {

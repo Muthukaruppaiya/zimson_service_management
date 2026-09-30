@@ -8,6 +8,7 @@ import { createMemoryUpload } from "./storage/multerMemory";
 import { persistUploadedFile } from "./storage/fileStorage";
 import { validateEntityCustomFields } from "./customFields";
 import { isValidGstin } from "./mastersIndiaEdoc/types";
+import { normalizeLocations, resolveSupplierBranchId, toLegacyAddress } from "./supplierLocations";
 
 const grnInvoiceUpload = createMemoryUpload(10 * 1024 * 1024);
 
@@ -93,15 +94,15 @@ async function supplierGstTaken(
   pool: Pool,
   gst: string,
   excludeId?: string,
-): Promise<{ supplierCode: string; name: string } | null> {
+): Promise<{ id: string; supplierCode: string; name: string } | null> {
   const params: unknown[] = [gst];
-  let sql = `SELECT supplier_code AS "supplierCode", name FROM suppliers WHERE gst = $1`;
+  let sql = `SELECT id, supplier_code AS "supplierCode", name FROM suppliers WHERE gst = $1`;
   if (excludeId) {
     params.push(excludeId);
     sql += ` AND id <> $2::uuid`;
   }
   sql += ` LIMIT 1`;
-  const { rows } = await pool.query<{ supplierCode: string; name: string }>(sql, params);
+  const { rows } = await pool.query<{ id: string; supplierCode: string; name: string }>(sql, params);
   return rows[0] ?? null;
 }
 
@@ -168,39 +169,6 @@ export function registerInventoryPoSupplierRoutes(
     const ids = allUsers().filter((u) => STORE_ROLES.has(u.role) && u.storeId === storeId).map((u) => u.id);
     if (ids.length > 0) await pushNotifications(ids, payload);
   }
-  function normalizeLocations(raw: unknown): Array<{
-    doorNo: string;
-    street: string;
-    place: string;
-    district: string;
-    state: string;
-    pinCode: string;
-  }> {
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .map((x) => {
-        const row = typeof x === "object" && x !== null ? (x as Record<string, unknown>) : {};
-        return {
-          doorNo: String(row.doorNo ?? "").trim(),
-          street: String(row.street ?? "").trim(),
-          place: String(row.place ?? "").trim(),
-          district: String(row.district ?? "").trim(),
-          state: String(row.state ?? "").trim(),
-          pinCode: String(row.pinCode ?? "").trim(),
-        };
-      })
-      .filter((r) => r.doorNo || r.street || r.place || r.district || r.state || r.pinCode);
-  }
-
-  function toLegacyAddress(
-    locations: Array<{ doorNo: string; street: string; place: string; district: string; state: string; pinCode: string }>,
-  ): string | null {
-    if (locations.length === 0) return null;
-    const first = locations[0]!;
-    const parts = [first.doorNo, first.street, first.place, first.district, first.state, first.pinCode].filter(Boolean);
-    return parts.length > 0 ? parts.join(", ") : null;
-  }
-
   /** Suppliers — read for anyone with inventory; write for HO admins */
   app.get("/api/inventory/suppliers", requireAuth, async (_req, res) => {
     try {
@@ -274,7 +242,8 @@ export function registerInventoryPoSupplierRoutes(
       const dup = await supplierGstTaken(pool, gst);
       if (dup) {
         res.status(400).json({
-          error: `GSTIN already registered for supplier ${dup.supplierCode} (${dup.name}).`,
+          error: `GSTIN already registered for supplier ${dup.supplierCode} (${dup.name}). Add this location as a branch on that supplier instead.`,
+          existingSupplierId: dup.id,
         });
         return;
       }
@@ -871,6 +840,7 @@ export function registerInventoryPoSupplierRoutes(
     const drafts = Array.isArray(req.body?.drafts)
       ? (req.body.drafts as Array<{
           supplierId: string;
+          supplierBranchId?: string;
           regionId: string;
           notes?: string;
           lines: Array<{ prItemId: string; spareId: string; qtyOrdered: number; unitPrice: number }>;
@@ -918,11 +888,12 @@ export function registerInventoryPoSupplierRoutes(
           if (linkedPrId) prIdsByItems.add(String(linkedPrId));
         }
         const headerPrId = prIdsByItems.size === 1 ? Array.from(prIdsByItems)[0]! : null;
+        const draftBranchId = await resolveSupplierBranchId(client, draft.supplierId, draft.supplierBranchId);
         const poIns = await client.query<{ id: string }>(
-        `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by)
-         VALUES ($1, $2::uuid, $3::uuid, $4, 'OPEN', $5, $6, $6)
+        `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by, supplier_branch_id)
+         VALUES ($1, $2::uuid, $3::uuid, $4, 'OPEN', $5, $6, $6, $7)
            RETURNING id`,
-          [poNumber, draft.supplierId, headerPrId, draft.regionId, String(draft.notes ?? "").trim(), actor.id],
+          [poNumber, draft.supplierId, headerPrId, draft.regionId, String(draft.notes ?? "").trim(), actor.id, draftBranchId],
         );
         const poId = poIns.rows[0]!.id;
         for (const line of draft.lines) {
@@ -1030,6 +1001,7 @@ export function registerInventoryPoSupplierRoutes(
                 pr.store_id AS "storeId",
                 st.name AS "storeName",
                 po.supplier_id AS "supplierId",
+                po.supplier_branch_id AS "supplierBranchId",
                 s.name AS "supplierName",
                 po.region_id AS "regionId",
                 rg.name AS "regionName",
@@ -1375,11 +1347,12 @@ export function registerInventoryPoSupplierRoutes(
       const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? pr.region_id, "REG");
       const poSeries = await getSeriesPrefixSuffix(client, "po");
       const poNumber = await nextDocNumber(client, poSeries.prefix, poSeries.suffix, regionCode);
+      const supplierBranchId = await resolveSupplierBranchId(client, supplierId, req.body?.supplierBranchId);
       const insPo = await client.query<{ id: string }>(
-        `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by)
-         VALUES ($1, $2::uuid, $3::uuid, $4, 'OPEN', $5, $6, $6)
+        `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by, supplier_branch_id)
+         VALUES ($1, $2::uuid, $3::uuid, $4, 'OPEN', $5, $6, $6, $7)
          RETURNING id`,
-        [poNumber, supplierId, prId, pr.region_id, notes, actor.id],
+        [poNumber, supplierId, prId, pr.region_id, notes, actor.id, supplierBranchId],
       );
       const poId = insPo.rows[0]!.id;
 
@@ -1450,6 +1423,7 @@ export function registerInventoryPoSupplierRoutes(
                 g.voucher_id AS "voucherId",
                 pv.voucher_number AS "voucherNumber",
                 g.supplier_id AS "supplierId",
+                g.supplier_branch_id AS "supplierBranchId",
                 s.name AS "supplierName",
                 g.region_id AS "regionId",
                 g.invoice_number AS "invoiceNumber",
@@ -1564,10 +1538,11 @@ export function registerInventoryPoSupplierRoutes(
       const poRes = await client.query<{
         id: string;
         supplier_id: string;
+        supplier_branch_id: string | null;
         region_id: string;
         status: string;
       }>(
-        `SELECT id, supplier_id, region_id, status
+        `SELECT id, supplier_id, supplier_branch_id, region_id, status
          FROM purchase_orders
          WHERE id = $1::uuid
          FOR UPDATE`,
@@ -1595,10 +1570,10 @@ export function registerInventoryPoSupplierRoutes(
       const grnSeries = await getSeriesPrefixSuffix(client, "grn");
       const grnNumber = await nextDocNumber(client, grnSeries.prefix, grnSeries.suffix, regionCode);
       const ins = await client.query<{ id: string }>(
-        `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, invoice_file_path, created_by, modified_by)
-         VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $10)
+        `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, invoice_file_path, created_by, modified_by, supplier_branch_id)
+         VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $10, $11)
          RETURNING id`,
-        [grnNumber, poId, po.supplier_id, po.region_id, invoiceNumber, invoiceDate, mode, notes, invoiceFilePath, actor?.id ?? "system"],
+        [grnNumber, poId, po.supplier_id, po.region_id, invoiceNumber, invoiceDate, mode, notes, invoiceFilePath, actor?.id ?? "system", po.supplier_branch_id],
       );
       const grnId = ins.rows[0]!.id;
       let moved = 0;
@@ -1801,6 +1776,7 @@ export function registerInventoryPoSupplierRoutes(
                 g.po_id AS "poId",
                 po.po_number AS "poNumber",
                 g.supplier_id AS "supplierId",
+                g.supplier_branch_id AS "supplierBranchId",
                 s.name AS "supplierName",
                 g.region_id AS "regionId",
                 g.invoice_number AS "invoiceNumber",

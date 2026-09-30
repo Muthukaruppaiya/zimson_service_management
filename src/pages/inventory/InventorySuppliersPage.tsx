@@ -226,13 +226,21 @@ function SupplierModal({
               {/* Locations */}
               {supplier.locations && supplier.locations.length > 0 && (
                 <div>
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-stone-400">Locations</p>
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                    {supplier.locations.length > 1 ? `Branches (${supplier.locations.length})` : "Location"}
+                  </p>
                   <div className="space-y-2">
                     {supplier.locations.map((loc, i) => (
-                      <div key={i} className="border border-rlx-rule px-4 py-3 text-sm text-stone-700">
+                      <div key={loc.id ?? i} className="border border-rlx-rule px-4 py-3 text-sm text-stone-700">
                         <span className="mr-2 text-[10px] font-bold text-rlx-green">#{i + 1}</span>
+                        {loc.branchName && <span className="mr-2 font-semibold text-stone-900">{loc.branchName}</span>}
                         {[loc.doorNo, loc.street, loc.place, loc.district, loc.state, loc.pinCode]
                           .filter(Boolean).join(", ")}
+                        {(loc.contactName || loc.phone || loc.email) && (
+                          <span className="mt-1 block text-xs text-stone-500">
+                            {[loc.contactName, loc.phone, loc.email].filter(Boolean).join(" · ")}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>

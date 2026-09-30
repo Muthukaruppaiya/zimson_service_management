@@ -52,7 +52,14 @@ function StepBar({ step }: { step: 1 | 2 | 3 }) {
   );
 }
 
-type PreviewRow = { supplierCode: string; name: string; action: "create" | "update" };
+type PreviewRow = { supplierCode: string; name: string; action: "create" | "update"; branches?: string[] };
+type ValidateSummary = {
+  rowCount: number;
+  supplierCount?: number;
+  branchCount?: number;
+  willCreate: number;
+  willUpdate: number;
+};
 
 export function InventorySupplierBulkImportPage() {
   const apiMode = useApiMode();
@@ -71,7 +78,7 @@ export function InventorySupplierBulkImportPage() {
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [validated, setValidated] = useState(false);
-  const [summary, setSummary] = useState<{ rowCount: number; willCreate: number; willUpdate: number } | null>(null);
+  const [summary, setSummary] = useState<ValidateSummary | null>(null);
   const [preview, setPreview] = useState<PreviewRow[]>([]);
   const [importResult, setImportResult] = useState<{ created: number; updated: number; rowCount: number } | null>(null);
   const [successOpen, setSuccessOpen] = useState(false);
@@ -145,7 +152,7 @@ export function InventorySupplierBulkImportPage() {
       const data = (await res.json()) as {
         ok?: boolean;
         errors?: string[];
-        summary?: { rowCount: number; willCreate: number; willUpdate: number };
+        summary?: ValidateSummary;
         preview?: PreviewRow[];
       };
       if (!res.ok || !data.ok) {
@@ -413,6 +420,15 @@ export function InventorySupplierBulkImportPage() {
                   <div className="flex flex-wrap gap-3 text-xs text-blue-800">
                     <span>{summary.rowCount} row(s)</span>
                     <span className="text-blue-300">|</span>
+                    {summary.supplierCount != null && summary.supplierCount !== summary.rowCount && (
+                      <>
+                        <span>
+                          {summary.supplierCount} supplier(s) after merging same-GSTIN rows
+                          {summary.branchCount ? ` (${summary.branchCount} branches)` : ""}
+                        </span>
+                        <span className="text-blue-300">|</span>
+                      </>
+                    )}
                     <span>{summary.willCreate} will be created</span>
                     <span className="text-blue-300">|</span>
                     <span>{summary.willUpdate} will be updated</span>
@@ -442,7 +458,14 @@ export function InventorySupplierBulkImportPage() {
               {preview.map((row, i) => (
                 <tr key={`${row.supplierCode}-${row.name}-${i}`} className="border-t border-rlx-rule">
                   <td className="px-5 py-2 font-mono text-xs text-stone-700">{row.supplierCode}</td>
-                  <td className="px-5 py-2 text-stone-800">{row.name}</td>
+                  <td className="px-5 py-2 text-stone-800">
+                    {row.name}
+                    {row.branches && row.branches.length > 1 && (
+                      <span className="mt-0.5 block text-[11px] text-stone-500">
+                        {row.branches.length} branches: {row.branches.join(", ")}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-5 py-2">
                     <span
                       className={`text-[10px] font-bold uppercase tracking-wide ${

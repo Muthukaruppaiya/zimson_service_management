@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { SparePicker } from "../../components/inventory/SparePicker";
 import { SupplierPicker } from "../../components/inventory/SupplierPicker";
+import { SupplierBranchSelect, supplierNeedsBranch } from "../../components/inventory/SupplierBranchSelect";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
@@ -225,6 +226,7 @@ export function InventoryVoucherCreatePage() {
   const [busy, setBusy] = useState(false);
   const [successVoucherNumber, setSuccessVoucherNumber] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState("");
+  const [supplierBranchId, setSupplierBranchId] = useState("");
   const [regionId, setRegionId] = useState(user?.regionId ?? "");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(todayIsoDate());
@@ -343,6 +345,10 @@ export function InventoryVoucherCreatePage() {
       setErr("Select a supplier.");
       return;
     }
+    if (supplierNeedsBranch(selectedSupplier) && !supplierBranchId) {
+      setErr("Select the supplier branch.");
+      return;
+    }
     if (!regionId) {
       setErr("Select a region.");
       return;
@@ -362,6 +368,7 @@ export function InventoryVoucherCreatePage() {
         method: "POST",
         json: {
           supplierId,
+          supplierBranchId: supplierBranchId || null,
           regionId,
           invoiceNumber: invoiceNumber.trim(),
           invoiceDate: invoiceDate || null,
@@ -427,7 +434,10 @@ export function InventoryVoucherCreatePage() {
               <FieldLabel>Supplier name</FieldLabel>
               <SupplierPicker
                 value={supplierId}
-                onChange={setSupplierId}
+                onChange={(v) => {
+                  setSupplierId(v);
+                  setSupplierBranchId("");
+                }}
                 suppliers={suppliers.filter((s) => s.isActive)}
               />
               {selectedSupplier ? (
@@ -438,6 +448,16 @@ export function InventoryVoucherCreatePage() {
                 </p>
               ) : null}
             </label>
+            {supplierNeedsBranch(selectedSupplier) && (
+              <div className="lg:col-span-2 max-w-xl">
+                <SupplierBranchSelect
+                  supplier={selectedSupplier}
+                  value={supplierBranchId}
+                  onChange={setSupplierBranchId}
+                  className={fieldCls}
+                />
+              </div>
+            )}
             <label>
               <FieldLabel>Region name</FieldLabel>
               <select

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { SparePicker } from "../../components/inventory/SparePicker";
 import { SupplierPicker } from "../../components/inventory/SupplierPicker";
+import { SupplierBranchSelect, supplierNeedsBranch } from "../../components/inventory/SupplierBranchSelect";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
@@ -258,6 +259,8 @@ export function InventoryPurchaseOrdersPage() {
   const [busy, setBusy] = useState(false);
   const [successPoNumbers, setSuccessPoNumbers] = useState<string[] | null>(null);
   const [supplierId, setSupplierId] = useState("");
+  const [supplierBranchId, setSupplierBranchId] = useState("");
+  const [draftBranch, setDraftBranch] = useState<Record<string, string>>({});
   const [regionId, setRegionId] = useState(user?.regionId ?? "");
   const [notes, setNotes] = useState("");
   const [standaloneLines, setStandaloneLines] = useState<StandaloneLine[]>([emptyStandaloneLine()]);
@@ -400,6 +403,10 @@ export function InventoryPurchaseOrdersPage() {
       setErr("Select a supplier.");
       return;
     }
+    if (supplierNeedsBranch(selectedSupplier) && !supplierBranchId) {
+      setErr("Select the supplier branch.");
+      return;
+    }
     if (!regionId) {
       setErr("Select a region.");
       return;
@@ -413,7 +420,7 @@ export function InventoryPurchaseOrdersPage() {
     try {
       const data = await apiJson<{ poNumber: string }>("/api/inventory/pos/standalone", {
         method: "POST",
-        json: { supplierId, regionId, notes, items },
+        json: { supplierId, supplierBranchId: supplierBranchId || null, regionId, notes, items },
       });
       setStandaloneLines([emptyStandaloneLine()]);
       setNotes("");
@@ -465,13 +472,18 @@ export function InventoryPurchaseOrdersPage() {
 
   async function createBulkPos() {
     if (drafts.length === 0) { setErr("Generate drafts first."); return; }
+    const missingBranch = drafts.find(
+      (d) => supplierNeedsBranch(suppliers.find((s) => s.id === d.supplierId)) && !draftBranch[d.supplierId],
+    );
+    if (missingBranch) { setErr(`Select the branch for ${missingBranch.supplierName}.`); return; }
     setBusy(true); setErr(null);
     try {
       const data = await apiJson<{ created: Array<{ poNumber: string }> }>("/api/inventory/pos/bulk-create", {
         method: "POST",
         json: {
           drafts: drafts.map((d) => ({
-            supplierId: d.supplierId, regionId: d.regionId, notes: "Consolidated from multiple PRs",
+            supplierId: d.supplierId, supplierBranchId: draftBranch[d.supplierId] || null,
+            regionId: d.regionId, notes: "Consolidated from multiple PRs",
             lines: d.lines.map((l) => ({ prItemId: l.prItemId, spareId: l.spareId, qtyOrdered: l.qtyOrdered, unitPrice: 0 })),
           })),
         },
@@ -553,7 +565,10 @@ export function InventoryPurchaseOrdersPage() {
                 <FieldLabel>Supplier name</FieldLabel>
                 <SupplierPicker
                   value={supplierId}
-                  onChange={setSupplierId}
+                  onChange={(v) => {
+                    setSupplierId(v);
+                    setSupplierBranchId("");
+                  }}
                   suppliers={suppliers.filter((s) => s.isActive)}
                 />
                 {selectedSupplier ? (
@@ -564,6 +579,16 @@ export function InventoryPurchaseOrdersPage() {
                   </p>
                 ) : null}
               </label>
+              {supplierNeedsBranch(selectedSupplier) && (
+                <div className="lg:col-span-2 max-w-xl">
+                  <SupplierBranchSelect
+                    supplier={selectedSupplier}
+                    value={supplierBranchId}
+                    onChange={setSupplierBranchId}
+                    className={fieldCls}
+                  />
+                </div>
+              )}
               <label>
                 <FieldLabel>Region name</FieldLabel>
                 <select
@@ -806,6 +831,13 @@ export function InventoryPurchaseOrdersPage() {
                     <div>
                       <span className="font-semibold text-stone-800">{d.supplierName}</span>
                       <span className="ml-2 text-xs text-stone-400">Region name: {d.regionName ?? d.regionId}</span>
+                      <div className="mt-2 max-w-sm">
+                        <SupplierBranchSelect
+                          supplier={suppliers.find((s) => s.id === d.supplierId)}
+                          value={draftBranch[d.supplierId] ?? ""}
+                          onChange={(v) => setDraftBranch((prev) => ({ ...prev, [d.supplierId]: v }))}
+                        />
+                      </div>
                     </div>
                     <span className="border border-rlx-rule px-2 py-0.5 text-[10px] font-bold text-stone-500">{d.lines.length} line{d.lines.length !== 1 ? "s" : ""}</span>
                   </div>

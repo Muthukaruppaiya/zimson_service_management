@@ -5,6 +5,7 @@ import { appendStockHistory } from "./db/stockHistory";
 import { createMemoryUpload } from "./storage/multerMemory";
 import { persistUploadedFile } from "./storage/fileStorage";
 import path from "node:path";
+import { resolveSupplierBranchId } from "./supplierLocations";
 
 const grnInvoiceUpload = createMemoryUpload(10 * 1024 * 1024);
 
@@ -151,10 +152,10 @@ export function registerInventoryDirectPurchaseRoutes(
       const poSeries = await getPoSeries(client);
       const poNumber = await nextDocNumber(client, poSeries.prefix, poSeries.suffix, regionCode);
       const insPo = await client.query<{ id: string }>(
-        `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by)
-         VALUES ($1, $2::uuid, NULL, $3, 'OPEN', $4, $5, $5)
+        `INSERT INTO purchase_orders (po_number, supplier_id, pr_id, region_id, status, notes, created_by, modified_by, supplier_branch_id)
+         VALUES ($1, $2::uuid, NULL, $3, 'OPEN', $4, $5, $5, $6)
          RETURNING id`,
-        [poNumber, supplierId, regionId, notes, actor.id],
+        [poNumber, supplierId, regionId, notes, actor.id, await resolveSupplierBranchId(client, supplierId, req.body?.supplierBranchId)],
       );
       const poId = insPo.rows[0]!.id;
       for (const it of items) {
@@ -274,10 +275,10 @@ export function registerInventoryDirectPurchaseRoutes(
       const voucherNumber = await nextDocNumber(client, voucherSeries.prefix, voucherSeries.suffix, regionCode);
       const ins = await client.query<{ id: string }>(
         `INSERT INTO purchase_vouchers (
-           voucher_number, supplier_id, region_id, invoice_number, invoice_date, status, notes, created_by, modified_by
-         ) VALUES ($1, $2::uuid, $3, $4, $5, 'OPEN', $6, $7, $7)
+           voucher_number, supplier_id, region_id, invoice_number, invoice_date, status, notes, created_by, modified_by, supplier_branch_id
+         ) VALUES ($1, $2::uuid, $3, $4, $5, 'OPEN', $6, $7, $7, $8)
          RETURNING id`,
-        [voucherNumber, supplierId, regionId, invoiceNumber, invoiceDate, notes, actor.id],
+        [voucherNumber, supplierId, regionId, invoiceNumber, invoiceDate, notes, actor.id, await resolveSupplierBranchId(client, supplierId, req.body?.supplierBranchId)],
       );
       const voucherId = ins.rows[0]!.id;
       for (const it of items) {
@@ -344,6 +345,7 @@ export function registerInventoryDirectPurchaseRoutes(
         `SELECT v.id,
                 v.voucher_number AS "voucherNumber",
                 v.supplier_id AS "supplierId",
+                v.supplier_branch_id AS "supplierBranchId",
                 s.name AS "supplierName",
                 v.region_id AS "regionId",
                 rg.name AS "regionName",
@@ -476,12 +478,13 @@ export function registerInventoryDirectPurchaseRoutes(
           id: string;
           voucher_number: string;
           supplier_id: string;
+          supplier_branch_id: string | null;
           region_id: string;
           status: string;
           invoice_number: string | null;
           invoice_date: string | null;
         }>(
-          `SELECT id, voucher_number, supplier_id, region_id, status, invoice_number, invoice_date::text
+          `SELECT id, voucher_number, supplier_id, supplier_branch_id, region_id, status, invoice_number, invoice_date::text
            FROM purchase_vouchers
            WHERE id = $1::uuid
            FOR UPDATE`,
@@ -514,8 +517,8 @@ export function registerInventoryDirectPurchaseRoutes(
         const ins = await client.query<{ id: string }>(
           `INSERT INTO grns (
              grn_number, po_id, voucher_id, supplier_id, region_id,
-             invoice_number, invoice_date, mode, notes, invoice_file_path, created_by, modified_by
-           ) VALUES ($1, NULL, $2::uuid, $3::uuid, $4, $5, $6, 'WITHOUT_BILL', $7, $8, $9, $9)
+             invoice_number, invoice_date, mode, notes, invoice_file_path, created_by, modified_by, supplier_branch_id
+           ) VALUES ($1, NULL, $2::uuid, $3::uuid, $4, $5, $6, 'WITHOUT_BILL', $7, $8, $9, $9, $10)
            RETURNING id`,
           [
             grnNumber,
@@ -527,6 +530,7 @@ export function registerInventoryDirectPurchaseRoutes(
             notes,
             invoiceFilePath,
             actor.id,
+            voucher.supplier_branch_id,
           ],
         );
         const grnId = ins.rows[0]!.id;
@@ -782,10 +786,10 @@ export function registerInventoryDirectPurchaseRoutes(
         const grnSeries = await getGrnSeries(client);
         const grnNumber = await nextDocNumber(client, grnSeries.prefix, grnSeries.suffix, regionCode);
         const ins = await client.query<{ id: string }>(
-          `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, invoice_file_path, created_by, modified_by)
-           VALUES ($1, NULL, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $9)
+          `INSERT INTO grns (grn_number, po_id, supplier_id, region_id, invoice_number, invoice_date, mode, notes, invoice_file_path, created_by, modified_by, supplier_branch_id)
+           VALUES ($1, NULL, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $9, $10)
            RETURNING id`,
-          [grnNumber, supplierId, regionId, invoiceNumber, invoiceDate, mode, notes, invoiceFilePath, actor.id],
+          [grnNumber, supplierId, regionId, invoiceNumber, invoiceDate, mode, notes, invoiceFilePath, actor.id, await resolveSupplierBranchId(client, supplierId, req.body?.supplierBranchId)],
         );
         const grnId = ins.rows[0]!.id;
         let moved = 0;
@@ -871,6 +875,7 @@ export function registerInventoryDirectPurchaseRoutes(
                 g.po_id AS "poId",
                 po.po_number AS "poNumber",
                 g.supplier_id AS "supplierId",
+                g.supplier_branch_id AS "supplierBranchId",
                 s.name AS "supplierName",
                 g.region_id AS "regionId",
                 g.created_at AS "createdAt",

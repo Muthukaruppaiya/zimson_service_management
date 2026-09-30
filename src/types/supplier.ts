@@ -1,4 +1,11 @@
+/** A place of business. Several branches can share one supplier GSTIN (same state, different addresses). */
 export type SupplierLocation = {
+  id?: string;
+  branchName?: string;
+  branchCode?: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
   doorNo: string;
   street: string;
   place: string;

@@ -26,6 +26,7 @@ export type PurchaseOrder = {
   storeId?: string | null;
   storeName?: string | null;
   supplierId: string;
+  supplierBranchId?: string | null;
   supplierName: string;
   regionId: string;
   regionName?: string;

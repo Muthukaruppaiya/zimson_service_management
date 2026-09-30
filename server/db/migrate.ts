@@ -1861,6 +1861,23 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE grns ADD COLUMN IF NOT EXISTS voucher_id UUID REFERENCES purchase_vouchers(id) ON DELETE RESTRICT;
     CREATE INDEX IF NOT EXISTS idx_grn_voucher ON grns (voucher_id);
     ALTER TABLE grn_items ADD COLUMN IF NOT EXISTS voucher_item_id UUID REFERENCES purchase_voucher_items(id) ON DELETE RESTRICT;
+
+    ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS supplier_branch_id TEXT;
+    ALTER TABLE purchase_vouchers ADD COLUMN IF NOT EXISTS supplier_branch_id TEXT;
+    ALTER TABLE grns ADD COLUMN IF NOT EXISTS supplier_branch_id TEXT;
+
+    UPDATE suppliers s
+    SET locations_json = (
+      SELECT COALESCE(jsonb_agg(
+               CASE WHEN COALESCE(t.elem->>'id', '') <> '' THEN t.elem
+                    ELSE t.elem || jsonb_build_object('id', gen_random_uuid()::text) END
+               ORDER BY t.ord), '[]'::jsonb)
+      FROM jsonb_array_elements(s.locations_json) WITH ORDINALITY AS t(elem, ord)
+    )
+    WHERE jsonb_typeof(s.locations_json) = 'array'
+      AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements(s.locations_json) e WHERE COALESCE(e->>'id', '') = ''
+      );
   `);
 
   await pool.query(`

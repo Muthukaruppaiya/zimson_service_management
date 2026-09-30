@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Express, NextFunction, Request, Response } from "express";
 import multer from "multer";
 import type { Pool, PoolClient } from "pg";
@@ -12,6 +13,13 @@ import {
 } from "../src/lib/supplierBulkImportColumns";
 import { EXCEL_YES_NO, withExcelDropdowns } from "./excelListValidation";
 import { nextSupplierCode } from "./numberSequences";
+import {
+  mergeLocations,
+  normalizeLocations,
+  splitBranchNames,
+  toLegacyAddress,
+  type SupplierLocationRow,
+} from "./supplierLocations";
 
 type Authed = Request & { userId: string };
 
@@ -42,6 +50,21 @@ type SupplierImportRow = {
   district: string;
   state: string;
   pinCode: string;
+  branchName: string;
+};
+
+/** One supplier to write: rows sharing a GSTIN are folded into branches. */
+type SupplierImportGroup = {
+  rowNums: number[];
+  name: string;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+  alternatePhone: string | null;
+  gst: string | null;
+  taxPersonType: string | null;
+  isActive: boolean;
+  locations: SupplierLocationRow[];
 };
 
 function canImport(actor: DemoUser | null): boolean {
@@ -214,8 +237,7 @@ function parseRows(
 ): { rows: SupplierImportRow[]; errors: string[] } {
   const errors: string[] = [];
   const parsed: SupplierImportRow[] = [];
-  const seenGst = new Map<string, number>();
-  const seenPhones = new Map<string, { rowNum: number; who: string }>();
+  const seenPhones = new Map<string, { rowNum: number; who: string; gst: string }>();
   const taxSet = new Set(taxTypes.map((t) => normalizeTaxType(t)));
 
   rows.forEach((r, idx) => {
@@ -247,6 +269,7 @@ function parseRows(
       seenPhone.add(key);
       phones.push(d);
     }
+    const gstRaw = cellStr(r.gstin).toUpperCase().replace(/\s/g, "");
     let phone: string | null = null;
     let alternatePhone: string | null = null;
     const hadPhoneInput = Boolean(phoneRaw || altColRaw);
@@ -263,32 +286,22 @@ function parseRows(
         for (const d of phones) {
           const key = phoneKey(d);
           const prev = seenPhones.get(key);
-          if (prev) {
+          if (prev && !(gstRaw && prev.gst === gstRaw)) {
             rowErrs.push(
               `Suppliers row ${rowNum}: Phone ${d} is duplicated (also on row ${prev.rowNum} — ${prev.who}).`,
             );
-          } else {
-            seenPhones.set(key, { rowNum, who });
+          } else if (!prev) {
+            seenPhones.set(key, { rowNum, who, gst: gstRaw });
           }
         }
       }
     }
 
-    const gstRaw = cellStr(r.gstin).toUpperCase().replace(/\s/g, "");
-    let gst: string | null = gstRaw || null;
-    if (gstRaw) {
-      if (!isValidGstin(gstRaw)) {
-        rowErrs.push(
-          `Suppliers row ${rowNum}: GSTIN must be a valid 15-character GSTIN for "${who}" (got ${gstRaw.length} character${gstRaw.length === 1 ? "" : "s"}: ${gstRaw}).`,
-        );
-      } else {
-        const gstPrev = seenGst.get(gstRaw);
-        if (gstPrev) {
-          rowErrs.push(`Suppliers row ${rowNum}: GSTIN ${gstRaw} is duplicated (also on row ${gstPrev}).`);
-        } else {
-          seenGst.set(gstRaw, rowNum);
-        }
-      }
+    const gst: string | null = gstRaw || null;
+    if (gstRaw && !isValidGstin(gstRaw)) {
+      rowErrs.push(
+        `Suppliers row ${rowNum}: GSTIN must be a valid 15-character GSTIN for "${who}" (got ${gstRaw.length} character${gstRaw.length === 1 ? "" : "s"}: ${gstRaw}).`,
+      );
     }
 
     const taxRaw = cellStr(r.tax_person_type);
@@ -333,42 +346,131 @@ function parseRows(
       district: cellStr(r.district),
       state: cellStr(r.state),
       pinCode,
+      branchName: cellStr(r.branch_name),
     });
   });
 
   return { rows: parsed, errors: errors.slice(0, MAX_ERRORS) };
 }
 
-function toLocations(row: SupplierImportRow): Array<{
-  doorNo: string;
-  street: string;
-  place: string;
-  district: string;
-  state: string;
-  pinCode: string;
-}> {
-  if (!row.doorNo && !row.street && !row.place && !row.district && !row.state && !row.pinCode) {
-    return [];
-  }
-  return [
-    {
-      doorNo: row.doorNo,
-      street: row.street,
-      place: row.place,
-      district: row.district,
-      state: row.state,
-      pinCode: row.pinCode,
-    },
-  ];
+function rowLocation(row: SupplierImportRow, branchName: string, withContact: boolean): SupplierLocationRow {
+  return {
+    id: randomUUID(),
+    branchName,
+    branchCode: "",
+    contactName: withContact ? row.contactName ?? "" : "",
+    phone: withContact ? [row.phone, row.alternatePhone].filter(Boolean).join(" / ") : "",
+    email: withContact ? row.email ?? "" : "",
+    doorNo: row.doorNo,
+    street: row.street,
+    place: row.place,
+    district: row.district,
+    state: row.state,
+    pinCode: row.pinCode,
+  };
 }
 
-function toLegacyAddress(
-  locations: Array<{ doorNo: string; street: string; place: string; district: string; state: string; pinCode: string }>,
-): string | null {
-  if (locations.length === 0) return null;
-  const first = locations[0]!;
-  const parts = [first.doorNo, first.street, first.place, first.district, first.state, first.pinCode].filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : null;
+function locationHasData(l: SupplierLocationRow): boolean {
+  return Boolean(l.branchName || l.doorNo || l.street || l.place || l.district || l.state || l.pinCode);
+}
+
+function groupRows(rows: SupplierImportRow[]): SupplierImportGroup[] {
+  const buckets = new Map<string, SupplierImportRow[]>();
+  const order: string[] = [];
+  for (const row of rows) {
+    const key = row.gst ? `gst:${row.gst}` : `row:${row.rowNum}`;
+    if (!buckets.has(key)) {
+      buckets.set(key, []);
+      order.push(key);
+    }
+    buckets.get(key)!.push(row);
+  }
+  return order.map((key) => {
+    const list = buckets.get(key)!;
+    const first = list[0]!;
+    if (list.length === 1) {
+      const loc = rowLocation(first, first.branchName, Boolean(first.branchName));
+      const hasLoc = locationHasData(loc);
+      return {
+        rowNums: [first.rowNum],
+        name: first.name,
+        contactName: first.contactName,
+        email: first.email,
+        phone: first.phone,
+        alternatePhone: first.alternatePhone,
+        gst: first.gst,
+        taxPersonType: first.taxPersonType,
+        isActive: first.isActive,
+        locations: hasLoc ? [loc] : [],
+      };
+    }
+    const { base, suffixes } = splitBranchNames(list.map((r) => r.name));
+    const locations = list.map((r, i) => {
+      const fallback = suffixes[i] || r.place || r.district || `Branch ${i + 1}`;
+      return rowLocation(r, r.branchName || fallback, true);
+    });
+    return {
+      rowNums: list.map((r) => r.rowNum),
+      name: base,
+      contactName: first.contactName,
+      email: first.email,
+      phone: first.phone,
+      alternatePhone: first.alternatePhone,
+      gst: first.gst,
+      taxPersonType: list.find((r) => r.taxPersonType)?.taxPersonType ?? null,
+      isActive: list.some((r) => r.isActive),
+      locations: mergeLocations([], locations),
+    };
+  });
+}
+
+type ExistingSupplier = { supplier_code: string; name: string; locations_json: unknown };
+
+/**
+ * A single-row update like "TITAN CO LBKA" against existing "TITAN CO" keeps the supplier
+ * name and files the row as branch "LBKA".
+ */
+function mergeWithExisting(group: SupplierImportGroup, existing: ExistingSupplier | undefined): SupplierImportGroup {
+  if (!existing) return group;
+  const existingLocs = normalizeLocations(existing.locations_json);
+  let name = group.name;
+  let incoming = group.locations;
+  const existingName = String(existing.name ?? "").trim();
+  if (group.rowNums.length === 1 && existingName && name.toUpperCase() !== existingName.toUpperCase()) {
+    const { base, suffixes } = splitBranchNames([existingName, name]);
+    if (base.toUpperCase() === existingName.toUpperCase() && suffixes[1]) {
+      name = existingName;
+      incoming = incoming.length
+        ? incoming.map((l) => ({ ...l, branchName: l.branchName || suffixes[1]! }))
+        : normalizeLocations([{ branchName: suffixes[1] }]);
+    }
+  } else if (group.rowNums.length > 1 && existingName) {
+    name = existingName;
+  }
+  const hasBranches = existingLocs.some((l) => l.branchName) || incoming.some((l) => l.branchName);
+  let locations: SupplierLocationRow[];
+  if (hasBranches || existingLocs.length === 0) {
+    locations = mergeLocations(existingLocs, incoming);
+  } else if (incoming.length === 0) {
+    locations = existingLocs;
+  } else {
+    locations = [{ ...incoming[0]!, id: existingLocs[0]!.id }, ...existingLocs.slice(1)];
+  }
+  return { ...group, name, locations };
+}
+
+async function loadExistingByGst(
+  db: Pool | PoolClient,
+  gstins: string[],
+): Promise<Map<string, ExistingSupplier>> {
+  if (gstins.length === 0) return new Map();
+  const { rows } = await db.query<ExistingSupplier & { gst: string }>(
+    `SELECT DISTINCT ON (gst) supplier_code, name, locations_json, gst
+     FROM suppliers WHERE gst = ANY($1::text[])
+     ORDER BY gst, created_at`,
+    [gstins],
+  );
+  return new Map(rows.map((r) => [String(r.gst).toUpperCase(), r]));
 }
 
 async function loadTaxTypes(pool: Pool): Promise<string[]> {
@@ -458,10 +560,12 @@ async function buildTemplateWorkbook(taxTypes: string[]): Promise<Buffer> {
     ["  Phone             – Optional. 10–15 digits. Two numbers in one cell (4347777 / 4347700) are saved as Phone + Alternate Phone. An email in the phone cell is moved to Email."],
     ["  Alternate Phone   – Optional second number."],
     ["  Email             – Optional. Must be a valid email if filled."],
-    ["  GSTIN             – Optional. Must be a valid 15-character GSTIN if filled. Duplicate GSTINs in the file are rejected."],
+    ["  GSTIN             – Optional. Must be a valid 15-character GSTIN if filled. Rows with the same GSTIN are merged into ONE supplier with one branch per row."],
     ["  Tax Person Type   – Optional. Must match values on the Tax Types sheet."],
     ["  Active            – Y or N (default Y)."],
-    ["  Door / Plot No., Street, Place / Area, District, State, PIN Code – primary address."],
+    ["  Door / Plot No., Street, Place / Area, District, State, PIN Code – address of this row (branch address when GSTIN repeats)."],
+    ["  Branch Name       – Optional. For repeated GSTINs, e.g. LBKA / CCPT. If blank, the differing end of the Supplier Name is used"],
+    ["                      (\"ABC WATCH CO LBKA\" + \"ABC WATCH CO CCPT\" → supplier \"ABC WATCH CO\" with branches LBKA and CCPT)."],
     [""],
     ["DROPDOWNS"],
     ["Active is Y / N. Tax Person Type uses the Tax Types sheet. Both are Excel dropdowns."],
@@ -519,50 +623,53 @@ async function parseUploaded(
 async function classifyAgainstDb(
   pool: Pool,
   rows: SupplierImportRow[],
-): Promise<{ willCreate: number; willUpdate: number; preview: Array<{ supplierCode: string; name: string; action: "create" | "update" }> }> {
-  const gstins = rows.map((r) => r.gst).filter((g): g is string => Boolean(g));
-  const { rows: existingByGst } = gstins.length
-    ? await pool.query<{ supplier_code: string; gst: string }>(
-        `SELECT supplier_code, gst FROM suppliers WHERE gst = ANY($1::text[])`,
-        [gstins],
-      )
-    : { rows: [] as Array<{ supplier_code: string; gst: string }> };
-  const gstToCode = new Map(existingByGst.map((r) => [String(r.gst).toUpperCase(), String(r.supplier_code)]));
+): Promise<{
+  willCreate: number;
+  willUpdate: number;
+  supplierCount: number;
+  branchCount: number;
+  preview: Array<{ supplierCode: string; name: string; action: "create" | "update"; branches: string[] }>;
+}> {
+  const groups = groupRows(rows);
+  const existing = await loadExistingByGst(
+    pool,
+    groups.map((g) => g.gst).filter((g): g is string => Boolean(g)),
+  );
   let willCreate = 0;
   let willUpdate = 0;
-  const preview = rows.slice(0, 25).map((r) => {
-    const existingCode = r.gst ? gstToCode.get(r.gst) : undefined;
-    const action: "create" | "update" = existingCode ? "update" : "create";
-    if (action === "update") willUpdate += 1;
+  let branchCount = 0;
+  const preview: Array<{ supplierCode: string; name: string; action: "create" | "update"; branches: string[] }> = [];
+  for (const g of groups) {
+    const ex = g.gst ? existing.get(g.gst) : undefined;
+    const merged = mergeWithExisting(g, ex);
+    const branches = merged.locations.map((l) => l.branchName).filter(Boolean);
+    if (branches.length > 1) branchCount += branches.length;
+    if (ex) willUpdate += 1;
     else willCreate += 1;
-    return {
-      supplierCode: existingCode || "(auto)",
-      name: r.name,
-      action,
-    };
-  });
-  if (rows.length > 25) {
-    for (const r of rows.slice(25)) {
-      if (r.gst && gstToCode.has(r.gst)) willUpdate += 1;
-      else willCreate += 1;
+    if (preview.length < 25) {
+      preview.push({
+        supplierCode: ex?.supplier_code || "(auto)",
+        name: merged.name,
+        action: ex ? "update" : "create",
+        branches: branches.length > 1 ? branches : [],
+      });
     }
   }
-  return { willCreate, willUpdate, preview };
+  return { willCreate, willUpdate, supplierCount: groups.length, branchCount, preview };
 }
 
 async function commitRows(client: PoolClient, actorId: string, rows: SupplierImportRow[]): Promise<void> {
-  for (const row of rows) {
-    const locations = toLocations(row);
+  const groups = groupRows(rows);
+  const existing = await loadExistingByGst(
+    client,
+    groups.map((g) => g.gst).filter((g): g is string => Boolean(g)),
+  );
+  for (const g of groups) {
+    const ex = g.gst ? existing.get(g.gst) : undefined;
+    const row = mergeWithExisting(g, ex);
+    const locations = row.locations;
     const address = toLegacyAddress(locations);
-    let code = "";
-    if (row.gst) {
-      const found = await client.query<{ supplier_code: string }>(
-        `SELECT supplier_code FROM suppliers WHERE gst = $1 LIMIT 1`,
-        [row.gst],
-      );
-      code = found.rows[0]?.supplier_code ?? "";
-    }
-    if (!code) code = await nextSupplierCode(client);
+    const code = ex?.supplier_code || (await nextSupplierCode(client));
     await client.query(
       `INSERT INTO suppliers (
           supplier_code, name, contact_name, email, phone, alternate_phone, address, locations_json,
@@ -649,6 +756,8 @@ export function registerSupplierBulkImportRoutes(
         ok: true,
         summary: {
           rowCount: rows.length,
+          supplierCount: classified.supplierCount,
+          branchCount: classified.branchCount,
           willCreate: classified.willCreate,
           willUpdate: classified.willUpdate,
         },
@@ -689,6 +798,8 @@ export function registerSupplierBulkImportRoutes(
             created: classified.willCreate,
             updated: classified.willUpdate,
             rowCount: rows.length,
+            supplierCount: classified.supplierCount,
+            branchCount: classified.branchCount,
           },
         });
       } catch (e) {

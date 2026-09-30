@@ -187,6 +187,7 @@ export function InventoryPoHistoryPage() {
       prNumber: poPrReference(po) === "—" ? null : poPrReference(po),
       regionId: po.regionId,
       supplierId: po.supplierId,
+      supplierBranchId: po.supplierBranchId ?? null,
       supplier: {
         name: supplier?.name ?? po.supplierName, phone: supplier?.phone,
         email: supplier?.email, address: supplier?.address, gstin: supplier?.gst,

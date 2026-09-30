@@ -106,6 +106,7 @@ export function InventoryVoucherHistoryPage() {
       invoiceDate: v.invoiceDate,
       regionId: v.regionId,
       supplierId: v.supplierId,
+      supplierBranchId: v.supplierBranchId ?? null,
       status: STATUS_LABEL[v.status] ?? v.status,
       supplier: {
         name: v.supplierName,

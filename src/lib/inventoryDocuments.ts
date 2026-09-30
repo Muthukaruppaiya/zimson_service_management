@@ -7,7 +7,7 @@ import { inrAmountToWords } from "./inrAmountToWords";
 import { printRegion, printSpare, printStore, printSupplier } from "./printContext";
 import { formatRegionAddress, normalizeGstin } from "./transferDocumentKind";
 import type { DocumentKind } from "../types/documentTemplate";
-import type { Supplier } from "../types/supplier";
+import type { Supplier, SupplierLocation } from "../types/supplier";
 
 type PartyBlock = {
   name: string;
@@ -126,29 +126,46 @@ function storeParty(storeId?: string | null, fallbackName?: string | null): Part
   return { name: fallbackName?.trim() || String(storeId ?? "").trim() || "—" };
 }
 
-function supplierAddress(s: Supplier): string {
-  if (s.address?.trim()) return s.address.trim();
-  const loc = s.locations?.[0];
-  if (!loc) return "";
+function locationAddress(loc: SupplierLocation): string {
   return [loc.doorNo, loc.street, loc.place, loc.district, [loc.state, loc.pinCode].filter(Boolean).join(" - ")]
     .map((x) => String(x ?? "").trim())
     .filter(Boolean)
     .join(", ");
 }
 
-function supplierParty(input: { supplierId?: string | null; supplierName?: string | null; supplier?: PartyBlock }): PartyBlock {
+function supplierAddress(s: Supplier): string {
+  if (s.address?.trim()) return s.address.trim();
+  const loc = s.locations?.[0];
+  return loc ? locationAddress(loc) : "";
+}
+
+function supplierParty(input: {
+  supplierId?: string | null;
+  supplierBranchId?: string | null;
+  supplierName?: string | null;
+  supplier?: PartyBlock;
+}): PartyBlock {
   const master = printSupplier(input.supplierId);
+  const branch = input.supplierBranchId
+    ? master?.locations?.find((l) => l.id === input.supplierBranchId) ?? null
+    : null;
   const given = input.supplier;
   const name = given?.name?.trim() || master?.name || input.supplierName?.trim() || "—";
-  const phones = [given?.phone || master?.phone, master?.alternatePhone].filter((x): x is string => Boolean(x?.trim()));
+  const branchPhone = branch?.phone?.trim();
+  const phones = branchPhone
+    ? [branchPhone]
+    : [given?.phone || master?.phone, master?.alternatePhone].filter((x): x is string => Boolean(x?.trim()));
   const extra: string[] = [...(given?.extra ?? [])];
   if (master?.supplierCode) extra.unshift(`Supplier code: ${master.supplierCode}`);
-  if (master?.contactName) extra.push(`Contact: ${master.contactName}`);
+  if (branch?.branchName) extra.push(`Branch: ${branch.branchName}`);
+  const contact = branch?.contactName?.trim() || master?.contactName;
+  if (contact) extra.push(`Contact: ${contact}`);
+  const branchAddr = branch ? locationAddress(branch) : "";
   return {
     name,
-    address: given?.address || (master ? supplierAddress(master) : ""),
+    address: given?.address || branchAddr || (master ? supplierAddress(master) : ""),
     phone: phones.join(" / "),
-    email: given?.email || master?.email || "",
+    email: given?.email || branch?.email?.trim() || master?.email || "",
     gstin: given?.gstin || master?.gst || "",
     extra,
   };
@@ -577,6 +594,7 @@ type PurchaseLineInput = DocLineInput & {
 type PurchaseDocInput = {
   regionId?: string | null;
   supplierId?: string | null;
+  supplierBranchId?: string | null;
   supplier: PartyBlock;
   shipTo: PartyBlock;
   shipToStoreId?: string | null;
@@ -610,7 +628,7 @@ function purchaseDocument(
 ): string {
   const { branding, tpl } = activeConfig("po");
   const issuer = hoParty(input.regionId);
-  const supplier = supplierParty({ supplierId: input.supplierId, supplier: input.supplier });
+  const supplier = supplierParty({ supplierId: input.supplierId, supplierBranchId: input.supplierBranchId, supplier: input.supplier });
   const shipTo = input.shipToStoreId ? storeParty(input.shipToStoreId, input.shipTo.name) : input.shipTo.address ? input.shipTo : { ...issuer, name: input.shipTo.name || issuer.name };
   const table = pricedTableHtml(toPricedLines(input.lines), {
     qtyLabel: "Qty",
@@ -724,6 +742,7 @@ export function buildGrnDocument(input: {
   voucherNumber?: string | null;
   regionId?: string | null;
   supplierId?: string | null;
+  supplierBranchId?: string | null;
   supplierName: string;
   mode: string;
   invoiceNumber?: string | null;
@@ -736,7 +755,7 @@ export function buildGrnDocument(input: {
 }): string {
   const { branding, tpl } = activeConfig("grn");
   const receivedAt = hoParty(input.regionId);
-  const supplier = supplierParty({ supplierId: input.supplierId, supplierName: input.supplierName });
+  const supplier = supplierParty({ supplierId: input.supplierId, supplierBranchId: input.supplierBranchId, supplierName: input.supplierName });
   const against = input.voucherNumber?.trim()
     ? input.voucherNumber
     : isDirectGrn(input.poNumber)
@@ -839,6 +858,7 @@ export function buildPurchaseReturnDocument(input: {
   poNumber: string;
   regionId?: string | null;
   supplierId?: string | null;
+  supplierBranchId?: string | null;
   supplierName: string;
   reason: string;
   debitNoteNumber?: string | null;
@@ -848,7 +868,7 @@ export function buildPurchaseReturnDocument(input: {
 }): string {
   const { branding } = activeConfig("grn");
   const from = hoParty(input.regionId);
-  const supplier = supplierParty({ supplierId: input.supplierId, supplierName: input.supplierName });
+  const supplier = supplierParty({ supplierId: input.supplierId, supplierBranchId: input.supplierBranchId, supplierName: input.supplierName });
   const table = pricedTableHtml(
     input.lines.map((l) => ({
       ...l,
