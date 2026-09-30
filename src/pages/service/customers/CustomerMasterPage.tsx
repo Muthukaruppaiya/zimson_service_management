@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../../components/service/ServiceBreadcrumb";
 import { Card } from "../../../components/ui/Card";
 import { PageHeader } from "../../../components/ui/PageHeader";
@@ -7,8 +6,7 @@ import { isValidGstFormat, isValidPanFormat, panFromGstin } from "../../../data/
 import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../../lib/gstLookupClient";
 import { validateCustomerB2bGstin } from "../../../lib/zimsonCompanyGst";
 import { apiJson } from "../../../lib/api";
-import { canBypassCustomerOtp, isFullyOtpVerified } from "../../../lib/customerVerification";
-import { useAuth } from "../../../context/AuthContext";
+import { isFullyOtpVerified } from "../../../lib/customerVerification";
 import type { CustomerKind, CustomerRecord } from "../../../types/customer";
 import { CustomFieldsSection } from "../../../components/customFields/CustomFieldsSection";
 import { useCustomFields } from "../../../hooks/useCustomFields";
@@ -59,8 +57,6 @@ function toEditable(c: CustomerRecord): EditableCustomer {
 }
 
 export function CustomerMasterPage() {
-  const { user } = useAuth();
-  const canAdminVerify = canBypassCustomerOtp(user?.role);
   const { fields: extraFieldDefs } = useCustomFields("customer");
   const listExtras = useMemo(() => listCustomFieldDefs(extraFieldDefs), [extraFieldDefs]);
   const [rows, setRows] = useState<CustomerRecord[]>([]);
@@ -213,30 +209,6 @@ export function CustomerMasterPage() {
       <PageHeader
         title="Customer master"
         description=""
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              to="/service/customers/bulk-import"
-              className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
-            >
-              Bulk import
-            </Link>
-            {canAdminVerify ? (
-              <Link
-                to="/service/customers/admin-verify"
-                className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
-              >
-                Verify without OTP
-              </Link>
-            ) : null}
-            <Link
-              to="/service/customers/register"
-              className="inline-flex border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light"
-            >
-              Create customer →
-            </Link>
-          </div>
-        }
       />
       {error ? <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
       <Card title="Customers">

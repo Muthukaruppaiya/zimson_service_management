@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { IconDetails, tableActionBtnClass } from "../../components/ui/TableActionIcons";
@@ -462,22 +462,6 @@ export function InventorySuppliersPage() {
         description="Click any supplier row to view details and manage spare mappings."
         actions={
           <div className="flex gap-2">
-            {canEdit && (
-              <>
-                <Link
-                  to="/inventory/suppliers/bulk-import"
-                  className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-rlx-green hover:bg-stone-50 transition"
-                >
-                  Bulk import
-                </Link>
-                <Link
-                  to="/inventory/suppliers/new"
-                  className="bg-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white hover:bg-rlx-green/90 transition"
-                >
-                  + Add Supplier
-                </Link>
-              </>
-            )}
             <button type="button" onClick={() => navigate(-1)}
               className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition">
               ← Back

@@ -109,22 +109,6 @@ export function InventoryServicePackagesPage() {
         description="Rate cards by brand, service type, and package name."
         actions={
           <div className="flex flex-wrap gap-2">
-            {canManage ? (
-              <Link
-                to="/inventory/service-packages/new"
-                className="bg-rlx-green px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white transition hover:bg-rlx-green/90"
-              >
-                + Add package
-              </Link>
-            ) : null}
-            {user?.role === "super_admin" ? (
-              <Link
-                to="/inventory/service-package-types"
-                className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 transition hover:bg-stone-50"
-              >
-                Package types
-              </Link>
-            ) : null}
             <Link
               to="/inventory"
               className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 transition hover:bg-stone-50"

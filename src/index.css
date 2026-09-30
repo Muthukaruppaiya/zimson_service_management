@@ -1581,30 +1581,29 @@ textarea.ui-field.ui-field--compact {
 }
 
 .chrono-sidebar .sidebar-nav-btn--active {
-  border-color: rgba(201, 162, 39, 0.4);
-  background: #1a3a8a;
+  border-color: rgba(240, 220, 144, 0.14);
+  background: linear-gradient(90deg, rgba(201, 162, 39, 0.24) 0%, rgba(255, 255, 255, 0.06) 55%, rgba(255, 255, 255, 0.02) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 4px 14px rgba(0, 0, 0, 0.22);
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 6px 18px rgba(4, 12, 40, 0.28);
 }
 
 .chrono-sidebar .sidebar-active-bar {
   position: absolute;
-  left: -1px;
-  top: 50%;
-  height: 1.6rem;
+  left: 0;
+  top: 22%;
+  bottom: 22%;
   width: 3px;
-  transform: translateY(-50%);
-  border-radius: 9999px !important;
-  background: linear-gradient(180deg, #F0DC90, #C9A227);
-  box-shadow: 0 0 8px rgba(201, 162, 39, 0.75);
+  border-radius: 0 9999px 9999px 0 !important;
+  background: linear-gradient(180deg, #F6E7A8, #C9A227);
+  box-shadow: 0 0 10px rgba(240, 220, 144, 0.55);
 }
 
 .chrono-sidebar .sidebar-icon-badge {
   border-radius: 0.625rem !important;
   color: rgba(255, 255, 255, 0.62);
   background: rgba(255, 255, 255, 0.06);
-  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .chrono-sidebar .sidebar-nav-btn:hover .sidebar-icon-badge {
@@ -1613,9 +1612,15 @@ textarea.ui-field.ui-field--compact {
 }
 
 .chrono-sidebar .sidebar-icon-badge--active {
-  background: linear-gradient(145deg, #F0DC90 0%, #C9A227 100%);
+  background: linear-gradient(145deg, #F6E7A8 0%, #D9B441 55%, #B8901C 100%);
   color: #102570;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.18) inset,
+    0 3px 10px rgba(201, 162, 39, 0.35);
+}
+
+.chrono-sidebar .sidebar-nav-btn--active .sidebar-icon-badge--active {
+  transform: scale(1.02);
 }
 
 .chrono-sidebar .sidebar-chevron--open {

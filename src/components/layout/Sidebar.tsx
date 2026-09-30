@@ -58,6 +58,8 @@ type SidebarItem = {
   label: string;
   module: ModuleKey;
   roles?: UserRole[];
+  /** Other path prefixes (tabs of the same master) that keep this entry highlighted. */
+  match?: string[];
 };
 
 type SidebarSection = {
@@ -86,8 +88,9 @@ function initialsOf(name: string): string {
   return parts.map((p) => p.charAt(0).toUpperCase()).join("") || "U";
 }
 
-function matchItem(itemTo: string, pathname: string, search: string): boolean {
-  const [itemPath, itemQuery] = itemTo.split("?");
+function matchItem(item: SidebarItem, pathname: string, search: string): boolean {
+  if ((item.match ?? []).some((p) => pathname === p || pathname.startsWith(`${p}/`))) return true;
+  const [itemPath, itemQuery] = item.to.split("?");
   const pathOk = pathname === itemPath || pathname.startsWith(`${itemPath}/`);
   if (!pathOk) return false;
   if (!itemQuery) return true;
@@ -128,52 +131,36 @@ export function Sidebar() {
       {
         title: "Service", icon: "service",
         items: [
-          { to: "/service/quick-bill", label: "Quick bill", module: "service" },
-          { to: "/service/quick-bill-history", label: "Quick bill history", module: "service" },
-          { to: "/service/srf", label: "SRF booking", module: "service" },
+          { to: "/service/quick-bill", label: "Quick bill", module: "service", match: ["/service/quick-bill-history"] },
+          { to: "/service/srf", label: "SRF", module: "service", match: ["/service/srf-register", "/service/srf-master"] },
           { to: "/service/store-assign", label: "Store assign", module: "service" },
-          { to: "/service/srf-register", label: "SRF history", module: "service" },
-          { to: "/service/srf-master", label: "SRF master table", module: "service" },
           { to: "/service/brand-credit-notes", label: "Brand credit notes", module: "service", roles: ["store_user", "store_manager", "store_accounts"] },
         ],
       },
       {
         title: "Accounts", icon: "accounts",
         items: [
-          { to: "/accounts/invoice-history", label: "Invoice history", module: "accounts" },
-          { to: "/accounts/brand-credit-notes", label: "Brand credit notes", module: "accounts", roles: ["ho_accounts"] },
-          { to: "/accounts/brand-credit-history", label: "Credit note history", module: "accounts" },
-          { to: "/accounts/ledger", label: "Payment ledger", module: "accounts" },
+          { to: "/accounts/invoice-history", label: "Invoices & payments", module: "accounts", match: ["/accounts/ledger"] },
+          { to: "/accounts/brand-credit-history", label: "Credit notes", module: "accounts", match: ["/accounts/brand-credit-notes"] },
           { to: "/accounts/setup", label: "Accounts setup", module: "accounts" },
         ],
       },
       {
         title: "Reports", icon: "reports",
         items: [
-          { to: "/accounts/reports/revenue", label: "Revenue report", module: "accounts" },
-          { to: "/accounts/reports/summary-sale", label: "Summary sale", module: "accounts" },
-          { to: "/accounts/reports/hsn-purchase", label: "HSN purchase", module: "accounts" },
-          { to: "/accounts/reports/sr-returned", label: "SR returned", module: "accounts" },
-          { to: "/reports/stock-in-hand", label: "Stock in hand", module: "reports" },
-          { to: "/reports/watch-not-returned", label: "Watch not returned", module: "reports" },
-          { to: "/reports/aging", label: "Aging", module: "reports" },
-          { to: "/reports/unassigned-watches", label: "Unassigned watches", module: "reports" },
-          { to: "/reports/technician-assign-watch", label: "Technician assign watch", module: "reports" },
-          { to: "/reports/technician-repaired-history", label: "Technician repaired history", module: "reports" },
-          { to: "/reports/pending", label: "Pending", module: "reports" },
-          { to: "/reports/transfer", label: "Transfer", module: "reports" },
+          { to: "/accounts/reports/revenue", label: "Sales & GST", module: "accounts", match: ["/accounts/reports"] },
+          { to: "/reports/watch-not-returned", label: "Watch status", module: "reports", match: ["/reports/aging", "/reports/unassigned-watches", "/reports/pending"] },
+          { to: "/reports/stock-in-hand", label: "Stock", module: "reports", match: ["/reports/transfer"] },
+          { to: "/reports/technician-assign-watch", label: "Technician", module: "reports", match: ["/reports/technician-repaired-history"] },
         ],
       },
       {
         title: "Inventory", icon: "inventory",
         items: [
-          { to: "/inventory/spares", label: "Spares", module: "inventory" },
-          { to: "/inventory/service-packages", label: "Service packages", module: "inventory" },
-          { to: "/inventory/service-packages/new", label: "Add package", module: "inventory" },
-          { to: "/inventory/service-package-types", label: "Package types", module: "inventory" },
-          { to: "/inventory/stock-adjustment", label: "Stock adjustment", module: "inventory" },
+          { to: "/inventory/spares", label: "Spares", module: "inventory", match: ["/inventory/bulk-import", "/inventory/hsn-master"] },
+          { to: "/inventory/service-packages", label: "Service packages", module: "inventory", match: ["/inventory/service-package-types"] },
+          { to: "/inventory/stock-prices", label: "Stock & prices", module: "inventory", match: ["/inventory/stock-adjustment"] },
           { to: "/service/watch-inventory", label: "Watch inventory", module: "service" },
-          { to: "/inventory/stock-prices", label: "Stock & prices", module: "inventory" },
         ],
       },
       {
@@ -181,20 +168,14 @@ export function Sidebar() {
         items: [
           ...(ENABLE_PR_FLOW
             ? [
-                { to: "/inventory/purchase-requests", label: "New PR", module: "inventory" as const },
-                { to: "/inventory/pr-history", label: "PR History", module: "inventory" as const },
+                { to: "/inventory/purchase-requests", label: "Purchase requests", module: "inventory" as const, match: ["/inventory/pr-history"] },
               ]
             : []),
-          { to: "/inventory/purchase-orders", label: "New PO", module: "inventory" },
-          { to: "/inventory/po-history", label: "PO History", module: "inventory" },
-          { to: "/inventory/vouchers", label: "New voucher", module: "inventory" },
-          { to: "/inventory/voucher-history", label: "Voucher history", module: "inventory" },
-          { to: "/inventory/po-inward", label: "GRN", module: "inventory" },
-          { to: "/inventory/grn-history", label: "GRN History", module: "inventory" },
-          { to: "/inventory/purchase-return", label: "GRN return", module: "inventory" },
-          { to: "/inventory/purchase-return-history", label: "GRN return history", module: "inventory" },
-          { to: "/inventory/ho-transfer", label: "Transfers", module: "inventory" },
-          { to: "/inventory/transfer-history", label: "Transfers history", module: "inventory" },
+          { to: "/inventory/purchase-orders", label: "Purchase orders", module: "inventory", match: ["/inventory/po-history"] },
+          { to: "/inventory/vouchers", label: "Vouchers", module: "inventory", match: ["/inventory/voucher-history"] },
+          { to: "/inventory/po-inward", label: "GRN", module: "inventory", match: ["/inventory/grn-history"] },
+          { to: "/inventory/purchase-return", label: "GRN returns", module: "inventory", match: ["/inventory/purchase-return-history"] },
+          { to: "/inventory/ho-transfer", label: "Transfers", module: "inventory", match: ["/inventory/transfer-history"] },
         ],
       },
       {
@@ -208,15 +189,10 @@ export function Sidebar() {
       {
         title: "Logistics", icon: "logistics",
         items: [
-          { to: "/service/store-dispatch", label: "Store dispatch", module: "service" },
-          { to: "/service/delivery-handoff", label: "Delivery handoff (Store)", module: "service" },
-          { to: "/service/delivery-boy-history", label: "Delivery agent history (Store)", module: "service" },
-          { to: "/service/store-logistics-history", label: "Inward & outward history", module: "service" },
-          { to: "/service-centre/logistics?tab=inward", label: "Internal inward (Store → HO)", module: "service_centre", roles: ["service_centre_clerk", "service_centre_clerk"] },
-          { to: "/service-centre/delivery-handoff", label: "Delivery handoff (HO)", module: "service_centre", roles: ["service_centre_clerk", "ho_manager"] },
-          { to: "/service-centre/delivery-boy-history", label: "Delivery agent history (HO)", module: "service_centre", roles: ["service_centre_clerk", "ho_manager"] },
-          { to: "/service-centre/logistics?tab=outward", label: "Internal outward (HO → Store)", module: "service_centre", roles: ["service_centre_clerk", "service_centre_clerk"] },
-          { to: "/service-centre/logistics-history", label: "DC / ODC history", module: "service_centre", roles: ["service_centre_clerk", "service_centre_clerk", "service_centre_clerk"] },
+          { to: "/service/store-dispatch", label: "Store dispatch", module: "service", match: ["/service/store-logistics-history"] },
+          { to: "/service/delivery-handoff", label: "Store delivery", module: "service", match: ["/service/delivery-boy-history"] },
+          { to: "/service-centre/logistics", label: "HO inward / outward", module: "service_centre", roles: ["service_centre_clerk"], match: ["/service-centre/logistics-history"] },
+          { to: "/service-centre/delivery-handoff", label: "HO delivery", module: "service_centre", roles: ["service_centre_clerk", "ho_manager"], match: ["/service-centre/delivery-boy-history"] },
         ],
       },
       {
@@ -227,44 +203,33 @@ export function Sidebar() {
         title: "Supervision", icon: "supervisor",
         items: [
           { to: "/service-centre/supervisor", label: "Assigning", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
-          { to: "/service-centre/brand-credit-notes", label: "HO brand credit notes", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
+          { to: "/service-centre/brand-credit-notes", label: "HO credit notes", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
           { to: "/service-centre/srf-history", label: "SRF history", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
-          { to: "/service-centre/supervisor/reestimate-sender", label: "Sender re-estimate approvals", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
         ],
       },
       {
         title: "Master Data", icon: "master",
         items: [
-          { to: "/service/customers/master", label: "Customer master", module: "service" },
-          { to: "/service/customers/bulk-import", label: "Customer bulk import", module: "service" },
-          { to: "/service/customers/admin-verify", label: "Customer verify (no OTP)", module: "service", roles: ["super_admin", "admin"] },
-          { to: "/inventory/suppliers", label: "Supplier Master", module: "inventory" },
-          { to: "/inventory/suppliers/new", label: "Add Supplier", module: "inventory" },
-          { to: "/inventory/suppliers/bulk-import", label: "Supplier bulk import", module: "inventory" },
-          { to: "/users", label: "Users creation", module: "users" },
-          { to: "/users/list", label: "Users list", module: "users" },
-          { to: "/service-centre/technicians-master", label: "Technician creation/list", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager", "ho_manager"] },
+          { to: "/service/customers/master", label: "Customer master", module: "service", match: ["/service/customers/bulk-import", "/service/customers/admin-verify"] },
+          { to: "/inventory/suppliers", label: "Supplier master", module: "inventory" },
+          { to: "/inventory/brands", label: "Brand master", module: "inventory" },
+          { to: "/users/list", label: "User master", module: "users", match: ["/users"] },
+          { to: "/service-centre/technicians-master", label: "Technician master", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager", "ho_manager"] },
         ],
       },
       {
         title: "Settings", icon: "settings",
         items: [
           { to: "/regions", label: "Regions & stores", module: "regions" },
-          { to: "/settings/tax", label: "Tax & billing", module: "settings" },
-          { to: "/settings/edoc", label: "E-invoice & e-way", module: "settings", roles: ["super_admin"] },
-          { to: "/settings/brand-eway-consignees", label: "Brand e-way consignees", module: "settings", roles: ["super_admin", "admin"] },
-          { to: "/settings/messaging", label: "SMS, email & WhatsApp", module: "settings", roles: ["super_admin"] },
-          { to: "/settings/razorpay", label: "Razorpay", module: "settings", roles: ["super_admin"] },
+          { to: "/settings/tax", label: "Tax & e-invoice", module: "settings", match: ["/settings/edoc", "/settings/brand-eway-consignees"] },
+          { to: "/settings/messaging", label: "Integrations", module: "settings", roles: ["super_admin"], match: ["/settings/razorpay"] },
+          { to: "/settings/document-templates", label: "Customization", module: "settings", match: ["/settings/custom-fields"] },
           { to: "/settings/active-sessions", label: "Logged-in users", module: "settings", roles: ["super_admin"] },
-          { to: "/settings/document-templates", label: "Document templates", module: "settings" },
-          { to: "/settings/custom-fields", label: "Custom fields", module: "settings", roles: ["super_admin", "admin"] },
-          { to: "/inventory/brands", label: "Brand", module: "inventory" },
-          { to: "/inventory/brands/bulk-import", label: "Brand bulk import", module: "inventory" },
         ],
       },
     ];
 
-    const isAdmin = user.role === "super_admin" || user.role === "admin" || user.role === "admin";
+    const isAdmin = user.role === "super_admin" || user.role === "admin";
     return all
       .map((section) => ({
         ...section,
@@ -287,7 +252,7 @@ export function Sidebar() {
   }, [user]);
 
   useEffect(() => {
-    const hit = sections.find((s) => s.items.some((i) => matchItem(i.to, location.pathname, location.search)));
+    const hit = sections.find((s) => s.items.some((i) => matchItem(i, location.pathname, location.search)));
     if (hit) setOpenSection(hit.title);
   }, [location.pathname, location.search, sections]);
 
@@ -374,7 +339,7 @@ export function Sidebar() {
         <div className="space-y-1">
           {sections.map((section) => {
             const isOpen = openSection === section.title;
-            const hasActiveChild = section.items.some((i) => matchItem(i.to, location.pathname, location.search));
+            const hasActiveChild = section.items.some((i) => matchItem(i, location.pathname, location.search));
 
             return (
               <div key={section.title}>
@@ -404,7 +369,7 @@ export function Sidebar() {
                   <div className="overflow-hidden">
                     <div className="sidebar-subitem-rail ml-[19px] pb-1.5 pl-4 pt-1 space-y-0.5">
                       {section.items.map((item) => {
-                        const active = matchItem(item.to, location.pathname, location.search);
+                        const active = matchItem(item, location.pathname, location.search);
                         return (
                           <NavLink
                             key={item.to}

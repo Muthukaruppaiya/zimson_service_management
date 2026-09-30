@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { NavLayoutProvider, useNavLayout } from "../../context/NavLayoutContext";
 import { SessionLoginAlertModal } from "../auth/SessionLoginAlertModal";
+import { RouteMasterTabs } from "../ui/MasterTabs";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
@@ -23,6 +24,7 @@ function AppShellInner() {
         <TopBar />
         <main className="app-main min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-rlx-bg p-2 sm:p-3 md:p-4 print:p-2">
           <div className="app-main-content w-full min-w-0 max-w-none">
+            <RouteMasterTabs />
             <Outlet />
           </div>
         </main>
