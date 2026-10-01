@@ -11,7 +11,7 @@ import type { UserRole } from "../../types/user";
 type IconName =
   | "dashboard" | "service" | "accounts" | "analytics" | "reports" | "inventory" | "purchase"
   | "billing" | "master" | "settings" | "chevron" | "sparkle"
-  | "logistics" | "supervisor" | "online";
+  | "logistics" | "supervisor" | "online" | "manual";
 
 function NavIcon({ name, className = "" }: { name: IconName; className?: string }) {
   const cls = `h-4 w-4 shrink-0 stroke-[1.6] ${className}`.trim();
@@ -46,6 +46,8 @@ function NavIcon({ name, className = "" }: { name: IconName; className?: string 
       return <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>;
     case "online":
       return <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M6 7V5a2 2 0 012-2h8a2 2 0 012 2v2m-1 5l-5 5-3-3" /></svg>;
+    case "manual":
+      return <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.25C10.5 5 8.25 4.5 4 4.5v13c4.25 0 6.5.5 8 1.75m0-13c1.5-1.25 3.75-1.75 8-1.75v13c-4.25 0-6.5.5-8 1.75m0-13v13" /></svg>;
     default:
       return null;
   }
@@ -321,6 +323,26 @@ export function Sidebar() {
                 <NavIcon name="dashboard" />
               </span>
               <span className="tracking-[0.01em]">Dashboard</span>
+            </>
+          )}
+        </NavLink>
+
+        <NavLink
+          to="/user-manual"
+          onClick={closeNav}
+          className={({ isActive }) =>
+            `sidebar-nav-btn group relative mt-1 flex items-center gap-3 px-3 py-2.5 text-[13.5px] font-semibold transition-all duration-200 ${
+              isActive ? "sidebar-nav-btn--active text-white" : "text-white/72 hover:text-white"
+            }`
+          }
+        >
+          {({ isActive }) => (
+            <>
+              {isActive && <span className="sidebar-active-bar" />}
+              <span className={`sidebar-icon-badge flex h-8 w-8 shrink-0 items-center justify-center ${isActive ? "sidebar-icon-badge--active" : ""}`}>
+                <NavIcon name="manual" />
+              </span>
+              <span className="tracking-[0.01em]">User manual</span>
             </>
           )}
         </NavLink>

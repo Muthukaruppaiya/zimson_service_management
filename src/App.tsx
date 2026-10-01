@@ -13,6 +13,7 @@ import { RegionsProvider } from "./context/RegionsContext";
 import { SparesProvider } from "./context/SparesContext";
 import { SrfJobsProvider } from "./context/SrfJobsContext";
 import { DashboardPage } from "./pages/DashboardPage";
+import { UserManualPage } from "./pages/UserManualPage";
 import { AccountsSetupPage } from "./pages/accounts/AccountsSetupPage";
 import { AnalyticsDashboardPage } from "./pages/accounts/AnalyticsDashboardPage";
 import { HsnPurchaseReportPage } from "./pages/accounts/HsnPurchaseReportPage";
@@ -148,6 +149,7 @@ export default function App() {
                     </ModuleRoute>
                   }
                 />
+                <Route path="/user-manual" element={<UserManualPage />} />
                 <Route
                   path="/analytics"
                   element={

@@ -146,6 +146,18 @@ export function TopBar() {
 
         {user ? (
           <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-2.5">
+            <NavLink
+              to="/user-manual"
+              aria-label="User manual"
+              title="User manual"
+              className={({ isActive }) =>
+                `topbar-icon-btn flex h-10 w-10 items-center justify-center text-rlx-ink transition ${isActive ? "topbar-icon-btn--active" : ""}`
+              }
+            >
+              <svg className="h-[19px] w-[19px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.1 9a3 3 0 015.8 1c0 2-3 3-3 3m.1 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </NavLink>
             <div className="relative">
               <button
                 type="button"

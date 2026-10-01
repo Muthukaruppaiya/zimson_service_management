@@ -194,6 +194,11 @@ export function LoginPage() {
           <div className="zimson-login__logo-wrap">
             <img className="zimson-login__logo" src="/zimson-logo.png" alt="ZIMSON" />
           </div>
+          <p className="zimson-login__app-name">
+            <span>ZCM</span>
+            <span className="zimson-login__app-sep" aria-hidden="true">—</span>
+            <span className="zimson-login__app-code">Zimson Care Management</span>
+          </p>
           <span className="zimson-login__hero-rule" aria-hidden="true" />
           <h2 className="zimson-login__hero-title">
             <span>Manage Today.</span>

@@ -108,6 +108,27 @@
   object-fit: contain;
 }
 
+.zimson-login__app-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.95rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.zimson-login__app-code {
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--z-gold-mid);
+}
+
+.zimson-login__app-sep {
+  color: rgba(255, 255, 255, 0.45);
+}
+
 .zimson-login__hero-rule {
   width: 2.5rem;
   height: 1.5px;
