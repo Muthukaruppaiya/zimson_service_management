@@ -96,7 +96,7 @@ export async function captureInvoicePdfBlob(
         backgroundColor: "#ffffff",
         width: A4_WIDTH_PX,
         windowWidth: A4_WIDTH_PX,
-        onclone: (clonedDoc, clonedElement) => {
+        onclone: (clonedDoc: Document, clonedElement: HTMLElement) => {
           stripNonInvoiceStylesheets(clonedDoc);
           injectInvoiceStyles(clonedDoc);
 
@@ -116,7 +116,17 @@ export async function captureInvoicePdfBlob(
     })
     .from(root);
 
-  const blob = (await worker.outputPdf("blob")) as Blob;
+  const pdf = await worker.toPdf().get("pdf");
+  const pageCount = pdf.internal.getNumberOfPages();
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  for (let page = 1; page <= pageCount; page += 1) {
+    pdf.setPage(page);
+    pdf.setFontSize(8);
+    pdf.setTextColor(85, 85, 85);
+    pdf.text(`${page}/${pageCount}`, pageWidth / 2, pageHeight - 0.1, { align: "center" });
+  }
+  const blob = pdf.output("blob");
   if (!(blob instanceof Blob) || blob.size < 100) {
     throw new Error("Could not generate invoice PDF. Try Print invoice first, then send again.");
   }
