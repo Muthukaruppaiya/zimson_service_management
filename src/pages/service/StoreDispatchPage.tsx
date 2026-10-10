@@ -24,11 +24,10 @@ import {
 import { resolveHoToStorePrint, resolveStoreToHoPrint } from "../../lib/transferDocumentKind";
 import type { TransferPartyBlock } from "../../lib/transferDocumentKind";
 import type { SrfJob } from "../../types/srfJob";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 const rowClass = "border-b border-zimson-100 last:border-0";
 
-const ackBtnPrimary =
-  "rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90";
 const ackBtnOutline =
   "rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50";
 
@@ -594,7 +593,6 @@ export function StoreDispatchPage() {
           onClose={closeInwardReview}
           eyebrow="Store inward QC"
           title={`Inward watches — ${inwardReviewDc}`}
-          description="Tick only watches that pass store QC. Unchecked SRFs can stay on this transfer or be sent back to HO for re-repair."
           size="xl"
           footer={
             <div className={modalFooterClass}>
@@ -696,9 +694,9 @@ export function StoreDispatchPage() {
           onBackdropClick={() => setStoreInwardAck(null)}
           actions={
             <>
-              <button
-                type="button"
-                className={ackBtnPrimary}
+              <PrintIconButton
+                label="Print inward receipt"
+                variant="solid"
                 onClick={() =>
                   printStoreInwardReceiptDocument({
                     inwardNumber: storeInwardAck.inwardNumber,
@@ -711,9 +709,7 @@ export function StoreDispatchPage() {
                     partyTo: storeInwardAck.partyTo,
                   })
                 }
-              >
-                Print inward receipt
-              </button>
+              />
               <button type="button" className={ackBtnOutline} onClick={() => setStoreInwardAck(null)}>
                 Done
               </button>
@@ -769,18 +765,16 @@ export function StoreDispatchPage() {
           onBackdropClick={() => setOutwardAck(null)}
           actions={
             <>
-              <button
-                type="button"
-                className={ackBtnPrimary}
+              <PrintIconButton
+                label="Print transfer copy"
+                variant="solid"
                 onClick={() =>
                   printTransferFromMeta(outwardAck.printMeta, outwardAck.rows, {
                     seriesCode: "TD",
                     preparedBy: user?.displayName?.trim() || user?.email?.trim(),
                   })
                 }
-              >
-                Print transfer copy
-              </button>
+              />
               <button type="button" className={ackBtnOutline} onClick={() => setOutwardAck(null)}>
                 Done
               </button>

@@ -162,11 +162,6 @@ export function SrfTrackingResendModal({
           </div>
 
           <div className="max-h-[min(70vh,28rem)] space-y-4 overflow-y-auto px-5 py-5">
-            <p className="text-sm text-stone-600">
-              Email is required. WhatsApp sends the SRF document; if WhatsApp fails, the same tracking link is sent by
-              SMS.
-            </p>
-
             <label className="block text-sm">
               <span className="text-xs font-medium text-stone-600">Customer mobile</span>
               <input

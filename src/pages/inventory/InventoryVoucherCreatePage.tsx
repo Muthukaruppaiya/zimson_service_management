@@ -14,6 +14,7 @@ import { DEFAULT_LINE_GST_PERCENT } from "../../lib/serviceBillGst";
 import { taxPersonTypeFromGstin } from "../../lib/supplierGstFill";
 import type { SparePart, SparePriceLine } from "../../types/spare";
 import type { Supplier } from "../../types/supplier";
+import { HomeLink, homeLinkFlatClass } from "../../components/ui/HomeLink";
 
 type StandaloneLine = {
   spareId: string;
@@ -180,10 +181,9 @@ function VoucherSuccessModal({
         </div>
         <div className="px-6 py-5 text-center">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400">Voucher Number</p>
-          <p className="mt-2 font-mono text-xl font-bold text-rlx-green">{voucherNumber}</p>
-          <p className="mt-3 text-sm text-stone-500">GRN this voucher from the GRN screen.</p>
-        </div>
+          <p className="mt-2 font-mono text-xl font-bold text-rlx-green">{voucherNumber}</p>        </div>
         <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-6 py-4">
+          <HomeLink className={homeLinkFlatClass} />
           <Link
             to={`/inventory/po-inward?voucher=${encodeURIComponent(voucherNumber)}`}
             className="flex-1 border border-rlx-rule bg-white py-2 text-center text-sm font-semibold text-stone-700 hover:bg-stone-50 transition"

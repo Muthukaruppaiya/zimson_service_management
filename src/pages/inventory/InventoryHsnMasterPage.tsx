@@ -83,9 +83,6 @@ export function InventoryHsnMasterPage() {
 
       {canManage ? (
         <Card title="Add HSN code" className="mb-6">
-          <p className="mb-3 text-sm text-stone-600">
-            Search an existing code or choose <strong>+ Add new HSN…</strong>, enter the code, then click <strong>Save</strong>.
-          </p>
           <HsnPicker
             idPrefix="hsn-master-add"
             value={draftHsn}

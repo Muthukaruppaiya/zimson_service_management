@@ -132,6 +132,7 @@ export function SrfBookingSuccessOverlay({
   return (
     <ProcessSuccessModal
       open
+      showHome={false}
       title="SRF booked successfully"
       actions={
         <div className="flex flex-wrap items-center justify-center gap-3">

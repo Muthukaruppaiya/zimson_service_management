@@ -82,9 +82,6 @@ export function BrandInvoiceLineItemsEditor({
           + Add line
         </button>
       </div>
-      <p className="mt-0.5 text-[11px] text-stone-500">
-        Type or search HSN. If it is not in the list, click <strong>Save HSN</strong> (same as SRF family field).
-      </p>
       {lineRows.length === 0 ? (
         <p className="mt-2 rounded-xl border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-center text-xs text-stone-500">
           No lines yet — click Add line to enter spare, HSN, quantity and price.

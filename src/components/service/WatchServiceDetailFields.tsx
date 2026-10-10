@@ -75,6 +75,8 @@ type Props = {
   columns?: 2 | 3;
   /** Optional field(s) inserted at the start of the first detail row (e.g. Serial). */
   leadingFields?: ReactNode;
+  /** Optional field placed beside Customer Remarks (two columns on desktop). */
+  trailingRemarkField?: ReactNode;
 };
 
 export function WatchServiceDetailFields({
@@ -88,6 +90,7 @@ export function WatchServiceDetailFields({
   onStockWatchStoreChange,
   columns = 2,
   leadingFields,
+  trailingRemarkField,
 }: Props) {
   const dense = columns === 3;
   const pairRow = dense
@@ -221,19 +224,22 @@ export function WatchServiceDetailFields({
           </div>
         </div>
       ) : null}
-      <div className="min-w-0">
-        <label htmlFor={`${idPrefix}-cust-remarks`} className="text-xs font-medium text-stone-600">
-          Customer Remarks
-        </label>
-        <textarea
-          id={`${idPrefix}-cust-remarks`}
-          rows={2}
-          disabled={disabled}
-          value={values.customerRemarks}
-          onChange={(e) => onChange({ customerRemarks: sanitizeMultilineTextInput(e.target.value) })}
-          className={inputClass}
-          placeholder="Optional notes from customer"
-        />
+      <div className={trailingRemarkField ? "grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 md:items-start" : "min-w-0"}>
+        <div className="min-w-0">
+          <label htmlFor={`${idPrefix}-cust-remarks`} className="text-xs font-medium text-stone-600">
+            Customer Remarks
+          </label>
+          <textarea
+            id={`${idPrefix}-cust-remarks`}
+            rows={2}
+            disabled={disabled}
+            value={values.customerRemarks}
+            onChange={(e) => onChange({ customerRemarks: sanitizeMultilineTextInput(e.target.value) })}
+            className={inputClass}
+            placeholder="Optional notes from customer"
+          />
+        </div>
+        {trailingRemarkField}
       </div>
     </>
   );

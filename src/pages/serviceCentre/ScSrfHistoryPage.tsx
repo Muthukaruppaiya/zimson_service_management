@@ -138,9 +138,6 @@ export function ScSrfHistoryPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className={uiPageTitleOnDarkClass}>HO / SC SRF history</h1>
-              <p className="mt-1 max-w-2xl text-xs text-white/70">
-                All SRF jobs handled at your service centre — assignments, inter-HO transfers, brand desk, and billing refs.
-              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link

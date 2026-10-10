@@ -10,6 +10,7 @@ import {
   roleManual,
   type ManualTopic,
 } from "../lib/userManual";
+import { PrintIconButton } from "../components/ui/PrintIconButton";
 
 function Rich({ text }: { text: string }) {
   const parts = text.split(/(\*\*[^*]+\*\*)/).filter(Boolean);
@@ -135,13 +136,7 @@ export function UserManualPage() {
                 ))}
               </select>
             ) : null}
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="bg-rlx-green px-4 py-1.5 text-[13px] font-semibold text-white transition hover:bg-rlx-green-deep"
-            >
-              Print / Save PDF
-            </button>
+            <PrintIconButton label="Print / Save PDF" variant="solid" onClick={() => window.print()} />
           </div>
         }
       />

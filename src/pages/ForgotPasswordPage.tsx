@@ -58,9 +58,6 @@ export function ForgotPasswordPage() {
             <h2 className="text-base font-semibold uppercase tracking-[0.16em]" style={{ color: "#C9A227" }}>
               Forgot password
             </h2>
-            <p className="mt-1 text-sm text-white/70">
-              Enter the username or work email on your account. We will email a reset link when available.
-            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 px-7 py-6">

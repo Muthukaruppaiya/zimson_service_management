@@ -90,7 +90,6 @@ function KpiCard({
         </p>
       ) : null}
       {hint ? <p className="mt-1 text-xs text-stone-500">{hint}</p> : null}
-      {onClick ? <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-sky-700">Tap to explore</p> : null}
     </Tag>
   );
 }
@@ -134,7 +133,6 @@ function StoreDetailTable({
     <div className="rounded-2xl border border-zimson-200 bg-white p-4 shadow-sm">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-zimson-900">Store breakdown (SRF + quick bill)</h3>
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-700">Click store to drill</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[480px] text-left text-sm">
@@ -190,7 +188,7 @@ function TopicPanels({ data, view, drill }: { data: AnalyticsDashboardData; view
         </div>
         <div className="grid gap-4 xl:grid-cols-2">
           <AnalyticsLineChart title="Daily sales trend" subtitle="SRF invoices + quick bills" data={data.salesTrend} />
-          <AnalyticsBarChart title="Monthly sales" data={data.salesByMonth} subtitle="Aggregated by month" horizontal={false} />
+          <AnalyticsBarChart title="Monthly sales" data={data.salesByMonth} horizontal={false} />
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
           <AnalyticsPieChart
@@ -208,7 +206,6 @@ function TopicPanels({ data, view, drill }: { data: AnalyticsDashboardData; view
             <AnalyticsBarChart
               title="Sales by region"
               data={data.salesByRegion}
-              subtitle="Click a region to drill into stores"
               drillable
               activeSliceName={active}
               onSliceClick={drill.onDrillRegion}
@@ -217,7 +214,6 @@ function TopicPanels({ data, view, drill }: { data: AnalyticsDashboardData; view
             <AnalyticsBarChart
               title="Sales by store"
               data={data.salesByStore}
-              subtitle="Click a store for detail"
               drillable
               activeSliceName={active}
               onSliceClick={drill.onDrillStore}
@@ -246,8 +242,8 @@ function TopicPanels({ data, view, drill }: { data: AnalyticsDashboardData; view
           <KpiCard label="SRF billing" value={formatInr(data.kpis.srfSalesInr)} hint={`Avg ticket ${formatInr(data.derived.avgSrfTicketInr)}`} accent="blue" deltaPct={pctChange(data.kpis.srfSalesInr, data.compare.srfSalesInr)} compareLabel={cmp} />
           <KpiCard label="Opened" value={formatCount(data.kpis.srfOpened)} accent="slate" deltaPct={pctChange(data.kpis.srfOpened, data.compare.srfOpened)} compareLabel={cmp} />
           <KpiCard label="Closed" value={formatCount(data.kpis.srfClosed)} accent="slate" deltaPct={pctChange(data.kpis.srfClosed, data.compare.srfClosed)} compareLabel={cmp} />
-          <KpiCard label="Close rate" value={formatPct(data.derived.srfCloseRatePct)} hint="Closed ÷ opened in period" accent="green" />
-          <KpiCard label="Active / waiting" value={formatCount(data.kpis.srfActive)} hint="Open pipeline now" accent="slate" />
+          <KpiCard label="Close rate" value={formatPct(data.derived.srfCloseRatePct)} accent="green" />
+          <KpiCard label="Active / waiting" value={formatCount(data.kpis.srfActive)} accent="slate" />
         </div>
         <div className="grid gap-4 xl:grid-cols-2">
           <AnalyticsLineChart title="SRF billing trend" data={data.srfSalesTrend} />
@@ -256,7 +252,6 @@ function TopicPanels({ data, view, drill }: { data: AnalyticsDashboardData; view
         <AnalyticsBarChart
           title="Pipeline stages"
           data={data.srfPipelineBuckets}
-          subtitle="Grouped journey — click a stage to drill"
           valueFormatter={formatCount}
           drillable
           activeSliceName={active}
@@ -266,7 +261,7 @@ function TopicPanels({ data, view, drill }: { data: AnalyticsDashboardData; view
         <AnalyticsBarChart
           title="Bookings by brand"
           data={data.srfByBrand}
-          subtitle="Opened in period — click brand"
+          subtitle="Opened in period"
           valueFormatter={formatCount}
           drillable
           activeSliceName={active}
@@ -398,7 +393,7 @@ function TopicPanels({ data, view, drill }: { data: AnalyticsDashboardData; view
           <KpiCard label="Total sales" value={formatInr(data.kpis.totalSalesInr)} accent="blue" deltaPct={pctChange(data.kpis.totalSalesInr, data.compare.totalSalesInr)} compareLabel={cmp} onClick={() => drill.onSwitchView("sales")} />
           <KpiCard label="Purchases (GRN)" value={formatInr(data.kpis.purchaseInr)} accent="amber" deltaPct={pctChange(data.kpis.purchaseInr, data.compare.purchaseInr)} compareLabel={cmp} onClick={() => drill.onSwitchView("purchase")} />
           <KpiCard label="Gross margin" value={formatInr(data.derived.grossMarginInr)} accent="green" />
-          <KpiCard label="Margin %" value={formatPct(data.derived.grossMarginPct)} hint="(Sales − purchase) ÷ sales" accent="green" />
+          <KpiCard label="Margin %" value={formatPct(data.derived.grossMarginPct)} accent="green" />
         </div>
         <AnalyticsDualLineChart title="Sales vs purchase (monthly)" seriesA={marginSeriesA} seriesB={marginSeriesB} labelA="Sales" labelB="Purchase" />
         <AnalyticsPieChart

@@ -22,7 +22,7 @@ function AppShellInner() {
       <Sidebar />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar />
-        <main className="app-main min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-rlx-bg p-2 sm:p-3 md:p-4 print:p-2">
+        <main className="app-main relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-rlx-bg p-2 sm:p-3 md:p-4 print:p-2">
           <div className="app-main-content w-full min-w-0 max-w-none">
             <RouteMasterTabs />
             <Outlet />

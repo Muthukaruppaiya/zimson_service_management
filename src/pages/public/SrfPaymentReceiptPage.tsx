@@ -3,6 +3,7 @@ import { apiJson } from "../../lib/api";
 import { formatInr } from "../../lib/formatInr";
 import { kindTitle } from "../../lib/srfPaymentReceiptDoc";
 import type { SrfPaymentReceiptView } from "../../types/srfPaymentReceipt";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 function fmtDate(value: string): string {
   const d = new Date(value);
@@ -73,13 +74,12 @@ export function SrfPaymentReceiptPage() {
         {receipt ? (
           <>
             <div className="mb-4 flex flex-wrap gap-2 print:hidden">
-              <button
-                type="button"
+              <PrintIconButton
+                label="Print receipt"
+                variant="none"
+                className="bg-[#1b3a8f] text-white hover:bg-[#152f73]"
                 onClick={() => window.print()}
-                className="rounded-lg bg-[#1b3a8f] px-4 py-2 text-xs font-semibold uppercase tracking-widest text-white"
-              >
-                Print
-              </button>
+              />
               <a
                 href={pdfHref}
                 className="rounded-lg border border-[#1b3a8f] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-[#1b3a8f]"

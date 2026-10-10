@@ -327,25 +327,12 @@ export function InventorySupplierBulkImportPage() {
               <h3 className="text-sm font-semibold uppercase tracking-wide text-white">Download Template</h3>
             </div>
             <div className="p-5">
-              <p className="text-sm text-stone-600">
-                Downloads an Excel workbook with a <strong>README</strong>, a <strong>Suppliers</strong> sheet (headers + 3
-                sample rows), and a <strong>Tax Types</strong> sheet from your Tax &amp; billing settings.
-              </p>
-              <ul className="mt-3 space-y-1 text-xs text-stone-500">
-                <li className="flex items-center gap-2">
-                  <span className="font-bold text-rlx-green">✓</span> Excel dropdowns for Active (Y/N) and Tax Person Type
-                </li>
+              <ul className="space-y-1 text-xs text-stone-500">
                 <li className="flex items-center gap-2">
                   <span className="font-bold text-rlx-green">✓</span> Same columns as Add Supplier (GSTIN, address). Supplier Code is auto-generated
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="font-bold text-rlx-green">✓</span> Check file validates GSTIN, email, PIN, tax type, duplicates
-                </li>
-                <li className="flex items-center gap-2">
                   <span className="font-bold text-rlx-green">✓</span> Matching GSTIN updates; new rows get SUP + year + sequence
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-stone-400">i</span> Delete sample rows before a live import
                 </li>
               </ul>
               <button

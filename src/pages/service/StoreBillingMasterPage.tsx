@@ -31,6 +31,7 @@ import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import type { SrfJob } from "../../types/srfJob";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 const iconBtn =
   "group relative inline-flex h-9 w-9 items-center justify-center rounded-xl border shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm";
@@ -463,14 +464,7 @@ export function StoreBillingMasterPage() {
                 <span className="text-sm font-bold uppercase tracking-wide">Invoice preview</span>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrintFromPreview}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-inset ring-white/25 transition hover:bg-white/25"
-                >
-                  <PrinterIcon className="h-3.5 w-3.5" />
-                  Printout
-                </button>
+                <PrintIconButton label="Print invoice" variant="dark" size="sm" onClick={handlePrintFromPreview} />
                 <button
                   type="button"
                   onClick={() => setPreviewJob(null)}
@@ -494,6 +488,7 @@ export function StoreBillingMasterPage() {
         <ProcessSuccessModal
           open
           tone="premium"
+          showHome={false}
           title="Resend invoice"
           description={`Invoice ${resendJob.invoiceNumber ?? ""} · SRF ${resendJob.reference}`}
           onBackdropClick={() => {
@@ -598,11 +593,7 @@ export function StoreBillingMasterPage() {
             <p className="rounded-xl bg-emerald-50 px-3 py-2.5 text-xs leading-relaxed text-emerald-950 ring-1 ring-emerald-200/80">
               {resendNote}
             </p>
-          ) : (
-            <p className="text-sm leading-relaxed text-stone-700">
-              Send the tax invoice as a PDF on WhatsApp and email, or download a copy for the customer.
-            </p>
-          )}
+          ) : null}
         </ProcessSuccessModal>
       ) : null}
 

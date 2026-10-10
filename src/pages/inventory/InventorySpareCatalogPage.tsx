@@ -27,8 +27,9 @@ import {
   requiredCustomFieldError,
 } from "../../lib/customFields";
 import type { CustomFieldValues } from "../../types/customField";
-import { modalBtnPrimary, modalBtnSecondary, modalFooterClass, modalInputClass } from "../../lib/appModalStyles";
+import { modalBtnSecondary, modalFooterClass, modalInputClass } from "../../lib/appModalStyles";
 import { buildSpareStickerData, printSpareStickers, type SpareStickerData } from "../../lib/spareSticker";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2.5 text-sm text-stone-900 outline-none ring-zimson-400/40 focus:ring-2";
@@ -827,7 +828,6 @@ export function InventorySpareCatalogPage() {
         </p>
       ) : (
         <>
-          <p className="mb-2 text-xs text-rlx-ink-muted md:hidden">Swipe horizontally to see more columns →</p>
           <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
             <table className="ui-table-dense w-full min-w-[40rem] text-left text-sm">
               <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
@@ -961,7 +961,6 @@ export function InventorySpareCatalogPage() {
             <div className="mb-4 flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-stone-900">Add spare</h3>
-                <p className="text-sm text-stone-600">Create a spare master row</p>
               </div>
               <button type="button" onClick={() => setAddSpareOpen(false)} className="rounded-lg border px-3 py-1.5 text-sm">
                 Close
@@ -1015,7 +1014,6 @@ export function InventorySpareCatalogPage() {
                     ))
                   )}
                 </select>
-                <p className="mt-1 text-xs text-stone-500">Same part number can be added again for a different brand.</p>
               </div>
               <div>
                 <label htmlFor="sp-name" className="text-xs font-medium text-stone-600">
@@ -1795,7 +1793,6 @@ export function InventorySpareCatalogPage() {
                           >
                             {propsEditBusy ? "Saving…" : "Save properties"}
                           </button>
-                          <p className="text-xs text-stone-500">Part number cannot be changed. Stock is not edited here.</p>
                           {taxEditMsg ? (
                             <p className={`text-sm ${taxEditMsg.type === "ok" ? "text-emerald-800" : "text-red-800"}`}>
                               {taxEditMsg.text}
@@ -1993,7 +1990,6 @@ export function InventorySpareCatalogPage() {
         title="Print spare stickers"
         eyebrow="Inventory sticker"
         subtitle={stickerPrintSpare?.sku}
-        description="Enter how many labels to print for this spare."
         size="sm"
         zIndex={70}
         footer={
@@ -2001,14 +1997,12 @@ export function InventorySpareCatalogPage() {
             <button type="button" className={modalBtnSecondary} onClick={() => setStickerPrintSpare(null)}>
               Cancel
             </button>
-            <button
-              type="button"
-              className={modalBtnPrimary}
+            <PrintIconButton
+              label="Print stickers"
+              variant="solid"
               onClick={confirmStickerPrint}
               disabled={stickerPrintBusy || Number.parseInt(stickerPrintCount, 10) < 1}
-            >
-              Print
-            </button>
+            />
           </div>
         }
       >
@@ -2042,7 +2036,6 @@ export function InventorySpareCatalogPage() {
                 autoFocus
               />
             </label>
-            <p className="text-xs text-slate-500">Whole numbers from 1 to 99.</p>
           </div>
         ) : null}
       </AppModal>

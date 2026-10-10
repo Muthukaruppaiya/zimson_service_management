@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, apiJson } from "../../lib/api";
 import { sanitizeTextInput } from "../../lib/inputSanitize";
 import { SearchableCombobox } from "./SearchableCombobox";
+import { PickerSaveButton } from "./PickerSaveButton";
 
 export type WatchFamilyRow = { id: string; brand: string; family: string };
 
@@ -214,12 +215,12 @@ export function WatchFamilyPicker({
     [catalogFamilies],
   );
 
+  const showNoSavedHint = Boolean(watchBrand.trim()) && catalogFamilies.length === 0 && !loadingFamilies;
+  const showPickSaved = isNewFamilyEntry && catalogFamilies.length > 0;
+
   return (
     <div className="min-w-0">
-      {catalogFamilies.length === 0 && !loadingFamilies ? (
-        <p className="mb-1 text-xs text-amber-900">No saved families for this brand — enter a family name.</p>
-      ) : null}
-      <div className="flex flex-wrap items-start gap-2">
+      <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1">
           {isNewFamilyEntry ? (
             <div>
@@ -248,22 +249,6 @@ export function WatchFamilyPicker({
                   hydratedExternalFamilyRef.current = `${watchBrand}::${next}::${catalogFamilies.length}`;
                 }}
               />
-              {catalogFamilies.length > 0 ? (
-                <button
-                  type="button"
-                  className="mt-1 text-[11px] font-medium text-rlx-green hover:underline"
-                  onClick={() => {
-                    editingNewFamilyRef.current = false;
-                    hydratedExternalFamilyRef.current = null;
-                    setCatalogFamilyKey("");
-                    setCustomFamilyText("");
-                    onFamilyChangeRef.current("");
-                    setSaveMsg(null);
-                  }}
-                >
-                  Pick from saved families
-                </button>
-              ) : null}
             </div>
           ) : (
             <SearchableCombobox
@@ -309,17 +294,36 @@ export function WatchFamilyPicker({
           )}
         </div>
         {isNewFamilyEntry && apiMode ? (
-          <button
-            type="button"
+          <PickerSaveButton
+            fieldClass={fieldClass}
             disabled={!customFamilyText.trim() || saving}
+            saving={saving}
             title="Save new family to database"
             onClick={() => void saveNewFamily()}
-            className="mt-6 shrink-0 border border-rlx-gold/60 bg-white px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
-          >
-            {saving ? "…" : "Save"}
-          </button>
+          />
         ) : null}
       </div>
+      {showNoSavedHint || showPickSaved ? (
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
+          {showNoSavedHint ? <span className="text-stone-500">No saved families for {watchBrand} yet</span> : <span />}
+          {showPickSaved ? (
+            <button
+              type="button"
+              className="font-medium text-rlx-green hover:underline"
+              onClick={() => {
+                editingNewFamilyRef.current = false;
+                hydratedExternalFamilyRef.current = null;
+                setCatalogFamilyKey("");
+                setCustomFamilyText("");
+                onFamilyChangeRef.current("");
+                setSaveMsg(null);
+              }}
+            >
+              Pick from saved families
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {saveMsg ? <p className="mt-1.5 text-xs font-medium text-emerald-800">{saveMsg}</p> : null}
       {loadError ? <p className="mt-1.5 text-xs text-red-800">{loadError}</p> : null}
     </div>

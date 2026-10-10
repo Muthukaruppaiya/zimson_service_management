@@ -26,6 +26,7 @@ import { DEFAULT_SERVICE_SAC, formatPrintedHsnSac } from "../../lib/hsnGst";
 import type { CustomerRecord } from "../../types/customer";
 import type { QuickBillEdocInfo } from "../../types/quickBill";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 type Phase = "name" | "phone" | "match" | "bill" | "done";
 
@@ -705,13 +706,7 @@ export function ServiceBillingPage() {
                 >
                   Preview invoice
                 </button>
-                <button
-                  type="button"
-                  onClick={() => printServiceInvoice()}
-                  className="rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-                >
-                  Print invoice
-                </button>
+                <PrintIconButton label="Print invoice" onClick={() => printServiceInvoice()} />
                 <button
                   type="button"
                   disabled={interHoInvoicePdfBusy}
@@ -775,13 +770,12 @@ export function ServiceBillingPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-stretch gap-2 sm:items-center">
-                  <button
-                    type="button"
+                  <PrintIconButton
+                    label="Print invoice"
+                    variant="none"
+                    className="bg-rlx-gold text-rlx-green-deep hover:bg-rlx-gold-dark"
                     onClick={() => printServiceInvoice()}
-                    className="flex-1 bg-rlx-gold px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-rlx-green-deep transition hover:bg-rlx-gold-dark sm:flex-none sm:px-5"
-                  >
-                    Print
-                  </button>
+                  />
                   <button
                     type="button"
                     disabled={interHoInvoicePdfBusy}
@@ -910,10 +904,6 @@ export function ServiceBillingPage() {
       {phase === "phone" ? (
         <Card title="Step 2 — Mobile number" subtitle={`Looking up: ${draftName.trim() || "—"}`}>
           <form onSubmit={handleLookup} className="space-y-4">
-            <p className="text-sm text-stone-600">
-              We use the mobile number to detect an <strong>existing</strong> customer. If none is found,
-              you will be redirected to <strong>customer registration</strong>.
-            </p>
             <div>
               <label htmlFor="bill-phone" className="text-xs font-medium text-stone-600">
                 Mobile number
@@ -1254,7 +1244,6 @@ export function ServiceBillingPage() {
                     </table>
                   </div>
                   <p className="text-xs text-stone-500">
-                    Example: ₹8,000 @ 14% + ₹12,000 @ 12% → total tax ₹2,560.00, invoice total ₹22,560.00.
                     Default SAC/HSN: <span className="font-mono">{defaultSacHsn}</span>
                   </p>
                 </div>
@@ -1273,7 +1262,7 @@ export function ServiceBillingPage() {
                       />
                       {apiMode ? (
                         <p className="mt-1 text-xs text-stone-500">
-                          Default loaded from organisation settings. Default SAC/HSN for invoices:{" "}
+                          Default SAC/HSN for invoices:{" "}
                           <span className="font-mono font-medium text-stone-700">{defaultSacHsn}</span>
                           {canOpenTaxSettings ? (
                             <>

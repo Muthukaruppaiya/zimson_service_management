@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useToast } from "../ui/Toast";
@@ -22,6 +21,8 @@ import {
   effectiveModuleAccess,
   isStoreRole,
 } from "../../lib/userCreationPolicy";
+import { HomeLink, homeLinkFlatClass } from "../ui/HomeLink";
+import { Link } from "react-router-dom";
 
 // ── Shared style tokens ──────────────────────────────────────────────────────
 
@@ -301,12 +302,6 @@ export function UserCreationPanel() {
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                 </select>
-                <p className="mt-1 text-[11px] text-stone-400">
-                  Manage in{" "}
-                  <Link to="/regions" className="font-semibold text-rlx-green underline">
-                    Regions &amp; Stores
-                  </Link>
-                </p>
               </div>
             ) : (
               <div>
@@ -314,7 +309,6 @@ export function UserCreationPanel() {
                 <div className={inputCls + " bg-stone-50 text-stone-500 cursor-not-allowed"}>
                   {regionOptions[0]?.name ?? "—"}
                 </div>
-                <p className="mt-1 text-[11px] text-stone-400">Fixed to your assigned region.</p>
               </div>
             )}
 
@@ -367,7 +361,6 @@ export function UserCreationPanel() {
                     </div>
                   )}
                 </div>
-                <p className="mt-1 text-[11px] text-stone-400">Multiple stores allowed for this role.</p>
               </div>
             ) : (
               <div className="flex items-center border border-dashed border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-400 self-start mt-5">
@@ -503,7 +496,6 @@ export function UserCreationPanel() {
             />
             <span className="text-sm font-semibold text-stone-700">
               Override with custom module list
-              <span className="ml-2 text-[11px] font-normal text-stone-400">(leave unchecked to use role defaults)</span>
             </span>
           </label>
 
@@ -596,10 +588,13 @@ export function UserCreationPanel() {
               <p className="text-lg font-semibold text-stone-800">{createdUser.name}</p>
               <p className="mt-1 text-sm text-stone-500">Employee No: <span className="font-mono font-medium text-stone-700">{createdUser.employeeCode}</span></p>
               <p className="text-sm text-stone-500 mt-0.5">Role: <span className="font-medium text-stone-700">{createdUser.role}</span></p>
-              <p className="mt-4 text-xs text-stone-400">The new account is ready. You can create another user or close this dialog.</p>
             </div>
             {/* Footer */}
             <div className="flex gap-3 border-t border-rlx-rule bg-rlx-bg px-6 py-4 justify-center">
+              <HomeLink className={homeLinkFlatClass} />
+              <Link to="/users/list" className={homeLinkFlatClass}>
+                View users
+              </Link>
               <button
                 type="button"
                 onClick={() => setCreatedUser(null)}

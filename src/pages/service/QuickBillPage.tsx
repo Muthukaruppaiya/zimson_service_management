@@ -77,7 +77,6 @@ import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
 import { findRegionForInvoice, mappingJurisdictionFromRegion } from "../../lib/invoiceJurisdiction";
-import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import {
   isValidGstFormat,
   isValidPanFormat,
@@ -131,7 +130,10 @@ import {
   type WatchServiceDetailValues,
 } from "../../components/service/WatchServiceDetailFields";
 import { inputClass } from "../../lib/uiForm";
+import { formatInr } from "../../lib/formatInr";
+import { IconTrash } from "../../components/ui/TableActionIcons";
 import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 type QbCapturePhoto = { id: string; photoKind?: string; filePath: string; mime?: string };
 
@@ -240,9 +242,13 @@ function emptyLine(): LineItem {
 /** Responsive form layout — stacks on narrow / quarter-screen laptop windows. */
 const qbPage = "min-w-0 max-w-full";
 const qbGrid2 = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start";
-/** Two fields per row — same alignment as Model + Serial number */
-const qbPairRow = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 md:items-start";
+const qbGrid3 = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 md:items-start";
+const qbTripleRow = "grid min-w-0 grid-cols-1 gap-4 md:grid-cols-3 md:items-start";
 const qbField = "min-w-0";
+const qbLineGrid =
+  "grid min-w-0 grid-cols-1 items-center gap-x-3 gap-y-1.5 px-3 sm:grid-cols-[1.5rem_minmax(0,1fr)_7rem_9rem_2rem]";
+const qbLineInput =
+  "w-full rounded-md border border-zimson-300 bg-white px-2.5 py-1.5 text-sm text-stone-800 outline-none transition focus:border-zimson-500 focus:ring-2 focus:ring-zimson-200";
 
 const readOnlyCustomerFieldClass = `${inputClass} cursor-not-allowed bg-stone-100 text-stone-800`;
 
@@ -258,13 +264,7 @@ function QuickBillInvoicePanel({
       <div className="print:hidden">
         <ServiceInvoicePrintSet data={viewModel} idPrefix="qb" />
         <div className="mt-4 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => printServiceInvoice()}
-            className="inline-flex rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Print invoice
-          </button>
+          <PrintIconButton label="Print invoice" onClick={() => printServiceInvoice()} />
           <button
             type="button"
             onClick={onNew}
@@ -795,10 +795,6 @@ export function QuickBillPage() {
   );
   const showHoBillingLocation = isHoServiceOperator(user?.role);
 
-  const priceRegionQuery = useMemo(() => {
-    return effectiveBillingRegionId ? `?regionId=${encodeURIComponent(effectiveBillingRegionId)}` : "";
-  }, [effectiveBillingRegionId]);
-
   const stockQuerySuffix = useMemo(() => {
     // Store login: API scopes stock to the logged-in store (no regional aggregate).
     if (user?.role && isStoreRole(user.role)) return "";
@@ -889,50 +885,38 @@ export function QuickBillPage() {
   useEffect(() => {
     let cancelled = false;
     async function loadBrandSpareOptions() {
-      if (spares.length === 0) {
+      const brand = watchBrand.trim();
+      if (spares.length === 0 || !brand) {
         setSpareOptions([]);
         return;
       }
       setSpareOptionsLoading(true);
       try {
-        const resolved = await Promise.all(
-          spares.map(async (spare) => {
-            try {
-              const [priceData, stockData] = await Promise.all([
-                apiJson<{ prices: SparePriceLine[] }>(
-                  `/api/catalog/spares/${encodeURIComponent(spare.id)}/prices${priceRegionQuery}`,
-                ),
-                apiJson<{ stock: SpareStockRow[] }>(
-                  `/api/catalog/spares/${encodeURIComponent(spare.id)}/stock${stockQuerySuffix}`,
-                ),
-              ]);
-              const matchedPrice = priceData.prices.find(
-                (p) => p.brand.trim().toLowerCase() === watchBrand.trim().toLowerCase(),
-              );
-              const spareBrand = spare.brand?.trim().toLowerCase() ?? "";
-              if (spareBrand && spareBrand !== watchBrand.trim().toLowerCase()) return null;
-              if (!matchedPrice) return null;
-              const stockQty = stockData.stock.reduce((sum, row) => sum + row.quantity, 0);
-              return {
-                id: spare.id,
-                sku: spare.sku,
-                brand: spare.brand,
-                altSku: spare.altSku,
-                name: spare.name,
-                hsn: spare.hsn?.trim() || null,
-                gstPercent: spare.gstPercent ?? null,
-                price: matchedPrice.price,
-                stockQty,
-              } satisfies QuickBillSpareOption;
-            } catch {
-              return null;
-            }
-          }),
+        const qs = new URLSearchParams(stockQuerySuffix.replace(/^\?/, ""));
+        qs.set("brand", brand);
+        if (effectiveBillingRegionId) qs.set("priceRegionId", effectiveBillingRegionId);
+        const out = await apiJson<{ options: { spareId: string; price: number; stockQty: number }[] }>(
+          `/api/catalog/spare-options?${qs.toString()}`,
         );
         if (cancelled) return;
-        const sorted = resolved
-          .filter((r): r is QuickBillSpareOption => Boolean(r))
-          .sort((a, b) => a.name.localeCompare(b.name) || a.sku.localeCompare(b.sku));
+        const spareById = new Map(spares.map((s) => [s.id, s]));
+        const sorted: QuickBillSpareOption[] = [];
+        for (const row of out.options) {
+          const spare = spareById.get(row.spareId);
+          if (!spare) continue;
+          sorted.push({
+            id: spare.id,
+            sku: spare.sku,
+            brand: spare.brand,
+            altSku: spare.altSku,
+            name: spare.name,
+            hsn: spare.hsn?.trim() || null,
+            gstPercent: spare.gstPercent ?? null,
+            price: row.price,
+            stockQty: row.stockQty,
+          });
+        }
+        sorted.sort((a, b) => a.name.localeCompare(b.name) || a.sku.localeCompare(b.sku));
         setSpareOptions(sorted);
       } catch {
         if (!cancelled) setSpareOptions([]);
@@ -944,7 +928,7 @@ export function QuickBillPage() {
     return () => {
       cancelled = true;
     };
-  }, [spares, watchBrand, priceRegionQuery, stockQuerySuffix]);
+  }, [spares, watchBrand, effectiveBillingRegionId, stockQuerySuffix]);
 
   useEffect(() => {
     setLines((prev) => {
@@ -1763,6 +1747,30 @@ export function QuickBillPage() {
     return Number.isFinite(n) && n > 0 ? n : 0;
   }, [serviceChargeInr]);
 
+  const hsnSummary = useMemo(() => {
+    type Row = { key: string; hsn: string; rate: number | null; count: number; kind: "spare" | "service" };
+    const rows = new Map<string, Row>();
+    for (const row of spareLinesWithHsn) {
+      const rate = row.hsn === "—" ? null : row.rate;
+      const key = `spare|${row.hsn}|${rate ?? ""}`;
+      const cur = rows.get(key);
+      if (cur) cur.count += 1;
+      else rows.set(key, { key, hsn: row.hsn, rate, count: 1, kind: "spare" });
+    }
+    const serviceCount =
+      lines.filter((l) => !l.spareId && Number.parseFloat(l.amount) > 0).length + (serviceChargeNum > 0 ? 1 : 0);
+    if (serviceCount > 0) {
+      rows.set("service", {
+        key: "service",
+        hsn: serviceSacHsn,
+        rate: serviceHsnGstRate,
+        count: serviceCount,
+        kind: "service",
+      });
+    }
+    return [...rows.values()];
+  }, [spareLinesWithHsn, lines, serviceChargeNum, serviceSacHsn, serviceHsnGstRate]);
+
   function resetForm() {
     setBillSuccessModalOpen(false);
     setBillPostActionNote(null);
@@ -1938,6 +1946,7 @@ export function QuickBillPage() {
       <div>
         <ProcessSuccessModal
           open={billSuccessModalOpen}
+          showHome={false}
           title="Quick bill saved successfully"
           description={`Invoice ${inv.billNumber} · ${totalFmt}`}
           onBackdropClick={() => setBillSuccessModalOpen(false)}
@@ -2046,6 +2055,7 @@ export function QuickBillPage() {
       <div>
         <ProcessSuccessModal
           open={billSuccessModalOpen}
+          showHome={false}
           title="Quick bill completed"
           description={`Reference ${completion.ref} · ${demoTotalFmt}`}
           onBackdropClick={() => setBillSuccessModalOpen(false)}
@@ -2160,31 +2170,29 @@ export function QuickBillPage() {
       >
         <Card title="Customer">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex gap-4">
-              <label
-                className="flex cursor-pointer items-center gap-2 text-sm"
-              >
-                <input
-                  type="radio"
-                  name="qb-cust"
-                  checked={customerType === "B2C"}
-                  onChange={() => trySetCustomerType("B2C")}
-                  className="text-zimson-600 focus:ring-zimson-500"
-                />
-                B2C
-              </label>
-              <label
-                className="flex cursor-pointer items-center gap-2 text-sm"
-              >
-                <input
-                  type="radio"
-                  name="qb-cust"
-                  checked={customerType === "B2B"}
-                  onChange={() => trySetCustomerType("B2B")}
-                  className="text-zimson-600 focus:ring-zimson-500"
-                />
-                B2B
-              </label>
+            <div className="inline-flex rounded-lg border border-zimson-200 bg-zimson-50 p-1" role="radiogroup" aria-label="Customer type">
+              {(
+                [
+                  ["B2C", "Individual (B2C)"],
+                  ["B2B", "Business (B2B)"],
+                ] as const
+              ).map(([value, text]) => (
+                <label
+                  key={value}
+                  className={`relative cursor-pointer select-none rounded-md px-4 py-1.5 text-sm font-semibold transition focus-within:ring-2 focus-within:ring-zimson-300 ${
+                    customerType === value ? "bg-white text-zimson-900 shadow-sm ring-1 ring-zimson-200" : "text-stone-500 hover:text-zimson-800"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="qb-cust"
+                    className="sr-only"
+                    checked={customerType === value}
+                    onChange={() => trySetCustomerType(value)}
+                  />
+                  {text}
+                </label>
+              ))}
             </div>
             {customerLockedFromDb ? (
               <button
@@ -2209,19 +2217,7 @@ export function QuickBillPage() {
             </p>
           )} */}
 
-          <div className={qbGrid2}>
-            <div className={qbField}>
-              <label htmlFor="qb-customer-id" className="text-xs font-medium text-stone-600">
-                Customer ID
-              </label>
-              <input
-                id="qb-customer-id"
-                readOnly
-                value={loadedCustomerCode ?? ""}
-                className={`${inputClass} bg-zimson-50/80 font-mono`}
-                placeholder="—"
-              />
-            </div>
+          <div className={qbGrid3}>
             <div className={qbField}>
               <label htmlFor="qb-phone" className="text-xs font-medium text-stone-600">
                 Mobile number *
@@ -2240,8 +2236,37 @@ export function QuickBillPage() {
                 placeholder="+91 …"
               />
             </div>
+            <div className={qbField}>
+              <label htmlFor="qb-customer-id" className="text-xs font-medium text-stone-600">
+                Customer ID
+              </label>
+              <input
+                id="qb-customer-id"
+                readOnly
+                value={loadedCustomerCode ?? ""}
+                className={`${inputClass} bg-zimson-50/80 font-mono`}
+                placeholder="—"
+              />
+            </div>
+            <div className={qbField}>
+              <label htmlFor="qb-name" className="text-xs font-medium text-stone-600">
+                {customerType === "B2B" ? "Contact person *" : "Customer name (optional)"}
+              </label>
+              <input
+                id="qb-name"
+                value={customerName}
+                readOnly={customerLockedFromDb}
+                onChange={
+                  customerLockedFromDb
+                    ? undefined
+                    : (e) => setCustomerName(sanitizeTextInput(e.target.value, 240))
+                }
+                className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
+                placeholder={customerType === "B2B" ? "Name on account" : "Walk-in customer"}
+              />
+            </div>
             {customerType === "B2B" ? (
-              <div className={`${qbField} md:col-span-2`}>
+              <div className={qbField}>
                 <label htmlFor="qb-company" className="text-xs font-medium text-stone-600">
                   Company name *
                 </label>
@@ -2319,23 +2344,6 @@ export function QuickBillPage() {
               </div>
             )}
             <div className={qbField}>
-              <label htmlFor="qb-name" className="text-xs font-medium text-stone-600">
-                {customerType === "B2B" ? "Contact person *" : "Customer name (optional)"}
-              </label>
-              <input
-                id="qb-name"
-                value={customerName}
-                readOnly={customerLockedFromDb}
-                onChange={
-                  customerLockedFromDb
-                    ? undefined
-                    : (e) => setCustomerName(sanitizeTextInput(e.target.value, 240))
-                }
-                className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
-                placeholder={customerType === "B2B" ? "Name on account" : "Walk-in — optional"}
-              />
-            </div>
-            <div className={qbField}>
               <label htmlFor="qb-email" className="text-xs font-medium text-stone-600">
                 Email (optional)
               </label>
@@ -2348,17 +2356,17 @@ export function QuickBillPage() {
                   customerLockedFromDb ? undefined : (e) => setEmail(sanitizeEmailInput(e.target.value))
                 }
                 className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
-                placeholder="optional"
+                placeholder="name@example.com"
               />
             </div>
             {customerCheckMsg ? (
-              <p className="md:col-span-2 rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">
+              <p className="col-span-full rounded-xl bg-zimson-50 px-3 py-2 text-sm text-stone-700">
                 {customerCheckMsg}
               </p>
             ) : null}
             {customerChecked && loadedCustomerId && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
               <div
-                className="md:col-span-2 rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
+                className="col-span-full rounded-xl border-2 border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950"
                 role="alert"
               >
                 Alert: Customer not verified — complete mobile OTP in customer registration.
@@ -2384,7 +2392,7 @@ export function QuickBillPage() {
 
         <Card title="Watch on counter" subtitle="">
           <div className="flex min-w-0 flex-col gap-4">
-            <div className={qbPairRow}>
+            <div className={qbTripleRow}>
               <div className={qbField}>
                 <label htmlFor="qb-brand" className="text-xs font-medium text-stone-600">
                   Brand *
@@ -2415,57 +2423,60 @@ export function QuickBillPage() {
                   idPrefix="qb"
                 />
               </div>
-            </div>
-            <div className={qbPairRow}>
-            <div className={qbField}>
-              <WatchModelPicker
-                watchBrand={watchBrand}
-                apiMode={apiMode}
-                model={watchModel}
-                onModelChange={setWatchModel}
-                onSelectionModeChange={setWatchModelIsNew}
-                disableAutoSelect
-                inputClass={inputClass}
-                idPrefix="qb"
-                serialHint={watchRef}
-              />
-            </div>
-            <div className={qbField}>
-              <label htmlFor="qb-ref" className="text-xs font-medium text-stone-600">
-                Serial number ({serialNumberRequired ? "mandatory" : "optional"})
-              </label>
-              <input
-                id="qb-ref"
-                value={watchRef}
-                onChange={(e) => setWatchRef(sanitizeAlphanumericInput(e.target.value, 48))}
-                className={inputClass}
-                placeholder="Case / movement serial"
-                required={serialNumberRequired}
-              />
-            </div>
+              <div className={qbField}>
+                <WatchModelPicker
+                  watchBrand={watchBrand}
+                  apiMode={apiMode}
+                  model={watchModel}
+                  onModelChange={setWatchModel}
+                  onSelectionModeChange={setWatchModelIsNew}
+                  disableAutoSelect
+                  inputClass={inputClass}
+                  idPrefix="qb"
+                  serialHint={watchRef}
+                />
+              </div>
             </div>
             <WatchServiceDetailFields
               idPrefix="qb"
               inputClass={inputClass}
+              columns={3}
               values={watchServiceDetails}
               onChange={(patch) => setWatchServiceDetails((prev) => ({ ...prev, ...patch }))}
               stockWatchStoreOptions={billingStoreOptions}
               stockWatchStoreId={stockWatchStoreId}
               onStockWatchStoreChange={setStockWatchStoreId}
+              leadingFields={
+                <div className={qbField}>
+                  <label htmlFor="qb-ref" className="text-xs font-medium text-stone-600">
+                    Serial number{serialNumberRequired ? " *" : ""}
+                  </label>
+                  <input
+                    id="qb-ref"
+                    value={watchRef}
+                    onChange={(e) => setWatchRef(sanitizeAlphanumericInput(e.target.value, 48))}
+                    className={inputClass}
+                    placeholder={serialNumberRequired ? "Case / movement serial" : "Case / movement serial (optional)"}
+                    required={serialNumberRequired}
+                  />
+                </div>
+              }
+              trailingRemarkField={
+                <div className={qbField}>
+                  <label htmlFor="qb-watch-remark" className="text-xs font-medium text-stone-600">
+                    Remark
+                  </label>
+                  <textarea
+                    id="qb-watch-remark"
+                    rows={2}
+                    value={watchRemark}
+                    onChange={(e) => setWatchRemark(sanitizeTextInput(e.target.value, 200))}
+                    className={inputClass}
+                    placeholder="Condition notes, accessories, etc."
+                  />
+                </div>
+              }
             />
-            <div className={qbField}>
-              <label htmlFor="qb-watch-remark" className="text-xs font-medium text-stone-600">
-                Remark
-              </label>
-              <textarea
-                id="qb-watch-remark"
-                rows={2}
-                value={watchRemark}
-                onChange={(e) => setWatchRemark(sanitizeTextInput(e.target.value, 200))}
-                className={inputClass}
-                placeholder="Condition notes, accessories, etc."
-              />
-            </div>
             {watchServiceDetails.natureOfRepair === "internal_service" ? (
               <div className={`${qbField} text-xs text-stone-600`}>
                 Selected stock watch location:{" "}
@@ -2538,7 +2549,6 @@ export function QuickBillPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">
                       Uploaded from customer link
                     </p>
-                    <p className="text-[11px] text-stone-500">Click a photo to preview full size</p>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2.5">
                     {capturePhotos.map((photo) => {
@@ -2628,371 +2638,333 @@ export function QuickBillPage() {
         </Card>
 
         <Card title="Service lines" subtitle="">
-          <div className="mb-4 flex min-w-0 flex-col gap-3 border-b border-zimson-100 pb-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Add lines</p>
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
-              <div className="flex min-w-0 flex-1 flex-col gap-2 sm:max-w-md sm:flex-row">
-                <input
-                  value={barcodeSku}
-                  onChange={(e) => setBarcodeSku(e.target.value.toUpperCase())}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addScannedSku();
-                    }
-                  }}
-                  className="min-w-0 flex-1 rounded-lg border border-zimson-400 bg-white px-2 py-2 text-xs font-semibold text-zimson-900 shadow-sm"
-                  placeholder="Scan barcode / SKU"
-                  aria-label="Scan barcode sku"
-                />
+          <div className="mb-4 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
+            <div className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-lg border border-zimson-300 bg-white shadow-sm transition focus-within:border-zimson-500 focus-within:ring-2 focus-within:ring-zimson-200 sm:max-w-sm">
+              <span className="flex items-center pl-3 text-zimson-500" aria-hidden>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" d="M4 6v12M7 6v12M10 6v12M14 6v12M17 6v12M20 6v12" />
+                </svg>
+              </span>
+              <input
+                value={barcodeSku}
+                onChange={(e) => setBarcodeSku(e.target.value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addScannedSku();
+                  }
+                }}
+                className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-sm font-semibold tracking-wide text-zimson-900 outline-none placeholder:font-normal placeholder:text-stone-400"
+                placeholder="Scan barcode / SKU"
+                aria-label="Scan barcode sku"
+              />
+              <button
+                type="button"
+                onClick={addScannedSku}
+                disabled={!barcodeSku.trim()}
+                className="shrink-0 border-l border-zimson-200 bg-zimson-50 px-4 text-xs font-semibold text-zimson-900 transition hover:bg-zimson-100 disabled:cursor-not-allowed disabled:text-stone-400"
+              >
+                Add
+              </button>
+            </div>
+            <select
+              value={partPick}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v) void addPartLine(v);
+              }}
+              className="min-w-0 flex-1 rounded-lg border border-zimson-300 bg-white px-3 py-2.5 text-sm text-zimson-900 shadow-sm transition focus:border-zimson-500 focus:outline-none focus:ring-2 focus:ring-zimson-200"
+              aria-label="Add part from catalog"
+            >
+              <option value="">
+                {spareOptionsLoading
+                  ? "Loading spares for selected brand…"
+                  : `+ Spare with ${watchBrand} price in region…`}
+              </option>
+              {spareOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.sku}) — ₹{s.price} · qty {s.stockQty}
+                  {s.stockQty <= 0 ? " · Out of stock" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-0 overflow-hidden rounded-xl border border-zimson-200 bg-white">
+            <div className={`hidden ${qbLineGrid} border-b border-zimson-200 bg-zimson-50 py-2 text-[11px] font-semibold uppercase tracking-wide text-stone-500 sm:grid`}>
+              <span>#</span>
+              <span>Item</span>
+              <span>HSN / SAC</span>
+              <span className="text-right">Amount (₹)</span>
+              <span className="sr-only">Actions</span>
+            </div>
+            <ul className="divide-y divide-zimson-100">
+              {lines.length === 0 ? (
+                <li className="px-3 py-5 text-center text-sm text-stone-500">No spares or charges added yet.</li>
+              ) : (
+                lines.map((line, index) => {
+                  const lineHsn =
+                    line.spareId
+                      ? normalizeHsnCode(line.hsn) || resolveSpareHsn(line.spareId) || "—"
+                      : null;
+                  const lineGstRate =
+                    line.spareId && lineHsn && lineHsn !== "—"
+                      ? resolveLineGstPercent({
+                          spareId: line.spareId,
+                          defaultSacGstPercent: labourGstPercent,
+                          spareGstLookup: resolveSpareGst,
+                        })
+                      : null;
+                  const amountNum = Number.parseFloat(line.amount);
+                  return (
+                    <li key={line.id} className={`${qbLineGrid} py-2.5 transition hover:bg-zimson-50/40`}>
+                      <span className="hidden text-xs font-semibold tabular-nums text-stone-400 sm:block">{index + 1}</span>
+                      <div className="min-w-0">
+                        <span
+                          className={`mb-1 inline-block rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide ${
+                            line.spareId ? "bg-zimson-100 text-zimson-800" : "bg-amber-100 text-amber-800"
+                          }`}
+                        >
+                          {line.spareId ? "Spare" : "Charge"}
+                        </span>
+                        {line.spareId ? (
+                          <p className="truncate text-sm font-medium text-stone-800" title={line.description}>
+                            {line.description}
+                          </p>
+                        ) : (
+                          <input
+                            value={line.description}
+                            onChange={(e) =>
+                              updateLine(line.id, {
+                                description: sanitizeTextInput(e.target.value, 200),
+                              })
+                            }
+                            className={qbLineInput}
+                            placeholder="Charge description"
+                            aria-label={`Description for line ${index + 1}`}
+                          />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        {lineHsn ? (
+                          <>
+                            <p className="font-mono text-xs text-stone-700">{lineHsn}</p>
+                            {lineGstRate != null ? (
+                              <p className="text-[10px] text-stone-500">GST {lineGstRate}%</p>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="text-xs text-stone-400">—</span>
+                        )}
+                      </div>
+                      <div className="min-w-0 sm:text-right">
+                        {line.spareId ? (
+                          <p className="text-sm font-semibold tabular-nums text-stone-900">
+                            {Number.isFinite(amountNum) ? formatInr(amountNum) : "—"}
+                          </p>
+                        ) : (
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={line.amount}
+                            onChange={(e) => handleManualLineAmount(line.id, e.target.value)}
+                            className={`${qbLineInput} text-right tabular-nums`}
+                            placeholder="0"
+                            aria-label={`Amount for line ${index + 1}`}
+                          />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeLine(line.id)}
+                        className="inline-flex h-8 w-8 items-center justify-center justify-self-end rounded-md text-stone-400 transition hover:bg-red-50 hover:text-red-600"
+                        title="Remove line"
+                        aria-label={`Remove ${line.description || `line ${index + 1}`}`}
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </button>
+                    </li>
+                  );
+                })
+              )}
+              <li className={`${qbLineGrid} bg-zimson-50/40 py-2.5`}>
+                <span className="hidden text-xs font-semibold text-stone-400 sm:block">—</span>
+                <div className="min-w-0">
+                  <span className="mb-1 inline-block rounded bg-stone-200 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-stone-700">
+                    Labour
+                  </span>
+                  <p className="text-sm font-medium text-stone-800">Service / repair charge</p>
+                </div>
+                <div className="min-w-0">
+                  <p className="font-mono text-xs text-stone-700">{serviceSacHsn}</p>
+                  <p className="text-[10px] text-stone-500">GST {serviceHsnGstRate}%</p>
+                </div>
+                <div className="min-w-0">
+                  <input
+                    id="qb-svc"
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={serviceChargeInr}
+                    onChange={(e) => handleServiceChargeChange(e.target.value)}
+                    className={`${qbLineInput} text-right tabular-nums`}
+                    placeholder="0"
+                    aria-label="Service charge amount"
+                  />
+                  <p className="mt-0.5 text-[10px] text-stone-500 sm:text-right">{storeServiceChargeMaxLabel(user?.role)}</p>
+                </div>
                 <button
                   type="button"
-                  onClick={addScannedSku}
-                  className="shrink-0 rounded-lg border border-zimson-400 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
+                  onClick={() => setServiceChargeInr("")}
+                  disabled={!serviceChargeInr}
+                  className="inline-flex h-8 w-8 items-center justify-center justify-self-end rounded-md text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 disabled:invisible"
+                  title="Clear service charge"
+                  aria-label="Clear service charge"
                 >
-                  Add by scan
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
-              </div>
-              <select
-                value={partPick}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v) void addPartLine(v);
-                }}
-                className="min-w-0 w-full rounded-lg border border-zimson-400 bg-white px-2 py-2 text-xs font-semibold text-zimson-900 shadow-sm sm:min-w-[12rem] sm:flex-1"
-                aria-label="Add part from catalog"
-              >
-                <option value="">
-                  {spareOptionsLoading
-                    ? "Loading spares for selected brand…"
-                    : `+ Spare with ${watchBrand} price in region…`}
-                </option>
-                {spareOptions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.sku}) — ₹{s.price} · qty {s.stockQty}
-                    {s.stockQty <= 0 ? " · Out of stock" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="space-y-3">
-            {lines.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-zimson-200 bg-zimson-50/40 px-3 py-4 text-sm text-stone-600">
-              </p>
-            ) : (
-              lines.map((line, index) => {
-                const lineHsn =
-                  line.spareId
-                    ? normalizeHsnCode(line.hsn) || resolveSpareHsn(line.spareId) || "—"
-                    : null;
-                const lineGstRate =
-                  line.spareId && lineHsn && lineHsn !== "—"
-                    ? resolveLineGstPercent({
-                        spareId: line.spareId,
-                        defaultSacGstPercent: labourGstPercent,
-                        spareGstLookup: resolveSpareGst,
-                      })
-                    : null;
-                return (
-                  <div
-                    key={line.id}
-                    className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[1fr_minmax(0,7rem)_minmax(0,9rem)_auto] sm:items-end"
-                  >
-                    <div className="min-w-0">
-                      <span className="text-xs font-medium text-stone-600">
-                        {line.spareId ? "Spare" : "Description"}
-                      </span>
-                      <input
-                        value={line.description}
-                        readOnly={Boolean(line.spareId)}
-                        onChange={
-                          line.spareId
-                            ? undefined
-                            : (e) =>
-                                updateLine(line.id, {
-                                  description: sanitizeTextInput(e.target.value, 200),
-                                })
-                        }
-                        className={line.spareId ? `${inputClass} cursor-not-allowed bg-stone-100` : inputClass}
-                        placeholder={`Line ${index + 1}`}
-                      />
-                    </div>
-                    {line.spareId ? (
-                      <div className="min-w-0 w-full">
-                        <span className="text-xs font-medium text-stone-600">HSN (inventory)</span>
-                        <input
-                          value={lineHsn}
-                          readOnly
-                          className={`${inputClass} cursor-not-allowed bg-stone-100 font-mono text-xs`}
-                          aria-label={`HSN for ${line.description}`}
-                        />
-                        {lineGstRate != null ? (
-                          <p className="mt-0.5 text-[10px] text-stone-500">GST {lineGstRate}%</p>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="hidden sm:block" aria-hidden />
-                    )}
-                    <div className="min-w-0 w-full">
-                      <span className="text-xs font-medium text-stone-600">Amount (INR)</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={line.amount}
-                        readOnly={Boolean(line.spareId)}
-                        onChange={
-                          line.spareId ? undefined : (e) => handleManualLineAmount(line.id, e.target.value)
-                        }
-                        className={line.spareId ? `${inputClass} cursor-not-allowed bg-stone-100` : inputClass}
-                        placeholder="0"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeLine(line.id)}
-                      className="w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 sm:w-auto"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                );
-              })
-            )}
-            <div className="flex flex-wrap gap-2">
+              </li>
+            </ul>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zimson-200 bg-zimson-50/60 px-3 py-2.5">
               <button
                 type="button"
                 onClick={addChargeLine}
-                className="rounded-lg border border-zimson-400 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-zimson-400 px-3 py-1.5 text-xs font-semibold text-zimson-800 transition hover:border-zimson-600 hover:bg-white"
               >
+                <span aria-hidden className="text-sm leading-none">+</span>
                 Add charge line
               </button>
-            </div>
-            <div className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3 sm:grid-cols-[1fr_minmax(0,7rem)_minmax(0,9rem)_auto] sm:items-end">
-              <div className="min-w-0">
-                <span className="text-xs font-medium text-stone-600">Service / repair charge</span>
-                <input
-                  readOnly
-                  value="Labour / service charge"
-                  className={`${inputClass} cursor-default bg-stone-100`}
-                />
-              </div>
-              <div className="min-w-0 w-full">
-                <span className="text-xs font-medium text-stone-600">HSN / SAC</span>
-                <input
-                  readOnly
-                  value={serviceSacHsn}
-                  className={`${inputClass} cursor-not-allowed bg-stone-100 font-mono text-xs`}
-                  aria-label="SAC for service charge"
-                />
-                <p className="mt-0.5 text-[10px] text-stone-500">GST {serviceHsnGstRate}%</p>
-              </div>
-              <div className="min-w-0 w-full">
-                <span className="text-xs font-medium text-stone-600">Amount (INR)</span>
-                <p className="text-[10px] text-stone-500 sm:hidden">{storeServiceChargeMaxLabel(user?.role)}</p>
-                <input
-                  id="qb-svc"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={serviceChargeInr}
-                  onChange={(e) => handleServiceChargeChange(e.target.value)}
-                  className={inputClass}
-                  placeholder="0"
-                />
-                <p className="mt-0.5 hidden text-[10px] text-stone-500 sm:block">
-                  {storeServiceChargeMaxLabel(user?.role)}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setServiceChargeInr("")}
-                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 sm:w-auto"
-              >
-                Clear
-              </button>
+              <p className="text-xs font-medium text-stone-600">
+                Lines total
+                <span className="ml-2 text-base font-bold tabular-nums text-zimson-900">
+                  {formatInr(
+                    lines.reduce((sum, l) => {
+                      const n = Number.parseFloat(l.amount);
+                      return sum + (Number.isFinite(n) ? n : 0);
+                    }, 0) + serviceChargeNum,
+                  )}
+                </span>
+              </p>
             </div>
           </div>
-          <div className="mt-4 space-y-3 rounded-xl border border-zimson-200/80 bg-zimson-50/40 p-3 sm:p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Tax details (GST)</p>
-            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className={qbField}>
-                <span className="text-xs font-medium text-stone-600">HSN / SAC (from inventory &amp; settings)</span>
-                {spareLinesWithHsn.length > 0 ? (
-                  <ul className="mt-1 space-y-1 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-800">
-                    {spareLinesWithHsn.map((row) => (
-                      <li key={row.id} className="font-mono">
-                        {row.description}: <strong>{row.hsn}</strong>
-                        {row.hsn !== "—" ? ` · GST ${row.rate}%` : ""}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="mt-1 rounded-lg border border-dashed border-stone-200 bg-white px-3 py-2 text-xs" aria-hidden />
-                )}
-                {serviceChargeNum > 0 ? (
-                  <p className="mt-2 text-xs text-stone-600">
-                    Service / repair charge SAC:{" "}
-                    <span className="font-mono font-semibold">{serviceSacHsn}</span> (GST {serviceHsnGstRate}%)
-                  </p>
+          <div className="mt-4 overflow-hidden rounded-xl border border-zimson-200 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-zimson-200 bg-zimson-50 px-3 py-2.5 sm:px-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Tax details (GST)</p>
+                {taxPreview ? (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      taxPreview.isInterstate ? "bg-violet-100 text-violet-800" : "bg-emerald-100 text-emerald-800"
+                    }`}
+                  >
+                    {taxPreview.isInterstate ? "Interstate · IGST" : "Intrastate · CGST + SGST"}
+                  </span>
+                ) : null}
+                {!isNatureOfRepairTaxable(watchServiceDetails.natureOfRepair) ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                    No tax (nature of repair)
+                  </span>
                 ) : null}
               </div>
               {customerType === "B2C" ? (
-                <div className={qbField}>
-                  <label htmlFor="qb-cust-state" className="text-xs font-medium text-stone-600">
-                    Customer state (place of supply)
-                  </label>
+                <label htmlFor="qb-cust-state" className="flex items-center gap-2 text-xs font-medium text-stone-600">
+                  Place of supply
                   <input
                     id="qb-cust-state"
                     value={customerBillingState}
                     onChange={(e) => setCustomerBillingState(sanitizeTextInput(e.target.value, 48))}
-                    className={inputClass}
+                    className="w-40 rounded-md border border-zimson-300 bg-white px-2.5 py-1.5 text-sm text-stone-800 outline-none transition focus:border-zimson-500 focus:ring-2 focus:ring-zimson-200"
                     placeholder="e.g. Tamil Nadu"
                   />
-                </div>
+                </label>
               ) : (
-                <div className={qbField}>
-                  <span className="text-xs font-medium text-stone-600">Place of supply</span>
-                  <p className="mt-1 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-800">
+                <p className="text-xs text-stone-600">
+                  Place of supply{" "}
+                  <span className="ml-1 font-semibold text-stone-800">
                     {gst.trim()
                       ? `From GSTIN (state ${gst.trim().slice(0, 2)})`
                       : "Enter customer GSTIN for interstate IGST"}
-                  </p>
-                </div>
+                  </span>
+                </p>
               )}
             </div>
-            {taxPreview ? (
-              <div className="rounded-lg border border-zimson-200 bg-white p-3 text-sm text-stone-800">
-                <p className="font-semibold text-zimson-900">
-                  {taxPreview.isInterstate
-                    ? "Interstate supply — IGST"
-                    : "Intrastate supply — CGST + SGST"}
-                </p>
-                <p className="mt-1 text-xs text-stone-600">
-                  {/* Seller: {stateCodeLabel(resolveSellerStateCode(
-                    seedStoreToInvoiceProfile(billingStore)?.invoiceStoreGstin ||
-                      serviceTaxSettings?.invoiceStoreGstin,
-                  ))}{" "}
-                  · Customer:{" "} */}
-                  {/* {stateCodeLabel(
-                    resolveCustomerSupplyStateCode({
-                      customerType,
-                      customerGstin: gst,
-                      billingStateName: customerBillingState,
-                      addressText: address,
-                      cityText: city,
-                      sellerStateCode: resolveSellerStateCode(
-                        seedStoreToInvoiceProfile(billingStore)?.invoiceStoreGstin ||
-                          serviceTaxSettings?.invoiceStoreGstin,
-                      ),
-                    }),
-                  )} */}
-                  {!isNatureOfRepairTaxable(watchServiceDetails.natureOfRepair)
-                    ? " · No tax (nature of repair)"
-                    : null}
-                </p>
-                {/* <p className="mt-1 text-xs text-stone-600">
-                  Spare & service amounts are tax-inclusive (MRP). GST below is split from the line
-                  total for the invoice.
-                </p> */}
-                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
-                  <div>
-                    <dt className="text-stone-500">Base value</dt>
-                    <dd className="font-semibold">
-                      {taxPreview.grossTaxable.toLocaleString(undefined, {
-                        style: "currency",
-                        currency: "INR",
-                      })}
-                    </dd>
-                  </div>
-                  {taxPreview.isInterstate ? (
-                    <div>
-                      <dt className="text-stone-500">IGST</dt>
-                      <dd className="font-semibold">
-                        {taxPreview.igst.toLocaleString(undefined, {
-                          style: "currency",
-                          currency: "INR",
-                        })}
-                      </dd>
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <dt className="text-stone-500">CGST</dt>
-                        <dd className="font-semibold">
-                          {taxPreview.cgst.toLocaleString(undefined, {
-                            style: "currency",
-                            currency: "INR",
-                          })}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-stone-500">SGST</dt>
-                        <dd className="font-semibold">
-                          {taxPreview.sgst.toLocaleString(undefined, {
-                            style: "currency",
-                            currency: "INR",
-                          })}
-                        </dd>
-                      </div>
-                    </>
-                  )}
-                  <div>
-                    <dt className="text-stone-500">Tax (GST)</dt>
-                    <dd className="font-semibold">
-                      {taxPreview.totalTax.toLocaleString(undefined, {
-                        style: "currency",
-                        currency: "INR",
-                      })}
-                    </dd>
-                  </div>
-                  {roundOffInr !== 0 ? (
-                    <div>
-                      <dt className="text-stone-500">Round off</dt>
-                      <dd className="font-semibold">
-                        {roundOffInr.toLocaleString(undefined, {
-                          style: "currency",
-                          currency: "INR",
-                          signDisplay: "exceptZero",
-                        })}
-                      </dd>
-                    </div>
-                  ) : null}
-                  <div>
-                    <dt className="text-stone-500">Payable total</dt>
-                    <dd className="font-semibold">
-                      {payableTotal.toLocaleString(undefined, {
-                        style: "currency",
-                        currency: "INR",
-                      })}
-                    </dd>
-                  </div>
-                </dl>
+            <div className="grid min-w-0 grid-cols-1 gap-4 p-3 sm:p-4 md:grid-cols-[minmax(0,1fr)_20rem]">
+              <div className="min-w-0">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-stone-500">HSN / SAC summary</p>
+                {hsnSummary.length > 0 ? (
+                  <ul className="flex flex-wrap gap-2">
+                    {hsnSummary.map((row) => (
+                      <li
+                        key={row.key}
+                        className="inline-flex items-center gap-2 rounded-lg border border-zimson-200 bg-zimson-50/50 px-2.5 py-1.5 text-xs"
+                      >
+                        <span className="font-mono font-semibold text-stone-800">{row.hsn}</span>
+                        {row.rate != null ? <span className="text-stone-500">GST {row.rate}%</span> : null}
+                        <span className="rounded bg-white px-1.5 py-px text-[10px] font-semibold text-stone-600 ring-1 ring-zimson-200">
+                          {row.kind === "service" ? "Service" : "Spare"} × {row.count}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-stone-400">No taxable lines yet.</p>
+                )}
               </div>
-            ) : null}
-          </div>
-          <div className="mt-4 space-y-1 text-right text-sm text-stone-900">
-            {taxPreview && taxPreview.totalTax > 0 ? (
-              <p className="text-xs text-stone-600">
-                Base{" "}
-                {taxPreview.grossTaxable.toLocaleString(undefined, {
-                  style: "currency",
-                  currency: "INR",
-                })}{" "}
-                + GST{" "}
-                {taxPreview.totalTax.toLocaleString(undefined, {
-                  style: "currency",
-                  currency: "INR",
-                })}{" "}
-                = gross{" "}
-                {payableTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-              </p>
-            ) : null}
-            <p className="text-base font-bold text-zimson-900">
-              Amount to collect:{" "}
-              {payableTotal.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-            </p>
+              <dl className="min-w-0 self-start overflow-hidden rounded-lg border border-zimson-200 bg-zimson-50/40 text-sm">
+                {taxPreview ? (
+                  <div className="space-y-1.5 px-3 py-2.5">
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-stone-500">Base value</dt>
+                      <dd className="font-medium tabular-nums text-stone-800">{formatInr(taxPreview.grossTaxable)}</dd>
+                    </div>
+                    {taxPreview.isInterstate ? (
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-stone-500">IGST</dt>
+                        <dd className="font-medium tabular-nums text-stone-800">{formatInr(taxPreview.igst)}</dd>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-stone-500">CGST</dt>
+                          <dd className="font-medium tabular-nums text-stone-800">{formatInr(taxPreview.cgst)}</dd>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-stone-500">SGST</dt>
+                          <dd className="font-medium tabular-nums text-stone-800">{formatInr(taxPreview.sgst)}</dd>
+                        </div>
+                      </>
+                    )}
+                    <div className="flex justify-between gap-3 border-t border-dashed border-zimson-200 pt-1.5">
+                      <dt className="font-medium text-stone-600">Total GST</dt>
+                      <dd className="font-semibold tabular-nums text-stone-900">{formatInr(taxPreview.totalTax)}</dd>
+                    </div>
+                    {(taxPreview.tcsAmount ?? 0) > 0 ? (
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-stone-500">
+                          TCS{taxPreview.tcsRatePercent ? ` (${taxPreview.tcsRatePercent}%)` : ""}
+                        </dt>
+                        <dd className="font-medium tabular-nums text-stone-800">{formatInr(taxPreview.tcsAmount ?? 0)}</dd>
+                      </div>
+                    ) : null}
+                    {roundOffInr !== 0 ? (
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-stone-500">Round off</dt>
+                        <dd className="font-medium tabular-nums text-stone-800">
+                          {roundOffInr > 0 ? "+" : "−"}
+                          {formatInr(Math.abs(roundOffInr))}
+                        </dd>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className="flex items-center justify-between gap-3 bg-zimson-900 px-3 py-2.5 text-white">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-white/80">Amount to collect</dt>
+                  <dd className="text-lg font-bold tabular-nums">{formatInr(payableTotal)}</dd>
+                </div>
+              </dl>
+            </div>
           </div>
         </Card>
 
@@ -3016,26 +2988,25 @@ export function QuickBillPage() {
                 ))}
               </select>
             </div>
-            <div className={`${qbField} md:col-span-2`}>
+            <div className={qbField}>
+              <label htmlFor="qb-notes" className="text-xs font-medium text-stone-600">
+                Notes
+              </label>
+              <input
+                id="qb-notes"
+                value={notes}
+                onChange={(e) => setNotes(sanitizeMultilineTextInput(e.target.value, 500))}
+                className={inputClass}
+                placeholder="Remarks for receipt (optional)"
+              />
+            </div>
+            <div className={`${qbField} border-t border-zimson-100 pt-4 md:col-span-2`}>
               <MultiPaymentFields
                 idPrefix="qb"
                 amountLabel="bill"
                 targetInr={payableTotal}
                 form={multiPaymentForm}
                 onChange={setMultiPaymentForm}
-              />
-            </div>
-            <div className={`${qbField} md:col-span-2`}>
-              <label htmlFor="qb-notes" className="text-xs font-medium text-stone-600">
-                Notes
-              </label>
-              <textarea
-                id="qb-notes"
-                rows={2}
-                value={notes}
-                onChange={(e) => setNotes(sanitizeMultilineTextInput(e.target.value, 500))}
-                className={inputClass}
-                placeholder="Optional remarks for receipt"
               />
             </div>
           </div>
@@ -3052,7 +3023,24 @@ export function QuickBillPage() {
             After OTP is verified (primary or other mobile/email), the bill is saved and the success popup opens
             automatically.
           </p> */}
-          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="flex min-w-0 flex-col-reverse gap-2 rounded-xl border border-zimson-200 bg-white p-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            <Link
+              to="/service"
+              className="inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-stone-600 transition hover:bg-stone-100 hover:text-stone-900 sm:mr-auto sm:w-auto"
+            >
+              Cancel
+            </Link>
+            {isSavingBill ? (
+              <span className="text-center text-sm font-medium text-stone-600 sm:text-left">Saving quick bill…</span>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => openHandoverOtp("custom")}
+              disabled={handoverVerified || isSavingBill || phoneLast10(phone).length !== 10}
+              className="w-full rounded-lg border border-zimson-400 bg-white px-4 py-2.5 text-center text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-5"
+            >
+              Send OTP to other number / email
+            </button>
             <button
               type="button"
               onClick={() => openHandoverOtp("primary")}
@@ -3061,27 +3049,10 @@ export function QuickBillPage() {
                 isSavingBill ||
                 (phoneLast10(phone).length !== 10 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
               }
-              className="w-full rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2.5 text-center text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-5"
+              className="w-full rounded-lg bg-zimson-900 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-zimson-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-6"
             >
               Send OTP to primary (mobile / email)
             </button>
-            <button
-              type="button"
-              onClick={() => openHandoverOtp("custom")}
-              disabled={handoverVerified || isSavingBill || phoneLast10(phone).length !== 10}
-              className="w-full rounded-xl border border-indigo-400 bg-indigo-50 px-4 py-2.5 text-center text-sm font-semibold text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-5"
-            >
-              Send OTP to other number / email
-            </button>
-            {isSavingBill ? (
-              <span className="text-center text-sm font-medium text-stone-600 sm:text-left">Saving quick bill…</span>
-            ) : null}
-            <Link
-              to="/service"
-              className="inline-flex w-full items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-center text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 sm:w-auto sm:px-5"
-            >
-              Cancel
-            </Link>
           </div>
         </div>
       </form>

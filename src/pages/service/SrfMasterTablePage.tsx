@@ -335,7 +335,6 @@ export function SrfMasterTablePage() {
 
         {masterRows.length > 0 ? (
           <>
-            <p className="mb-2 text-xs text-rlx-ink-muted md:hidden">Swipe horizontally to see more columns →</p>
             <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
               <table className="ui-table-dense w-full min-w-[64rem] table-fixed text-left text-sm">
                 <colgroup>

@@ -95,6 +95,7 @@ import { collectRazorpayIfNeeded } from "../../lib/razorpayCheckout";
 import type { ServiceInvoiceViewModel } from "../../types/serviceInvoice";
 import type { ServiceTaxSettings } from "../../types/serviceTaxSettings";
 import { seedStoreToInvoiceProfile } from "../../types/storeInvoice";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 type AdditionalChargeLine = {
   id: string;
@@ -1192,9 +1193,6 @@ export function StoreBillingPage() {
                 <p className="text-sm font-semibold text-zimson-900">
                   Service warranty <span className="text-rose-600">*</span>
                 </p>
-                <p className="mt-0.5 text-xs text-stone-600">
-                  Printed on the tax invoice. Period starts from the invoice date.
-                </p>
                 <div className="mt-3">
                   <WarrantyMonthsPicker value={warrantyMonths} onChange={setWarrantyMonths} />
                 </div>
@@ -1660,8 +1658,8 @@ export function StoreBillingPage() {
                             ? ` · Valid until ${new Date(billingJob.storeAdvanceVoucherValidUntil).toLocaleDateString("en-IN")}`
                             : ""}
                         </p>
-                        <button
-                          type="button"
+                        <PrintIconButton
+                          label="Print store credit"
                           onClick={() =>
                             printStoreAdvanceVoucherDocument({
                               voucherCode: billingJob.storeAdvanceVoucherCode!,
@@ -1676,10 +1674,7 @@ export function StoreBillingPage() {
                               storeName: currentUserStore?.name ?? null,
                             })
                           }
-                          className="rounded-xl border border-zimson-300 bg-white px-4 py-2 text-sm font-semibold text-zimson-900 hover:bg-zimson-50"
-                        >
-                          Print store credit
-                        </button>
+                        />
                       </div>
                     ) : (
                       <button
@@ -1917,12 +1912,7 @@ export function StoreBillingPage() {
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200/80">
               {billPostActionNote}
             </p>
-          ) : (
-            <p className="text-sm text-stone-700">
-              The invoice is sent on WhatsApp automatically when e-invoice is registered (or for B2C). Use the icons
-              below to print, email, resend on WhatsApp, retry e-invoice, or go to the next SRF.
-            </p>
-          )}
+          ) : null}
         </ProcessSuccessModal>
       ) : null}
 

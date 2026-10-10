@@ -9,6 +9,7 @@ import { buildPurchaseReturnDocument, openPrintDocument } from "../../lib/invent
 import { setPrintSuppliers } from "../../lib/printContext";
 import type { Supplier } from "../../types/supplier";
 import { PURCHASE_RETURN_REASONS, purchaseReturnReasonLabel, type PurchaseReturnReason } from "../../lib/purchaseReturn";
+import { HomeLink, homeLinkFlatClass } from "../../components/ui/HomeLink";
 
 const inputCls =
   "mt-1 w-full border border-rlx-rule bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30 transition-colors";
@@ -78,6 +79,7 @@ function ReturnSuccessModal({
           <p className="text-sm text-stone-500 mt-2">{returnedQty} unit(s) deducted from HO stock.</p>
         </div>
         <div className="border-t border-rlx-rule bg-rlx-bg px-6 py-4 flex flex-wrap justify-center gap-2">
+          <HomeLink className={homeLinkFlatClass} />
           <button
             type="button"
             onClick={onClose}

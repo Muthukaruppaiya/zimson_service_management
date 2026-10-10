@@ -31,6 +31,7 @@ import { EwayBillModal } from "../../components/service/EwayBillModal";
 import { EwayBillSuccessModal } from "../../components/service/EwayBillSuccessModal";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 const selectClass =
   "mt-1 w-full rounded-xl border border-rlx-rule bg-white px-3 py-2.5 text-sm outline-none focus:border-rlx-green focus:ring-2 focus:ring-rlx-green/30";
@@ -1672,9 +1673,10 @@ export function ScLogisticsPage() {
                   </table>
                 </div>
               ) : null}
-              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <button
-                  type="button"
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                <PrintIconButton
+                  label="Print inward receipt"
+                  variant="solid"
                   onClick={() => {
                     const parties = buildScInwardPrintParties(inwardAck, regions, user?.regionId);
                     printScInwardAckDocument({
@@ -1694,12 +1696,9 @@ export function ScLogisticsPage() {
                       partyTo: parties.partyTo,
                     });
                   }}
-                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
-                >
-                  Print inward receipt
-                </button>
-                <button
-                  type="button"
+                />
+                <PrintIconButton
+                  label="Print transfer / DC copy"
                   onClick={() => {
                     const first = inwardAck.jobs[0];
                     if (inwardAck.documentKind === "store_transfer" && first) {
@@ -1752,10 +1751,7 @@ export function ScLogisticsPage() {
                       }
                     }
                   }}
-                  className="flex-1 rounded-xl border border-rlx-gold bg-rlx-green-light px-4 py-2.5 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light"
-                >
-                  Print transfer / DC copy
-                </button>
+                />
                 <button
                   type="button"
                   onClick={() => setInwardAck(null)}

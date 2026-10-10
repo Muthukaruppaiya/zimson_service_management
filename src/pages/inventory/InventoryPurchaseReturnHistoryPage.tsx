@@ -11,6 +11,7 @@ import { setPrintSuppliers } from "../../lib/printContext";
 import type { Supplier } from "../../types/supplier";
 import { publicMediaUrl } from "../../lib/mediaUrl";
 import { purchaseReturnReasonLabel } from "../../lib/purchaseReturn";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 type ReturnItem = {
   id: string;
@@ -213,13 +214,7 @@ function ReturnDetailModal({
         {row.notes ? <p className="px-6 py-3 text-sm text-stone-500">{row.notes}</p> : null}
         <div className="flex justify-end gap-2 border-t border-rlx-rule bg-rlx-bg px-6 py-3">
           {hasPricing ? <span className="mr-auto self-center text-sm font-semibold text-stone-700">{fmt(totals.grand)}</span> : null}
-          <button
-            type="button"
-            onClick={() => printReturn(row, spareNameById)}
-            className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50"
-          >
-            Print
-          </button>
+          <PrintIconButton label="Print return" onClick={() => printReturn(row, spareNameById)} />
           <button
             type="button"
             onClick={onClose}

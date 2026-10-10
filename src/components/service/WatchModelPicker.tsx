@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, apiJson } from "../../lib/api";
 import { watchModelsForBrand } from "../../data/serviceSeed";
 import { SearchableCombobox } from "./SearchableCombobox";
+import { PickerSaveButton } from "./PickerSaveButton";
 
 export type WatchModelRow = { id: string; brand: string; model: string; refHint: string };
 
@@ -212,39 +213,44 @@ export function WatchModelPicker({
     () => catalogModels.map((m) => ({ value: m.model, label: m.model })),
     [catalogModels],
   );
+  const fieldClass = inputClass.replace(/\bmt-1\b/g, "").trim();
 
   if (catalogModels.length === 0) {
     return (
       <div className="min-w-0">
-        <p className="mb-1 text-xs text-amber-900">No saved models for this brand — enter the model name.</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <SearchableCombobox
-            id={`${idPrefix}-model-custom`}
-            freeText
-            freeTextValue={customModelText}
-            onFreeTextChange={(t) => {
-              setCustomModelText(t);
-              setCatalogModelKey("__new__");
-              onModelChange(t);
-              setSaveMsg(null);
-            }}
-            value="__new__"
-            options={[]}
-            onChange={() => {}}
-            inputClass={inputClass}
-            placeholder="Model name *"
-          />
+        <div className="flex items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <SearchableCombobox
+              id={`${idPrefix}-model-custom`}
+              label="Model *"
+              freeText
+              freeTextValue={customModelText}
+              onFreeTextChange={(t) => {
+                setCustomModelText(t);
+                setCatalogModelKey("__new__");
+                onModelChange(t);
+                setSaveMsg(null);
+              }}
+              value="__new__"
+              options={[]}
+              onChange={() => {}}
+              inputClass={inputClass}
+              placeholder="Enter model name"
+            />
+          </div>
           {apiMode ? (
-            <button
-              type="button"
+            <PickerSaveButton
+              fieldClass={fieldClass}
               disabled={!customModelText.trim() || saving}
+              saving={saving}
+              title="Save new model to database"
               onClick={() => void saveNewModel()}
-              className="shrink-0 border border-rlx-gold/60 bg-white px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
-            >
-              {saving ? "…" : "Save"}
-            </button>
+            />
           ) : null}
         </div>
+        {watchBrand.trim() ? (
+          <p className="mt-1 text-[11px] text-stone-500">No saved models for {watchBrand} yet</p>
+        ) : null}
         {saveMsg ? <p className="mt-1 text-xs text-emerald-800">{saveMsg}</p> : null}
         {loadError ? <p className="mt-1 text-xs text-red-800">{loadError}</p> : null}
       </div>
@@ -253,7 +259,7 @@ export function WatchModelPicker({
 
   return (
     <div className="min-w-0">
-      <div className="flex flex-wrap items-start gap-2">
+      <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1">
           <SearchableCombobox
             id={`${idPrefix}-model`}
@@ -291,15 +297,13 @@ export function WatchModelPicker({
           />
         </div>
         {catalogModelKey === "__new__" && apiMode ? (
-          <button
-            type="button"
+          <PickerSaveButton
+            fieldClass={fieldClass}
             disabled={!customModelText.trim() || saving}
+            saving={saving}
             title="Save new model to database"
             onClick={() => void saveNewModel()}
-            className="mt-6 shrink-0 border border-rlx-gold/60 bg-white px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-rlx-green hover:bg-rlx-green-light disabled:opacity-50"
-          >
-            {saving ? "…" : "Save"}
-          </button>
+          />
         ) : null}
       </div>
       {saveMsg ? <p className="mt-1 text-xs font-medium text-emerald-800">{saveMsg}</p> : null}

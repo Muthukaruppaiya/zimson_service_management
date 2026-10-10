@@ -46,7 +46,6 @@ export function UserModuleAccessEditor({
         />
         <span className="text-sm font-semibold text-stone-700">
           Override with custom module list
-          <span className="ml-2 text-[11px] font-normal text-stone-400">(unchecked = role defaults)</span>
         </span>
       </label>
 

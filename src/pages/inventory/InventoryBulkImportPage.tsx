@@ -335,16 +335,10 @@ export function InventoryBulkImportPage() {
               <h3 className="text-sm font-semibold uppercase tracking-wide text-white">Download Template</h3>
             </div>
             <div className="p-5">
-              <p className="text-sm text-stone-600">
-                Downloads a pre-filled Excel with <strong>20 real watch-service spare parts</strong> across Batteries, Glass, Crowns, Gaskets, Straps, Lubricants and Tools — complete with Prices and Stock sheets auto-filled from your regions and brands.
-              </p>
-              <ul className="mt-3 space-y-1 text-xs text-stone-500">
+              <ul className="space-y-1 text-xs text-stone-500">
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Client files with Watch / Clock / Strap sheets (Part Reference, Brand, Calibre, Clock Model, Sub Category, Size, Colour) are accepted</li>
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Blank part numbers are auto-generated (PRT…). Missing brands are created</li>
-                <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> 20 spare SKUs seeded (batteries, crystals, straps, tools…)</li>
-                <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Prices auto-filled for all your regions &amp; brands</li>
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Opening stock of 20 (HO) + 5 (Store) per SKU</li>
-                <li className="flex items-center gap-2"><span className="text-stone-400">i</span> Delete rows you don't want before importing</li>
               </ul>
               <button
                 type="button"

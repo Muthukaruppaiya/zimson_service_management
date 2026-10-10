@@ -53,6 +53,76 @@ function rowToBrand(r: {
 
 type Authed = Request & { userId: string };
 
+type StockScope =
+  | { ok: true; where: string; params: unknown[] }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Role-based `spare_stock` filter shared by per-spare and bulk stock reads.
+ * Placeholders start at `$${firstParam}`; `where` is empty or begins with " AND".
+ */
+async function resolveSpareStockScope(
+  pool: Pool,
+  actor: DemoUser,
+  query: Request["query"],
+  firstParam: number,
+): Promise<StockScope> {
+  const p = (offset: number) => `$${firstParam + offset}`;
+  const aggregateRegion = String(query.aggregate ?? "").trim() === "region";
+  const regionScopeQ = String(query.regionId ?? "").trim();
+  const storeIdQ = String(query.storeId ?? "").trim();
+  const isStore =
+    actor.role === "store_user" || actor.role === "store_manager" || actor.role === "store_accounts";
+
+  if (storeIdQ) {
+    if (isStore && storeIdQ !== actor.storeId) {
+      return { ok: false, status: 403, error: "Cannot view stock for another store." };
+    }
+    let regionId = regionScopeQ || actor.regionId || "";
+    if (!regionId) {
+      const storeRow = await pool.query<{ region_id: string }>(`SELECT region_id FROM stores WHERE id = $1::text`, [
+        storeIdQ,
+      ]);
+      regionId = String(storeRow.rows[0]?.region_id ?? "").trim();
+    }
+    if (!regionId) return { ok: false, status: 400, error: "regionId is required with storeId." };
+    if (actor.role === "admin" && actor.regionId !== regionId) {
+      return { ok: false, status: 403, error: "Cannot view stock outside your region." };
+    }
+    return {
+      ok: true,
+      where: ` AND location_type = 'STORE' AND region_id = ${p(0)}::text AND store_id = ${p(1)}::text`,
+      params: [regionId, storeIdQ],
+    };
+  }
+  if (aggregateRegion) {
+    const scope =
+      actor.role === "super_admin" || actor.role === "admin" ? regionScopeQ || null : actor.regionId ?? null;
+    if (scope) return { ok: true, where: ` AND region_id = ${p(0)}::text`, params: [scope] };
+  }
+  if (actor.role === "admin") {
+    return { ok: true, where: ` AND region_id = ${p(0)}::text`, params: [actor.regionId] };
+  }
+  if (isStore) {
+    if (!actor.regionId || !actor.storeId) {
+      return { ok: false, status: 400, error: "Store account is missing region or store assignment." };
+    }
+    return {
+      ok: true,
+      where: ` AND location_type = 'STORE' AND region_id = ${p(0)}::text AND store_id = ${p(1)}::text`,
+      params: [actor.regionId, actor.storeId],
+    };
+  }
+  if (
+    actor.role === "service_centre_clerk" ||
+    actor.role === "service_centre_supervisor" ||
+    actor.role === "technician"
+  ) {
+    return { ok: true, where: ` AND location_type = 'HO' AND region_id = ${p(0)}::text`, params: [actor.regionId] };
+  }
+  return { ok: true, where: "", params: [] };
+}
+
 function rowToSpare(r: {
   id: string;
   sku: string;
@@ -172,6 +242,64 @@ export function registerCatalogRoutes(
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Failed to load brand spares." });
+    }
+  });
+
+  /** One-shot billing picker data: brand price (region-scoped) + scoped stock total per spare. */
+  app.get("/api/catalog/spare-options", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const brand = String(req.query.brand ?? "").trim();
+    if (!brand) {
+      res.status(400).json({ error: "brand is required." });
+      return;
+    }
+    const requestedRegion = String(req.query.priceRegionId ?? req.query.regionId ?? "").trim();
+    const priceRegionId =
+      actor.role === "super_admin" || actor.role === "admin" ? requestedRegion || null : actor.regionId ?? null;
+    try {
+      const priced = await pool.query<{ spareId: string; price: number }>(
+        `SELECT DISTINCT ON (s.id) s.id AS "spareId", p.price::float8 AS price
+         FROM spares s
+         JOIN spare_prices p
+           ON p.spare_id = s.id
+          AND LOWER(TRIM(p.brand)) = LOWER(TRIM($1))
+          AND (($2::text IS NULL AND p.region_id IS NULL) OR p.region_id = $2::text)
+         WHERE s.is_active = true
+           AND (BTRIM(COALESCE(s.brand, '')) = '' OR LOWER(BTRIM(s.brand)) = LOWER(BTRIM($1)))
+         ORDER BY s.id, p.created_at DESC`,
+        [brand, priceRegionId],
+      );
+      const ids = priced.rows.map((r) => r.spareId);
+      const stockBySpare = new Map<string, number>();
+      if (ids.length > 0) {
+        const scope = await resolveSpareStockScope(pool, actor, req.query, 2);
+        if (!scope.ok) {
+          res.status(scope.status).json({ error: scope.error });
+          return;
+        }
+        const stock = await pool.query<{ spareId: string; qty: number }>(
+          `SELECT spare_id AS "spareId", COALESCE(SUM(quantity), 0)::float8 AS qty
+           FROM spare_stock
+           WHERE spare_id = ANY($1::uuid[])${scope.where}
+           GROUP BY spare_id`,
+          [ids, ...scope.params],
+        );
+        for (const r of stock.rows) stockBySpare.set(r.spareId, r.qty);
+      }
+      res.json({
+        options: priced.rows.map((r) => ({
+          spareId: r.spareId,
+          price: r.price,
+          stockQty: stockBySpare.get(r.spareId) ?? 0,
+        })),
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load spare options." });
     }
   });
 
@@ -764,72 +892,13 @@ export function registerCatalogRoutes(
       return;
     }
     try {
-      let whereExtra = "";
-      const params: unknown[] = [spareId];
-      const aggregateRegion = String(req.query.aggregate ?? "").trim() === "region";
-      const regionScopeQ = String(req.query.regionId ?? "").trim();
-      const storeIdQ = String(req.query.storeId ?? "").trim();
-
-      if (storeIdQ) {
-        if (
-          (actor.role === "store_user" ||
-            actor.role === "store_manager" ||
-            actor.role === "store_accounts") &&
-          storeIdQ !== actor.storeId
-        ) {
-          res.status(403).json({ error: "Cannot view stock for another store." });
-          return;
-        }
-        let regionId = regionScopeQ || actor.regionId || "";
-        if (!regionId) {
-          const storeRow = await pool.query<{ region_id: string }>(
-            `SELECT region_id FROM stores WHERE id = $1::text`,
-            [storeIdQ],
-          );
-          regionId = String(storeRow.rows[0]?.region_id ?? "").trim();
-        }
-        if (!regionId) {
-          res.status(400).json({ error: "regionId is required with storeId." });
-          return;
-        }
-        if (actor.role === "admin" && actor.regionId !== regionId) {
-          res.status(403).json({ error: "Cannot view stock outside your region." });
-          return;
-        }
-        params.push(regionId, storeIdQ);
-        whereExtra = " AND location_type = 'STORE' AND region_id = $2::text AND store_id = $3::text";
-      } else if (aggregateRegion) {
-        const scope =
-          actor.role === "super_admin" || actor.role === "admin" ? regionScopeQ || null : actor.regionId ?? null;
-        if (scope) {
-          params.push(scope);
-          whereExtra = " AND region_id = $2::text";
-        }
+      const scope = await resolveSpareStockScope(pool, actor, req.query, 2);
+      if (!scope.ok) {
+        res.status(scope.status).json({ error: scope.error });
+        return;
       }
-      if (!whereExtra) {
-        if (actor.role === "admin") {
-          params.push(actor.regionId);
-          whereExtra = " AND region_id = $2::text";
-        } else if (
-          actor.role === "store_user" ||
-          actor.role === "store_manager" ||
-          actor.role === "store_accounts"
-        ) {
-          if (!actor.regionId || !actor.storeId) {
-            res.status(400).json({ error: "Store account is missing region or store assignment." });
-            return;
-          }
-          params.push(actor.regionId, actor.storeId);
-          whereExtra = " AND location_type = 'STORE' AND region_id = $2::text AND store_id = $3::text";
-        } else if (
-          actor.role === "service_centre_clerk" ||
-          actor.role === "service_centre_supervisor" ||
-          actor.role === "technician"
-        ) {
-          params.push(actor.regionId);
-          whereExtra = " AND location_type = 'HO' AND region_id = $2::text";
-        }
-      }
+      const whereExtra = scope.where;
+      const params: unknown[] = [spareId, ...scope.params];
 
       const { rows } = await pool.query(
         `SELECT id,

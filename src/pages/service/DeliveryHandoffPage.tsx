@@ -337,11 +337,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
           </label>
         </div>
 
-        {!boyId ? (
-          <p className="rounded-xl border border-dashed border-rlx-rule bg-stone-50 px-4 py-6 text-center text-sm text-stone-600">
-            Select a delivery agent above to see the transfers they {meta.receiveMode ? "are carrying" : "will take"}.
-          </p>
-        ) : loading ? (
+        {!boyId ? null : loading ? (
           <p className="text-sm text-stone-500">Loading…</p>
         ) : (
           <>

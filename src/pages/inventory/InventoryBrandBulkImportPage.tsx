@@ -319,22 +319,12 @@ export function InventoryBrandBulkImportPage() {
               <h3 className="text-sm font-semibold uppercase tracking-wide text-white">Download Template</h3>
             </div>
             <div className="p-5">
-              <p className="text-sm text-stone-600">
-                Downloads an Excel workbook with a <strong>README</strong> and a <strong>Brands</strong> sheet (headers + 5
-                sample watch brands). Same fields as Add brand.
-              </p>
-              <ul className="mt-3 space-y-1 text-xs text-stone-500">
-                <li className="flex items-center gap-2">
-                  <span className="font-bold text-rlx-green">✓</span> Excel dropdowns for Active and Serial Number Mandatory (Y / N)
-                </li>
+              <ul className="space-y-1 text-xs text-stone-500">
                 <li className="flex items-center gap-2">
                   <span className="font-bold text-rlx-green">✓</span> Name, code, display order, active, serial mandatory
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="font-bold text-rlx-green">✓</span> Matching Brand Name updates; new names create
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-stone-400">i</span> Delete sample rows before a live import
                 </li>
               </ul>
               <button

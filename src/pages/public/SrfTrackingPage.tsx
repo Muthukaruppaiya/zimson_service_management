@@ -313,9 +313,6 @@ export function SrfTrackingPage() {
           >
             Watch service tracking
           </h1>
-          <p className="mt-3 max-w-xl text-sm leading-relaxed text-[#5c6b7a] sm:text-base">
-            Follow your repair journey and respond to estimate updates when needed.
-          </p>
           {customer ? (
             <div className="mt-6 flex flex-wrap gap-2">
               <span className="inline-flex items-center rounded-full border border-[#e8dfd0] bg-[#faf6ef] px-4 py-2 text-sm font-semibold text-[#0a1f3d]">
@@ -431,7 +428,6 @@ export function SrfTrackingPage() {
                         <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#0a1f3d]">
                           Repair progress
                         </h2>
-                        <p className="mt-1 text-xs text-[#8a7a5c]">Follow your watch through each stage of service.</p>
                         <TrackProgress activeIndex={activeFlow} steps={steps} />
                       </section>
                       <dl className="grid gap-3 sm:grid-cols-2">
@@ -482,7 +478,6 @@ export function SrfTrackingPage() {
                           <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#0a1f3d]">
                             Watch photos on file
                           </h2>
-                          <p className="mt-1 text-xs text-[#8a7a5c]">Tap a thumbnail to view full size.</p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             {j.photos.map((p) => (
                               <button

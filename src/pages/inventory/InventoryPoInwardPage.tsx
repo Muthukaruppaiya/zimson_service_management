@@ -29,6 +29,7 @@ import type { PurchaseOrder } from "../../types/purchaseOrder";
 import type { PurchaseVoucher } from "../../types/purchaseVoucher";
 import type { SparePart, SparePriceLine } from "../../types/spare";
 import type { Supplier } from "../../types/supplier";
+import { HomeLink, homeLinkFlatClass } from "../../components/ui/HomeLink";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -144,6 +145,7 @@ function GrnSuccessModal({ grnNumber, grnId, movedQty, poId, poStatus, poNumber,
           )}
         </div>
         <div className="border-t border-rlx-rule bg-rlx-bg px-6 py-4 flex flex-wrap justify-center gap-2">
+          <HomeLink className={homeLinkFlatClass} />
           {partialPo && (
             <Link
               to={`/inventory/po-history?amend=${encodeURIComponent(poId!)}`}
@@ -850,7 +852,7 @@ export function InventoryPoInwardPage() {
             <div className="border border-rlx-rule">
               <div className="border-b border-rlx-rule bg-stone-50 px-4 py-2.5">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-stone-400">
-                  Spare Line Items — enter cost price, verify tax rate, and set qty received
+                  Spare Line Items
                 </span>
               </div>
               <div className="overflow-x-auto">

@@ -20,6 +20,7 @@ import { CustomFieldsSection } from "../../components/customFields/CustomFieldsS
 import { useCustomFields } from "../../hooks/useCustomFields";
 import { parseCustomFieldValues, requiredCustomFieldError } from "../../lib/customFields";
 import type { CustomFieldValues } from "../../types/customField";
+import { HomeLink, homeLinkFlatClass } from "../../components/ui/HomeLink";
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ function SuccessModal({ message, onViewMaster, onCreateAnother }: {
           <p className="text-sm text-stone-600">{message}</p>
         </div>
         <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-6 py-4">
+          <HomeLink className={homeLinkFlatClass} />
           <button type="button" onClick={onViewMaster}
             className="flex-1 border border-rlx-rule bg-white py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition">
             View Supplier Master
@@ -356,9 +358,6 @@ export function InventorySupplierFormPage() {
                 {gstFetchBusy ? "Fetching…" : gstFilled ? "Fetched from GST" : "Get GST details"}
               </button>
             </div>
-            <p className="text-[11px] text-stone-400">
-              Same GST lookup as customer master. Name, locations, tax person type, and supplier code are filled from the registry.
-            </p>
           </div>
         </div>
 
@@ -375,9 +374,6 @@ export function InventorySupplierFormPage() {
                 placeholder={isEditing ? "e.g. SUP001" : "Auto-generated after GST lookup"}
                 readOnly={!isEditing}
               />
-              {!isEditing ? (
-                <p className="mt-1 text-[11px] text-stone-400">Generated from GSTIN (or a sequence if GSTIN is not used).</p>
-              ) : null}
             </div>
             <div>
               <label className={labelCls}>Supplier Name *</label>

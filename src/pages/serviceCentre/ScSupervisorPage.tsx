@@ -67,6 +67,7 @@ import { brandInvoiceLinesTotal,
   type BrandInvoiceLineItem,
 } from "../../types/brandInvoice";
 import type { HsnMasterRow } from "../../types/hsnMaster";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 type SupervisorBrandGroup = { brand: string; rows: SrfJob[] };
 
@@ -242,16 +243,6 @@ function ActionSearchIcon() {
   );
 }
 
-function ActionPrintIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
-      <path d="M7 8V4h10v4" strokeLinecap="round" strokeLinejoin="round" />
-      <rect x="5" y="8" width="14" height="8" rx="2" />
-      <path d="M7 16h10v4H7z" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 const dqBtnRepair =
   "inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
 const dqBtnProceed =
@@ -270,10 +261,10 @@ const dqBtnDocHistory =
   "inline-flex items-center gap-2 rounded-xl border border-violet-300/80 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 shadow-sm transition hover:border-violet-400 hover:bg-violet-100";
 const dqBtnDocTrace =
   "inline-flex items-center gap-2 rounded-xl border border-cyan-400/70 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-500 hover:bg-cyan-100";
-const dqBtnDocPrint =
-  "inline-flex items-center gap-2 rounded-xl border border-rlx-gold/75 bg-rlx-gold-light/50 px-4 py-2 text-sm font-semibold text-rlx-gold-dark shadow-sm transition hover:border-rlx-gold hover:bg-rlx-gold-light/80";
-const dqBtnDocTechSlip =
-  "inline-flex items-center gap-2 rounded-xl border border-emerald-500/70 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm transition hover:border-emerald-600 hover:bg-emerald-100";
+const dqIconDocPrint =
+  "rounded-xl border border-rlx-gold/75 bg-rlx-gold-light/50 text-rlx-gold-dark shadow-sm hover:border-rlx-gold hover:bg-rlx-gold-light/80";
+const dqIconDocTechSlip =
+  "rounded-xl border border-emerald-500/70 bg-emerald-50 text-emerald-950 shadow-sm hover:border-emerald-600 hover:bg-emerald-100";
 
 function ActionDocsIcon() {
   return (
@@ -1323,13 +1314,11 @@ export function ScSupervisorPage() {
 
   function openSendToBrandPopup(jobId: string) {
     setSendBrandPopupJobId(jobId);
-    setSendBrandDispatchRef("");
     setSendBrandReason("Cannot be repaired at HO");
   }
 
   function closeSendToBrandPopup() {
     setSendBrandPopupJobId(null);
-    setSendBrandDispatchRef("");
     setSendBrandReason("Cannot be repaired at HO");
   }
 
@@ -2339,9 +2328,6 @@ export function ScSupervisorPage() {
               <p className="text-sm font-semibold text-zimson-900">
                 {listBrandFilter ? `No SRFs for ${listBrandFilter}` : "No SRFs in supervisor queue"}
               </p>
-              <p className="mt-1 text-xs text-stone-500">
-                {listBrandFilter ? "Try another brand or clear the filter." : "New inward SRFs will appear here."}
-              </p>
             </div>
           ) : (
             <div className="space-y-5">
@@ -2362,7 +2348,7 @@ export function ScSupervisorPage() {
                         <div className="min-w-0">
                           <h3 className="truncate text-sm font-bold text-zimson-900">{group.brand}</h3>
                           <p className="text-xs text-stone-500">
-                            {group.rows.length} SRF{group.rows.length === 1 ? "" : "s"} · priority & due soon first
+                            {group.rows.length} SRF{group.rows.length === 1 ? "" : "s"}
                           </p>
                         </div>
                       </div>
@@ -2606,9 +2592,6 @@ export function ScSupervisorPage() {
               <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
               <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
               <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
-              <p className="mt-2 text-xs text-rose-900">
-                Only after you click Send to outward will this SRF appear in logistics outward for return DC + e-way.
-              </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -2635,9 +2618,6 @@ export function ScSupervisorPage() {
               <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
               <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
               <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
-              <p className="mt-2 text-xs text-emerald-900">
-                Verify the SRF and move to outward. Front desk can then dispatch to store; store bills the customer.
-              </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -2766,9 +2746,6 @@ export function ScSupervisorPage() {
               <p className="font-mono text-sm font-bold text-zimson-900">{j.reference}</p>
               <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
               <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
-              <p className="mt-2 text-xs text-amber-800">
-                Bill sender HO for repair/spares, then logistics can dispatch the return ODC.
-              </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Link
                   to={`/service-centre/inter-ho-invoice?srfId=${encodeURIComponent(j.id)}&invoiceFor=sender-ho`}
@@ -3267,13 +3244,11 @@ export function ScSupervisorPage() {
                 {historyByJob[j.id] ? (
                   <div className="mt-3 rounded-xl bg-zimson-50 p-3 text-xs text-stone-700">
                     <div className="mb-2 flex justify-end">
-                      <button
-                        type="button"
+                      <PrintIconButton
+                        label="Print history"
+                        size="sm"
                         onClick={() => printHistory(j.reference, historyByJob[j.id]!)}
-                        className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-900"
-                      >
-                        Print document
-                      </button>
+                      />
                     </div>
                     <ul className="space-y-1">
                       {historyByJob[j.id]!.map((h) => (
@@ -3315,7 +3290,7 @@ export function ScSupervisorPage() {
                     </p>
                     {localRepair ? (
                       <p className="mt-1 text-xs font-semibold text-emerald-700">
-                        Active repair at this HO: {localRepair.reference} — use Open local SRF for assignment and repair.
+                        Active repair at this HO: {localRepair.reference}
                       </p>
                     ) : null}
                     {j.interHoReestimatePhase === "pending_sender" ? (
@@ -3459,9 +3434,6 @@ export function ScSupervisorPage() {
               <h2 className="mt-0.5 text-base font-bold uppercase tracking-wide text-white sm:text-lg">
                 Supervisor decision queue
               </h2>
-              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-white/70">
-                From supervisor login: mark repaired, request re-estimate, or route to brand / another region.
-              </p>
             </div>
             {decisionView.length > 0 ? (
               <span className="rounded-full border border-rlx-gold/50 bg-rlx-gold/15 px-4 py-1.5 text-sm font-bold tabular-nums text-rlx-gold-light ring-1 ring-rlx-gold/25">
@@ -3477,15 +3449,6 @@ export function ScSupervisorPage() {
               ✓
             </span>
             <p className="mt-4 text-sm font-semibold text-zimson-900">No supervisor decision required now</p>
-            <p className="mx-auto mt-2 max-w-2xl text-xs leading-relaxed text-stone-500">
-              {interHoSenderReestimateView.length > 0
-                ? "This is an inter-HO sender action. Use the customer approvals section above."
-                : receivedView.length > 0 || repairHoInvoiceView.length > 0 || transferredView.length > 0
-                  ? "Complete the current assignment or logistics step first. Repair decisions will appear here afterward."
-                  : srfId
-                    ? "There are no available supervisor actions for this SRF at the current HO."
-                    : "Assigned SRFs requiring a repair decision will appear here."}
-            </p>
           </div>
         ) : (
           <div className="space-y-5">
@@ -3747,12 +3710,15 @@ export function ScSupervisorPage() {
                       <ActionSearchIcon />
                       View full trace
                     </button>
-                    <button type="button" onClick={() => printEstimateDocument(j)} className={dqBtnDocPrint}>
-                      <ActionPrintIcon />
-                      Print estimate
-                    </button>
-                    <button
-                      type="button"
+                    <PrintIconButton
+                      label="Print estimate"
+                      variant="none"
+                      className={dqIconDocPrint}
+                      onClick={() => printEstimateDocument(j)}
+                    />
+                    <PrintIconButton
+                      label="Print technician sheet"
+                      variant="none"
                       onClick={() => {
                         const tech = technicians.find((t) => t.id === j.assignedTechnicianId);
                         const technicianLabel = tech
@@ -3766,11 +3732,8 @@ export function ScSupervisorPage() {
                             regions.find((r) => r.id === user?.regionId)?.name ?? j.regionName,
                         });
                       }}
-                      className={dqBtnDocTechSlip}
-                    >
-                      <ActionPrintIcon />
-                      Print technician sheet
-                    </button>
+                      className={dqIconDocTechSlip}
+                    />
                   </DecisionActionGroup>
 
                   <SrfPaymentLogPanel
@@ -3791,13 +3754,11 @@ export function ScSupervisorPage() {
                 {historyByJob[j.id] ? (
                   <div className="border-t border-zimson-100 bg-white px-5 py-3 text-xs text-stone-700">
                     <div className="mb-2 flex justify-end">
-                      <button
-                        type="button"
+                      <PrintIconButton
+                        label="Print history"
+                        size="sm"
                         onClick={() => printHistory(j.reference, historyByJob[j.id]!)}
-                        className="rounded-lg border border-rlx-gold/50 bg-rlx-gold-light/30 px-2 py-1 text-xs font-semibold text-zimson-900 hover:bg-rlx-gold-light/50"
-                      >
-                        Print document
-                      </button>
+                      />
                     </div>
                     <ul className="space-y-1 rounded-xl border border-zimson-100 bg-zimson-50/50 p-3">
                       {historyByJob[j.id]!.map((h) => (
@@ -3825,11 +3786,6 @@ export function ScSupervisorPage() {
             <h3 className="text-lg font-semibold text-zimson-900">
               {senderForwardBrandMode ? "Forward brand estimate to customer" : "Forward re-estimate to customer"}
             </h3>
-            <p className="mt-1 text-sm text-stone-600">
-              {senderForwardBrandMode
-                ? "Customer quote is pre-filled from the brand estimate. Increase the amount to add markup, then send on the tracking link."
-                : "Update the price if needed, then send to the customer on the same tracking link used at booking."}
-            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 {senderForwardBrandMode ? "Amount for customer (INR) *" : "Amount for customer (INR) *"}
@@ -3921,8 +3877,6 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Queue send to brand</h3>
-            <p className="mt-1 text-sm text-stone-600">
-            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Technician note / reason *
@@ -4004,9 +3958,6 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand estimate</h3>
-            <p className="mt-1 text-sm text-stone-600">
-              Enter the brand estimate reference and amount from brand mail. Document upload is optional.
-            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Brand estimate reference *
@@ -4031,7 +3982,6 @@ export function ScSupervisorPage() {
                   setBrandEstimateAttachmentError(null);
                 }}
                 disabled={brandEstimateSaving}
-                hint="Attach brand estimate mail or PDF if available."
                 error={brandEstimateAttachmentError}
               />
             </div>
@@ -4048,13 +3998,6 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand invoice</h3>
-            <p className="mt-1 text-sm text-stone-600">
-              Enter line items from the brand invoice. HSN codes are managed in{" "}
-              <Link to="/inventory/hsn-master" className="font-semibold text-violet-800 hover:underline">
-                Inventory → HSN master
-              </Link>
-              .
-            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Brand invoice reference *
@@ -4094,7 +4037,6 @@ export function ScSupervisorPage() {
                   setBrandInvoiceAttachmentError(null);
                 }}
                 disabled={brandInvoiceSaving}
-                hint="Upload brand invoice PDF or image from mail."
                 error={brandInvoiceAttachmentError}
               />
               <label className="text-sm">Note (optional)
@@ -4114,7 +4056,6 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Log brand credit note (from mail)</h3>
-            <p className="mt-1 text-sm text-stone-600">Enter the credit-note details and select who is responsible. The selected approver will issue the voucher, notify the customer, and route the details to HO or the booking store.</p>
             <div className="legacy-modal-panel__body mt-4 grid gap-3">
               <label className="text-sm">Voucher amount (INR) *
                 <input
@@ -4160,7 +4101,6 @@ export function ScSupervisorPage() {
                 }}
                 required
                 disabled={brandCreditSaving}
-                hint="Upload the brand credit note PDF or image from mail."
                 error={brandCreditAttachmentError}
               />
             </div>
@@ -4177,9 +4117,6 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Return without repair</h3>
-            <p className="mt-1 text-sm text-stone-600">
-              Brand cannot repair or customer does not want brand repair. Document upload is optional.
-            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">Remark *
                 <textarea
@@ -4197,7 +4134,6 @@ export function ScSupervisorPage() {
                   setBrandReturnAttachmentError(null);
                 }}
                 disabled={brandReturnSaving}
-                hint="Attach brand mail confirming no repair, if available."
                 error={brandReturnAttachmentError}
               />
             </div>
@@ -4230,11 +4166,6 @@ export function ScSupervisorPage() {
             <h3 className="text-lg font-semibold text-zimson-900">
               {reestimateInterHoMode ? "Request re-estimate via sender HO" : "Request re-estimate approval"}
             </h3>
-            <p className="mt-1 text-sm text-stone-600">
-              {reestimateInterHoMode
-                ? "Repair HO proposes a revised amount. Sender HO will forward it to the customer on the existing tracking link."
-                : "Enter revised estimate amount and remarks for customer approval."}
-            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Previous estimate (INR)
@@ -4284,8 +4215,6 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-zimson-900">Send SRF to other HO</h3>
-            <p className="mt-1 text-sm text-stone-600">
-            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Destination region
@@ -4329,8 +4258,6 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Online spare sales order</h3>
-            <p className="mt-1 text-sm text-stone-600">
-            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Supplier region
@@ -4553,10 +4480,6 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-amber-950">Log logistics invoice</h3>
-            <p className="mt-1 text-sm text-stone-600">
-              Enter the logistics invoice reference. Then use Verify &amp; move to outward so front desk can create HO →
-              store transfer. Customer is billed at the store.
-            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Logistics invoice reference *
@@ -5114,8 +5037,8 @@ export function ScSupervisorPage() {
                 </section>
               ) : null}
               <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
+                <PrintIconButton
+                  label="Print SRF"
                   onClick={() =>
                     printSrfDocument({
                       reference: listDetailJob.reference,
@@ -5131,17 +5054,13 @@ export function ScSupervisorPage() {
                       photos: listDetailJob.photos ?? [],
                     })
                   }
-                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"
-                >
-                  Print SRF
-                </button>
-                <button
-                  type="button"
+                />
+                <PrintIconButton
+                  label="Print estimate"
+                  variant="none"
+                  className={dqIconDocPrint}
                   onClick={() => printEstimateDocument(listDetailJob)}
-                  className="rounded-lg border border-zimson-300 bg-zimson-50 px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-100"
-                >
-                  Print estimate
-                </button>
+                />
               </div>
             </div>
           </div>
@@ -5281,9 +5200,9 @@ export function ScSupervisorPage() {
           onBackdropClick={() => setAssignSuccessAck(null)}
           actions={
             <>
-              <button
-                type="button"
-                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90 sm:w-auto"
+              <PrintIconButton
+                label="Print technician sheet"
+                variant="solid"
                 onClick={() =>
                   printAssignmentSlip(assignSuccessAck.job, assignSuccessAck.technicianLabel, {
                     assignedAt: assignSuccessAck.job.assignedAt
@@ -5293,9 +5212,7 @@ export function ScSupervisorPage() {
                       regions.find((r) => r.id === user?.regionId)?.name ?? assignSuccessAck.job.regionName,
                   })
                 }
-              >
-                Print technician sheet
-              </button>
+              />
               <button
                 type="button"
                 className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 sm:w-auto"

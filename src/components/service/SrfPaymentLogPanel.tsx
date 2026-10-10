@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MultiPaymentFields } from "./MultiPaymentFields";
 import { AppModal } from "../ui/AppModal";
+import { PrintIconButton } from "../ui/PrintIconButton";
 import { ApiError, apiJson } from "../../lib/api";
 import { formatInr } from "../../lib/formatInr";
 import { printSrfPaymentReceipt } from "../../lib/srfPaymentReceiptDoc";
@@ -255,13 +256,7 @@ export function SrfPaymentLogPanel({
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1.5">
-                    <button
-                      type="button"
-                      className="rounded border border-rlx-rule px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-rlx-green hover:border-rlx-green"
-                      onClick={() => void printOne(p.id)}
-                    >
-                      Print
-                    </button>
+                    <PrintIconButton label="Print receipt" size="sm" onClick={() => void printOne(p.id)} />
                     <button
                       type="button"
                       disabled={busyId === p.id}
@@ -306,7 +301,6 @@ export function SrfPaymentLogPanel({
         onClose={closeCollect}
         eyebrow="SRF payment"
         title="Additional payment"
-        description="Log the amount the customer paid now. It stays on this SRF."
         size="md"
         zIndex={80}
         footer={

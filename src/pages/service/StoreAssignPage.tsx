@@ -26,6 +26,7 @@ import { inputClassReadOnly } from "../../lib/uiForm";
 import type { SparePriceLine, SpareStockRow } from "../../types/spare";
 import type { SrfJob } from "../../types/srfJob";
 import type { SrfServicePackageSnapshot } from "../../types/servicePackage";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 type TechnicianProfile = {
   id: string;
@@ -574,9 +575,6 @@ export function StoreAssignPage() {
                   }
                 >
                   <div className="rounded-xl border border-zimson-100 bg-zimson-50/50 p-3 sm:p-3.5">
-                    <p className="mb-3 text-xs text-stone-600">
-                      Record the service package and used spares, then complete this SRF for store billing.
-                    </p>
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -746,7 +744,6 @@ export function StoreAssignPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Request re-estimate approval</h3>
-            <p className="mt-1 text-sm text-stone-600">Enter revised estimate amount and remarks for customer approval.</p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Previous estimate (INR)
@@ -866,18 +863,16 @@ export function StoreAssignPage() {
           onBackdropClick={() => setAssignAck(null)}
           actions={
             <>
-              <button
-                type="button"
-                className="inline-flex w-full min-w-0 items-center justify-center rounded-xl bg-rlx-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green/90 sm:w-auto"
+              <PrintIconButton
+                label="Print technician sheet"
+                variant="solid"
                 onClick={() =>
                   printAssignmentSlip(assignAck.job, assignAck.technicianLabel, {
                     assignedAt: assignAck.job.assignedAt ? new Date(assignAck.job.assignedAt) : new Date(),
                     serviceCentreLabel: assignAck.job.regionName,
                   })
                 }
-              >
-                Print technician sheet
-              </button>
+              />
               <button
                 type="button"
                 className="inline-flex w-full min-w-0 items-center justify-center rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 sm:w-auto"
@@ -896,10 +891,6 @@ export function StoreAssignPage() {
             <span className="font-semibold text-stone-900">{assignAck.customerName}</span>
             {" · "}
             {assignAck.watchLabel}
-          </p>
-          <p className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
-            Status is now <strong>Working</strong>. When repair is finished, use <strong>Watch repair complete</strong> to
-            record spares and close the SRF for billing.
           </p>
         </ProcessSuccessModal>
       ) : null}
@@ -938,9 +929,6 @@ export function StoreAssignPage() {
             {" · "}
             {sendToHoAck.watchLabel}
           </p>
-          <p className="mt-3 rounded-lg border border-zimson-100 bg-zimson-50/50 px-3 py-2 text-sm font-medium text-zimson-900">
-            Select this SRF in <strong>Outward SRF</strong> and create an internal transfer to the service centre.
-          </p>
         </ProcessSuccessModal>
       ) : null}
 
@@ -977,9 +965,6 @@ export function StoreAssignPage() {
             <span className="font-semibold text-stone-900">{returnAck.customerName}</span>
             {" · "}
             {returnAck.watchLabel}
-          </p>
-          <p className="mt-3 rounded-lg border border-rose-100 bg-rose-50/50 px-3 py-2 text-sm font-medium text-rose-900">
-            Select this SRF in store billing and use <strong>Handover to customer without billing</strong> after OTP.
           </p>
         </ProcessSuccessModal>
       ) : null}
@@ -1019,8 +1004,7 @@ export function StoreAssignPage() {
             {completeAck.watchLabel}
           </p>
           <p className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-sm font-medium text-emerald-900">
-            Used spares are saved. Raise the tax invoice on the store billing screen when the customer collects the watch.
-            B2B jobs will receive a mandatory GST e-invoice (IRN) at billing close when e-doc is enabled.
+            Used spares are saved. B2B jobs will receive a mandatory GST e-invoice (IRN) at billing close when e-doc is enabled.
           </p>
         </ProcessSuccessModal>
       ) : null}

@@ -102,7 +102,6 @@
   #root {
     @apply min-h-dvh;
   }
-
   /* ── Sharp shapes everywhere — luxury rectangular design ── */
   *,
   *::before,

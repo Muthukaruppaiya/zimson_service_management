@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
@@ -256,17 +255,6 @@ export function EdocSettingsPage() {
         title="E-invoice & e-way (Masters India)"
         description="Each HO region has its own GSTIN and Masters India portal account. Configure credentials separately per region."
       />
-      <p className="mb-4 text-sm text-stone-600">
-        <Link to="/settings/tax" className="font-semibold text-zimson-700 underline">
-          Tax & billing
-        </Link>{" "}
-        controls GST rates.{" "}
-        <Link to="/settings/brand-eway-consignees" className="font-semibold text-zimson-700 underline">
-          Brand e-way consignees
-        </Link>{" "}
-        stores brand service centre addresses for send-to-brand e-way.
-      </p>
-
       {loading ? <p className="text-sm text-stone-500">Loading…</p> : null}
       {error ? <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">{error}</p> : null}
       {savedMsg ? <p className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200">{savedMsg}</p> : null}
@@ -275,10 +263,9 @@ export function EdocSettingsPage() {
       {!loading ? (
         <>
           <Card title="Global options" className="mb-4 p-5">
-            <p className="mb-3 text-xs text-stone-600">
-              Shared behaviour for all regions. Credentials are configured per region below.
-              {globalMeta?.updatedBy ? ` Last saved by ${globalMeta.updatedBy}.` : ""}
-            </p>
+            {globalMeta?.updatedBy ? (
+              <p className="mb-3 text-xs text-stone-600">Last saved by {globalMeta.updatedBy}.</p>
+            ) : null}
             <div className="space-y-4">
               <Toggle checked={failOpen} onChange={setFailOpen} label="Fail open — save bill even if IRP rejects (error stored on bill)" />
               <Toggle
@@ -308,10 +295,6 @@ export function EdocSettingsPage() {
           </Card>
 
           <Card title="Per-region Masters India accounts" className="p-5">
-            <p className="mb-3 text-sm text-stone-600">
-              Select a region and enter the Masters India portal login tied to that region&apos;s GSTIN. E-invoice and e-way for bills/challans in that region use this account.
-            </p>
-
             <div className="mb-4 flex flex-wrap gap-2">
               {regions.map((r) => (
                 <button

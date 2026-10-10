@@ -1695,22 +1695,8 @@ export function SrfBookingV2Page() {
             ) : null}
           </div>
           <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
-            <label className="min-w-0 text-xs font-medium text-stone-600">
-              Customer ID
-              <input
-                readOnly
-                className={`${bookingInputClass} bg-rlx-green-light/80 font-mono`}
-                value={loadedCustomerCode ?? ""}
-                placeholder="—"
-              />
-            </label>
             <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-2">
               Phone
-              {phoneLockedForNewRegistration ? (
-                <span className="mt-0.5 block text-[11px] font-normal text-stone-500">
-                  Mobile for new customer registration (cannot be changed on this screen).
-                </span>
-              ) : null}
               <input
                 className={
                   customerLockedFromDb || phoneLockedForNewRegistration
@@ -1724,6 +1710,15 @@ export function SrfBookingV2Page() {
                     ? undefined
                     : (e) => setPhone(e.target.value)
                 }
+              />
+            </label>
+            <label className="min-w-0 text-xs font-medium text-stone-600">
+              Customer ID
+              <input
+                readOnly
+                className={`${bookingInputClass} bg-rlx-green-light/80 font-mono`}
+                value={loadedCustomerCode ?? ""}
+                placeholder="—"
               />
             </label>
           </div>
@@ -1787,9 +1782,6 @@ export function SrfBookingV2Page() {
               ) : null}
               {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
                 <div className="flex flex-col gap-2 rounded-xl border border-rlx-gold/40 bg-rlx-green-light/90 px-3 py-2.5 md:col-span-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-rlx-green">
-                    Complete mobile OTP on customer registration to mark this customer verified. Admin and super admin can also verify without OTP.
-                  </p>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -2009,9 +2001,6 @@ export function SrfBookingV2Page() {
                     </option>
                   ))}
                 </select>
-                <span className="mt-1 block text-[11px] text-stone-600">
-                  {SRF_REPAIR_ROUTE_OPTIONS.find((o) => o.value === repairRoute)?.hint}
-                </span>
               </label>
               <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-2">
                 After-service handover store

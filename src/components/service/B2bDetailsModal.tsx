@@ -164,9 +164,6 @@ export function B2bDetailsModal({
           <h2 id="b2b-modal-title" className="text-base font-bold text-white">
             B2B billing details required
           </h2>
-          <p className="mt-0.5 text-xs text-white/75">
-            These details will be saved to the customer master and used on the invoice.
-          </p>
         </div>
 
         {/* Body */}

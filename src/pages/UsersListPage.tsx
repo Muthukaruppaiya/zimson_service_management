@@ -246,6 +246,133 @@ function UserEditModal({
   );
 }
 
+// ── Reset Password Modal ──────────────────────────────────────────────────────
+
+function IconKey({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
+      />
+    </svg>
+  );
+}
+
+function UserResetPasswordModal({
+  target,
+  onClose,
+  onSave,
+}: {
+  target: SessionUser;
+  onClose: () => void;
+  onSave: (password: string) => Promise<boolean>;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function handleSave() {
+    if (password.trim().length < 4) { setErr("Password must be at least 4 characters."); return; }
+    if (password !== confirm) { setErr("Passwords do not match."); return; }
+    setSaving(true);
+    setErr(null);
+    const ok = await onSave(password.trim());
+    setSaving(false);
+    if (!ok) setErr("Could not reset password.");
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.5)" }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}
+    >
+      <div className="w-full max-w-sm bg-white shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between bg-rlx-green px-6 py-4">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-white">Reset Password</h2>
+            <p className="text-[11px] text-white/60 mt-0.5">{target.displayName}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="flex h-7 w-7 items-center justify-center border border-white/30 text-white hover:bg-white/10 text-lg"
+            aria-label="Close"
+          >×</button>
+        </div>
+
+        <form
+          className="px-6 py-5"
+          onSubmit={(e) => { e.preventDefault(); void handleSave(); }}
+        >
+          <label htmlFor="reset-pwd" className={labelCls + " mt-0"}>New password *</label>
+          <div className="relative">
+            <input
+              id="reset-pwd"
+              type={show ? "text" : "password"}
+              className={inputCls + " pr-14"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              minLength={4}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => setShow((v) => !v)}
+              className="absolute right-2 top-1/2 mt-0.5 -translate-y-1/2 text-[10px] font-semibold uppercase tracking-wider text-rlx-green"
+            >
+              {show ? "Hide" : "Show"}
+            </button>
+          </div>
+
+          <label htmlFor="reset-pwd-confirm" className={labelCls}>Confirm password *</label>
+          <input
+            id="reset-pwd-confirm"
+            type={show ? "text" : "password"}
+            className={inputCls}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+            minLength={4}
+          />
+
+          <p className="mt-3 text-[11px] text-amber-700">
+            The user will be signed out of all devices and must log in with the new password.
+          </p>
+
+          {err && (
+            <div className="mt-3 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{err}</div>
+          )}
+
+          <div className="mt-5 flex gap-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="bg-rlx-green px-6 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:bg-rlx-green/90 transition"
+            >
+              {saving ? "Saving…" : "Set Password"}
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={onClose}
+              className="border border-rlx-rule px-5 py-2 text-sm font-semibold text-stone-600 hover:bg-stone-50 transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function UsersListPage() {
@@ -257,7 +384,9 @@ export function UsersListPage() {
   const [editTarget, setEditTarget] = useState<SessionUser | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<SessionUser | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+  const [resetTarget, setResetTarget] = useState<SessionUser | null>(null);
 
+  const isSuperAdmin = user?.role === "super_admin";
   const canManageUsers = user?.role === "super_admin" || user?.role === "admin";
 
   const directorySubtitle = useMemo(() => {
@@ -281,6 +410,18 @@ export function UsersListPage() {
     } else {
       toastError("Update failed", result.message);
     }
+  }
+
+  async function handleResetPassword(password: string): Promise<boolean> {
+    if (!resetTarget) return false;
+    const result = await updateUser(resetTarget.id, { password });
+    if (result.ok) {
+      success("Password reset", `New password set for "${resetTarget.displayName}".`);
+      setResetTarget(null);
+      return true;
+    }
+    toastError("Reset failed", result.message);
+    return false;
   }
 
   async function handleToggleLogin(target: SessionUser) {
@@ -383,6 +524,18 @@ export function UsersListPage() {
                         >
                           Edit
                         </button>
+                        {isSuperAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setResetTarget(u)}
+                            title="Reset password"
+                            aria-label={`Reset password for ${u.displayName}`}
+                            className="inline-flex items-center gap-1 border border-amber-400 px-3 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 transition"
+                          >
+                            <IconKey />
+                            Reset
+                          </button>
+                        )}
                         {u.id !== user.id && (
                           <button
                             type="button"
@@ -416,6 +569,14 @@ export function UsersListPage() {
           target={editTarget}
           onClose={() => setEditTarget(null)}
           onSave={handleSaveEdit}
+        />
+      )}
+
+      {resetTarget && isSuperAdmin && (
+        <UserResetPasswordModal
+          target={resetTarget}
+          onClose={() => setResetTarget(null)}
+          onSave={handleResetPassword}
         />
       )}
 

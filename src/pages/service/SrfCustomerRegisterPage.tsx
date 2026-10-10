@@ -803,12 +803,6 @@ export function SrfCustomerRegisterPage() {
                   ) : null}
                   {" "}· {existingCustomer.phone}
                 </p>
-                <p className="mt-1">
-                  Name, address and other master data are filled from this record. Verify the mobile OTP to complete
-                  {canAdminVerifyWithoutOtp
-                    ? ", or use Verify without OTP if the customer will not share the code."
-                    : "."}
-                </p>
               </>
             ) : (
               <>
@@ -877,9 +871,6 @@ export function SrfCustomerRegisterPage() {
         </Card>
 
         <Card title="Customer registered at">
-          <p className="mb-3 text-xs text-stone-500">
-            Captures the store where this customer is created. The customer remains available to every store.
-          </p>
           {lockedStoreId ? (
             <input
               className={inputClassReadOnly}
@@ -1378,10 +1369,6 @@ export function SrfCustomerRegisterPage() {
           </p>
           <p className="mt-1 text-sm text-stone-700">
             Internal ID: <span className="font-mono text-xs text-stone-600">{successInfo.id}</span>
-          </p>
-          <p className="mt-3 text-xs text-stone-500">
-            Email is required so the SRF document can be sent. Older migrated records may still show as unverified until
-            mobile OTP is completed.
           </p>
         </ProcessSuccessModal>
       ) : null}

@@ -1154,14 +1154,29 @@ app.patch("/api/users/:userId", requireAuth, async (req, res) => {
     if ("moduleAccessOverride" in body) {
       push("module_access_override", body.moduleAccessOverride != null ? JSON.stringify(body.moduleAccessOverride) : null);
     }
-    if ("password" in body && String(body.password ?? "").trim().length >= 4) {
-      const newPlain = String(body.password).trim();
+    let passwordReset = false;
+    if ("password" in body) {
+      if (actor.role !== "super_admin") {
+        res.status(403).json({ error: "Only Super Admin can reset a user's password." });
+        return;
+      }
+      const newPlain = String(body.password ?? "").trim();
+      if (newPlain.length < 4) {
+        res.status(400).json({ error: "Password must be at least 4 characters." });
+        return;
+      }
       push("password_hash", hashPassword(newPlain));
       push("plain_password", newPlain);
+      passwordReset = true;
     }
 
     if (sets.length > 0) {
       await dbPool.query(`UPDATE app_users SET ${sets.join(", ")}, updated_at = now() WHERE id = $1::text`, params);
+    }
+    if (passwordReset && targetId !== actor.id) {
+      await dbPool.query(`UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [
+        targetId,
+      ]);
     }
 
     if ("storeIds" in body && Array.isArray(body.storeIds)) {

@@ -48,11 +48,6 @@ function ChartCard({
           <h3 className="text-sm font-semibold text-zimson-900">{title}</h3>
           {subtitle ? <p className="text-xs text-stone-500">{subtitle}</p> : null}
         </div>
-        {drillable ? (
-          <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
-            Click to drill
-          </span>
-        ) : null}
       </div>
       <div className={tall ? "h-80" : "h-64"}>{children}</div>
     </div>

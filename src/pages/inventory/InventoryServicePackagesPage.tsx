@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
+import { AppModal, AppModalDetailGrid, AppModalDetailRow, AppModalSection } from "../../components/ui/AppModal";
 import { PageHeader } from "../../components/ui/PageHeader";
+import {
+  IconAmend,
+  IconDetails,
+  TableActionButton,
+  tableActionBtnClass,
+} from "../../components/ui/TableActionIcons";
+import { modalBtnSecondary, modalFooterClass } from "../../lib/appModalStyles";
 import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson, useApiMode } from "../../lib/api";
 import { formatInr } from "../../lib/formatInr";
@@ -9,6 +17,19 @@ import { packageDisplayName, packageTypeLabel, watchServiceKindLabel, WATCH_SERV
 import type { ServicePackage } from "../../types/servicePackage";
 
 type LocationState = { saved?: "created" | "updated" } | null;
+
+const toggleBtnBase =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center border bg-white transition disabled:cursor-not-allowed disabled:opacity-40";
+const deactivateBtnClass = `${toggleBtnBase} border-red-200 text-red-600 hover:border-red-400 hover:bg-red-50`;
+const activateBtnClass = `${toggleBtnBase} border-emerald-200 text-emerald-600 hover:border-emerald-400 hover:bg-emerald-50`;
+
+function IconPower({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v9M6.34 6.34a8 8 0 1011.32 0" />
+    </svg>
+  );
+}
 
 export function InventoryServicePackagesPage() {
   const { user } = useAuth();
@@ -24,6 +45,8 @@ export function InventoryServicePackagesPage() {
   const [brandFilter, setBrandFilter] = useState("");
   const [serviceFilter, setServiceFilter] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const detail = useMemo(() => rows.find((r) => r.id === detailId) ?? null, [rows, detailId]);
 
   const load = useCallback(async () => {
     if (!api) {
@@ -211,10 +234,10 @@ export function InventoryServicePackagesPage() {
                   <th className="px-5 py-3 text-left">Service type</th>
                   <th className="px-5 py-3 text-left">Package name</th>
                   <th className="px-5 py-3 text-left">Package type</th>
-                  <th className="px-5 py-3 text-left">Spare details</th>
+                  <th className="px-5 py-3 text-center">Spares</th>
                   <th className="px-5 py-3 text-right">Price</th>
                   <th className="px-5 py-3 text-center">Status</th>
-                  {canManage ? <th className="px-5 py-3 text-right">Actions</th> : null}
+                  <th className="px-5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -239,23 +262,19 @@ export function InventoryServicePackagesPage() {
                         {packageTypeLabel(pkg.packageType)}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex flex-wrap gap-1">
-                        {(pkg.spares ?? []).length === 0 ? (
-                          <span className="text-xs text-stone-400">—</span>
-                        ) : (
-                          (pkg.spares ?? []).map((s) => (
-                            <span
-                              key={s.spareId}
-                              className="rounded border border-rlx-rule bg-stone-50 px-2 py-0.5 text-[11px] text-stone-600"
-                            >
-                              {s.name}
-                              {s.qty > 1 ? ` ×${s.qty}` : ""}
-                              {s.salePriceInr > 0 ? ` · ${formatInr(s.salePriceInr)}` : ""}
-                            </span>
-                          ))
-                        )}
-                      </div>
+                    <td className="px-5 py-3.5 text-center">
+                      {(pkg.spares ?? []).length === 0 ? (
+                        <span className="text-xs text-stone-400">—</span>
+                      ) : (
+                        <button
+                          type="button"
+                          title="View spares"
+                          onClick={() => setDetailId(pkg.id)}
+                          className="inline-flex min-w-[2rem] items-center justify-center rounded-full bg-rlx-green/10 px-2.5 py-0.5 text-[11px] font-bold tabular-nums text-rlx-green transition hover:bg-rlx-green/20"
+                        >
+                          {(pkg.spares ?? []).length}
+                        </button>
+                      )}
                     </td>
                     <td className="px-5 py-3.5 text-right font-semibold tabular-nums text-stone-900">
                       {formatInr(pkg.priceInr)}
@@ -269,26 +288,35 @@ export function InventoryServicePackagesPage() {
                         {pkg.isActive ? "Active" : "Inactive"}
                       </span>
                     </td>
-                    {canManage ? (
-                      <td className="px-5 py-3.5">
-                        <div className="flex justify-end gap-2">
-                          <Link
-                            to={`/inventory/service-packages/${encodeURIComponent(pkg.id)}/edit`}
-                            className="border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-rlx-green transition hover:bg-stone-50"
-                          >
-                            Edit
-                          </Link>
-                          <button
-                            type="button"
-                            disabled={busyId === pkg.id}
-                            onClick={() => void toggleActive(pkg)}
-                            className="border border-rlx-rule bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-stone-500 transition hover:bg-stone-50 disabled:opacity-50"
-                          >
-                            {pkg.isActive ? "Deactivate" : "Activate"}
-                          </button>
-                        </div>
-                      </td>
-                    ) : null}
+                    <td className="px-5 py-3.5">
+                      <div className="flex justify-end gap-1.5">
+                        <TableActionButton label="View details" onClick={() => setDetailId(pkg.id)}>
+                          <IconDetails />
+                        </TableActionButton>
+                        {canManage ? (
+                          <>
+                            <Link
+                              to={`/inventory/service-packages/${encodeURIComponent(pkg.id)}/edit`}
+                              title="Edit package"
+                              aria-label="Edit package"
+                              className={tableActionBtnClass}
+                            >
+                              <IconAmend />
+                            </Link>
+                            <button
+                              type="button"
+                              title={pkg.isActive ? "Deactivate package" : "Activate package"}
+                              aria-label={pkg.isActive ? "Deactivate package" : "Activate package"}
+                              disabled={busyId === pkg.id}
+                              onClick={() => void toggleActive(pkg)}
+                              className={pkg.isActive ? deactivateBtnClass : activateBtnClass}
+                            >
+                              <IconPower />
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -296,6 +324,103 @@ export function InventoryServicePackagesPage() {
           </div>
         )}
       </div>
+
+      {detail ? (
+        <AppModal
+          open
+          onClose={() => setDetailId(null)}
+          eyebrow="Service package"
+          title={packageDisplayName(detail)}
+          subtitle={detail.brand}
+          size="lg"
+          footer={
+            <div className={modalFooterClass}>
+              {canManage ? (
+                <Link
+                  to={`/inventory/service-packages/${encodeURIComponent(detail.id)}/edit`}
+                  title="Edit package"
+                  aria-label="Edit package"
+                  className={tableActionBtnClass}
+                >
+                  <IconAmend />
+                </Link>
+              ) : null}
+              <button type="button" className={modalBtnSecondary} onClick={() => setDetailId(null)}>
+                Close
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <AppModalDetailGrid>
+              <AppModalDetailRow label="Brand">{detail.brand}</AppModalDetailRow>
+              <AppModalDetailRow label="Service type">{watchServiceKindLabel(detail.serviceType)}</AppModalDetailRow>
+              <AppModalDetailRow label="Package name">{packageDisplayName(detail)}</AppModalDetailRow>
+              <AppModalDetailRow label="Package type">{packageTypeLabel(detail.packageType)}</AppModalDetailRow>
+              <AppModalDetailRow label="Package price">
+                <span className="font-semibold tabular-nums">{formatInr(detail.priceInr)}</span>
+              </AppModalDetailRow>
+              <AppModalDetailRow label="Status">
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                    detail.isActive ? "bg-emerald-50 text-emerald-800" : "bg-stone-100 text-stone-500"
+                  }`}
+                >
+                  {detail.isActive ? "Active" : "Inactive"}
+                </span>
+              </AppModalDetailRow>
+              {detail.updatedAt || detail.createdAt ? (
+                <AppModalDetailRow label="Last updated" last>
+                  {new Date(detail.updatedAt ?? detail.createdAt!).toLocaleString("en-IN")}
+                </AppModalDetailRow>
+              ) : null}
+            </AppModalDetailGrid>
+
+            <AppModalSection title={`Spares (${(detail.spares ?? []).length})`}>
+              {(detail.spares ?? []).length === 0 ? (
+                <p className="text-sm text-stone-500">No spares in this package.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        <th className="py-2 pr-3 text-left">Part no.</th>
+                        <th className="py-2 pr-3 text-left">Spare</th>
+                        <th className="py-2 pr-3 text-right">Qty</th>
+                        <th className="py-2 pr-3 text-right">Sale price</th>
+                        <th className="py-2 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.spares.map((s) => (
+                        <tr key={s.spareId} className="border-b border-slate-100 last:border-0">
+                          <td className="py-2 pr-3 font-mono text-xs text-slate-600">{s.sku || "—"}</td>
+                          <td className="py-2 pr-3 text-slate-800">{s.name}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{s.qty}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{formatInr(s.salePriceInr)}</td>
+                          <td className="py-2 text-right font-semibold tabular-nums">
+                            {formatInr(s.salePriceInr * s.qty)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-slate-200 text-slate-700">
+                        <td colSpan={4} className="py-2 pr-3 text-right text-xs font-semibold uppercase tracking-wider">
+                          Spares total
+                        </td>
+                        <td className="py-2 text-right font-semibold tabular-nums">
+                          {formatInr(detail.spares.reduce((sum, s) => sum + s.salePriceInr * s.qty, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </AppModalSection>
+          </div>
+        </AppModal>
+      ) : null}
     </div>
   );
 }

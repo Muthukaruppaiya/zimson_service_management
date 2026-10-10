@@ -276,7 +276,6 @@ export function MessagingSettingsPage() {
         <div className="space-y-6">
           <Card className="p-5">
             <h2 className="text-base font-semibold text-zimson-900">SMS (Qikberry)</h2>
-            <p className="mt-1 text-sm text-stone-600">OTP and transactional SMS via Qikberry REST API.</p>
             <div className="mt-4 space-y-4">
               <Toggle checked={smsEnabled} onChange={setSmsEnabled} label="SMS channel enabled" />
               <div className="ui-form-grid">
@@ -421,9 +420,6 @@ export function MessagingSettingsPage() {
 
           <Card className="p-5">
             <h2 className="text-base font-semibold text-zimson-900">WhatsApp (Qikchat)</h2>
-            <p className="mt-1 text-sm text-stone-600">
-              Invoice PDF delivery and SRF tracking / approval messages via approved Qikchat templates.
-            </p>
             <div className="mt-4 space-y-4">
               <Toggle checked={whatsappEnabled} onChange={setWhatsappEnabled} label="WhatsApp channel enabled" />
               <div className="ui-form-grid">
@@ -589,7 +585,6 @@ export function MessagingSettingsPage() {
 
           <Card className="p-5">
             <h2 className="text-base font-semibold text-zimson-900">Work Drive (optional)</h2>
-            <p className="mt-1 text-sm text-stone-600">Upload invoice PDF to Qikberry Work Drive when no public API URL is available.</p>
             <div className="mt-4 space-y-4">
               <Toggle
                 checked={workdriveForInvoice}

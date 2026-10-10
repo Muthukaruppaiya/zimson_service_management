@@ -25,21 +25,13 @@ export function InventoryStoreStockPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Spares on hand" subtitle="By SKU / bin — store level">
-          <p className="text-sm text-stone-600">
-            Issue to technician jobs, reserve against open SRFs, and receive from PO inward or inter-store
-            transfer. Negative stock blocked at save.
-          </p>
-          <div className="mt-4 rounded-xl border border-dashed border-zimson-300/80 bg-zimson-50/40 px-4 py-8 text-center text-sm text-stone-500">
+          <div className="rounded-xl border border-dashed border-zimson-300/80 bg-zimson-50/40 px-4 py-8 text-center text-sm text-stone-500">
             No stock rows to display.
           </div>
         </Card>
 
         <Card title="Service watches in custody" subtitle="Not for retail sale">
-          <p className="text-sm text-stone-600">
-            Watches at the counter for repair / waiting customer — tracked separately from showroom inventory
-            and linked to service requests where applicable.
-          </p>
-          <div className="mt-4 rounded-xl border border-dashed border-zimson-300/80 bg-zimson-50/40 px-4 py-8 text-center text-sm text-stone-500">
+          <div className="rounded-xl border border-dashed border-zimson-300/80 bg-zimson-50/40 px-4 py-8 text-center text-sm text-stone-500">
             No watches in custody to display.
           </div>
         </Card>

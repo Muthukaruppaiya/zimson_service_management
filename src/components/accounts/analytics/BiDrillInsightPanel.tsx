@@ -45,9 +45,6 @@ export function BiDrillInsightPanel({ selection, data, storeName, onClear, onOpe
           {selection ? (
             <p className="mt-1 text-sm text-stone-600">
               Selected value: <strong className="text-zimson-900">{fmt(selection.slice.value)}</strong>
-              {selection.suggestedView ? (
-                <span className="text-stone-500"> · Click a chart bar or pie slice to explore deeper</span>
-              ) : null}
             </p>
           ) : null}
         </div>

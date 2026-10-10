@@ -258,7 +258,6 @@ export function DocumentTemplatesPage() {
 
           <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-3">
             <p className="text-xs font-semibold text-stone-700">Field references for {activeDoc.toUpperCase()}</p>
-            <p className="mt-1 text-xs text-stone-500">Use these keys to control wording in the selected document template.</p>
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
               {refs.map((ref) => (
                 <div key={ref.key}>

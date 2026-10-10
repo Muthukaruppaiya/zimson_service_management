@@ -17,6 +17,7 @@ import { taxPersonTypeFromGstin } from "../../lib/supplierGstFill";
 import type { PurchaseOrder } from "../../types/purchaseOrder";
 import type { SparePart, SparePriceLine } from "../../types/spare";
 import type { Supplier } from "../../types/supplier";
+import { HomeLink, homeLinkFlatClass } from "../../components/ui/HomeLink";
 
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -211,6 +212,7 @@ function PoSuccessModal({ poNumbers, onClose }: { poNumbers: string[]; onClose: 
           <p className="mt-3 text-sm text-stone-500">The PO has been sent to the supplier.</p>
         </div>
         <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-6 py-4">
+          <HomeLink className={homeLinkFlatClass} />
           <Link
             to="/inventory/po-history"
             className="flex-1 border border-rlx-rule bg-white py-2 text-center text-sm font-semibold text-stone-700 hover:bg-stone-50 transition"

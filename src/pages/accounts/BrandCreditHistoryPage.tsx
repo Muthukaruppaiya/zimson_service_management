@@ -403,7 +403,6 @@ export function BrandCreditHistoryPage() {
         </p>
       ) : (
         <>
-          <p className="mb-2 text-xs text-rlx-ink-muted md:hidden">Swipe horizontally to see more columns →</p>
           <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
             <table className="ui-table-dense w-full min-w-[56rem] text-left text-sm">
               <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.14em] text-white">

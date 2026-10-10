@@ -29,9 +29,6 @@ export function AnalyticsDataTable({
     <div className={`rounded-2xl border border-zimson-200 bg-white p-4 shadow-sm ${drillable ? "bi-table-drillable" : ""}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-zimson-900">{title}</h3>
-        {drillable ? (
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-700">Click row to drill</span>
-        ) : null}
       </div>
       {rows.length === 0 ? (
         <p className="py-8 text-center text-sm text-stone-500">No rows for this period</p>

@@ -76,22 +76,35 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
   return (
     <div className="w-full min-w-0 space-y-3">
       <p className="text-xs font-medium text-stone-600">
-        Payment methods <span className="font-normal text-stone-500">(select one or more)</span>
+        Payment methods
       </p>
-      <div className="flex flex-wrap gap-3">
-        {APP_PAYMENT_MODES.map((mode) => (
-          <label
-            key={mode}
-            className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-zimson-200 bg-white px-3 py-2 text-sm shadow-sm"
-          >
-            <input
-              type="checkbox"
-              checked={Boolean(form[mode]?.enabled)}
-              onChange={(e) => onChange(toggleMode(form, mode, e.target.checked))}
-            />
-            <span className="font-medium text-stone-800">{mode}</span>
-          </label>
-        ))}
+      <div className="flex flex-wrap gap-2">
+        {APP_PAYMENT_MODES.map((mode) => {
+          const on = Boolean(form[mode]?.enabled);
+          return (
+            <label
+              key={mode}
+              className={`relative inline-flex cursor-pointer select-none items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition focus-within:ring-2 focus-within:ring-zimson-200 ${
+                on
+                  ? "border-zimson-600 bg-zimson-600 text-white shadow-sm"
+                  : "border-zimson-200 bg-white text-stone-700 hover:border-zimson-400 hover:bg-zimson-50"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={on}
+                onChange={(e) => onChange(toggleMode(form, mode, e.target.checked))}
+              />
+              {on ? (
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              ) : null}
+              {mode}
+            </label>
+          );
+        })}
       </div>
 
         {APP_PAYMENT_MODES.filter((m) => form[m]?.enabled).map((mode) => {
@@ -101,26 +114,27 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
           mode === "Cash" && APP_PAYMENT_MODES.filter((m) => form[m].enabled).length === 1;
 
         return (
-          <div key={mode} className="w-full min-w-0 rounded-xl border border-zimson-200/90 bg-zimson-50/40 p-3">
-            {mode === "Cash" ? (
-              <p className="text-xs text-stone-600">
-                Bill cash due:{" "}
-                <strong className="text-zimson-900">
-                  {rowBillTarget.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-                </strong>
-                {onlyCash && targetInr > 0 ? (
-                  <span className="ml-2 text-stone-500">(from {amountLabel} total)</span>
-                ) : null}
-              </p>
-            ) : null}
+          <div key={mode} className="w-full min-w-0 rounded-xl border border-zimson-200 bg-white p-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="rounded bg-zimson-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-zimson-800">
+                {mode}
+              </span>
+              {mode === "Cash" ? (
+                <p className="text-xs text-stone-600">
+                  Cash due{" "}
+                  <strong className="tabular-nums text-zimson-900">
+                    {rowBillTarget.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+                  </strong>
+                  {onlyCash && targetInr > 0 ? (
+                    <span className="ml-1 text-stone-500">(from {amountLabel} total)</span>
+                  ) : null}
+                </p>
+              ) : null}
+            </div>
 
-            <div
-              className={`flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between ${mode === "Cash" ? "mt-2" : ""}`}
-            >
-              <label className="block min-w-0 flex-1 text-xs font-semibold text-zimson-900 sm:min-w-[12rem]">
-                <span className="mb-1 block">
-                  {mode === "Cash" ? "Cash bill amount (INR)" : `${mode} amount (INR)`}
-                </span>
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+              <label className="block min-w-0 flex-1 text-xs font-medium text-stone-600 sm:min-w-[12rem]">
+                <span className="block">Amount (INR)</span>
                 <input
                   className={inputClass}
                   inputMode="decimal"
@@ -141,7 +155,7 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
                 <button
                   type="button"
                   onClick={() => fillRemaining(mode)}
-                  className="rounded-lg border border-zimson-300 bg-white px-2 py-1 text-xs font-semibold text-zimson-800 hover:bg-zimson-50"
+                  className="rounded-lg border border-zimson-300 bg-white px-3 py-2 text-xs font-semibold text-zimson-800 transition hover:bg-zimson-50"
                 >
                   Use remaining
                 </button>
@@ -157,12 +171,6 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
                       ? `${mode} reference (UTR / transaction id)`
                       : `${mode} reference (optional)`}
                 </span>
-                {mode === "Razorpay" ? (
-                  <p className="mb-1 text-[11px] font-normal text-stone-500">
-                    Checkout opens when you save the bill / collect advance. UPI, cards and netbanking are accepted in
-                    the Razorpay window.
-                  </p>
-                ) : null}
                 <input
                   id={`${idPrefix}-${mode}-ref`}
                   className={inputClass}
@@ -189,19 +197,25 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
       })}
 
       {targetInr > 0 ? (
-        <p className="text-xs text-stone-600">
-          Split total for {amountLabel}:{" "}
-          <strong className="text-zimson-900">
-            {splitSum.toLocaleString(undefined, { style: "currency", currency: "INR" })}
-          </strong>
-          {" / "}
-          <strong>{targetInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}</strong>
-          {matchTarget ? (
-            <span className="ml-2 text-emerald-700">(matches)</span>
-          ) : (
-            <span className="ml-2 text-amber-700">(must match {amountLabel} total)</span>
-          )}
-        </p>
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs ${
+            matchTarget ? "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200" : "bg-amber-50 text-amber-900 ring-1 ring-amber-200"
+          }`}
+        >
+          <span>
+            Collected{" "}
+            <strong className="tabular-nums">
+              {splitSum.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+            </strong>
+            {" of "}
+            <strong className="tabular-nums">
+              {targetInr.toLocaleString(undefined, { style: "currency", currency: "INR" })}
+            </strong>
+          </span>
+          <span className="font-semibold">
+            {matchTarget ? "✓ Matches" : `Must match ${amountLabel} total`}
+          </span>
+        </div>
       ) : null}
     </div>
   );

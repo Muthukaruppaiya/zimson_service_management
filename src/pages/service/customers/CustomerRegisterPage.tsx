@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CustomerDetailsModal } from "../../../components/service/CustomerDetailsModal";
 import { ServiceBreadcrumb } from "../../../components/service/ServiceBreadcrumb";
@@ -22,13 +22,6 @@ export function CustomerRegisterPage() {
   const [checkedCustomer, setCheckedCustomer] = useState<CustomerRecord | null>(null);
   const [showCreatePopup, setShowCreatePopup] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-
-  const hint = useMemo(() => {
-    if (searchParams.get("reason") === "new") {
-      return "No matching customer was found for the name and mobile you entered. Complete registration to continue billing.";
-    }
-    return "Create a customer master record, then return to billing.";
-  }, [searchParams]);
 
   async function checkByPhone() {
     setError(null);
@@ -91,7 +84,6 @@ export function CustomerRegisterPage() {
             {checking ? "Checking..." : "Check number"}
           </button>
         </div>
-        <p className="mt-2 text-xs text-stone-500">{hint}</p>
       </Card>
 
       {checkedCustomer ? (
@@ -143,10 +135,6 @@ export function CustomerRegisterPage() {
                 Close
               </button>
             </div>
-            <p className="text-sm text-stone-700">
-              Customer registration uses the full profile form: auto customer code, structured billing and shipping
-              addresses, mandatory email, separate mobile and email OTP verification, and B2B GST company lookup.
-            </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
                 to={`/service/srf/new-customer?phone=${encodeURIComponent(phoneToCheck.trim())}&name=${encodeURIComponent(initialName)}&returnTo=${encodeURIComponent("/service/billing/create")}`}

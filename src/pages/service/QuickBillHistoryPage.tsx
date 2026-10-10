@@ -655,9 +655,6 @@ export function QuickBillHistoryPage() {
           {filtered.length > 0 ? (
             <>
               {/* table */}
-              <p className="mb-2 text-xs text-rlx-ink-muted xl:hidden">
-                Swipe horizontally to see more columns →
-              </p>
               <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
                 <table className="ui-table-dense w-full min-w-[42rem] text-left text-sm xl:min-w-[1100px]">
                   <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.16em] text-white">

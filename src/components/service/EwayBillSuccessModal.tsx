@@ -31,6 +31,7 @@ export function EwayBillSuccessModal({
   return (
     <ProcessSuccessModal
       open={open}
+      showHome={false}
       title="E-way bill generated"
       description={docNo ? `${documentLabel} ${docNo}` : documentLabel}
       onBackdropClick={onClose}

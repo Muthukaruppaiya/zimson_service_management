@@ -377,9 +377,6 @@ export function ServiceTaxSettingsPage() {
 
             <div className="rounded-xl border border-zimson-200/80 bg-zimson-50/30 p-4">
               <p className="text-xs font-semibold text-stone-700">Global app branding (same for all regions)</p>
-              <p className="mt-1 text-xs text-stone-500">
-                Super admin sets these once; sidebar/topbar logo and favicon use these values for all users.
-              </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="text-xs font-medium text-stone-600">App logo URL / data URL
                   <input className={inputClass} value={appLogoUrl} onChange={(e) => setAppLogoUrl(e.target.value)} placeholder="/icons.svg or data:image/png;base64,..." />

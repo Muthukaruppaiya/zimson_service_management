@@ -275,9 +275,6 @@ export function BrandEwayConsigneesSettingsPage() {
                 {gstFetchBusy ? "Fetching…" : "Fetch from GST"}
               </button>
             </div>
-            <span className="mt-1 block text-[11px] font-normal normal-case tracking-normal text-stone-500">
-              Enter a valid GSTIN to auto-fill legal name, address, city, and pincode from the GST registry.
-            </span>
           </label>
           <label className={labelClass}>
             Pincode

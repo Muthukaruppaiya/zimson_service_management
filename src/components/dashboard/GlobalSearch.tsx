@@ -354,9 +354,6 @@ export function GlobalSearch({
             <div className="px-5 py-5 text-center text-sm text-rlx-ink-muted">
               No matches for{" "}
               <span className="border border-rlx-rule bg-rlx-bg px-1.5 py-0.5 font-mono text-xs text-rlx-ink">{query}</span>
-              <p className="mt-1 text-xs text-rlx-ink-muted/70">
-                Try SRF ref, DC/ODC number, or Quick bill number.
-              </p>
             </div>
           ) : (
             <ul className="max-h-72 overflow-auto">
@@ -382,14 +379,7 @@ export function GlobalSearch({
               ))}
             </ul>
           )}
-          <div className="flex items-center justify-between gap-2 border-t border-rlx-rule bg-rlx-bg px-4 py-2 text-[10px] text-rlx-ink-muted">
-            <span className="flex items-center gap-1">
-              <kbd className="border border-rlx-rule bg-white px-1 py-0.5 font-mono text-[9px]">↑↓</kbd>
-              <span>navigate</span>
-              <span className="mx-1.5 opacity-40">·</span>
-              <kbd className="border border-rlx-rule bg-white px-1 py-0.5 font-mono text-[9px]">↵</kbd>
-              <span>open</span>
-            </span>
+          <div className="flex items-center justify-end gap-2 border-t border-rlx-rule bg-rlx-bg px-4 py-2 text-[10px] text-rlx-ink-muted">
             <span>{hits.length} result{hits.length === 1 ? "" : "s"}</span>
           </div>
         </div>

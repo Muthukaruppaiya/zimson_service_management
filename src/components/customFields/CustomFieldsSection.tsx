@@ -88,7 +88,6 @@ export function CustomFieldsSection({
     <div className="border border-rlx-rule bg-white shadow-sm">
       <div className="border-b border-rlx-rule bg-rlx-green px-5 py-4">
         <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-white">{title}</h3>
-        <p className="mt-0.5 text-[11px] text-white/55">Extra fields configured in Settings → Custom fields.</p>
       </div>
       <div className="p-5">{body}</div>
     </div>

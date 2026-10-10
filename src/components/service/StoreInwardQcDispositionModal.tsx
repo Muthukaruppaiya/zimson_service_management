@@ -45,7 +45,7 @@ export function StoreInwardQcDispositionModal({
       onClose={onClose}
       eyebrow="Store QC — not accepted"
       title={`${count} watch${plural} did not pass QC`}
-      description={`Transfer ${tdNumber} · Choose what happens to the unchecked SRF${plural} before completing inward.`}
+      description={`Transfer ${tdNumber}`}
       size="lg"
       zIndex={60}
       closeOnBackdrop={!saving}

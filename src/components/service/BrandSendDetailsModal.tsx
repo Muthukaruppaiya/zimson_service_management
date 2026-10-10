@@ -5,7 +5,8 @@ import type { SrfJob } from "../../types/srfJob";
 import { EwayBillModal } from "./EwayBillModal";
 import type { EdocUiResult } from "../../lib/edocResultMessage";
 import { AppModal, AppModalDetailGrid, AppModalDetailRow } from "../ui/AppModal";
-import { modalBtnGold, modalBtnPrimary, modalBtnSecondary, modalFooterClass } from "../../lib/appModalStyles";
+import { PrintIconButton } from "../ui/PrintIconButton";
+import { modalBtnSecondary, modalFooterClass } from "../../lib/appModalStyles";
 
 type Props = {
   job: SrfJob;
@@ -57,18 +58,14 @@ export function BrandSendDetailsModal({
         zIndex={60}
         footer={
           <div className={modalFooterClass}>
-            <button
-              type="button"
-              className={modalBtnPrimary}
+            <PrintIconButton
+              label="Print brand ODC / DC"
+              variant="solid"
               onClick={() => printBrandDispatchDocument(job)}
               disabled={!job.brandOdcNumber && !job.brandDispatchRef}
-            >
-              Print brand ODC / DC
-            </button>
+            />
             {onPrintTransferDc && transferDcLabel ? (
-              <button type="button" className={modalBtnGold} onClick={onPrintTransferDc}>
-                Print transfer DC ({transferDcLabel})
-              </button>
+              <PrintIconButton label={`Print transfer DC (${transferDcLabel})`} onClick={onPrintTransferDc} />
             ) : null}
             {canCreateBrandEway ? (
               <button type="button" className={modalBtnSecondary} onClick={() => setEwayOpen(true)}>

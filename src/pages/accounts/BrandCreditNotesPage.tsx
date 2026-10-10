@@ -109,7 +109,6 @@ function EditableVoucherAmount({
         className="mt-1 w-full rounded-xl border border-zimson-200 bg-zimson-50/80 px-3 py-2.5 text-left transition hover:border-emerald-300 hover:bg-emerald-50/40 disabled:opacity-60"
       >
         <span className="text-lg font-bold text-zimson-900">{formatted}</span>
-        <span className="mt-0.5 block text-[11px] text-stone-500">Double-click to modify · otherwise approve as shown</span>
       </button>
     </div>
   );

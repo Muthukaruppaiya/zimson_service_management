@@ -10,6 +10,7 @@ import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { buildTransferDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import { modalBtnPrimary, modalBtnSecondary } from "../../lib/appModalStyles";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 const inputCls =
   "mt-1 w-full border border-rlx-rule bg-white px-3 py-1.5 text-sm text-stone-800 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green/30 transition-colors";
@@ -466,9 +467,8 @@ export function InventoryHoStoreTransferPage() {
         actions={
           <>
             {result ? (
-              <button
-                type="button"
-                className={modalBtnSecondary}
+              <PrintIconButton
+                label="Print transfer"
                 onClick={() =>
                   openPrintDocument(
                     `Transfer ${result.transferNumber}`,
@@ -485,9 +485,7 @@ export function InventoryHoStoreTransferPage() {
                     }),
                   )
                 }
-              >
-                Print transfer
-              </button>
+              />
             ) : null}
             <button type="button" className={modalBtnSecondary} onClick={() => setResult(null)}>
               Transfer another

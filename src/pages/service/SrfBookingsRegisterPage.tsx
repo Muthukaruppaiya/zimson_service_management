@@ -442,9 +442,6 @@ export function SrfBookingsRegisterPage() {
             </div>
           ) : (
             <>
-              <p className="mb-2 text-[10px] text-rlx-ink-muted md:hidden">
-                Swipe horizontally to see more columns →
-              </p>
               <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
                 <table className="ui-table-dense w-full min-w-[62rem] table-fixed text-left text-sm">
                   <colgroup>

@@ -172,12 +172,6 @@ export function CustomerAdminVerifyPage() {
           </>
         }
       >
-        <p className="mb-4 text-xs text-rlx-ink-muted">
-          Use this screen when a customer will not share the OTP for Quick bill or SRF booking. Only admin and
-          super admin can mark the selected customer verified without OTP. Store users still complete mobile OTP
-          on registration.
-        </p>
-
         <div className="mb-4 flex flex-wrap items-end gap-2">
           <FilterField label="Search" htmlFor="admin-verify-q" className="min-w-[16rem] flex-1">
             <input
@@ -196,7 +190,6 @@ export function CustomerAdminVerifyPage() {
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
           {filtered.length > 0 ? (
             <div>
-              <p className="mb-2 text-xs text-rlx-ink-muted xl:hidden">Swipe horizontally to see more columns →</p>
               <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
                 <table className="ui-table-dense w-full min-w-[40rem] text-left text-sm">
                   <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
@@ -300,9 +293,7 @@ export function CustomerAdminVerifyPage() {
                   </button>
                 )}
               </>
-            ) : (
-              <p className="mt-3 text-xs text-rlx-ink-muted">Select a row to review, then verify without OTP.</p>
-            )}
+            ) : null}
           </aside>
         </div>
       </ListPageShell>

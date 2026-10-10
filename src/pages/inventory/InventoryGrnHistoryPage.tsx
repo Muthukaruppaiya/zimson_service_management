@@ -18,6 +18,7 @@ import {
 import { buildGrnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import { setPrintSuppliers } from "../../lib/printContext";
 import type { Supplier } from "../../types/supplier";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -195,11 +196,7 @@ function GrnDetailModal({ grn, spareNameById, onClose, onTransfer, onReturn }: {
           </div>
         )}
         <div className="flex gap-2 border-t border-rlx-rule bg-white px-6 py-4">
-          <button type="button"
-            onClick={() => printGrn(grn)}
-            className="bg-rlx-green px-6 py-2 text-sm font-semibold text-white hover:bg-rlx-green/90 transition">
-            Print GRN
-          </button>
+          <PrintIconButton label="Print GRN" variant="solid" onClick={() => printGrn(grn)} />
           {onTransfer ? (
             <button type="button" onClick={onTransfer}
               className="border border-rlx-rule px-6 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition">

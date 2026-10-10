@@ -381,11 +381,7 @@ export function CustomerBulkImportPage() {
               <h3 className="text-sm font-semibold uppercase tracking-wide text-white">Download Template</h3>
             </div>
             <div className="p-5">
-              <p className="text-sm text-stone-600">
-                Excel with a <strong>README</strong> and a <strong>Customers</strong> sheet covering identity, tax, billing,
-                shipping, and two extra addresses — the same fields as manual registration.
-              </p>
-              <ul className="mt-3 space-y-1 text-xs text-stone-500">
+              <ul className="space-y-1 text-xs text-stone-500">
                 <li className="flex items-center gap-2">
                   <span className="font-bold text-rlx-green">✓</span> Excel dropdowns for Customer Type (B2C/B2B), Salutation, Tax Preference, Same Shipping
                 </li>
@@ -568,8 +564,7 @@ export function CustomerBulkImportPage() {
           />
         </div>
         <p className="mt-4 text-center text-[11px] text-stone-400">
-          Keep header row on row 1 of the Customers sheet.
-          <Link to="/service/customers/master" className="ml-2 font-semibold text-rlx-green hover:underline">
+          <Link to="/service/customers/master" className="font-semibold text-rlx-green hover:underline">
             View Customer master
           </Link>
           {canBypassCustomerOtp(user?.role) ? (

@@ -10,6 +10,7 @@ import { isArchivedSrfJob, jobMatchesRoleScope } from "../../lib/srfAccess";
 import { printTransferFromMeta } from "../../lib/serviceDocuments";
 import { resolveHoToStorePrint, resolveStoreToHoPrint } from "../../lib/transferDocumentKind";
 import type { SrfJob } from "../../types/srfJob";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 type DirectionFilter = "all" | "outward" | "inward";
 type OutwardLifecycle =
@@ -566,11 +567,6 @@ export function StoreLogisticsHistoryPage() {
                 ? "No store ↔ HO transfers yet"
                 : "No transfers match the current filters"}
             </p>
-            <p className="mx-auto mt-2 max-w-xl text-sm text-stone-600">
-              {historyRows.length === 0
-                ? "This list is SRF delivery notes (TD/DC) between store and HO — not inventory spare transfers. Dispatch from Store dispatch, or wait until a watch is sent to HO / returned to store."
-                : "Clear the status, store, or date filters to see all transfers."}
-            </p>
             {historyRows.length > 0 ? (
               <button
                 type="button"
@@ -776,24 +772,20 @@ export function StoreLogisticsHistoryPage() {
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-slate-200 bg-white px-5 py-4 sm:px-7">
               {selected.dcNumber ? (
-                <button
-                  type="button"
+                <PrintIconButton
+                  label="Reprint outward transfer"
+                  variant="none"
+                  className="bg-[#173786] text-white shadow-sm hover:bg-[#0c1c56]"
                   onClick={() => printTransferForJob(selected, selected.dcNumber!, "store_to_ho")}
-                  className="rounded-xl bg-[#173786] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0c1c56]"
-                >
-                  Reprint outward transfer
-                </button>
+                />
               ) : null}
               {selected.outwardDcNumber ? (
-                <button
-                  type="button"
+                <PrintIconButton
+                  label="Reprint return transfer"
                   onClick={() =>
                     printTransferForJob(selected, selected.outwardDcNumber!, "ho_to_store")
                   }
-                  className="rounded-xl bg-[#173786] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0c1c56]"
-                >
-                  Reprint return transfer
-                </button>
+                />
               ) : null}
               <button
                 type="button"

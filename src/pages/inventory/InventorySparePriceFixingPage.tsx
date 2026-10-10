@@ -54,18 +54,6 @@ export function InventorySparePriceFixingPage() {
       />
 
       <Card title="Regional matrix" subtitle="MRP or issue price (INR)">
-        <p className="mb-4 text-sm text-stone-600">
-          This is a <strong>separate sub-module</strong> under spares: maintain prices in{" "}
-          <Link className="font-medium text-zimson-800 underline" to="/regions">
-            Regions &amp; stores
-          </Link>{" "}
-          first, then set one column per regional HO. Add parts in{" "}
-          <Link className="font-medium text-zimson-800 underline" to="/inventory/spares">
-            Spare catalogue
-          </Link>
-          .
-        </p>
-
         {activeSpares.length === 0 ? (
           <p className="text-sm text-stone-600">No active spares in the catalogue.</p>
         ) : (

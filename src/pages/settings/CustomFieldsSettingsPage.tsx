@@ -140,8 +140,6 @@ export function CustomFieldsSettingsPage() {
         ))}
       </div>
 
-      <p className="mb-4 text-sm text-stone-500">{entityMeta?.description}. Add as many fields as needed.</p>
-
       {canEdit ? (
         <Card title="Add a field">
           <form onSubmit={(e) => void addField(e)} className="grid gap-4 sm:grid-cols-2">

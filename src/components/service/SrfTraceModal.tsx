@@ -8,6 +8,7 @@ import { apiJson } from "../../lib/api";
 import { formatApproxEstimateInr } from "../../lib/formatInr";
 import { phoneLast10 } from "../../lib/customerLookup";
 import { openPrintDocument } from "../../lib/inventoryDocuments";
+import { PrintIconButton } from "../ui/PrintIconButton";
 import { enrichTraceTimeline, watchLocationForStatus, buildTraceLocationContext } from "../../lib/srfTraceLocations";
 import { canResendSrfTrackingWhatsApp } from "../../lib/resendSrfTrackingWhatsApp";
 import { canResendSrfApprovalWhatsApp } from "../../lib/srfApprovalWhatsApp";
@@ -319,13 +320,7 @@ export function SrfTraceModal({ srfId, onClose }: Props) {
               </p>
             ) : null}
             {enrichedTrace ? (
-              <button
-                type="button"
-                onClick={printTrace}
-                className="rounded-lg border border-zimson-300 bg-white px-3 py-1.5 text-xs font-semibold text-zimson-900 hover:bg-zimson-50"
-              >
-                Print full trace
-              </button>
+              <PrintIconButton label="Print full trace" size="sm" onClick={printTrace} />
             ) : null}
             <button
               type="button"

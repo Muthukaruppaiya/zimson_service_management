@@ -32,6 +32,7 @@ import type {
 import type { EdocSettings } from "../../types/edocSettings";
 import type { QuickBillEdocInfo } from "../../types/quickBill";
 import { invoiceSourceLabel, paymentStatusLabel } from "../../types/serviceInvoiceRecord";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 const PAYMENT_MODES = ["Cash", "Card", "UPI", "Bank transfer", "Cheque", "NEFT/RTGS"];
 
@@ -739,9 +740,7 @@ export function InvoiceHistoryPage() {
                     >
                       {pdfBusyId === detail.id ? "Preparing PDF…" : "Download PDF"}
                     </button>
-                    <button type="button" className="ui-btn-secondary text-xs" onClick={() => printInvoice(detail)}>
-                      Print
-                    </button>
+                    <PrintIconButton label="Print invoice" onClick={() => printInvoice(detail)} />
                     {isSuperAdmin ? (
                       <>
                         <button type="button" className="ui-btn-secondary text-xs" onClick={() => openEdit(detail)}>
@@ -876,9 +875,12 @@ export function InvoiceHistoryPage() {
                 <h3 className="text-lg font-semibold text-white">{previewRecord.invoiceNumber}</h3>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="bg-rlx-gold px-4 py-2 text-xs font-semibold text-rlx-green-deep" onClick={() => printServiceInvoice()}>
-                  Print
-                </button>
+                <PrintIconButton
+                  label="Print invoice"
+                  variant="none"
+                  className="bg-rlx-gold text-rlx-green-deep hover:bg-rlx-gold-dark"
+                  onClick={() => printServiceInvoice()}
+                />
                 <button
                   type="button"
                   className="border border-white/30 px-4 py-2 text-xs font-semibold text-white"

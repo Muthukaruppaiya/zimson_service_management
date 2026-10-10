@@ -8,6 +8,8 @@ import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
 import { PrFlowHeldNotice } from "./PrFlowHeldNotice";
 import { buildPrDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PrintIconButton } from "../../components/ui/PrintIconButton";
+import { HomeLink, homeLinkFlatClass } from "../../components/ui/HomeLink";
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
@@ -144,13 +146,8 @@ function PrSuccessModal({
         </div>
         {/* Footer */}
         <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-6 py-4">
-          <button
-            type="button"
-            onClick={onPrintAndClose}
-            className="flex-1 border border-rlx-rule bg-white py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 transition"
-          >
-            Print & Close
-          </button>
+          <HomeLink className={homeLinkFlatClass} />
+          <PrintIconButton label="Print & close" onClick={onPrintAndClose} />
           <button
             type="button"
             onClick={onClose}
