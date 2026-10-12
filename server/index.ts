@@ -25,6 +25,7 @@ import { registerAnalyticsRoutes } from "./analyticsRoutes";
 import { registerServiceInvoiceRoutes } from "./serviceInvoiceRoutes";
 import { registerQuickBillCaptureRoutes } from "./quickBillCaptureRoutes";
 import { registerQuickBillDraftRoutes } from "./quickBillDraftRoutes";
+import { registerDashboardTodayRoutes } from "./dashboardTodayRoutes";
 import { registerSrfBillingHandoverRoutes } from "./srfBillingHandoverRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { getMessagingPublicBaseUrl, isWhatsAppInvoiceDryRun } from "./messaging/config";
@@ -4349,7 +4350,18 @@ async function main() {
     return findUser(id) ?? null;
   });
   registerInventoryPoSupplierRoutes(app, dbPool, requireAuth, (id) => findUser(id), allUsers, pushNotifications);
-  registerInventoryDirectPurchaseRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerInventoryDirectPurchaseRoutes(
+    app,
+    dbPool,
+    requireAuth,
+    (id) => findUser(id) ?? null,
+    async (regionId, storeId, payload) => {
+      const recipients = allUsers()
+        .filter((u) => STORE_ROLES.has(u.role) && u.regionId === regionId && u.storeId === storeId)
+        .map((u) => u.id);
+      await pushNotifications(recipients, { ...payload, category: "inventory_pr" });
+    },
+  );
   registerQuickBillRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerServiceInvoiceRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerClientReportsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
@@ -4357,6 +4369,7 @@ async function main() {
   registerAccountsDashboardRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerQuickBillCaptureRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerQuickBillDraftRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerDashboardTodayRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfBillingHandoverRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerEdocRoutes(app, dbPool, requireAuth);

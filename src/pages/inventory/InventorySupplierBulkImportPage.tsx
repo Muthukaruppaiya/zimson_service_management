@@ -64,11 +64,7 @@ type ValidateSummary = {
 export function InventorySupplierBulkImportPage() {
   const apiMode = useApiMode();
   const { user } = useAuth();
-  const canImport =
-    user?.role === "super_admin" ||
-    user?.role === "admin" ||
-    user?.role === "ho_manager" ||
-    user?.role === "ho_purchase";
+  const canImport = user?.role === "super_admin" || user?.role === "admin";
 
   const fileRef = useRef<File | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -227,7 +223,7 @@ export function InventorySupplierBulkImportPage() {
         <InventoryBreadcrumb current="Supplier bulk import" />
         <PageHeader title="Supplier Bulk Import" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only Admins, CSC Managers and CSC Purchase users can run supplier bulk import.
+          Only Super Admin and Admin can run supplier bulk import.
           <div className="mt-4">
             <Link to="/inventory/suppliers" className="font-semibold text-rlx-green hover:underline">
               ← Back to Supplier Master

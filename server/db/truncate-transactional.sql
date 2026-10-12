@@ -10,6 +10,8 @@
 BEGIN;
 
 TRUNCATE TABLE
+  stock_transfer_items,
+  stock_transfers,
   quick_bill_drafts,
   quick_bill_capture_photos,
   quick_bill_capture_sessions,

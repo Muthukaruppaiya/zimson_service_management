@@ -1362,6 +1362,35 @@ export async function runMigrations(pool: Pool): Promise<void> {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS stock_transfers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      transfer_number VARCHAR(64) NOT NULL UNIQUE,
+      region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+      store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+      grn_id UUID REFERENCES grns(id) ON DELETE SET NULL,
+      grn_number VARCHAR(64),
+      status VARCHAR(16) NOT NULL DEFAULT 'IN_TRANSIT' CHECK (status IN ('IN_TRANSIT', 'PARTIAL', 'RECEIVED')),
+      notes TEXT,
+      created_by VARCHAR(80),
+      received_by VARCHAR(80),
+      received_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_stock_transfers_store_status
+      ON stock_transfers (store_id, status, created_at DESC);
+    CREATE TABLE IF NOT EXISTS stock_transfer_items (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      transfer_id UUID NOT NULL REFERENCES stock_transfers(id) ON DELETE CASCADE,
+      spare_id UUID NOT NULL REFERENCES spares(id),
+      grn_item_id UUID REFERENCES grn_items(id) ON DELETE SET NULL,
+      qty NUMERIC(18, 3) NOT NULL CHECK (qty > 0),
+      received_qty NUMERIC(18, 3) NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_stock_transfer_items_transfer ON stock_transfer_items (transfer_id);
+  `);
+
+  await pool.query(`
     ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS login_alert_at TIMESTAMPTZ;
     ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS login_alert_message TEXT;
   `);

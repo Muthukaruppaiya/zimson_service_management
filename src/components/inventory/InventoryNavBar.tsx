@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
+import { canBulkImport, isBulkImportPath } from "../../lib/bulkImportAccess";
+import { canViewStoreInward, isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
 import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
 
 const navItems: Array<{ to: string; label: string }> = [
@@ -35,6 +36,7 @@ const navItems: Array<{ to: string; label: string }> = [
   { to: "/inventory/purchase-return-history", label: "GRN return history" },
   { to: "/inventory/ho-transfer", label: "Transfers" },
   { to: "/inventory/transfer-history", label: "Transfers history" },
+  { to: "/inventory/store-inward", label: "Store inward" },
   ...(ENABLE_PR_FLOW ? [{ to: "/inventory/allocation-review", label: "Allocation" }] : []),
   { to: "/inventory/spare-price-fixing", label: "Price fixing" },
 ];
@@ -42,7 +44,12 @@ const navItems: Array<{ to: string; label: string }> = [
 export function InventoryNavBar() {
   const { user } = useAuth();
   const viewOnly = isInventoryStockPricesViewOnly(user);
-  const items = viewOnly ? navItems.filter((i) => i.to === "/inventory/stock-prices") : navItems;
+  const allowed = (canBulkImport(user?.role) ? navItems : navItems.filter((i) => !isBulkImportPath(i.to))).filter(
+    (i) => i.to !== "/inventory/store-inward" || canViewStoreInward(user?.role),
+  );
+  const items = viewOnly
+    ? allowed.filter((i) => i.to === "/inventory/stock-prices" || i.to === "/inventory/store-inward")
+    : allowed;
 
   return (
     <div className="mb-6 overflow-x-auto rounded-2xl border border-zimson-200/80 bg-zimson-50/60 p-2">

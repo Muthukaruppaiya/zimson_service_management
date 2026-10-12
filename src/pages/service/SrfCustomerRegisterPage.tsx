@@ -134,6 +134,9 @@ export function SrfCustomerRegisterPage() {
   const initialPhoneDigits = digitsOnly(initialPhone, 10);
   const lockedRegisterPhone =
     (forQuickBill || forSrf) && initialPhoneDigits.length === 10;
+  const [phoneUnlocked, setPhoneUnlocked] = useState(false);
+  const phoneLocked = lockedRegisterPhone && !phoneUnlocked;
+  const phoneInputRef = useRef<HTMLInputElement | null>(null);
   const returnTo = searchParams.get("returnTo") ?? "";
 
   const [customerKind, setCustomerKind] = useState<CustomerKind>("B2C");
@@ -142,7 +145,7 @@ export function SrfCustomerRegisterPage() {
   const [lastName, setLastName] = useState("");
   const [b2bDisplayName, setB2bDisplayName] = useState("");
   const [phoneEditable, setPhoneEditable] = useState(() => digitsOnly(initialPhone, 10));
-  const phone = lockedRegisterPhone ? initialPhoneDigits : phoneEditable;
+  const phone = phoneLocked ? initialPhoneDigits : phoneEditable;
   const [alternatePhone, setAlternatePhone] = useState("");
   const [telephone, setTelephone] = useState("");
   const [email, setEmail] = useState("");
@@ -271,7 +274,10 @@ export function SrfCustomerRegisterPage() {
 
   useEffect(() => {
     if (!existingCustomer || isCustomerPhoneVerified(existingCustomer)) {
-      if (!existingCustomer) prefilledUnverifiedIdRef.current = null;
+      if (!existingCustomer && prefilledUnverifiedIdRef.current) {
+        prefilledUnverifiedIdRef.current = null;
+        clearCustomerFields();
+      }
       return;
     }
     if (prefilledUnverifiedIdRef.current === existingCustomer.id) return;
@@ -416,6 +422,10 @@ export function SrfCustomerRegisterPage() {
   function switchCustomerKind(next: CustomerKind) {
     if (next === customerKind) return;
     setCustomerKind(next);
+    clearCustomerFields();
+  }
+
+  function clearCustomerFields() {
     setSalutation("Mr.");
     setFirstName("");
     setLastName("");
@@ -809,6 +819,15 @@ export function SrfCustomerRegisterPage() {
               >
                 Customer details
               </button>
+              {blockingExisting && (forQuickBill || forSrf || returnTo) ? (
+                <button
+                  type="button"
+                  onClick={() => navigateAfterRegistration(existingCustomer)}
+                  className="inline-flex border border-rlx-gold bg-rlx-green px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-rlx-green-deep"
+                >
+                  Use This Customer
+                </button>
+              ) : null}
               {verifyingExisting && canAdminVerifyWithoutOtp ? (
                 <button
                   type="button"
@@ -1001,22 +1020,40 @@ export function SrfCustomerRegisterPage() {
               ) : null} */}
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <input
+                  ref={phoneInputRef}
                   value={phone}
-                  readOnly={lockedRegisterPhone}
+                  readOnly={phoneLocked}
                   onChange={
-                    lockedRegisterPhone
+                    phoneLocked
                       ? undefined
                       : (e) => setPhoneEditable(digitsOnly(e.target.value, 10))
                   }
                   className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1${
-                    lockedRegisterPhone ? " cursor-not-allowed bg-stone-100 text-stone-700" : ""
+                    phoneLocked ? " cursor-not-allowed bg-stone-100 text-stone-700" : ""
                   }`}
                   placeholder="10-digit mobile"
                   inputMode="numeric"
                   maxLength={10}
                   autoComplete="tel"
-                  aria-readonly={lockedRegisterPhone}
+                  aria-readonly={phoneLocked}
                 />
+                {phoneLocked ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhoneEditable(initialPhoneDigits);
+                      setPhoneUnlocked(true);
+                      window.setTimeout(() => {
+                        phoneInputRef.current?.focus();
+                        phoneInputRef.current?.select();
+                      }, 0);
+                    }}
+                    disabled={otpStartBusy}
+                    className="shrink-0 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-700 shadow-sm transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Change Number
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => void handleStartMobileOtp()}

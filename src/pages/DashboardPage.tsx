@@ -4,6 +4,7 @@ import { DashboardRecentLookups } from "../components/dashboard/DashboardRecentL
 import { DashboardHero } from "../components/dashboard/DashboardHero";
 import { DashboardActionCard } from "../components/dashboard/DashboardActionCard";
 import { DashboardQuickFind } from "../components/dashboard/DashboardQuickFind";
+import { DashboardTodaySalesCards } from "../components/dashboard/DashboardTodaySalesCards";
 import { useAuth } from "../context/AuthContext";
 import { useSrfJobs } from "../context/SrfJobsContext";
 import { computeDashboardActionItems } from "../lib/dashboardActionItems";
@@ -26,6 +27,7 @@ export function DashboardPage() {
         {actionItems.map((item) => (
           <DashboardActionCard key={item.id} item={item} />
         ))}
+        <DashboardTodaySalesCards />
       </section>
 
       <DashboardQuickFind />

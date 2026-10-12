@@ -5,6 +5,7 @@ import { BulkImportSuccessModal } from "../../../components/ui/BulkImportSuccess
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { useAuth } from "../../../context/AuthContext";
 import { useApiMode } from "../../../lib/api";
+import { canBulkImport } from "../../../lib/bulkImportAccess";
 import { canBypassCustomerOtp } from "../../../lib/customerVerification";
 import {
   CUSTOMER_BULK_BILLING_COLUMNS,
@@ -104,14 +105,7 @@ type PreviewRow = { phone: string; name: string; kind: string; action: "create" 
 export function CustomerBulkImportPage() {
   const apiMode = useApiMode();
   const { user } = useAuth();
-  const canImport =
-    user?.role === "super_admin" ||
-    user?.role === "admin" ||
-    user?.role === "ho_manager" ||
-    user?.role === "ho_accounts" ||
-    user?.role === "store_user" ||
-    user?.role === "store_manager" ||
-    user?.role === "store_accounts";
+  const canImport = canBulkImport(user?.role);
 
   const fileRef = useRef<File | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);

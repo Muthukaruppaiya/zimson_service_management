@@ -7,7 +7,24 @@ import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { buildTransferDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 
-type TransferItem = { spareId: string; sku: string; name: string; qty: number };
+type TransferItem = { spareId: string; sku: string; name: string; qty: number; receivedQty?: number };
+
+type TransferStatus = "IN_TRANSIT" | "PARTIAL" | "RECEIVED";
+
+const STATUS_META: Record<TransferStatus, { label: string; className: string }> = {
+  IN_TRANSIT: { label: "In transit", className: "bg-amber-100 text-amber-800" },
+  PARTIAL: { label: "Partly inwarded", className: "bg-sky-100 text-sky-800" },
+  RECEIVED: { label: "Inwarded", className: "bg-emerald-100 text-emerald-800" },
+};
+
+function TransferStatusBadge({ status }: { status?: TransferStatus }) {
+  const meta = STATUS_META[status ?? "RECEIVED"];
+  return (
+    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${meta.className}`}>
+      {meta.label}
+    </span>
+  );
+}
 
 type TransferRow = {
   id: string;
@@ -22,6 +39,9 @@ type TransferRow = {
   note: string | null;
   createdBy: string | null;
   createdAt: string;
+  status?: TransferStatus;
+  receivedQty?: number;
+  receivedAt?: string | null;
   items: TransferItem[];
 };
 
@@ -70,7 +90,10 @@ function TransferDetailModal({
         <div className="flex items-center justify-between border-b border-rlx-rule bg-rlx-green px-6 py-4">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-white/60">Transfer details</p>
-            <p className="font-mono text-lg font-bold text-white">{row.transferNumber}</p>
+            <p className="flex items-center gap-2 font-mono text-lg font-bold text-white">
+              {row.transferNumber}
+              <TransferStatusBadge status={row.status} />
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <TableActionButton
@@ -123,7 +146,8 @@ function TransferDetailModal({
                 <th className="px-5 py-2.5 text-left">#</th>
                 <th className="px-5 py-2.5 text-left">Spare</th>
                 <th className="px-5 py-2.5 text-left">Part</th>
-                <th className="px-5 py-2.5 text-center">Qty</th>
+                <th className="px-5 py-2.5 text-center">Sent</th>
+                <th className="px-5 py-2.5 text-center">Inwarded</th>
               </tr>
             </thead>
             <tbody>
@@ -133,6 +157,13 @@ function TransferDetailModal({
                   <td className="px-5 py-2.5 font-medium text-stone-800">{it.name}</td>
                   <td className="px-5 py-2.5 font-mono text-xs text-stone-500">{it.sku}</td>
                   <td className="px-5 py-2.5 text-center font-semibold">{it.qty}</td>
+                  <td
+                    className={`px-5 py-2.5 text-center font-semibold ${
+                      (it.receivedQty ?? it.qty) >= it.qty ? "text-emerald-700" : "text-amber-700"
+                    }`}
+                  >
+                    {it.receivedQty ?? it.qty}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -194,7 +225,9 @@ export function InventoryTransferHistoryPage() {
 
   const stats = useMemo(() => {
     const totalQty = rows.reduce((s, r) => s + r.qty, 0);
-    return { count: rows.length, totalQty };
+    const pending = rows.filter((r) => r.status === "IN_TRANSIT" || r.status === "PARTIAL");
+    const pendingQty = pending.reduce((s, r) => s + Math.max(0, r.qty - (r.receivedQty ?? r.qty)), 0);
+    return { count: rows.length, totalQty, pendingCount: pending.length, pendingQty };
   }, [rows]);
 
   if (!isHo) {
@@ -237,9 +270,10 @@ export function InventoryTransferHistoryPage() {
 
       {err ? <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">✕ {err}</div> : null}
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2">
+      <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <StatCard label="Transfers posted" value={stats.count} />
         <StatCard label="Units moved" value={stats.totalQty} sub="CSC → store" />
+        <StatCard label="Awaiting store inward" value={stats.pendingCount} sub={`${stats.pendingQty} unit(s) in transit`} />
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -274,6 +308,7 @@ export function InventoryTransferHistoryPage() {
                   <th className="px-5 py-3 text-center">Lines</th>
                   <th className="px-5 py-3 text-center">Qty</th>
                   <th className="px-5 py-3 text-center">Date</th>
+                  <th className="px-5 py-3 text-center">Status</th>
                   <th className="px-5 py-3 text-center">Actions</th>
                 </tr>
               </thead>
@@ -296,6 +331,9 @@ export function InventoryTransferHistoryPage() {
                         month: "short",
                         year: "numeric",
                       })}
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      <TransferStatusBadge status={r.status} />
                     </td>
                     <td className="px-5 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1.5">

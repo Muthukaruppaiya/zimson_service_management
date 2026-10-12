@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiJson } from "../../lib/api";
 import { formatInr } from "../../lib/formatInr";
 import { inputClass } from "../../lib/uiForm";
+import { RequiredMark } from "../ui/RequiredMark";
 import {
   packageDisplayName,
   packageTypeLabel,
@@ -98,7 +99,7 @@ export function SrfBookingPackageField({
   return (
     <div className="md:col-span-3 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
       <label className="block min-w-0 text-xs font-medium text-stone-600">
-        <span className="mb-0.5 block">Work as a package?</span>
+        <span className="mb-0.5 block">Work as a package?<RequiredMark /></span>
         <span className="mt-1 inline-flex w-full rounded-lg border border-rlx-rule bg-white p-0.5">
           {(
             [
@@ -146,7 +147,7 @@ export function SrfBookingPackageField({
             </select>
           </label>
           <label className="block min-w-0 text-xs font-medium text-stone-600">
-            <span className="mb-0.5 block">Package</span>
+            <span className="mb-0.5 block">Package<RequiredMark /></span>
             <select
               id="srf-booking-package"
               className={fieldClass}

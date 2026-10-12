@@ -52,13 +52,13 @@ const HO_PURCHASE: UserRole[] = ["super_admin", "admin", "ho_manager", "ho_purch
 export const SUPPLIER_TABS: MasterTab[] = [
   { to: "/inventory/suppliers", label: "All suppliers" },
   { to: "/inventory/suppliers/new", label: "Create supplier", roles: HO_PURCHASE, match: [/^\/inventory\/suppliers\/[^/]+\/edit/] },
-  { to: "/inventory/suppliers/bulk-import", label: "Bulk import", roles: HO_PURCHASE },
+  { to: "/inventory/suppliers/bulk-import", label: "Bulk import", roles: HO_ADMIN },
 ];
 
 export const CUSTOMER_TABS: MasterTab[] = [
   { to: "/service/customers/master", label: "All customers" },
   { to: "/service/billing/register", label: "Create customer" },
-  { to: "/service/customers/bulk-import", label: "Bulk import" },
+  { to: "/service/customers/bulk-import", label: "Bulk import", roles: HO_ADMIN },
   { to: "/service/customers/admin-verify", label: "Verify (no OTP)", roles: HO_ADMIN },
 ];
 
@@ -80,7 +80,7 @@ export const SERVICE_PACKAGE_TABS: MasterTab[] = [
 
 export const SPARE_TABS: MasterTab[] = [
   { to: "/inventory/spares", label: "All spares" },
-  { to: "/inventory/bulk-import", label: "Bulk import", roles: HO_PURCHASE },
+  { to: "/inventory/bulk-import", label: "Bulk import", roles: HO_ADMIN },
   { to: "/inventory/hsn-master", label: "HSN master", roles: HO_ADMIN },
 ];
 
@@ -128,8 +128,9 @@ export const PURCHASE_TAB_GROUPS: MasterTab[][] = [
     { to: "/inventory/purchase-return-history", label: "GRN return history" },
   ],
   [
-    { to: "/inventory/ho-transfer", label: "Create transfer" },
-    { to: "/inventory/transfer-history", label: "Transfer history" },
+    { to: "/inventory/ho-transfer", label: "Create transfer", excludeRoles: ["store_user", "store_manager", "store_accounts"] },
+    { to: "/inventory/transfer-history", label: "Transfer history", excludeRoles: ["store_user", "store_manager", "store_accounts"] },
+    { to: "/inventory/store-inward", label: "Store inward" },
   ],
 ];
 
@@ -175,6 +176,7 @@ export const SETTINGS_TAB_GROUPS: MasterTab[][] = [
 export const SERVICE_TAB_GROUPS: MasterTab[][] = [
   [
     { to: "/service/quick-bill", label: "New quick bill" },
+    { to: "/service/quick-bill-drafts", label: "Drafts" },
     { to: "/service/quick-bill-history", label: "Quick bill history" },
   ],
   [

@@ -1,10 +1,12 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { canBulkImport, isBulkImportPath } from "../../lib/bulkImportAccess";
 import { canBypassCustomerOtp } from "../../lib/customerVerification";
 
 const baseNavItems: Array<{ to: string; label: string }> = [
   { to: "/service", label: "Home" },
   { to: "/service/quick-bill", label: "Quick bill" },
+  { to: "/service/quick-bill-drafts", label: "Quick bill drafts" },
   { to: "/service/quick-bill-history", label: "Quick bill history" },
   { to: "/service/srf", label: "New booking" },
   { to: "/service/srf-register", label: "Booking list" },
@@ -29,7 +31,7 @@ type ServiceNavBarProps = {
 export function ServiceNavBar({ includeServiceCentre = false }: ServiceNavBarProps) {
   const { user } = useAuth();
   const navItems = [
-    ...baseNavItems,
+    ...(canBulkImport(user?.role) ? baseNavItems : baseNavItems.filter((i) => !isBulkImportPath(i.to))),
     ...(canBypassCustomerOtp(user?.role)
       ? [{ to: "/service/customers/admin-verify", label: "Customer verify" }]
       : []),

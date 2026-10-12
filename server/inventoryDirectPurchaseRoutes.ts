@@ -20,6 +20,110 @@ function canManageHoPurchase(actor: DemoUser | undefined | null): boolean {
   );
 }
 
+const STORE_INWARD_ROLES = new Set(["store_user", "store_manager", "store_accounts"]);
+
+type StockTransferStatusFilter = "pending" | "received" | "all";
+
+type StockTransferDto = {
+  id: string;
+  transferNumber: string;
+  grnNumber: string | null;
+  regionId: string;
+  regionName: string | null;
+  storeId: string;
+  storeName: string | null;
+  status: "IN_TRANSIT" | "PARTIAL" | "RECEIVED";
+  notes: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  receivedBy: string | null;
+  receivedAt: string | null;
+  qty: number;
+  receivedQty: number;
+  items: Array<{
+    id: string;
+    spareId: string;
+    sku: string;
+    name: string;
+    qty: number;
+    receivedQty: number;
+    pendingQty: number;
+  }>;
+};
+
+async function loadStockTransfers(
+  pool: Pool,
+  opts: { regionId: string | null; storeId: string | null; status: StockTransferStatusFilter; transferId?: string },
+): Promise<StockTransferDto[]> {
+  const statusList =
+    opts.status === "pending" ? ["IN_TRANSIT", "PARTIAL"] : opts.status === "received" ? ["RECEIVED"] : null;
+  const { rows } = await pool.query<{
+    id: string;
+    transfer_number: string;
+    grn_number: string | null;
+    region_id: string;
+    region_name: string | null;
+    store_id: string;
+    store_name: string | null;
+    status: StockTransferDto["status"];
+    notes: string | null;
+    created_by: string | null;
+    created_at: string;
+    received_by: string | null;
+    received_at: string | null;
+    items: StockTransferDto["items"] | null;
+  }>(
+    `SELECT st.id::text, st.transfer_number, st.grn_number, st.region_id, r.name AS region_name,
+            st.store_id, s.name AS store_name, st.status, st.notes, st.created_by, st.created_at,
+            st.received_by, st.received_at,
+            (
+              SELECT json_agg(json_build_object(
+                       'id', sti.id::text,
+                       'spareId', sti.spare_id::text,
+                       'sku', COALESCE(sp.sku, '—'),
+                       'name', COALESCE(sp.name, '—'),
+                       'qty', sti.qty::float8,
+                       'receivedQty', sti.received_qty::float8,
+                       'pendingQty', GREATEST(sti.qty - sti.received_qty, 0)::float8
+                     ) ORDER BY sp.name)
+              FROM stock_transfer_items sti
+              LEFT JOIN spares sp ON sp.id = sti.spare_id
+              WHERE sti.transfer_id = st.id
+            ) AS items
+     FROM stock_transfers st
+     LEFT JOIN regions r ON r.id = st.region_id
+     LEFT JOIN stores s ON s.id = st.store_id
+     WHERE ($1::text IS NULL OR st.region_id = $1::text)
+       AND ($2::text IS NULL OR st.store_id = $2::text)
+       AND ($3::text[] IS NULL OR st.status = ANY($3::text[]))
+       AND ($4::uuid IS NULL OR st.id = $4::uuid)
+     ORDER BY st.created_at DESC
+     LIMIT 500`,
+    [opts.regionId, opts.storeId, statusList, opts.transferId ?? null],
+  );
+  return rows.map((r) => {
+    const items = r.items ?? [];
+    return {
+      id: r.id,
+      transferNumber: r.transfer_number,
+      grnNumber: r.grn_number,
+      regionId: r.region_id,
+      regionName: r.region_name,
+      storeId: r.store_id,
+      storeName: r.store_name,
+      status: r.status,
+      notes: r.notes,
+      createdBy: r.created_by,
+      createdAt: r.created_at,
+      receivedBy: r.received_by,
+      receivedAt: r.received_at,
+      qty: items.reduce((s, it) => s + (Number(it.qty) || 0), 0),
+      receivedQty: items.reduce((s, it) => s + (Number(it.receivedQty) || 0), 0),
+      items,
+    };
+  });
+}
+
 function makeAlphaNumCode(input: string, fallback: string): string {
   const cleaned = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
   return (cleaned.slice(0, 3) || fallback).padEnd(3, "X");
@@ -85,6 +189,7 @@ export function registerInventoryDirectPurchaseRoutes(
   pool: Pool,
   requireAuth: (req: Request, res: Response, next: NextFunction) => void,
   getUserById: (id: string) => DemoUser | null,
+  notifyStoreUsers?: (regionId: string, storeId: string, payload: { title: string; message: string }) => Promise<void>,
 ): void {
   app.post("/api/inventory/pos/standalone", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
@@ -981,8 +1086,14 @@ export function registerInventoryDirectPurchaseRoutes(
       const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? regionId, "REG");
       const transferNumber = await nextDocNumber(client, "TRF", "", regionCode);
       const hoKey = `HO:${regionId}`;
-      const storeKey = `STORE:${regionId}:${storeId}`;
       let moved = 0;
+      const transferIns = await client.query<{ id: string }>(
+        `INSERT INTO stock_transfers (transfer_number, region_id, store_id, grn_id, grn_number, notes, created_by)
+         VALUES ($1, $2, $3, $4::uuid, $5, $6, $7)
+         RETURNING id`,
+        [transferNumber, regionId, storeId, grnId, grn.rows[0]!.grn_number, notes || null, actor.id],
+      );
+      const transferId = transferIns.rows[0]!.id;
 
       for (const line of selected) {
         const gi = await client.query<{
@@ -1034,18 +1145,12 @@ export function registerInventoryDirectPurchaseRoutes(
           `SELECT quantity::float8 AS qty FROM spare_stock WHERE spare_id = $1::uuid AND location_key = $2`,
           [gi.rows[0]!.spare_id, hoKey],
         );
-        await client.query(
-          `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
-           VALUES ($1::uuid, $2, 'STORE', $3, $4, $5)
-           ON CONFLICT (spare_id, location_key)
-           DO UPDATE SET quantity = spare_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
-          [gi.rows[0]!.spare_id, storeKey, regionId, storeId, line.qty],
-        );
-        const storeAfter = await client.query<{ qty: number }>(
-          `SELECT quantity::float8 AS qty FROM spare_stock WHERE spare_id = $1::uuid AND location_key = $2`,
-          [gi.rows[0]!.spare_id, storeKey],
-        );
         const spareId = gi.rows[0]!.spare_id;
+        await client.query(
+          `INSERT INTO stock_transfer_items (transfer_id, spare_id, grn_item_id, qty)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4)`,
+          [transferId, spareId, line.grnItemId, line.qty],
+        );
         await appendStockHistory(client, {
           spareId,
           eventType: "TRANSFER_OUT",
@@ -1059,24 +1164,14 @@ export function registerInventoryDirectPurchaseRoutes(
           note: notes || `Transferred against GRN ${grn.rows[0]!.grn_number} to ${store.rows[0]!.name}.`,
           createdBy: actor.id,
         });
-        await appendStockHistory(client, {
-          spareId,
-          eventType: "TRANSFER_IN",
-          locationKey: storeKey,
-          locationType: "STORE",
-          regionId,
-          storeId,
-          quantityChange: line.qty,
-          balanceAfter: storeAfter.rows[0]?.qty ?? null,
-          referenceType: "GRN",
-          referenceNumber: `${grn.rows[0]!.grn_number} / ${transferNumber}`,
-          note: notes || `Received against GRN ${grn.rows[0]!.grn_number} at ${store.rows[0]!.name}.`,
-          createdBy: actor.id,
-        });
         moved += line.qty;
       }
 
       await client.query("COMMIT");
+      void notifyStoreUsers?.(regionId, storeId, {
+        title: `Transfer ${transferNumber} sent`,
+        message: `${moved} unit(s) sent from CSC to ${store.rows[0]!.name}. Inward at store to add stock.`,
+      });
       const remain = await pool.query<{ pending: number }>(
         `SELECT COALESCE(SUM(GREATEST(qty_received - COALESCE(qty_transferred, 0) - COALESCE(qty_returned, 0), 0)), 0)::float8 AS pending
          FROM grn_items WHERE grn_id = $1::uuid`,
@@ -1172,8 +1267,14 @@ export function registerInventoryDirectPurchaseRoutes(
       const regionCode = makeAlphaNumCode(regionNameRes.rows[0]?.name ?? regionId, "REG");
       const transferNumber = await nextDocNumber(client, "TRF", "", regionCode);
       const hoKey = `HO:${regionId}`;
-      const storeKey = `STORE:${regionId}:${storeId}`;
       let moved = 0;
+      const transferIns = await client.query<{ id: string }>(
+        `INSERT INTO stock_transfers (transfer_number, region_id, store_id, grn_id, grn_number, notes, created_by)
+         VALUES ($1, $2, $3, $4::uuid, $5, $6, $7)
+         RETURNING id`,
+        [transferNumber, regionId, storeId, grnId || null, grnNumber, notes || null, actor.id],
+      );
+      const transferId = transferIns.rows[0]!.id;
 
       for (const line of selected) {
         if (line.grnItemId) {
@@ -1232,15 +1333,9 @@ export function registerInventoryDirectPurchaseRoutes(
           [line.spareId, hoKey],
         );
         await client.query(
-          `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
-           VALUES ($1::uuid, $2, 'STORE', $3, $4, $5)
-           ON CONFLICT (spare_id, location_key)
-           DO UPDATE SET quantity = spare_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
-          [line.spareId, storeKey, regionId, storeId, line.qty],
-        );
-        const storeAfter = await client.query<{ qty: number }>(
-          `SELECT quantity::float8 AS qty FROM spare_stock WHERE spare_id = $1::uuid AND location_key = $2`,
-          [line.spareId, storeKey],
+          `INSERT INTO stock_transfer_items (transfer_id, spare_id, grn_item_id, qty)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4)`,
+          [transferId, line.spareId, line.grnItemId || null, line.qty],
         );
         const againstGrn = Boolean(line.grnItemId && grnNumber);
         const refType = againstGrn ? "GRN" : "TRANSFER";
@@ -1262,28 +1357,14 @@ export function registerInventoryDirectPurchaseRoutes(
               : `Transferred from CSC to store ${store.rows[0]!.name}.`),
           createdBy: actor.id,
         });
-        await appendStockHistory(client, {
-          spareId: line.spareId,
-          eventType: "TRANSFER_IN",
-          locationKey: storeKey,
-          locationType: "STORE",
-          regionId,
-          storeId,
-          quantityChange: line.qty,
-          balanceAfter: storeAfter.rows[0]?.qty ?? null,
-          referenceType: refType,
-          referenceNumber: refNumber,
-          note:
-            notes ||
-            (againstGrn
-              ? `Received against GRN ${grnNumber} at ${store.rows[0]!.name}.`
-              : `Received from CSC at store ${store.rows[0]!.name}.`),
-          createdBy: actor.id,
-        });
         moved += line.qty;
       }
 
       await client.query("COMMIT");
+      void notifyStoreUsers?.(regionId, storeId, {
+        title: `Transfer ${transferNumber} sent`,
+        message: `${moved} unit(s) sent from CSC to ${store.rows[0]!.name}. Inward at store to add stock.`,
+      });
       let remainingQty: number | undefined;
       if (grnId) {
         const remain = await pool.query<{ pending: number }>(
@@ -1363,6 +1444,11 @@ export function registerInventoryDirectPurchaseRoutes(
          WHERE h.event_type::text = 'TRANSFER_IN'
            AND NULLIF(BTRIM(COALESCE(h.reference_number::text, '')), '') IS NOT NULL
            AND ($1::text IS NULL OR h.region_id::text = $1::text)
+           AND NOT EXISTS (
+             SELECT 1 FROM stock_transfers st
+             WHERE BTRIM(h.reference_number::text) = st.transfer_number
+                OR BTRIM(h.reference_number::text) LIKE '% / ' || st.transfer_number
+           )
          ORDER BY h.created_at DESC
          LIMIT 4000`,
         [regionId],
@@ -1417,9 +1503,8 @@ export function registerInventoryDirectPurchaseRoutes(
         });
       }
 
-      const transfers = Array.from(grouped.values())
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 500)
+      const tracked = await loadStockTransfers(pool, { regionId, storeId: null, status: "all" });
+      const legacy = Array.from(grouped.values())
         .map((r) => {
           const parts = String(r.transferNumber)
             .split(" / ")
@@ -1439,15 +1524,218 @@ export function registerInventoryDirectPurchaseRoutes(
             note: r.note,
             createdBy: r.createdBy,
             createdAt: r.createdAt,
-            items: r.items,
+            status: "RECEIVED",
+            receivedQty: r.qty,
+            receivedAt: r.createdAt,
+            items: r.items.map((it) => ({ ...it, receivedQty: it.qty })),
           };
         });
+      const transfers = [
+        ...tracked.map((t) => ({
+          id: t.id,
+          transferNumber: t.transferNumber,
+          grnNumber: t.grnNumber,
+          regionId: t.regionId,
+          regionName: t.regionName,
+          storeId: t.storeId,
+          storeName: t.storeName,
+          lineCount: t.items.length,
+          qty: t.qty,
+          note: t.notes,
+          createdBy: t.createdBy,
+          createdAt: t.createdAt,
+          status: t.status,
+          receivedQty: t.receivedQty,
+          receivedAt: t.receivedAt,
+          items: t.items.map((it) => ({
+            spareId: it.spareId,
+            sku: it.sku,
+            name: it.name,
+            qty: it.qty,
+            receivedQty: it.receivedQty,
+          })),
+        })),
+        ...legacy,
+      ]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 500);
 
       res.json({ transfers });
     } catch (e) {
       console.error("[inventory/transfers]", e);
       const detail = e instanceof Error ? e.message : String(e);
       res.status(500).json({ error: "Could not load transfer history.", detail });
+    }
+  });
+
+  app.get("/api/inventory/store-transfers", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const raw = String(req.query.status ?? "pending").trim();
+    const status: StockTransferStatusFilter = raw === "received" || raw === "all" ? raw : "pending";
+    let regionId: string | null;
+    let storeId: string | null;
+    if (STORE_INWARD_ROLES.has(actor.role)) {
+      if (!actor.regionId || !actor.storeId) {
+        res.status(403).json({ error: "Your account is not linked to a store." });
+        return;
+      }
+      regionId = actor.regionId;
+      storeId = actor.storeId;
+    } else if (canManageHoPurchase(actor)) {
+      regionId =
+        actor.role === "super_admin" ? String(req.query.regionId ?? "").trim() || null : actor.regionId || null;
+      storeId = String(req.query.storeId ?? "").trim() || null;
+    } else {
+      res.status(403).json({ error: "You cannot view store transfers." });
+      return;
+    }
+    try {
+      const transfers = await loadStockTransfers(pool, { regionId, storeId, status });
+      res.json({ transfers });
+    } catch (e) {
+      console.error("[inventory/store-transfers]", e);
+      res.status(500).json({ error: "Could not load store transfers." });
+    }
+  });
+
+  app.post("/api/inventory/store-transfers/:id/inward", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!actor) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    if (!STORE_INWARD_ROLES.has(actor.role) || !actor.storeId || !actor.regionId) {
+      res.status(403).json({ error: "Only store users can inward a transfer." });
+      return;
+    }
+    const transferId = String(req.params.id ?? "").trim();
+    const requested = Array.isArray(req.body?.items)
+      ? (req.body.items as Array<{ itemId: string; qty: number }>)
+          .map((x) => ({ itemId: String(x.itemId ?? "").trim(), qty: Number(x.qty) }))
+          .filter((x) => x.itemId && Number.isFinite(x.qty) && x.qty > 0)
+      : [];
+    if (requested.length === 0) {
+      res.status(400).json({ error: "Enter an inward quantity for at least one spare." });
+      return;
+    }
+    const qtyByItem = new Map(requested.map((r) => [r.itemId, r.qty]));
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const tr = await client.query<{
+        id: string;
+        transfer_number: string;
+        grn_number: string | null;
+        region_id: string;
+        store_id: string;
+        status: string;
+      }>(
+        `SELECT id::text, transfer_number, grn_number, region_id, store_id, status
+         FROM stock_transfers WHERE id = $1::uuid FOR UPDATE`,
+        [transferId],
+      );
+      const transfer = tr.rows[0];
+      if (!transfer) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Transfer not found." });
+        return;
+      }
+      if (transfer.region_id !== actor.regionId || transfer.store_id !== actor.storeId) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "This transfer is not for your store." });
+        return;
+      }
+      if (transfer.status === "RECEIVED") {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "This transfer is already fully inwarded." });
+        return;
+      }
+      const lines = await client.query<{ id: string; spare_id: string; qty: number; received_qty: number }>(
+        `SELECT id::text, spare_id::text, qty::float8 AS qty, received_qty::float8 AS received_qty
+         FROM stock_transfer_items WHERE transfer_id = $1::uuid FOR UPDATE`,
+        [transferId],
+      );
+      const storeKey = `STORE:${transfer.region_id}:${transfer.store_id}`;
+      const refType = transfer.grn_number ? "GRN" : "TRANSFER";
+      const refNumber = transfer.grn_number
+        ? `${transfer.grn_number} / ${transfer.transfer_number}`
+        : transfer.transfer_number;
+      let moved = 0;
+      for (const line of lines.rows) {
+        const qty = qtyByItem.get(line.id);
+        if (!qty) continue;
+        const pending = Math.max(0, line.qty - line.received_qty);
+        if (qty > pending + 1e-9) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Inward quantity exceeds the pending transferred quantity." });
+          return;
+        }
+        await client.query(
+          `UPDATE stock_transfer_items SET received_qty = received_qty + $1 WHERE id = $2::uuid`,
+          [qty, line.id],
+        );
+        await client.query(
+          `INSERT INTO spare_stock (spare_id, location_key, location_type, region_id, store_id, quantity)
+           VALUES ($1::uuid, $2, 'STORE', $3, $4, $5)
+           ON CONFLICT (spare_id, location_key)
+           DO UPDATE SET quantity = spare_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
+          [line.spare_id, storeKey, transfer.region_id, transfer.store_id, qty],
+        );
+        const storeAfter = await client.query<{ qty: number }>(
+          `SELECT quantity::float8 AS qty FROM spare_stock WHERE spare_id = $1::uuid AND location_key = $2`,
+          [line.spare_id, storeKey],
+        );
+        await appendStockHistory(client, {
+          spareId: line.spare_id,
+          eventType: "TRANSFER_IN",
+          locationKey: storeKey,
+          locationType: "STORE",
+          regionId: transfer.region_id,
+          storeId: transfer.store_id,
+          quantityChange: qty,
+          balanceAfter: storeAfter.rows[0]?.qty ?? null,
+          referenceType: refType,
+          referenceNumber: refNumber,
+          note: `Store inward against transfer ${transfer.transfer_number}.`,
+          createdBy: actor.id,
+        });
+        moved += qty;
+      }
+      if (moved <= 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Enter an inward quantity for at least one spare." });
+        return;
+      }
+      const sum = await client.query<{ qty: number; rec: number }>(
+        `SELECT COALESCE(SUM(qty), 0)::float8 AS qty, COALESCE(SUM(received_qty), 0)::float8 AS rec
+         FROM stock_transfer_items WHERE transfer_id = $1::uuid`,
+        [transferId],
+      );
+      const total = sum.rows[0]?.qty ?? 0;
+      const rec = sum.rows[0]?.rec ?? 0;
+      const nextStatus = rec + 1e-9 >= total ? "RECEIVED" : "PARTIAL";
+      await client.query(
+        `UPDATE stock_transfers
+         SET status = $1,
+             received_by = $2,
+             received_at = CASE WHEN $1 = 'RECEIVED' THEN now() ELSE received_at END,
+             updated_at = now()
+         WHERE id = $3::uuid`,
+        [nextStatus, actor.id, transferId],
+      );
+      await client.query("COMMIT");
+      res.json({ ok: true, movedQty: moved, status: nextStatus, transferNumber: transfer.transfer_number });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[inventory/store-transfers/inward]", e);
+      res.status(400).json({ error: "Could not inward transfer." });
+    } finally {
+      client.release();
     }
   });
 }

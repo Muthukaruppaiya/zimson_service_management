@@ -75,15 +75,7 @@ type CustomerImportRow = {
 
 function canImport(actor: DemoUser | null): boolean {
   const role = actor?.role;
-  return (
-    role === "super_admin" ||
-    role === "admin" ||
-    role === "ho_manager" ||
-    role === "ho_accounts" ||
-    role === "store_user" ||
-    role === "store_manager" ||
-    role === "store_accounts"
-  );
+  return role === "super_admin" || role === "admin";
 }
 
 function cellStr(v: unknown): string {

@@ -459,9 +459,11 @@ export function InventoryHoStoreTransferPage() {
 
       <ProcessSuccessModal
         open={!!result}
-        title="Transferred successfully"
+        title="Transfer sent"
         description={
-          result ? `${result.movedQty} unit(s) moved to ${result.storeName}.` : undefined
+          result
+            ? `${result.movedQty} unit(s) in transit to ${result.storeName}. Store stock updates after store inward.`
+            : undefined
         }
         onBackdropClick={() => setResult(null)}
         actions={
@@ -490,8 +492,8 @@ export function InventoryHoStoreTransferPage() {
             <button type="button" className={modalBtnSecondary} onClick={() => setResult(null)}>
               Transfer another
             </button>
-            <Link to="/inventory/store-stock" className={modalBtnPrimary} onClick={() => setResult(null)}>
-              Store stock
+            <Link to="/inventory/transfer-history" className={modalBtnPrimary} onClick={() => setResult(null)}>
+              Transfers history
             </Link>
           </>
         }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
-import { isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
+import { canViewStoreInward, isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
 import { ENABLE_PR_FLOW } from "../../lib/inventoryFeatureFlags";
 import { useAuth } from "../../context/AuthContext";
 import { useNavLayout } from "../../context/NavLayoutContext";
@@ -133,7 +133,7 @@ export function Sidebar() {
       {
         title: "Service", icon: "service",
         items: [
-          { to: "/service/quick-bill", label: "Quick bill", module: "service", match: ["/service/quick-bill-history"] },
+          { to: "/service/quick-bill", label: "Quick bill", module: "service", match: ["/service/quick-bill-history", "/service/quick-bill-drafts"] },
           { to: "/service/srf", label: "SRF", module: "service", match: ["/service/srf-register", "/service/srf-master"] },
           { to: "/service/store-assign", label: "Store assign", module: "service" },
           { to: "/service/brand-credit-notes", label: "Brand credit notes", module: "service", roles: ["store_user", "store_manager", "store_accounts"] },
@@ -162,6 +162,7 @@ export function Sidebar() {
           { to: "/inventory/spares", label: "Spares", module: "inventory", match: ["/inventory/bulk-import", "/inventory/hsn-master"] },
           { to: "/inventory/service-packages", label: "Service packages", module: "inventory", match: ["/inventory/service-package-types"] },
           { to: "/inventory/stock-prices", label: "Stock & prices", module: "inventory", match: ["/inventory/stock-adjustment"] },
+          { to: "/inventory/store-inward", label: "Store inward", module: "inventory", roles: ["store_user", "store_manager", "store_accounts", "ho_manager", "ho_purchase"] },
           { to: "/service/watch-inventory", label: "Watch inventory", module: "service" },
         ],
       },
@@ -240,7 +241,8 @@ export function Sidebar() {
           if (
             isInventoryStockPricesViewOnly(user) &&
             item.module === "inventory" &&
-            item.to !== "/inventory/stock-prices"
+            item.to !== "/inventory/stock-prices" &&
+            !(item.to === "/inventory/store-inward" && canViewStoreInward(user.role))
           ) {
             return false;
           }

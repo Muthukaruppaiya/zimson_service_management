@@ -68,12 +68,7 @@ type SupplierImportGroup = {
 };
 
 function canImport(actor: DemoUser | null): boolean {
-  return (
-    actor?.role === "super_admin" ||
-    actor?.role === "admin" ||
-    actor?.role === "ho_manager" ||
-    actor?.role === "ho_purchase"
-  );
+  return actor?.role === "super_admin" || actor?.role === "admin";
 }
 
 function cellStr(v: unknown): string {

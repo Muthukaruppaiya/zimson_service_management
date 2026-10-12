@@ -23,6 +23,97 @@ import {
 type SessionPhoto = { id: string; photoKind?: string; filePath: string; mime?: string };
 type CameraTarget = "watch" | "document";
 
+const svgProps = {
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  className: "h-4 w-4 shrink-0",
+  "aria-hidden": true,
+};
+
+function IconCamera() {
+  return (
+    <svg {...svgProps}>
+      <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+      <circle cx="12" cy="13.5" r="3.5" />
+    </svg>
+  );
+}
+
+function IconGallery() {
+  return (
+    <svg {...svgProps}>
+      <rect x="3" y="4" width="18" height="16" rx="1" />
+      <circle cx="8.5" cy="9.5" r="1.5" />
+      <path d="M21 16l-5-5-8 8" />
+    </svg>
+  );
+}
+
+function IconFile() {
+  return (
+    <svg {...svgProps}>
+      <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" />
+      <path d="M14 3v5h5" />
+    </svg>
+  );
+}
+
+function IconRemove() {
+  return (
+    <svg {...svgProps}>
+      <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
+const slotActionBase =
+  "inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
+const slotActionNeutral = `${slotActionBase} border-rlx-rule bg-white text-rlx-green hover:border-rlx-gold hover:bg-rlx-green-light`;
+const slotActionDanger = `${slotActionBase} border-rose-200 bg-white text-rose-700 hover:border-rose-400 hover:bg-rose-50`;
+
+function PhotoSlotActions({
+  disabled,
+  cameraDisabled,
+  replaceIsFile = false,
+  onRetake,
+  onReplace,
+  onRemove,
+}: {
+  disabled: boolean;
+  cameraDisabled: boolean;
+  replaceIsFile?: boolean;
+  onRetake: () => void;
+  onReplace: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      <button type="button" disabled={cameraDisabled} onClick={onRetake} className={slotActionNeutral} title="Retake with camera">
+        <IconCamera />
+        Retake
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onReplace}
+        className={slotActionNeutral}
+        title={replaceIsFile ? "Replace from files" : "Replace from gallery"}
+      >
+        {replaceIsFile ? <IconFile /> : <IconGallery />}
+        Replace
+      </button>
+      <button type="button" disabled={disabled} onClick={onRemove} className={slotActionDanger} title="Remove">
+        <IconRemove />
+        Remove
+      </button>
+    </div>
+  );
+}
+
 function parseApiError(text: string): string {
   const t = text.trim();
   try {
@@ -581,35 +672,16 @@ export function QuickBillCapturePage() {
                   />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-rlx-ink">{SRF_PHOTO_SLOT_LABELS[kind]}</p>
-                    <div className="mt-1 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={!canUpload || busy || cameraStarting}
-                        onClick={() => prepareRetakeWatch(kind)}
-                        className="text-xs font-semibold text-rlx-green underline disabled:opacity-50"
-                      >
-                        Retake (camera)
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!canUpload || busy}
-                        onClick={() => {
-                          pickWatchKind(kind);
-                          openGalleryPicker();
-                        }}
-                        className="text-xs font-semibold text-rlx-green underline disabled:opacity-50"
-                      >
-                        Replace (gallery)
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!canUpload || busy}
-                        onClick={() => void removePhoto(shot.id)}
-                        className="text-xs font-semibold text-rose-700 underline disabled:opacity-50"
-                      >
-                        Remove
-                      </button>
-                    </div>
+                    <PhotoSlotActions
+                      disabled={!canUpload || busy}
+                      cameraDisabled={!canUpload || busy || cameraStarting}
+                      onRetake={() => prepareRetakeWatch(kind)}
+                      onReplace={() => {
+                        pickWatchKind(kind);
+                        openGalleryPicker();
+                      }}
+                      onRemove={() => void removePhoto(shot.id)}
+                    />
                   </div>
                 </li>
               ))}
@@ -656,32 +728,14 @@ export function QuickBillCapturePage() {
               )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-rlx-ink">Document uploaded</p>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={!canUpload || busy || cameraStarting}
-                    onClick={prepareRetakeDocument}
-                    className="text-xs font-semibold text-rlx-green underline disabled:opacity-50"
-                  >
-                    Retake (camera)
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!canUpload || busy}
-                    onClick={openDocumentGallery}
-                    className="text-xs font-semibold text-rlx-green underline"
-                  >
-                    Replace (file)
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!canUpload || busy}
-                    onClick={() => void removePhoto(documentPhoto.id)}
-                    className="text-xs font-semibold text-rose-700 underline disabled:opacity-50"
-                  >
-                    Remove
-                  </button>
-                </div>
+                <PhotoSlotActions
+                  disabled={!canUpload || busy}
+                  cameraDisabled={!canUpload || busy || cameraStarting}
+                  replaceIsFile
+                  onRetake={prepareRetakeDocument}
+                  onReplace={openDocumentGallery}
+                  onRemove={() => void removePhoto(documentPhoto.id)}
+                />
               </div>
             </div>
           )}

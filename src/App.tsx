@@ -31,9 +31,11 @@ import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { RegionsPage } from "./pages/RegionsPage";
 import { QuickBillPage } from "./pages/service/QuickBillPage";
 import { QuickBillHistoryPage } from "./pages/service/QuickBillHistoryPage";
+import { QuickBillDraftsPage } from "./pages/service/QuickBillDraftsPage";
 import { ServiceModulePage } from "./pages/service/ServiceModulePage";
 import { CustomerRegisterPage } from "./pages/service/customers/CustomerRegisterPage";
 import { CustomerMasterPage } from "./pages/service/customers/CustomerMasterPage";
+import { BulkImportGuard } from "./components/auth/BulkImportGuard";
 import { CustomerBulkImportPage } from "./pages/service/customers/CustomerBulkImportPage";
 import { CustomerAdminVerifyPage } from "./pages/service/customers/CustomerAdminVerifyPage";
 import { ServiceBillingPage } from "./pages/service/ServiceBillingPage";
@@ -92,6 +94,7 @@ import { InventoryStoreStockPage } from "./pages/inventory/InventoryStoreStockPa
 import { InventoryStockAdjustmentPage } from "./pages/inventory/InventoryStockAdjustmentPage";
 import { InventoryHoStoreTransferPage } from "./pages/inventory/InventoryHoStoreTransferPage";
 import { InventoryTransferHistoryPage } from "./pages/inventory/InventoryTransferHistoryPage";
+import { InventoryStoreInwardPage } from "./pages/inventory/InventoryStoreInwardPage";
 import { InventoryAllocationReviewPage } from "./pages/inventory/InventoryAllocationReviewPage";
 import { InventoryBrandsPage } from "./pages/inventory/InventoryBrandsPage";
 import { InventoryHsnMasterPage } from "./pages/inventory/InventoryHsnMasterPage";
@@ -354,6 +357,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/service/quick-bill-drafts"
+                  element={
+                    <ModuleRoute module="service">
+                      <QuickBillDraftsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/service/srf"
                   element={
                     <ModuleRoute module="service">
@@ -499,7 +510,7 @@ export default function App() {
                   path="/service/customers/bulk-import"
                   element={
                     <ModuleRoute module="service">
-                      <CustomerBulkImportPage />
+                      <BulkImportGuard><CustomerBulkImportPage /></BulkImportGuard>
                     </ModuleRoute>
                   }
                 />
@@ -730,6 +741,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/inventory/store-inward"
+                  element={
+                    <ModuleRoute module="inventory">
+                      <InventoryStoreInwardPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/inventory/allocation-review"
                   element={
                     <ModuleRoute module="inventory">
@@ -814,7 +833,7 @@ export default function App() {
                   element={
                     <ModuleRoute module="inventory">
                       <InventorySupervisorGuard>
-                        <InventorySupplierBulkImportPage />
+                        <BulkImportGuard><InventorySupplierBulkImportPage /></BulkImportGuard>
                       </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
@@ -894,7 +913,7 @@ export default function App() {
                   element={
                     <ModuleRoute module="inventory">
                       <InventorySupervisorGuard>
-                        <InventoryBulkImportPage />
+                        <BulkImportGuard><InventoryBulkImportPage /></BulkImportGuard>
                       </InventorySupervisorGuard>
                     </ModuleRoute>
                   }
@@ -964,7 +983,7 @@ export default function App() {
                   element={
                     <ModuleRoute module="inventory">
                       <InventorySupervisorGuard>
-                        <InventoryBrandBulkImportPage />
+                        <BulkImportGuard><InventoryBrandBulkImportPage /></BulkImportGuard>
                       </InventorySupervisorGuard>
                     </ModuleRoute>
                   }

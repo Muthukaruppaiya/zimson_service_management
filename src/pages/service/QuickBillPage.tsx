@@ -1606,6 +1606,7 @@ export function QuickBillPage() {
       setAddress(p.address ?? "");
       setCity(p.city ?? "");
       setCustomerBillingState(p.customerBillingState ?? "");
+      if ((p.watchBrand ?? "") !== watchBrand) pendingDraftFamilyRef.current = p.watchFamily ?? "";
       setWatchBrand(p.watchBrand ?? "");
       setWatchFamily(p.watchFamily ?? "");
       setWatchFamilyIsNew(Boolean(p.watchFamilyIsNew));
@@ -1634,16 +1635,13 @@ export function QuickBillPage() {
     }
   }
 
-  async function deleteDraft(d: QuickBillDraftSummary) {
-    if (!window.confirm(`Delete draft for ${d.customerName || "customer"} (${d.watchLabel || "watch"})?`)) return;
-    try {
-      await apiJson(`/api/service/quick-bill-drafts/${encodeURIComponent(d.id)}`, { method: "DELETE" });
-      if (d.id === draftId) resetForm();
-      void loadDrafts();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not delete draft.");
-    }
-  }
+  const pendingDraftFamilyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const f = pendingDraftFamilyRef.current;
+    if (f === null) return;
+    pendingDraftFamilyRef.current = null;
+    setWatchFamily(f);
+  }, [watchBrand]);
 
   const draftParamHandledRef = useRef(false);
   useEffect(() => {
@@ -2466,65 +2464,16 @@ export function QuickBillPage() {
         </p>
       ) : null}
 
-      {apiMode && drafts.length > 0 ? (
-        <Card title={`Open Drafts (${drafts.length})`} className="mb-4">
-          <ul className="divide-y divide-stone-100">
-            {drafts.map((d) => {
-              const active = d.id === draftId;
-              const photosOk = d.watchPhotoCount >= SRF_MIN_WATCH_PHOTOS_REQUIRED;
-              return (
-                <li
-                  key={d.id}
-                  className={`flex flex-wrap items-center justify-between gap-3 px-2 py-2.5 ${active ? "bg-amber-50" : ""}`}
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-stone-900">
-                      {d.customerName || "Customer"}
-                      {d.phone ? <span className="font-normal text-stone-500"> · {d.phone}</span> : null}
-                    </p>
-                    <p className="truncate text-xs text-stone-600">{d.watchLabel || "Watch"}</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
-                        photosOk
-                          ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
-                          : "bg-amber-50 text-amber-900 ring-amber-200"
-                      }`}
-                    >
-                      {d.watchPhotoCount} Photos
-                    </span>
-                    <span className="text-[11px] text-stone-500">{formatDraftTime(d.updatedAt)}</span>
-                    {active ? (
-                      <span className="rounded-md bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-                        Editing
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void resumeDraft(d.id)}
-                        disabled={draftBusy || isSavingBill}
-                        className="rounded-md bg-zimson-900 px-3 py-1 text-xs font-semibold text-white hover:bg-zimson-800 disabled:opacity-50"
-                      >
-                        Resume
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => void deleteDraft(d)}
-                      disabled={draftBusy || isSavingBill}
-                      className="rounded-md border border-stone-300 bg-white p-1.5 text-stone-600 hover:border-red-300 hover:text-red-700 disabled:opacity-50"
-                      aria-label="Delete draft"
-                      title="Delete draft"
-                    >
-                      <IconTrash />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
+      {apiMode && drafts.length > 0 && !draftId ? (
+        <div className="mb-4 flex justify-end">
+          <Link
+            to="/service/quick-bill-drafts"
+            className="inline-flex items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+          >
+            Open Drafts
+            <span className="rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">{drafts.length}</span>
+          </Link>
+        </div>
       ) : null}
 
       {apiMode && draftId ? (
@@ -2865,7 +2814,7 @@ export function QuickBillPage() {
             <div className={`${qbField} min-w-0 rounded-xl border border-zimson-200 bg-zimson-50/50 p-3 sm:p-4`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-zimson-900">
-                  Documents &amp; Watch Photos
+                  Image Collection
                   <RequiredMark />
                 </p>
                 {apiMode ? (

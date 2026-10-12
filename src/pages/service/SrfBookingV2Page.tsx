@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { IconRefreshLink, IconRefreshUploads, captureLinkButtonClass } from "../../components/ui/TableActionIcons";
+import { SearchableCombobox } from "../../components/service/SearchableCombobox";
+import { RequiredMark } from "../../components/ui/RequiredMark";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { useMessageAlert } from "../../hooks/useMessageAlert";
@@ -145,6 +148,27 @@ function watchPhotosReady(photos: SrfPhotoThumb[]): boolean {
   return countSrfWatchPhotos(photos.map((photo) => photo.photoKind)) >= SRF_MIN_WATCH_PHOTOS_REQUIRED;
 }
 
+function ReviewSection({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="min-w-0 rounded-xl border border-rlx-rule bg-white">
+      <header className="flex items-center justify-between gap-2 border-b border-rlx-rule bg-rlx-green-light/60 px-3 py-2">
+        <p className="text-[11px] font-bold uppercase tracking-widest text-rlx-green">{title}</p>
+        {aside}
+      </header>
+      <dl className="divide-y divide-rlx-rule/70">{children}</dl>
+    </section>
+  );
+}
+
+function ReviewRow({ label, children, strong }: { label: string; children: ReactNode; strong?: boolean }) {
+  return (
+    <div className="grid grid-cols-[150px_minmax(0,1fr)] gap-3 px-3 py-2 text-sm">
+      <dt className="text-xs font-semibold text-stone-500">{label}</dt>
+      <dd className={`min-w-0 break-words ${strong ? "font-bold text-rlx-green" : "text-stone-800"}`}>{children}</dd>
+    </div>
+  );
+}
+
 function SrfPhotoThumbTile({
   photo,
   wrapperClassName,
@@ -232,6 +256,7 @@ export function SrfBookingV2Page() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { createDraftJob, refreshPhotoSession, finalizeJob, cancelDraftSrf, patchStoreDraftSrf, refreshJobs } = useSrfJobs();
   const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
+  const brandOptions = useMemo(() => brandNames.map((b) => ({ value: b, label: b })), [brandNames]);
 
   const [step, setStep] = useState(0);
   const [operatingRegionId, setOperatingRegionId] = useState("");
@@ -301,7 +326,7 @@ export function SrfBookingV2Page() {
   const [finalizedRepairRoute, setFinalizedRepairRoute] = useState<SrfRepairRoute>("send_to_ho");
   const [advanceReceiptPaymentId, setAdvanceReceiptPaymentId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ srfId: string; reference: string; token: string; captureUrl: string } | null>(null);
-  const [photoCount, setPhotoCount] = useState(0);
+  const [, setPhotoCount] = useState(0);
   const [photoPreview, setPhotoPreview] = useState<SrfPhotoThumb[]>([]);
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
   const [photoLightbox, setPhotoLightbox] = useState<{ src: string; label: string } | null>(null);
@@ -587,12 +612,12 @@ export function SrfBookingV2Page() {
     }
     if (customerType === "B2B") {
       if (!company.trim() || !isValidGstFormat(gst) || !isValidPanFormat(pan)) {
-        setError("For B2B, company + valid GSTIN + valid PAN are required.");
+        setError("For Business, company + valid GSTIN + valid Business PAN are required.");
         return false;
       }
     }
-    if (!isValidEmail(email)) {
-      setError("Customer email is required.");
+    if (email.trim() && !isValidEmail(email)) {
+      setError("Enter a valid email or leave it blank.");
       return false;
     }
     if (!customerChecked && !walkInPending) {
@@ -1662,27 +1687,29 @@ export function SrfBookingV2Page() {
       {step === 0 ? (
         <Card title="Step 1 — Customer">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex gap-4">
-              <label
-                className="flex cursor-pointer items-center gap-2 text-sm"
-              >
-                <input
-                  type="radio"
-                  checked={customerType === "B2C"}
-                  onChange={() => trySetCustomerType("B2C")}
-                />{" "}
-                Individual
-              </label>
-              <label
-                className="flex cursor-pointer items-center gap-2 text-sm"
-              >
-                <input
-                  type="radio"
-                  checked={customerType === "B2B"}
-                  onChange={() => trySetCustomerType("B2B")}
-                />{" "}
-                Business
-              </label>
+            <div className="inline-flex rounded-lg border border-zimson-200 bg-zimson-50 p-1" role="radiogroup" aria-label="Customer type">
+              {(
+                [
+                  ["B2C", "Individual"],
+                  ["B2B", "Business"],
+                ] as const
+              ).map(([value, text]) => (
+                <label
+                  key={value}
+                  className={`relative cursor-pointer select-none rounded-md px-4 py-1.5 text-sm font-semibold transition focus-within:ring-2 focus-within:ring-zimson-300 ${
+                    customerType === value ? "bg-white text-zimson-900 shadow-sm ring-1 ring-zimson-200" : "text-stone-500 hover:text-zimson-800"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="srf-cust"
+                    className="sr-only"
+                    checked={customerType === value}
+                    onChange={() => trySetCustomerType(value)}
+                  />
+                  {text}
+                </label>
+              ))}
             </div>
             {customerLockedFromDb ? (
               <button
@@ -1695,9 +1722,12 @@ export function SrfBookingV2Page() {
             ) : null}
           </div>
           <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
-            <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-2">
-              Phone
+            <label className="min-w-0 text-xs font-medium text-stone-600">
+              Mobile number<RequiredMark />
               <input
+                inputMode="numeric"
+                maxLength={15}
+                placeholder="+91 …"
                 className={
                   customerLockedFromDb || phoneLockedForNewRegistration
                     ? readOnlyCustomerFieldClass
@@ -1721,17 +1751,10 @@ export function SrfBookingV2Page() {
                 placeholder="—"
               />
             </label>
-          </div>
-          {customerCheckMsg ? (
-            <p className="mt-3 rounded-xl bg-rlx-green-light px-3 py-2 text-sm text-stone-700">
-              {customerCheckMsg}
-            </p>
-          ) : null}
-          {phone10(phone).length === 10 && !checkingCustomer ? (
-            <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
+            {phone10(phone).length === 10 && !checkingCustomer ? (
               <label className="min-w-0 block text-xs font-medium text-stone-600">
                 <span className="flex flex-wrap items-center gap-2">
-                  <span>Customer name</span>
+                  <span>Customer name<RequiredMark /></span>
                   {customerExists && customerChecked ? (
                     isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
                       <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
@@ -1751,8 +1774,17 @@ export function SrfBookingV2Page() {
                   onChange={customerLockedFromDb ? undefined : (e) => setCustomerName(e.target.value)}
                 />
               </label>
+            ) : null}
+          </div>
+          {customerCheckMsg ? (
+            <p className="mt-3 rounded-xl bg-rlx-green-light px-3 py-2 text-sm text-stone-700">
+              {customerCheckMsg}
+            </p>
+          ) : null}
+          {phone10(phone).length === 10 && !checkingCustomer ? (
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
               <label className="min-w-0 text-xs font-medium text-stone-600">
-                Email *
+                Email (optional)
                 <input
                   className={customerLockedFromDb && isValidEmail(email) ? readOnlyCustomerFieldClass : bookingInputClass}
                   type="email"
@@ -1772,6 +1804,37 @@ export function SrfBookingV2Page() {
                   onChange={customerLockedFromDb ? undefined : (e) => setAlternatePhone(e.target.value)}
                 />
               </label>
+              {customerType === "B2B" ? (
+                <>
+                  <label className="min-w-0 text-xs font-medium text-stone-600">
+                    Company<RequiredMark />
+                    <input
+                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
+                      value={company}
+                      readOnly={customerLockedFromDb}
+                      onChange={customerLockedFromDb ? undefined : (e) => setCompany(e.target.value)}
+                    />
+                  </label>
+                  <label className="min-w-0 text-xs font-medium text-stone-600">
+                    GSTIN<RequiredMark />
+                    <input
+                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
+                      value={gst}
+                      readOnly={customerLockedFromDb}
+                      onChange={customerLockedFromDb ? undefined : (e) => setGst(e.target.value)}
+                    />
+                  </label>
+                  <label className="min-w-0 text-xs font-medium text-stone-600">
+                    Business PAN<RequiredMark />
+                    <input
+                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
+                      value={pan}
+                      readOnly={customerLockedFromDb}
+                      onChange={customerLockedFromDb ? undefined : (e) => setPan(e.target.value)}
+                    />
+                  </label>
+                </>
+              ) : null}
               {customerExists && customerChecked && !isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
                 <div
                   className="rounded-xl border-2 border-rlx-gold bg-rlx-gold-light px-3 py-2 text-sm font-semibold text-rlx-green-deep md:col-span-3"
@@ -1852,37 +1915,6 @@ export function SrfBookingV2Page() {
                   placeholder="6-digit PIN"
                 />
               </label>
-              {customerType === "B2B" ? (
-                <>
-                  <label className="min-w-0 text-xs font-medium text-stone-600">
-                    Company
-                    <input
-                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
-                      value={company}
-                      readOnly={customerLockedFromDb}
-                      onChange={customerLockedFromDb ? undefined : (e) => setCompany(e.target.value)}
-                    />
-                  </label>
-                  <label className="min-w-0 text-xs font-medium text-stone-600">
-                    GSTIN
-                    <input
-                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
-                      value={gst}
-                      readOnly={customerLockedFromDb}
-                      onChange={customerLockedFromDb ? undefined : (e) => setGst(e.target.value)}
-                    />
-                  </label>
-                  <label className="min-w-0 text-xs font-medium text-stone-600 md:col-start-1">
-                    PAN
-                    <input
-                      className={customerLockedFromDb ? readOnlyCustomerFieldClass : bookingInputClass}
-                      value={pan}
-                      readOnly={customerLockedFromDb}
-                      onChange={customerLockedFromDb ? undefined : (e) => setPan(e.target.value)}
-                    />
-                  </label>
-                </>
-              ) : null}
             </div>
           ) : null}
           {!customerExists && customerChecked ? (
@@ -1896,14 +1928,20 @@ export function SrfBookingV2Page() {
         <Card title="Step 2 — Watch">
           <div className="flex flex-col gap-3">
             <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
-              <label className="min-w-0 text-xs font-medium text-stone-600">
-                Brand
-                <select className={bookingInputClass} value={watchBrand} onChange={(e) => syncModelForBrand(e.target.value)}>
-                  {brandNames.map((b) => (
-                    <option key={b}>{b}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="min-w-0">
+                <SearchableCombobox
+                  id="srf-brand"
+                  label="Brand *"
+                  value={watchBrand}
+                  options={brandOptions}
+                  onChange={(v) => {
+                    if (v) syncModelForBrand(v);
+                  }}
+                  inputClass={bookingInputClass.replace(/\bmt-1\b/g, "").trim()}
+                  placeholder="Search brand"
+                  required
+                />
+              </div>
               <div className="min-w-0">
                 <WatchFamilyPicker
                   watchBrand={watchBrand}
@@ -2033,24 +2071,62 @@ export function SrfBookingV2Page() {
 
       {step === 2 ? (
         <Card title="Step 3 — Photos">
-          <div className="grid gap-5 md:grid-cols-[220px,1fr]">
-            <div className="rounded-xl border border-rlx-rule p-3 text-center">
-              {captureUrl ? (
-                <CustomerLinkQr url={captureUrl} size={260} mode="qr" caption="Scan QR to upload photos" className="mx-auto text-center" />
-              ) : (
-                <p className="text-sm">Generating QR...</p>
-              )}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-rlx-green">
+                Photos Collection<RequiredMark />
+              </h3>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ring-1 ${
+                  watchPhotoPreview.length >= SRF_MIN_WATCH_PHOTOS_REQUIRED
+                    ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
+                    : "bg-amber-50 text-amber-900 ring-amber-200"
+                }`}
+              >
+                {watchPhotoPreview.length} / {SRF_MIN_WATCH_PHOTOS_REQUIRED} Watch Photos
+              </span>
+              {documentPhotoPreview ? (
+                <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-800 ring-1 ring-rose-200">
+                  Document ✓
+                </span>
+              ) : null}
             </div>
-            <div className="space-y-3">
-              <p className="text-sm">
-                Uploaded photos: <strong>{photoCount}</strong> (at least {SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos
-                from any categories)
-              </p>
-              {photoMsg ? <p className="rounded-xl bg-rlx-green-light px-3 py-2 text-sm">{photoMsg}</p> : null}
-              {watchPhotoPreview.length > 0 && !draft ? (
-                <div className="rounded-xl border border-rlx-rule bg-white p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Watch image preview</p>
-                  <div className="mt-2 flex flex-wrap gap-2.5">
+            {draft ? (
+              <span className="rounded-full bg-rlx-gold-light px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-rlx-green-deep ring-1 ring-rlx-gold/50">
+                Draft · Photo Pending
+              </span>
+            ) : null}
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-zimson-200 bg-zimson-50/60 p-4">
+              {captureUrl ? (
+                <CustomerLinkQr url={captureUrl} size={200} mode="qr" caption="Scan QR to upload photos" className="mx-auto text-center" />
+              ) : (
+                <div className="flex h-[200px] w-[200px] items-center justify-center border border-dashed border-zimson-300 bg-white text-xs text-stone-500">
+                  Generating QR…
+                </div>
+              )}
+              <div className="flex w-full flex-col gap-2">
+                <button type="button" onClick={() => void refreshPhotoStatus()} className={`${captureLinkButtonClass} justify-center`}>
+                  <IconRefreshUploads />
+                  Refresh Uploads
+                </button>
+                <button type="button" onClick={() => void regenerateCaptureLink()} className={`${captureLinkButtonClass} justify-center`}>
+                  <IconRefreshLink />
+                  Refresh Link
+                </button>
+              </div>
+            </div>
+
+            <div className="min-w-0 space-y-3">
+              {photoMsg ? (
+                <p className="rounded-lg bg-rlx-green-light px-3 py-2 text-xs font-medium text-rlx-green-deep">{photoMsg}</p>
+              ) : null}
+              <div className="rounded-xl border border-zimson-200 bg-white p-3 sm:p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">Watch Photos</p>
+                {watchPhotoPreview.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2.5">
                     {watchPhotoPreview.map((p) => (
                       <SrfPhotoThumbTile
                         key={p.id}
@@ -2061,12 +2137,16 @@ export function SrfBookingV2Page() {
                       />
                     ))}
                   </div>
-                </div>
-              ) : null}
-              {documentPhotoPreview && !draft ? (
-                <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-800">Uploaded document</p>
-                  <div className="mt-2">
+                ) : (
+                  <div className="mt-3 flex min-h-[96px] items-center justify-center border border-dashed border-stone-300 bg-stone-50 text-xs text-stone-500">
+                    No photos uploaded yet
+                  </div>
+                )}
+              </div>
+              {documentPhotoPreview ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 sm:p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-800">Document</p>
+                  <div className="mt-3">
                     <SrfPhotoThumbTile
                       photo={documentPhotoPreview}
                       onPreview={openPhotoPreview}
@@ -2076,72 +2156,37 @@ export function SrfBookingV2Page() {
                   </div>
                 </div>
               ) : null}
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => void refreshPhotoStatus()} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Refresh status</button>
-                <button type="button" onClick={() => void regenerateCaptureLink()} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Regenerate link</button>
-              </div>
-              {draft ? (
-                <div className="mt-4 rounded-xl border border-rlx-gold/40 bg-gradient-to-br from-rlx-green-light/90 to-rlx-gold-light/40 p-3 text-sm text-rlx-green">
-                  <p className="font-semibold text-rlx-green-deep">Waiting on photos (draft / photo pending)</p>
-                  {/* <p className="mt-1 text-xs text-amber-900">
-                    Edit customer or watch details on file, or cancel this SRF if the booking should not continue.
-                  </p> */}
-                  {watchPhotoPreview.length > 0 ? (
-                    <div className="mt-3 rounded-lg border border-rlx-rule bg-white/90 p-2">
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-rlx-green">Uploaded image preview</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {watchPhotoPreview.map((p) => (
-                          <SrfPhotoThumbTile
-                            key={`amber-${p.id}`}
-                            photo={p}
-                            onPreview={openPhotoPreview}
-                            onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
-                            removeBusy={photoRemoveBusyId === p.id}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {documentPhotoPreview ? (
-                    <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/80 p-2">
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-rose-800">Uploaded document</p>
-                      <div className="mt-2">
-                        <SrfPhotoThumbTile
-                          photo={documentPhotoPreview}
-                          onPreview={openPhotoPreview}
-                          onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
-                          removeBusy={photoRemoveBusyId === documentPhotoPreview.id}
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void saveDraftEditsAndGoWatchStep()}
-                    className="mt-2 rounded-lg border border-rlx-gold bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
-                  >
-                    Edit customer &amp; watch
-                  </button>
-                  <label className="mt-3 block text-xs font-medium text-rlx-green">Cancel reason</label>
-                  <textarea
-                    className="mt-1 w-full rounded-lg border border-rlx-rule bg-white px-2 py-1.5 text-xs text-rlx-ink focus:border-rlx-green focus:outline-none focus:ring-1 focus:ring-rlx-green/30"
-                    rows={2}
-                    value={cancelReason}
-                    onChange={(e) => setCancelReason(e.target.value)}
-                    placeholder="Reason for cancelling this SRF"
-                  />
-                  <button
-                    type="button"
-                    disabled={cancelBusy}
-                    onClick={() => void handleCancelDraftSrf()}
-                    className="mt-2 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-800 disabled:opacity-50"
-                  >
-                    {cancelBusy ? "Cancelling…" : "Cancel SRF"}
-                  </button>
-                </div>
-              ) : null}
             </div>
           </div>
+
+          {draft ? (
+            <div className="mt-4 grid gap-3 rounded-xl border border-stone-200 bg-stone-50/70 p-3 sm:p-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-end">
+              <button
+                type="button"
+                onClick={() => void saveDraftEditsAndGoWatchStep()}
+                className="rounded-lg border border-rlx-gold bg-white px-3 py-2 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
+              >
+                Edit Customer &amp; Watch
+              </button>
+              <label className="block min-w-0 text-xs font-medium text-stone-600">
+                Cancel Reason
+                <input
+                  className="mt-1 w-full rounded-lg border border-rlx-rule bg-white px-3 py-2 text-sm text-rlx-ink focus:border-rlx-green focus:outline-none focus:ring-1 focus:ring-rlx-green/30"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Reason for cancelling this SRF"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={cancelBusy}
+                onClick={() => void handleCancelDraftSrf()}
+                className="rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              >
+                {cancelBusy ? "Cancelling…" : "Cancel SRF"}
+              </button>
+            </div>
+          ) : null}
           <div className="mt-4 flex justify-between">
             <button type="button" onClick={goBack} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Back</button>
             <button type="button" onClick={() => void goNext()} className="rounded-xl bg-rlx-green px-4 py-2 text-sm font-semibold text-white hover:bg-rlx-green-deep">Next</button>
@@ -2151,9 +2196,22 @@ export function SrfBookingV2Page() {
 
       {step === 3 ? (
         <Card title="Step 4 — Estimate + OTP">
-          <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
+          <div className="space-y-4">
+          <section className="rounded-xl border border-rlx-rule bg-white">
+            <header className="flex items-center justify-between gap-2 border-b border-rlx-rule bg-rlx-green-light/60 px-3 py-2">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-rlx-green">Job &amp; Estimate</p>
+              {workAsPackage === "yes" && bookingPackage ? (
+                <span className="rounded-full bg-rlx-green px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                  {packageDisplayName(bookingPackage)}
+                </span>
+              ) : null}
+            </header>
+          <div className="grid min-w-0 grid-cols-1 gap-3 p-3 md:grid-cols-3 md:items-start">
             <label className="block min-w-0 text-xs font-medium text-stone-600 md:col-span-3">
-              <span className="mb-0.5 block">Watch complaint</span>
+              <span className="mb-0.5 block">
+                Watch complaint
+                <RequiredMark />
+              </span>
               <textarea
                 className={bookingInputClass}
                 rows={2}
@@ -2177,7 +2235,10 @@ export function SrfBookingV2Page() {
             />
             <label className="block min-w-0 text-xs font-medium text-stone-600">
               <span className="mb-0.5 flex items-center gap-2">
-                {ESTIMATE_AMOUNT_LABEL_APPROX} (₹)
+                <span>
+                  {ESTIMATE_AMOUNT_LABEL_APPROX} (₹)
+                  <RequiredMark />
+                </span>
                 {packageEstimateLocked ? (
                   <span className="rounded-full bg-rlx-green-light px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-rlx-green">
                     Package
@@ -2197,9 +2258,6 @@ export function SrfBookingV2Page() {
             </label>
             <label className="block min-w-0 text-xs font-medium text-stone-600">
               <span className="mb-0.5 block">Advance amount (₹)</span>
-              <span className="mb-1 block text-[11px] font-normal leading-snug text-stone-500">
-                
-              </span>
               <input
                 className={bookingInputClass}
                 value={advanceAmount}
@@ -2220,7 +2278,8 @@ export function SrfBookingV2Page() {
             </label>
             <label className="block min-w-0 text-xs font-medium text-stone-600">
               <span className="mb-0.5 block">
-                Estimated delivery date <span className="text-rose-600">*</span>
+                Estimated delivery date
+                <RequiredMark />
               </span>
               <input
                 type="date"
@@ -2250,9 +2309,14 @@ export function SrfBookingV2Page() {
                 placeholder="Optional remarks"
               />
             </label>
-            <div className="rounded-xl border border-rlx-rule bg-white p-3 md:col-span-3">
-              <p className="text-xs font-semibold text-rlx-green">Watch condition / observation</p>
-              <div className="mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+          </div>
+          </section>
+          <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
+            <section className="rounded-xl border border-rlx-rule bg-white">
+              <header className="border-b border-rlx-rule bg-rlx-green-light/60 px-3 py-2">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-rlx-green">Watch Condition / Observation</p>
+              </header>
+              <div className="grid min-w-0 grid-cols-1 gap-2 p-3 sm:grid-cols-2">
                 <label className="min-w-0 text-xs font-medium text-stone-600">
                   Case / Crystal
                   <input className={bookingInputClass} value={obsCaseCrystal} onChange={(e) => setObsCaseCrystal(e.target.value)} />
@@ -2281,15 +2345,17 @@ export function SrfBookingV2Page() {
                   Water resistance
                   <input className={bookingInputClass} value={obsWaterResistance} onChange={(e) => setObsWaterResistance(e.target.value)} />
                 </label>
-                <label className="min-w-0 text-xs font-medium text-stone-600 md:col-span-2">
+                <label className="min-w-0 text-xs font-medium text-stone-600">
                   Additional notes
                   <input className={bookingInputClass} value={obsAdditionalNotes} onChange={(e) => setObsAdditionalNotes(e.target.value)} />
                 </label>
               </div>
-            </div>
-            <div className="rounded-xl border border-rlx-rule bg-white p-3 md:col-span-3">
-              <p className="text-xs font-semibold text-rlx-green">Suggested repairs</p>
-              <div className="mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+            </section>
+            <section className="rounded-xl border border-rlx-rule bg-white">
+              <header className="border-b border-rlx-rule bg-rlx-green-light/60 px-3 py-2">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-rlx-green">Suggested Repairs</p>
+              </header>
+              <div className="grid min-w-0 grid-cols-1 gap-2 p-3 sm:grid-cols-2">
                 <label className="min-w-0 text-xs font-medium text-stone-600">
                   Movement overhaul
                   <input className={bookingInputClass} value={repMovementOverhaul} onChange={(e) => setRepMovementOverhaul(e.target.value)} />
@@ -2319,16 +2385,31 @@ export function SrfBookingV2Page() {
                   <input className={bookingInputClass} value={repDialHands} onChange={(e) => setRepDialHands(e.target.value)} />
                 </label>
               </div>
-            </div>
-            <div className="rounded-xl bg-rlx-green-light px-3 py-2 text-sm md:col-span-3">
-              {workAsPackage === "yes" && bookingPackage ? (
-                <>
-                  Package: <strong>{packageDisplayName(bookingPackage)}</strong> ·{" "}
-                </>
-              ) : null}
-              {ESTIMATE_LABEL_APPROX}: <strong>{formatApproxEstimateInr(estimateTotal)}</strong> · Advance:{" "}
-              <strong>{formatInr(advanceTotal)}</strong>
-            </div>
+            </section>
+          </div>
+          <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              {
+                label: "Package",
+                value: workAsPackage === "yes" && bookingPackage ? packageDisplayName(bookingPackage) : workAsPackage === "no" ? "No" : "—",
+                tone: "text-stone-800",
+              },
+              { label: ESTIMATE_LABEL_APPROX, value: formatApproxEstimateInr(estimateTotal), tone: "text-rlx-green" },
+              { label: "Advance", value: formatInr(advanceTotal), tone: "text-rlx-green" },
+              {
+                label: "Balance",
+                value: formatInr(Math.max(0, estimateTotal - advanceTotal)),
+                tone: "text-amber-700",
+              },
+            ].map((s) => (
+              <div key={s.label} className="min-w-0 rounded-xl border border-rlx-rule bg-rlx-green-light/50 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">{s.label}</p>
+                <p className={`truncate text-sm font-bold ${s.tone}`} title={s.value}>
+                  {s.value}
+                </p>
+              </div>
+            ))}
+          </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <button type="button" onClick={goBack} className="rounded-xl border border-rlx-gold px-4 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light">Back</button>
@@ -2341,37 +2422,31 @@ export function SrfBookingV2Page() {
 
       {step === 4 ? (
         <Card title="Step 5 — Review and create">
-          <div className="overflow-x-auto rounded-xl border border-rlx-rule/80">
-            <table className="min-w-full text-left text-sm">
-              <tbody>
-                {(loadedCustomerCode || loadedCustomerId) ? (
-                  <tr className="border-b border-rlx-rule">
-                    <th className="w-56 bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Customer ID</th>
-                    <td className="px-3 py-2 font-mono font-semibold text-rlx-green">{loadedCustomerCode ?? "—"}</td>
-                  </tr>
-                ) : null}
-                <tr className="border-b border-rlx-rule">
-                  <th className="w-56 bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Customer</th>
-                  <td className="px-3 py-2 text-stone-800">
-                    <span className="inline-flex flex-wrap items-center gap-2">
-                      <span>
-                        {customerName} · {phone}
-                      </span>
-                      {isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
-                        <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                          Verified
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-rlx-gold px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rlx-green-deep">
-                          Unverified
-                        </span>
-                      )}
+          <div className="space-y-4">
+            <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
+              <ReviewSection
+                title="Customer"
+                aside={
+                  isFullyOtpVerified(phoneVerifiedAt, emailVerifiedAt) ? (
+                    <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                      Verified
                     </span>
-                  </td>
-                </tr>
-                <tr className="border-b border-rlx-rule">
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700 align-top">Address</th>
-                  <td className="px-3 py-2 text-stone-800 whitespace-pre-line">
+                  ) : (
+                    <span className="rounded-full bg-rlx-gold px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rlx-green-deep">
+                      Unverified
+                    </span>
+                  )
+                }
+              >
+                {loadedCustomerCode || loadedCustomerId ? (
+                  <ReviewRow label="Customer ID">
+                    <span className="font-mono font-semibold text-rlx-green">{loadedCustomerCode ?? "—"}</span>
+                  </ReviewRow>
+                ) : null}
+                <ReviewRow label="Name">{customerName || "—"}</ReviewRow>
+                <ReviewRow label="Mobile">{phone || "—"}</ReviewRow>
+                <ReviewRow label="Address">
+                  <span className="whitespace-pre-line">
                     {[
                       address.trim(),
                       [city, stateName, country].filter((x) => x.trim()).join(", "),
@@ -2379,107 +2454,98 @@ export function SrfBookingV2Page() {
                     ]
                       .filter(Boolean)
                       .join("\n") || "—"}
-                  </td>
-                </tr>
-                <tr className="border-b border-rlx-rule">
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Watch</th>
-                  <td className="px-3 py-2 text-stone-800">
-                    {watchBrand}
-                    {watchFamily.trim() ? ` · ${watchFamily.trim()}` : ""} {watchModel.trim()} · {serial}
-                  </td>
-                </tr>
-                <tr className="border-b border-rlx-rule">
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">After-service handover store</th>
-                  <td className="px-3 py-2 text-stone-800">{handoverStoreOptions.find((s) => s.id === handoverStoreId)?.name ?? (handoverStoreId || "-")}</td>
-                </tr>
+                  </span>
+                </ReviewRow>
+              </ReviewSection>
+              <ReviewSection title="Watch">
+                <ReviewRow label="Brand">{watchBrand || "—"}</ReviewRow>
+                <ReviewRow label="Family / Model">
+                  {[watchFamily.trim(), watchModel.trim()].filter(Boolean).join(" · ") || "—"}
+                </ReviewRow>
+                <ReviewRow label="Serial No.">{serial.trim() || "—"}</ReviewRow>
+                <ReviewRow label="Handover Store">
+                  {handoverStoreOptions.find((s) => s.id === handoverStoreId)?.name ?? (handoverStoreId || "—")}
+                </ReviewRow>
                 {watchServiceDetails.natureOfRepair === "internal_service" ? (
-                  <tr className="border-b border-rlx-rule">
-                    <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">
-                      Stock watch location
-                    </th>
-                    <td className="px-3 py-2 text-stone-800">{selectedStockWatchStoreName || "-"}</td>
-                  </tr>
+                  <ReviewRow label="Stock Watch Location">{selectedStockWatchStoreName || "—"}</ReviewRow>
                 ) : null}
                 {watchServiceDetails.natureOfRepair === "warranty_non_chargeable" ? (
-                  <tr className="border-b border-rlx-rule">
-                    <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">
-                      Previous invoiced SRF
-                    </th>
-                    <td className="px-3 py-2 text-stone-800">
-                      {selectedWarrantyRefLabel || "—"}
-                    </td>
-                  </tr>
+                  <ReviewRow label="Previous Invoiced SRF">{selectedWarrantyRefLabel || "—"}</ReviewRow>
                 ) : null}
-                <tr className="border-b border-rlx-rule">
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Watch complaint</th>
-                  <td className="px-3 py-2 text-stone-800">{complaint}</td>
-                </tr>
-                <tr className="border-b border-rlx-rule">
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Remarks</th>
-                  <td className="px-3 py-2 text-stone-800">{estimateRemarks || "-"}</td>
-                </tr>
-                <tr className="border-b border-rlx-rule">
-                  <th className="bg-rlx-green-light/70 px-3 py-2 align-top font-semibold text-stone-700">Uploaded photos</th>
-                  <td className="px-3 py-2 text-stone-800">
-                    <p>{photoCount}</p>
-                    {watchPhotoPreview.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {watchPhotoPreview.map((p) => (
-                          <SrfPhotoThumbTile
-                            key={p.id}
-                            photo={p}
-                            onPreview={openPhotoPreview}
-                            onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
-                            removeBusy={photoRemoveBusyId === p.id}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-                    {documentPhotoPreview ? (
-                      <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/60 p-2">
-                        <p className="text-[10px] font-bold uppercase tracking-wide text-rose-800">Uploaded document</p>
-                        <div className="mt-2">
-                          <SrfPhotoThumbTile
-                            photo={documentPhotoPreview}
-                            onPreview={openPhotoPreview}
-                            onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
-                            removeBusy={photoRemoveBusyId === documentPhotoPreview.id}
-                          />
-                        </div>
-                      </div>
-                    ) : null}
-                  </td>
-                </tr>
-                <tr>
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Estimated delivery date</th>
-                  <td className="px-3 py-2 text-stone-800">{estimatedFinishDate || "-"}</td>
-                </tr>
-                <tr>
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Service package</th>
-                  <td className="px-3 py-2 text-stone-800">
-                    {workAsPackage === "yes" && bookingPackage
-                      ? `${packageDisplayName(bookingPackage)} · ${formatInr(Number(bookingPackage.priceInr) || 0)}`
-                      : "No"}
-                  </td>
-                </tr>
-                <tr>
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">{ESTIMATE_LABEL_APPROX}</th>
-                  <td className="px-3 py-2 font-semibold text-rlx-green">{formatApproxEstimateInr(estimateTotal)}</td>
-                </tr>
-                <tr>
-                  <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Advance</th>
-                  <td className="px-3 py-2 font-semibold text-rlx-green">{formatInr(advanceTotal)}</td>
-                </tr>
+              </ReviewSection>
+            </div>
+            <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
+              <ReviewSection title="Job">
+                <ReviewRow label="Watch Complaint">{complaint || "—"}</ReviewRow>
+                <ReviewRow label="Remarks">{estimateRemarks || "—"}</ReviewRow>
+                <ReviewRow label="Delivery Date">{estimatedFinishDate || "—"}</ReviewRow>
+                <ReviewRow label="Service Package">
+                  {workAsPackage === "yes" && bookingPackage
+                    ? `${packageDisplayName(bookingPackage)} · ${formatInr(Number(bookingPackage.priceInr) || 0)}`
+                    : "No"}
+                </ReviewRow>
+              </ReviewSection>
+              <ReviewSection title="Payment">
+                <ReviewRow label={ESTIMATE_LABEL_APPROX} strong>
+                  {formatApproxEstimateInr(estimateTotal)}
+                </ReviewRow>
+                <ReviewRow label="Advance" strong>
+                  {formatInr(advanceTotal)}
+                </ReviewRow>
+                <ReviewRow label="Balance">
+                  <span className="font-bold text-amber-700">{formatInr(Math.max(0, estimateTotal - advanceTotal))}</span>
+                </ReviewRow>
                 {advanceTotal > 0 ? (
-                  <>
-                    <tr>
-                      <th className="bg-rlx-green-light/70 px-3 py-2 font-semibold text-stone-700">Advance payment</th>
-                      <td className="px-3 py-2 text-stone-800 whitespace-pre-line">{advancePaymentSummary}</td>
-                    </tr>
-                  </>
+                  <ReviewRow label="Advance Payment">
+                    <span className="whitespace-pre-line">{advancePaymentSummary}</span>
+                  </ReviewRow>
                 ) : null}
-              </tbody>
-            </table>
+              </ReviewSection>
+            </div>
+            <section className="min-w-0 rounded-xl border border-rlx-rule bg-white">
+              <header className="flex items-center justify-between gap-2 border-b border-rlx-rule bg-rlx-green-light/60 px-3 py-2">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-rlx-green">Photos</p>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                    watchPhotoPreview.length >= SRF_MIN_WATCH_PHOTOS_REQUIRED
+                      ? "bg-emerald-600 text-white"
+                      : "bg-amber-100 text-amber-800"
+                  }`}
+                >
+                  {watchPhotoPreview.length} Watch{documentPhotoPreview ? " · Document ✓" : ""}
+                </span>
+              </header>
+              <div className="flex flex-wrap items-start gap-4 p-3">
+                {watchPhotoPreview.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {watchPhotoPreview.map((p) => (
+                      <SrfPhotoThumbTile
+                        key={p.id}
+                        photo={p}
+                        onPreview={openPhotoPreview}
+                        onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
+                        removeBusy={photoRemoveBusyId === p.id}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-stone-500">No photos uploaded</p>
+                )}
+                {documentPhotoPreview ? (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-rose-800">Document</p>
+                    <div className="mt-2">
+                      <SrfPhotoThumbTile
+                        photo={documentPhotoPreview}
+                        onPreview={openPhotoPreview}
+                        onRemove={canRemoveUploadedPhotos ? removeUploadedPhoto : undefined}
+                        removeBusy={photoRemoveBusyId === documentPhotoPreview.id}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </section>
           </div>
           {extraFieldDefs.length > 0 ? (
             <div className="mt-4">

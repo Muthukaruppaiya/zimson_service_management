@@ -845,7 +845,7 @@ function assertHeaders(
 
 function canBulkImport(actor: DemoUser | null): actor is DemoUser {
   const role = actor?.role;
-  return role === "super_admin" || role === "admin" || role === "ho_manager" || role === "ho_purchase";
+  return role === "super_admin" || role === "admin";
 }
 
 // ── Seeded spare parts catalogue ─────────────────────────────────────────────
