@@ -1,13 +1,27 @@
 import { apiJson } from "./api";
 
 /** Response from POST /api/gst/lookup (Masters India / Sandbox / other providers). */
-export type GstLookupResult = {
-  tradeName?: string;
-  legalName?: string;
+export type GstLookupAddress = {
   address?: string;
+  addressLine1?: string;
+  addressLine2?: string;
   city?: string;
+  district?: string;
   state?: string;
   pincode?: string;
+};
+
+export type GstLookupResult = GstLookupAddress & {
+  tradeName?: string;
+  legalName?: string;
+  email?: string;
+  mobile?: string;
+  status?: string;
+  constitution?: string;
+  taxpayerType?: string;
+  registrationDate?: string;
+  natureOfBusiness?: string[];
+  additionalAddresses?: GstLookupAddress[];
 };
 
 export type PanLookupResult = {

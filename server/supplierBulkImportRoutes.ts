@@ -716,7 +716,7 @@ export function registerSupplierBulkImportRoutes(
   app.get("/api/inventory/suppliers/bulk-import/template", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canImport(actor)) {
-      res.status(403).json({ error: "Only HO admins can download the supplier import template." });
+      res.status(403).json({ error: "Only CSC admins can download the supplier import template." });
       return;
     }
     try {
@@ -737,7 +737,7 @@ export function registerSupplierBulkImportRoutes(
   app.post("/api/inventory/suppliers/bulk-import/validate", requireAuth, upload.single("file"), async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canImport(actor)) {
-      res.status(403).json({ error: "Only HO admins can validate supplier imports." });
+      res.status(403).json({ error: "Only CSC admins can validate supplier imports." });
       return;
     }
     if (!req.file?.buffer) {
@@ -772,7 +772,7 @@ export function registerSupplierBulkImportRoutes(
   app.post("/api/inventory/suppliers/bulk-import/commit", requireAuth, upload.single("file"), async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canImport(actor) || !actor) {
-      res.status(403).json({ error: "Only HO admins can import suppliers." });
+      res.status(403).json({ error: "Only CSC admins can import suppliers." });
       return;
     }
     if (!req.file?.buffer) {

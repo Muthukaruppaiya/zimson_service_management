@@ -66,7 +66,7 @@ export function registerClientReportsRoutes(
         { id: "revenue", label: "Revenue report", description: "SRF revenue (sheet 1) and quick bill revenue (sheet 2) with HSN, tax, and customer details." },
         { id: "summary-sale", label: "Summary sale report", description: "One row per invoice with payment breakdown." },
         { id: "hsn-purchase", label: "HSN purchase report", description: "GRN / purchase inward grouped by HSN." },
-        { id: "sr-returned", label: "SR returned report", description: "Watches returned without billing or inter-HO no-repair returns." },
+        { id: "sr-returned", label: "SR returned report", description: "Watches returned without billing or inter-CSC no-repair returns." },
       ],
     });
   });

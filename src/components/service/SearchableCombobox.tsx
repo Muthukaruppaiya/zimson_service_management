@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { renderFieldLabel } from "../ui/RequiredMark";
 
 export type ComboboxOption = {
   value: string;
@@ -214,7 +215,7 @@ export function SearchableCombobox({
     <div ref={rootRef} className="relative min-w-0">
       {label ? (
         <label htmlFor={id} className="text-xs font-medium text-stone-600">
-          {label}
+          {renderFieldLabel(label)}
         </label>
       ) : null}
       <input

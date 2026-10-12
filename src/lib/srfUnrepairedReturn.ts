@@ -3,8 +3,8 @@ export type CannotRepairAt = (typeof CANNOT_REPAIR_AT)[number];
 
 export const CANNOT_REPAIR_AT_OPTIONS: { value: CannotRepairAt; label: string }[] = [
   { value: "store", label: "Cannot repair at store" },
-  { value: "ho", label: "Cannot repair at this HO" },
-  { value: "other_ho", label: "Cannot repair at other HO" },
+  { value: "ho", label: "Cannot repair at this CSC" },
+  { value: "other_ho", label: "Cannot repair at other CSC" },
   { value: "brand", label: "Cannot repair at brand" },
 ];
 

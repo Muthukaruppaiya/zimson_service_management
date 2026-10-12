@@ -27,7 +27,7 @@ const STATUS_LABELS: Record<string, string> = {
   in_transit_sc: "In transit to SC",
   awaiting_sc_inward: "Awaiting SC inward",
   received_at_sc: "Received at SC",
-  sent_to_other_ho: "Sent to other HO",
+  sent_to_other_ho: "Sent to other CSC",
   ready_for_outward: "Ready for outward",
   pending_store_transit: "Pending store transit",
   dispatched_to_store: "Dispatched to store",
@@ -102,7 +102,7 @@ function buildTimeline(job: SrfJob): TimelineEvent[] {
     { at: job.estimateOkAt ?? "", label: "Estimate approved" },
     {
       at: job.brandSentAt ?? "",
-      label: "Sent to brand / other HO",
+      label: "Sent to brand / other CSC",
       detail: job.transferSourceReference || job.brandOdcNumber || undefined,
     },
     { at: job.completedAtSc ?? "", label: "Repair completed at SC" },
@@ -398,7 +398,7 @@ export function TransferReportPage() {
               <option value="ALL">All legs</option>
               <option value="INBOUND">Inbound (store → SC)</option>
               <option value="OUTWARD">Outward (SC → store)</option>
-              <option value="INTER_HO">Inter-HO</option>
+              <option value="INTER_HO">Inter-CSC</option>
             </select>
           </FilterField>
           <FilterField label="Region" htmlFor="xfer-region" className="min-w-0">

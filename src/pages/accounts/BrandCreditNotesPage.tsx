@@ -231,7 +231,7 @@ export function BrandCreditNotesPage() {
     <div>
       <PageHeader
         title="Brand credit notes"
-        description="Review your assigned credit-note queue, issue the ZIM voucher, notify the customer, and route the approved details to HO or the booking store."
+        description="Review your assigned credit-note queue, issue the ZIM voucher, notify the customer, and route the approved details to CSC or the booking store."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -304,7 +304,7 @@ export function BrandCreditNotesPage() {
                           {r.watchBrand} {r.watchModel}
                         </span>
                         <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${r.brandCreditNoteResponsible === "ho" ? "bg-sky-100 text-sky-900" : "bg-emerald-100 text-emerald-900"}`}>
-                          {r.brandCreditNoteResponsible === "ho" ? "HO responsible" : "Store responsible"}
+                          {r.brandCreditNoteResponsible === "ho" ? "CSC responsible" : "Store responsible"}
                         </span>
                         <span className="text-xs font-medium text-amber-800">{selected ? "Open" : "Review →"}</span>
                       </button>
@@ -330,7 +330,7 @@ export function BrandCreditNotesPage() {
                           </p>
                         ) : null}
                         <p className="mt-2 text-xs font-semibold text-zimson-800">
-                          Responsibility: {selectedPending.brandCreditNoteResponsible === "ho" ? "HO" : "Booking store"}
+                          Responsibility: {selectedPending.brandCreditNoteResponsible === "ho" ? "CSC" : "Booking store"}
                         </p>
                         {selectedPending.brandCreditNoteNote ? (
                           <p className="mt-1 max-w-2xl text-xs text-stone-600">
@@ -353,7 +353,7 @@ export function BrandCreditNotesPage() {
                     <p className="mt-3 text-xs text-stone-500">
                       Voucher code is auto-generated (<span className="font-mono font-semibold">ZIM</span> + 8
                       alphanumeric) when you approve. The customer is notified, the SRF closes, and the full
-                      credit-note details go to the responsible {selectedPending.brandCreditNoteResponsible === "ho" ? "HO Supervisor" : "booking store"}.
+                      credit-note details go to the responsible {selectedPending.brandCreditNoteResponsible === "ho" ? "CSC Supervisor" : "booking store"}.
                     </p>
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -405,7 +405,7 @@ export function BrandCreditNotesPage() {
                       >
                         {busyId === selectedPending.id
                           ? "Approving…"
-                          : `Approve, issue voucher & notify ${selectedPending.brandCreditNoteResponsible === "ho" ? "HO" : "store"}`}
+                          : `Approve, issue voucher & notify ${selectedPending.brandCreditNoteResponsible === "ho" ? "CSC" : "store"}`}
                       </button>
                       <button
                         type="button"

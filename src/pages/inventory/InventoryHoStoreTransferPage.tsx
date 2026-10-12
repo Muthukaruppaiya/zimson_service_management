@@ -172,7 +172,7 @@ export function InventoryHoStoreTransferPage() {
       return;
     }
     if (overstock) {
-      setErr("Quantity cannot exceed HO stock on one or more lines.");
+      setErr("Quantity cannot exceed CSC stock on one or more lines.");
       return;
     }
     setBusy(true);
@@ -225,7 +225,7 @@ export function InventoryHoStoreTransferPage() {
         <InventoryBreadcrumb current="Transfers" />
         <PageHeader title="Transfers" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only HO Purchase / HO Manager can transfer stock from HO to a store.
+          Only CSC Purchase / CSC Manager can transfer stock from CSC to a store.
         </div>
       </div>
     );
@@ -236,7 +236,7 @@ export function InventoryHoStoreTransferPage() {
       <InventoryBreadcrumb current="Transfers" />
       <PageHeader
         title="Transfers"
-        description="Move available HO stock to a store. Pick spares and quantity — no GRN is required."
+        description="Move available CSC stock to a store. Pick spares and quantity — no GRN is required."
         actions={
           <div className="flex gap-2">
             <Link
@@ -271,7 +271,7 @@ export function InventoryHoStoreTransferPage() {
               <p className="mt-0.5 text-[11px] text-white/55"></p>
             </div>
             <div className="text-right text-[11px] text-white/75">
-              <p className="font-semibold text-white">{hoSkuCount} spare{hoSkuCount === 1 ? "" : "s"} in HO</p>
+              <p className="font-semibold text-white">{hoSkuCount} spare{hoSkuCount === 1 ? "" : "s"} in CSC</p>
               <p>{hoUnitCount.toLocaleString("en-IN")} unit{hoUnitCount === 1 ? "" : "s"} available</p>
             </div>
           </div>
@@ -323,7 +323,7 @@ export function InventoryHoStoreTransferPage() {
           <div className="space-y-3 p-4">
             {hoSkuCount === 0 ? (
               <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                No HO stock in this region.{" "}
+                No CSC stock in this region.{" "}
                 <Link to="/inventory/po-inward" className="font-semibold underline underline-offset-2">
                   Post a GRN
                 </Link>{" "}
@@ -362,12 +362,12 @@ export function InventoryHoStoreTransferPage() {
                         showSku={false}
                         getMeta={(s) => {
                           const q = qtyBySpare.get(s.id);
-                          return q != null ? `HO ${q}` : undefined;
+                          return q != null ? `CSC ${q}` : undefined;
                         }}
                       />
                     </div>
                     <label className="w-[5.5rem] shrink-0">
-                      <FieldLabel>HO stock</FieldLabel>
+                      <FieldLabel>CSC stock</FieldLabel>
                       <input
                         readOnly
                         tabIndex={-1}
@@ -417,7 +417,7 @@ export function InventoryHoStoreTransferPage() {
                     </LineMeta>
                   ) : null}
                   {exceeds ? (
-                    <p className="px-3 pb-2 text-[11px] text-red-600">Cannot exceed HO stock ({avail}).</p>
+                    <p className="px-3 pb-2 text-[11px] text-red-600">Cannot exceed CSC stock ({avail}).</p>
                   ) : null}
                 </div>
               );

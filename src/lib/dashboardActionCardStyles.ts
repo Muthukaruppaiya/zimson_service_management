@@ -112,9 +112,9 @@ export function roleDashboardLabel(role: string | undefined): string {
     case "service_centre_supervisor":
       return "Service centre supervisor";
     case "ho_manager":
-      return "HO manager";
+      return "CSC manager";
     case "ho_accounts":
-      return "HO accounts";
+      return "CSC accounts";
     case "technician":
       return "Technician";
     case "super_admin":

@@ -34,7 +34,7 @@ export function ServiceCentreHomePage() {
   return (
     <FormPageShell
       breadcrumb="Service centre"
-      title="Service centre (HO / regional)"
+      title="Service centre (CSC / regional)"
       actions={
         <div className="flex flex-wrap gap-1.5">
           <Link

@@ -10,6 +10,7 @@
 BEGIN;
 
 TRUNCATE TABLE
+  quick_bill_drafts,
   quick_bill_capture_photos,
   quick_bill_capture_sessions,
   quick_bill_lines,

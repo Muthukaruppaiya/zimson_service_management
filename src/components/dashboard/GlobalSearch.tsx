@@ -8,9 +8,9 @@ import type { QuickBillHistoryRow } from "../../types/quickBill";
 import type { SessionUser } from "../../types/user";
 import { pushRecentLookup } from "../../lib/dashboardRecentLookups";
 
-type HitKind = "SRF" | "DC" | "ODC" | "QB";
+export type HitKind = "SRF" | "DC" | "ODC" | "QB";
 
-type SearchHit = {
+export type SearchHit = {
   kind: HitKind;
   primary: string;
   secondary: string;
@@ -29,7 +29,7 @@ function categorize(query: string): DetectedKind {
   return "AUTO";
 }
 
-function destinationFor(kind: HitKind, identifier: string, user: SessionUser | null): string | null {
+export function destinationFor(kind: HitKind, identifier: string, user: SessionUser | null): string | null {
   if (!user) return null;
   const q = encodeURIComponent(identifier);
   const hasService = canAccessModule(user, "service");

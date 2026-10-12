@@ -34,7 +34,7 @@ export function InventorySparePriceFixingPage() {
       <InventoryBreadcrumb current="Spare price fixing" />
       <PageHeader
         title="Spare price fixing (regional)"
-        description="Same spare SKU can carry different list / issue prices and tax classes per regional HO. Rows come from the spare catalogue (active parts only)."
+        description="Same spare SKU can carry different list / issue prices and tax classes per regional CSC. Rows come from the spare catalogue (active parts only)."
         actions={
           <div className="flex flex-col gap-2 sm:flex-row">
             <Link

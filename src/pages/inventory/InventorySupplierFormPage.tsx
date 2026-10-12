@@ -279,7 +279,7 @@ export function InventorySupplierFormPage() {
         <InventoryBreadcrumb current="Supplier Form" />
         <PageHeader title="Supplier Form" description="Access restricted." />
         <div className="border border-rlx-rule bg-white px-6 py-8 text-center text-sm text-stone-400">
-          Supplier maintenance requires Admin or HO Manager access.
+          Supplier maintenance requires Admin or CSC Manager access.
         </div>
       </div>
     );
@@ -410,7 +410,7 @@ export function InventorySupplierFormPage() {
 
         {/* Tax Info */}
         <div className="border border-rlx-rule bg-white shadow-sm">
-          <SectionHeader title="Tax Information" subtitle="GST classification (auto-set from GSTIN state vs HO)." />
+          <SectionHeader title="Tax Information" subtitle="GST classification (auto-set from GSTIN state vs CSC)." />
           <div className="p-5 grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className={labelCls}>Tax Person Type</label>

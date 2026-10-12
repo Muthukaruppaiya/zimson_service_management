@@ -101,7 +101,7 @@ export const DASHBOARD_QUICK_LINK_CATALOG: DashboardQuickLinkDef[] = [
     id: "store_dispatch",
     label: "Store dispatch",
     shortLabel: "Dispatch",
-    description: "Send watches to HO / service centre.",
+    description: "Send watches to service centre.",
     to: "/service/store-dispatch",
     module: "service",
   },

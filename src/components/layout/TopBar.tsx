@@ -7,7 +7,7 @@ import { apiJson } from "../../lib/api";
 import { DEFAULT_APP_LOGO_URL, getAppLogoUrl, refreshAppBrandingFromServer } from "../../lib/appBranding";
 import { mainNav } from "../../navigation";
 import type { AppNotification } from "../../types/notification";
-import { GlobalSearch } from "../dashboard/GlobalSearch";
+import { GlobalSearchPalette } from "../dashboard/GlobalSearchPalette";
 import {
   TopBarBellIcon,
   TopBarLogoutIcon,
@@ -19,10 +19,10 @@ import {
 function roleLabel(role: string) {
   const map: Record<string, string> = {
     super_admin: "Super Admin",
-    admin: "Admin (HO)",
-    ho_manager: "HO Manager",
-    ho_accounts: "HO Accounts",
-    ho_purchase: "HO Purchase",
+    admin: "Admin (CSC)",
+    ho_manager: "CSC Manager",
+    ho_accounts: "CSC Accounts",
+    ho_purchase: "CSC Purchase",
     service_centre_clerk: "SC Clerk",
     service_centre_supervisor: "SC Supervisor",
     store_user: "Store User",
@@ -121,10 +121,6 @@ export function TopBar() {
           {/* <span className="hidden text-[13px] font-medium text-rlx-ink-muted lg:inline">| Service Portal</span> */}
         </div>
 
-        <div className="hidden min-w-0 flex-1 md:block md:max-w-2xl md:px-2 lg:px-6">
-          <GlobalSearch autoFocus={false} variant="header" />
-        </div>
-
         <nav className="flex gap-1 overflow-x-auto md:hidden" aria-label="Mobile main">
           {items.map((item) => (
             <NavLink
@@ -146,6 +142,7 @@ export function TopBar() {
 
         {user ? (
           <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-2.5">
+            <GlobalSearchPalette />
             <NavLink
               to="/user-manual"
               aria-label="User manual"

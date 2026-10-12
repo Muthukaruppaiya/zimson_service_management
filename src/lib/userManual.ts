@@ -32,7 +32,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
     path: "/",
     steps: [
       "Enter **Email / Employee code** and **Password** → **Sign in**.",
-      "If asked, select your **Store / HO**.",
+      "If asked, select your **Store / CSC**.",
       "Dashboard shows your **action queue** — click a card to open that work.",
       "Use **Quick find** (top bar) to search SRF / invoice / customer.",
       "Forgot password → **Forgot password?** on login page → reset link by email.",
@@ -98,12 +98,12 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
       "**Pending assign** → select **Technician** → **Assign repair**.",
       "After repair → record spares → **Send to billing**.",
       "Re-estimate needed → enter amount → **Send to customer**.",
-      "Customer wants HO repair → **Send to dispatch**.",
+      "Customer wants CSC repair → **Send to dispatch**.",
     ],
   },
   storeDispatch: {
     id: "storeDispatch",
-    title: "Store outward to HO (create TD)",
+    title: "Store outward to CSC (create TD)",
     module: "service",
     menu: "Logistics → **Store dispatch** → **Outward SRF**",
     path: "/service/store-dispatch",
@@ -116,7 +116,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
   },
   storeDeliverySend: {
     id: "storeDeliverySend",
-    title: "Hand over to delivery agent (Store → HO)",
+    title: "Hand over to delivery agent (Store → CSC)",
     module: "service",
     menu: "Logistics → **Store delivery** → **Handoff** → **Send to centralized service centre (CSC)**",
     path: "/service/delivery-handoff",
@@ -130,7 +130,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
   },
   storeDeliveryReceive: {
     id: "storeDeliveryReceive",
-    title: "Receive from delivery agent (HO → Store)",
+    title: "Receive from delivery agent (CSC → Store)",
     module: "service",
     menu: "Logistics → **Store delivery** → **Handoff** → **Receive at Store**",
     path: "/service/delivery-handoff",
@@ -151,7 +151,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
       "Select transfer (or **Scan TD/DC barcode**).",
       "Click **Review watches & inward**.",
       "Tick only watches that **pass QC** → **Inward selected**.",
-      "QC failed → **Send back to HO for re-repair** or **Keep in inward pending**.",
+      "QC failed → **Send back to CSC for re-repair** or **Keep in inward pending**.",
       "Click **Print inward receipt**.",
     ],
   },
@@ -201,7 +201,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
     module: "service",
     menu: "Inventory → **Watch inventory**",
     path: "/service/watch-inventory",
-    steps: ["See all watches currently at your store / HO.", "Filter by status / brand → open SRF."],
+    steps: ["See all watches currently at your store / CSC.", "Filter by status / brand → open SRF."],
   },
   storeStock: {
     id: "storeStock",
@@ -236,22 +236,22 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
   // ── HO clerk (front desk) ──
   hoDeliveryReceive: {
     id: "hoDeliveryReceive",
-    title: "Receive from delivery agent (Store → HO)",
+    title: "Receive from delivery agent (Store → CSC)",
     module: "service_centre",
-    menu: "Logistics → **HO delivery** → **Handoff** → **Receive at HO**",
+    menu: "Logistics → **CSC delivery** → **Handoff** → **Receive at CSC**",
     path: "/service-centre/delivery-handoff",
     steps: [
       "Select **Delivery agent**.",
       "Check transfers carried by agent.",
       "Click **Send OTP** → enter agent's OTP → verify.",
-      "Status → **Waiting for HO inward**.",
+      "Status → **Waiting for CSC inward**.",
     ],
   },
   hoInward: {
     id: "hoInward",
-    title: "HO inward",
+    title: "CSC inward",
     module: "service_centre",
-    menu: "Logistics → **HO inward / outward** → **Internal inward (Store to HO)**",
+    menu: "Logistics → **CSC inward / outward** → **Internal inward (Store to CSC)**",
     path: "/service-centre/logistics",
     steps: [
       "Select transfer (or **Scan DC barcode**).",
@@ -262,9 +262,9 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
   },
   hoOutward: {
     id: "hoOutward",
-    title: "HO outward to store (create TD)",
+    title: "CSC outward to store (create TD)",
     module: "service_centre",
-    menu: "Logistics → **HO inward / outward** → **Internal outward (HO to Store)** → **Create internal outward**",
+    menu: "Logistics → **CSC inward / outward** → **Internal outward (CSC to Store)** → **Create internal outward**",
     path: "/service-centre/logistics",
     steps: [
       "Tick repaired SRFs (or **Scan SRF barcode**).",
@@ -276,7 +276,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
     id: "hoSendBrand",
     title: "Send watch to brand",
     module: "service_centre",
-    menu: "Logistics → **HO inward / outward** → **Send to brand**",
+    menu: "Logistics → **CSC inward / outward** → **Send to brand**",
     path: "/service-centre/logistics",
     steps: [
       "Select SRFs approved for brand.",
@@ -286,9 +286,9 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
   },
   hoDeliverySend: {
     id: "hoDeliverySend",
-    title: "Hand over to delivery agent (HO → Store)",
+    title: "Hand over to delivery agent (CSC → Store)",
     module: "service_centre",
-    menu: "Logistics → **HO delivery** → **Handoff** → **Send to Store**",
+    menu: "Logistics → **CSC delivery** → **Handoff** → **Send to Store**",
     path: "/service-centre/delivery-handoff",
     steps: [
       "Select **Delivery agent**.",
@@ -301,7 +301,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
     id: "hoLogisticsHistory",
     title: "Inward / outward and agent history",
     module: "service_centre",
-    menu: "Logistics → **HO inward / outward** → **DC / ODC history** · **HO delivery** → **Agent history**",
+    menu: "Logistics → **CSC inward / outward** → **DC / ODC history** · **CSC delivery** → **Agent history**",
     path: "/service-centre/logistics-history",
     steps: ["Search by DC / TD no. or date.", "Reprint DC / TD / inward receipt."],
   },
@@ -331,7 +331,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
       "**Proceed** — after customer accepts re-estimate.",
       "**Approve & send to brand** → later **Mark received from brand**.",
       "**Cannot repair — return to store** — select reason → confirm.",
-      "**Send to outward** — move finished SRF to HO outward.",
+      "**Send to outward** — move finished SRF to CSC outward.",
     ],
   },
   scReestimate: {
@@ -344,15 +344,15 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
   },
   scCreditNotes: {
     id: "scCreditNotes",
-    title: "HO credit notes",
+    title: "CSC credit notes",
     module: "service_centre",
-    menu: "Supervision → **HO credit notes**",
+    menu: "Supervision → **CSC credit notes**",
     path: "/service-centre/brand-credit-notes",
     steps: ["Select brand + SRF.", "Enter credit details → save.", "Print credit note."],
   },
   scSrfHistory: {
     id: "scSrfHistory",
-    title: "SRF history (HO)",
+    title: "SRF history (CSC)",
     module: "service_centre",
     menu: "Supervision → **SRF history**",
     path: "/service-centre/srf-history",
@@ -368,14 +368,14 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
   },
   onlineStore: {
     id: "onlineStore",
-    title: "Inter-HO online orders",
+    title: "Inter-CSC online orders",
     module: "service_centre",
-    menu: "Online Store → **Inter-HO online orders**",
+    menu: "Online Store → **Inter-CSC online orders**",
     path: "/service-centre/online-store",
     steps: [
       "Open order → **Create invoice**.",
       "**Create e-way bill** if needed → **Mark outward dispatch**.",
-      "Receiving HO → **Mark inward receive**.",
+      "Receiving CSC → **Mark inward receive**.",
     ],
   },
 
@@ -403,8 +403,8 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
     steps: [
       "**Pickup at store:** staff selects you → you receive **OTP** → tell OTP to staff.",
       "Collect watches + TD copy.",
-      "**Drop at HO:** HO clerk selects you → you receive **OTP** → tell OTP to clerk.",
-      "**Pickup at HO:** clerk selects you → OTP → collect watches + TD copy.",
+      "**Drop at CSC:** CSC clerk selects you → you receive **OTP** → tell OTP to clerk.",
+      "**Pickup at CSC:** clerk selects you → OTP → collect watches + TD copy.",
       "**Drop at store:** store staff selects you → OTP → hand over.",
     ],
     notes: ["Share OTP only with Zimson staff at handover.", "Mobile number must be updated in User master."],
@@ -507,7 +507,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
   },
   transfer: {
     id: "transfer",
-    title: "Spare transfer HO → Store",
+    title: "Spare transfer CSC → Store",
     module: "inventory",
     menu: "Purchase → **Transfers** → **Create transfer**",
     path: "/inventory/ho-transfer",
@@ -556,9 +556,9 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
   },
   hoBilling: {
     id: "hoBilling",
-    title: "HO billing",
+    title: "CSC billing",
     module: "service",
-    menu: "Billing → **HO billing**",
+    menu: "Billing → **CSC billing**",
     path: "/service/billing",
     steps: ["Select customer / SRF.", "Add lines (**Add line**).", "Click **Record bill** → print invoice."],
   },
@@ -591,7 +591,7 @@ export const MANUAL_TOPICS: Record<string, ManualTopic> = {
     module: "regions",
     menu: "Settings → **Regions & stores**",
     path: "/regions",
-    steps: ["Add / edit region (HO).", "**Add Store** / **Add Warehouse** under region.", "Set address, GSTIN, codes → save."],
+    steps: ["Add / edit region (CSC).", "**Add Store** / **Add Warehouse** under region.", "Set address, GSTIN, codes → save."],
   },
   settingsTax: {
     id: "settingsTax",
@@ -640,7 +640,7 @@ const STORE_SRF_FLOW: ManualGroup = {
 };
 
 const HO_LOGISTICS: ManualGroup = {
-  title: "Watch logistics — HO",
+  title: "Watch logistics — CSC",
   topics: ["hoDeliveryReceive", "hoInward", "hoOutward", "hoSendBrand", "hoDeliverySend", "hoLogisticsHistory"],
 };
 
@@ -658,7 +658,7 @@ export const ROLE_MANUALS: RoleManual[] = [
   {
     role: "store_user",
     label: "Store User",
-    summary: "Quick bill, SRF booking, dispatch to HO, delivery agent handoff, store billing.",
+    summary: "Quick bill, SRF booking, dispatch to CSC, delivery agent handoff, store billing.",
     groups: [
       { title: "Start", topics: ["login"] },
       { title: "Daily billing", topics: ["quickBill"] },
@@ -692,7 +692,7 @@ export const ROLE_MANUALS: RoleManual[] = [
   {
     role: "service_centre_clerk",
     label: "Service Centre Clerk (Front Desk)",
-    summary: "HO front desk: receive from delivery agent, inward, outward, send back to store.",
+    summary: "CSC front desk: receive from delivery agent, inward, outward, send back to store.",
     groups: [{ title: "Start", topics: ["login"] }, HO_LOGISTICS],
   },
   {
@@ -714,13 +714,13 @@ export const ROLE_MANUALS: RoleManual[] = [
   {
     role: "delivery_boy",
     label: "Delivery Agent",
-    summary: "Carries watches Store ↔ HO. Confirms each handover with OTP.",
+    summary: "Carries watches Store ↔ CSC. Confirms each handover with OTP.",
     groups: [{ title: "Handoff", topics: ["deliveryAgent"] }],
   },
   {
     role: "ho_manager",
-    label: "HO Manager",
-    summary: "Supervision, HO delivery, purchase, stock, reports and approvals.",
+    label: "CSC Manager",
+    summary: "Supervision, CSC delivery, purchase, stock, reports and approvals.",
     groups: [
       { title: "Start", topics: ["login", "analytics"] },
       SUPERVISION,
@@ -732,8 +732,8 @@ export const ROLE_MANUALS: RoleManual[] = [
   },
   {
     role: "ho_accounts",
-    label: "HO Accounts",
-    summary: "HO billing, invoices, payments, credit notes and GST reports.",
+    label: "CSC Accounts",
+    summary: "CSC billing, invoices, payments, credit notes and GST reports.",
     groups: [
       { title: "Start", topics: ["login"] },
       { title: "Billing", topics: ["hoBilling", "invoices", "creditNotes", "accountsSetup"] },
@@ -743,7 +743,7 @@ export const ROLE_MANUALS: RoleManual[] = [
   },
   {
     role: "ho_purchase",
-    label: "HO Purchase",
+    label: "CSC Purchase",
     summary: "Spares, suppliers, purchase orders, GRN and transfers to stores.",
     groups: [
       { title: "Start", topics: ["login"] },
@@ -754,7 +754,7 @@ export const ROLE_MANUALS: RoleManual[] = [
   },
   {
     role: "admin",
-    label: "Admin (HO)",
+    label: "Admin (CSC)",
     summary: "Full access within the region. Use the role selector to view each team's steps.",
     groups: [
       { title: "Start", topics: ["login", "analytics"] },
@@ -789,12 +789,12 @@ export const SRF_JOURNEY: { step: string; who: string; menu: string; roles: User
   { step: "Book SRF", who: "Store User", menu: "Service → SRF → Book SRF", roles: STORE },
   { step: "Create transfer (TD)", who: "Store User", menu: "Logistics → Store dispatch → Outward SRF", roles: STORE },
   { step: "Hand over to delivery agent (OTP)", who: "Store User + Agent", menu: "Logistics → Store delivery → Send to CSC", roles: STORE_AGENT },
-  { step: "Receive from delivery agent (OTP)", who: "SC Clerk + Agent", menu: "Logistics → HO delivery → Receive at HO", roles: [...CLERK, "ho_manager"] },
-  { step: "HO inward", who: "SC Clerk", menu: "Logistics → HO inward / outward → Internal inward", roles: ["service_centre_clerk"] },
+  { step: "Receive from delivery agent (OTP)", who: "SC Clerk + Agent", menu: "Logistics → CSC delivery → Receive at CSC", roles: [...CLERK, "ho_manager"] },
+  { step: "CSC inward", who: "SC Clerk", menu: "Logistics → CSC inward / outward → Internal inward", roles: ["service_centre_clerk"] },
   { step: "Assign technician", who: "SC Supervisor", menu: "Supervision → Assigning → Assign", roles: ["service_centre_supervisor", "ho_manager"] },
   { step: "Repair + spares", who: "Technician", menu: "Dashboard → My Workbench", roles: ["technician"] },
-  { step: "HO outward (TD)", who: "SC Clerk", menu: "Logistics → HO inward / outward → Internal outward", roles: ["service_centre_clerk"] },
-  { step: "Hand over to delivery agent (OTP)", who: "SC Clerk + Agent", menu: "Logistics → HO delivery → Send to Store", roles: [...CLERK, "ho_manager"] },
+  { step: "CSC outward (TD)", who: "SC Clerk", menu: "Logistics → CSC inward / outward → Internal outward", roles: ["service_centre_clerk"] },
+  { step: "Hand over to delivery agent (OTP)", who: "SC Clerk + Agent", menu: "Logistics → CSC delivery → Send to Store", roles: [...CLERK, "ho_manager"] },
   { step: "Receive from delivery agent (OTP)", who: "Store User + Agent", menu: "Logistics → Store delivery → Receive at Store", roles: STORE_AGENT },
   { step: "Store inward + QC", who: "Store User", menu: "Logistics → Store dispatch → Inward SRF", roles: STORE },
   { step: "Final bill + handover (OTP)", who: "Store User", menu: "Billing → Store billing", roles: [...STORE, "store_accounts"] },

@@ -132,7 +132,7 @@ function buildServiceCentreLogisticsItems(jobs: SrfJob[], user: SessionUser): Da
       count: inTransit.watches,
       sublabel:
         inTransit.documents > 0
-          ? `${inTransit.documents} TD${inTransit.documents === 1 ? "" : "s"} on the way to HO`
+          ? `${inTransit.documents} TD${inTransit.documents === 1 ? "" : "s"} on the way to CSC`
           : undefined,
       hint: "With delivery agent — receive OTP at front desk",
       to: "/service-centre/delivery-handoff",
@@ -190,7 +190,7 @@ function buildSupervisorItems(jobs: SrfJob[], user: SessionUser): DashboardActio
       id: "sc-assign",
       label: "Assign Technician",
       count: received.length,
-      hint: "Watches inwarded at HO awaiting assignment",
+      hint: "Watches inwarded at CSC awaiting assignment",
       to: "/service-centre/supervisor",
       urgent: received.length > 0,
       accent: "border-l-sky-500",
@@ -258,7 +258,7 @@ function buildStoreItems(jobs: SrfJob[], user: SessionUser): DashboardActionItem
         inTransitDocs > 0
           ? `${inTransitDocs} TD${inTransitDocs === 1 ? "" : "s"} with delivery agent`
           : undefined,
-      hint: "On the road Store ↔ HO",
+      hint: "On the road Store ↔ CSC",
       to: "/service/delivery-handoff",
       urgent: inTransitWatches > 0,
       accent: "border-l-blue-500",
@@ -353,7 +353,7 @@ function buildOverviewItems(jobs: SrfJob[], user: SessionUser): DashboardActionI
       id: "at-ho",
       label: "Workshop Queue",
       count: stats.atHeadOffice,
-      hint: "On HO repair bench",
+      hint: "On CSC repair bench",
       to: "/service/watch-inventory",
       urgent: false,
       accent: "border-l-sky-400",

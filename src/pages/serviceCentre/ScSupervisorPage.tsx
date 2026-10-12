@@ -425,7 +425,7 @@ export function ScSupervisorPage() {
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [sendBrandPopupJobId, setSendBrandPopupJobId] = useState<string | null>(null);
   const [reestimateProceedBusyId, setReestimateProceedBusyId] = useState<string | null>(null);
-  const [sendBrandReason, setSendBrandReason] = useState("Cannot be repaired at HO");
+  const [sendBrandReason, setSendBrandReason] = useState("Cannot be repaired at CSC");
   const [brandEstimatePopupJobId, setBrandEstimatePopupJobId] = useState<string | null>(null);
   const [brandEstimateRefInput, setBrandEstimateRefInput] = useState("");
   const [brandEstimateAmountInput, setBrandEstimateAmountInput] = useState("");
@@ -1110,19 +1110,19 @@ export function ScSupervisorPage() {
         await interHoApproveBrandEstimateForReceiver(archivedJobId);
         setFeedback((f) => ({
           ...f,
-          [archivedJobId]: "Customer-approved brand estimate released to repair HO — they can approve brand repair.",
+          [archivedJobId]: "Customer-approved brand estimate released to repair CSC — they can approve brand repair.",
         }));
       } else {
         await interHoApproveReestimateForReceiver(archivedJobId);
         setFeedback((f) => ({
           ...f,
-          [archivedJobId]: "Customer-approved re-estimate released to repair HO — repair can continue.",
+          [archivedJobId]: "Customer-approved re-estimate released to repair CSC — repair can continue.",
         }));
       }
     } catch (e) {
       setFeedback((f) => ({
         ...f,
-        [archivedJobId]: e instanceof Error ? e.message : "Could not approve for repair HO.",
+        [archivedJobId]: e instanceof Error ? e.message : "Could not approve for repair CSC.",
       }));
     }
   }
@@ -1144,7 +1144,7 @@ export function ScSupervisorPage() {
         await interHoRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
         setFeedback((f) => ({
           ...f,
-          [reestimatePopupJobId]: "Re-estimate sent to sender HO — they will forward to the customer.",
+          [reestimatePopupJobId]: "Re-estimate sent to sender CSC — they will forward to the customer.",
         }));
       } else {
         const notify = await supervisorRequestReestimate(reestimatePopupJobId, { estimateTotalInr: amount, note });
@@ -1200,7 +1200,7 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({
         ...f,
         [cannotRepairPopupJobId]: out.interHoReceiver
-          ? `${cannotRepairAtLabel(cannotRepairAt)}. Queued return to sender HO. Logistics: create return DC. Sender HO will dispatch to store for store credit handover.`
+          ? `${cannotRepairAtLabel(cannotRepairAt)}. Queued return to sender CSC. Logistics: create return DC. Sender CSC will dispatch to store for store credit handover.`
           : `${cannotRepairAtLabel(cannotRepairAt)}. Moved to outward queue. Logistics: dispatch to store. Store will issue store credit and hand over the watch.`,
       }));
       closeCannotRepairPopup();
@@ -1222,7 +1222,7 @@ export function ScSupervisorPage() {
         setFeedback((f) => ({
           ...f,
           [moveToOdcPopupJobId]:
-            "Queued return to sender HO without repair. Logistics: create return DC to sender HO. Sender HO will inward and dispatch to store for customer handover (no billing).",
+            "Queued return to sender CSC without repair. Logistics: create return DC to sender CSC. Sender CSC will inward and dispatch to store for customer handover (no billing).",
         }));
       } else {
         await supervisorMoveRejectedToOdc(moveToOdcPopupJobId, moveToOdcNote.trim());
@@ -1259,7 +1259,7 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({
         ...f,
         [jobId]:
-          "SRF verified and moved to outward. Front desk can create HO → store transfer. Store will receive and bill the customer.",
+          "SRF verified and moved to outward. Front desk can create CSC → store transfer. Store will receive and bill the customer.",
       }));
     } catch (e) {
       setFeedback((f) => ({
@@ -1275,7 +1275,7 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({
         ...f,
         [jobId]:
-          "SRF moved to outward. Front desk: create return DC + e-way to sender HO.",
+          "SRF moved to outward. Front desk: create return DC + e-way to sender CSC.",
       }));
     } catch (e) {
       setFeedback((f) => ({
@@ -1300,7 +1300,7 @@ export function ScSupervisorPage() {
       setFeedback((f) => ({
         ...f,
         [jobId]:
-          "Estimate not accepted recorded. Repair HO supervisor must click Send to outward, then front desk return DC + e-way. Sender HO: inward → Verify & move to outward → HO→store → store billing.",
+          "Estimate not accepted recorded. Repair CSC supervisor must click Send to outward, then front desk return DC + e-way. Sender CSC: inward → Verify & move to outward → CSC→store → store billing.",
       }));
       closeEstimateNotAcceptedPopup();
     } catch (e) {
@@ -1314,12 +1314,12 @@ export function ScSupervisorPage() {
 
   function openSendToBrandPopup(jobId: string) {
     setSendBrandPopupJobId(jobId);
-    setSendBrandReason("Cannot be repaired at HO");
+    setSendBrandReason("Cannot be repaired at CSC");
   }
 
   function closeSendToBrandPopup() {
     setSendBrandPopupJobId(null);
-    setSendBrandReason("Cannot be repaired at HO");
+    setSendBrandReason("Cannot be repaired at CSC");
   }
 
   async function sendToBrandBySupervisor() {
@@ -1356,13 +1356,13 @@ export function ScSupervisorPage() {
     try {
       if (kind === "approve_send_brand") {
         await supervisorApproveBrandEstimate(jobId, {
-          note: note.trim() || "Customer accepted — HO approval sent to brand.",
+          note: note.trim() || "Customer accepted — CSC approval sent to brand.",
         });
         setBrandSuccessAck({
           title: "Approval sent to brand",
           description: reference,
           reference,
-          detail: "HO approved the brand estimate. Brand repair is now in progress.",
+          detail: "CSC approved the brand estimate. Brand repair is now in progress.",
         });
       } else if (kind === "receive_from_brand") {
         await supervisorReceiveFromBrand(jobId, {
@@ -1374,8 +1374,8 @@ export function ScSupervisorPage() {
           description: reference,
           reference,
           detail: withoutRepair
-            ? "Unrepaired watch received at HO. Use Send to store (no repair) to move to outward queue."
-            : "Watch received at HO. Log the brand invoice to move to outward queue.",
+            ? "Unrepaired watch received at CSC. Use Send to store (no repair) to move to outward queue."
+            : "Watch received at CSC. Log the brand invoice to move to outward queue.",
         });
       }
       setBrandConfirmPopup(null);
@@ -1401,13 +1401,13 @@ export function ScSupervisorPage() {
         setBrandForwardPopupJobId(null);
         setBrandForwardInterHoSender(false);
         setBrandSuccessAck({
-          title: "Estimate sent to sender HO",
+          title: "Estimate sent to sender CSC",
           description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
           reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
-          detail: "Sender HO will add markup and forward the brand estimate to the customer for approval.",
+          detail: "Sender CSC will add markup and forward the brand estimate to the customer for approval.",
         });
       } catch (e) {
-        setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not forward to sender HO." }));
+        setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not forward to sender CSC." }));
       }
       return;
     }
@@ -1464,8 +1464,8 @@ export function ScSupervisorPage() {
         description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
         reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
         detail: isInterHoReceiverLocal(jobs.find((j) => j.id === jobId) ?? { reference: "", transferSourceReference: null, requiresLocalConversion: false, status: "" })
-          ? "Sender HO notified. Repair HO: mark received when the watch returns from brand, then dispatch return to sender HO."
-          : "Awaiting watch return from brand. Mark received when the watch arrives at HO.",
+          ? "Sender CSC notified. Repair CSC: mark received when the watch returns from brand, then dispatch return to sender CSC."
+          : "Awaiting watch return from brand. Mark received when the watch arrives at CSC.",
       });
     } catch (e) {
       setFeedback((f) => ({
@@ -1614,7 +1614,7 @@ export function ScSupervisorPage() {
         description: job?.reference ?? jobId,
         reference: job?.reference ?? jobId,
         detail: interHo
-          ? `Brand invoice ${invoiceRef} (INR ${invoiceAmountInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) saved. Create invoice to sender HO next.`
+          ? `Brand invoice ${invoiceRef} (INR ${invoiceAmountInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) saved. Create invoice to sender CSC next.`
           : `Brand invoice ${invoiceRef} (INR ${invoiceAmountInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) saved. SRF moved to outward queue.`,
         interHoInvoiceJobId: interHo ? jobId : undefined,
       });
@@ -1641,7 +1641,7 @@ export function ScSupervisorPage() {
       return;
     }
     if (!brandCreditResponsible) {
-      setFeedback((f) => ({ ...f, [jobId]: "Select whether HO or Store is responsible for this credit note." }));
+      setFeedback((f) => ({ ...f, [jobId]: "Select whether CSC or Store is responsible for this credit note." }));
       return;
     }
     if (!brandCreditAttachmentFile) {
@@ -1665,10 +1665,10 @@ export function ScSupervisorPage() {
       setBrandCreditAttachmentError(null);
       setBrandCreditResponsible("");
       setBrandSuccessAck({
-        title: "Credit note sent to HO Accounts",
+        title: "Credit note sent to CSC Accounts",
         description: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
         reference: jobs.find((j) => j.id === jobId)?.reference ?? jobId,
-        detail: `HO Accounts will review INR ${valueInr.toLocaleString("en-IN")} and issue a ZIM voucher. After approval, details go to the ${brandCreditResponsible === "ho" ? "HO Supervisor" : "booking store"}.`,
+        detail: `CSC Accounts will review INR ${valueInr.toLocaleString("en-IN")} and issue a ZIM voucher. After approval, details go to the ${brandCreditResponsible === "ho" ? "CSC Supervisor" : "booking store"}.`,
       });
     } catch (e) {
       setFeedback((f) => ({ ...f, [jobId]: e instanceof Error ? e.message : "Could not log brand credit note." }));
@@ -1722,7 +1722,7 @@ export function ScSupervisorPage() {
       setSpareOrderRows(out.rows);
       setSpareOrderMsg("");
     } catch (e) {
-      setSpareOrderMsg(e instanceof Error ? e.message : "Could not load inter-HO spare orders.");
+      setSpareOrderMsg(e instanceof Error ? e.message : "Could not load inter-CSC spare orders.");
     }
   }
 
@@ -1768,21 +1768,21 @@ export function ScSupervisorPage() {
   async function confirmTransferToOtherHo() {
     if (!transferPopupJobId) return;
     if (!transferTargetRegionId) {
-      setFeedback((f) => ({ ...f, [transferPopupJobId]: "Select destination HO region." }));
+      setFeedback((f) => ({ ...f, [transferPopupJobId]: "Select destination CSC region." }));
       return;
     }
     try {
       await supervisorTransferToOtherHo(transferPopupJobId, {
         targetRegionId: transferTargetRegionId,
-        note: transferNoteInput || "Transfer to other HO requested.",
+        note: transferNoteInput || "Transfer to other CSC requested.",
       });
       setFeedback((f) => ({
         ...f,
-        [transferPopupJobId]: "Moved to outward queue for inter-HO transfer. Create DC from Service Centre Logistics.",
+        [transferPopupJobId]: "Moved to outward queue for inter-CSC transfer. Create DC from Service Centre Logistics.",
       }));
       closeTransferPopup();
     } catch (e) {
-      setFeedback((f) => ({ ...f, [transferPopupJobId]: e instanceof Error ? e.message : "Could not transfer to other HO." }));
+      setFeedback((f) => ({ ...f, [transferPopupJobId]: e instanceof Error ? e.message : "Could not transfer to other CSC." }));
     }
   }
 
@@ -1809,7 +1809,7 @@ export function ScSupervisorPage() {
       }))
       .filter((x) => x.spareId && Number.isFinite(x.qty) && x.qty > 0);
     if (!requestSparesTargetRegionId) {
-      setFeedback((f) => ({ ...f, [requestSparesJobId]: "Choose supplier HO region." }));
+      setFeedback((f) => ({ ...f, [requestSparesJobId]: "Choose supplier CSC region." }));
       return;
     }
     if (lines.length === 0) {
@@ -1923,7 +1923,7 @@ export function ScSupervisorPage() {
     for (const [spareId, entry] of usage.entries()) {
       const available = await fetchHoStockQty(spareId);
       if (available < entry.qty) {
-        return `Insufficient HO stock for ${entry.name}. Available ${available}, required ${entry.qty}.`;
+        return `Insufficient CSC stock for ${entry.name}. Available ${available}, required ${entry.qty}.`;
       }
     }
     return null;
@@ -2113,11 +2113,11 @@ export function ScSupervisorPage() {
   function interHoReestimatePhaseLabel(phase: string | null | undefined): string {
     switch (phase) {
       case "pending_sender":
-        return "Awaiting sender HO — forward to customer";
+        return "Awaiting sender CSC — forward to customer";
       case "customer_pending":
         return "With customer on tracking link";
       case "customer_accepted":
-        return "Customer accepted — sender HO to approve repair";
+        return "Customer accepted — sender CSC to approve repair";
       case "customer_rejected":
         return "Customer rejected — negotiate";
       default:
@@ -2128,11 +2128,11 @@ export function ScSupervisorPage() {
   function interHoBrandEstimatePhaseLabel(phase: string | null | undefined): string {
     switch (phase) {
       case "pending_sender":
-        return "Awaiting sender HO — forward to customer";
+        return "Awaiting sender CSC — forward to customer";
       case "customer_pending":
         return "With customer on tracking link";
       case "customer_accepted":
-        return "Customer approved — repair HO notified";
+        return "Customer approved — repair CSC notified";
       case "customer_rejected":
         return "Customer rejected — negotiate";
       default:
@@ -2167,10 +2167,10 @@ export function ScSupervisorPage() {
   return (
     <div className="space-y-6 pb-8">
       <PageHeader
-        title={senderApprovalOnlyView ? "Sender HO — re-estimate approvals" : "Supervisor — assign technicians"}
+        title={senderApprovalOnlyView ? "Sender CSC — re-estimate approvals" : "Supervisor — assign technicians"}
         description={
           senderApprovalOnlyView
-            ? "Review and forward inter-HO estimate approvals to customers."
+            ? "Review and forward inter-CSC estimate approvals to customers."
             : srfId
               ? "Review the SRF and assign the right technician for repair."
               : "Prioritize incoming SRFs, assign technicians, and manage repair decisions."
@@ -2446,7 +2446,7 @@ export function ScSupervisorPage() {
                                     ) : null}
                                     {senderReestimate ? (
                                       <span className="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-800">
-                                        Inter-HO re-estimate
+                                        Inter-CSC re-estimate
                                       </span>
                                     ) : null}
                                     {isInterHoLocal ? (
@@ -2541,7 +2541,7 @@ export function ScSupervisorPage() {
                                     ) : null}
                                     {senderReestimate && j.interHoReestimatePhase === "customer_declined_final" ? (
                                       <span className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-[10px] font-semibold leading-snug text-stone-700">
-                                        Awaiting repair HO → outward
+                                        Awaiting repair CSC → outward
                                       </span>
                                     ) : null}
                                     {senderReestimate &&
@@ -2552,7 +2552,7 @@ export function ScSupervisorPage() {
                                         onClick={() => void approveInterHoForReceiver(j.id)}
                                         className="rounded-lg border border-emerald-600 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
                                       >
-                                        Approve repair HO
+                                        Approve repair CSC
                                       </button>
                                     ) : null}
                                     <button
@@ -2584,7 +2584,7 @@ export function ScSupervisorPage() {
       (!srfId || receiverSendToOutwardQueue.some((j) => j.id === srfId)) ? (
         <Card
           title="Send to outward (customer declined estimate)"
-          subtitle="Sender HO confirmed customer will not accept. Click Send to outward — then front desk creates return DC + e-way."
+          subtitle="Sender CSC confirmed customer will not accept. Click Send to outward — then front desk creates return DC + e-way."
           className="mb-6"
         >
           {(srfId ? receiverSendToOutwardQueue.filter((j) => j.id === srfId) : receiverSendToOutwardQueue).map((j) => (
@@ -2610,7 +2610,7 @@ export function ScSupervisorPage() {
       {returnVerifyQueue.length > 0 && (!srfId || returnVerifyQueue.some((j) => j.id === srfId)) ? (
         <Card
           title="Return verify → outward (customer declined estimate)"
-          subtitle="Return DC inwarded. Supervisor verifies and moves to outward — only then front desk HO→store, then store billing."
+          subtitle="Return DC inwarded. Supervisor verifies and moves to outward — only then front desk CSC→store, then store billing."
           className="mb-6"
         >
           {(srfId ? returnVerifyQueue.filter((j) => j.id === srfId) : returnVerifyQueue).map((j) => (
@@ -2659,7 +2659,7 @@ export function ScSupervisorPage() {
                   </span>
                   {isInterHoLocal ? (
                     <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
-                      Inter-HO local repair
+                      Inter-CSC local repair
                     </span>
                   ) : null}
                 </div>
@@ -2737,8 +2737,8 @@ export function ScSupervisorPage() {
       ) : null}
       {repairHoInvoiceView.length > 0 ? (
         <Card
-          title="Inter-HO repair invoice"
-          subtitle="Repair HO must invoice sender HO before return dispatch (local repair or brand return)"
+          title="Inter-CSC repair invoice"
+          subtitle="Repair CSC must invoice sender CSC before return dispatch (local repair or brand return)"
           className="mb-6"
         >
           {repairHoInvoiceView.map((j) => (
@@ -2751,7 +2751,7 @@ export function ScSupervisorPage() {
                   to={`/service-centre/inter-ho-invoice?srfId=${encodeURIComponent(j.id)}&invoiceFor=sender-ho`}
                   className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
                 >
-                  Create repair HO invoice
+                  Create repair CSC invoice
                 </Link>
               </div>
             </div>
@@ -2760,8 +2760,8 @@ export function ScSupervisorPage() {
       ) : null}
       {interHoSenderReestimateView.length > 0 ? (
         <Card
-          title={`Inter-HO customer approvals (sender) · ${interHoSenderReestimateView.length}`}
-          subtitle="Repair HO re-estimate or brand estimate — forward to the customer on the existing tracking link."
+          title={`Inter-CSC customer approvals (sender) · ${interHoSenderReestimateView.length}`}
+          subtitle="Repair CSC re-estimate or brand estimate — forward to the customer on the existing tracking link."
           className="mb-6"
         >
           <div className="space-y-4">
@@ -2775,7 +2775,7 @@ export function ScSupervisorPage() {
                 >
                   <p className="font-mono text-sm font-bold text-zimson-900">{mainRef}</p>
                   {isBrand ? (
-                    <p className="mt-0.5 text-[10px] font-semibold text-violet-700">Inter-HO brand estimate (sender action)</p>
+                    <p className="mt-0.5 text-[10px] font-semibold text-violet-700">Inter-CSC brand estimate (sender action)</p>
                   ) : null}
                   {receiverRef && receiverRef !== mainRef ? (
                     <p className="text-[11px] text-stone-500">
@@ -2788,7 +2788,7 @@ export function ScSupervisorPage() {
                   </p>
                   {j.interHoBrandEstimatePhase === "pending_sender" ? (
                     <p className="mt-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900">
-                      Repair HO forwarded brand estimate {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}
+                      Repair CSC forwarded brand estimate {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}
                       {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
                     </p>
                   ) : null}
@@ -2800,7 +2800,7 @@ export function ScSupervisorPage() {
                   ) : null}
                   {j.interHoBrandEstimatePhase === "customer_accepted" ? (
                     <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
-                      Customer approved brand estimate {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}. Repair HO has been notified to approve and send to brand.
+                      Customer approved brand estimate {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}. Repair CSC has been notified to approve and send to brand.
                     </p>
                   ) : null}
                   {j.interHoBrandEstimatePhase === "customer_rejected" ? (
@@ -2810,7 +2810,7 @@ export function ScSupervisorPage() {
                   ) : null}
                   {j.interHoReestimatePhase === "pending_sender" ? (
                     <p className="mt-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-900">
-                      Repair HO proposed {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}
+                      Repair CSC proposed {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}
                       {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
                     </p>
                   ) : null}
@@ -2822,13 +2822,13 @@ export function ScSupervisorPage() {
                   ) : null}
                   {j.interHoReestimatePhase === "customer_accepted" ? (
                     <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
-                      Customer accepted {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)} — release repair HO.
+                      Customer accepted {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)} — release repair CSC.
                     </p>
                   ) : null}
                   {j.interHoReestimatePhase === "customer_rejected" ? (
                     <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900">
                       Customer rejected. Negotiate a revised amount and forward via tracking link, or mark estimate not
-                      accepted so repair HO returns the watch with a logistics invoice.
+                      accepted so repair CSC returns the watch with a logistics invoice.
                     </p>
                   ) : null}
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -2871,7 +2871,7 @@ export function ScSupervisorPage() {
                         onClick={() => void approveInterHoForReceiver(j.id)}
                         className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
                       >
-                        Approve for repair HO
+                        Approve for repair CSC
                       </button>
                     ) : null}
                     <button
@@ -2950,17 +2950,17 @@ export function ScSupervisorPage() {
                         {j.brandCreditNoteApprovedAt
                           ? " · Approved"
                           : j.status === "brand_credit_note_pending_ho"
-                            ? " · Pending HO Manager"
+                            ? " · Pending CSC Manager"
                             : j.status === "brand_credit_note_pending_accounts" || j.status === "brand_credit_note_pending"
-                              ? " · Pending HO Accounts"
+                              ? " · Pending CSC Accounts"
                               : ""}
                       </p>
                     ) : null}
                     {needsInterHoSenderInvoice(j) ? (
                       <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
-                        Inter-HO transfer: invoice sender HO before return dispatch
+                        Inter-CSC transfer: invoice sender CSC before return dispatch
                         {j.status === "received_from_brand"
-                          ? " — complete this brand step, then create repair HO invoice."
+                          ? " — complete this brand step, then create repair CSC invoice."
                           : j.status === "sent_to_brand" || j.status === "brand_repair_in_progress"
                             ? " — after brand return and invoice."
                             : "."}
@@ -3035,7 +3035,7 @@ export function ScSupervisorPage() {
                           setBrandMarkupInput("");
                           setBrandForwardNoteInput(
                             isInterHoReceiverLocal(j)
-                              ? "Brand repair estimate from brand mail — sender HO to forward to customer."
+                              ? "Brand repair estimate from brand mail — sender CSC to forward to customer."
                               : "Brand repair estimate — includes handling and service charges.",
                           );
                         }}
@@ -3044,7 +3044,7 @@ export function ScSupervisorPage() {
                         {customerDeclinedBrandEstimate(j)
                           ? "Resend estimate to customer"
                           : isInterHoReceiverLocal(j)
-                            ? "Forward estimate to sender HO"
+                            ? "Forward estimate to sender CSC"
                             : "Forward estimate to customer"}
                       </button>
                       {customerDeclinedBrandEstimate(j) ? (
@@ -3068,7 +3068,7 @@ export function ScSupervisorPage() {
                             </>
                           ) : user && isInterHoSenderHoViewingReceiverJob(j, user) ? (
                             <p className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-800">
-                              Customer declined brand estimate — repair HO will return the watch from brand without repair. You will inward when repair HO dispatches the return DC.
+                              Customer declined brand estimate — repair CSC will return the watch from brand without repair. You will inward when repair CSC dispatches the return DC.
                             </p>
                           ) : null}
                         </>
@@ -3078,10 +3078,10 @@ export function ScSupervisorPage() {
                   {j.status === "inter_ho_brand_estimate_pending_sender" ? (
                     <>
                       <p className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
-                        Brand estimate sent to sender HO ({formatApproxEstimateInrPlain(Number(j.brandEstimateInr ?? j.reestimateRequestedInr ?? 0), 0)})
+                        Brand estimate sent to sender CSC ({formatApproxEstimateInrPlain(Number(j.brandEstimateInr ?? j.reestimateRequestedInr ?? 0), 0)})
                         {user && isSenderHoUserForInterHoJob(j, user)
                           ? " — add markup and forward to the customer."
-                          : " — awaiting sender HO to forward to customer."}
+                          : " — awaiting sender CSC to forward to customer."}
                       </p>
                       {user && isSenderHoUserForInterHoJob(j, user) ? (
                         <button
@@ -3099,7 +3099,7 @@ export function ScSupervisorPage() {
                   ) : null}
                   {j.status === "brand_estimate_customer_pending" && j.interHoBrandEstimatePhase === "customer_pending" ? (
                     <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                      Sender HO forwarded brand estimate — waiting for customer approval
+                      Sender CSC forwarded brand estimate — waiting for customer approval
                       {j.brandCustomerQuoteInr
                         ? ` (INR ${Number(j.brandCustomerQuoteInr).toLocaleString()}).`
                         : "."}
@@ -3116,7 +3116,7 @@ export function ScSupervisorPage() {
                   {j.status === "brand_estimate_customer_accepted" ? (
                     user && isInterHoReceiverLocal(j) && isSenderHoUserForInterHoJob(j, user) ? (
                       <p className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                        Customer approved brand estimate — repair HO has been notified to approve and send to brand.
+                        Customer approved brand estimate — repair CSC has been notified to approve and send to brand.
                       </p>
                     ) : (
                       <button
@@ -3125,7 +3125,7 @@ export function ScSupervisorPage() {
                           setBrandConfirmPopup({
                             kind: "approve_send_brand",
                             jobId: j.id,
-                            note: "Customer accepted — HO approval sent to brand.",
+                            note: "Customer accepted — CSC approval sent to brand.",
                           })
                         }
                         className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
@@ -3139,12 +3139,12 @@ export function ScSupervisorPage() {
                       {j.brandReturnWithoutRepair ? (
                         <p className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3 py-2 text-xs text-stone-800">
                           {isInterHoReceiverLocal(j) && user && isInterHoSenderHoViewingReceiverJob(j, user)
-                            ? "Repair HO is awaiting return from brand without repair. You will inward when repair HO dispatches the watch back to sender HO."
+                            ? "Repair CSC is awaiting return from brand without repair. You will inward when repair CSC dispatches the watch back to sender CSC."
                             : (
                               <>
                                 Awaiting return from brand <span className="font-semibold">without repair</span>
                                 {isInterHoReceiverLocal(j)
-                                  ? " — repair HO marks received when the watch arrives, then dispatches return to sender HO."
+                                  ? " — repair CSC marks received when the watch arrives, then dispatches return to sender CSC."
                                   : " — mark received when the watch arrives, then send to store."}
                               </>
                             )}
@@ -3166,7 +3166,7 @@ export function ScSupervisorPage() {
                         </button>
                       ) : isInterHoReceiverLocal(j) && user && isInterHoSenderHoViewingReceiverJob(j, user) ? (
                         <p className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
-                          Only repair HO marks receipt from brand. Sender HO will inward after repair HO completes the return leg.
+                          Only repair CSC marks receipt from brand. Sender CSC will inward after repair CSC completes the return leg.
                         </p>
                       ) : null}
                     </>
@@ -3180,7 +3180,7 @@ export function ScSupervisorPage() {
                             onClick={() => openMoveToOdcPopup(j.id)}
                             className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
                           >
-                            Return to sender HO (no repair)
+                            Return to sender CSC (no repair)
                           </button>
                         ) : null
                       ) : (
@@ -3222,7 +3222,7 @@ export function ScSupervisorPage() {
                   j.status === "brand_credit_note_pending_ho" ||
                   j.status === "brand_credit_note_pending_accounts" ? (
                     <p className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                      Credit note logged — awaiting HO Accounts approval. After voucher issue, the responsible {j.brandCreditNoteResponsible === "ho" ? "HO Supervisor" : "booking store"} will be notified and the SRF will close.
+                      Credit note logged — awaiting CSC Accounts approval. After voucher issue, the responsible {j.brandCreditNoteResponsible === "ho" ? "CSC Supervisor" : "booking store"} will be notified and the SRF will close.
                     </p>
                   ) : null}
                   <button
@@ -3267,7 +3267,7 @@ export function ScSupervisorPage() {
          </Card>
       ) : null}
       {transferredView.length > 0 ? (
-        <Card title="Transferred to Other HO" subtitle="These SRFs are currently at another HO for repair. Original reference is preserved for tracking." className="mt-8">
+        <Card title="Transferred to Other CSC" subtitle="These SRFs are currently at another CSC for repair. Original reference is preserved for tracking." className="mt-8">
           <div className="space-y-4">
             {transferredView.map((j) => {
               const { mainRef, receiverRef } = interHoMainAndReceiverRefs(j, jobs);
@@ -3286,16 +3286,16 @@ export function ScSupervisorPage() {
                     <p className="text-sm text-stone-800">{j.customerName} · {j.phone}</p>
                     <p className="mt-1 text-sm text-stone-600">{j.watchBrand} {j.watchModel} · {j.serial}</p>
                     <p className="mt-1 text-xs font-semibold italic text-amber-700">
-                      Sent to other HO for repair. Awaiting return dispatch from repair HO.
+                      Sent to other CSC for repair. Awaiting return dispatch from repair CSC.
                     </p>
                     {localRepair ? (
                       <p className="mt-1 text-xs font-semibold text-emerald-700">
-                        Active repair at this HO: {localRepair.reference}
+                        Active repair at this CSC: {localRepair.reference}
                       </p>
                     ) : null}
                     {j.interHoReestimatePhase === "pending_sender" ? (
                       <p className="mt-2 text-xs font-semibold text-indigo-800">
-                        Repair HO proposed re-estimate {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}
+                        Repair CSC proposed re-estimate {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}
                         {j.reestimateRequestedNote ? ` — ${j.reestimateRequestedNote}` : ""}
                       </p>
                     ) : null}
@@ -3306,18 +3306,18 @@ export function ScSupervisorPage() {
                     ) : null}
                     {j.interHoReestimatePhase === "customer_accepted" ? (
                       <p className="mt-2 text-xs font-semibold text-emerald-800">
-                        Customer accepted {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)} — release repair HO to continue.
+                        Customer accepted {formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)} — release repair CSC to continue.
                       </p>
                     ) : null}
                     {j.interHoReestimatePhase === "customer_rejected" ? (
                       <p className="mt-2 text-xs font-semibold text-rose-800">
                         Customer rejected. Negotiate a revised amount and forward via tracking link, or mark estimate not
-                        accepted so repair HO returns the watch with a logistics invoice.
+                        accepted so repair CSC returns the watch with a logistics invoice.
                       </p>
                     ) : null}
                     {j.interHoReestimatePhase === "customer_declined_final" ? (
                       <p className="mt-2 text-xs font-semibold text-rose-900">
-                        Estimate not accepted. Repair HO front desk: return DC + e-way. After you inward, log logistics
+                        Estimate not accepted. Repair CSC front desk: return DC + e-way. After you inward, log logistics
                         invoice, dispatch to store, then store bills the customer.
                       </p>
                     ) : null}
@@ -3325,24 +3325,24 @@ export function ScSupervisorPage() {
                     receiverJob.status === "ready_for_outward" &&
                     !!(receiverJob.transferSourceRegionId ?? "").trim() ? (
                       <p className="mt-2 text-xs font-semibold text-amber-900">
-                        Repair HO queued return — inward return DC in Logistics (DC + e-way). Then log logistics invoice
+                        Repair CSC queued return — inward return DC in Logistics (DC + e-way). Then log logistics invoice
                         and dispatch to store.
                       </p>
                     ) : null}
                     {receiverJob?.brandReturnWithoutRepair &&
                     (receiverJob.status === "brand_repair_in_progress" || receiverJob.status === "brand_approved") ? (
                       <p className="mt-2 text-xs font-semibold text-stone-800">
-                        Repair HO marked brand return without repair — awaiting physical return from brand. You will inward when repair HO dispatches the return DC to sender HO.
+                        Repair CSC marked brand return without repair — awaiting physical return from brand. You will inward when repair CSC dispatches the return DC to sender CSC.
                       </p>
                     ) : null}
                     {receiverJob?.brandReturnWithoutRepair && receiverJob.status === "received_from_brand" ? (
                       <p className="mt-2 text-xs font-semibold text-stone-800">
-                        Repair HO received watch from brand — awaiting return dispatch to sender HO. Inward in Logistics when the return DC arrives.
+                        Repair CSC received watch from brand — awaiting return dispatch to sender CSC. Inward in Logistics when the return DC arrives.
                       </p>
                     ) : null}
                     {receiverJob?.interHoReturnWithoutRepair && receiverJob.status === "ready_for_outward" ? (
                       <p className="mt-2 text-xs font-semibold text-emerald-800">
-                        Return without repair queued at repair HO — inward the return DC in Service Centre Logistics, then dispatch to store for customer handover (no billing).
+                        Return without repair queued at repair CSC — inward the return DC in Service Centre Logistics, then dispatch to store for customer handover (no billing).
                       </p>
                     ) : null}
                   </div>
@@ -3374,7 +3374,7 @@ export function ScSupervisorPage() {
                         onClick={() => void approveInterHoForReceiver(j.id)}
                         className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
                       >
-                        Approve for repair HO
+                        Approve for repair CSC
                       </button>
                     ) : null}
                     {localRepair ? (
@@ -3590,7 +3590,7 @@ export function ScSupervisorPage() {
                     <div className="rounded-xl border border-rlx-gold/40 bg-rlx-gold-light/30 px-3 py-2 text-xs text-zimson-900">
                       <p className="font-semibold">
                         {j.interHoReestimatePhase === "customer_pending"
-                          ? "Waiting for customer approval (sender HO forwarded via tracking link)."
+                          ? "Waiting for customer approval (sender CSC forwarded via tracking link)."
                           : "Waiting for customer approval from tracking link."}
                       </p>
                     </div>
@@ -3598,14 +3598,14 @@ export function ScSupervisorPage() {
                   {j.status === "inter_ho_reestimate_pending_sender" ? (
                     <div className="rounded-xl border border-zimson-200 bg-white px-3 py-2 text-xs text-zimson-900">
                       <p className="font-semibold">
-                        Re-estimate sent to sender HO ({formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}) — awaiting
+                        Re-estimate sent to sender CSC ({formatApproxEstimateInrPlain(Number(j.reestimateRequestedInr ?? 0), 0)}) — awaiting
                         customer forwarding.
                       </p>
                     </div>
                   ) : null}
                   {j.status === "inter_ho_reestimate_customer_accepted" ? (
                     <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-900">
-                      <p>Customer accepted — awaiting sender HO to release repair.</p>
+                      <p>Customer accepted — awaiting sender CSC to release repair.</p>
                     </div>
                   ) : null}
                   {j.status === "customer_rejected" ? (
@@ -3641,10 +3641,10 @@ export function ScSupervisorPage() {
                     >
                       {j.status === "customer_rejected"
                         ? interHoReceiverLocal
-                          ? "Negotiate & resend to sender HO"
+                          ? "Negotiate & resend to sender CSC"
                           : "Negotiate & send re-estimate"
                         : interHoReceiverLocal
-                          ? "Need re-estimate (sender HO)"
+                          ? "Need re-estimate (sender CSC)"
                           : "Need re-estimate"}
                     </button>
                     {canOpenRepair ? (
@@ -3654,13 +3654,13 @@ export function ScSupervisorPage() {
                         disabled={acceptedReestimateNeedsProceed}
                         className={dqBtnDanger}
                       >
-                        {interHoReceiverLocal ? "Cannot repair — return to sender HO" : "Cannot repair — return to store"}
+                        {interHoReceiverLocal ? "Cannot repair — return to sender CSC" : "Cannot repair — return to store"}
                       </button>
                     ) : null}
                     {j.status === "customer_rejected" ? (
                       <button type="button" onClick={() => openMoveToOdcPopup(j.id)} className={dqBtnDanger}>
                         {interHoReceiverLocal
-                          ? "Return to sender HO (no repair)"
+                          ? "Return to sender CSC (no repair)"
                           : "Move to internal outward (no repair)"}
                       </button>
                     ) : null}
@@ -3848,7 +3848,7 @@ export function ScSupervisorPage() {
           onSave={() => void confirmRepairWithSpares()}
           spareOptions={activeSpares.map((s) => {
             const stock = hoStockBySpareId[s.id];
-            const stockHint = stock != null ? (stock <= 0 ? " · Out of stock" : ` · HO ${stock}`) : "";
+            const stockHint = stock != null ? (stock <= 0 ? " · Out of stock" : ` · CSC ${stock}`) : "";
             return {
               value: s.id,
               label: `${s.sku}${s.altSku ? ` / ${s.altSku}` : ""} - ${s.name}${s.altName ? ` (${s.altName})` : ""}${stockHint}`,
@@ -3856,7 +3856,7 @@ export function ScSupervisorPage() {
           })}
           unitPrice={(spareId) => resolveSpareUnitPrice(spareId, repairPopupJob?.watchBrand ?? "")}
           stockQty={(spareId) => hoStockBySpareId[spareId]}
-          stockLabel="HO stock"
+          stockLabel="CSC stock"
           onSparePicked={(spareId) => {
             setRepairPopupError("");
             const watchBrand = repairPopupJob?.watchBrand ?? "";
@@ -3885,7 +3885,7 @@ export function ScSupervisorPage() {
                   rows={3}
                   value={sendBrandReason}
                   onChange={(e) => setSendBrandReason(e.target.value)}
-                  placeholder="Cannot be repaired at HO due to ..."
+                  placeholder="Cannot be repaired at CSC due to ..."
                 />
               </label>
             </div>
@@ -3908,7 +3908,7 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">
-              {brandForwardInterHoSender ? "Forward brand estimate to sender HO" : "Forward brand estimate to customer"}
+              {brandForwardInterHoSender ? "Forward brand estimate to sender CSC" : "Forward brand estimate to customer"}
             </h3>
             <p className="mt-1 text-sm text-stone-600">
               {brandForwardInterHoSender ? (
@@ -3920,7 +3920,7 @@ export function ScSupervisorPage() {
                       ? Number(job.brandEstimateInr).toLocaleString(undefined, { style: "currency", currency: "INR" })
                       : "—";
                   })()}
-                  {" "}— sender HO will add markup and reach the customer.
+                  {" "}— sender CSC will add markup and reach the customer.
                 </>
               ) : (
                 <>
@@ -3941,14 +3941,14 @@ export function ScSupervisorPage() {
                 <input className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" value={brandMarkupInput} onChange={(e) => setBrandMarkupInput(e.target.value)} placeholder="0" />
               </label>
               ) : null}
-              <label className="text-sm">{brandForwardInterHoSender ? "Remark for sender HO *" : "Remark for customer *"}
+              <label className="text-sm">{brandForwardInterHoSender ? "Remark for sender CSC *" : "Remark for customer *"}
                 <textarea className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm" rows={3} value={brandForwardNoteInput} onChange={(e) => setBrandForwardNoteInput(e.target.value)} />
               </label>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" onClick={() => { setBrandForwardPopupJobId(null); setBrandForwardInterHoSender(false); }} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm">Cancel</button>
               <button type="button" onClick={() => void confirmBrandForwardToCustomer()} className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white">
-                {brandForwardInterHoSender ? "Send to sender HO" : "Send to customer"}
+                {brandForwardInterHoSender ? "Send to sender CSC" : "Send to customer"}
               </button>
             </div>
           </div>
@@ -4083,13 +4083,13 @@ export function ScSupervisorPage() {
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <label className={`cursor-pointer rounded-xl border p-3 text-sm transition ${brandCreditResponsible === "ho" ? "border-rlx-gold bg-amber-50 ring-2 ring-amber-200" : "border-zimson-200 bg-white hover:border-amber-300"}`}>
                     <input type="radio" name="brand-credit-responsible" value="ho" checked={brandCreditResponsible === "ho"} onChange={() => setBrandCreditResponsible("ho")} className="mr-2" />
-                    <span className="font-semibold text-zimson-900">HO responsible</span>
-                    <span className="mt-1 block text-xs text-stone-600">Send to HO Accounts for approval, then notify HO Supervisor.</span>
+                    <span className="font-semibold text-zimson-900">CSC responsible</span>
+                    <span className="mt-1 block text-xs text-stone-600">Send to CSC Accounts for approval, then notify CSC Supervisor.</span>
                   </label>
                   <label className={`cursor-pointer rounded-xl border p-3 text-sm transition ${brandCreditResponsible === "store" ? "border-rlx-gold bg-amber-50 ring-2 ring-amber-200" : "border-zimson-200 bg-white hover:border-amber-300"}`}>
                     <input type="radio" name="brand-credit-responsible" value="store" checked={brandCreditResponsible === "store"} onChange={() => setBrandCreditResponsible("store")} className="mr-2" />
                     <span className="font-semibold text-zimson-900">Store responsible</span>
-                    <span className="mt-1 block text-xs text-stone-600">Send to HO Accounts for approval, then notify the booking store.</span>
+                    <span className="mt-1 block text-xs text-stone-600">Send to CSC Accounts for approval, then notify the booking store.</span>
                   </label>
                 </div>
               </fieldset>
@@ -4107,7 +4107,7 @@ export function ScSupervisorPage() {
             <div className="legacy-modal-panel__footer mt-4 flex justify-end gap-2">
               <button type="button" disabled={brandCreditSaving} onClick={() => setBrandCreditPopupJobId(null)} className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-50">Cancel</button>
               <button type="button" disabled={brandCreditSaving || !brandCreditResponsible} onClick={() => void confirmBrandCreditNote()} className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                {brandCreditSaving ? "Uploading…" : brandCreditResponsible ? "Send to HO Accounts" : "Select responsibility"}
+                {brandCreditSaving ? "Uploading…" : brandCreditResponsible ? "Send to CSC Accounts" : "Select responsibility"}
               </button>
             </div>
           </div>
@@ -4164,7 +4164,7 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">
-              {reestimateInterHoMode ? "Request re-estimate via sender HO" : "Request re-estimate approval"}
+              {reestimateInterHoMode ? "Request re-estimate via sender CSC" : "Request re-estimate approval"}
             </h3>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
@@ -4205,7 +4205,7 @@ export function ScSupervisorPage() {
                 onClick={() => void confirmReestimateRequest()}
                 className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
               >
-                {reestimateInterHoMode ? "Send to sender HO" : "Send to customer"}
+                {reestimateInterHoMode ? "Send to sender CSC" : "Send to customer"}
               </button>
             </div>
           </div>
@@ -4214,7 +4214,7 @@ export function ScSupervisorPage() {
       {transferPopupJobId ? (
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-zimson-900">Send SRF to other HO</h3>
+            <h3 className="text-lg font-semibold text-zimson-900">Send SRF to other CSC</h3>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Destination region
@@ -4349,7 +4349,7 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-zimson-900">Process online spare sale</h3>
-            <p className="mt-1 text-sm text-stone-600">Enter invoice reference and invoice rates. Stock will be deducted from this HO.</p>
+            <p className="mt-1 text-sm text-stone-600">Enter invoice reference and invoice rates. Stock will be deducted from this CSC.</p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
                 Invoice reference
@@ -4565,8 +4565,8 @@ export function ScSupervisorPage() {
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-rose-900">Estimate not accepted by customer</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Confirm the customer will not accept this estimate. Next: repair HO supervisor Send to outward → front desk
-              return DC + e-way → sender HO inward → supervisor Verify &amp; move to outward → HO→store → store billing.
+              Confirm the customer will not accept this estimate. Next: repair CSC supervisor Send to outward → front desk
+              return DC + e-way → sender CSC inward → supervisor Verify &amp; move to outward → CSC→store → store billing.
             </p>
             <div className="mt-4 grid gap-3">
               <label className="text-sm">
@@ -4610,11 +4610,11 @@ export function ScSupervisorPage() {
         <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
             <h3 className="text-lg font-semibold text-rose-900">
-              {moveToOdcInterHo ? "Return watch to sender HO (no repair)" : "Move SRF to outward queue"}
+              {moveToOdcInterHo ? "Return watch to sender CSC (no repair)" : "Move SRF to outward queue"}
             </h3>
             <p className="mt-1 text-sm text-stone-600">
               {moveToOdcInterHo
-                ? "Repair HO returns the watch un-repaired to sender HO (e.g. after customer declined estimate or brand return without repair). Sender HO will inward the return DC, dispatch to store, and the store hands over to the customer without billing."
+                ? "Repair CSC returns the watch un-repaired to sender CSC (e.g. after customer declined estimate or brand return without repair). Sender CSC will inward the return DC, dispatch to store, and the store hands over to the customer without billing."
                 : "Use this only after speaking with the customer and confirming they do not want the repair. The watch will be returned to store via internal outward transfer and handed over without billing."}
             </p>
             <div className="mt-4 grid gap-3">
@@ -4638,7 +4638,7 @@ export function ScSupervisorPage() {
                 onClick={() => void confirmMoveToOdc()}
                 className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white"
               >
-                {moveToOdcInterHo ? "Confirm — return to sender HO" : "Confirm — move to internal outward"}
+                {moveToOdcInterHo ? "Confirm — return to sender CSC" : "Confirm — move to internal outward"}
               </button>
             </div>
           </div>
@@ -4650,7 +4650,7 @@ export function ScSupervisorPage() {
           <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)] p-5">
             <h3 className="text-lg font-semibold text-rose-900">Cannot repair — return unrepaired</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Use this when the watch cannot be repaired at the store, this HO, another HO, or brand. The watch goes back
+              Use this when the watch cannot be repaired at the store, this CSC, another CSC, or brand. The watch goes back
               unrepaired. The store will issue store credit for any advance collected and hand over the watch with that store credit.
             </p>
             <div className="mt-4 grid gap-3">
@@ -4923,7 +4923,7 @@ export function ScSupervisorPage() {
                         </tr>
                         {listDetailJob.interHoBrandEstimatePhase ? (
                           <tr>
-                            <td className="py-0.5 pr-3 font-medium text-stone-600">Inter-HO brand step</td>
+                            <td className="py-0.5 pr-3 font-medium text-stone-600">Inter-CSC brand step</td>
                             <td className="py-0.5 font-medium text-violet-900">
                               {interHoBrandEstimatePhaseLabel(listDetailJob.interHoBrandEstimatePhase)}
                             </td>
@@ -4931,7 +4931,7 @@ export function ScSupervisorPage() {
                         ) : null}
                         {listDetailJob.interHoReestimatePhase ? (
                           <tr>
-                            <td className="py-0.5 pr-3 font-medium text-stone-600">Inter-HO step</td>
+                            <td className="py-0.5 pr-3 font-medium text-stone-600">Inter-CSC step</td>
                             <td className="py-0.5 font-medium text-indigo-900">
                               {interHoReestimatePhaseLabel(listDetailJob.interHoReestimatePhase)}
                             </td>
@@ -4996,7 +4996,7 @@ export function ScSupervisorPage() {
                       <div className="mt-3 border-t border-emerald-200/80 pt-3">
                         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
                           Customer approved brand estimate INR{" "}
-                          {Number(listDetailJob.reestimateRequestedInr ?? 0).toLocaleString()}. Repair HO has been
+                          {Number(listDetailJob.reestimateRequestedInr ?? 0).toLocaleString()}. Repair CSC has been
                           notified to approve and send to brand.
                         </p>
                       </div>
@@ -5012,7 +5012,7 @@ export function ScSupervisorPage() {
                           }}
                           className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800"
                         >
-                          Approve for repair HO
+                          Approve for repair CSC
                         </button>
                       </div>
                     ) : null}
@@ -5077,8 +5077,8 @@ export function ScSupervisorPage() {
             </h3>
             <p className="mt-2 text-sm text-stone-600">
               {brandConfirmPopup.kind === "approve_send_brand"
-                ? "Customer accepted the estimate. Send HO approval to brand and start brand repair?"
-                : "Confirm the watch has been received back from brand at your HO."}
+                ? "Customer accepted the estimate. Send CSC approval to brand and start brand repair?"
+                : "Confirm the watch has been received back from brand at your CSC."}
             </p>
             <label className="mt-4 block text-sm">
               Note (optional)
@@ -5129,7 +5129,7 @@ export function ScSupervisorPage() {
                     navigate(`/service-centre/inter-ho-invoice?srfId=${encodeURIComponent(id)}&invoiceFor=sender-ho`);
                   }}
                 >
-                  Create sender HO invoice
+                  Create sender CSC invoice
                 </button>
               ) : null}
               <button
@@ -5186,8 +5186,8 @@ export function ScSupervisorPage() {
             <p className="mt-1 font-mono text-2xl font-bold text-stone-900">{convertLocalAck.reference}</p>
           </div>
           <p className="mt-3 text-sm text-stone-600">
-            Converted from inter-HO transfer <span className="font-mono font-semibold">{convertLocalAck.sourceReference}</span>.
-            Open the new SRF to assign a technician and continue repair at this HO.
+            Converted from inter-CSC transfer <span className="font-mono font-semibold">{convertLocalAck.sourceReference}</span>.
+            Open the new SRF to assign a technician and continue repair at this CSC.
           </p>
         </ProcessSuccessModal>
       ) : null}

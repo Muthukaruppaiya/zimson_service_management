@@ -153,7 +153,7 @@ export function ScOnlineStorePage() {
         }
       />
 
-      <Card title="Online spare orders" subtitle="Stock reaches requested HO only after inward receive.">
+      <Card title="Online spare orders" subtitle="Stock reaches requested CSC only after inward receive.">
         {msg ? <p className="mb-3 text-xs text-stone-600">{msg}</p> : null}
         {!orderId && rows.length === 0 ? (
           <p className="text-sm text-stone-600">No online spare orders yet.</p>

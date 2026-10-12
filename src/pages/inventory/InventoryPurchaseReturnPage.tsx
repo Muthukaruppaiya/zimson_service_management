@@ -76,7 +76,7 @@ function ReturnSuccessModal({
         <div className="px-6 py-5 text-center space-y-1">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400">Return Number</p>
           <p className="font-mono text-2xl font-bold text-rlx-green">{prtNumber}</p>
-          <p className="text-sm text-stone-500 mt-2">{returnedQty} unit(s) deducted from HO stock.</p>
+          <p className="text-sm text-stone-500 mt-2">{returnedQty} unit(s) deducted from CSC stock.</p>
         </div>
         <div className="border-t border-rlx-rule bg-rlx-bg px-6 py-4 flex flex-wrap justify-center gap-2">
           <HomeLink className={homeLinkFlatClass} />
@@ -178,7 +178,7 @@ export function InventoryPurchaseReturnPage() {
       return;
     }
     if (lines.some((l) => l.qty > l.max)) {
-      setErr("Return qty exceeds remaining HO qty or on-hand stock on one or more lines.");
+      setErr("Return qty exceeds remaining CSC qty or on-hand stock on one or more lines.");
       return;
     }
     if (supportFile && !isAllowedGrnDocument(supportFile)) {
@@ -275,7 +275,7 @@ export function InventoryPurchaseReturnPage() {
         <InventoryBreadcrumb current="GRN return" />
         <PageHeader title="GRN return" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only HO Manager, HO Purchase, or Admin can post GRN returns to suppliers.
+          Only CSC Manager, CSC Purchase, or Admin can post GRN returns to suppliers.
         </div>
       </div>
     );
@@ -286,7 +286,7 @@ export function InventoryPurchaseReturnPage() {
       <InventoryBreadcrumb current="GRN return" />
       <PageHeader
         title="GRN return"
-        description="Return unused HO stock to the supplier against a GRN. Transferred store stock cannot be returned from here."
+        description="Return unused CSC stock to the supplier against a GRN. Transferred store stock cannot be returned from here."
         actions={
           <div className="flex gap-2">
             <button
@@ -312,7 +312,7 @@ export function InventoryPurchaseReturnPage() {
       <div className="mb-6 border border-rlx-rule bg-white shadow-sm">
         <SectionHeader
           title="Return Spares Against GRN"
-          subtitle="Qty is capped by GRN remaining at HO (received − transferred − already returned) and current HO stock."
+          subtitle="Qty is capped by GRN remaining at CSC (received − transferred − already returned) and current CSC stock."
         />
         <form onSubmit={submitReturn} className="p-5 space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -332,7 +332,7 @@ export function InventoryPurchaseReturnPage() {
               </select>
               {grns.length === 0 && (
                 <p className="mt-1 text-[11px] text-stone-400">
-                  No GRN has unused HO stock. Post a GRN first, or stock may already be transferred/returned.
+                  No GRN has unused CSC stock. Post a GRN first, or stock may already be transferred/returned.
                 </p>
               )}
             </div>
@@ -436,7 +436,7 @@ export function InventoryPurchaseReturnPage() {
                       <th className="px-4 py-2.5 text-center">Received</th>
                       <th className="px-4 py-2.5 text-center">Transferred</th>
                       <th className="px-4 py-2.5 text-center">Returned</th>
-                      <th className="px-4 py-2.5 text-center">HO stock</th>
+                      <th className="px-4 py-2.5 text-center">CSC stock</th>
                       <th className="px-4 py-2.5 text-center">Returnable</th>
                       <th className="px-4 py-2.5 text-center">Qty to return</th>
                     </tr>

@@ -278,7 +278,7 @@ export function InventoryServicePackageFormPage() {
     return (
       <div>
         <InventoryBreadcrumb current="Service packages" />
-        <p className="text-sm text-stone-600">Only HO admins can add or edit service packages.</p>
+        <p className="text-sm text-stone-600">Only CSC admins can add or edit service packages.</p>
       </div>
     );
   }

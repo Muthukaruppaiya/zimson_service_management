@@ -1,8 +1,36 @@
+import { useMemo } from "react";
+import { useRegions } from "../../context/RegionsContext";
+import type { SeedRegion } from "../../data/seed";
 import type { SessionUser } from "../../types/user";
 
 type Props = {
   user: SessionUser | null;
 };
+
+type LoggedInStore = { code: string; name: string };
+
+const STORE_ROLES = new Set(["store_user", "store_manager", "store_accounts"]);
+
+function storeCodeFromName(name: string): string {
+  return String(name ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16) || "STOR";
+}
+
+function resolveLoggedInStore(user: SessionUser | null, regions: SeedRegion[]): LoggedInStore | null {
+  if (!user || !STORE_ROLES.has(user.role)) return null;
+  const storeId =
+    String(user.storeId ?? "").trim() ||
+    (Array.isArray(user.storeIds) && user.storeIds.length > 0 ? String(user.storeIds[0]).trim() : "");
+  if (storeId) {
+    for (const r of regions) {
+      const s = (r.stores ?? []).find((x) => x.id === storeId);
+      if (s) {
+        const code = String(s.invoiceNumberStoreCode ?? "").trim() || storeCodeFromName(s.name);
+        return { code, name: s.name };
+      }
+    }
+  }
+  return null;
+}
 
 function welcomeName(user: SessionUser | null): string {
   const raw = user?.displayName?.trim().split(/\s+/)[0];
@@ -54,10 +82,27 @@ function WatchHeroWatermark() {
 }
 
 export function DashboardHero({ user }: Props) {
+  const { regions } = useRegions();
+  const store = useMemo(() => resolveLoggedInStore(user, regions), [user, regions]);
+
   return (
     <section id="cs-welcome" className="dashboard-hero">
       <WatchHeroWatermark />
       <h1 className="dashboard-hero-title">Welcome, {welcomeName(user)}!</h1>
+      {store ? (
+        <div className="relative z-[1] mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-semibold tracking-wide"
+            style={{ borderColor: "rgba(240, 220, 144, 0.55)", background: "rgba(201, 162, 39, 0.18)", color: "#F0DC90" }}
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9h18M9 20v-6h6v6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Store: <span className="font-mono">{store.code}</span>
+          </span>
+          <span className="text-white/85">{store.name}</span>
+        </div>
+      ) : null}
     </section>
   );
 }

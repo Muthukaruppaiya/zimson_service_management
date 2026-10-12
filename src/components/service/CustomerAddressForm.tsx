@@ -1,3 +1,4 @@
+import { RequiredMark } from "../ui/RequiredMark";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiJson, useApiMode } from "../../lib/api";
 import { addressLine1, addressLine2 } from "../../lib/customerAddress";
@@ -171,7 +172,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="sm:col-span-2">
-        <label className="text-xs font-medium text-stone-600">Address line 1 *</label>
+        <label className="text-xs font-medium text-stone-600">Address line 1<RequiredMark /></label>
         <input
           value={line1}
           onChange={(e) =>
@@ -199,7 +200,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         />
       </div>
       <div className="sm:col-span-2">
-        <label className="text-xs font-medium text-stone-600">Country *</label>
+        <label className="text-xs font-medium text-stone-600">Country<RequiredMark /></label>
         <select
           className={inputClass}
           value={value.countryId}
@@ -224,7 +225,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         </select>
       </div>
       <div>
-        <label className="text-xs font-medium text-stone-600">PIN / postal code *</label>
+        <label className="text-xs font-medium text-stone-600">PIN / postal code<RequiredMark /></label>
         <div className="mt-1 flex flex-wrap items-end gap-2">
           <input
             value={value.pincode}
@@ -257,7 +258,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         </p> */}
       </div>
       <div>
-        <label className="text-xs font-medium text-stone-600">State *</label>
+        <label className="text-xs font-medium text-stone-600">State<RequiredMark /></label>
         {api ? (
           <select
             className={inputClass}
@@ -283,7 +284,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         )}
       </div>
       <div>
-        <label className="text-xs font-medium text-stone-600">District *</label>
+        <label className="text-xs font-medium text-stone-600">District<RequiredMark /></label>
         {api && districts.length === 0 && String(value.state ?? "").trim() ? (
           <input
             value={value.district}
@@ -319,7 +320,7 @@ export function CustomerAddressForm({ value, onChange, countries, disabled }: Pr
         )}
       </div>
       <div>
-        <label className="text-xs font-medium text-stone-600">City / locality *</label>
+        <label className="text-xs font-medium text-stone-600">City / locality<RequiredMark /></label>
         {isIndia && api && localityOptions.length > 0 ? (
           <select
             className={inputClass}

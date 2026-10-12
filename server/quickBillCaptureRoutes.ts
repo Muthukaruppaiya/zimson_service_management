@@ -29,7 +29,7 @@ function tokenHash(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-function actorCanAccessSession(
+export function actorCanAccessSession(
   actor: DemoUser,
   sessionRegionId: string,
   sessionStoreId: string,

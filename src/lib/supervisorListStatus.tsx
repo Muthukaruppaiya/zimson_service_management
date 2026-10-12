@@ -29,19 +29,19 @@ const SHORT_STATUS: Record<string, string> = {
   store_self_pending: "In-store — waiting for assign",
   store_self_assigned: "In-store — work in progress",
   store_self_working: "In-store — repair in progress",
-  pending_ho_transit: "Pending dispatch to HO",
-  in_transit_sc: "In transit to HO",
-  awaiting_sc_inward: "Waiting for HO inward",
+  pending_ho_transit: "Pending dispatch to CSC",
+  in_transit_sc: "In transit to CSC",
+  awaiting_sc_inward: "Waiting for CSC inward",
   received_at_sc: "Waiting for assigning",
-  sent_to_other_ho: "Sent to other HO",
+  sent_to_other_ho: "Sent to other CSC",
   assigned: "Work in progress",
   estimate_ok: "Estimate approved",
   reestimate_required: "Re-estimate required",
   customer_rejected: "Customer rejected estimate",
-  inter_ho_reestimate_pending_sender: "Inter-HO re-estimate — awaiting sender",
-  inter_ho_reestimate_customer_accepted: "Inter-HO re-estimate accepted",
-  inter_ho_brand_estimate_pending_sender: "Inter-HO brand estimate — awaiting sender",
-  inter_ho_brand_estimate_customer_accepted: "Inter-HO brand estimate accepted",
+  inter_ho_reestimate_pending_sender: "Inter-CSC re-estimate — awaiting sender",
+  inter_ho_reestimate_customer_accepted: "Inter-CSC re-estimate accepted",
+  inter_ho_brand_estimate_pending_sender: "Inter-CSC brand estimate — awaiting sender",
+  inter_ho_brand_estimate_customer_accepted: "Inter-CSC brand estimate accepted",
   brand_outward_pending: "Brand outward pending",
   brand_dispatch_pending: "Brand dispatch pending",
   sent_to_brand: "Sent to brand",
@@ -52,7 +52,7 @@ const SHORT_STATUS: Record<string, string> = {
   brand_repair_in_progress: "Brand repair in progress",
   received_from_brand: "Received from brand",
   brand_credit_note_pending: "Brand credit note pending",
-  brand_credit_note_pending_ho: "Brand credit note — HO pending",
+  brand_credit_note_pending_ho: "Brand credit note — CSC pending",
   brand_credit_note_pending_accounts: "Brand credit note — accounts pending",
   brand_credit_note_active: "Brand credit note active",
   ready_for_outward: "Ready for outward",
@@ -80,8 +80,8 @@ function fallbackShort(status: string): string {
 export function supervisorStatusMeta(job: SrfJob): SupervisorStatusMeta {
   if (job.interHoBrandEstimatePhase === "pending_sender" || job.status === "inter_ho_brand_estimate_pending_sender") {
     return {
-      shortLabel: "Brand estimate — awaiting sender HO",
-      title: "Inter-HO brand estimate — awaiting sender HO to forward to customer",
+      shortLabel: "Brand estimate — awaiting sender CSC",
+      title: "Inter-CSC brand estimate — awaiting sender CSC to forward to customer",
       tone: "indigo",
       icon: "transfer",
     };
@@ -97,15 +97,15 @@ export function supervisorStatusMeta(job: SrfJob): SupervisorStatusMeta {
   if (job.interHoBrandEstimatePhase === "customer_accepted" || job.status === "inter_ho_brand_estimate_customer_accepted") {
     return {
       shortLabel: "Brand estimate accepted",
-      title: "Customer approved brand estimate — repair HO notified",
+      title: "Customer approved brand estimate — repair CSC notified",
       tone: "emerald",
       icon: "check",
     };
   }
   if (job.interHoReestimatePhase === "pending_sender" || job.status === "inter_ho_reestimate_pending_sender") {
     return {
-      shortLabel: "Re-estimate — awaiting sender HO",
-      title: "Inter-HO re-estimate — awaiting sender HO",
+      shortLabel: "Re-estimate — awaiting sender CSC",
+      title: "Inter-CSC re-estimate — awaiting sender CSC",
       tone: "indigo",
       icon: "transfer",
     };
@@ -141,14 +141,14 @@ export function supervisorStatusMeta(job: SrfJob): SupervisorStatusMeta {
         shortLabel: toStore ? "Ready for outward — dispatch to store" : "Ready for outward — return to sender",
         title: toStore
           ? "Outward queue — dispatch to store"
-          : "Outward queue — return DC to sender HO",
+          : "Outward queue — return DC to sender CSC",
         tone: "sky",
         icon: "outward",
       };
     }
     return {
-      shortLabel: "Estimate not accepted — awaiting repair HO",
-      title: "Estimate not accepted — awaiting repair HO",
+      shortLabel: "Estimate not accepted — awaiting repair CSC",
+      title: "Estimate not accepted — awaiting repair CSC",
       tone: "rose",
       icon: "reject",
     };

@@ -399,7 +399,7 @@ export async function fetchRevenueReportSheets(pool: Pool, actor: DemoUser, filt
     const store = storeLabel(shop, String(row.store_name ?? ""), String(row.region_name ?? ""));
     const invcNo = String(row.invoice_number ?? "").trim();
     const paymentMode = snapshotPaymentMode(snapshot) || snapshotPaymentMode(jobSnapshot);
-    const srType = sourceType === "inter_ho_repair" ? "Inter-HO Repair" : "SR Bill";
+    const srType = sourceType === "inter_ho_repair" ? "Inter-CSC Repair" : "SR Bill";
 
     for (const line of billLines) {
       srfSn += 1;

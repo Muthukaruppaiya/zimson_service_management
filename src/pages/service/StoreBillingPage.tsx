@@ -1146,7 +1146,7 @@ export function StoreBillingPage() {
                         onChange={() => trySetBillingCustomerKind("B2C")}
                         className="text-zimson-600 focus:ring-zimson-500"
                       />
-                      B2C
+                      Individual
                     </label>
                     <label className="flex cursor-pointer items-center gap-2 text-sm">
                       <input
@@ -1156,7 +1156,7 @@ export function StoreBillingPage() {
                         onChange={() => trySetBillingCustomerKind("B2B")}
                         className="text-zimson-600 focus:ring-zimson-500"
                       />
-                      B2B
+                      Business
                     </label>
                   </div>
                 </div>
@@ -1278,7 +1278,7 @@ export function StoreBillingPage() {
                     <div className="grid gap-2 rounded-xl border border-indigo-200/80 bg-indigo-50/50 p-3 text-sm sm:grid-cols-2">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-900/80">
-                          Repair HO invoice ref
+                          Repair CSC invoice ref
                         </p>
                         <p className="mt-0.5 font-mono font-semibold text-zimson-900">
                           {(billingJob.hoSparesBillRef ?? hoSparesBillRef).trim() || "—"}
@@ -1303,7 +1303,7 @@ export function StoreBillingPage() {
             <div className="rounded-xl bg-zimson-50 p-3 text-sm text-stone-700">
               <p className="font-semibold text-zimson-900">
                 {isInterHoReturnFlow
-                  ? "Repair HO spares (on tax invoice)"
+                  ? "Repair CSC spares (on tax invoice)"
                   : "Supervisor used spares"}
               </p>
               {billingJob.usedSpares && billingJob.usedSpares.length > 0 ? (
@@ -1434,7 +1434,7 @@ export function StoreBillingPage() {
                       {isBrandRepairFlow
                         ? "Brand invoice amount"
                         : isInterHoReturnFlow
-                          ? "Repair HO spares (taxable)"
+                          ? "Repair CSC spares (taxable)"
                           : "Spares amount (actual)"}
                     </th>
                     <td className="px-3 py-2 font-semibold text-zimson-900">
@@ -1575,12 +1575,12 @@ export function StoreBillingPage() {
             ) : null}
             <div className="grid gap-3 md:grid-cols-2">
               <label className="text-sm">
-                HO bill reference
+                CSC bill reference
                 <input
                   className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
                   value={hoSparesBillRef}
                   onChange={(e) => setHoSparesBillRef(e.target.value)}
-                  placeholder="HO bill ref"
+                  placeholder="CSC bill ref"
                 />
               </label>
               <label className="text-sm">
@@ -1627,7 +1627,7 @@ export function StoreBillingPage() {
                         ? "Brand returned the watch without repair."
                         : billingJob.customerReestimateResponse === "rejected"
                           ? "Customer declined the re-estimate."
-                          : "HO returned the watch unrepaired."}
+                          : "CSC returned the watch unrepaired."}
                     {billingJob.cannotRepairNote ? ` — ${billingJob.cannotRepairNote}` : ""}
                   </p>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">

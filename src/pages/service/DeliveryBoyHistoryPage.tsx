@@ -34,7 +34,7 @@ type HistoryLine = CarriedWatch & {
   transferId: string;
   dcNumber: string;
   deliveryTripNumber: string | null;
-  direction: "Store → HO" | "HO → Store";
+  direction: "Store → CSC" | "CSC → Store";
   transferStatus: string;
   handedAt: string | null;
   receivedAt: string | null;
@@ -110,7 +110,7 @@ export function DeliveryBoyHistoryPage() {
           transferId: transfer.id,
           dcNumber: transfer.dcNumber,
           deliveryTripNumber: transfer.deliveryTripNumber,
-          direction: transfer.toLocation === "STORE" ? "HO → Store" : "Store → HO",
+          direction: transfer.toLocation === "STORE" ? "CSC → Store" : "Store → CSC",
           transferStatus: transfer.status,
           handedAt: transfer.handedToDeliveryAt,
           receivedAt: transfer.deliveryReceivedAt,
@@ -203,8 +203,8 @@ export function DeliveryBoyHistoryPage() {
             className="rounded-xl border border-zimson-300 bg-white px-3 py-2 text-sm"
           >
             <option value="all">Both directions</option>
-            <option value="Store → HO">Store → HO</option>
-            <option value="HO → Store">HO → Store</option>
+            <option value="Store → CSC">Store → CSC</option>
+            <option value="CSC → Store">CSC → Store</option>
           </select>
         </div>
 

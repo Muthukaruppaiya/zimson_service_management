@@ -15,7 +15,7 @@ export function registerAnalyticsRoutes(
   app.get("/api/analytics/dashboard", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canAccessAnalytics(actor)) {
-      res.status(403).json({ error: "Analytics dashboard is restricted to admin, super admin, and HO manager." });
+      res.status(403).json({ error: "Analytics dashboard is restricted to admin, super admin, and CSC manager." });
       return;
     }
     try {

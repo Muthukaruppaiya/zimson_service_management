@@ -93,7 +93,7 @@ export function registerInventoryDirectPurchaseRoutes(
       return;
     }
     if (!canManageHoPurchase(actor)) {
-      res.status(403).json({ error: "Only HO Purchase / HO Manager can create POs." });
+      res.status(403).json({ error: "Only CSC Purchase / CSC Manager can create POs." });
       return;
     }
     const supplierId = String(req.body?.supplierId ?? "").trim();
@@ -209,7 +209,7 @@ export function registerInventoryDirectPurchaseRoutes(
       return;
     }
     if (!canManageHoPurchase(actor)) {
-      res.status(403).json({ error: "Only HO Purchase / HO Manager can create vouchers." });
+      res.status(403).json({ error: "Only CSC Purchase / CSC Manager can create vouchers." });
       return;
     }
     const supplierId = String(req.body?.supplierId ?? "").trim();
@@ -331,7 +331,7 @@ export function registerInventoryDirectPurchaseRoutes(
       return;
     }
     if (!canManageHoPurchase(actor)) {
-      res.status(403).json({ error: "Only HO users can view purchase vouchers." });
+      res.status(403).json({ error: "Only CSC users can view purchase vouchers." });
       return;
     }
     try {
@@ -411,7 +411,7 @@ export function registerInventoryDirectPurchaseRoutes(
         return;
       }
       if (!canManageHoPurchase(actor)) {
-        res.status(403).json({ error: "Only HO Purchase / HO Manager can post GRN." });
+        res.status(403).json({ error: "Only CSC Purchase / CSC Manager can post GRN." });
         return;
       }
       const voucherId = String(req.body?.voucherId ?? "").trim();
@@ -655,7 +655,7 @@ export function registerInventoryDirectPurchaseRoutes(
       return;
     }
     if (!canManageHoPurchase(actor)) {
-      res.status(403).json({ error: "Only HO users can view HO stock for transfer." });
+      res.status(403).json({ error: "Only CSC users can view CSC stock for transfer." });
       return;
     }
     const regionId = resolveRegionId(actor, String(req.query.regionId ?? ""));
@@ -683,7 +683,7 @@ export function registerInventoryDirectPurchaseRoutes(
       res.json({ rows, regionId });
     } catch (e) {
       console.error(e);
-      res.status(500).json({ error: "Could not load HO stock." });
+      res.status(500).json({ error: "Could not load CSC stock." });
     }
   });
 
@@ -705,7 +705,7 @@ export function registerInventoryDirectPurchaseRoutes(
         return;
       }
       if (!canManageHoPurchase(actor)) {
-        res.status(403).json({ error: "Only HO Purchase / HO Manager can post GRN." });
+        res.status(403).json({ error: "Only CSC Purchase / CSC Manager can post GRN." });
         return;
       }
       const supplierId = String(req.body?.supplierId ?? "").trim();
@@ -860,7 +860,7 @@ export function registerInventoryDirectPurchaseRoutes(
       return;
     }
     if (!canManageHoPurchase(actor)) {
-      res.status(403).json({ error: "Only HO users can transfer against GRN." });
+      res.status(403).json({ error: "Only CSC users can transfer against GRN." });
       return;
     }
     const regionId = resolveRegionId(actor, String(req.query.regionId ?? ""));
@@ -926,7 +926,7 @@ export function registerInventoryDirectPurchaseRoutes(
       return;
     }
     if (!canManageHoPurchase(actor)) {
-      res.status(403).json({ error: "Only HO Purchase / HO Manager can transfer from HO." });
+      res.status(403).json({ error: "Only CSC Purchase / CSC Manager can transfer from CSC." });
       return;
     }
     const grnId = String(req.body?.grnId ?? "").trim();
@@ -1018,7 +1018,7 @@ export function registerInventoryDirectPurchaseRoutes(
         const available = ho.rows[0]?.qty ?? 0;
         if (line.qty > available) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Requested quantity exceeds HO available stock for one or more lines." });
+          res.status(400).json({ error: "Requested quantity exceeds CSC available stock for one or more lines." });
           return;
         }
         await client.query(
@@ -1106,7 +1106,7 @@ export function registerInventoryDirectPurchaseRoutes(
       return;
     }
     if (!canManageHoPurchase(actor)) {
-      res.status(403).json({ error: "Only HO Purchase / HO Manager can transfer from HO." });
+      res.status(403).json({ error: "Only CSC Purchase / CSC Manager can transfer from CSC." });
       return;
     }
     const regionId = resolveRegionId(actor, String(req.body?.regionId ?? ""));
@@ -1219,7 +1219,7 @@ export function registerInventoryDirectPurchaseRoutes(
         const available = ho.rows[0]?.qty ?? 0;
         if (line.qty > available) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Requested quantity exceeds HO available stock for one or more lines." });
+          res.status(400).json({ error: "Requested quantity exceeds CSC available stock for one or more lines." });
           return;
         }
         await client.query(
@@ -1259,7 +1259,7 @@ export function registerInventoryDirectPurchaseRoutes(
             notes ||
             (againstGrn
               ? `Transferred against GRN ${grnNumber} to ${store.rows[0]!.name}.`
-              : `Transferred from HO to store ${store.rows[0]!.name}.`),
+              : `Transferred from CSC to store ${store.rows[0]!.name}.`),
           createdBy: actor.id,
         });
         await appendStockHistory(client, {
@@ -1277,7 +1277,7 @@ export function registerInventoryDirectPurchaseRoutes(
             notes ||
             (againstGrn
               ? `Received against GRN ${grnNumber} at ${store.rows[0]!.name}.`
-              : `Received from HO at store ${store.rows[0]!.name}.`),
+              : `Received from CSC at store ${store.rows[0]!.name}.`),
           createdBy: actor.id,
         });
         moved += line.qty;
@@ -1317,7 +1317,7 @@ export function registerInventoryDirectPurchaseRoutes(
       return;
     }
     if (!canManageHoPurchase(actor)) {
-      res.status(403).json({ error: "Only HO Purchase / HO Manager can view transfer history." });
+      res.status(403).json({ error: "Only CSC Purchase / CSC Manager can view transfer history." });
       return;
     }
     const regionId =

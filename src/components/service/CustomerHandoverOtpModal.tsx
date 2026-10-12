@@ -169,8 +169,8 @@ export function CustomerHandoverOtpModal({
               </h2>
               <p className="mt-1 text-xs text-stone-600">
                 {isPrimary
-                  ? "The same OTP is sent automatically to the customer’s primary mobile and email on the bill."
-                  : "Enter mobile and/or email — the same OTP is sent to every address you provide."}
+                  ? ""
+                  : ""}
               </p>
             </div>
             <button

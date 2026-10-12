@@ -301,7 +301,7 @@ export function registerBrandBulkImportRoutes(
   app.get("/api/brands/bulk-import/template", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canImport(actor)) {
-      res.status(403).json({ error: "Only HO admins can download the brand import template." });
+      res.status(403).json({ error: "Only CSC admins can download the brand import template." });
       return;
     }
     try {
@@ -321,7 +321,7 @@ export function registerBrandBulkImportRoutes(
   app.post("/api/brands/bulk-import/validate", requireAuth, upload.single("file"), async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canImport(actor)) {
-      res.status(403).json({ error: "Only HO admins can validate brand imports." });
+      res.status(403).json({ error: "Only CSC admins can validate brand imports." });
       return;
     }
     if (!req.file?.buffer) {
@@ -354,7 +354,7 @@ export function registerBrandBulkImportRoutes(
   app.post("/api/brands/bulk-import/commit", requireAuth, upload.single("file"), async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canImport(actor) || !actor) {
-      res.status(403).json({ error: "Only HO admins can import brands." });
+      res.status(403).json({ error: "Only CSC admins can import brands." });
       return;
     }
     if (!req.file?.buffer) {

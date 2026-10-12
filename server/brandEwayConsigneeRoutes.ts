@@ -122,7 +122,7 @@ export function registerBrandEwayConsigneeRoutes(
   app.post("/api/edoc/brand-eway-consignees", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !isHoAdminRole(actor.role)) {
-      res.status(403).json({ error: "Only HO admins can manage brand e-way consignees." });
+      res.status(403).json({ error: "Only CSC admins can manage brand e-way consignees." });
       return;
     }
     const brandId = String(req.body?.brandId ?? "").trim();
@@ -221,7 +221,7 @@ export function registerBrandEwayConsigneeRoutes(
   app.patch("/api/edoc/brand-eway-consignees/:id", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !isHoAdminRole(actor.role)) {
-      res.status(403).json({ error: "Only HO admins can manage brand e-way consignees." });
+      res.status(403).json({ error: "Only CSC admins can manage brand e-way consignees." });
       return;
     }
     const id = String(req.params.id ?? "").trim();

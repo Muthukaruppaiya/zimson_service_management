@@ -148,8 +148,8 @@ const CANNOT_REPAIR_AT_VALUES = new Set(["store", "ho", "other_ho", "brand"]);
 
 function cannotRepairAtLabel(value: string): string {
   if (value === "store") return "Cannot repair at store";
-  if (value === "ho") return "Cannot repair at this HO";
-  if (value === "other_ho") return "Cannot repair at other HO";
+  if (value === "ho") return "Cannot repair at this CSC";
+  if (value === "other_ho") return "Cannot repair at other CSC";
   if (value === "brand") return "Cannot repair at brand";
   return "Cannot repair";
 }
@@ -535,13 +535,13 @@ function firstNonEmptyText(...values: Array<string | null | undefined>): string 
 function transferFlowTypeLabel(flow: string): string {
   switch (flow) {
     case "store_to_ho":
-      return "Store → HO";
+      return "Store → CSC";
     case "ho_to_store":
-      return "HO → Store";
+      return "CSC → Store";
     case "ho_to_ho_dispatch":
-      return "HO → HO (send)";
+      return "CSC → CSC (send)";
     case "ho_to_ho_return":
-      return "HO → HO (return)";
+      return "CSC → CSC (return)";
     default:
       return "Transfer";
   }
@@ -2106,7 +2106,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/supervisor/request-spares-other-ho", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canManageInterHoSpareOrders(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can request spares from other HO." });
+      res.status(403).json({ error: "Only supervisor/admin can request spares from other CSC." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -2125,7 +2125,7 @@ export function registerSrfRoutes(
       return;
     }
     if (targetRegionId === (actor.regionId ?? "")) {
-      res.status(400).json({ error: "Choose another HO region for spare request." });
+      res.status(400).json({ error: "Choose another CSC region for spare request." });
       return;
     }
     if (lines.length === 0) {
@@ -2148,7 +2148,7 @@ export function registerSrfRoutes(
       if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== srf.region_id) {
           await client.query("ROLLBACK");
-          res.status(403).json({ error: "You can request spares only for your own HO SRFs." });
+          res.status(403).json({ error: "You can request spares only for your own CSC SRFs." });
           return;
         }
       }
@@ -2266,7 +2266,7 @@ export function registerSrfRoutes(
       if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== order.to_region_id) {
           await client.query("ROLLBACK");
-          res.status(403).json({ error: "Only destination HO can fulfill this order." });
+          res.status(403).json({ error: "Only destination CSC can fulfill this order." });
           return;
         }
       }
@@ -2349,7 +2349,7 @@ export function registerSrfRoutes(
           .map((s) => `${s.spareName} (available ${s.available}, required ${s.required})`)
           .join(", ");
         res.status(400).json({
-          error: `Cannot fulfill. Supplier HO stock is insufficient for: ${msg}.`,
+          error: `Cannot fulfill. Supplier CSC stock is insufficient for: ${msg}.`,
           shortages,
         });
         return;
@@ -2402,7 +2402,7 @@ export function registerSrfRoutes(
       );
       await appendActionLog(client, order.srf_id, {
         action: "inter_ho_spare_order_fulfilled",
-        description: `Online spare order ${order.order_number} invoice created by supplier HO ${order.to_region_id}.`,
+        description: `Online spare order ${order.order_number} invoice created by supplier CSC ${order.to_region_id}.`,
         actor,
         referenceDoc: order.order_number,
         details: {
@@ -2480,7 +2480,7 @@ export function registerSrfRoutes(
       if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== order.to_region_id) {
           await client.query("ROLLBACK");
-          res.status(403).json({ error: "Only supplier HO can mark outward dispatch." });
+          res.status(403).json({ error: "Only supplier CSC can mark outward dispatch." });
           return;
         }
       }
@@ -2495,7 +2495,7 @@ export function registerSrfRoutes(
       );
       await appendActionLog(client, order.srf_id, {
         action: "inter_ho_spare_order_dispatched",
-        description: `Online spare order ${order.order_number} outward dispatched by supplier HO.`,
+        description: `Online spare order ${order.order_number} outward dispatched by supplier CSC.`,
         actor,
         referenceDoc: order.order_number,
         details: { note },
@@ -2569,7 +2569,7 @@ export function registerSrfRoutes(
       if (actor.role !== "super_admin" && actor.role !== "admin") {
         if (!actor.regionId || actor.regionId !== order.from_region_id) {
           await client.query("ROLLBACK");
-          res.status(403).json({ error: "Only requested HO can mark inward receive." });
+          res.status(403).json({ error: "Only requested CSC can mark inward receive." });
           return;
         }
       }
@@ -2624,7 +2624,7 @@ export function registerSrfRoutes(
       );
       await appendActionLog(client, order.srf_id, {
         action: "inter_ho_spare_order_inward_received",
-        description: `Online spare order ${order.order_number} inward received at requesting HO.`,
+        description: `Online spare order ${order.order_number} inward received at requesting CSC.`,
         actor,
         referenceDoc: order.order_number,
         details: { note },
@@ -2655,7 +2655,7 @@ export function registerSrfRoutes(
       return;
     }
     if (!roleCanCreateDraft(actor)) {
-      res.status(403).json({ error: "Only store/HO admins can create SRF draft." });
+      res.status(403).json({ error: "Only store/CSC admins can create SRF draft." });
       return;
     }
     const regionId = String(req.body?.regionId ?? actor.regionId ?? "").trim();
@@ -4120,7 +4120,7 @@ export function registerSrfRoutes(
             line.srf_id,
             "in_transit_sc",
             actor.id,
-            `Not accepted at HO inward (${dcNumber}) — still on transfer.`,
+            `Not accepted at CSC inward (${dcNumber}) — still on transfer.`,
           );
           continue;
         }
@@ -4216,7 +4216,7 @@ export function registerSrfRoutes(
                  transfer_source_store_id = NULL,
                  updated_at = now(),
                  modified_by = $2
-             WHERE id = $1::uuid AND status = 'in_transit_sc'`,
+             WHERE id = $1::uuid AND status IN ('in_transit_sc', 'awaiting_sc_inward')`,
             [
               line.srf_id,
               actor.id,
@@ -4230,13 +4230,13 @@ export function registerSrfRoutes(
           if ((updReturn.rowCount ?? 0) > 0) {
             const inwardNote = needsSupervisorVerify
               ? `Inwarded return DC ${dcNumber}. Supervisor must verify, log logistics invoice, then move to outward.`
-              : `Inwarded return DC ${dcNumber}. Sender HO can now dispatch to store.`;
+              : `Inwarded return DC ${dcNumber}. Sender CSC can now dispatch to store.`;
             await appendStatusHistory(client, line.srf_id, nextStatus, actor.id, inwardNote);
             await appendActionLog(client, line.srf_id, {
               action: "sender_ho_inward_return_dc",
               description: needsSupervisorVerify
-                ? `Sender HO inwarded return DC ${dcNumber} after customer declined estimate. Awaiting supervisor verify and move to outward.`
-                : `Sender HO inwarded the return DC ${dcNumber} after repair at other HO. Ready to dispatch to store.`,
+                ? `Sender CSC inwarded return DC ${dcNumber} after customer declined estimate. Awaiting supervisor verify and move to outward.`
+                : `Sender CSC inwarded the return DC ${dcNumber} after repair at other CSC. Ready to dispatch to store.`,
               actor,
               referenceDoc: dcNumber,
               details: needsSupervisorVerify
@@ -4929,7 +4929,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/store-self/send-to-ho", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !roleCanCreateDraft(actor)) {
-      res.status(403).json({ error: "Only store roles can send a repair-by-self SRF to HO." });
+      res.status(403).json({ error: "Only store roles can send a repair-by-self SRF to CSC." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -4974,14 +4974,14 @@ export function registerSrfRoutes(
       );
       if ((upd.rowCount ?? 0) === 0) {
         res.status(400).json({
-          error: "Only pending or in-progress repair-by-self SRFs can be sent to HO.",
+          error: "Only pending or in-progress repair-by-self SRFs can be sent to CSC.",
         });
         return;
       }
       const client = await pool.connect();
       const histNote =
         note ||
-        "Store cannot complete repair locally — SRF moved to send-to-HO queue for store dispatch.";
+        "Store cannot complete repair locally — SRF moved to send-to-CSC queue for store dispatch.";
       try {
         await client.query("BEGIN");
         await appendStatusHistory(client, srfId, "at_store", actor.id, histNote);
@@ -5000,7 +5000,7 @@ export function registerSrfRoutes(
       res.json({ ok: true });
     } catch (e) {
       console.error(e);
-      res.status(400).json({ error: "Could not send SRF to HO." });
+      res.status(400).json({ error: "Could not send SRF to CSC." });
     }
   });
 
@@ -5184,7 +5184,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/inter-ho/reestimate-request", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can request inter-HO re-estimate." });
+      res.status(403).json({ error: "Only supervisor/admin can request inter-CSC re-estimate." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -5215,12 +5215,12 @@ export function registerSrfRoutes(
       const recv = recvRes.rows[0];
       if (!recv || !isInterHoReceiverLocalRow(recv)) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Inter-HO re-estimate is only for receiver HO local repair SRFs." });
+        res.status(400).json({ error: "Inter-CSC re-estimate is only for receiver CSC local repair SRFs." });
         return;
       }
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== recv.region_id) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only the repair HO can request inter-HO re-estimate." });
+        res.status(403).json({ error: "Only the repair CSC can request inter-CSC re-estimate." });
         return;
       }
       if (!["assigned", "estimate_ok", "customer_rejected"].includes(recv.status)) {
@@ -5231,7 +5231,7 @@ export function registerSrfRoutes(
       const arch = await findInterHoArchivedSenderRow(client, srfId);
       if (!arch) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Could not find sender HO archived row for this inter-HO SRF." });
+        res.status(400).json({ error: "Could not find sender CSC archived row for this inter-CSC SRF." });
         return;
       }
       await client.query(
@@ -5267,18 +5267,18 @@ export function registerSrfRoutes(
         srfId,
         "inter_ho_reestimate_pending_sender",
         actor.id,
-        `Repair HO proposed re-estimate INR ${amount.toFixed(2)} to sender HO: ${note}`,
+        `Repair CSC proposed re-estimate INR ${amount.toFixed(2)} to sender HO: ${note}`,
       );
       await appendActionLog(client, srfId, {
         action: "inter_ho_reestimate_request_receiver",
-        description: `Repair HO sent re-estimate INR ${amount.toFixed(2)} to sender HO for customer approval.`,
+        description: `Repair CSC sent re-estimate INR ${amount.toFixed(2)} to sender CSC for customer approval.`,
         amountInr: amount,
         actor,
         details: { remark: note, senderArchivedSrfId: arch.id },
       });
       await appendActionLog(client, arch.id, {
         action: "inter_ho_reestimate_pending_sender",
-        description: `Awaiting sender HO to forward re-estimate INR ${amount.toFixed(2)} to customer.`,
+        description: `Awaiting sender CSC to forward re-estimate INR ${amount.toFixed(2)} to customer.`,
         amountInr: amount,
         actor,
         details: { receiverSrfId: srfId, remark: note },
@@ -5288,7 +5288,7 @@ export function registerSrfRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not request inter-HO re-estimate." });
+      res.status(400).json({ error: "Could not request inter-CSC re-estimate." });
     } finally {
       client.release();
     }
@@ -5297,7 +5297,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/inter-ho/reestimate-forward-customer", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can forward inter-HO re-estimate to customer." });
+      res.status(403).json({ error: "Only supervisor/admin can forward inter-CSC re-estimate to customer." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -5326,7 +5326,7 @@ export function registerSrfRoutes(
         const recvLink = await findInterHoArchivedSenderRow(client, srfId);
         if (!recvLink) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Inter-HO sender archived SRF not found." });
+          res.status(400).json({ error: "Inter-CSC sender archived SRF not found." });
           return;
         }
         arch = await client.query<{
@@ -5348,26 +5348,26 @@ export function registerSrfRoutes(
         const recv = await findInterHoReceiverRow(client, srfId);
         if (!recv) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Linked receiver HO SRF not found." });
+          res.status(400).json({ error: "Linked receiver CSC SRF not found." });
           return;
         }
         receiverId = recv.id;
       }
       if (!archRow || archRow.status !== "sent_to_other_ho") {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        res.status(400).json({ error: "Invalid inter-CSC sender row." });
         return;
       }
       const senderRegion = archRow.transfer_source_region_id ?? "";
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only sender HO can forward re-estimate to the customer." });
+        res.status(403).json({ error: "Only sender CSC can forward re-estimate to the customer." });
         return;
       }
       const phase = archRow.inter_ho_reestimate_phase ?? "";
       if (!["pending_sender", "customer_rejected"].includes(phase)) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "No pending inter-HO re-estimate to forward to customer." });
+        res.status(400).json({ error: "No pending inter-CSC re-estimate to forward to customer." });
         return;
       }
       const recvMeta = await client.query<{
@@ -5426,7 +5426,7 @@ export function registerSrfRoutes(
         receiverId,
         "reestimate_required",
         actor.id,
-        `Sender HO forwarded inter-HO re-estimate INR ${amount.toFixed(2)} to customer: ${remark}`,
+        `Sender CSC forwarded inter-CSC re-estimate INR ${amount.toFixed(2)} to customer: ${remark}`,
       );
       const attempt = await startReestimateAttempt(client, receiverId, {
         amountInr: amount,
@@ -5435,7 +5435,7 @@ export function registerSrfRoutes(
       });
       await appendActionLog(client, receiverId, {
         action: "inter_ho_reestimate_forward_customer",
-        description: `Sender HO forwarded re-estimate attempt #${attempt.attemptNo} (INR ${amount.toFixed(2)}) to customer via tracking link.`,
+        description: `Sender CSC forwarded re-estimate attempt #${attempt.attemptNo} (INR ${amount.toFixed(2)}) to customer via tracking link.`,
         amountInr: amount,
         actor,
         details: { attemptNo: attempt.attemptNo, remark },
@@ -5462,7 +5462,7 @@ export function registerSrfRoutes(
           approvalReason: formatApprovalReason(amount, remark),
         });
       } catch (e) {
-        console.error("[APPROVAL LINK] inter-HO forward notify failed", e);
+        console.error("[APPROVAL LINK] inter-CSC forward notify failed", e);
       }
       res.json({
         ok: true,
@@ -5472,7 +5472,7 @@ export function registerSrfRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not forward inter-HO re-estimate to customer." });
+      res.status(400).json({ error: "Could not forward inter-CSC re-estimate to customer." });
     } finally {
       client.release();
     }
@@ -5481,7 +5481,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/inter-ho/reestimate-approve-receiver", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can approve inter-HO re-estimate for repair HO." });
+      res.status(403).json({ error: "Only supervisor/admin can approve inter-CSC re-estimate for repair CSC." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -5509,13 +5509,13 @@ export function registerSrfRoutes(
         const recv = recvRes.rows[0];
         if (!recv || recv.status !== "inter_ho_reestimate_customer_accepted") {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Customer must accept re-estimate before sender HO can release repair." });
+          res.status(400).json({ error: "Customer must accept re-estimate before sender CSC can release repair." });
           return;
         }
         const archLink = await findInterHoArchivedSenderRow(client, srfId);
         if (!archLink) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Sender HO archived row not found." });
+          res.status(400).json({ error: "Sender CSC archived row not found." });
           return;
         }
         receiverId = srfId;
@@ -5534,20 +5534,20 @@ export function registerSrfRoutes(
         const recv = await findInterHoReceiverRow(client, srfId);
         if (!recv || recv.status !== "inter_ho_reestimate_customer_accepted") {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Customer must accept re-estimate before sender HO can release repair." });
+          res.status(400).json({ error: "Customer must accept re-estimate before sender CSC can release repair." });
           return;
         }
         receiverId = recv.id;
       }
       if (!archRow) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        res.status(400).json({ error: "Invalid inter-CSC sender row." });
         return;
       }
       const senderRegion = archRow.transfer_source_region_id ?? "";
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only sender HO can approve re-estimate for repair HO." });
+        res.status(403).json({ error: "Only sender CSC can approve re-estimate for repair CSC." });
         return;
       }
       const recvAmt = await client.query<{ reestimate_requested_inr: number }>(
@@ -5565,7 +5565,7 @@ export function registerSrfRoutes(
              updated_at = now(),
              modified_by = $4
          WHERE id = $1::uuid`,
-        [receiverId, amount > 0 ? amount : null, note || "Sender HO approved customer re-estimate for repair HO.", actor.id],
+        [receiverId, amount > 0 ? amount : null, note || "Sender CSC approved customer re-estimate for repair CSC.", actor.id],
       );
       await client.query(
         `UPDATE srf_jobs
@@ -5575,18 +5575,18 @@ export function registerSrfRoutes(
              updated_at = now(),
              modified_by = $3
          WHERE id = $1::uuid`,
-        [archRow.id, note || "Sender HO released repair HO to continue.", actor.id],
+        [archRow.id, note || "Sender CSC released repair CSC to continue.", actor.id],
       );
       await appendStatusHistory(
         client,
         receiverId,
         "assigned",
         actor.id,
-        note || `Sender HO approved customer re-estimate (INR ${amount.toFixed(2)}). Repair can continue.`,
+        note || `Sender CSC approved customer re-estimate (INR ${amount.toFixed(2)}). Repair can continue.`,
       );
       await appendActionLog(client, receiverId, {
         action: "inter_ho_reestimate_approve_receiver",
-        description: `Sender HO approved customer re-estimate — repair HO may continue at INR ${amount.toFixed(2)}.`,
+        description: `Sender CSC approved customer re-estimate — repair CSC may continue at INR ${amount.toFixed(2)}.`,
         amountInr: amount,
         actor,
         details: { note: note || null },
@@ -5596,7 +5596,7 @@ export function registerSrfRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not approve inter-HO re-estimate for repair HO." });
+      res.status(400).json({ error: "Could not approve inter-CSC re-estimate for repair CSC." });
     } finally {
       client.release();
     }
@@ -5605,13 +5605,13 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/inter-ho/brand-estimate-forward-sender", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canManageBrandDesk(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can forward brand estimate to sender HO." });
+      res.status(403).json({ error: "Only supervisor/admin can forward brand estimate to sender CSC." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
     const note = String(req.body?.note ?? "").trim();
     if (!note) {
-      res.status(400).json({ error: "Remark for sender HO is required." });
+      res.status(400).json({ error: "Remark for sender CSC is required." });
       return;
     }
     const client = await pool.connect();
@@ -5633,12 +5633,12 @@ export function registerSrfRoutes(
       const recv = recvRes.rows[0];
       if (!recv || !isInterHoReceiverLocalRow(recv)) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Inter-HO brand estimate forwarding is only for receiver HO brand SRFs." });
+        res.status(400).json({ error: "Inter-CSC brand estimate forwarding is only for receiver CSC brand SRFs." });
         return;
       }
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== recv.region_id) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only the repair HO can forward brand estimate to sender HO." });
+        res.status(403).json({ error: "Only the repair CSC can forward brand estimate to sender CSC." });
         return;
       }
       if (recv.status !== "brand_estimate_pending") {
@@ -5649,13 +5649,13 @@ export function registerSrfRoutes(
       const brandEstimate = Number(recv.brand_estimate_inr ?? 0);
       if (!Number.isFinite(brandEstimate) || brandEstimate <= 0) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Brand estimate must be logged before forwarding to sender HO." });
+        res.status(400).json({ error: "Brand estimate must be logged before forwarding to sender CSC." });
         return;
       }
       const arch = await findInterHoArchivedSenderRow(client, srfId);
       if (!arch) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Could not find sender HO archived row for this inter-HO SRF." });
+        res.status(400).json({ error: "Could not find sender CSC archived row for this inter-CSC SRF." });
         return;
       }
       await client.query(
@@ -5691,18 +5691,18 @@ export function registerSrfRoutes(
         srfId,
         "inter_ho_brand_estimate_pending_sender",
         actor.id,
-        `Repair HO forwarded brand estimate INR ${brandEstimate.toFixed(2)} to sender HO: ${note}`,
+        `Repair CSC forwarded brand estimate INR ${brandEstimate.toFixed(2)} to sender HO: ${note}`,
       );
       await appendActionLog(client, srfId, {
         action: "inter_ho_brand_estimate_forward_sender",
-        description: `Brand estimate INR ${brandEstimate.toFixed(2)} sent to sender HO for customer forwarding.`,
+        description: `Brand estimate INR ${brandEstimate.toFixed(2)} sent to sender CSC for customer forwarding.`,
         amountInr: brandEstimate,
         actor,
         details: { remark: note, senderArchivedSrfId: arch.id },
       });
       await appendActionLog(client, arch.id, {
         action: "inter_ho_brand_estimate_pending_sender",
-        description: `Awaiting sender HO to forward brand estimate INR ${brandEstimate.toFixed(2)} to customer.`,
+        description: `Awaiting sender CSC to forward brand estimate INR ${brandEstimate.toFixed(2)} to customer.`,
         amountInr: brandEstimate,
         actor,
         details: { receiverSrfId: srfId, remark: note },
@@ -5712,7 +5712,7 @@ export function registerSrfRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not forward brand estimate to sender HO." });
+      res.status(400).json({ error: "Could not forward brand estimate to sender CSC." });
     } finally {
       client.release();
     }
@@ -5721,7 +5721,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/inter-ho/brand-estimate-forward-customer", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can forward inter-HO brand estimate to customer." });
+      res.status(403).json({ error: "Only supervisor/admin can forward inter-CSC brand estimate to customer." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -5749,7 +5749,7 @@ export function registerSrfRoutes(
         const recvLink = await findInterHoArchivedSenderRow(client, srfId);
         if (!recvLink) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Inter-HO sender archived SRF not found." });
+          res.status(400).json({ error: "Inter-CSC sender archived SRF not found." });
           return;
         }
         arch = await client.query<{
@@ -5771,26 +5771,26 @@ export function registerSrfRoutes(
         const recv = await findInterHoReceiverRow(client, srfId);
         if (!recv) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Linked receiver HO SRF not found." });
+          res.status(400).json({ error: "Linked receiver CSC SRF not found." });
           return;
         }
         receiverId = recv.id;
       }
       if (!archRow || archRow.status !== "sent_to_other_ho") {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        res.status(400).json({ error: "Invalid inter-CSC sender row." });
         return;
       }
       const senderRegion = archRow.transfer_source_region_id ?? "";
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only sender HO can forward brand estimate to the customer." });
+        res.status(403).json({ error: "Only sender CSC can forward brand estimate to the customer." });
         return;
       }
       const phase = archRow.inter_ho_brand_estimate_phase ?? "";
       if (!["pending_sender", "customer_rejected"].includes(phase)) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "No pending inter-HO brand estimate to forward to customer." });
+        res.status(400).json({ error: "No pending inter-CSC brand estimate to forward to customer." });
         return;
       }
       if (!Number.isFinite(markupInr) || markupInr < 0) {
@@ -5853,7 +5853,7 @@ export function registerSrfRoutes(
         receiverId,
         "brand_estimate_customer_pending",
         actor.id,
-        `Sender HO forwarded brand estimate to customer: INR ${customerQuote.toFixed(2)} (brand ${brandEstimate.toFixed(2)} + markup ${markupInr.toFixed(2)}). ${note}`,
+        `Sender CSC forwarded brand estimate to customer: INR ${customerQuote.toFixed(2)} (brand ${brandEstimate.toFixed(2)} + markup ${markupInr.toFixed(2)}). ${note}`,
       );
       const attempt = await startReestimateAttempt(client, receiverId, {
         amountInr: customerQuote,
@@ -5862,7 +5862,7 @@ export function registerSrfRoutes(
       });
       await appendActionLog(client, receiverId, {
         action: "inter_ho_brand_estimate_forward_customer",
-        description: `Sender HO forwarded brand estimate attempt #${attempt.attemptNo} (INR ${customerQuote.toFixed(2)}) to customer.`,
+        description: `Sender CSC forwarded brand estimate attempt #${attempt.attemptNo} (INR ${customerQuote.toFixed(2)}) to customer.`,
         amountInr: customerQuote,
         actor,
         details: { attemptNo: attempt.attemptNo, remark: note, brandEstimateInr: brandEstimate, markupInr },
@@ -5889,7 +5889,7 @@ export function registerSrfRoutes(
           approvalReason: formatApprovalReason(customerQuote, note),
         });
       } catch (e) {
-        console.error("[APPROVAL LINK] inter-HO brand forward notify failed", e);
+        console.error("[APPROVAL LINK] inter-CSC brand forward notify failed", e);
       }
       res.json({
         ok: true,
@@ -5900,7 +5900,7 @@ export function registerSrfRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not forward inter-HO brand estimate to customer." });
+      res.status(400).json({ error: "Could not forward inter-CSC brand estimate to customer." });
     } finally {
       client.release();
     }
@@ -5909,7 +5909,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/inter-ho/brand-estimate-approve-receiver", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can approve inter-HO brand estimate for repair HO." });
+      res.status(403).json({ error: "Only supervisor/admin can approve inter-CSC brand estimate for repair CSC." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -5937,13 +5937,13 @@ export function registerSrfRoutes(
         const recv = recvRes.rows[0];
         if (!recv || recv.status !== "inter_ho_brand_estimate_customer_accepted") {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Customer must accept brand estimate before sender HO can release repair HO." });
+          res.status(400).json({ error: "Customer must accept brand estimate before sender CSC can release repair CSC." });
           return;
         }
         const archLink = await findInterHoArchivedSenderRow(client, srfId);
         if (!archLink) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Sender HO archived row not found." });
+          res.status(400).json({ error: "Sender CSC archived row not found." });
           return;
         }
         receiverId = srfId;
@@ -5962,20 +5962,20 @@ export function registerSrfRoutes(
         const recv = await findInterHoReceiverRow(client, srfId);
         if (!recv || recv.status !== "inter_ho_brand_estimate_customer_accepted") {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Customer must accept brand estimate before sender HO can release repair HO." });
+          res.status(400).json({ error: "Customer must accept brand estimate before sender CSC can release repair CSC." });
           return;
         }
         receiverId = recv.id;
       }
       if (!archRow) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        res.status(400).json({ error: "Invalid inter-CSC sender row." });
         return;
       }
       const senderRegion = archRow.transfer_source_region_id ?? "";
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only sender HO can approve brand estimate for repair HO." });
+        res.status(403).json({ error: "Only sender CSC can approve brand estimate for repair CSC." });
         return;
       }
       const recvAmt = await client.query<{ brand_customer_quote_inr: number }>(
@@ -5992,7 +5992,7 @@ export function registerSrfRoutes(
              updated_at = now(),
              modified_by = $3
          WHERE id = $1::uuid`,
-        [receiverId, note || "Sender HO approved customer brand estimate — repair HO may approve brand.", actor.id],
+        [receiverId, note || "Sender CSC approved customer brand estimate — repair CSC may approve brand.", actor.id],
       );
       await client.query(
         `UPDATE srf_jobs
@@ -6002,18 +6002,18 @@ export function registerSrfRoutes(
              updated_at = now(),
              modified_by = $3
          WHERE id = $1::uuid`,
-        [archRow.id, note || "Sender HO released repair HO to approve brand.", actor.id],
+        [archRow.id, note || "Sender CSC released repair CSC to approve brand.", actor.id],
       );
       await appendStatusHistory(
         client,
         receiverId,
         "brand_estimate_customer_accepted",
         actor.id,
-        note || `Sender HO approved customer brand estimate (INR ${amount.toFixed(2)}). Repair HO can approve brand.`,
+        note || `Sender CSC approved customer brand estimate (INR ${amount.toFixed(2)}). Repair CSC can approve brand.`,
       );
       await appendActionLog(client, receiverId, {
         action: "inter_ho_brand_estimate_approve_receiver",
-        description: `Sender HO approved customer brand estimate — repair HO may send approval to brand (INR ${amount.toFixed(2)}).`,
+        description: `Sender CSC approved customer brand estimate — repair CSC may send approval to brand (INR ${amount.toFixed(2)}).`,
         amountInr: amount,
         actor,
         details: { note: note || null },
@@ -6023,7 +6023,7 @@ export function registerSrfRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not approve inter-HO brand estimate for repair HO." });
+      res.status(400).json({ error: "Could not approve inter-CSC brand estimate for repair CSC." });
     } finally {
       client.release();
     }
@@ -6154,7 +6154,7 @@ export function registerSrfRoutes(
     const note = String(req.body?.note ?? "").trim();
     if (!CANNOT_REPAIR_AT_VALUES.has(cannotRepairAt)) {
       res.status(400).json({
-        error: "Select where the watch cannot be repaired: store, this HO, other HO, or brand.",
+        error: "Select where the watch cannot be repaired: store, this CSC, other CSC, or brand.",
       });
       return;
     }
@@ -6188,7 +6188,7 @@ export function registerSrfRoutes(
       if (!allowed) {
         await client.query("ROLLBACK");
         res.status(400).json({
-          error: "Cannot-repair is only available while the watch is assigned at HO (or after customer declined repair).",
+          error: "Cannot-repair is only available while the watch is assigned at CSC (or after customer declined repair).",
         });
         return;
       }
@@ -6197,7 +6197,7 @@ export function registerSrfRoutes(
       const historyNote =
         note ||
         (interHoReceiver
-          ? `${reasonLabel} — returning unrepaired to sender HO for store handover.`
+          ? `${reasonLabel} — returning unrepaired to sender CSC for store handover.`
           : `${reasonLabel} — returning unrepaired to store for customer handover.`);
       await client.query(
         `UPDATE srf_jobs
@@ -6282,7 +6282,7 @@ export function registerSrfRoutes(
         const recv = await findInterHoReceiverRow(client, srfId);
         if (!recv) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Linked repair HO SRF not found." });
+          res.status(400).json({ error: "Linked repair CSC SRF not found." });
           return;
         }
         receiverId = recv.id;
@@ -6290,7 +6290,7 @@ export function registerSrfRoutes(
         const archLink = await findInterHoArchivedSenderRow(client, srfId);
         if (!archLink) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Inter-HO sender archived SRF not found." });
+          res.status(400).json({ error: "Inter-CSC sender archived SRF not found." });
           return;
         }
         arch = await client.query<{
@@ -6312,13 +6312,13 @@ export function registerSrfRoutes(
       }
       if (!archRow || archRow.status !== "sent_to_other_ho") {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Invalid inter-HO sender row." });
+        res.status(400).json({ error: "Invalid inter-CSC sender row." });
         return;
       }
       const senderRegion = (archRow.transfer_source_region_id ?? "").trim();
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== senderRegion) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only sender HO can mark estimate not accepted by customer." });
+        res.status(403).json({ error: "Only sender CSC can mark estimate not accepted by customer." });
         return;
       }
       const phase = archRow.inter_ho_reestimate_phase ?? "";
@@ -6342,13 +6342,13 @@ export function registerSrfRoutes(
       const recv = recvLock.rows[0];
       if (!recv) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Repair HO SRF not found." });
+        res.status(400).json({ error: "Repair CSC SRF not found." });
         return;
       }
 
       const declineNote =
         note ||
-        "Customer will not accept the inter-HO estimate. Repair HO supervisor must click Send to outward, then front desk creates return DC + e-way to sender HO.";
+        "Customer will not accept the inter-CSC estimate. Repair CSC supervisor must click Send to outward, then front desk creates return DC + e-way to sender CSC.";
 
       await client.query(
         `UPDATE srf_jobs
@@ -6407,8 +6407,8 @@ export function registerSrfRoutes(
         await pushInApp(
           notifyRows.map((r) => r.id),
           {
-            title: "Customer declined inter-HO estimate",
-            message: `SRF ${recv.reference} (${archRow.reference}): sender HO confirmed customer will not accept. Supervisor: Send to outward, then front desk return DC + e-way to sender HO.`,
+            title: "Customer declined inter-CSC estimate",
+            message: `SRF ${recv.reference} (${archRow.reference}): sender CSC confirmed customer will not accept. Supervisor: Send to outward, then front desk return DC + e-way to sender CSC.`,
             category: "service_srf",
           },
         );
@@ -6459,19 +6459,19 @@ export function registerSrfRoutes(
       }
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== row.region_id) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only the current HO can log logistics invoice for this SRF." });
+        res.status(403).json({ error: "Only the current CSC can log logistics invoice for this SRF." });
         return;
       }
       if (row.status !== "received_at_sc" && row.status !== "ready_for_outward") {
         await client.query("ROLLBACK");
         res.status(400).json({
-          error: "SRF must be inwarded at sender HO (received) before logging logistics invoice.",
+          error: "SRF must be inwarded at sender CSC (received) before logging logistics invoice.",
         });
         return;
       }
       if (row.inter_ho_reestimate_phase !== "customer_declined_final") {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Logistics invoice applies only when customer declined the inter-HO estimate." });
+        res.status(400).json({ error: "Logistics invoice applies only when customer declined the inter-CSC estimate." });
         return;
       }
       await client.query(
@@ -6486,7 +6486,7 @@ export function registerSrfRoutes(
         action: "logistics_invoice_logged",
         description:
           note ||
-          `Logistics invoice ${invoiceRef} logged at sender HO. Supervisor can move SRF to outward.`,
+          `Logistics invoice ${invoiceRef} logged at sender CSC. Supervisor can move SRF to outward.`,
         actor,
         referenceDoc: invoiceRef,
         details: { invoiceRef, note: note || null },
@@ -6546,18 +6546,18 @@ export function registerSrfRoutes(
       }
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== row.region_id) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only the repair HO can send this SRF to outward." });
+        res.status(403).json({ error: "Only the repair CSC can send this SRF to outward." });
         return;
       }
       if (!isInterHoReceiverLocalRow(row)) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Send to outward applies to inter-HO repair HO SRFs only." });
+        res.status(400).json({ error: "Send to outward applies to inter-CSC repair CSC SRFs only." });
         return;
       }
       if (row.inter_ho_reestimate_phase !== "customer_declined_final") {
         await client.query("ROLLBACK");
         res.status(400).json({
-          error: "Sender HO must mark estimate not accepted by customer first.",
+          error: "Sender CSC must mark estimate not accepted by customer first.",
         });
         return;
       }
@@ -6575,7 +6575,7 @@ export function registerSrfRoutes(
       }
       const msg =
         note ||
-        "Repair HO supervisor sent SRF to outward for return DC + e-way to sender HO.";
+        "Repair CSC supervisor sent SRF to outward for return DC + e-way to sender CSC.";
       await client.query(
         `UPDATE srf_jobs
          SET status = 'ready_for_outward',
@@ -6638,13 +6638,13 @@ export function registerSrfRoutes(
       }
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== row.region_id) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only the current HO can move this SRF to outward." });
+        res.status(403).json({ error: "Only the current CSC can move this SRF to outward." });
         return;
       }
       if (row.status !== "received_at_sc") {
         await client.query("ROLLBACK");
         res.status(400).json({
-          error: "SRF must be inwarded at sender HO (status received) before supervisor moves it to outward.",
+          error: "SRF must be inwarded at sender CSC (status received) before supervisor moves it to outward.",
         });
         return;
       }
@@ -6681,7 +6681,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/inter-ho/return-without-repair", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can return watch to sender HO without repair." });
+      res.status(403).json({ error: "Only supervisor/admin can return watch to sender CSC without repair." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -6706,12 +6706,12 @@ export function registerSrfRoutes(
       const recv = recvRes.rows[0];
       if (!recv || !isInterHoReceiverLocalRow(recv)) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Return without repair is only for inter-HO receiver HO SRFs." });
+        res.status(400).json({ error: "Return without repair is only for inter-CSC receiver CSC SRFs." });
         return;
       }
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== recv.region_id) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only the repair HO can return the watch to sender HO." });
+        res.status(403).json({ error: "Only the repair CSC can return the watch to sender CSC." });
         return;
       }
       const fromCustomerRejected = recv.status === "customer_rejected";
@@ -6721,7 +6721,7 @@ export function registerSrfRoutes(
         await client.query("ROLLBACK");
         res.status(400).json({
           error:
-            "Return to sender HO without repair is allowed after customer declined re-estimate, or after brand return without repair is received at repair HO.",
+            "Return to sender CSC without repair is allowed after customer declined re-estimate, or after brand return without repair is received at repair CSC.",
         });
         return;
       }
@@ -6757,8 +6757,8 @@ export function registerSrfRoutes(
         actor.id,
         note ||
           (fromBrandReturnReceived
-            ? "Brand return without repair received — repair HO returning watch un-repaired to sender HO (no billing)."
-            : "Customer declined re-estimate — repair HO returning watch un-repaired to sender HO (no billing)."),
+            ? "Brand return without repair received — repair CSC returning watch un-repaired to sender CSC (no billing)."
+            : "Customer declined re-estimate — repair CSC returning watch un-repaired to sender CSC (no billing)."),
       );
       await recordSupervisorFollowup(client, srfId, {
         followup: "move_to_odc",
@@ -6769,7 +6769,7 @@ export function registerSrfRoutes(
         action: "inter_ho_return_without_repair",
         description:
           note ||
-          "Repair HO queued return to sender HO without repair after customer declined re-estimate.",
+          "Repair CSC queued return to sender CSC without repair after customer declined re-estimate.",
         actor,
         details: { senderArchivedSrfId: arch?.id ?? null, reason: note },
       });
@@ -6791,8 +6791,8 @@ export function registerSrfRoutes(
         await pushInApp(
           notifyRows.map((r) => r.id),
           {
-            title: "Inter-HO return without repair",
-            message: `SRF ${recv.reference}: repair HO is returning the watch un-repaired after customer declined the re-estimate. Inward when the return DC arrives, then dispatch to store for customer handover.`,
+            title: "Inter-CSC return without repair",
+            message: `SRF ${recv.reference}: repair CSC is returning the watch un-repaired after customer declined the re-estimate. Inward when the return DC arrives, then dispatch to store for customer handover.`,
             category: "service_srf",
           },
         );
@@ -6801,7 +6801,7 @@ export function registerSrfRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not queue return to sender HO." });
+      res.status(400).json({ error: "Could not queue return to sender CSC." });
     } finally {
       client.release();
     }
@@ -6810,7 +6810,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/supervisor/transfer-other-ho", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can transfer to other HO." });
+      res.status(403).json({ error: "Only supervisor/admin can transfer to other CSC." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -6821,7 +6821,7 @@ export function registerSrfRoutes(
       return;
     }
     if (targetRegionId === (actor.regionId ?? "")) {
-      res.status(400).json({ error: "Select a different HO region." });
+      res.status(400).json({ error: "Select a different CSC region." });
       return;
     }
     try {
@@ -6835,7 +6835,7 @@ export function registerSrfRoutes(
         const targetStoreId = targetStore.rows[0]?.id;
         if (!targetStoreId) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "No HO destination store configured for target region." });
+          res.status(400).json({ error: "No CSC destination store configured for target region." });
           return;
         }
         const base = await client.query<{ region_id: string; store_id: string; reference: string; status: string }>(
@@ -6848,7 +6848,7 @@ export function registerSrfRoutes(
         const current = base.rows[0];
         if (!current || !["assigned", "estimate_ok"].includes(current.status)) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Only assigned/estimate-ok SRFs can be transferred to other HO." });
+          res.status(400).json({ error: "Only assigned/estimate-ok SRFs can be transferred to other CSC." });
           return;
         }
         await client.query(
@@ -6882,12 +6882,12 @@ export function registerSrfRoutes(
           srfId,
           "ready_for_outward",
           actor.id,
-          note || `Queued for transfer to HO ${targetRegionId}. Create Outward DC to dispatch.`,
+          note || `Queued for transfer to CSC ${targetRegionId}. Create Outward DC to dispatch.`,
         );
         await appendActionLog(client, srfId, {
           action: "supervisor_transfer_other_ho",
           description:
-            note || `Queued SRF for transfer to HO region ${targetRegionId}.`,
+            note || `Queued SRF for transfer to CSC region ${targetRegionId}.`,
           actor,
           details: {
             targetRegionId,
@@ -6901,13 +6901,13 @@ export function registerSrfRoutes(
       } catch (e) {
         await client.query("ROLLBACK").catch(() => {});
         console.error(e);
-        res.status(400).json({ error: "Could not queue transfer to other HO." });
+        res.status(400).json({ error: "Could not queue transfer to other CSC." });
       } finally {
         client.release();
       }
     } catch (e) {
       console.error(e);
-      res.status(400).json({ error: "Could not queue transfer to other HO." });
+      res.status(400).json({ error: "Could not queue transfer to other CSC." });
     }
   });
 
@@ -6972,7 +6972,7 @@ export function registerSrfRoutes(
       const receiverRegionId = String(actor.regionId ?? "").trim();
       if (!receiverRegionId) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Receiver HO region is not mapped for this login." });
+        res.status(400).json({ error: "Receiver CSC region is not mapped for this login." });
         return;
       }
       const { rows: receiverStoreRows } = await client.query<{ id: string; name: string }>(
@@ -6983,7 +6983,7 @@ export function registerSrfRoutes(
       const receiverStoreName = receiverStoreRows[0]?.name;
       if (!receiverStoreId) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "No HO store configured for receiver region." });
+        res.status(400).json({ error: "No CSC store configured for receiver region." });
         return;
       }
       const { prefix, suffix } = await getSeriesPrefixSuffix(client, "srf", "SRF");
@@ -7065,7 +7065,7 @@ export function registerSrfRoutes(
         srfId,
         "sent_to_other_ho",
         actor.id,
-        `Converted by receiver HO. Local SRF created: ${newRef}. Source row archived for internal use.`,
+        `Converted by receiver CSC. Local SRF created: ${newRef}. Source row archived for internal use.`,
       );
 
       // Deep Clone: Copy photos from sender SRF to local SRF
@@ -7091,7 +7091,7 @@ export function registerSrfRoutes(
         newSrfId,
         "received_at_sc",
         actor.id,
-        `Auto-created local SRF ${newRef}. Source HO reference: ${row.transfer_source_reference ?? row.reference}.`,
+        `Auto-created local SRF ${newRef}. Source CSC reference: ${row.transfer_source_reference ?? row.reference}.`,
       );
       await appendActionLog(client, srfId, {
         action: "convert_to_local_close_source",
@@ -7291,7 +7291,7 @@ export function registerSrfRoutes(
         if (available < entry.qty) {
           await client.query("ROLLBACK");
           res.status(400).json({
-            error: `Insufficient HO stock for ${entry.name}. Available ${available}, required ${entry.qty}.`,
+            error: `Insufficient CSC stock for ${entry.name}. Available ${available}, required ${entry.qty}.`,
           });
           return;
         }
@@ -7999,7 +7999,7 @@ export function registerSrfRoutes(
       const interHoRow = interHoCheck.rows[0];
       if (interHoRow && isInterHoReceiverLocalRow(interHoRow)) {
         res.status(400).json({
-          error: "Inter-HO SRF — forward brand estimate to sender HO first. Sender HO will reach the customer.",
+          error: "Inter-CSC SRF — forward brand estimate to sender CSC first. Sender CSC will reach the customer.",
         });
         return;
       }
@@ -8097,16 +8097,16 @@ export function registerSrfRoutes(
         [srfId, JSON.stringify(toJsonMeta(req.body?.emailMeta)), actor?.id ?? null],
       );
       if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "Customer must accept brand estimate before HO approval to brand." });
+        res.status(400).json({ error: "Customer must accept brand estimate before CSC approval to brand." });
         return;
       }
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        await appendStatusHistory(client, srfId, "brand_repair_in_progress", actor?.id ?? null, note || "HO approved brand estimate — brand repair in progress.");
+        await appendStatusHistory(client, srfId, "brand_repair_in_progress", actor?.id ?? null, note || "CSC approved brand estimate — brand repair in progress.");
         await appendActionLog(client, srfId, {
           action: "brand_estimate_approved",
-          description: "HO approval sent to brand — repair in progress.",
+          description: "CSC approval sent to brand — repair in progress.",
           actor: actor ?? undefined,
           details: { note, emailMeta: toJsonMeta(req.body?.emailMeta) },
         });
@@ -8159,7 +8159,7 @@ export function registerSrfRoutes(
         actor.regionId !== row.region_id
       ) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only the repair HO can mark receipt from brand for inter-HO SRFs." });
+        res.status(403).json({ error: "Only the repair CSC can mark receipt from brand for inter-CSC SRFs." });
         return;
       }
       if (!["brand_approved", "brand_repair_in_progress"].includes(row.status)) {
@@ -8191,7 +8191,7 @@ export function registerSrfRoutes(
       );
       await appendActionLog(client, srfId, {
         action: "brand_return_received",
-        description: "Watch received at HO from brand.",
+        description: "Watch received at CSC from brand.",
         actor: actor ?? undefined,
         referenceDoc: ref,
         details: { note, inwardAgainstDc: ref },
@@ -8313,7 +8313,7 @@ export function registerSrfRoutes(
       return;
     }
     if (responsible !== "ho" && responsible !== "store") {
-      res.status(400).json({ error: "Select whether HO or Store is responsible for this credit note." });
+      res.status(400).json({ error: "Select whether CSC or Store is responsible for this credit note." });
       return;
     }
     const pendingStatus =
@@ -8372,7 +8372,7 @@ export function registerSrfRoutes(
           srfId,
           pendingStatus,
           actor?.id ?? null,
-          `${note} — awaiting HO Accounts approval.`,
+          `${note} — awaiting CSC Accounts approval.`,
         );
         await appendActionLog(client, srfId, {
           action: "brand_credit_note_received",
@@ -8402,7 +8402,7 @@ export function registerSrfRoutes(
         await pushInApp(
           recipients.map((r) => r.id),
           {
-            title: "Brand credit note awaiting HO Accounts approval",
+            title: "Brand credit note awaiting CSC Accounts approval",
             message: `${srf.reference} · ${srf.watch_brand} ${srf.watch_model} · ${srf.customer_name} · INR ${valueInr.toLocaleString("en-IN")} · CN ${brandCreditNoteRef || "—"}${validUntil ? ` · valid until ${validUntil}` : ""} · ${note}`,
             category: "service_srf",
           },
@@ -8463,7 +8463,7 @@ export function registerSrfRoutes(
         actor.regionId !== row.region_id
       ) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only the repair HO can mark brand return without repair for inter-HO SRFs." });
+        res.status(403).json({ error: "Only the repair CSC can mark brand return without repair for inter-CSC SRFs." });
         return;
       }
       const fromSent = row.status === "sent_to_brand";
@@ -8499,7 +8499,7 @@ export function registerSrfRoutes(
         srfId,
         "brand_repair_in_progress",
         actor?.id ?? null,
-        note || "Brand cannot repair — watch will return to HO without repair.",
+        note || "Brand cannot repair — watch will return to CSC without repair.",
       );
       await appendActionLog(client, srfId, {
         action: "brand_return_without_repair",
@@ -8522,7 +8522,7 @@ export function registerSrfRoutes(
           await appendActionLog(client, arch.id, {
             action: "inter_ho_brand_return_without_repair",
             description:
-              "Repair HO marked brand return without repair after customer declined brand estimate. Sender HO will inward when return DC arrives.",
+              "Repair CSC marked brand return without repair after customer declined brand estimate. Sender CSC will inward when return DC arrives.",
             actor: actor ?? undefined,
             details: { receiverSrfId: srfId, note },
           });
@@ -8546,8 +8546,8 @@ export function registerSrfRoutes(
         await pushInApp(
           notifyRows.map((r) => r.id),
           {
-            title: "Inter-HO brand return without repair",
-            message: `SRF ${row.reference}: repair HO is returning the watch from brand without repair after customer declined the estimate. Inward when the return DC arrives from repair HO.`,
+            title: "Inter-CSC brand return without repair",
+            message: `SRF ${row.reference}: repair CSC is returning the watch from brand without repair after customer declined the estimate. Inward when the return DC arrives from repair CSC.`,
             category: "service_srf",
           },
         );
@@ -8645,7 +8645,7 @@ export function registerSrfRoutes(
       if (isInterHoReceiverLocalRow(row)) {
         res.status(400).json({
           error:
-            "Inter-HO SRFs must use return to sender HO (no repair) — not direct store dispatch from brand desk.",
+            "Inter-CSC SRFs must use return to sender CSC (no repair) — not direct store dispatch from brand desk.",
         });
         return;
       }
@@ -8699,7 +8699,7 @@ export function registerSrfRoutes(
   app.get("/api/accounts/brand-credit-notes", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canAccessBrandCreditNoteApprovals(actor)) {
-      res.status(403).json({ error: "HO Accounts role required." });
+      res.status(403).json({ error: "CSC Accounts role required." });
       return;
     }
     const pendingSql =
@@ -8739,7 +8739,7 @@ export function registerSrfRoutes(
   app.post("/api/service/srf-jobs/:srfId/brand/approve-credit-note", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canAccessBrandCreditNoteApprovals(actor)) {
-      res.status(403).json({ error: "Only HO Accounts can approve brand credit notes." });
+      res.status(403).json({ error: "Only CSC Accounts can approve brand credit notes." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -8850,11 +8850,11 @@ export function registerSrfRoutes(
           arch.id,
           "closed",
           actor?.id ?? null,
-          `Closed — receiver HO brand credit note on ${job.reference}. Watch retained at brand.`,
+          `Closed — receiver CSC brand credit note on ${job.reference}. Watch retained at brand.`,
         );
         await appendActionLog(client, arch.id, {
           action: "inter_ho_brand_credit_note_closed",
-          description: `Sender HO SRF closed after receiver brand credit note (voucher on ${job.reference}).`,
+          description: `Sender CSC SRF closed after receiver brand credit note (voucher on ${job.reference}).`,
           actor: actor ?? undefined,
           referenceDoc: voucherCode,
           details: { receiverSrfId: srfId, receiverReference: job.reference },
@@ -8893,7 +8893,7 @@ export function registerSrfRoutes(
       await pushInApp(
         recipients.map((r) => r.id),
         {
-          title: `Brand credit note approved — ${responsible === "ho" ? "HO responsible" : "Store responsible"}`,
+          title: `Brand credit note approved — ${responsible === "ho" ? "CSC responsible" : "Store responsible"}`,
           message: `${approvedJob.reference} · ${approvedJob.watch_brand} ${approvedJob.watch_model} · ${approvedJob.customer_name} · INR ${valueInr.toLocaleString("en-IN")} · CN ${approvedJob.brand_invoice_ref || "—"} · Voucher ${voucherCode} · ${cnRemark}`,
           category: "service_srf",
         },
@@ -8983,7 +8983,7 @@ export function registerSrfRoutes(
   app.get("/api/service/srf-jobs/:srfId/inter-ho-invoice-prefill", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can create inter-HO sender invoice." });
+      res.status(403).json({ error: "Only supervisor/admin can create inter-CSC sender invoice." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -9035,11 +9035,11 @@ export function registerSrfRoutes(
         return;
       }
       if (!row.toRegionId || !row.toRegionName) {
-        res.status(400).json({ error: "This SRF is not in inter-HO return billing flow." });
+        res.status(400).json({ error: "This SRF is not in inter-CSC return billing flow." });
         return;
       }
       if (row.status !== "ready_for_outward") {
-        res.status(400).json({ error: "Inter-HO invoice can be created only when SRF is ready for outward." });
+        res.status(400).json({ error: "Inter-CSC invoice can be created only when SRF is ready for outward." });
         return;
       }
       let usedSpares = Array.isArray(row.usedSpares) ? row.usedSpares : [];
@@ -9098,14 +9098,14 @@ export function registerSrfRoutes(
       });
     } catch (e) {
       console.error(e);
-      res.status(400).json({ error: "Could not load inter-HO invoice prefill." });
+      res.status(400).json({ error: "Could not load inter-CSC invoice prefill." });
     }
   });
 
   app.post("/api/service/srf-jobs/:srfId/inter-ho-invoice", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !canSupervisorDecide(actor)) {
-      res.status(403).json({ error: "Only supervisor/admin can create inter-HO invoice." });
+      res.status(403).json({ error: "Only supervisor/admin can create inter-CSC invoice." });
       return;
     }
     const srfId = String(req.params.srfId ?? "").trim();
@@ -9142,7 +9142,7 @@ export function registerSrfRoutes(
       }
       if (!row.transfer_source_region_id) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "This SRF is not eligible for inter-HO sender invoice." });
+        res.status(400).json({ error: "This SRF is not eligible for inter-CSC sender invoice." });
         return;
       }
       if (row.status !== "ready_for_outward") {
@@ -9152,7 +9152,7 @@ export function registerSrfRoutes(
       }
       if (actor.role !== "super_admin" && actor.role !== "admin" && actor.regionId !== row.region_id) {
         await client.query("ROLLBACK");
-        res.status(403).json({ error: "Only current repair HO can create this invoice." });
+        res.status(403).json({ error: "Only current repair CSC can create this invoice." });
         return;
       }
       await client.query(
@@ -9165,7 +9165,7 @@ export function registerSrfRoutes(
       );
       await appendActionLog(client, srfId, {
         action: "inter_ho_sender_invoice_created",
-        description: `Repair HO invoice created against sender HO. Invoice ${invoiceRef}.`,
+        description: `Repair CSC invoice created against sender CSC. Invoice ${invoiceRef}.`,
         actor,
         referenceDoc: invoiceRef,
         details: { invoiceRef, note },
@@ -9218,7 +9218,7 @@ export function registerSrfRoutes(
         sourceType: "inter_ho_repair",
         sourceId: srfId,
         regionId: row.region_id,
-        customerName: row.customer_name?.trim() || "Sender HO",
+        customerName: row.customer_name?.trim() || "Sender CSC",
         srfReference: row.reference,
         totalInr: computedTotal,
         taxJson: taxJson as Record<string, unknown>,
@@ -9240,7 +9240,7 @@ export function registerSrfRoutes(
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(e);
-      res.status(400).json({ error: "Could not create inter-HO invoice." });
+      res.status(400).json({ error: "Could not create inter-CSC invoice." });
     } finally {
       client.release();
     }
@@ -9309,7 +9309,7 @@ export function registerSrfRoutes(
       );
       if (transferCandidates.length > 0 && normalCandidates.length > 0) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Create separate outward batches: normal store dispatch and inter-HO transfer." });
+        res.status(400).json({ error: "Create separate outward batches: normal store dispatch and inter-CSC transfer." });
         return;
       }
       const firstTransfer = transferCandidates[0] ?? null;
@@ -9322,7 +9322,7 @@ export function registerSrfRoutes(
         )
       ) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Create repair HO invoice first (or provide invoice ref) before return-to-sender dispatch." });
+        res.status(400).json({ error: "Create repair CSC invoice first (or provide invoice ref) before return-to-sender dispatch." });
         return;
       }
       // For RETURN legs, recover the correct sender HO context from the original parent SRF
@@ -9394,7 +9394,7 @@ export function registerSrfRoutes(
         await client.query("ROLLBACK");
         res.status(400).json({
           error: isInterHoBatch
-            ? "Inter-HO target region is missing on this SRF. Check transfer source/target region fields."
+            ? "Inter-CSC target region is missing on this SRF. Check transfer source/target region fields."
             : "Your login is not mapped to a service centre region.",
         });
         return;
@@ -9483,7 +9483,7 @@ export function registerSrfRoutes(
               row.destination_store_id;
             if (fixedReturnStoreId && it.destinationStoreId !== fixedReturnStoreId) {
               await client.query("ROLLBACK");
-              res.status(400).json({ error: "Return transfer destination is fixed to source HO/store." });
+              res.status(400).json({ error: "Return transfer destination is fixed to source CSC/store." });
               return;
             }
             // Free sender SRF reference from any archived temp rows so it can be restored on the live return row.
@@ -9551,14 +9551,14 @@ export function registerSrfRoutes(
             "in_transit_sc",
             actor.id,
             movingToTargetHo
-              ? `Transferred to other HO in DC ${dcNumber}.`
-              : `Returned to source HO in DC ${dcNumber} (source SRF reference restored).`,
+              ? `Transferred to other CSC in DC ${dcNumber}.`
+              : `Returned to source CSC in DC ${dcNumber} (source SRF reference restored).`,
           );
           await appendActionLog(client, it.srfId, {
             action: movingToTargetHo ? "inter_ho_dispatch_to_repair" : "inter_ho_return_to_sender",
             description: movingToTargetHo
-              ? `Dispatched to repair HO via inter-HO DC ${dcNumber}.`
-              : `Returned to source HO via DC ${dcNumber} after repair (HO invoice ref ${hoInvoiceRef || "-"}).`,
+              ? `Dispatched to repair CSC via inter-CSC DC ${dcNumber}.`
+              : `Returned to source CSC via DC ${dcNumber} after repair (CSC invoice ref ${hoInvoiceRef || "-"}).`,
             actor,
             referenceDoc: dcNumber,
             details: { hoInvoiceRef },
@@ -9724,7 +9724,7 @@ export function registerSrfRoutes(
             const remark = disposition?.remark?.trim() ?? "";
             if (!remark) {
               await client.query("ROLLBACK");
-              res.status(400).json({ error: "Remarks are required when sending a watch back to HO for re-repair." });
+              res.status(400).json({ error: "Remarks are required when sending a watch back to CSC for re-repair." });
               return;
             }
             const { rows: jobRows } = await client.query<{ status: string; reference: string }>(
@@ -9763,11 +9763,11 @@ export function registerSrfRoutes(
                 line.srf_id,
                 "at_store",
                 actor.id,
-                `Store QC failed on ${dcNumber} — sent back to HO for re-repair. ${remark}`,
+                `Store QC failed on ${dcNumber} — sent back to CSC for re-repair. ${remark}`,
               );
               await appendActionLog(client, line.srf_id, {
                 action: "store_qc_return_to_ho",
-                description: `Watch failed store QC on inward ${dcNumber}; queued for outward to HO. Reason: ${remark}`,
+                description: `Watch failed store QC on inward ${dcNumber}; queued for outward to CSC. Reason: ${remark}`,
                 actor,
                 referenceDoc: dcNumber,
                 details: { remark, tdNumber: dcNumber },
@@ -10198,7 +10198,7 @@ export function registerSrfRoutes(
           ? row.store_advance_voucher_code
             ? `Watch handed over unrepaired with store credit ${row.store_advance_voucher_code}.`
             : "Watch handed over to customer without billing (returned without repair)."
-          : `Customer invoice raised and SRF closed. Invoice ${invoiceNumber ?? "-"}; HO ref: ${hoSparesBillRef || "-"}; Store ref: ${storeBillRef || "-"}.`,
+          : `Customer invoice raised and SRF closed. Invoice ${invoiceNumber ?? "-"}; CSC ref: ${hoSparesBillRef || "-"}; Store ref: ${storeBillRef || "-"}.`,
         actor,
         referenceDoc: storeBillRef || hoSparesBillRef || invoiceNumber || row.store_advance_voucher_code || null,
         details: {
@@ -10640,9 +10640,9 @@ export function registerSrfRoutes(
           null,
           note ||
             (brandCustomerPending || interHoBrandCustomerPending
-              ? "Customer accepted brand repair estimate — repair HO can approve brand repair."
+              ? "Customer accepted brand repair estimate — repair CSC can approve brand repair."
               : interHoCustomerPending
-                ? "Customer accepted re-estimate — awaiting sender HO approval for repair HO."
+                ? "Customer accepted re-estimate — awaiting sender CSC approval for repair CSC."
                 : "Customer accepted re-estimate."),
         );
         await recordReestimateCustomerResponse(client, srfId, { response: "accepted", note });

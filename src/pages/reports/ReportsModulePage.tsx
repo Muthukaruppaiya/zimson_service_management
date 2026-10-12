@@ -24,7 +24,7 @@ const reportLinks = [
   {
     to: "/reports/unassigned-watches",
     title: "Unassigned watches",
-    description: "HO or in-store watches inwarded but not yet assigned to a technician.",
+    description: "CSC or in-store watches inwarded but not yet assigned to a technician.",
     section: "Tracking & aging",
   },
   {

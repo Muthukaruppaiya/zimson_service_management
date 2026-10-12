@@ -34,6 +34,7 @@ import { allocateStoreInvoiceNumber } from "./storeInvoiceNumber";
 import { loadSpareGstById, loadSpareTcsEligibleById } from "./hsnGstRates";
 import { phoneLast10 } from "./messaging/customerContact";
 import { finalizeQuickBillCaptureSession } from "./quickBillCaptureRoutes";
+import { markQuickBillDraftBilled } from "./quickBillDraftRoutes";
 import { registerWatchCatalogRoutes } from "./watchCatalogRoutes";
 import { edocEnabled, tryGenerateEinvoiceForQuickBill } from "./mastersIndiaEdoc";
 import { deleteServiceInvoice, updateServiceInvoiceHeader } from "./serviceInvoiceLedger";
@@ -1100,6 +1101,10 @@ export function registerQuickBillRoutes(
       const captureSessionId = String(req.body?.captureSessionId ?? "").trim();
       if (captureSessionId) {
         await finalizeQuickBillCaptureSession(client, captureSessionId, billId);
+      }
+      const draftId = String(req.body?.draftId ?? "").trim();
+      if (draftId) {
+        await markQuickBillDraftBilled(client, draftId, billId);
       }
 
       for (const ln of lines) {

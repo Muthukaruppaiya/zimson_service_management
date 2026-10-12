@@ -21,6 +21,15 @@ export function loadRecentLookups(): RecentLookup[] {
   }
 }
 
+export function clearRecentLookups() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new CustomEvent("dashboard-recent-lookups"));
+}
+
 export function pushRecentLookup(entry: { query: string; label: string; kind: string; to: string }) {
   const query = entry.query.trim();
   if (!query) return;

@@ -14,9 +14,9 @@ type Props = {
 function kpiSubtext(item: DashboardActionItem): string {
   if (item.id === "open-srf") return "Pipeline watches";
   if (item.id.includes("approval") || item.id === "customer-approval") return "Customer OTP / link";
-  if (item.id === "at-ho") return "HO repair bench";
+  if (item.id === "at-ho") return "CSC repair bench";
   if (item.id.includes("handover")) return "Store handover";
-  if (item.id === "store-dispatch") return "Awaiting HO dispatch";
+  if (item.id === "store-dispatch") return "Awaiting CSC dispatch";
   if (item.id === "store-odc-inward" || item.id === "sc-dc-inward") return "Transfer document";
   if (item.id.includes("assign") || item.id === "tech-queue") return "Technician bench";
   if (item.sublabel) return item.sublabel;

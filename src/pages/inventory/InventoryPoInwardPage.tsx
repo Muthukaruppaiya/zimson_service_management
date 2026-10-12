@@ -137,7 +137,7 @@ function GrnSuccessModal({ grnNumber, grnId, movedQty, poId, poStatus, poNumber,
         <div className="px-6 py-5 text-center space-y-1">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400">GRN Number</p>
           <p className="font-mono text-2xl font-bold text-rlx-green">{grnNumber}</p>
-          <p className="text-sm text-stone-500 mt-2">{movedQty} unit(s) moved to HO stock.</p>
+          <p className="text-sm text-stone-500 mt-2">{movedQty} unit(s) moved to CSC stock.</p>
           {partialPo && (
             <p className="mt-3 text-left text-[12px] leading-relaxed text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2">
               {poNumber ?? "This PO"} still has unreceived parts. If you will not inward the rest, amend the PO to keep only received qty and close it.
@@ -613,7 +613,7 @@ export function InventoryPoInwardPage() {
         <InventoryBreadcrumb current="GRN" />
         <PageHeader title="Goods Receipt (GRN)" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only HO Manager, HO Purchase, or Admin can post GRN entries.
+          Only CSC Manager, CSC Purchase, or Admin can post GRN entries.
         </div>
       </div>
     );
@@ -624,7 +624,7 @@ export function InventoryPoInwardPage() {
       <InventoryBreadcrumb current="GRN" />
       <PageHeader
         title="Goods Receipt (GRN)"
-        description="Post physical receipt to HO stock. Cost price and tax are captured here and mapped to inventory."
+        description="Post physical receipt to CSC stock. Cost price and tax are captured here and mapped to inventory."
         actions={
           <div className="flex gap-2">
             <button type="button" onClick={() => navigate("/inventory/vouchers")}

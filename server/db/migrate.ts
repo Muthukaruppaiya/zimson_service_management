@@ -1257,8 +1257,8 @@ export async function runMigrations(pool: Pool): Promise<void> {
   const prFlowDefaults: Array<[string, string, number]> = [
     ["PR_CREATED", "PR creation", 10],
     ["PR_APPROVED_STORE", "PR approved by store manager", 20],
-    ["PR_SENT_TO_HO", "PR sent to HO", 30],
-    ["PR_APPROVED_HO", "PR approved by HO", 40],
+    ["PR_SENT_TO_HO", "PR sent to CSC", 30],
+    ["PR_APPROVED_HO", "PR approved by CSC", 40],
     ["PO_CREATED", "PO created", 50],
     ["GRN_POSTED", "GRN posted", 60],
     ["TRANSFER_TO_STORE", "Transfer to store", 70],
@@ -1338,6 +1338,27 @@ export async function runMigrations(pool: Pool): Promise<void> {
       ON quick_bill_capture_photos (session_id, photo_kind);
     CREATE INDEX IF NOT EXISTS idx_qb_capture_photos_session
       ON quick_bill_capture_photos (session_id, created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quick_bill_drafts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+      store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+      created_by VARCHAR(80),
+      updated_by VARCHAR(80),
+      status VARCHAR(16) NOT NULL DEFAULT 'open',
+      customer_name TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      watch_label TEXT NOT NULL DEFAULT '',
+      capture_session_id UUID,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      quick_bill_id UUID REFERENCES quick_bills(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_qb_drafts_store_status
+      ON quick_bill_drafts (store_id, status, updated_at DESC);
   `);
 
   await pool.query(`

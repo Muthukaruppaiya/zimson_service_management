@@ -75,7 +75,7 @@ export function registerTechnicianRoutes(
   app.post("/api/service/technicians", requireAuth, async (req, res) => {
     const actor = getUserById((req as { userId?: string }).userId ?? "");
     if (!canManageTechnicianMaster(actor)) {
-      res.status(403).json({ error: "Only authorized HO/SC roles can create technicians." });
+      res.status(403).json({ error: "Only authorized CSC/SC roles can create technicians." });
       return;
     }
     const employeeCode = String(req.body?.employeeCode ?? "").trim().toUpperCase();

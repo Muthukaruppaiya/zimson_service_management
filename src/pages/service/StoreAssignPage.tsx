@@ -378,13 +378,13 @@ export function StoreAssignPage() {
       } else {
         setMessage({
           type: "ok",
-          text: "SRF moved to store dispatch — create outward transfer to HO.",
+          text: "SRF moved to store dispatch — create outward transfer to CSC.",
         });
       }
     } catch (e) {
       setMessage({
         type: "err",
-        text: e instanceof ApiError ? e.message : "Could not send SRF to HO.",
+        text: e instanceof ApiError ? e.message : "Could not send SRF to CSC.",
       });
     } finally {
       setBusyId(null);
@@ -673,7 +673,7 @@ export function StoreAssignPage() {
                 rows={3}
                 value={sendToHoNote}
                 onChange={(e) => setSendToHoNote(e.target.value)}
-                placeholder="e.g. Movement issue — requires HO workshop"
+                placeholder="e.g. Movement issue — requires CSC workshop"
               />
             </label>
             <div className="mt-4 flex justify-end gap-2">

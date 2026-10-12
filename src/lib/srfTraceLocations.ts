@@ -78,8 +78,8 @@ export function watchLocationForStatus(status: string, ctx: SrfTraceLocationCont
       return ctx.scLabel;
     case "sent_to_other_ho":
       return ctx.transferTargetRegionLabel
-        ? `Transfer queued · ${ctx.transferTargetRegionLabel} HO`
-        : "Transfer queued · other HO";
+        ? `Transfer queued · ${ctx.transferTargetRegionLabel} CSC`
+        : "Transfer queued · other CSC";
     case "dispatched_to_store":
       return `In transit · ${ctx.scLabel} → ${ctx.destStoreLabel}`;
     case "received_at_store":
@@ -124,7 +124,7 @@ export function locationMoveForAction(
       return `Inward: In transit from store → ${ctx.scLabel}`;
     case "sender_ho_inward_return_dc":
       return `Inward: Return DC at ${
-        ctx.transferSourceRegionLabel ? `${ctx.transferSourceRegionLabel} HO` : ctx.regionLabel + " HO"
+        ctx.transferSourceRegionLabel ? `${ctx.transferSourceRegionLabel} CSC` : ctx.regionLabel + " CSC"
       }`;
     case "ho_dispatch_to_store": {
       const destId = typeof d?.destinationStoreId === "string" ? d.destinationStoreId : job.destinationStoreId;
@@ -132,25 +132,25 @@ export function locationMoveForAction(
       return `Outward: ${ctx.scLabel} → ${dest}`;
     }
     case "store_inward_odc":
-      return `Inward: In transit from HO → ${ctx.destStoreLabel}`;
+      return `Inward: In transit from CSC → ${ctx.destStoreLabel}`;
     case "inter_ho_dispatch_to_repair":
-      return `Outward: ${ctx.regionLabel} HO → ${
-        ctx.transferTargetRegionLabel ? `${ctx.transferTargetRegionLabel} HO` : "repair HO"
+      return `Outward: ${ctx.regionLabel} CSC → ${
+        ctx.transferTargetRegionLabel ? `${ctx.transferTargetRegionLabel} CSC` : "repair CSC"
       }`;
     case "inter_ho_return_to_sender":
-      return `Outward: Repair HO → ${
+      return `Outward: Repair CSC → ${
         ctx.transferSourceRegionLabel
-          ? `${ctx.transferSourceRegionLabel} HO`
-          : `${ctx.regionLabel} HO`
+          ? `${ctx.transferSourceRegionLabel} CSC`
+          : `${ctx.regionLabel} CSC`
       }`;
     case "supervisor_transfer_other_ho":
       return `Queued transfer: ${ctx.scLabel} → ${
-        ctx.transferTargetRegionLabel ? `${ctx.transferTargetRegionLabel} HO` : "other HO"
+        ctx.transferTargetRegionLabel ? `${ctx.transferTargetRegionLabel} CSC` : "other CSC"
       }`;
     case "convert_to_local_create":
-      return `Inward: Inter-HO transfer → ${ctx.scLabel}`;
+      return `Inward: Inter-CSC transfer → ${ctx.scLabel}`;
     case "convert_to_local_close_source":
-      return `Outward: Source SRF archived at sender HO`;
+      return `Outward: Source SRF archived at sender CSC`;
     case "srf_finalized":
       return `Watch registered at ${ctx.storeLabel}`;
     case "store_self_assign_technician":
@@ -179,20 +179,20 @@ export function watchLocationAfterAction(
       return ctx.scLabel;
     case "sender_ho_inward_return_dc":
       return ctx.transferSourceRegionLabel
-        ? `${ctx.transferSourceRegionLabel} HO (ready for store dispatch)`
-        : `${ctx.regionLabel} HO (ready for store dispatch)`;
+        ? `${ctx.transferSourceRegionLabel} CSC (ready for store dispatch)`
+        : `${ctx.regionLabel} CSC (ready for store dispatch)`;
     case "ho_dispatch_to_store":
       return watchLocationForStatus("dispatched_to_store", ctx);
     case "store_inward_odc":
       return ctx.destStoreLabel;
     case "inter_ho_dispatch_to_repair":
       return ctx.transferTargetRegionLabel
-        ? `In transit · ${ctx.regionLabel} HO → ${ctx.transferTargetRegionLabel} HO`
-        : "In transit · inter-HO repair";
+        ? `In transit · ${ctx.regionLabel} CSC → ${ctx.transferTargetRegionLabel} CSC`
+        : "In transit · inter-CSC repair";
     case "inter_ho_return_to_sender":
       return ctx.transferSourceRegionLabel
-        ? `In transit · repair HO → ${ctx.transferSourceRegionLabel} HO`
-        : `In transit · repair HO → ${ctx.regionLabel} HO`;
+        ? `In transit · repair CSC → ${ctx.transferSourceRegionLabel} CSC`
+        : `In transit · repair CSC → ${ctx.regionLabel} CSC`;
     case "supervisor_transfer_other_ho":
       return watchLocationForStatus("sent_to_other_ho", ctx);
     case "srf_finalized":

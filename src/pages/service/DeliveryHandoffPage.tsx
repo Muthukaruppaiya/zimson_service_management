@@ -57,7 +57,7 @@ const QUEUE_META: Record<
     receiveMode: false,
   },
   ho_receive: {
-    title: "Receive at HO",
+    title: "Receive at CSC",
     blurb: "1) Choose delivery agent → 2) All carried transfers load → 3) OTP → Waiting for inward.",
     kind: "ho_receive_from_db",
     storeSide: false,
@@ -272,7 +272,7 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
       />
       <PageHeader
         title="Delivery agent handoff"
-        subtitle="Choose delivery agent first, then transfers and OTP. Store ↔ HO only."
+        subtitle="Choose delivery agent first, then transfers and OTP. Store ↔ CSC only."
       />
 
       {queues.length > 1 ? (

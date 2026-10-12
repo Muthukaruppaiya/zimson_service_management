@@ -7,6 +7,7 @@ import { useAuth } from "../../context/AuthContext";
 import { isInventoryStockPricesViewOnly } from "../../lib/inventoryAccess";
 import { useRegions } from "../../context/RegionsContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { locationTypeLabel } from "../../lib/locationTypeLabel";
 import type { SparePart, SparePriceLine, SpareStockRow } from "../../types/spare";
 
 const inputClass =
@@ -329,7 +330,7 @@ export function InventoryStockPriceOverviewPage() {
                       <tbody>
                         {selected.stock.map((s) => (
                           <tr key={s.id} className="border-b border-zimson-100">
-                            <td className="px-3 py-2">{s.locationType}</td>
+                            <td className="px-3 py-2">{locationTypeLabel(s.locationType)}</td>
                             <td className="px-3 py-2">{regionNameById.get(s.regionId) ?? s.regionId}</td>
                             <td className="px-3 py-2">{s.storeId ? storeNameById.get(s.storeId) ?? s.storeId : "—"}</td>
                             <td className="px-3 py-2 font-semibold">{s.quantity.toLocaleString()}</td>
@@ -406,7 +407,7 @@ export function InventoryStockPriceOverviewPage() {
                           : "border-zimson-300 text-zimson-900 hover:bg-zimson-50"
                       }`}
                     >
-                      Region / HO only
+                      Region / CSC only
                     </button>
                     <button
                       type="button"
@@ -466,7 +467,7 @@ export function InventoryStockPriceOverviewPage() {
                     {hoHistory.length > 0 ? (
                       <div className="rounded-xl border border-zimson-200/80">
                         <p className="border-b border-zimson-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
-                          Region / HO log
+                          Region / CSC log
                         </p>
                         <div className="max-h-64 overflow-auto">
                           <table className="min-w-full text-left text-sm">

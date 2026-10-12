@@ -41,7 +41,7 @@ const STATUS_LABEL: Record<string, string> = {
   SUBMITTED:    "Waiting for Approval",
   APPROVED:     "Waiting for PO Conversion",
   REJECTED:     "Rejected",
-  GOODS_AT_HO:  "Goods at HO — Awaiting Transfer",
+  GOODS_AT_HO:  "Goods at CSC — Awaiting Transfer",
   PARTIAL:      "Partially Delivered to Store",
   FULFILLED:    "Delivered to Store",
 };
@@ -119,7 +119,7 @@ function InventoryPrHistoryBody() {
     setErr(null); setOk(null);
     try {
       await apiJson(`/api/inventory/prs/${encodeURIComponent(prId)}/remind`, { method: "POST" });
-      setOk("Reminder sent to HO Manager.");
+      setOk("Reminder sent to CSC Manager.");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not send reminder.");
     } finally { setRemindingPrId(null); }
@@ -294,7 +294,7 @@ function InventoryPrHistoryBody() {
       <div className="border border-rlx-rule bg-white shadow-sm">
         <div className="border-b border-rlx-rule bg-rlx-green px-5 py-3.5 flex items-center justify-between">
           <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-white">
-            {isHo ? "HO — PR Inbox & History" : "Store PR History"}
+            {isHo ? "CSC — PR Inbox & History" : "Store PR History"}
           </h3>
           <span className="border border-white/30 px-2 py-0.5 text-[10px] font-bold text-white/70">{filtered.length}</span>
         </div>
@@ -358,7 +358,7 @@ function InventoryPrHistoryBody() {
                               type="button"
                               disabled={remindingPrId === pr.id}
                               onClick={() => void sendReminder(pr.id)}
-                              title="Send reminder to HO Manager"
+                              title="Send reminder to CSC Manager"
                               className="flex items-center gap-1 border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition disabled:opacity-50"
                             >
                               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3 w-3">
@@ -389,7 +389,7 @@ function InventoryPrHistoryBody() {
                               type="button"
                               disabled={!canFulfill}
                               onClick={() => void openFulfill(pr)}
-                              title={!canFulfill ? `Fulfil is available when PR is Approved or Partially Fulfilled` : "Transfer stock from HO to Store"}
+                              title={!canFulfill ? `Fulfil is available when PR is Approved or Partially Fulfilled` : "Transfer stock from CSC to Store"}
                               className={`px-2.5 py-1 text-[11px] font-semibold text-white transition ${canFulfill ? "bg-rlx-green hover:bg-rlx-green/90" : "bg-stone-200 text-stone-400 cursor-not-allowed"}`}
                             >Fulfil</button>
                           )}
@@ -520,7 +520,7 @@ function InventoryPrHistoryBody() {
                         <span>Requested: <strong>{i.qty}</strong></span>
                         <span>Issued: <strong>{i.issuedQty}</strong></span>
                         <span>Pending: <strong>{pending}</strong></span>
-                        <span>HO Stock: <strong className={hoStock === 0 ? "text-red-600" : "text-blue-700"}>{hoStock ?? "…"}</strong></span>
+                        <span>CSC Stock: <strong className={hoStock === 0 ? "text-red-600" : "text-blue-700"}>{hoStock ?? "…"}</strong></span>
                       </div>
                       <div className="mt-3">
                         <label className={labelCls}>Transfer Qty</label>

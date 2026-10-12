@@ -76,8 +76,8 @@ const statusOptions: Array<{ value: "ALL" | SrfJobStatus; label: string }> = [
   { value: "photo_pending", label: "Photo pending" },
   { value: "at_store", label: "Store waiting dispatch" },
   { value: "store_self_pending", label: "In-store repair — pending assign" },
-  { value: "sent_to_other_ho", label: "Sent to other HO" },
-  { value: "received_at_sc", label: "HO received" },
+  { value: "sent_to_other_ho", label: "Sent to other CSC" },
+  { value: "received_at_sc", label: "CSC received" },
   { value: "assigned", label: "Assigned to technician" },
   { value: "estimate_ok", label: "Estimate ok" },
   { value: "reestimate_required", label: "Re-estimate pending" },
@@ -123,9 +123,9 @@ function laneOf(job: SrfJob): "HO" | "STORE" {
 
 function timelineLabel(job: SrfJob): string {
   if (job.status === "at_store") return "Store waiting to dispatch for repair";
-  if (job.status === "sent_to_other_ho") return "Sent to other HO for repair";
+  if (job.status === "sent_to_other_ho") return "Sent to other CSC for repair";
   if (job.status === "received_at_sc" || job.status === "assigned" || job.status === "estimate_ok") {
-    return "Repair in progress at HO";
+    return "Repair in progress at CSC";
   }
   if (
     job.status === "sent_to_brand" ||
@@ -137,7 +137,7 @@ function timelineLabel(job: SrfJob): string {
   ) {
     return "With brand service centre";
   }
-  if (job.status === "received_from_brand") return "Returned from brand, in HO processing";
+  if (job.status === "received_from_brand") return "Returned from brand, in CSC processing";
   if (
     job.status === "brand_credit_note_pending" ||
     job.status === "brand_credit_note_pending_ho" ||
@@ -147,7 +147,7 @@ function timelineLabel(job: SrfJob): string {
     return "Brand issued coupon / credit note";
   }
   if (job.status === "ready_for_outward") return "Repaired, waiting dispatch";
-  if (job.status === "dispatched_to_store") return "Dispatched from HO, waiting store inward";
+  if (job.status === "dispatched_to_store") return "Dispatched from CSC, waiting store inward";
   if (job.status === "received_at_store") return "Waiting customer handover";
   if (job.status === "closed") return "Delivered to customer";
   if (job.status === "cancelled") return "Cancelled";
@@ -323,8 +323,8 @@ export function WatchInventoryPage() {
     <div className="ui-page-bleed px-3 font-sans text-rlx-ink sm:px-4 md:px-5">
       <ServiceBreadcrumb current="Watch inventory" />
       <PageHeader
-        title="Watch inventory (HO + Store)"
-        description="Open watches across store and HO lanes — click a row for full details and history."
+        title="Watch inventory (CSC + Store)"
+        description="Open watches across store and CSC lanes — click a row for full details and history."
       />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
@@ -336,7 +336,7 @@ export function WatchInventoryPage() {
         </div>
         <div className="border border-rlx-rule bg-white shadow-sm">
           <div className="border-b-2 border-rlx-gold bg-rlx-green px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">At HO</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">At CSC</p>
           </div>
           <p className="px-3 py-3 text-lg font-semibold text-rlx-ink">{openHo}</p>
         </div>
@@ -374,7 +374,7 @@ export function WatchInventoryPage() {
               className="ui-field"
             >
               <option value="ALL">All</option>
-              <option value="HO">HO</option>
+              <option value="HO">CSC</option>
               <option value="STORE">Store</option>
             </select>
           </FilterField>
@@ -585,7 +585,7 @@ export function WatchInventoryPage() {
                         label="Outward DC"
                         value={<span className="font-mono">{detail.outwardDcNumber ?? "—"}</span>}
                       />
-                      <DetailRow label="HO bill ref" value={detail.hoSparesBillRef ?? "—"} />
+                      <DetailRow label="CSC bill ref" value={detail.hoSparesBillRef ?? "—"} />
                       <DetailRow label="Store bill ref" value={detail.storeBillRef ?? "—"} />
                       <DetailRow label="Created" value={formatDateTime(detail.createdAt)} />
                       <DetailRow label="Complaint" value={detail.complaint || "—"} />

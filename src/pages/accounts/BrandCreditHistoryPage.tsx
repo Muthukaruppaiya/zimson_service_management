@@ -123,12 +123,12 @@ export function BrandCreditHistoryPage() {
   const pageTitle = isStoreAudience
     ? "Store brand credit notes"
     : isHoSupervisorAudience
-      ? "HO brand credit notes"
+      ? "CSC brand credit notes"
       : "Brand credit note history";
   const pageDescription = isStoreAudience
     ? "Store-responsible credit notes for your store — pending Accounts approval and approved vouchers."
     : isHoSupervisorAudience
-      ? "HO-responsible credit notes for your region — pending Accounts approval and approved vouchers."
+      ? "CSC-responsible credit notes for your region — pending Accounts approval and approved vouchers."
       : "Approved ZIM vouchers issued when brand could not repair — full audit trail with customer, watch, brand mail ref, and validity.";
 
   const load = useCallback(async () => {
@@ -467,7 +467,7 @@ export function BrandCreditHistoryPage() {
                               : "bg-sky-100 text-sky-900"
                           }`}
                         >
-                          {r.brandCreditNoteResponsible === "store" ? "Store" : "HO"}
+                          {r.brandCreditNoteResponsible === "store" ? "Store" : "CSC"}
                         </span>
                       </td>
                       <td className="align-middle px-3 py-3">
@@ -572,7 +572,7 @@ export function BrandCreditHistoryPage() {
                     <DetailRow label="Region" value={detail.regionName ?? "—"} />
                     <DetailRow
                       label="Responsible"
-                      value={detail.brandCreditNoteResponsible === "store" ? "Store" : "HO"}
+                      value={detail.brandCreditNoteResponsible === "store" ? "Store" : "CSC"}
                     />
                     <DetailRow
                       label="CN remark"

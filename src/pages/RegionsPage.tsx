@@ -734,7 +734,7 @@ export function RegionsPage() {
               <thead>
                 <tr className="bg-rlx-green text-white">
                   <th className="px-4 py-2.5 text-left font-semibold tracking-wide">#</th>
-                  <th className="px-4 py-2.5 text-left font-semibold tracking-wide">Region / HO Name</th>
+                  <th className="px-4 py-2.5 text-left font-semibold tracking-wide">Region / CSC Name</th>
                   <th className="px-4 py-2.5 text-left font-semibold tracking-wide">Code</th>
                   <th className="px-4 py-2.5 text-left font-semibold tracking-wide">GST</th>
                   <th className="px-4 py-2.5 text-left font-semibold tracking-wide">PAN</th>

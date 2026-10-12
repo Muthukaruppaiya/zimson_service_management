@@ -97,7 +97,7 @@ function watchLabel(job: SrfJob): string {
 
 function locationLabel(job: SrfJob): string {
   const s = job.status;
-  if (s === "sent_to_other_ho") return "Other HO";
+  if (s === "sent_to_other_ho") return "Other CSC";
   if (s === "in_transit_sc" || s === "dispatched_to_store" || s === "ready_for_outward") return "In Transit";
   if (
     s === "received_at_sc" ||

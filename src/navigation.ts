@@ -48,7 +48,7 @@ export const mainNav: NavItem[] = [
     label: "Service centre",
     description: "Inward, assign, technician",
     module: "service_centre",
-    badge: "HO",
+    badge: "CSC",
   },
   {
     to: "/inventory",

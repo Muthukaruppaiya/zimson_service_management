@@ -76,7 +76,7 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
   return (
     <div className="w-full min-w-0 space-y-3">
       <p className="text-xs font-medium text-stone-600">
-        Payment methods
+        Payment Methods
       </p>
       <div className="flex flex-wrap gap-2">
         {APP_PAYMENT_MODES.map((mode) => {

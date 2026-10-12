@@ -400,7 +400,7 @@ export function registerServiceInvoiceRoutes(
       const sourceType = String(check.rows[0]?.source_type ?? "");
       const sourceId = check.rows[0]?.source_id != null ? String(check.rows[0].source_id) : "";
       if (sourceType !== "inter_ho_repair" && sourceType !== "srf_store") {
-        res.status(400).json({ error: "E-invoice generation applies to SRF store and inter-HO repair invoices only." });
+        res.status(400).json({ error: "E-invoice generation applies to SRF store and inter-CSC repair invoices only." });
         return;
       }
       const edoc =

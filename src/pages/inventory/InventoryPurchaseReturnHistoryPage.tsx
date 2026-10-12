@@ -295,7 +295,7 @@ export function InventoryPurchaseReturnHistoryPage() {
         <InventoryBreadcrumb current="GRN return history" />
         <PageHeader title="GRN return history" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only HO Manager, HO Purchase, or Admin can view GRN return history.
+          Only CSC Manager, CSC Purchase, or Admin can view GRN return history.
         </div>
       </div>
     );
@@ -306,7 +306,7 @@ export function InventoryPurchaseReturnHistoryPage() {
       <InventoryBreadcrumb current="GRN return history" />
       <PageHeader
         title="GRN return history"
-        description="Returns posted to suppliers against GRNs. HO stock was reduced for each document."
+        description="Returns posted to suppliers against GRNs. CSC stock was reduced for each document."
         actions={
           <div className="flex gap-2">
             <button
@@ -331,7 +331,7 @@ export function InventoryPurchaseReturnHistoryPage() {
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <StatCard label="Returns posted" value={stats.count} />
-        <StatCard label="Units returned" value={stats.totalQty} sub="HO stock deducted" />
+        <StatCard label="Units returned" value={stats.totalQty} sub="CSC stock deducted" />
         <StatCard label="Return value" value={stats.totalValue > 0 ? fmt(stats.totalValue) : "—"} sub="incl. GST" />
       </div>
 

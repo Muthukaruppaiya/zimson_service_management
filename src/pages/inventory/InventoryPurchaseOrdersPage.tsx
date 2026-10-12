@@ -506,7 +506,7 @@ export function InventoryPurchaseOrdersPage() {
         <InventoryBreadcrumb current="Purchase orders" />
         <PageHeader
           title="Purchase Orders (PO)"
-          description={ENABLE_PR_FLOW ? "POs are raised at HO based on approved store PRs." : "POs are created at HO. Purchase request flow is on hold."}
+          description={ENABLE_PR_FLOW ? "POs are raised at CSC based on approved store PRs." : "POs are created at CSC. Purchase request flow is on hold."}
           actions={
             <button type="button" onClick={() => navigate(-1)} className="border border-rlx-rule bg-white px-4 py-2 text-xs font-semibold uppercase tracking-widest text-stone-600 hover:bg-stone-50 transition">
               ← Back
@@ -514,7 +514,7 @@ export function InventoryPurchaseOrdersPage() {
           }
         />
         <div className="border border-rlx-rule bg-white px-6 py-8 text-center text-sm text-stone-400">
-          Purchase orders are created by HO.
+          Purchase orders are created by CSC.
           <div className="mt-3">
             <Link to="/inventory/po-history" className="font-semibold text-rlx-green hover:underline">View PO History →</Link>
           </div>

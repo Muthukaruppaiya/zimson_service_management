@@ -104,7 +104,7 @@ export function TechnicianWorkbenchPage() {
     setNote(null);
     if (!user?.technicianProfileId) return;
     try {
-      await technicianRecommendBrand(jobId, "Cannot be repaired at HO — recommend brand repair.");
+      await technicianRecommendBrand(jobId, "Cannot be repaired at CSC — recommend brand repair.");
       setNote("Brand repair recommended — supervisor will review and send to brand if agreed.");
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Could not record brand recommendation.");

@@ -95,7 +95,7 @@ function hoParty(regionId?: string | null, fallbackName?: string | null): PartyB
   const region = printRegion(regionId);
   if (region) {
     return {
-      name: `${region.name}${/\bHO\b/i.test(region.name) ? "" : " — HO"}`,
+      name: `${region.name}${/\bHO\b/i.test(region.name) ? "" : " — CSC"}`,
       address: formatRegionAddress(region),
       phone: region.phone,
       email: region.email,
@@ -722,14 +722,14 @@ export function buildPrDocument(input: {
     ])}
     ${partiesHtml([
       ["Requesting store", store],
-      ["Issue from (HO)", ho],
+      ["Issue from (CSC)", ho],
     ])}
     ${qtyTableHtml(
       input.lines.map((l) => ({ ...l, note: l.reason })),
       { qtyLabel: "Req. Qty", noteLabel: "Reason / remarks" },
     )}
     ${notesHtml([["Remarks", input.notes]])}
-    ${signaturesHtml([tpl.signLabelPrimary || "Requested By", "Store Manager", tpl.signLabelSecondary || "Approved By (HO)"], branding.companyName)}
+    ${signaturesHtml([tpl.signLabelPrimary || "Requested By", "Store Manager", tpl.signLabelSecondary || "Approved By (CSC)"], branding.companyName)}
   `);
 }
 
@@ -825,7 +825,7 @@ export function buildTransferDocument(input: {
   const from = input.regionId || printRegion(null) ? hoParty(input.regionId, input.fromLocation) : { name: input.fromLocation };
   const to = input.storeId ? storeParty(input.storeId, input.toLocation) : { name: input.toLocation };
   return wrapDoc(`
-    ${headerHtml({ title: tpl.title || "Stock Transfer Note", docNo: input.refNumber, docDate: input.date, issuer: from, subtitle: "Internal stock transfer · HO → Store" })}
+    ${headerHtml({ title: tpl.title || "Stock Transfer Note", docNo: input.refNumber, docDate: input.date, issuer: from, subtitle: "Internal stock transfer · CSC → Store" })}
     <div class="accent"></div>
     ${metaHtml([
       ["Transfer No.", input.refNumber],
@@ -844,7 +844,7 @@ export function buildTransferDocument(input: {
       ["Terms", input.prNumber ? tpl.defaultTerms : null],
       ["Remarks", input.notes],
     ])}
-    ${signaturesHtml([tpl.signLabelPrimary || "Dispatched By (HO)", "Carried By", tpl.signLabelSecondary || "Received By (Store)"], branding.companyName)}
+    ${signaturesHtml([tpl.signLabelPrimary || "Dispatched By (CSC)", "Carried By", tpl.signLabelSecondary || "Received By (Store)"], branding.companyName)}
   `);
 }
 

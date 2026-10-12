@@ -338,7 +338,7 @@ export async function syncInvoicesFromLegacySources(pool: Pool): Promise<number>
         sourceType: "inter_ho_repair",
         sourceId: row.id,
         regionId: row.region_id,
-        customerName: row.customer_name || "Sender HO",
+        customerName: row.customer_name || "Sender CSC",
         srfReference: row.reference,
         totalInr: total,
         snapshotJson: {

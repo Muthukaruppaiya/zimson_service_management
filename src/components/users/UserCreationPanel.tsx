@@ -125,7 +125,7 @@ export function UserCreationPanel() {
     const resolvedRegionId = actor.role === "admin" ? (actor.regionId ?? "") : regionId;
 
     if (!resolvedRegionId) {
-      setFormMessage({ type: "err", text: "Select a region (HO scope)." });
+      setFormMessage({ type: "err", text: "Select a region (CSC scope)." });
       return;
     }
     if (storeRole && storeIds.length === 0) {
@@ -247,7 +247,7 @@ export function UserCreationPanel() {
                     ))}
                   </optgroup>
                 )}
-                <optgroup label="HO &amp; Service Centre">
+                <optgroup label="CSC &amp; Service Centre">
                   {creatable.filter((r) => r.group === "ho").map((r) => (
                     <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
@@ -285,7 +285,7 @@ export function UserCreationPanel() {
             {/* Region */}
             {user.role !== "admin" ? (
               <div>
-                <label htmlFor="uc-region" className={labelCls}>Region / HO</label>
+                <label htmlFor="uc-region" className={labelCls}>Region / CSC</label>
                 <select
                   id="uc-region"
                   value={regionId}
@@ -305,7 +305,7 @@ export function UserCreationPanel() {
               </div>
             ) : (
               <div>
-                <label className={labelCls}>Region / HO</label>
+                <label className={labelCls}>Region / CSC</label>
                 <div className={inputCls + " bg-stone-50 text-stone-500 cursor-not-allowed"}>
                   {regionOptions[0]?.name ?? "—"}
                 </div>
@@ -438,7 +438,7 @@ export function UserCreationPanel() {
                   required
                 />
                 <p className="mt-1 text-[11px] text-stone-400">
-                  OTP for Store ↔ HO handoff is sent to this mobile and the email above.
+                  OTP for Store ↔ CSC handoff is sent to this mobile and the email above.
                 </p>
               </div>
             ) : null}

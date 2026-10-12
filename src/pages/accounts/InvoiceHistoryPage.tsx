@@ -462,7 +462,7 @@ export function InvoiceHistoryPage() {
       <div className="bg-rlx-bg px-4 py-4 md:px-6">
         <PageHeader
           title="Invoice history"
-          description="SRF store billing and inter-HO repair invoices — payment status, root SRF reference, and ledger posting."
+          description="SRF store billing and inter-CSC repair invoices — payment status, root SRF reference, and ledger posting."
           actions={
             <div className="flex flex-wrap gap-2">
               <button type="button" className="ui-btn-secondary" disabled={syncing} onClick={() => void syncLegacy()}>
@@ -506,7 +506,7 @@ export function InvoiceHistoryPage() {
             <select id="inv-hist-source" className="ui-field" value={sourceType} onChange={(e) => setSourceType(e.target.value as typeof sourceType)}>
               <option value="ALL">All SRF sources</option>
               <option value="srf_store">SRF store billing</option>
-              <option value="inter_ho_repair">Inter-HO repair</option>
+              <option value="inter_ho_repair">Inter-CSC repair</option>
             </select>
           </FilterField>
           <div className="flex items-end">
@@ -520,7 +520,7 @@ export function InvoiceHistoryPage() {
           <p className="text-sm text-rlx-ink-muted">Loading invoices…</p>
         ) : filtered.length === 0 ? (
           <div className="border border-rlx-rule bg-white px-5 py-10 text-center text-sm text-rlx-ink-muted">
-            No SRF invoices found. Use <strong>Sync from legacy</strong> to import closed store bills and inter-HO repair invoices.
+            No SRF invoices found. Use <strong>Sync from legacy</strong> to import closed store bills and inter-CSC repair invoices.
           </div>
         ) : (
           <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
@@ -818,7 +818,7 @@ export function InvoiceHistoryPage() {
                       <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-rlx-gold">Record payment</p>
                       {invoiceNeedsEdoc(detail, edocEnabled) ? (
                         <p className="mb-3 text-xs text-rose-800">
-                          Payment is blocked until GST e-invoice (IRN) is generated for this inter-HO invoice.
+                          Payment is blocked until GST e-invoice (IRN) is generated for this inter-CSC invoice.
                         </p>
                       ) : null}
                       <div className="space-y-3">

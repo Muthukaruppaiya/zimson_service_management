@@ -142,7 +142,7 @@ export async function loadRegionHoParty(client: PoolClient, regionId: string): P
   const pinRaw = String(addrJson?.pincode ?? "").trim();
   const pincode = /^\d{6}$/.test(pinRaw) ? Number(pinRaw) : undefined;
   return {
-    locationLabel: `HO / Service Centre: ${row.name}`,
+    locationLabel: `Service Centre: ${row.name}`,
     legalName: row.name,
     address: formatAddressJson(row.address_json, String(row.address ?? "")) || "—",
     phone: String(row.phone ?? "").trim() || "—",

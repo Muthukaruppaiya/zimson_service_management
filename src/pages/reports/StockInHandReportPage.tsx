@@ -3,6 +3,7 @@ import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useRegions } from "../../context/RegionsContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { locationTypeLabel } from "../../lib/locationTypeLabel";
 import type { SparePart, SpareStockRow } from "../../types/spare";
 import { downloadCsv } from "./serviceReportUtils";
 
@@ -161,7 +162,7 @@ export function StockInHandReportPage() {
               stock.locationType === "STORE" && stock.storeId
                 ? storeNameById.get(stock.storeId) ?? stock.storeId
                 : stock.locationType === "HO"
-                  ? "HO"
+                  ? "CSC"
                   : "—",
             qty,
             updatedAt: stock.updatedAt ?? null,
@@ -317,7 +318,7 @@ export function StockInHandReportPage() {
           <div className="border-b-2 border-rlx-gold bg-rlx-green px-3 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">Scope</p>
           </div>
-          <p className="px-3 py-3 text-sm text-rlx-ink">HO + store stock (qty &gt; 0)</p>
+          <p className="px-3 py-3 text-sm text-rlx-ink">CSC + store stock (qty &gt; 0)</p>
         </div>
       </div>
 
@@ -346,7 +347,7 @@ export function StockInHandReportPage() {
               onChange={(e) => setLocationType(e.target.value as "ALL" | "HO" | "STORE")}
             >
               <option value="ALL">All locations</option>
-              <option value="HO">HO only</option>
+              <option value="HO">CSC only</option>
               <option value="STORE">Store only</option>
             </select>
           </FilterField>
@@ -449,7 +450,7 @@ export function StockInHandReportPage() {
                             : "bg-amber-50 text-amber-950 ring-amber-300/70"
                         }`}
                       >
-                        {line.locationType}
+                        {locationTypeLabel(line.locationType)}
                       </span>
                     </td>
                     <td className="align-middle px-3 py-3">
@@ -495,7 +496,7 @@ export function StockInHandReportPage() {
                 <p className="text-[9px] font-semibold uppercase tracking-[0.35em] text-rlx-gold">Stock details</p>
                 <h3 className="truncate font-mono text-base font-semibold text-white sm:text-lg">{detail.sku}</h3>
                 <p className="mt-0.5 truncate text-xs text-white/65 sm:text-sm">
-                  {detail.name} · {detail.locationType} · qty {detail.qty.toLocaleString()}
+                  {detail.name} · {locationTypeLabel(detail.locationType)} · qty {detail.qty.toLocaleString()}
                 </p>
               </div>
               <button type="button" onClick={closeDetail} className={modalIconGhost} title="Close" aria-label="Close">
@@ -511,7 +512,7 @@ export function StockInHandReportPage() {
                       <DetailRow label="SKU" value={<span className="font-mono font-semibold text-rlx-green">{detail.sku}</span>} />
                       <DetailRow label="Item" value={detail.name} />
                       <DetailRow label="Category" value={detail.category} />
-                      <DetailRow label="Location" value={detail.locationType} />
+                      <DetailRow label="Location" value={locationTypeLabel(detail.locationType)} />
                       <DetailRow label="Region" value={detail.regionName} />
                       <DetailRow label="Store" value={detail.storeName} />
                       <DetailRow
@@ -607,7 +608,7 @@ export function StockInHandReportPage() {
                             h.locationType === "STORE"
                               ? h.storeName ?? storeNameById.get(h.storeId ?? "") ?? h.storeId ?? "Store"
                               : h.locationType === "HO"
-                                ? h.regionName ?? regionNameById.get(h.regionId ?? "") ?? "HO"
+                                ? h.regionName ?? regionNameById.get(h.regionId ?? "") ?? "CSC"
                                 : "Master";
                           const change = h.quantityChange;
                           return (

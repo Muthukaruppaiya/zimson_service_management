@@ -11,6 +11,7 @@ import {
 import { validateCustomerB2bGstin } from "../../lib/zimsonCompanyGst";
 import { inputClass, inputClassReadOnly } from "../../lib/uiForm";
 import { companyNameFromGstLookup, lookupCompanyByGstin } from "../../lib/gstLookupClient";
+import { RequiredMark } from "../ui/RequiredMark";
 
 export type B2bDetailsSavedExtras = {
   address?: string;
@@ -177,7 +178,7 @@ export function B2bDetailsModal({
           {/* GSTIN — only editable field until lookup succeeds */}
           <div>
             <label htmlFor="b2b-gst" className="text-xs font-medium text-stone-700">
-              GSTIN *
+              GSTIN<RequiredMark />
             </label>
             <div className="mt-0.5 flex flex-wrap items-end gap-2">
               <input
@@ -213,7 +214,7 @@ export function B2bDetailsModal({
           {/* Company — filled from GST lookup only */}
           <div>
             <label htmlFor="b2b-company" className="text-xs font-medium text-stone-700">
-              Company / legal name *
+              Company / legal name<RequiredMark />
             </label>
             <input
               id="b2b-company"
@@ -228,7 +229,7 @@ export function B2bDetailsModal({
           {/* PAN — derived from GST lookup / GSTIN only */}
           <div>
             <label htmlFor="b2b-pan" className="text-xs font-medium text-stone-700">
-              PAN *
+              Business PAN<RequiredMark />
             </label>
             <input
               id="b2b-pan"

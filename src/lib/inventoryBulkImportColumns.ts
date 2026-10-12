@@ -24,7 +24,7 @@ export const BULK_IMPORT_SPARES_COLUMNS: BulkImportColumn[] = [
   { key: "cost_inr", label: "Cost (INR)", required: false, note: "Cost price in INR" },
   { key: "gst_percent", label: "Tax %", required: false, note: "GST / tax percent 0–100 (IGST % also accepted)" },
   { key: "tcs_eligible", label: "TCS Eligible", required: false, note: "0 or 1. 1 = luxury/motor vehicle: 1% TCS if sale is over ₹10 lakh (5% without buyer PAN)" },
-  { key: "quantity", label: "Qty", required: false, note: "Optional opening qty — stored as HO stock when present" },
+  { key: "quantity", label: "Qty", required: false, note: "Optional opening qty — stored as CSC stock when present" },
   { key: "is_active", label: "Active", required: false, note: "Y / N — default Y" },
 ];
 
@@ -38,7 +38,7 @@ export const BULK_IMPORT_PRICES_COLUMNS: BulkImportColumn[] = [
 export const BULK_IMPORT_STOCK_COLUMNS: BulkImportColumn[] = [
   { key: "sku", label: "Product Code", required: true, note: "Must match Product Code + Watch Brand in Spares" },
   { key: "watch_brand", label: "Watch Brand", required: true, note: "Excel dropdown of active brands" },
-  { key: "location_type", label: "Location Type", required: true, note: "HO or STORE — Excel dropdown" },
+  { key: "location_type", label: "Location Type", required: true, note: "CSC or STORE — Excel dropdown" },
   { key: "region_name", label: "Region Name", required: true, note: "Excel dropdown of your regions" },
   { key: "store_name", label: "Store Name", required: false, note: "Required when Location Type = STORE" },
   { key: "quantity", label: "Quantity", required: true, note: "Integer quantity (non-negative)" },

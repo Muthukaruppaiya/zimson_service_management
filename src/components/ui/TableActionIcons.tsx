@@ -72,6 +72,27 @@ export function IconAmend({ className = iconCls }: IconProps) {
   );
 }
 
+export function IconRefreshUploads({ className = "h-4 w-4 shrink-0" }: IconProps) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 4v5h5M20 20v-5h-5" />
+      <path d="M5.1 15a7.5 7.5 0 0012.9 2.4L20 15M18.9 9A7.5 7.5 0 006 6.6L4 9" />
+    </svg>
+  );
+}
+
+export function IconRefreshLink({ className = "h-4 w-4 shrink-0" }: IconProps) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M10 14a4 4 0 005.66 0l3-3a4 4 0 00-5.66-5.66l-1.5 1.5" />
+      <path d="M14 10a4 4 0 00-5.66 0l-3 3a4 4 0 005.66 5.66l1.5-1.5" />
+    </svg>
+  );
+}
+
+export const captureLinkButtonClass =
+  "inline-flex items-center gap-2 rounded-lg border border-zimson-300 bg-white px-4 py-2 text-xs font-semibold text-zimson-900 transition hover:border-zimson-500 hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50";
+
 export function IconTrash({ className = iconCls }: IconProps) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>

@@ -7,6 +7,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
 import { ApiError, apiJson } from "../../lib/api";
+import { locationTypeLabel } from "../../lib/locationTypeLabel";
 import type { SpareStockRow } from "../../types/spare";
 
 const btnIcon =
@@ -191,7 +192,7 @@ export function InventoryStockAdjustmentPage() {
       if (q) {
         const region = regionNameById.get(row.regionId) ?? row.regionId;
         const store = row.storeId ? storeNameById.get(row.storeId) ?? row.storeId : "";
-        const hay = `${row.locationType} ${region} ${store} ${row.quantity}`.toLowerCase();
+        const hay = `${row.locationType} ${locationTypeLabel(row.locationType)} ${region} ${store} ${row.quantity}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -274,7 +275,7 @@ export function InventoryStockAdjustmentPage() {
       <InventoryBreadcrumb current="Stock adjustment" />
       <PageHeader
         title="Stock adjustment"
-        description="Adjust spare stock by HO / store location and review balances."
+        description="Adjust spare stock by CSC / store location and review balances."
         actions={
           <Link
             to="/inventory"
@@ -294,7 +295,7 @@ export function InventoryStockAdjustmentPage() {
         </div>
         <div className="border border-rlx-rule bg-white shadow-sm">
           <div className="border-b-2 border-rlx-gold bg-rlx-green px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">HO lines</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">CSC lines</p>
           </div>
           <p className="px-3 py-3 text-lg font-semibold text-rlx-ink">{hoLines}</p>
         </div>
@@ -336,7 +337,7 @@ export function InventoryStockAdjustmentPage() {
                   disabled={storeOnlyRole || hoOnlyRole}
                 >
                   <option value="STORE">Store</option>
-                  <option value="HO">HO / Service Centre</option>
+                  <option value="HO">Service Centre</option>
                 </select>
               </FilterField>
               <FilterField label="Region" htmlFor="adj-region">
@@ -450,7 +451,7 @@ export function InventoryStockAdjustmentPage() {
                   onChange={(e) => setListFilter(e.target.value as typeof listFilter)}
                 >
                   <option value="ALL">All</option>
-                  <option value="HO">HO</option>
+                  <option value="HO">CSC</option>
                   <option value="STORE">Store</option>
                 </select>
               </FilterField>
@@ -508,7 +509,7 @@ export function InventoryStockAdjustmentPage() {
                                 : "bg-amber-50 text-amber-950 ring-amber-300/70"
                             }`}
                           >
-                            {row.locationType}
+                            {locationTypeLabel(row.locationType)}
                           </span>
                         </td>
                         <td className="align-middle px-3 py-3">
@@ -563,7 +564,7 @@ export function InventoryStockAdjustmentPage() {
                   {selectedSpare.sku}
                 </h3>
                 <p className="mt-0.5 truncate text-xs text-white/65 sm:text-sm">
-                  {selectedSpare.name} · {detail.locationType} · qty{" "}
+                  {selectedSpare.name} · {locationTypeLabel(detail.locationType)} · qty{" "}
                   {Number(detail.quantity ?? 0).toLocaleString()}
                 </p>
               </div>
@@ -582,7 +583,7 @@ export function InventoryStockAdjustmentPage() {
                         value={<span className="font-mono font-semibold text-rlx-green">{selectedSpare.sku}</span>}
                       />
                       <DetailRow label="Item" value={selectedSpare.name} />
-                      <DetailRow label="Location" value={detail.locationType} />
+                      <DetailRow label="Location" value={locationTypeLabel(detail.locationType)} />
                       <DetailRow label="Region" value={regionNameById.get(detail.regionId) ?? detail.regionId} />
                       <DetailRow
                         label="Store"

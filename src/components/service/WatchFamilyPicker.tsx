@@ -3,6 +3,7 @@ import { ApiError, apiJson } from "../../lib/api";
 import { sanitizeTextInput } from "../../lib/inputSanitize";
 import { SearchableCombobox } from "./SearchableCombobox";
 import { PickerSaveButton } from "./PickerSaveButton";
+import { renderFieldLabel } from "../ui/RequiredMark";
 
 export type WatchFamilyRow = { id: string; brand: string; family: string };
 
@@ -225,7 +226,7 @@ export function WatchFamilyPicker({
           {isNewFamilyEntry ? (
             <div>
               <label htmlFor={`${idPrefix}-family-new`} className="text-xs font-medium text-stone-600">
-                {label}
+                {renderFieldLabel(label)}
               </label>
               <input
                 id={`${idPrefix}-family-new`}

@@ -79,14 +79,14 @@ function lifecycleBadge(row: StoreHistoryRow) {
     if (lc === "waiting_delivery_boy") {
       return (
         <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-          Outward to HO · Waiting for delivery agent
+          Outward to CSC · Waiting for delivery agent
         </span>
       );
     }
     if (lc === "in_transit") {
       return (
         <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-          Outward · In transit to HO
+          Outward · In transit to CSC
         </span>
       );
     }
@@ -100,35 +100,35 @@ function lifecycleBadge(row: StoreHistoryRow) {
     if (lc === "return_waiting_delivery_boy") {
       return (
         <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-          Return from HO · Waiting for delivery agent
+          Return from CSC · Waiting for delivery agent
         </span>
       );
     }
     if (lc === "return_in_transit") {
       return (
         <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">
-          Return from HO · With delivery agent
+          Return from CSC · With delivery agent
         </span>
       );
     }
     if (lc === "return_awaiting_inward") {
       return (
         <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-900">
-          Return from HO · Awaiting store inward
+          Return from CSC · Awaiting store inward
         </span>
       );
     }
     if (lc === "return_received") {
       return (
         <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
-          Return from HO · Received at store
+          Return from CSC · Received at store
         </span>
       );
     }
     if (row.direction === "outward") {
       return (
         <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-700">
-          Outward to HO · Pending
+          Outward to CSC · Pending
         </span>
       );
     }
@@ -136,27 +136,27 @@ function lifecycleBadge(row: StoreHistoryRow) {
   if (row.inwardLifecycle === "received") {
     return (
       <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
-        Inward from HO · Received
+        Inward from CSC · Received
       </span>
     );
   }
   if (row.inwardLifecycle === "waiting_delivery_boy") {
     return (
       <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-        Inward from HO · Waiting for delivery agent
+        Inward from CSC · Waiting for delivery agent
       </span>
     );
   }
   if (row.inwardLifecycle === "in_transit_to_store") {
     return (
       <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">
-        Inward from HO · With delivery agent
+        Inward from CSC · With delivery agent
       </span>
     );
   }
   return (
     <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-900">
-      Inward from HO · Awaiting inward
+      Inward from CSC · Awaiting inward
     </span>
   );
 }
@@ -372,7 +372,7 @@ export function StoreLogisticsHistoryPage() {
       <ServiceBreadcrumb current="Inward & outward history" />
       <PageHeader
         title="Store inward & outward history"
-        description="SRF watches sent from store to HO and returned to store. Inventory spare transfers are under Inventory → Transfer history."
+        description="SRF watches sent from store to CSC and returned to store. Inventory spare transfers are under Inventory → Transfer history."
         actions={
           <Link
             to="/service/store-dispatch"
@@ -388,7 +388,7 @@ export function StoreLogisticsHistoryPage() {
           [
             {
               key: "outward",
-              label: "Outward (store → HO)",
+              label: "Outward (store → CSC)",
               value: stats.outward,
               className: "border-zimson-200 bg-zimson-50/60",
               labelClass: "text-stone-500",
@@ -401,7 +401,7 @@ export function StoreLogisticsHistoryPage() {
             },
             {
               key: "inward",
-              label: "Inward (HO → store)",
+              label: "Inward (CSC → store)",
               value: stats.inward,
               className: "border-zimson-200 bg-zimson-50/60",
               labelClass: "text-stone-500",
@@ -414,7 +414,7 @@ export function StoreLogisticsHistoryPage() {
             },
             {
               key: "inTransit",
-              label: "In transit to HO",
+              label: "In transit to CSC",
               value: stats.inTransit,
               className: "border-amber-200 bg-amber-50/80",
               labelClass: "text-amber-800",
@@ -457,8 +457,8 @@ export function StoreLogisticsHistoryPage() {
           {(
             [
               ["all", "All"],
-              ["outward", "Outward (to HO)"],
-              ["inward", "Inward (from HO)"],
+              ["outward", "Outward (to CSC)"],
+              ["inward", "Inward (from CSC)"],
             ] as const
           ).map(([key, label]) => (
             <button
@@ -517,8 +517,8 @@ export function StoreLogisticsHistoryPage() {
             className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
           >
             <option value="all">All statuses</option>
-            {direction !== "inward" ? <option value="waiting_delivery_boy_to_ho">Waiting for delivery agent to HO</option> : null}
-            {direction !== "inward" ? <option value="in_transit">In transit to HO</option> : null}
+            {direction !== "inward" ? <option value="waiting_delivery_boy_to_ho">Waiting for delivery agent to CSC</option> : null}
+            {direction !== "inward" ? <option value="in_transit">In transit to CSC</option> : null}
             {direction !== "inward" ? <option value="at_ho">At service centre</option> : null}
             {direction !== "outward" ? <option value="waiting_delivery_boy">Waiting for delivery agent</option> : null}
             {direction !== "outward" ? <option value="in_transit_to_store">With delivery agent to store</option> : null}
@@ -564,7 +564,7 @@ export function StoreLogisticsHistoryPage() {
           <div className="rounded-xl border border-dashed border-zimson-300 bg-zimson-50/40 px-4 py-8 text-center">
             <p className="text-sm font-semibold text-zimson-900">
               {historyRows.length === 0
-                ? "No store ↔ HO transfers yet"
+                ? "No store ↔ CSC transfers yet"
                 : "No transfers match the current filters"}
             </p>
             {historyRows.length > 0 ? (
@@ -718,7 +718,7 @@ export function StoreLogisticsHistoryPage() {
 
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <section className="rounded-xl border border-blue-200 bg-blue-50/70 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-700">Outward transfer to HO</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-700">Outward transfer to CSC</p>
                   <p className="mt-2 font-mono text-sm font-bold text-blue-950">{selected.dcNumber ?? "Not created"}</p>
                 </section>
                 <section className="rounded-xl border border-violet-200 bg-violet-50/70 p-4">
@@ -733,8 +733,8 @@ export function StoreLogisticsHistoryPage() {
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Movement timeline</p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-4">
                   {[
-                    { label: "Sent to HO", at: selected.dispatchedToScAt },
-                    { label: "HO inward", at: selected.inwardAt },
+                    { label: "Sent to CSC", at: selected.dispatchedToScAt },
+                    { label: "CSC inward", at: selected.inwardAt },
                     { label: "Sent to store", at: selected.dispatchedToStoreAt },
                     { label: "Store inward", at: selected.receivedBackAtStoreAt },
                   ].map((item, index) => {

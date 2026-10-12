@@ -98,7 +98,7 @@ export function statusLabel(status: string): string {
 
 export function repairRouteLabel(job: SrfJob): string {
   if (job.repairRoute === "store_self") return "In-store repair";
-  return "HO / service centre";
+  return "service centre";
 }
 
 export function isTechnicianAssignActive(job: SrfJob): boolean {
@@ -126,9 +126,9 @@ export function isUnassignedWatch(job: SrfJob): boolean {
 export function unassignedStatusLabel(job: SrfJob): string {
   if (job.status === "store_self_pending") return "In-store — pending technician assign";
   if (job.status === "received_at_sc") {
-    if (job.requiresLocalConversion) return "HO received — convert to local SRF first";
-    if (job.transferSourceRegionId?.trim()) return "HO received (inter-HO) — pending assign";
-    return "HO received — pending technician assign";
+    if (job.requiresLocalConversion) return "CSC received — convert to local SRF first";
+    if (job.transferSourceRegionId?.trim()) return "CSC received (inter-CSC) — pending assign";
+    return "CSC received — pending technician assign";
   }
   return statusLabel(job.status);
 }

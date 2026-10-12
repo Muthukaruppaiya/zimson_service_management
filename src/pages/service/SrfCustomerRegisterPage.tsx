@@ -1,3 +1,4 @@
+import { RequiredMark } from "../../components/ui/RequiredMark";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { FormPageShell } from "../../components/layout/FormPageShell";
@@ -22,7 +23,7 @@ import { CustomFieldsSection } from "../../components/customFields/CustomFieldsS
 import { useCustomFields } from "../../hooks/useCustomFields";
 import { requiredCustomFieldError } from "../../lib/customFields";
 import type { CustomFieldValues } from "../../types/customField";
-import { companyNameFromGstLookup, lookupCompanyByGstin, lookupPanByNumber } from "../../lib/gstLookupClient";
+import { lookupCompanyByGstin, type GstLookupAddress } from "../../lib/gstLookupClient";
 import {
   sanitizeEmailInput,
   sanitizeGstPanInput,
@@ -92,6 +93,23 @@ function namesFromUnverifiedCustomer(c: CustomerRecord): { first: string; last: 
 
 type CountryRow = { id: string; name: string; sortOrder: number };
 
+function gstAddressToBlock(a: GstLookupAddress): CustomerAddressBlock {
+  return {
+    ...emptyCustomerAddress(),
+    addressLine1: (a.addressLine1 ?? a.address ?? "").trim(),
+    addressLine2: (a.addressLine2 ?? "").trim(),
+    city: (a.city ?? "").trim(),
+    district: (a.district ?? "").trim(),
+    state: (a.state ?? "").trim(),
+    countryId: "IN",
+    pincode: (a.pincode ?? "").replace(/\D/g, "").slice(0, 6),
+  };
+}
+
+function hasGstAddress(a: GstLookupAddress): boolean {
+  return Boolean((a.addressLine1 ?? a.address ?? "").trim() || (a.pincode ?? "").trim());
+}
+
 export function SrfCustomerRegisterPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -147,23 +165,21 @@ export function SrfCustomerRegisterPage() {
   const { fields: extraFieldDefs } = useCustomFields("customer");
   const [gstFetchBusy, setGstFetchBusy] = useState(false);
   const [gstLookupLocked, setGstLookupLocked] = useState(false);
-  const [panVerifyBusy, setPanVerifyBusy] = useState(false);
-  const [panVerifiedValue, setPanVerifiedValue] = useState("");
-  const [panVerifiedName, setPanVerifiedName] = useState("");
 
   const [countries, setCountries] = useState<CountryRow[]>(FALLBACK_COUNTRIES);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [demoMobileOtp, setDemoMobileOtp] = useState<string | null>(null);
-  const [demoEmailOtp, setDemoEmailOtp] = useState<string | null>(null);
   const [mobileOtpInput, setMobileOtpInput] = useState("");
-  const [emailOtpInput, setEmailOtpInput] = useState("");
   const [mobileOtpVerified, setMobileOtpVerified] = useState(false);
-  const [emailOtpVerified, setEmailOtpVerified] = useState(false);
   const [otpStartBusy, setOtpStartBusy] = useState(false);
-  const [emailOtpAnchor, setEmailOtpAnchor] = useState<string | null>(null);
   const [mobileOtpModalOpen, setMobileOtpModalOpen] = useState(false);
-  const [emailOtpModalOpen, setEmailOtpModalOpen] = useState(false);
   const [otpConfirmBusy, setOtpConfirmBusy] = useState(false);
+  const [emailOtpInput, setEmailOtpInput] = useState("");
+  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
+  const [emailOtpModalOpen, setEmailOtpModalOpen] = useState(false);
+  const [emailOtpBusy, setEmailOtpBusy] = useState(false);
+  const emailNorm = email.trim().toLowerCase();
+  const emailOtpVerified = Boolean(emailNorm && verifiedEmail === emailNorm);
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -186,6 +202,8 @@ export function SrfCustomerRegisterPage() {
     setAlternatePhone("");
     setTelephone("");
     setEmail("");
+    setVerifiedEmail(null);
+    setEmailOtpInput("");
     setDob("");
     setAnniversaryDate("");
     setBilling(emptyCustomerAddress());
@@ -202,12 +220,8 @@ export function SrfCustomerRegisterPage() {
     setCustomFields({});
     setSessionId(null);
     setDemoMobileOtp(null);
-    setDemoEmailOtp(null);
     setMobileOtpInput("");
-    setEmailOtpInput("");
     setMobileOtpVerified(false);
-    setEmailOtpVerified(false);
-    setEmailOtpAnchor(null);
     setError(null);
   }, [lockedRegisterPhone, initialPhoneDigits]);
 
@@ -216,7 +230,6 @@ export function SrfCustomerRegisterPage() {
   }, [lockedStoreId]);
 
   const phoneKey = useMemo(() => digitsOnly(phone, 12), [phone]);
-  const emailKey = useMemo(() => email.trim().toLowerCase(), [email]);
   const [existingCustomer, setExistingCustomer] = useState<CustomerRecord | null>(null);
   const [phoneCheckBusy, setPhoneCheckBusy] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -305,8 +318,6 @@ export function SrfCustomerRegisterPage() {
     setGst((existingCustomer.gst ?? "").trim().toUpperCase());
     setPan(panValue);
     setGstLookupLocked(kind === "B2B" && Boolean((existingCustomer.gst ?? "").trim()));
-    setPanVerifiedValue(panValue);
-    setPanVerifiedName("");
     setRemarkAttention((existingCustomer.remarkAttention ?? "").trim());
     setReferenceName((existingCustomer.referenceName ?? "").trim());
     setRepresentativeName((existingCustomer.representativeName ?? "").trim());
@@ -319,23 +330,9 @@ export function SrfCustomerRegisterPage() {
   useEffect(() => {
     setSessionId(null);
     setDemoMobileOtp(null);
-    setDemoEmailOtp(null);
     setMobileOtpInput("");
-    setEmailOtpInput("");
     setMobileOtpVerified(false);
-    setEmailOtpVerified(false);
-    setEmailOtpAnchor(null);
   }, [phoneKey]);
-
-  useEffect(() => {
-    if (emailOtpAnchor === null) return;
-    if (emailKey !== emailOtpAnchor) {
-      setDemoEmailOtp(null);
-      setEmailOtpInput("");
-      setEmailOtpVerified(false);
-      setEmailOtpAnchor(null);
-    }
-  }, [emailKey, emailOtpAnchor]);
 
   useEffect(() => {
     if (!api) return;
@@ -370,14 +367,6 @@ export function SrfCustomerRegisterPage() {
     setPan(derived || "");
   }, [gst, customerKind, gstLookupLocked]);
 
-  useEffect(() => {
-    const current = pan.trim().toUpperCase();
-    if (!current || current !== panVerifiedValue) {
-      setPanVerifiedValue("");
-      setPanVerifiedName("");
-    }
-  }, [pan, panVerifiedValue]);
-
   const shipEffective = useMemo(
     () => (sameShippingAsBilling ? billing : shipping),
     [sameShippingAsBilling, billing, shipping],
@@ -397,20 +386,24 @@ export function SrfCustomerRegisterPage() {
     setError(null);
     try {
       const out = await lookupCompanyByGstin(gst);
-      const name = companyNameFromGstLookup(out);
-      if (name) setCompany(name);
+      const legal = (out.legalName ?? "").trim();
+      const trade = (out.tradeName ?? "").trim();
+      setCompany(legal || trade);
+      setB2bDisplayName((prev) => prev.trim() || trade || legal);
       const derivedPan = panFromGstin(gst);
       if (derivedPan) setPan(derivedPan);
-      setPanVerifiedValue("");
-      setPanVerifiedName("");
-      if (out.address || out.city || out.state || out.pincode) {
-        setBilling((prev) => ({
-          ...prev,
-          addressLine1: prev.addressLine1.trim() || out.address?.trim() || prev.addressLine1,
-          city: prev.city.trim() || out.city?.trim() || prev.city,
-          state: prev.state.trim() || out.state?.trim() || prev.state,
-          pincode: prev.pincode.trim() || out.pincode?.trim() || prev.pincode,
-        }));
+      if (out.email) setEmail((prev) => prev.trim() || sanitizeEmailInput(out.email ?? ""));
+      if (out.mobile && out.mobile !== digitsOnly(phone, 10)) {
+        setAlternatePhone((prev) => prev || digitsOnly(out.mobile ?? "", 10));
+      }
+      if (hasGstAddress(out)) {
+        const block = gstAddressToBlock(out);
+        setBilling(block);
+        if (!isCustomerAddressComplete(shipping)) setSameShippingAsBilling(true);
+      }
+      const extra = (out.additionalAddresses ?? []).filter(hasGstAddress).slice(0, MAX_ADDITIONAL_ADDRESSES);
+      if (extra.length > 0) {
+        setAdditionalAddresses((prev) => (prev.length > 0 ? prev : extra.map(gstAddressToBlock)));
       }
       setGstLookupLocked(true);
     } catch (e) {
@@ -420,27 +413,38 @@ export function SrfCustomerRegisterPage() {
     }
   }
 
-  async function verifyPanNow(rawPan?: string) {
-    const panValue = (rawPan ?? pan).trim().toUpperCase();
-    if (!isValidPanFormat(panValue)) {
-      setError("Enter a valid 10-character PAN before verification.");
-      return;
-    }
-    setPanVerifyBusy(true);
+  function switchCustomerKind(next: CustomerKind) {
+    if (next === customerKind) return;
+    setCustomerKind(next);
+    setSalutation("Mr.");
+    setFirstName("");
+    setLastName("");
+    setB2bDisplayName("");
+    setAlternatePhone("");
+    setTelephone("");
+    setEmail("");
+    setVerifiedEmail(null);
+    setEmailOtpInput("");
+    setDob("");
+    setAnniversaryDate("");
+    setBilling(emptyCustomerAddress());
+    setShipping(emptyCustomerAddress());
+    setAdditionalAddresses([]);
+    setSameShippingAsBilling(false);
+    setCompany("");
+    setGst("");
+    setPan("");
+    setGstLookupLocked(false);
+    setRemarkAttention("");
+    setReferenceName("");
+    setRepresentativeName("");
+    setCustomFields({});
     setError(null);
-    try {
-      const out = await lookupPanByNumber(panValue);
-      const holder = (out.tradeName ?? out.legalName ?? "").trim();
-      setPan(panValue);
-      setPanVerifiedValue(panValue);
-      setPanVerifiedName(holder);
-    } catch (e) {
-      setPanVerifiedValue("");
-      setPanVerifiedName("");
-      setError(e instanceof Error ? e.message : "Could not verify PAN.");
-    } finally {
-      setPanVerifyBusy(false);
-    }
+  }
+
+  function changeGstin() {
+    setGstLookupLocked(false);
+    setCompany("");
   }
 
   async function handleStartMobileOtp() {
@@ -458,11 +462,9 @@ export function SrfCustomerRegisterPage() {
     }
     setOtpStartBusy(true);
     setMobileOtpVerified(false);
-    setEmailOtpVerified(false);
     setMobileOtpInput("");
+    setVerifiedEmail(null);
     setEmailOtpInput("");
-    setDemoEmailOtp(null);
-    setEmailOtpAnchor(null);
     try {
       const out = await startRegistrationMobileOtp({
         primaryPhone: phone,
@@ -506,57 +508,44 @@ export function SrfCustomerRegisterPage() {
 
   async function handleStartEmailOtp() {
     setError(null);
-    if (!mobileOtpVerified || !sessionId) {
-      showOtpAlert("Verify your mobile number first, then enter your email.", "OTP");
-      return;
-    }
     if (!isValidEmail(email)) {
-      showOtpAlert("Enter a valid email before requesting email OTP.", "OTP");
+      showOtpAlert("Enter a valid email address.", "Email OTP");
       return;
     }
-    setOtpStartBusy(true);
-    setEmailOtpVerified(false);
+    if (!sessionId || !mobileOtpVerified) {
+      showOtpAlert("Verify the primary mobile number first (Verify next to Primary Mobile), then verify the email.", "Email OTP");
+      return;
+    }
+    setEmailOtpBusy(true);
     setEmailOtpInput("");
+    setVerifiedEmail(null);
     try {
-      const out = await startRegistrationEmailOtp({ sessionId, email: email.trim() });
-      setDemoEmailOtp(out.demoEmailOtp ?? null);
-      setEmailOtpAnchor(emailKey);
-      if (out.demoEmailOtp) {
-        setEmailOtpInput("");
-      }
+      await startRegistrationEmailOtp({ sessionId, email: emailNorm });
       setEmailOtpModalOpen(true);
-      showOtpSent(formatOtpSentSubtitlePhoneEmail(undefined, email.trim()));
+      showOtpSent(formatOtpSentSubtitlePhoneEmail(undefined, emailNorm));
     } catch (e) {
-      showOtpAlert(e instanceof Error ? e.message : "Could not send email OTP.", "OTP");
-      setEmailOtpAnchor(null);
-      setDemoEmailOtp(null);
+      showOtpAlert(e instanceof Error ? e.message : "Could not send email OTP.", "Email OTP");
     } finally {
-      setOtpStartBusy(false);
+      setEmailOtpBusy(false);
     }
   }
 
   async function handleConfirmEmailOtp() {
     setError(null);
-    if (!sessionId) {
-      showOtpAlert("Complete mobile verification first.", "OTP");
-      return;
-    }
+    if (!sessionId) return;
     if (!isValidOtpCode(emailOtpInput)) {
-      showOtpAlert(`Enter the ${otpLengthLabel()} email OTP.`, "OTP");
+      showOtpAlert(`Enter the ${otpLengthLabel()} email OTP.`, "Email OTP");
       return;
     }
     try {
-      setOtpConfirmBusy(true);
+      setEmailOtpBusy(true);
       await confirmRegistrationEmailOtp({ sessionId, otp: emailOtpInput.trim() });
-      setEmailOtpVerified(true);
+      setVerifiedEmail(emailNorm);
       setEmailOtpModalOpen(false);
     } catch (e) {
-      showOtpAlert(
-        e instanceof Error ? e.message : "Email OTP could not be confirmed.",
-        "OTP verification failed",
-      );
+      showOtpAlert(e instanceof Error ? e.message : "Email OTP could not be confirmed.", "OTP verification failed");
     } finally {
-      setOtpConfirmBusy(false);
+      setEmailOtpBusy(false);
     }
   }
 
@@ -575,8 +564,12 @@ export function SrfCustomerRegisterPage() {
       );
       return false;
     }
-    if (!isValidEmail(email)) {
-      setError("Email is required.");
+    if (email.trim() && !isValidEmail(email)) {
+      setError("Enter a valid email or leave it blank.");
+      return false;
+    }
+    if (email.trim() && !emailOtpVerified) {
+      setError("Verify the email with OTP, or clear the email field to continue without it.");
       return false;
     }
     const annErr = validateCustomerAnniversary(dob, anniversaryDate);
@@ -598,13 +591,9 @@ export function SrfCustomerRegisterPage() {
         setError("Enter a valid 10-character PAN or leave it blank.");
         return false;
       }
-      if (pan.trim() && !verifyingExisting && panVerifiedValue !== pan.trim().toUpperCase()) {
-        setError("Verify PAN before creating the customer.");
-        return false;
-      }
     } else {
       if (!b2bDisplayName.trim()) {
-        setError("B2B display name is required.");
+        setError("Business display name is required.");
         return false;
       }
       if (!verifyingExisting && !gstLookupLocked) {
@@ -627,10 +616,6 @@ export function SrfCustomerRegisterPage() {
       const panValue = pan.trim() || panFromGstin(gst) || "";
       if (!isValidPanFormat(panValue)) {
         setError("Enter a valid PAN or a GSTIN that contains a valid PAN.");
-        return false;
-      }
-      if (!verifyingExisting && panVerifiedValue !== panValue.toUpperCase()) {
-        setError("Verify PAN from Master India before registering.");
         return false;
       }
     }
@@ -673,7 +658,7 @@ export function SrfCustomerRegisterPage() {
         otpPhone: digitsOnly(phone, 12),
         alternatePhone: alternatePhone ? digitsOnly(alternatePhone, 12) : undefined,
         telephone: telephone.trim() || undefined,
-        email: isValidEmail(email) ? email.trim().toLowerCase() : undefined,
+        email: isValidEmail(email) ? emailNorm : undefined,
         emailOtp: emailOtpVerified ? emailOtpInput.trim() : undefined,
         dob: dob || undefined,
         anniversaryDate: anniversaryDate || undefined,
@@ -848,10 +833,10 @@ export function SrfCustomerRegisterPage() {
                 type="radio"
                 name="srf-reg-kind"
                 checked={customerKind === "B2C"}
-                onChange={() => setCustomerKind("B2C")}
+                onChange={() => switchCustomerKind("B2C")}
                 className="text-zimson-600 focus:ring-zimson-500"
               />
-              B2C
+              Individual
             </label>
             <label
               className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-3 text-sm shadow-sm transition ${
@@ -862,13 +847,123 @@ export function SrfCustomerRegisterPage() {
                 type="radio"
                 name="srf-reg-kind"
                 checked={customerKind === "B2B"}
-                onChange={() => setCustomerKind("B2B")}
+                onChange={() => switchCustomerKind("B2B")}
                 className="text-zimson-600 focus:ring-zimson-500"
               />
-              B2B
+              Business
             </label>
           </div>
         </Card>
+
+        <Card title="Name">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-medium text-stone-600">Salutation</label>
+              <select className={inputClass} value={salutation} onChange={(e) => setSalutation(e.target.value)}>
+                {SALUTATIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {customerKind === "B2B" ? (
+              <div className="sm:col-span-1">
+                <label className="text-xs font-medium text-stone-600">Display name (Business)<RequiredMark /></label>
+                <input
+                  value={b2bDisplayName}
+                  onChange={(e) => setB2bDisplayName(sanitizeTextInput(e.target.value, 240))}
+                  className={inputClass}
+                  placeholder="As on invoices / correspondence"
+                />
+              </div>
+            ) : null}
+            <div>
+              <label className="text-xs font-medium text-stone-600">First name<RequiredMark /></label>
+              <input
+                value={firstName}
+                onChange={(e) => setFirstName(sanitizeTextInput(e.target.value, 80))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-stone-600">Last name</label>
+              <input
+                value={lastName}
+                onChange={(e) => setLastName(sanitizeTextInput(e.target.value, 80))}
+                className={inputClass}
+              />
+            </div>
+          </div>
+        </Card>
+
+        {customerKind === "B2B" ? (
+          <Card title="Business Details">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
+                <div className="min-w-[200px] flex-1">
+                  <label className="text-xs font-medium text-stone-600">GSTIN<RequiredMark /></label>
+                  <input
+                    value={gst}
+                    onChange={(e) => {
+                      const val = sanitizeGstPanInput(e.target.value, 15);
+                      setGst(val);
+                      if (!gstLookupLocked) setCompany("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (!gstLookupLocked) void fetchCompanyFromGst();
+                      }
+                    }}
+                    className={gstLookupLocked ? inputClassReadOnly : inputClass}
+                    maxLength={15}
+                    readOnly={gstLookupLocked}
+                    placeholder="15-character GSTIN"
+                  />
+                </div>
+                {gstLookupLocked ? (
+                  <button
+                    type="button"
+                    onClick={changeGstin}
+                    className="rounded-xl border border-zimson-300 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50"
+                  >
+                    Change GSTIN
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void fetchCompanyFromGst()}
+                    disabled={gstFetchBusy}
+                    className="rounded-xl bg-zimson-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zimson-700 disabled:opacity-60"
+                  >
+                    {gstFetchBusy ? "Fetching…" : "Fetch From GST"}
+                  </button>
+                )}
+              </div>
+              <div>
+                <label className="text-xs font-medium text-stone-600">Company / legal name<RequiredMark /></label>
+                <input
+                  value={company}
+                  className={inputClassReadOnly}
+                  placeholder="Fetched from GST"
+                  readOnly
+                  tabIndex={-1}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-stone-600">Business PAN<RequiredMark /></label>
+                <input
+                  value={pan.trim() || panFromGstin(gst) || ""}
+                  className={inputClassReadOnly}
+                  readOnly
+                  tabIndex={-1}
+                  placeholder="From GSTIN"
+                />
+              </div>
+            </div>
+          </Card>
+        ) : null}
 
         <Card title="Customer registered at">
           {lockedStoreId ? (
@@ -893,52 +988,10 @@ export function SrfCustomerRegisterPage() {
           )}
         </Card>
 
-        <Card title="Name">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="text-xs font-medium text-stone-600">Salutation</label>
-              <select className={inputClass} value={salutation} onChange={(e) => setSalutation(e.target.value)}>
-                {SALUTATIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {customerKind === "B2B" ? (
-              <div className="sm:col-span-1">
-                <label className="text-xs font-medium text-stone-600">Display name (B2B) *</label>
-                <input
-                  value={b2bDisplayName}
-                  onChange={(e) => setB2bDisplayName(sanitizeTextInput(e.target.value, 240))}
-                  className={inputClass}
-                  placeholder="As on invoices / correspondence"
-                />
-              </div>
-            ) : null}
-            <div>
-              <label className="text-xs font-medium text-stone-600">First name *</label>
-              <input
-                value={firstName}
-                onChange={(e) => setFirstName(sanitizeTextInput(e.target.value, 80))}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-stone-600">Last name</label>
-              <input
-                value={lastName}
-                onChange={(e) => setLastName(sanitizeTextInput(e.target.value, 80))}
-                className={inputClass}
-              />
-            </div>
-          </div>
-        </Card>
-
         <Card title="Contact">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-stone-600">Primary mobile *</label>
+              <label className="text-xs font-medium text-stone-600">Primary mobile<RequiredMark /></label>
               {/* {lockedRegisterPhone ? (
                 <p className="mt-0.5 text-xs text-stone-500">
                   {forQuickBill
@@ -1006,11 +1059,7 @@ export function SrfCustomerRegisterPage() {
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-stone-600">Email *</label>
-              <p className="mt-1 text-xs text-stone-500">
-                {/* You can enter email anytime. Use Verify after mobile OTP is confirmed (or save with verification
-                pending). */}
-              </p>
+              <label className="text-xs font-medium text-stone-600">Email (optional)</label>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <input
                   type="email"
@@ -1020,32 +1069,25 @@ export function SrfCustomerRegisterPage() {
                   placeholder="name@example.com"
                   autoComplete="email"
                 />
-                <button
-                  type="button"
-                  onClick={() => void handleStartEmailOtp()}
-                  disabled={otpStartBusy || !mobileOtpVerified || !isValidEmail(email)}
-                  className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {otpStartBusy ? "…" : "Verify"}
-                </button>
-                {emailOtpVerified ? (
-                  <span className={contactVerifyPill} title="Email verified">
-                    <span aria-hidden="true">✓</span> Verified
-                  </span>
-                ) : isValidEmail(email) && mobileOtpVerified ? (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
-                    Email verification pending
-                  </span>
+                {email.trim() ? (
+                  emailOtpVerified ? (
+                    <span className={contactVerifyPill} title="Email verified">
+                      <span aria-hidden="true">✓</span> Verified
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleStartEmailOtp()}
+                      disabled={emailOtpBusy}
+                      className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {emailOtpBusy ? "…" : "Verify"}
+                    </button>
+                  )
                 ) : null}
               </div>
-              {sessionId && mobileOtpVerified && !emailOtpVerified && emailOtpAnchor === emailKey ? (
-                <button
-                  type="button"
-                  onClick={() => setEmailOtpModalOpen(true)}
-                  className="mt-1 text-xs font-semibold text-zimson-800 underline hover:text-zimson-950"
-                >
-                  Enter email OTP code
-                </button>
+              {email.trim() && !emailOtpVerified ? (
+                <p className="mt-1 text-xs font-medium text-amber-700">Email not verified</p>
               ) : null}
             </div>
             <div>
@@ -1070,27 +1112,13 @@ export function SrfCustomerRegisterPage() {
             {customerKind === "B2C" ? (
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium text-stone-600">PAN (optional)</label>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <input
-                    value={pan}
-                    onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
-                    className={`${inputClass.replace("mt-1 ", "")} min-w-0 flex-1`}
-                    maxLength={10}
-                    placeholder="10-character PAN if available"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void verifyPanNow()}
-                    disabled={panVerifyBusy || !isValidPanFormat(pan)}
-                    className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {panVerifyBusy ? "…" : "Verify PAN"}
-                  </button>
-                  {panVerifiedValue && panVerifiedValue === pan.trim().toUpperCase() ? (
-                    <span className={contactVerifyPill}>✓ Verified</span>
-                  ) : null}
-                </div>
-                {panVerifiedName ? <p className="mt-1 text-xs text-stone-600">PAN holder: {panVerifiedName}</p> : null}
+                <input
+                  value={pan}
+                  onChange={(e) => setPan(sanitizeGstPanInput(e.target.value, 10))}
+                  className={inputClass}
+                  maxLength={10}
+                  placeholder="10-character PAN if available"
+                />
               </div>
             ) : null}
           </div>
@@ -1202,7 +1230,7 @@ export function SrfCustomerRegisterPage() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-stone-600">Representative name</label>
+              <label className="text-xs font-medium text-stone-600">Customer Representative name</label>
               <input
                 value={representativeName}
                 onChange={(e) => setRepresentativeName(sanitizeTextInput(e.target.value, 120))}
@@ -1210,7 +1238,7 @@ export function SrfCustomerRegisterPage() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-stone-600">Reference name</label>
+              <label className="text-xs font-medium text-stone-600">Customer Reference name</label>
               <input
                 value={referenceName}
                 onChange={(e) => setReferenceName(sanitizeTextInput(e.target.value, 120))}
@@ -1230,74 +1258,6 @@ export function SrfCustomerRegisterPage() {
               inputClass={inputClass}
               labelClass="text-xs font-medium text-stone-600"
             />
-          </Card>
-        ) : null}
-
-        {customerKind === "B2B" ? (
-          <Card title="Business & tax">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2 flex flex-wrap items-end gap-2">
-                <div className="min-w-[200px] flex-1">
-                  <label className="text-xs font-medium text-stone-600">GSTIN *</label>
-                  <input
-                    value={gst}
-                    onChange={(e) => {
-                      const val = sanitizeGstPanInput(e.target.value, 15);
-                      setGst(val);
-                      if (!gstLookupLocked) setCompany("");
-                    }}
-                    className={gstLookupLocked ? inputClassReadOnly : inputClass}
-                    maxLength={15}
-                    readOnly={gstLookupLocked}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void fetchCompanyFromGst()}
-                  disabled={gstFetchBusy || gstLookupLocked}
-                  className="rounded-xl border border-zimson-500 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm hover:bg-zimson-50 disabled:opacity-60"
-                >
-                  {gstFetchBusy ? "…" : gstLookupLocked ? "Fetched from GST" : "Fetch company from GST"}
-                </button>
-              </div>
-              <div className="sm:col-span-2">
-                <label className="text-xs font-medium text-stone-600">Company / legal name *</label>
-                <input
-                  value={company}
-                  className={inputClassReadOnly}
-                  placeholder="Fetched from GST lookup"
-                  readOnly
-                  tabIndex={-1}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="text-xs font-medium text-stone-600">PAN *</label>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <input
-                    value={pan.trim() || panFromGstin(gst) || ""}
-                    className={`${inputClassReadOnly.replace("mt-1 ", "")} min-w-0 flex-1`}
-                    readOnly
-                    tabIndex={-1}
-                    placeholder="Filled after GST lookup"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void verifyPanNow(pan.trim() || panFromGstin(gst) || "")}
-                    disabled={panVerifyBusy || !isValidPanFormat(pan.trim() || panFromGstin(gst) || "")}
-                    className="shrink-0 rounded-lg border border-zimson-500 bg-white px-3 py-2 text-xs font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {panVerifyBusy ? "…" : "Verify PAN"}
-                  </button>
-                  {panVerifiedValue && panVerifiedValue === (pan.trim() || panFromGstin(gst) || "").toUpperCase() ? (
-                    <span className={contactVerifyPill}>✓ Verified</span>
-                  ) : null}
-                </div>
-                {panVerifiedName ? <p className="mt-1 text-xs text-stone-600">PAN holder: {panVerifiedName}</p> : null}
-                {/* <p className="mt-1 text-[11px] text-stone-500">
-                  Taken from the GST registry or characters 3–12 of the GSTIN.
-                </p> */}
-              </div>
-            </div>
           </Card>
         ) : null}
 
@@ -1388,13 +1348,13 @@ export function SrfCustomerRegisterPage() {
       <RegistrationOtpModal
         open={emailOtpModalOpen}
         kind="email"
-        target={email}
+        target={emailNorm}
         value={emailOtpInput}
         onChange={setEmailOtpInput}
         onConfirm={() => void handleConfirmEmailOtp()}
         onResend={() => void handleStartEmailOtp()}
         onClose={() => setEmailOtpModalOpen(false)}
-        busy={otpConfirmBusy || otpStartBusy}
+        busy={emailOtpBusy}
       />
       <CustomerDetailsModal
         customerId={existingCustomer?.id ?? null}

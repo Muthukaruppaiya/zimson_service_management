@@ -33,7 +33,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   accounts: "Accounts",
   analytics: "BI analytics",
   inventory: "Inventory",
-  service_centre: "Service centre (HO / SC)",
+  service_centre: "Service centre (CSC / SC)",
   regions: "Regions & stores",
   users: "Users & privileges",
   settings: "Settings",
@@ -64,31 +64,31 @@ export const ROLE_CREATION_META: RoleCreationMeta[] = [
   },
   {
     value: "admin",
-    label: "Admin (HO)",
+    label: "Admin (CSC)",
     group: "system",
-    summary: "Manages one HO region and all stores under it. Full access within their region.",
+    summary: "Manages one CSC region and all stores under it. Full access within their region.",
     superAdminOnly: true,
   },
   // ── HO & Service Centre ───────────────────────────────────────────────────
   {
     value: "ho_manager",
-    label: "HO Manager",
+    label: "CSC Manager",
     group: "ho",
-    summary: "Approvals, PO management, stock and reports for this HO.",
+    summary: "Approvals, PO management, stock and reports for this CSC.",
     superAdminOnly: false,
   },
   {
     value: "ho_accounts",
-    label: "HO Accounts",
+    label: "CSC Accounts",
     group: "ho",
-    summary: "HO-side accounts, billing and financial views.",
+    summary: "CSC-side accounts, billing and financial views.",
     superAdminOnly: false,
   },
   {
     value: "ho_purchase",
-    label: "HO Purchase",
+    label: "CSC Purchase",
     group: "ho",
-    summary: "Purchase requests, vendor management and inventory inward at HO.",
+    summary: "Purchase requests, vendor management and inventory inward at CSC.",
     superAdminOnly: false,
   },
   {
@@ -131,7 +131,7 @@ export const ROLE_CREATION_META: RoleCreationMeta[] = [
     value: "delivery_boy",
     label: "Delivery Agent",
     group: "ho",
-    summary: "Carries watches Store ↔ HO. Receives OTP for handoff; usually no app login.",
+    summary: "Carries watches Store ↔ CSC. Receives OTP for handoff; usually no app login.",
     superAdminOnly: false,
   },
 ];
@@ -152,8 +152,8 @@ export function effectiveModuleAccess(role: UserRole, override: ModuleKey[] | nu
 }
 
 export const CREATION_POLICY_BULLETS = [
-  "Only Super Admin can create Admin (HO) accounts.",
-  "Admin can create all HO and Store roles within their own region.",
+  "Only Super Admin can create Admin (CSC) accounts.",
+  "Admin can create all CSC and Store roles within their own region.",
   "Store roles (Store User, Store Manager, Store Accounts) require a store assignment.",
   "Technicians are created via the dedicated Technician Master page — not here.",
   "Login can be disabled per user; they appear in the directory but cannot sign in.",

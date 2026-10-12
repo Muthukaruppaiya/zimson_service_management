@@ -230,7 +230,7 @@ export function InventoryBulkImportPage() {
         <InventoryBreadcrumb current="Spares bulk import" />
         <PageHeader title="Spares Bulk Import" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only Admins, HO Managers and HO Purchase users can run bulk import.
+          Only Admins, CSC Managers and CSC Purchase users can run bulk import.
           <div className="mt-4">
             <Link to="/inventory/spares" className="text-rlx-green font-semibold hover:underline">
               ← Back to Spare Catalogue
@@ -338,7 +338,7 @@ export function InventoryBulkImportPage() {
               <ul className="space-y-1 text-xs text-stone-500">
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Client files with Watch / Clock / Strap sheets (Part Reference, Brand, Calibre, Clock Model, Sub Category, Size, Colour) are accepted</li>
                 <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Blank part numbers are auto-generated (PRT…). Missing brands are created</li>
-                <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Opening stock of 20 (HO) + 5 (Store) per SKU</li>
+                <li className="flex items-center gap-2"><span className="text-rlx-green font-bold">✓</span> Opening stock of 20 (CSC) + 5 (Store) per SKU</li>
               </ul>
               <button
                 type="button"

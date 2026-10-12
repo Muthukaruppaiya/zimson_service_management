@@ -801,7 +801,7 @@ export function AgingReportPage() {
                             h.locationType === "STORE"
                               ? h.storeName ?? storeNameById.get(h.storeId ?? "") ?? "Store"
                               : h.locationType === "HO"
-                                ? h.regionName ?? regionNameById.get(h.regionId ?? "") ?? "HO"
+                                ? h.regionName ?? regionNameById.get(h.regionId ?? "") ?? "CSC"
                                 : "Master";
                           const change = h.quantityChange;
                           return (

@@ -201,7 +201,7 @@ export function registerInventoryPoSupplierRoutes(
   app.get("/api/inventory/suppliers/next-code", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO admins can allocate supplier codes." });
+      res.status(403).json({ error: "Only CSC admins can allocate supplier codes." });
       return;
     }
     const preferred = String(req.query.preferred ?? "").trim().toUpperCase();
@@ -224,7 +224,7 @@ export function registerInventoryPoSupplierRoutes(
   app.post("/api/inventory/suppliers", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO admins can create suppliers." });
+      res.status(403).json({ error: "Only CSC admins can create suppliers." });
       return;
     }
     const name = String(req.body?.name ?? "").trim();
@@ -300,7 +300,7 @@ export function registerInventoryPoSupplierRoutes(
   app.patch("/api/inventory/suppliers/:supplierId", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO admins can update suppliers." });
+      res.status(403).json({ error: "Only CSC admins can update suppliers." });
       return;
     }
     const id = req.params.supplierId;
@@ -444,7 +444,7 @@ export function registerInventoryPoSupplierRoutes(
   app.delete("/api/inventory/suppliers/:supplierId", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO admins can delete suppliers." });
+      res.status(403).json({ error: "Only CSC admins can delete suppliers." });
       return;
     }
     try {
@@ -499,7 +499,7 @@ export function registerInventoryPoSupplierRoutes(
   app.put("/api/inventory/suppliers/:supplierId/spares", requireAuth, async (req, res) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO Manager or HO Purchase can update supplier mappings." });
+      res.status(403).json({ error: "Only CSC Manager or CSC Purchase can update supplier mappings." });
       return;
     }
     const supplierId = req.params.supplierId;
@@ -563,7 +563,7 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     if (!canManagePo(actor)) {
-      res.status(403).json({ error: "Only HO admins can access PO consolidation." });
+      res.status(403).json({ error: "Only CSC admins can access PO consolidation." });
       return;
     }
     const regionIdQ = String(req.query.regionId ?? "").trim();
@@ -654,7 +654,7 @@ export function registerInventoryPoSupplierRoutes(
     if (rejectIfPrFlowHeld(res)) return;
     const actor = getActor((req as Authed).userId);
     if (!canManagePo(actor)) {
-      res.status(403).json({ error: "Only HO admins can draft POs from demand." });
+      res.status(403).json({ error: "Only CSC admins can draft POs from demand." });
       return;
     }
     const selections = Array.isArray(req.body?.selections)
@@ -834,7 +834,7 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     if (!canManagePo(actor)) {
-      res.status(403).json({ error: "Only HO admins can bulk-create POs." });
+      res.status(403).json({ error: "Only CSC admins can bulk-create POs." });
       return;
     }
     const drafts = Array.isArray(req.body?.drafts)
@@ -943,7 +943,7 @@ export function registerInventoryPoSupplierRoutes(
         for (const { store_id, pr_number } of storeRes.rows) {
           await notifyStore(store_id, {
             title: `PO Raised for PR ${pr_number}`,
-            message: `HO has raised Purchase Order ${po.poNumber} for your PR ${pr_number}. Goods are being ordered from the supplier.`,
+            message: `CSC has raised Purchase Order ${po.poNumber} for your PR ${pr_number}. Goods are being ordered from the supplier.`,
             category: "inventory_pr",
           });
         }
@@ -1069,7 +1069,7 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     if (!canManagePo(actor)) {
-      res.status(403).json({ error: "Only HO Purchase / HO Manager can amend POs." });
+      res.status(403).json({ error: "Only CSC Purchase / CSC Manager can amend POs." });
       return;
     }
     const poId = String(req.params.poId ?? "").trim();
@@ -1280,7 +1280,7 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     if (!canManagePo(actor)) {
-      res.status(403).json({ error: "Only HO admins can create POs." });
+      res.status(403).json({ error: "Only CSC admins can create POs." });
       return;
     }
     const prId = String(req.body?.prId ?? "").trim();
@@ -1405,7 +1405,7 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO Manager or HO Purchase can view GRN register." });
+      res.status(403).json({ error: "Only CSC Manager or CSC Purchase can view GRN register." });
       return;
     }
     try {
@@ -1479,7 +1479,7 @@ export function registerInventoryPoSupplierRoutes(
     async (req: Request, res: Response) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO Manager or HO Purchase can create GRN." });
+      res.status(403).json({ error: "Only CSC Manager or CSC Purchase can create GRN." });
       return;
     }
     const poId = String(req.body?.poId ?? "").trim();
@@ -1734,7 +1734,7 @@ export function registerInventoryPoSupplierRoutes(
         for (const { store_id, pr_number } of storeRes.rows) {
           await notifyStore(store_id, {
             title: `Goods Received — PR ${pr_number}`,
-            message: `GRN ${grnNumber} has been posted. Goods for PR ${pr_number} have arrived at HO and stock has been updated.`,
+            message: `GRN ${grnNumber} has been posted. Goods for PR ${pr_number} have arrived at CSC and stock has been updated.`,
             category: "inventory_pr",
           });
         }
@@ -1759,7 +1759,7 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO Manager or HO Purchase can return spares." });
+      res.status(403).json({ error: "Only CSC Manager or CSC Purchase can return spares." });
       return;
     }
     try {
@@ -1836,7 +1836,7 @@ export function registerInventoryPoSupplierRoutes(
       return;
     }
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO Manager or HO Purchase can view purchase returns." });
+      res.status(403).json({ error: "Only CSC Manager or CSC Purchase can view purchase returns." });
       return;
     }
     try {
@@ -1910,7 +1910,7 @@ export function registerInventoryPoSupplierRoutes(
     async (req: Request, res: Response) => {
     const actor = getActor((req as Authed).userId);
     if (!requireHo(actor)) {
-      res.status(403).json({ error: "Only HO Manager or HO Purchase can post purchase returns." });
+      res.status(403).json({ error: "Only CSC Manager or CSC Purchase can post purchase returns." });
       return;
     }
     const grnId = String(req.body?.grnId ?? "").trim();
@@ -2074,7 +2074,7 @@ export function registerInventoryPoSupplierRoutes(
         if (qty > returnable) {
           await client.query("ROLLBACK");
           res.status(400).json({
-            error: `Return qty exceeds remaining HO qty for a line (returnable ${returnable}). Transferred stock cannot be returned from HO.`,
+            error: `Return qty exceeds remaining CSC qty for a line (returnable ${returnable}). Transferred stock cannot be returned from CSC.`,
           });
           return;
         }
@@ -2085,7 +2085,7 @@ export function registerInventoryPoSupplierRoutes(
         const available = ho.rows[0]?.qty ?? 0;
         if (qty > available) {
           await client.query("ROLLBACK");
-          res.status(400).json({ error: "Return qty exceeds current HO stock for one or more lines." });
+          res.status(400).json({ error: "Return qty exceeds current CSC stock for one or more lines." });
           return;
         }
         const costPrice = line.cost_price;

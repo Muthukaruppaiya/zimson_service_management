@@ -1,3 +1,4 @@
+import { RequiredMark } from "../ui/RequiredMark";
 import type { CustomFieldDefinition, CustomFieldValues } from "../../types/customField";
 
 const defaultInput =
@@ -37,7 +38,7 @@ export function CustomFieldsSection({
           <label key={f.id} className={f.fieldType === "textarea" || f.fieldType === "checkbox" ? "sm:col-span-2" : ""}>
             <span className={labelClass}>
               {f.label}
-              {f.required ? " *" : ""}
+              {f.required ? <RequiredMark /> : null}
             </span>
             {f.helpText ? <p className="mt-0.5 text-[11px] text-stone-400">{f.helpText}</p> : null}
             {f.fieldType === "textarea" ? (

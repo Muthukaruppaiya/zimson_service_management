@@ -137,7 +137,7 @@ export function ScSrfHistoryPage() {
           </p>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className={uiPageTitleOnDarkClass}>HO / SC SRF history</h1>
+              <h1 className={uiPageTitleOnDarkClass}>CSC / SC SRF history</h1>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
@@ -196,7 +196,7 @@ export function ScSrfHistoryPage() {
 
           {rows.length === 0 ? (
             <div className="border border-rlx-rule bg-white px-5 py-10 text-center text-sm text-rlx-ink-muted">
-              No SRF jobs match the current filters for your HO / service centre.
+              No SRF jobs match the current filters for your service centre.
             </div>
           ) : (
             <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
@@ -207,8 +207,8 @@ export function ScSrfHistoryPage() {
                     <th>SRF</th>
                     <th>Status</th>
                     <th>Route</th>
-                    <th>Repair HO</th>
-                    <th>Sender HO</th>
+                    <th>Repair CSC</th>
+                    <th>Sender CSC</th>
                     <th>Customer</th>
                     <th>Technician</th>
                     <th className="text-right">{ESTIMATE_LABEL_APPROX}</th>

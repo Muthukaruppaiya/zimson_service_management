@@ -114,6 +114,28 @@
     border-radius: 9999px !important;
   }
 
+  /* Field labels in Title Case ("Nature Of Repair"); utilities like `uppercase` / `normal-case` still override. */
+  label,
+  span.text-xs.font-medium.text-stone-600 {
+    text-transform: capitalize;
+  }
+  label :is(input, select, textarea, option, button, p, small, code, kbd) {
+    text-transform: none;
+  }
+
+  .global-search-palette .gsp-r-2xl {
+    border-radius: 1.25rem !important;
+  }
+  .global-search-palette .gsp-r-xl {
+    border-radius: 0.875rem !important;
+  }
+  .global-search-palette .gsp-r-lg {
+    border-radius: 0.625rem !important;
+  }
+  .global-search-palette .gsp-r-md {
+    border-radius: 0.375rem !important;
+  }
+
   /* Login page — restore rounded card, fields, button */
   .zimson-login__card {
     border-radius: 20px !important;

@@ -344,7 +344,8 @@ function parseStock(rows: Record<string, unknown>[], baseRow: number): { rows: S
     const rowNum = baseRow + idx + 2;
     const sku = cellStr(r.sku).toUpperCase();
     if (!sku) return;
-    const lt = cellStr(r.location_type).toUpperCase();
+    const ltRaw = cellStr(r.location_type).toUpperCase();
+    const lt = ltRaw === "CSC" ? "HO" : ltRaw;
     const watchBrand = cellStr(r.watch_brand);
     const regionName = cellStr(r.region_name);
     const storeNameRaw = cellStr(r.store_name);
@@ -352,14 +353,14 @@ function parseStock(rows: Record<string, unknown>[], baseRow: number): { rows: S
     const rowErrs: string[] = [];
     if (!watchBrand) rowErrs.push(`Stock row ${rowNum}: Watch Brand is required for product code "${sku}".`);
     if (lt !== "HO" && lt !== "STORE") {
-      rowErrs.push(`Stock row ${rowNum}: Location Type must be HO or STORE for product code "${sku}".`);
+      rowErrs.push(`Stock row ${rowNum}: Location Type must be CSC or STORE for product code "${sku}".`);
     }
     if (!regionName) rowErrs.push(`Stock row ${rowNum}: Region Name is required for product code "${sku}".`);
     if (lt === "STORE" && !storeNameRaw) {
       rowErrs.push(`Stock row ${rowNum}: Store Name is required when Location Type is STORE for product code "${sku}".`);
     }
     if (lt === "HO" && storeNameRaw) {
-      rowErrs.push(`Stock row ${rowNum}: Store Name must be empty for HO for product code "${sku}".`);
+      rowErrs.push(`Stock row ${rowNum}: Store Name must be empty for CSC for product code "${sku}".`);
     }
     if (qty == null || qty < 0) {
       rowErrs.push(`Stock row ${rowNum}: Quantity must be a non-negative number for product code "${sku}".`);
@@ -886,7 +887,7 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
     `SELECT name FROM brands WHERE is_active = true ORDER BY sort_order, name`,
   );
 
-  const regions = regRows.length > 0 ? regRows : [{ id: "", name: "COIMBATORE HO" }];
+  const regions = regRows.length > 0 ? regRows : [{ id: "", name: "COIMBATORE CSC" }];
   const brands  = brandRows.length  > 0 ? brandRows.map((b) => b.name) : ["Citizen", "Titan", "Casio"];
 
   // ── README ──────────────────────────────────────────────────────────────
@@ -911,21 +912,21 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
     ["  Sub Category          – Optional (Leather / Metal / BiMetal on Strap sheets)."],
     ["  Model No / Clock Model / Caliber / Size / Colour / HSN / EAN Number / MRP / Cost / Tax % (or IGST %) — optional."],
     ["  TCS Eligible          – 0 or 1 (dropdown). 1 = luxury / motor vehicle. TCS 1% if that item’s sale is over ₹10 lakh; 5% if buyer PAN is missing."],
-    ["  Qty                   – Optional. Written as HO opening stock when a number is present."],
+    ["  Qty                   – Optional. Written as CSC opening stock when a number is present."],
     ["  Active                – Y or N (default Y)."],
     [""],
     ["SHEET: Prices  (optional — not required for client inventory files)"],
     ["  Product Code          – Must match Product Code + Watch Brand in Spares or catalogue."],
-    ["  Region Name           – Exact region name from your system (e.g. COIMBATORE HO)."],
+    ["  Region Name           – Exact region name from your system (e.g. COIMBATORE CSC)."],
     ["  Watch Brand           – Active brand name (e.g. Citizen)."],
     ["  Price (INR)           – Selling price in INR (number)."],
     [""],
     ["SHEET: Stock   (optional — not required for client inventory files)"],
     ["  Product Code          – Must match Product Code + Watch Brand."],
     ["  Watch Brand           – Must match the spare’s brand."],
-    ["  Location Type         – HO or STORE (uppercase)."],
+    ["  Location Type         – CSC or STORE (uppercase)."],
     ["  Region Name           – Exact region name."],
-    ["  Store Name            – Required when Location Type = STORE; leave empty for HO."],
+    ["  Store Name            – Required when Location Type = STORE; leave empty for CSC."],
     ["  Quantity              – Non-negative integer."],
     [""],
     ["DROPDOWNS"],
@@ -981,7 +982,7 @@ async function buildTemplateWorkbook(pool: Pool): Promise<Buffer> {
   for (const spare of SEED_SPARES) {
     const sku = spare[0];
     for (const region of regions) {
-      stockRows.push([sku, sampleBrand, "HO", region.name, "", "20"]);
+      stockRows.push([sku, sampleBrand, "CSC", region.name, "", "20"]);
       const store = storeRows.find((s) => s.region_id === region.id);
       if (store) {
         stockRows.push([sku, sampleBrand, "STORE", region.name, store.name, "5"]);

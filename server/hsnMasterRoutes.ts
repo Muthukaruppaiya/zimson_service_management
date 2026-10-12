@@ -78,7 +78,7 @@ export function registerHsnMasterRoutes(
   app.post("/api/hsn-master", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!canAddHsnCode(actor)) {
-      res.status(403).json({ error: "Only supervisors and HO admins can add HSN codes." });
+      res.status(403).json({ error: "Only supervisors and CSC admins can add HSN codes." });
       return;
     }
     const code = normalizeHsnCode(String(req.body?.code ?? ""));
@@ -127,7 +127,7 @@ export function registerHsnMasterRoutes(
   app.patch("/api/hsn-master/:hsnId", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !isHoAdminRole(actor.role)) {
-      res.status(403).json({ error: "Only HO admins can manage HSN master." });
+      res.status(403).json({ error: "Only CSC admins can manage HSN master." });
       return;
     }
     const hsnId = String(req.params.hsnId ?? "").trim();

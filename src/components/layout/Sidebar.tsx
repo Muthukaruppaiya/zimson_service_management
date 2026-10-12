@@ -72,10 +72,10 @@ type SidebarSection = {
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Admin",
-  admin: "Admin (HO)",
-  ho_manager: "HO Manager",
-  ho_accounts: "HO Accounts",
-  ho_purchase: "HO Purchase",
+  admin: "Admin (CSC)",
+  ho_manager: "CSC Manager",
+  ho_accounts: "CSC Accounts",
+  ho_purchase: "CSC Purchase",
   service_centre_clerk: "SC Clerk",
   service_centre_supervisor: "SC Supervisor",
   store_user: "Store User",
@@ -185,7 +185,7 @@ export function Sidebar() {
         items: [
           { to: "/service/store-billing", label: "Store billing", module: "service" },
           { to: "/service/store-billing-master", label: "Store billing history", module: "service" },
-          { to: "/service/billing", label: "HO billing", module: "service" },
+          { to: "/service/billing", label: "CSC billing", module: "service" },
         ],
       },
       {
@@ -193,19 +193,19 @@ export function Sidebar() {
         items: [
           { to: "/service/store-dispatch", label: "Store dispatch", module: "service", match: ["/service/store-logistics-history"] },
           { to: "/service/delivery-handoff", label: "Store delivery", module: "service", match: ["/service/delivery-boy-history"] },
-          { to: "/service-centre/logistics", label: "HO inward / outward", module: "service_centre", roles: ["service_centre_clerk"], match: ["/service-centre/logistics-history"] },
-          { to: "/service-centre/delivery-handoff", label: "HO delivery", module: "service_centre", roles: ["service_centre_clerk", "ho_manager"], match: ["/service-centre/delivery-boy-history"] },
+          { to: "/service-centre/logistics", label: "CSC inward / outward", module: "service_centre", roles: ["service_centre_clerk"], match: ["/service-centre/logistics-history"] },
+          { to: "/service-centre/delivery-handoff", label: "CSC delivery", module: "service_centre", roles: ["service_centre_clerk", "ho_manager"], match: ["/service-centre/delivery-boy-history"] },
         ],
       },
       {
         title: "Online Store", icon: "online",
-        items: [{ to: "/service-centre/online-store", label: "Inter-HO online orders", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] }],
+        items: [{ to: "/service-centre/online-store", label: "Inter-CSC online orders", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] }],
       },
       {
         title: "Supervision", icon: "supervisor",
         items: [
           { to: "/service-centre/supervisor", label: "Assigning", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
-          { to: "/service-centre/brand-credit-notes", label: "HO credit notes", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
+          { to: "/service-centre/brand-credit-notes", label: "CSC credit notes", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
           { to: "/service-centre/srf-history", label: "SRF history", module: "service_centre", roles: ["service_centre_supervisor", "ho_manager"] },
         ],
       },

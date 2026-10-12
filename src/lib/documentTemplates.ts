@@ -74,13 +74,13 @@ function defaultTemplate(kind: DocumentKind): DynamicDocumentTemplate {
           ? {
               title: "GOODS RECEIVED NOTE",
               defaultTerms: "Check quantity and condition before inward.",
-              signLabelPrimary: "Store/HO Receiving Sign",
+              signLabelPrimary: "Store/CSC Receiving Sign",
               signLabelSecondary: "Authorized Signatory",
             }
           : {
               title: "SPARE TRANSFER NOTE",
               defaultTerms: "Transfer against approved PR.",
-              signLabelPrimary: "HO Dispatch Sign",
+              signLabelPrimary: "CSC Dispatch Sign",
               signLabelSecondary: "Store Inward Sign",
             };
   const labels: Record<string, string> = {};

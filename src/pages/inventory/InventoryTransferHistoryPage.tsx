@@ -31,7 +31,7 @@ function printTransferRow(row: TransferRow) {
     buildTransferDocument({
       refNumber: row.transferNumber,
       date: row.createdAt,
-      fromLocation: row.regionName ?? row.regionId ?? "HO",
+      fromLocation: row.regionName ?? row.regionId ?? "CSC",
       toLocation: row.storeName ?? row.storeId ?? "Store",
       regionId: row.regionId,
       storeId: row.storeId,
@@ -203,7 +203,7 @@ export function InventoryTransferHistoryPage() {
         <InventoryBreadcrumb current="Transfers history" />
         <PageHeader title="Transfers history" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only HO Manager, HO Purchase, or Admin can view transfer history.
+          Only CSC Manager, CSC Purchase, or Admin can view transfer history.
         </div>
       </div>
     );
@@ -214,7 +214,7 @@ export function InventoryTransferHistoryPage() {
       <InventoryBreadcrumb current="Transfers history" />
       <PageHeader
         title="Transfers history"
-        description="HO stock moved to stores."
+        description="CSC stock moved to stores."
         actions={
           <div className="flex gap-2">
             <button
@@ -239,7 +239,7 @@ export function InventoryTransferHistoryPage() {
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2">
         <StatCard label="Transfers posted" value={stats.count} />
-        <StatCard label="Units moved" value={stats.totalQty} sub="HO → store" />
+        <StatCard label="Units moved" value={stats.totalQty} sub="CSC → store" />
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">

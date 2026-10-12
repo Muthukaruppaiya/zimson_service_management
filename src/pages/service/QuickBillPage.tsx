@@ -9,6 +9,7 @@ import { WatchModelPicker } from "../../components/service/WatchModelPicker";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { FormPageShell } from "../../components/layout/FormPageShell";
 import { Card } from "../../components/ui/Card";
+import { RequiredMark } from "../../components/ui/RequiredMark";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
 import { ProcessLoadingOverlay } from "../../components/ui/ProcessLoadingOverlay";
@@ -131,7 +132,9 @@ import {
 } from "../../components/service/WatchServiceDetailFields";
 import { inputClass } from "../../lib/uiForm";
 import { formatInr } from "../../lib/formatInr";
-import { IconTrash } from "../../components/ui/TableActionIcons";
+import { SpareSearchPicker } from "../../components/service/SpareSearchPicker";
+import { SearchableCombobox } from "../../components/service/SearchableCombobox";
+import { IconRefreshLink, IconRefreshUploads, IconTrash, captureLinkButtonClass } from "../../components/ui/TableActionIcons";
 import { B2bDetailsModal } from "../../components/service/B2bDetailsModal";
 import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
@@ -223,6 +226,61 @@ type CompletionState =
   | null
   | { mode: "demo"; ref: string }
   | { mode: "api"; invoice: QuickBillInvoice; edoc?: QuickBillEdocInfo | null };
+
+type QbCaptureSessionRef = { sessionId: string; token: string; captureUrl: string };
+
+type QuickBillDraftSummary = {
+  id: string;
+  regionId: string;
+  storeId: string;
+  createdBy: string | null;
+  customerName: string;
+  phone: string;
+  watchLabel: string;
+  captureSessionId: string | null;
+  watchPhotoCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type QuickBillDraftPayload = {
+  v: 1;
+  billingRegionId: string;
+  billingStoreId: string;
+  customer: LoadedCustomerRow | null;
+  customerType: "B2C" | "B2B";
+  customerName: string;
+  phone: string;
+  email: string;
+  company: string;
+  gst: string;
+  pan: string;
+  address: string;
+  city: string;
+  customerBillingState: string;
+  watchBrand: string;
+  watchFamily: string;
+  watchFamilyIsNew: boolean;
+  watchModel: string;
+  watchModelIsNew: boolean;
+  watchRef: string;
+  watchRemark: string;
+  watchServiceDetails: WatchServiceDetailValues;
+  stockWatchStoreId: string;
+  captureSession: QbCaptureSessionRef | null;
+  lines: LineItem[];
+  serviceChargeInr: string;
+  technicianId: string;
+  notes: string;
+};
+
+function formatDraftTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 type QuickBillSpareOption = {
   id: string;
   sku: string;
@@ -307,6 +365,7 @@ export function QuickBillPage() {
   }, [regions, user?.storeId]);
   const { brands: catalogBrands } = useBrands();
   const brandNames = useMemo(() => catalogBrands.map((b) => b.name), [catalogBrands]);
+  const brandOptions = useMemo(() => brandNames.map((b) => ({ value: b, label: b })), [brandNames]);
   const { spares } = useSpares();
   const [billingRegionId, setBillingRegionId] = useState("");
   const [billingStoreId, setBillingStoreId] = useState("");
@@ -367,17 +426,23 @@ export function QuickBillPage() {
   const [watchImagePath, setWatchImagePath] = useState<string | null>(null);
   const [capturePhotos, setCapturePhotos] = useState<QbCapturePhoto[]>([]);
   const [capturePhotoLightbox, setCapturePhotoLightbox] = useState<{ src: string; label: string } | null>(null);
-  const [captureSession, setCaptureSession] = useState<{
-    sessionId: string;
-    token: string;
-    captureUrl: string;
-  } | null>(null);
+  const captureWatchPhotoCount = useMemo(
+    () => capturePhotos.filter((p) => normalizeSrfPhotoKind(p.photoKind) !== SRF_DOCUMENT_PHOTO_KIND).length,
+    [capturePhotos],
+  );
+  const [captureSession, setCaptureSession] = useState<QbCaptureSessionRef | null>(null);
   const [captureLinkBusy, setCaptureLinkBusy] = useState(false);
   const [captureMsg, setCaptureMsg] = useState<string | null>(null);
 
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<QuickBillDraftSummary[]>([]);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftMsg, setDraftMsg] = useState<string | null>(null);
+
   const [lines, setLines] = useState<LineItem[]>([]);
   const [serviceChargeInr, setServiceChargeInr] = useState("");
-  const [partPick, setPartPick] = useState("");
+  const [, setPartPick] = useState("");
   const [technicianId, setTechnicianId] = useState<string>("");
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [multiPaymentForm, setMultiPaymentForm] = useState(emptyMultiPaymentForm);
@@ -1148,11 +1213,20 @@ export function QuickBillPage() {
       setWatchDocumentPath(null);
       setWatchImagePath(null);
       setCaptureMsg("Share the QR or link with the customer.");
+      syncDraftCaptureSession(data);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not create upload link.");
     } finally {
       setCaptureLinkBusy(false);
     }
+  }
+
+  function syncDraftCaptureSession(session: QbCaptureSessionRef) {
+    if (!draftId || !apiMode) return;
+    void apiJson(`/api/service/quick-bill-drafts/${encodeURIComponent(draftId)}/capture-session`, {
+      method: "PATCH",
+      json: { captureSessionId: session.sessionId, captureSession: session },
+    }).catch(() => {});
   }
 
   async function refreshCaptureLink() {
@@ -1170,9 +1244,11 @@ export function QuickBillPage() {
       }>(`/api/service/quick-bill/capture-session/${encodeURIComponent(captureSession.sessionId)}/refresh`, {
         method: "POST",
       });
-      setCaptureSession({ sessionId: data.sessionId, token: data.token, captureUrl: data.captureUrl });
+      const nextSession = { sessionId: data.sessionId, token: data.token, captureUrl: data.captureUrl };
+      setCaptureSession(nextSession);
       applyCapturePayload(data);
       setCaptureMsg("New upload link generated.");
+      syncDraftCaptureSession(nextSession);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not refresh link.");
     } finally {
@@ -1230,7 +1306,7 @@ export function QuickBillPage() {
     };
   }, [capturePhotoLightbox]);
 
-  function validateBeforeOtp(opts?: { skipHandoverCheck?: boolean }): boolean {
+  function validateBeforeOtp(opts?: { skipHandoverCheck?: boolean; draftOnly?: boolean }): boolean {
     setError(null);
     if (
       customerChecked &&
@@ -1273,7 +1349,7 @@ export function QuickBillPage() {
       setError("Enter a valid 10-digit mobile number.");
       return false;
     }
-    if (!opts?.skipHandoverCheck && !handoverVerified) {
+    if (!opts?.skipHandoverCheck && !opts?.draftOnly && !handoverVerified) {
       setError(
         "Verify handover with OTP (primary or other mobile/email) before generating the invoice.",
       );
@@ -1318,6 +1394,14 @@ export function QuickBillPage() {
       setError("For Stock Watch, select the stock watch location store.");
       return false;
     }
+    if (apiMode && captureWatchPhotoCount < SRF_MIN_WATCH_PHOTOS_REQUIRED) {
+      setError(
+        captureSession
+          ? `Upload at least ${SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos via the QR link (${captureWatchPhotoCount} received). Use Refresh Uploads after the customer uploads.`
+          : `Generate the upload link and get at least ${SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos uploaded via QR.`,
+      );
+      return false;
+    }
     if (apiMode && user?.role === "super_admin" && !billingRegionId.trim()) {
       setError("Select billing region (required to load prices and save the bill).");
       return false;
@@ -1330,6 +1414,7 @@ export function QuickBillPage() {
       setError("Select billing store (required for upload link and to save the bill).");
       return false;
     }
+    if (opts?.draftOnly) return true;
     const parsed = lines
       .map((l) => ({
         description: l.description.trim(),
@@ -1378,6 +1463,200 @@ export function QuickBillPage() {
     }
     return true;
   }
+
+  const loadDrafts = useCallback(async () => {
+    if (!apiMode) return;
+    try {
+      const q = effectiveBillingStoreId ? `?storeId=${encodeURIComponent(effectiveBillingStoreId)}` : "";
+      const data = await apiJson<{ drafts: QuickBillDraftSummary[] }>(`/api/service/quick-bill-drafts${q}`);
+      setDrafts(data.drafts ?? []);
+    } catch {
+      setDrafts([]);
+    }
+  }, [apiMode, effectiveBillingStoreId]);
+
+  useEffect(() => {
+    void loadDrafts();
+  }, [loadDrafts]);
+
+  function buildDraftPayload(): QuickBillDraftPayload {
+    return {
+      v: 1,
+      billingRegionId,
+      billingStoreId,
+      customer: loadedCustomerId
+        ? {
+            id: loadedCustomerId,
+            customerCode: loadedCustomerCode,
+            displayName: customerName.trim(),
+            phone: phone.trim(),
+            email,
+            address,
+            city,
+            customerKind: customerType,
+            company,
+            gst,
+            pan,
+            phoneVerifiedAt,
+            emailVerifiedAt,
+          }
+        : null,
+      customerType,
+      customerName: customerName.trim(),
+      phone: phone.trim(),
+      email,
+      company,
+      gst,
+      pan,
+      address,
+      city,
+      customerBillingState,
+      watchBrand,
+      watchFamily,
+      watchFamilyIsNew,
+      watchModel,
+      watchModelIsNew,
+      watchRef,
+      watchRemark,
+      watchServiceDetails,
+      stockWatchStoreId,
+      captureSession,
+      lines,
+      serviceChargeInr,
+      technicianId,
+      notes,
+    };
+  }
+
+  async function saveDraft() {
+    if (!apiMode) {
+      setError("Drafts require API mode.");
+      return;
+    }
+    setDraftMsg(null);
+    if (!validateBeforeOtp({ draftOnly: true })) return;
+    const regionId = effectiveBillingRegionId;
+    const storeId = effectiveBillingStoreId;
+    if (!regionId || !storeId) {
+      setError("Select billing region and store before saving a draft.");
+      return;
+    }
+    const watchLabel = [watchBrand, watchFamily, watchModel].map((s) => s.trim()).filter(Boolean).join(" · ");
+    const customerLabel = customerName.trim() || company.trim() || "Customer";
+    const body = {
+      regionId,
+      storeId,
+      customerName: customerLabel,
+      phone: phone.trim(),
+      watchLabel,
+      captureSessionId: captureSession?.sessionId ?? null,
+      payload: buildDraftPayload(),
+    };
+    setDraftBusy(true);
+    try {
+      if (draftId) {
+        await apiJson(`/api/service/quick-bill-drafts/${encodeURIComponent(draftId)}`, { method: "PUT", json: body });
+      } else {
+        await apiJson("/api/service/quick-bill-drafts", { method: "POST", json: body });
+      }
+      resetForm();
+      setDraftMsg(`Draft saved: ${customerLabel} · ${watchLabel || "Watch"}`);
+      void loadDrafts();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not save draft.");
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  async function resumeDraft(id: string) {
+    if (draftBusy || id === draftId) return;
+    const hasWork = Boolean(phone.trim() || watchBrand || captureSession || lines.length);
+    if (hasWork && !window.confirm("Replace the current form with this draft? Unsaved changes will be lost.")) return;
+    setDraftBusy(true);
+    setDraftMsg(null);
+    try {
+      const { draft } = await apiJson<{
+        draft: QuickBillDraftSummary & { status: string; payload?: Partial<QuickBillDraftPayload> };
+      }>(`/api/service/quick-bill-drafts/${encodeURIComponent(id)}`);
+      if (draft.status !== "open") {
+        setError("This draft has already been billed or deleted.");
+        void loadDrafts();
+        return;
+      }
+      resetForm();
+      const p = draft.payload ?? {};
+      if (p.billingRegionId) setBillingRegionId(p.billingRegionId);
+      if (p.billingStoreId) setBillingStoreId(p.billingStoreId);
+      if (p.customer?.id) {
+        applyLoadedCustomer(p.customer);
+      } else {
+        const p10 = phoneLast10(p.phone ?? "");
+        lastAutoLookupPhoneRef.current = p10;
+        setCustomerName(p.customerName ?? "");
+        setPhone(p.phone ?? "");
+        setEmail(p.email ?? "");
+        setCompany(p.company ?? "");
+        setGst(p.gst ?? "");
+        setPan(p.pan ?? "");
+        setWalkInPending(p10.length === 10);
+      }
+      setCustomerType(p.customerType ?? p.customer?.customerKind ?? "B2C");
+      setAddress(p.address ?? "");
+      setCity(p.city ?? "");
+      setCustomerBillingState(p.customerBillingState ?? "");
+      setWatchBrand(p.watchBrand ?? "");
+      setWatchFamily(p.watchFamily ?? "");
+      setWatchFamilyIsNew(Boolean(p.watchFamilyIsNew));
+      setWatchModel(p.watchModel ?? "");
+      setWatchModelIsNew(Boolean(p.watchModelIsNew));
+      setWatchRef(p.watchRef ?? "");
+      setWatchRemark(p.watchRemark ?? "");
+      setWatchServiceDetails({ ...emptyWatchServiceDetailValues(), ...(p.watchServiceDetails ?? {}) });
+      setStockWatchStoreId(p.stockWatchStoreId ?? "");
+      setLines(Array.isArray(p.lines) ? p.lines : []);
+      setServiceChargeInr(p.serviceChargeInr ?? "");
+      if (p.technicianId) setTechnicianId(p.technicianId);
+      setNotes(p.notes ?? "");
+      const sid = draft.captureSessionId ?? p.captureSession?.sessionId ?? null;
+      if (sid) {
+        const saved = p.captureSession?.sessionId === sid ? p.captureSession : null;
+        setCaptureSession({ sessionId: sid, token: saved?.token ?? "", captureUrl: saved?.captureUrl ?? "" });
+      }
+      setDraftId(draft.id);
+      setDraftSavedAt(draft.updatedAt);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not open draft.");
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  async function deleteDraft(d: QuickBillDraftSummary) {
+    if (!window.confirm(`Delete draft for ${d.customerName || "customer"} (${d.watchLabel || "watch"})?`)) return;
+    try {
+      await apiJson(`/api/service/quick-bill-drafts/${encodeURIComponent(d.id)}`, { method: "DELETE" });
+      if (d.id === draftId) resetForm();
+      void loadDrafts();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not delete draft.");
+    }
+  }
+
+  const draftParamHandledRef = useRef(false);
+  useEffect(() => {
+    if (draftParamHandledRef.current || !apiMode) return;
+    const id = searchParams.get("draft")?.trim();
+    if (!id) return;
+    draftParamHandledRef.current = true;
+    const next = new URLSearchParams(searchParams);
+    next.delete("draft");
+    setSearchParams(next, { replace: true });
+    void resumeDraft(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiMode, searchParams]);
 
   function openHandoverOtp(mode: HandoverOtpMode) {
     if (!validateBeforeOtp({ skipHandoverCheck: true })) return;
@@ -1486,6 +1765,7 @@ export function QuickBillPage() {
             watchDocumentPath,
             watchImagePath,
             captureSessionId: captureSession?.sessionId ?? null,
+            draftId: draftId ?? null,
             technicianId: technicianId || null,
             technicianName: tech?.fullName ?? null,
             paymentMode: payMode,
@@ -1525,6 +1805,11 @@ export function QuickBillPage() {
         setCompletion({ mode: "api", invoice: mergedInvoice, edoc: edoc ?? null });
         setBillPostActionNote(null);
         setBillSuccessModalOpen(true);
+        if (draftId) {
+          setDraftId(null);
+          setDraftSavedAt(null);
+          void loadDrafts();
+        }
       } catch (e) {
         setError(e instanceof ApiError ? e.message : "Could not save quick bill to the server.");
       } finally {
@@ -1794,6 +2079,19 @@ export function QuickBillPage() {
     setCustomerBillingState("");
     setWatchDocumentPath(null);
     setWatchImagePath(null);
+    setCaptureSession(null);
+    setCapturePhotos([]);
+    setCaptureMsg(null);
+    setDraftId(null);
+    setDraftSavedAt(null);
+    setDraftMsg(null);
+    setStockWatchStoreId("");
+    setLoadedCustomerId(null);
+    loadedCustomerIdRef.current = null;
+    setLoadedCustomerCode(null);
+    setWalkInPending(false);
+    setPhoneVerifiedAt(null);
+    setEmailVerifiedAt(null);
     setLines([]);
     setServiceChargeInr("");
     setPartPick("");
@@ -2113,7 +2411,7 @@ export function QuickBillPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             {user?.role === "super_admin" ? (
               <label htmlFor="qb-bill-region" className="text-sm">
-                <span className="text-xs font-medium text-stone-600">Region *</span>
+                <span className="text-xs font-medium text-stone-600">Region<RequiredMark /></span>
                 <select
                   id="qb-bill-region"
                   value={billingRegionId}
@@ -2141,7 +2439,7 @@ export function QuickBillPage() {
             )}
             {hoNeedsOperatingStorePicker(user?.role, user?.storeId, user?.storeIds) ? (
               <label htmlFor="qb-bill-store" className="text-sm">
-                <span className="text-xs font-medium text-stone-600">Store *</span>
+                <span className="text-xs font-medium text-stone-600">Store<RequiredMark /></span>
                 <select
                   id="qb-bill-store"
                   value={billingStoreId}
@@ -2162,6 +2460,93 @@ export function QuickBillPage() {
         </Card>
       ) : null}
 
+      {apiMode && draftMsg ? (
+        <p className="mb-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 ring-1 ring-emerald-200">
+          {draftMsg}
+        </p>
+      ) : null}
+
+      {apiMode && drafts.length > 0 ? (
+        <Card title={`Open Drafts (${drafts.length})`} className="mb-4">
+          <ul className="divide-y divide-stone-100">
+            {drafts.map((d) => {
+              const active = d.id === draftId;
+              const photosOk = d.watchPhotoCount >= SRF_MIN_WATCH_PHOTOS_REQUIRED;
+              return (
+                <li
+                  key={d.id}
+                  className={`flex flex-wrap items-center justify-between gap-3 px-2 py-2.5 ${active ? "bg-amber-50" : ""}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-stone-900">
+                      {d.customerName || "Customer"}
+                      {d.phone ? <span className="font-normal text-stone-500"> · {d.phone}</span> : null}
+                    </p>
+                    <p className="truncate text-xs text-stone-600">{d.watchLabel || "Watch"}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
+                        photosOk
+                          ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
+                          : "bg-amber-50 text-amber-900 ring-amber-200"
+                      }`}
+                    >
+                      {d.watchPhotoCount} Photos
+                    </span>
+                    <span className="text-[11px] text-stone-500">{formatDraftTime(d.updatedAt)}</span>
+                    {active ? (
+                      <span className="rounded-md bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
+                        Editing
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void resumeDraft(d.id)}
+                        disabled={draftBusy || isSavingBill}
+                        className="rounded-md bg-zimson-900 px-3 py-1 text-xs font-semibold text-white hover:bg-zimson-800 disabled:opacity-50"
+                      >
+                        Resume
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void deleteDraft(d)}
+                      disabled={draftBusy || isSavingBill}
+                      className="rounded-md border border-stone-300 bg-white p-1.5 text-stone-600 hover:border-red-300 hover:text-red-700 disabled:opacity-50"
+                      aria-label="Delete draft"
+                      title="Delete draft"
+                    >
+                      <IconTrash />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      ) : null}
+
+      {apiMode && draftId ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5">
+          <p className="text-sm font-semibold text-amber-950">
+            Draft In Progress
+            {draftSavedAt ? (
+              <span className="ml-2 text-xs font-normal text-amber-900/80">Saved {formatDraftTime(draftSavedAt)}</span>
+            ) : null}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm("Close this draft and start a new bill? Unsaved changes will be lost.")) resetForm();
+            }}
+            className="rounded-md border border-amber-400 bg-white px-3 py-1 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+          >
+            Start New Bill
+          </button>
+        </div>
+      ) : null}
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -2173,8 +2558,8 @@ export function QuickBillPage() {
             <div className="inline-flex rounded-lg border border-zimson-200 bg-zimson-50 p-1" role="radiogroup" aria-label="Customer type">
               {(
                 [
-                  ["B2C", "Individual (B2C)"],
-                  ["B2B", "Business (B2B)"],
+                  ["B2C", "Individual"],
+                  ["B2B", "Business"],
                 ] as const
               ).map(([value, text]) => (
                 <label
@@ -2220,7 +2605,7 @@ export function QuickBillPage() {
           <div className={qbGrid3}>
             <div className={qbField}>
               <label htmlFor="qb-phone" className="text-xs font-medium text-stone-600">
-                Mobile number *
+                Mobile number<RequiredMark />
               </label>
               <input
                 id="qb-phone"
@@ -2250,7 +2635,7 @@ export function QuickBillPage() {
             </div>
             <div className={qbField}>
               <label htmlFor="qb-name" className="text-xs font-medium text-stone-600">
-                {customerType === "B2B" ? "Contact person *" : "Customer name (optional)"}
+                {customerType === "B2B" ? <>Contact person<RequiredMark /></> : "Customer name (optional)"}
               </label>
               <input
                 id="qb-name"
@@ -2268,7 +2653,7 @@ export function QuickBillPage() {
             {customerType === "B2B" ? (
               <div className={qbField}>
                 <label htmlFor="qb-company" className="text-xs font-medium text-stone-600">
-                  Company name *
+                  Company name<RequiredMark />
                 </label>
                 <input
                   id="qb-company"
@@ -2288,7 +2673,7 @@ export function QuickBillPage() {
               <>
                 <div className={qbField}>
                   <label htmlFor="qb-gst" className="text-xs font-medium text-stone-600">
-                    GSTIN *
+                    GSTIN<RequiredMark />
                   </label>
                   <input
                     id="qb-gst"
@@ -2306,7 +2691,7 @@ export function QuickBillPage() {
                 </div>
                 <div className={qbField}>
                   <label htmlFor="qb-pan" className="text-xs font-medium text-stone-600">
-                    PAN *
+                    Business PAN<RequiredMark />
                   </label>
                   <input
                     id="qb-pan"
@@ -2326,7 +2711,7 @@ export function QuickBillPage() {
             ) : (
               <div className={qbField}>
                 <label htmlFor="qb-pan-b2c" className="text-xs font-medium text-stone-600">
-                  PAN (for TCS)
+                  PAN
                 </label>
                 <input
                   id="qb-pan-b2c"
@@ -2338,7 +2723,7 @@ export function QuickBillPage() {
                       : (e) => setPan(sanitizeGstPanInput(e.target.value, 10))
                   }
                   className={customerLockedFromDb ? readOnlyCustomerFieldClass : inputClass}
-                  placeholder="For 1% TCS if item is over ₹10 lakh"
+                  placeholder=""
                   maxLength={10}
                 />
               </div>
@@ -2394,22 +2779,16 @@ export function QuickBillPage() {
           <div className="flex min-w-0 flex-col gap-4">
             <div className={qbTripleRow}>
               <div className={qbField}>
-                <label htmlFor="qb-brand" className="text-xs font-medium text-stone-600">
-                  Brand *
-                </label>
-                <select
+                <SearchableCombobox
                   id="qb-brand"
+                  label="Brand *"
                   value={watchBrand}
-                  onChange={(e) => onWatchBrandChange(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">Select brand</option>
-                  {brandNames.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
+                  options={brandOptions}
+                  onChange={onWatchBrandChange}
+                  inputClass={inputClass.replace(/\bmt-1\b/g, "").trim()}
+                  placeholder="Search brand"
+                  required
+                />
               </div>
               <div className={qbField}>
                 <WatchFamilyPicker
@@ -2449,7 +2828,7 @@ export function QuickBillPage() {
               leadingFields={
                 <div className={qbField}>
                   <label htmlFor="qb-ref" className="text-xs font-medium text-stone-600">
-                    Serial number{serialNumberRequired ? " *" : ""}
+                    Serial number{serialNumberRequired ? <RequiredMark /> : null}
                   </label>
                   <input
                     id="qb-ref"
@@ -2464,7 +2843,7 @@ export function QuickBillPage() {
               trailingRemarkField={
                 <div className={qbField}>
                   <label htmlFor="qb-watch-remark" className="text-xs font-medium text-stone-600">
-                    Remark
+                    Store remarks
                   </label>
                   <textarea
                     id="qb-watch-remark"
@@ -2484,7 +2863,23 @@ export function QuickBillPage() {
               </div>
             ) : null}
             <div className={`${qbField} min-w-0 rounded-xl border border-zimson-200 bg-zimson-50/50 p-3 sm:p-4`}>
-              <p className="text-sm font-semibold text-zimson-900">Documents &amp; watch photos (customer link)</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-zimson-900">
+                  Documents &amp; Watch Photos
+                  <RequiredMark />
+                </p>
+                {apiMode ? (
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                      captureWatchPhotoCount >= SRF_MIN_WATCH_PHOTOS_REQUIRED
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {Math.min(captureWatchPhotoCount, SRF_MIN_WATCH_PHOTOS_REQUIRED)} / {SRF_MIN_WATCH_PHOTOS_REQUIRED} Watch Photos
+                  </span>
+                ) : null}
+              </div>
               {/* <p className="mt-1 text-xs text-stone-600">
                 Same as SRF: at least {SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos (any categories); up to{" "}
                 {SRF_MAX_WATCH_PHOTOS} types plus one document (PDF/Word or photo).
@@ -2499,7 +2894,7 @@ export function QuickBillPage() {
                       url={captureUrl}
                       size={180}
                       mode="qr"
-                      caption="Scan to upload"
+                      caption="Scan To Upload"
                       className="mx-auto text-center"
                     />
                   ) : (
@@ -2516,9 +2911,10 @@ export function QuickBillPage() {
                         type="button"
                         disabled={captureLinkBusy || !apiMode}
                         onClick={() => void createCaptureLink()}
-                        className="rounded-lg bg-zimson-700 px-4 py-2 text-xs font-semibold text-white hover:bg-zimson-800 disabled:opacity-50"
+                        className="inline-flex items-center gap-2 rounded-lg bg-zimson-700 px-4 py-2 text-xs font-semibold text-white hover:bg-zimson-800 disabled:opacity-50"
                       >
-                        {captureLinkBusy ? "Generating…" : "Generate upload link"}
+                        <IconRefreshLink />
+                        {captureLinkBusy ? "Generating…" : "Generate Upload Link"}
                       </button>
                     ) : (
                       <>
@@ -2526,17 +2922,19 @@ export function QuickBillPage() {
                           type="button"
                           disabled={captureLinkBusy}
                           onClick={() => void refreshCaptureSession()}
-                          className="rounded-lg border border-zimson-300 bg-white px-4 py-2 text-xs font-semibold text-zimson-900"
+                          className={captureLinkButtonClass}
                         >
-                          Refresh uploads
+                          <IconRefreshUploads />
+                          Refresh Uploads
                         </button>
                         <button
                           type="button"
                           disabled={captureLinkBusy}
                           onClick={() => void refreshCaptureLink()}
-                          className="rounded-lg border border-zimson-300 bg-white px-4 py-2 text-xs font-semibold text-zimson-900"
+                          className={captureLinkButtonClass}
                         >
-                          New link
+                          <IconRefreshLink />
+                          Refresh Link
                         </button>
                       </>
                     )}
@@ -2637,6 +3035,26 @@ export function QuickBillPage() {
           </div>
         </Card>
 
+        {apiMode ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+            <div className="text-sm">
+              <p className="font-semibold text-amber-950">{draftId ? "Update Draft" : "Save As Draft"}</p>
+              <p className="text-xs text-amber-900/80">
+                {captureWatchPhotoCount} / {SRF_MIN_WATCH_PHOTOS_REQUIRED} Watch Photos
+                {draftSavedAt ? ` · Saved ${formatDraftTime(draftSavedAt)}` : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void saveDraft()}
+              disabled={draftBusy || isSavingBill}
+              className="w-full rounded-lg border border-amber-500 bg-white px-5 py-2 text-sm font-semibold text-amber-950 shadow-sm transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+            >
+              {draftBusy ? "Saving…" : draftId ? "Update Draft" : "Save As Draft"}
+            </button>
+          </div>
+        ) : null}
+
         <Card title="Service lines" subtitle="">
           <div className="mb-4 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
             <div className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-lg border border-zimson-300 bg-white shadow-sm transition focus-within:border-zimson-500 focus-within:ring-2 focus-within:ring-zimson-200 sm:max-w-sm">
@@ -2667,27 +3085,12 @@ export function QuickBillPage() {
                 Add
               </button>
             </div>
-            <select
-              value={partPick}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v) void addPartLine(v);
-              }}
-              className="min-w-0 flex-1 rounded-lg border border-zimson-300 bg-white px-3 py-2.5 text-sm text-zimson-900 shadow-sm transition focus:border-zimson-500 focus:outline-none focus:ring-2 focus:ring-zimson-200"
-              aria-label="Add part from catalog"
-            >
-              <option value="">
-                {spareOptionsLoading
-                  ? "Loading spares for selected brand…"
-                  : `+ Spare with ${watchBrand} price in region…`}
-              </option>
-              {spareOptions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.sku}) — ₹{s.price} · qty {s.stockQty}
-                  {s.stockQty <= 0 ? " · Out of stock" : ""}
-                </option>
-              ))}
-            </select>
+            <SpareSearchPicker
+              options={spareOptions}
+              loading={spareOptionsLoading}
+              placeholder={watchBrand.trim() ? `Search ${watchBrand} spares by name, SKU or HSN` : "Search spares"}
+              onPick={(id) => void addPartLine(id)}
+            />
           </div>
           <div className="min-w-0 overflow-hidden rounded-xl border border-zimson-200 bg-white">
             <div className={`hidden ${qbLineGrid} border-b border-zimson-200 bg-zimson-50 py-2 text-[11px] font-semibold uppercase tracking-wide text-stone-500 sm:grid`}>
@@ -3032,6 +3435,16 @@ export function QuickBillPage() {
             </Link>
             {isSavingBill ? (
               <span className="text-center text-sm font-medium text-stone-600 sm:text-left">Saving quick bill…</span>
+            ) : null}
+            {apiMode ? (
+              <button
+                type="button"
+                onClick={() => void saveDraft()}
+                disabled={draftBusy || isSavingBill}
+                className="w-full rounded-lg border border-amber-500 bg-amber-50 px-4 py-2.5 text-center text-sm font-semibold text-amber-950 shadow-sm transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-5"
+              >
+                {draftBusy ? "Saving…" : draftId ? "Update Draft" : "Save As Draft"}
+              </button>
             ) : null}
             <button
               type="button"

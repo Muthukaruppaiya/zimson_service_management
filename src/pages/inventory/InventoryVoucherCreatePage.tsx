@@ -394,7 +394,7 @@ export function InventoryVoucherCreatePage() {
         <InventoryBreadcrumb current="Purchase vouchers" />
         <PageHeader title="Create Purchase Voucher" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-8 text-center text-sm text-stone-400">
-          Purchase vouchers are created by HO.
+          Purchase vouchers are created by CSC.
           <div className="mt-3">
             <Link to="/inventory/voucher-history" className="font-semibold text-rlx-green hover:underline">View voucher history →</Link>
           </div>

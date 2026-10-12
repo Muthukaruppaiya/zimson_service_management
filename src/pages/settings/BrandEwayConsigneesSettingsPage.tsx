@@ -190,7 +190,7 @@ export function BrandEwayConsigneesSettingsPage() {
     return (
       <div>
         <PageHeader title="Brand e-way consignees" description="" />
-        <p className="text-sm text-stone-600">Only HO admins can manage brand e-way consignee master.</p>
+        <p className="text-sm text-stone-600">Only CSC admins can manage brand e-way consignee master.</p>
       </div>
     );
   }
@@ -237,7 +237,7 @@ export function BrandEwayConsigneesSettingsPage() {
               className={inputClass}
               value={form.locationName}
               onChange={(e) => setForm((f) => ({ ...f, locationName: e.target.value }))}
-              placeholder="e.g. Mumbai ASC, Brand HO Chennai"
+              placeholder="e.g. Mumbai ASC, Brand CSC Chennai"
               required
             />
           </label>

@@ -793,7 +793,7 @@ export function printFullSrfDocument(
      <h3 style="margin:16px 0 6px">Watch images</h3>
      <div style="display:flex;flex-wrap:wrap;gap:8px">${photoBlocks || "<div>No images uploaded</div>"}</div>
      <div style="margin-top:12px"><strong>Spares slip submitted by:</strong> ${job.sparesSlipSubmittedBy || "-"} ${job.sparesSlipSubmittedAt ? `(${new Date(job.sparesSlipSubmittedAt).toLocaleString()})` : ""}</div>
-     <div><strong>HO bill ref:</strong> ${job.hoSparesBillRef || "-"}</div>
+     <div><strong>CSC bill ref:</strong> ${job.hoSparesBillRef || "-"}</div>
      <div><strong>Store bill ref:</strong> ${job.storeBillRef || "-"}</div>
      <div style="margin-top:24px">Customer Sign: _____________________</div>
      <div style="margin-top:16px">Technician Sign: _____________________</div>
@@ -990,7 +990,7 @@ export function printTransferDocument(input: TransferPrintInput): void {
   const logoHtml = srfLogoImgHtml();
   const baseHref = typeof window !== "undefined" ? window.location.origin : "";
   const refs: string[] = [];
-  if (input.hoInvoiceRef?.trim()) refs.push(`<span><b>HO invoice ref:</b> ${escHtml(input.hoInvoiceRef.trim())}</span>`);
+  if (input.hoInvoiceRef?.trim()) refs.push(`<span><b>CSC invoice ref:</b> ${escHtml(input.hoInvoiceRef.trim())}</span>`);
   if (input.storeInvoiceRef?.trim()) refs.push(`<span><b>Store invoice ref:</b> ${escHtml(input.storeInvoiceRef.trim())}</span>`);
   const refsBlock = refs.length ? `<div class="xfer-refs">${refs.join("")}</div>` : "";
 
@@ -1067,9 +1067,9 @@ export function printTransferDocument(input: TransferPrintInput): void {
         </div>
         <p class="xfer-footnote">
           ${input.flow === "store_to_ho" || input.flow === "ho_to_store"
-            ? "Internal transfer between store and regional service centre (HO). Not a GST delivery challan."
+            ? "Internal transfer between store and regional service centre (CSC). Not a GST delivery challan."
             : input.printKind === "dc"
-              ? "Delivery Challan for inter-HO movement or when sender and receiver GSTIN differ."
+              ? "Delivery Challan for inter-CSC movement or when sender and receiver GSTIN differ."
               : "Internal transfer document when sender and receiver share the same GSTIN."}
         </p>
       </div>
@@ -1332,7 +1332,7 @@ export function printSrfInwardReceiptDocument(payload: SrfInwardReceiptInput): v
         </div>
         <p class="xfer-footnote">
           This document confirms physical receipt of the SRF watch(es) at ${escHtml(input.receivedAtLocation)} against ${escHtml(input.numberLabel)} ${escHtml(input.inwardNumber)}.
-          Retain for store/HO records and customer traceability.
+          Retain for store/CSC records and customer traceability.
         </p>
       </div>
     </div>
@@ -1366,7 +1366,7 @@ export function printStoreInwardReceiptDocument(payload: {
     documentSubtitle:
       "The SRF watch(es) below have been received at the store location and are available for customer collection when ready.",
     receivedAtLocation: payload.storeLabel,
-    fromLocationLabel: "From service centre (HO)",
+    fromLocationLabel: "From service centre (CSC)",
     fromLocationName: payload.fromHoLabel,
     receivedBy: payload.receivedBy,
     receivedAt: payload.receivedAt,
@@ -1907,7 +1907,7 @@ export function printBrandDispatchDocument(job: SrfJob, payload?: { dispatchRef?
   const note =
     payload?.note?.trim() ||
     job.brandDispatchNote?.trim() ||
-    "External brand repair required (cannot be repaired at HO).";
+    "External brand repair required (cannot be repaired at CSC).";
   const printed = new Date().toLocaleString("en-IN", { hour12: false });
   const bookingDate = formatDateTime(job.createdAt);
   const bookingCenter = job.storeName ?? job.storeId ?? "—";
@@ -2178,7 +2178,7 @@ export function printStoreServiceInvoice(
          <tr><td><strong>Watch</strong></td><td>${job.watchBrand} ${job.watchModel}</td><td><strong>Serial</strong></td><td>${job.serial}</td></tr>
          <tr><td><strong>Service Estimate (approximate)</strong></td><td>Approximate INR ${(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Paid amount</strong></td><td>INR ${payload.paidAmountInr.toFixed(2)}</td></tr>
          <tr><td><strong>Payment mode</strong></td><td>${payload.paymentMode}</td><td><strong>Collection OTP</strong></td><td>${payload.otpCode}</td></tr>
-         <tr><td><strong>HO spare bill ref</strong></td><td>${payload.hoSparesBillRef || "-"}</td><td><strong>Store bill ref</strong></td><td>${payload.storeBillRef || "-"}</td></tr>
+         <tr><td><strong>CSC spare bill ref</strong></td><td>${payload.hoSparesBillRef || "-"}</td><td><strong>Store bill ref</strong></td><td>${payload.storeBillRef || "-"}</td></tr>
        </tbody>
      </table>
      ${Number(job.brandInvoiceAmountInr ?? 0) > 0 ? `
@@ -2265,8 +2265,8 @@ export function printStoreAdvanceVoucherDocument(input: StoreAdvanceVoucherPrint
 
 function cannotRepairAtPrintLabel(value: string): string {
   if (value === "store") return "Cannot repair at store";
-  if (value === "ho") return "Cannot repair at HO";
-  if (value === "other_ho") return "Cannot repair at other HO";
+  if (value === "ho") return "Cannot repair at CSC";
+  if (value === "other_ho") return "Cannot repair at other CSC";
   if (value === "brand") return "Cannot repair at brand";
   return "Returned without repair";
 }

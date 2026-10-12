@@ -10,7 +10,7 @@ export function PrFlowHeldNotice({ title }: { title: string }) {
       <div className="border border-amber-200 bg-amber-50 px-6 py-8 text-sm text-amber-900">
         <p className="font-semibold">Store PR is not in use right now.</p>
         <p className="mt-2 text-amber-800">
-          HO Purchase creates the PO first, posts GRN into HO stock, then transfers from HO to the store. Transfers are
+          CSC Purchase creates the PO first, posts GRN into CSC stock, then transfers from CSC to the store. Transfers are
           not against a PR.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">

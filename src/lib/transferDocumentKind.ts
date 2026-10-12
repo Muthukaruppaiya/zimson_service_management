@@ -70,7 +70,7 @@ export function storePartyFromSeed(store: SeedStore, region?: SeedRegion): Trans
 
 export function regionHoPartyFromSeed(region: SeedRegion): TransferPartyBlock {
   return {
-    locationLabel: `HO / Service Centre: ${region.name}`,
+    locationLabel: `Service Centre: ${region.name}`,
     legalName: region.name,
     address: formatRegionAddress(region),
     phone: region.phone?.trim() || "—",
@@ -83,13 +83,13 @@ export function transferDocumentTitle(printKind: TransferPrintKind, flow: Transf
   const base = printKind === "dc" ? "Delivery Challan" : "Internal Transfer Document";
   switch (flow) {
     case "store_to_ho":
-      return `${base} (Store → HO)`;
+      return `${base} (Store → CSC)`;
     case "ho_to_store":
-      return `${base} (HO → Store)`;
+      return `${base} (CSC → Store)`;
     case "ho_to_ho_dispatch":
-      return `${base} (Inter-HO Dispatch)`;
+      return `${base} (Inter-CSC Dispatch)`;
     case "ho_to_ho_return":
-      return `${base} (Inter-HO Return)`;
+      return `${base} (Inter-CSC Return)`;
     default:
       return base;
   }
@@ -112,10 +112,10 @@ export function transferFlowDirection(flow: TransferFlow): "IN" | "OUT" {
 
 export function transferMovementLabel(printKind: TransferPrintKind, flow: TransferFlow): string {
   if (flow === "store_to_ho" || flow === "ho_to_store") {
-    return "Internal Transfer (Store ↔ HO)";
+    return "Internal Transfer (Store ↔ CSC)";
   }
   if (printKind === "dc") {
-    return "Delivery Challan (Inter-HO / GST differs)";
+    return "Delivery Challan (Inter-CSC / GST differs)";
   }
   return "Internal Transfer (same GSTIN)";
 }

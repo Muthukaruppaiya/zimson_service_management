@@ -1671,7 +1671,7 @@ export function SrfBookingV2Page() {
                   checked={customerType === "B2C"}
                   onChange={() => trySetCustomerType("B2C")}
                 />{" "}
-                B2C
+                Individual
               </label>
               <label
                 className="flex cursor-pointer items-center gap-2 text-sm"
@@ -1681,7 +1681,7 @@ export function SrfBookingV2Page() {
                   checked={customerType === "B2B"}
                   onChange={() => trySetCustomerType("B2B")}
                 />{" "}
-                B2B
+                Business
               </label>
             </div>
             {customerLockedFromDb ? (

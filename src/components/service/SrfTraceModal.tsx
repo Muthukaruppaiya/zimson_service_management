@@ -38,7 +38,7 @@ const ACTION_LABELS: Record<string, string> = {
   srf_cancelled: "SRF cancelled",
   store_dc_dispatch: "Store dispatched (internal transfer)",
   sc_inward_dc: "Service centre inward (internal transfer)",
-  sender_ho_inward_return_dc: "Sender HO inward (return transfer)",
+  sender_ho_inward_return_dc: "Sender CSC inward (return transfer)",
   supervisor_assign_technician: "Technician assigned",
   technician_estimate_ok: "Technician confirmed estimate",
   technician_request_reestimate: "Technician raised re-estimate",
@@ -52,10 +52,10 @@ const ACTION_LABELS: Record<string, string> = {
   supervisor_move_to_odc: "Supervisor moved to ODC (no repair)",
   supervisor_cannot_repair: "Cannot repair — returned unrepaired",
   store_advance_voucher_issued: "Store credit issued",
-  supervisor_transfer_other_ho: "Queued transfer to other HO",
-  inter_ho_dispatch_to_repair: "Dispatched to repair HO",
-  inter_ho_return_to_sender: "Returned to sender HO",
-  ho_dispatch_to_store: "HO dispatched to store",
+  supervisor_transfer_other_ho: "Queued transfer to other CSC",
+  inter_ho_dispatch_to_repair: "Dispatched to repair CSC",
+  inter_ho_return_to_sender: "Returned to sender CSC",
+  ho_dispatch_to_store: "CSC dispatched to store",
   store_inward_odc: "Store inward (internal outward transfer)",
   store_self_assign_technician: "In-store repair — technician assigned",
   store_self_spares_slip_submitted: "In-store repair — spares recorded",
@@ -64,7 +64,7 @@ const ACTION_LABELS: Record<string, string> = {
   store_no_billing_handover: "Customer handover (no billing)",
   customer_accept_reestimate: "Customer accepted re-estimate",
   customer_reject_reestimate: "Customer rejected re-estimate",
-  convert_to_local_create: "Local SRF created from inter-HO",
+  convert_to_local_create: "Local SRF created from inter-CSC",
   convert_to_local_close_source: "Source SRF closed (converted)",
 };
 
@@ -397,7 +397,7 @@ function SrfHeader({ trace }: { trace: SrfTrace }) {
         ) : null}
         {j.hoSparesBillRef ? (
           <p>
-            <span className="font-semibold text-stone-900">HO bill:</span> {j.hoSparesBillRef}
+            <span className="font-semibold text-stone-900">CSC bill:</span> {j.hoSparesBillRef}
           </p>
         ) : null}
         {j.storeBillRef ? (
@@ -424,7 +424,7 @@ function SrfHeader({ trace }: { trace: SrfTrace }) {
         </p>
         {j.transferTargetRegionId && (
           <p className="text-amber-700">
-            <span className="font-semibold">Transferred to HO:</span>{" "}
+            <span className="font-semibold">Transferred to CSC:</span>{" "}
             {j.transferTargetRegionName ?? j.transferTargetRegionId}
           </p>
         )}

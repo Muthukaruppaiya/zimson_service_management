@@ -24,6 +24,7 @@ import { registerAccountsDashboardRoutes } from "./accountsDashboardRoutes";
 import { registerAnalyticsRoutes } from "./analyticsRoutes";
 import { registerServiceInvoiceRoutes } from "./serviceInvoiceRoutes";
 import { registerQuickBillCaptureRoutes } from "./quickBillCaptureRoutes";
+import { registerQuickBillDraftRoutes } from "./quickBillDraftRoutes";
 import { registerSrfBillingHandoverRoutes } from "./srfBillingHandoverRoutes";
 import { registerTaxSettingsRoutes } from "./taxSettingsRoutes";
 import { getMessagingPublicBaseUrl, isWhatsAppInvoiceDryRun } from "./messaging/config";
@@ -506,7 +507,7 @@ async function appendPrStatusHistory(
 function derivePrInternalStatus(req: number, issued: number, received: number): { code: string; fallbackLabel: string } {
   if (received >= req && req > 0) return { code: "STORE_INWARD_COMPLETED", fallbackLabel: "Store inward completed" };
   if (issued > 0 || received > 0) return { code: "TRANSFER_TO_STORE", fallbackLabel: "Transfer to store" };
-  return { code: "PR_APPROVED_HO", fallbackLabel: "PR approved by HO" };
+  return { code: "PR_APPROVED_HO", fallbackLabel: "PR approved by CSC" };
 }
 
 function requireAuth(
@@ -987,7 +988,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
       return;
     }
     if (input.regionId !== actor.regionId) {
-      res.status(400).json({ ok: false, message: "HO Admin may only create users in the same HO region as their account." });
+      res.status(400).json({ ok: false, message: "CSC Admin may only create users in the same CSC region as their account." });
       return;
     }
   }
@@ -2005,7 +2006,7 @@ app.get("/api/inventory/prs/:prId/ho-stock", requireAuth, async (req, res) => {
     return;
   }
   if (!HO_VIEWER_ROLES.has(actor.role)) {
-    res.status(403).json({ error: "Only HO roles can view HO stock for fulfill." });
+    res.status(403).json({ error: "Only CSC roles can view CSC stock for fulfill." });
     return;
   }
   const prId = String(req.params.prId ?? "").trim();
@@ -2041,7 +2042,7 @@ app.get("/api/inventory/prs/:prId/ho-stock", requireAuth, async (req, res) => {
     res.json({ rows });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Could not load HO stock for PR." });
+    res.status(500).json({ error: "Could not load CSC stock for PR." });
   }
 });
 
@@ -2231,7 +2232,7 @@ app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
       return;
     }
     if (cur.status !== "SUBMITTED") {
-      res.status(400).json({ error: `HO approval allowed only after store sends PR to HO.` });
+      res.status(400).json({ error: `CSC approval allowed only after store sends PR to CSC.` });
       return;
     }
     const nextCode = status === "APPROVED" ? "PR_APPROVED_HO" : "PR_REJECTED_HO";
@@ -2255,7 +2256,7 @@ app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
       statusCode: nextCode,
       statusLabel: nextLabel,
       changedBy: actor.id,
-      note: status === "APPROVED" ? "PR approved by HO." : "PR rejected by HO.",
+      note: status === "APPROVED" ? "PR approved by CSC." : "PR rejected by CSC.",
     });
 
     // Notify store users/managers of the outcome
@@ -2271,13 +2272,13 @@ app.patch("/api/inventory/prs/:prId/status", requireAuth, async (req, res) => {
       if (status === "APPROVED") {
         await pushNotifications(storeUserIds, {
           title: `PR ${pr_number} Approved`,
-          message: `Your purchase request ${pr_number} has been approved by HO and is now waiting for PO conversion.`,
+          message: `Your purchase request ${pr_number} has been approved by CSC and is now waiting for PO conversion.`,
           category: "inventory_pr",
         });
       } else {
         await pushNotifications(storeUserIds, {
           title: `PR ${pr_number} Rejected`,
-          message: `Your purchase request ${pr_number} has been rejected by HO. Please review and raise a new PR if needed.`,
+          message: `Your purchase request ${pr_number} has been rejected by CSC. Please review and raise a new PR if needed.`,
           category: "inventory_pr",
         });
       }
@@ -2298,7 +2299,7 @@ app.post("/api/inventory/prs/:prId/store-approve", requireAuth, async (req, res)
   const uid = (req as express.Request & { userId: string }).userId;
   const actor = findUser(uid);
   if (!actor || actor.role !== "store_manager" || !actor.storeId) {
-    res.status(403).json({ error: "Only Store Manager can approve and send PR to HO." });
+    res.status(403).json({ error: "Only Store Manager can approve and send PR to CSC." });
     return;
   }
   const prId = String(req.params.prId ?? "").trim();
@@ -2322,7 +2323,7 @@ app.post("/api/inventory/prs/:prId/store-approve", requireAuth, async (req, res)
     }
     if (row.status !== "DRAFT") {
       await client.query("ROLLBACK");
-      res.status(400).json({ error: "Only draft PR can be approved and sent to HO." });
+      res.status(400).json({ error: "Only draft PR can be approved and sent to CSC." });
       return;
     }
     const approvedLabel = await getPrFlowLabel(dbPool, "PR_APPROVED_STORE");
@@ -2349,14 +2350,14 @@ app.post("/api/inventory/prs/:prId/store-approve", requireAuth, async (req, res)
       statusCode: "PR_SENT_TO_HO",
       statusLabel: sentLabel,
       changedBy: actor.id,
-      note: "PR sent to HO.",
+      note: "PR sent to CSC.",
     });
     await client.query("COMMIT");
     res.json({ ok: true, status: "SUBMITTED", internalStatusCode: "PR_SENT_TO_HO", internalStatusLabel: sentLabel });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     console.error(e);
-    res.status(400).json({ error: "Could not approve/send PR to HO." });
+    res.status(400).json({ error: "Could not approve/send PR to CSC." });
   } finally {
     client.release();
   }
@@ -2377,7 +2378,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
   const canFulfillPr =
     HO_APPROVER_ROLES.has(actor.role) || actor.role === "ho_purchase";
   if (!canFulfillPr) {
-    res.status(403).json({ error: "Only HO Manager or HO Purchase can fulfill PR." });
+    res.status(403).json({ error: "Only CSC Manager or CSC Purchase can fulfill PR." });
     return;
   }
   const prId = String(req.params.prId ?? "").trim();
@@ -2456,7 +2457,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
       }
       if (wanted > available) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Requested quantity exceeds HO available stock for one or more lines." });
+        res.status(400).json({ error: "Requested quantity exceeds CSC available stock for one or more lines." });
         return;
       }
       const issueQty = Math.min(wanted, Math.max(0, available));
@@ -2491,7 +2492,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
         balanceAfter: hoAfter.rows[0]?.qty ?? null,
         referenceType: "PR",
         referenceNumber: pr.pr_number,
-        note: `Stock issued from HO to store ${pr.store_id}.`,
+        note: `Stock issued from CSC to store ${pr.store_id}.`,
         createdBy: actor.id,
       });
       movedTotal += issueQty;
@@ -2499,7 +2500,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
 
     if (movedTotal <= 0) {
       await client.query("ROLLBACK");
-      res.status(400).json({ error: "No stock moved. Check HO availability." });
+      res.status(400).json({ error: "No stock moved. Check CSC availability." });
       return;
     }
 
@@ -2535,7 +2536,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
       statusCode: internal.code,
       statusLabel: internalLabel || internal.fallbackLabel,
       changedBy: actor.id,
-      note: "HO transfer processed.",
+      note: "CSC transfer processed.",
     });
     await client.query("COMMIT");
     const current = readState();
@@ -2544,7 +2545,7 @@ app.post("/api/inventory/prs/:prId/fulfill", requireAuth, async (req, res) => {
       .map((u) => u.id);
     await pushNotifications(recipients, {
       title: `PR ${pr.pr_number} stock sent`,
-      message: `Stock against PR ${pr.pr_number} has been sent from HO to your store. Please inward and verify quantity.`,
+      message: `Stock against PR ${pr.pr_number} has been sent from CSC to your store. Please inward and verify quantity.`,
       category: "inventory_pr",
     });
     res.json({ ok: true, movedQty: movedTotal, status: nextStatus, internalStatusCode: internal.code, internalStatusLabel: internalLabel });
@@ -2601,8 +2602,8 @@ app.post("/api/notifications/service-dispatch", requireAuth, async (req, res) =>
     )
     .map((u) => u.id);
   await pushNotifications(recipients, {
-    title: `Store DC ${dcNumber} sent to HO`,
-    message: `${count} watch(es) dispatched from store ${actor.storeId} to HO. Please process inward at service centre.`,
+    title: `Store DC ${dcNumber} sent to CSC`,
+    message: `${count} watch(es) dispatched from store ${actor.storeId} to CSC. Please process inward at service centre.`,
     category: "service_dc",
   });
   res.json({ ok: true });
@@ -2691,7 +2692,7 @@ app.post("/api/inventory/prs/:prId/inward", requireAuth, async (req, res) => {
           .map((u) => u.id);
         await pushNotifications(auditRecipients, {
           title: "PR inward audit alert",
-          message: `${actor.displayName} attempted to inward ${reqQty} units on PR ${pr.pr_number} but only ${pendingReceipt} pending from HO for this line.`,
+          message: `${actor.displayName} attempted to inward ${reqQty} units on PR ${pr.pr_number} but only ${pendingReceipt} pending from CSC for this line.`,
           category: "inventory_pr",
         });
         await client.query("ROLLBACK");
@@ -2968,7 +2969,7 @@ app.post("/api/inventory/allocations/confirm", requireAuth, async (req, res) => 
       const available = hoStockRes.rows[0]?.qty ?? 0;
       if (finalQty > available) {
         await client.query("ROLLBACK");
-        res.status(400).json({ error: "Final qty exceeds HO available stock." });
+        res.status(400).json({ error: "Final qty exceeds CSC available stock." });
         return;
       }
       await client.query(
@@ -3066,7 +3067,7 @@ app.post("/api/inventory/allocations/confirm", requireAuth, async (req, res) => 
       .map((u) => u.id);
     await pushNotifications(recipients, {
       title: `Allocation ${batchNumber} issued`,
-      message: `HO issued stock for PR(s): ${Array.from(touchedPrNumbers).slice(0, 5).join(", ")}. Please inward at store.`,
+      message: `CSC issued stock for PR(s): ${Array.from(touchedPrNumbers).slice(0, 5).join(", ")}. Please inward at store.`,
       category: "inventory_pr",
     });
     res.json({ ok: true, batchId, batchNumber, movedQty: moved });
@@ -4355,6 +4356,7 @@ async function main() {
   registerAnalyticsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerAccountsDashboardRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerQuickBillCaptureRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerQuickBillDraftRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSrfBillingHandoverRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTaxSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerEdocRoutes(app, dbPool, requireAuth);

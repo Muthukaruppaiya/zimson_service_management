@@ -27,7 +27,7 @@ export type InterHoSrfInvoiceContext = {
 
 function regionToInvoiceProfile(region: SeedRegion | undefined): StoreInvoicePrintProfile | null {
   if (!region) return null;
-  const label = `${region.name} HO`;
+  const label = `${region.name} CSC`;
   return {
     invoiceStoreDisplayName: label,
     invoiceStoreTagline: "",
@@ -42,7 +42,7 @@ function regionToInvoiceProfile(region: SeedRegion | undefined): StoreInvoicePri
 
 export function interHoInvoicePdfFilename(invoiceRef: string): string {
   const base = invoiceRef.replace(/[^\w.-]+/g, "_") || "inter-ho-invoice";
-  return `Zimson-Inter-HO-Invoice-${base}.pdf`;
+  return `Zimson-Inter-CSC-Invoice-${base}.pdf`;
 }
 
 export function buildInterHoRepairInvoiceViewModel(params: {
@@ -95,8 +95,8 @@ export function buildInterHoRepairInvoiceViewModel(params: {
       estimateTotalInr: estimateTotal,
       billLines,
       collectionAmountInr: params.grandTotal,
-      collectionPaymentMode: "Inter-HO settlement",
-      natureOfRepair: "Inter-HO repair",
+      collectionPaymentMode: "Inter-CSC settlement",
+      natureOfRepair: "Inter-CSC repair",
     },
     {
       taxSettings: params.taxSettings,

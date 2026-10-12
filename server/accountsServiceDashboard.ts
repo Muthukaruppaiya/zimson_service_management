@@ -52,8 +52,8 @@ export type BrandCreditHistoryRow = {
 };
 
 const OUTCOME_LABELS: Record<ServiceOutcomeKey, string> = {
-  same_ho: "Repaired at same HO",
-  other_ho: "Sent to other HO",
+  same_ho: "Repaired at same CSC",
+  other_ho: "Sent to other CSC",
   online_store: "Online store (spares)",
   send_to_brand: "Sent to brand",
   cannot_repair: "Cannot repair",

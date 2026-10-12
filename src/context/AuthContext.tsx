@@ -414,10 +414,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { ok: false, message: "Admin cannot assign Super Admin or Admin roles." };
         }
         if (actor.regionId && input.regionId !== actor.regionId) {
-          return { ok: false, message: "HO Admin may only create users in the same HO region as their account." };
+          return { ok: false, message: "CSC Admin may only create users in the same CSC region as their account." };
         }
         if (!actor.regionId) {
-          return { ok: false, message: "Your HO Admin account has no region; user creation is disabled." };
+          return { ok: false, message: "Your CSC Admin account has no region; user creation is disabled." };
         }
       }
 

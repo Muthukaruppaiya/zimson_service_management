@@ -345,8 +345,8 @@ export function CustomerMasterPage() {
               <label className="text-sm">
                 Customer type
                 <select className={inputClass} value={edit.customerKind} onChange={(e) => setEdit((p) => (p ? { ...p, customerKind: e.target.value as CustomerKind } : p))}>
-                  <option value="B2C">B2C</option>
-                  <option value="B2B">B2B</option>
+                  <option value="B2C">Individual</option>
+                  <option value="B2B">Business</option>
                 </select>
               </label>
             </div>

@@ -738,7 +738,7 @@ export function registerCatalogRoutes(
   app.post("/api/brands", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !isHoAdminRole(actor.role)) {
-      res.status(403).json({ error: "Only HO admins can manage brands." });
+      res.status(403).json({ error: "Only CSC admins can manage brands." });
       return;
     }
     const name = String(req.body?.name ?? "").trim();
@@ -809,7 +809,7 @@ export function registerCatalogRoutes(
   app.patch("/api/brands/:brandId", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !isHoAdminRole(actor.role)) {
-      res.status(403).json({ error: "Only HO admins can manage brands." });
+      res.status(403).json({ error: "Only CSC admins can manage brands." });
       return;
     }
     const brandId = req.params.brandId;
@@ -961,7 +961,7 @@ export function registerCatalogRoutes(
       actor.role === "technician"
     ) {
       if (locationType !== "HO" || actor.regionId !== regionId) {
-        res.status(403).json({ error: "HO users can update only own region HO stock." });
+        res.status(403).json({ error: "CSC users can update only own region CSC stock." });
         return;
       }
     } else if (actor.role === "admin") {
@@ -1372,7 +1372,7 @@ export function registerCatalogRoutes(
   app.post("/api/catalog/service-packages", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !isHoAdminRole(actor.role)) {
-      res.status(403).json({ error: "Only HO admins can manage service packages." });
+      res.status(403).json({ error: "Only CSC admins can manage service packages." });
       return;
     }
     const brand = String(req.body?.brand ?? "").trim();
@@ -1444,7 +1444,7 @@ export function registerCatalogRoutes(
   app.patch("/api/catalog/service-packages/:packageId", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor || !isHoAdminRole(actor.role)) {
-      res.status(403).json({ error: "Only HO admins can manage service packages." });
+      res.status(403).json({ error: "Only CSC admins can manage service packages." });
       return;
     }
     const packageId = String(req.params.packageId ?? "").trim();

@@ -66,9 +66,9 @@ export function invoiceSourceLabel(source: ServiceInvoiceSourceType): string {
     case "srf_store":
       return "SRF store billing";
     case "inter_ho_repair":
-      return "Inter-HO repair";
+      return "Inter-CSC repair";
     case "ho_billing":
-      return "HO billing";
+      return "CSC billing";
     default:
       return source;
   }

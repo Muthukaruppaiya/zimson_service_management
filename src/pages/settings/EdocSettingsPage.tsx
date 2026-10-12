@@ -253,7 +253,7 @@ export function EdocSettingsPage() {
     <div>
       <PageHeader
         title="E-invoice & e-way (Masters India)"
-        description="Each HO region has its own GSTIN and Masters India portal account. Configure credentials separately per region."
+        description="Each CSC region has its own GSTIN and Masters India portal account. Configure credentials separately per region."
       />
       {loading ? <p className="text-sm text-stone-500">Loading…</p> : null}
       {error ? <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-red-200">{error}</p> : null}

@@ -288,7 +288,7 @@ export function InventoryGrnHistoryPage() {
         <InventoryBreadcrumb current="GRN History" />
         <PageHeader title="GRN History" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only HO Manager, HO Purchase, or Admin can view GRN history.
+          Only CSC Manager, CSC Purchase, or Admin can view GRN history.
         </div>
       </div>
     );

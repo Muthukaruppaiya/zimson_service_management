@@ -94,7 +94,7 @@ export function StoreInwardQcDispositionModal({
         >
           <p className="text-sm font-bold text-zimson-900">Keep in inward pending</p>
           <p className="mt-1 text-xs leading-relaxed text-slate-600">
-            Leave on this transfer document. You can inward later after HO re-sends or when QC is resolved.
+            Leave on this transfer document. You can inward later after CSC re-sends or when QC is resolved.
           </p>
         </button>
         <button
@@ -106,16 +106,16 @@ export function StoreInwardQcDispositionModal({
               : "border-slate-200 bg-white hover:border-slate-300"
           }`}
         >
-          <p className="text-sm font-bold text-rlx-gold-dark">Send back to HO for re-repair</p>
+          <p className="text-sm font-bold text-rlx-gold-dark">Send back to CSC for re-repair</p>
           <p className="mt-1 text-xs leading-relaxed text-slate-600">
-            Moves to store outward queue. Create a new transfer, delivery agent handoff, and HO inward — normal flow.
+            Moves to store outward queue. Create a new transfer, delivery agent handoff, and CSC inward — normal flow.
           </p>
         </button>
       </div>
 
       {action === "return_to_ho" ? (
         <label className="mt-4 block text-sm font-medium text-slate-800">
-          Remarks for HO (required)
+          Remarks for CSC (required)
           <textarea
             className={modalTextareaClass}
             rows={3}

@@ -162,7 +162,7 @@ function UserEditModal({
               </select>
             </div>
             <div>
-              <label className={labelCls}>Region / HO</label>
+              <label className={labelCls}>Region / CSC</label>
               {user?.role === "admin" ? (
                 <div className={inputCls + " bg-stone-50 text-stone-500"}>{regionOptions[0]?.name ?? "—"}</div>
               ) : (

@@ -88,7 +88,7 @@ export function AccountsServiceDashboardPage() {
     <div>
       <PageHeader
         title="Service outcomes"
-        description="Repair paths closed in the period — same HO, other HO, online store spares, brand, and cannot repair."
+        description="Repair paths closed in the period — same CSC, other CSC, online store spares, brand, and cannot repair."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link

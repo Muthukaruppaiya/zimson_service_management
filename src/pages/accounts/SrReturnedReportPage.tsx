@@ -51,7 +51,7 @@ export function SrReturnedReportPage() {
   return (
     <ReportPageLayout
       title="SR returned report"
-      description="SRFs returned without billing or inter-HO no-repair returns."
+      description="SRFs returned without billing or inter-CSC no-repair returns."
       filters={filters}
       onFiltersChange={setFilters}
       onRun={runReport}

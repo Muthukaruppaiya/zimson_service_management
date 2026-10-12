@@ -219,9 +219,9 @@ export function ServiceBillingPage() {
         );
         if (cancelled) return;
         setInterHoSrfInvoice(out);
-        const senderHoLabel = `${out.toRegionName} HO`;
+        const senderHoLabel = `${out.toRegionName} CSC`;
         setSelectedCustomer({
-          id: `HO-${out.toRegionId}`,
+          id: `CSC-${out.toRegionId}`,
           displayName: senderHoLabel,
           phone: "-",
           email: "",
@@ -256,7 +256,7 @@ export function ServiceBillingPage() {
         setError(null);
       } catch (e) {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : "Could not load inter-HO SRF invoice prefill.");
+        setError(e instanceof Error ? e.message : "Could not load inter-CSC SRF invoice prefill.");
       }
     })();
     return () => {
@@ -571,7 +571,7 @@ export function ServiceBillingPage() {
           method: "POST",
           json: {
             invoiceRef: generatedRef,
-            note: "Invoice created from HO billing page.",
+            note: "Invoice created from CSC billing page.",
             lines: validLines
               .filter((l) => !!l.spareId || !!l.orderLineId)
               .map((l) => ({
@@ -590,7 +590,7 @@ export function ServiceBillingPage() {
             method: "POST",
             json: {
               invoiceRef: generatedRef,
-              note: "Repair HO invoice created against sender HO.",
+              note: "Repair CSC invoice created against sender CSC.",
               totalInr: grandTotal,
               taxJson: interHoGst
                 ? {
@@ -639,12 +639,12 @@ export function ServiceBillingPage() {
           </p>
           {onlineOrder ? (
             <p className="mt-2 text-sm text-emerald-700">
-              Online order {onlineOrder.orderNumber} invoiced. It is now in sender HO ODC pending queue.
+              Online order {onlineOrder.orderNumber} invoiced. It is now in sender CSC ODC pending queue.
             </p>
           ) : null}
           {interHoSrfInvoice ? (
             <p className="mt-2 text-sm text-emerald-700">
-              Inter-HO repair invoice recorded for SRF {interHoSrfInvoice.reference}. Logistics can now dispatch return to sender HO.
+              Inter-CSC repair invoice recorded for SRF {interHoSrfInvoice.reference}. Logistics can now dispatch return to sender CSC.
             </p>
           ) : null}
           {interHoSrfInvoice && interHoEdoc ? (
@@ -812,9 +812,9 @@ export function ServiceBillingPage() {
         title="Billing"
         description={
           onlineOrder
-            ? `Sender HO invoice mode for ${onlineOrder.orderNumber} (${onlineOrder.srfReference}).`
+            ? `Sender CSC invoice mode for ${onlineOrder.orderNumber} (${onlineOrder.srfReference}).`
             : interHoSrfInvoice
-              ? `Inter-HO invoice (receiver HO billing against sender HO) for SRF ${interHoSrfInvoice.reference} (${interHoSrfInvoice.toRegionName}).`
+              ? `Inter-CSC invoice (receiver CSC billing against sender CSC) for SRF ${interHoSrfInvoice.reference} (${interHoSrfInvoice.toRegionName}).`
             : "Customer lookup (name → mobile), then line items — aligned with quick bill and SRF at the counter. No separate invoicing module."
         }
         actions={
@@ -1011,7 +1011,7 @@ export function ServiceBillingPage() {
             </Card>
           ) : null}
           {interHoSrfInvoice ? (
-            <Card title="Inter-HO SRF details" subtitle="Repair HO invoice against sender HO">
+            <Card title="Inter-CSC SRF details" subtitle="Repair CSC invoice against sender CSC">
               <div className="grid gap-2 text-sm text-stone-700 sm:grid-cols-2">
                 <p><span className="font-semibold text-stone-900">SRF:</span> {interHoSrfInvoice.reference}</p>
                 <p><span className="font-semibold text-stone-900">Status:</span> {interHoSrfInvoice.status.replace(/_/g, " ")}</p>

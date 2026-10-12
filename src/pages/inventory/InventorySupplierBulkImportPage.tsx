@@ -227,7 +227,7 @@ export function InventorySupplierBulkImportPage() {
         <InventoryBreadcrumb current="Supplier bulk import" />
         <PageHeader title="Supplier Bulk Import" description="" />
         <div className="border border-rlx-rule bg-white px-6 py-10 text-center text-sm text-stone-400">
-          Only Admins, HO Managers and HO Purchase users can run supplier bulk import.
+          Only Admins, CSC Managers and CSC Purchase users can run supplier bulk import.
           <div className="mt-4">
             <Link to="/inventory/suppliers" className="font-semibold text-rlx-green hover:underline">
               ← Back to Supplier Master

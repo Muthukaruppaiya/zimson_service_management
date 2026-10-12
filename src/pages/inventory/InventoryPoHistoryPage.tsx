@@ -212,7 +212,7 @@ export function InventoryPoHistoryPage() {
       <InventoryBreadcrumb current="PO History" />
       <PageHeader
         title="Purchase Order History"
-        description="All purchase orders raised by HO. After a partial GRN, amend remaining qty to close the PO without inwarding leftover parts."
+        description="All purchase orders raised by CSC. After a partial GRN, amend remaining qty to close the PO without inwarding leftover parts."
         actions={
           <div className="flex gap-2">
             {isHo && (

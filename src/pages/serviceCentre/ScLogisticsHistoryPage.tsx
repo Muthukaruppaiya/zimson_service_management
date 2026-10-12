@@ -205,10 +205,10 @@ export function ScLogisticsHistoryPage() {
 
   function transferTypeLabel(row: DeliveryChallanHistoryRow): string {
     if (row.transferTypeLabel?.trim()) return row.transferTypeLabel;
-    if (row.flow === "store_to_ho") return "Store → HO";
-    if (row.flow === "ho_to_store") return "HO → Store";
-    if (row.flow === "ho_to_ho_dispatch") return "HO → HO (send)";
-    if (row.flow === "ho_to_ho_return") return "HO → HO (return)";
+    if (row.flow === "store_to_ho") return "Store → CSC";
+    if (row.flow === "ho_to_store") return "CSC → Store";
+    if (row.flow === "ho_to_ho_dispatch") return "CSC → CSC (send)";
+    if (row.flow === "ho_to_ho_return") return "CSC → CSC (return)";
     return dcDirection(row) === "inward" ? "Inward" : "Outward";
   }
 
@@ -271,7 +271,7 @@ export function ScLogisticsHistoryPage() {
     if (!allowCreate) {
       if (!hasBill) {
         return (
-          <span className="text-xs text-stone-400" title="E-way not required for store ↔ HO (TD)">
+          <span className="text-xs text-stone-400" title="E-way not required for store ↔ CSC (TD)">
             N/A
           </span>
         );
@@ -344,7 +344,7 @@ export function ScLogisticsHistoryPage() {
       {historyModule === "eway" ? (
         <Card title={`Delivery challans & e-way (${documentHistoryRows.length})`}>
           <p className="mb-3 text-xs text-stone-600">
-            E-way applies only to HO → HO (DC). Store ↔ HO (TD) shows N/A.
+            E-way applies only to CSC → CSC (DC). Store ↔ CSC (TD) shows N/A.
           </p>
           {!edocEnabled ? (
             <p className="mb-3 text-sm text-stone-600">E-doc is not enabled. Enable it in settings to create or retry e-way bills.</p>
@@ -444,8 +444,8 @@ export function ScLogisticsHistoryPage() {
       {historyModule === "dcOdc" ? (
         <Card title={`DC / ODC history (${filteredDocRows.length})`}>
           <p className="mb-3 text-xs text-stone-600">
-            <strong>TD</strong> = store ↔ HO (no e-way). <strong>DC</strong> = HO ↔ HO (e-way required). Each row is one
-            document. Shows transfers you sent or received at your HO.
+            <strong>TD</strong> = store ↔ CSC (no e-way). <strong>DC</strong> = CSC ↔ CSC (e-way required). Each row is one
+            document. Shows transfers you sent or received at your CSC.
           </p>
           {dcMsg ? (
             <p className="mb-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-950 ring-1 ring-sky-200">{dcMsg}</p>
@@ -460,8 +460,8 @@ export function ScLogisticsHistoryPage() {
               className="rounded-xl border border-zimson-300/80 bg-zimson-50/50 px-3 py-2 text-sm"
             >
               <option value="all">All transfers</option>
-              <option value="inward">Store → HO only</option>
-              <option value="outward">Outward (HO → Store / HO → HO)</option>
+              <option value="inward">Store → CSC only</option>
+              <option value="outward">Outward (CSC → Store / CSC → CSC)</option>
             </select>
             <input
               type="date"
@@ -562,7 +562,7 @@ export function ScLogisticsHistoryPage() {
                           </td>
                           <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                             {!needsEway ? (
-                              <span className="text-xs text-stone-400" title="E-way not required for store ↔ HO (TD)">
+                              <span className="text-xs text-stone-400" title="E-way not required for store ↔ CSC (TD)">
                                 N/A
                               </span>
                             ) : (
@@ -747,7 +747,7 @@ export function ScLogisticsHistoryPage() {
                 }) ? (
                 <span className="font-semibold text-rlx-gold-dark">Pending</span>
               ) : (
-                <span className="text-slate-500">N/A (store ↔ HO)</span>
+                <span className="text-slate-500">N/A (store ↔ CSC)</span>
               )}
             </AppModalDetailRow>
           </AppModalDetailGrid>

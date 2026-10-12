@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CustomerLinkQr } from "./CustomerLinkQr";
+import { IconRefreshLink, IconRefreshUploads, captureLinkButtonClass } from "../ui/TableActionIcons";
 import { ApiError, apiJson } from "../../lib/api";
 
 export type BillingHandoverSession = {
@@ -140,7 +141,7 @@ export function BillingHandoverPhotoCard({ srfId, enabled = true, onSessionChang
 
   return (
     <div className="rounded-xl border border-zimson-200 bg-zimson-50/50 p-4">
-      <p className="text-sm font-semibold text-zimson-900">Handover watch photo</p>
+      <p className="text-sm font-semibold text-zimson-900">Handover Watch Photo</p>
       {error ? (
         <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</p>
       ) : null}
@@ -164,13 +165,14 @@ export function BillingHandoverPhotoCard({ srfId, enabled = true, onSessionChang
                 type="button"
                 disabled={busy}
                 onClick={() => void (session?.sessionId ? refreshLink() : createLink())}
-                className="rounded-lg bg-zimson-700 px-4 py-2 text-xs font-semibold text-white hover:bg-zimson-800 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg bg-zimson-700 px-4 py-2 text-xs font-semibold text-white hover:bg-zimson-800 disabled:opacity-50"
               >
+                <IconRefreshLink />
                 {busy
                   ? "Generating…"
                   : session?.sessionId
-                    ? "Show QR / link again"
-                    : "Generate upload link"}
+                    ? "Show QR / Link Again"
+                    : "Generate Upload Link"}
               </button>
             ) : (
               <>
@@ -178,17 +180,19 @@ export function BillingHandoverPhotoCard({ srfId, enabled = true, onSessionChang
                   type="button"
                   disabled={busy}
                   onClick={() => void refreshSession()}
-                  className="rounded-lg border border-zimson-300 bg-white px-4 py-2 text-xs font-semibold text-zimson-900"
+                  className={captureLinkButtonClass}
                 >
-                  Refresh uploads
+                  <IconRefreshUploads />
+                  Refresh Uploads
                 </button>
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() => void refreshLink()}
-                  className="rounded-lg border border-zimson-300 bg-white px-4 py-2 text-xs font-semibold text-zimson-900"
+                  className={captureLinkButtonClass}
                 >
-                  New link
+                  <IconRefreshLink />
+                  Refresh Link
                 </button>
               </>
             )}

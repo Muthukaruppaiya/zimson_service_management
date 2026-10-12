@@ -136,13 +136,13 @@ function PrSuccessModal({
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
-          <h2 className="text-base font-semibold uppercase tracking-[0.15em] text-white">PR Submitted to HO</h2>
+          <h2 className="text-base font-semibold uppercase tracking-[0.15em] text-white">PR Submitted to CSC</h2>
         </div>
         {/* Body */}
         <div className="px-6 py-5 text-center">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400">Purchase Request Number</p>
           <p className="mt-2 font-mono text-2xl font-bold text-rlx-green">{prNumber}</p>
-          <p className="mt-3 text-sm text-stone-500">Your request has been sent to HO for review and fulfilment.</p>
+          <p className="mt-3 text-sm text-stone-500">Your request has been sent to CSC for review and fulfilment.</p>
         </div>
         {/* Footer */}
         <div className="flex gap-2 border-t border-rlx-rule bg-rlx-bg px-6 py-4">
@@ -370,7 +370,7 @@ function InventoryPurchaseRequestsForm() {
               onClick={() => void createPr()}
               className="bg-rlx-green px-8 py-2.5 text-sm font-semibold text-white hover:bg-rlx-green/90 transition disabled:opacity-50"
             >
-              {busy ? "Submitting…" : "Submit PR to HO"}
+              {busy ? "Submitting…" : "Submit PR to CSC"}
             </button>
             <Link
               to="/inventory/pr-history"

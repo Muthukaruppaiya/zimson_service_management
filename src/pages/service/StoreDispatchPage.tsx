@@ -219,7 +219,7 @@ export function StoreDispatchPage() {
       let okText = `Inwarded ${out.updated} watch(es) on ${dcNumber}.`;
       if (failedRows.length > 0) {
         if (action === "return_to_ho") {
-          okText += ` ${out.returnedToHo ?? failedRows.length} sent to outward queue for HO re-repair.`;
+          okText += ` ${out.returnedToHo ?? failedRows.length} sent to outward queue for CSC re-repair.`;
         } else {
           okText += ` ${failedRows.length} kept in inward pending on this transfer.`;
         }
@@ -258,7 +258,7 @@ export function StoreDispatchPage() {
   function confirmQcDisposition() {
     const selectedIds = inwardReviewRows.filter((j) => inwardAccepted[j.id]).map((j) => j.id);
     if (qcAction === "return_to_ho" && !qcReturnRemark.trim()) {
-      setMessage({ type: "err", text: "Enter remarks explaining why the watch is sent back to HO." });
+      setMessage({ type: "err", text: "Enter remarks explaining why the watch is sent back to CSC." });
       return;
     }
     void executeInwardWithDisposition(selectedIds, qcFailedRows, qcAction, qcReturnRemark);
@@ -284,7 +284,7 @@ export function StoreDispatchPage() {
       const rows = atStore.filter((j) => ids.includes(j.id));
       const printOpts = {
         fromLocation: `Store: ${rows[0]?.storeName ?? rows[0]?.storeId ?? user?.storeId ?? "-"}`,
-        toLocation: `HO / Service Centre: ${rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-"}`,
+        toLocation: `Service Centre: ${rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-"}`,
         fromHo: rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-",
         toHo: rows[0]?.regionName ?? rows[0]?.regionId ?? user?.regionId ?? "-",
       };
@@ -352,7 +352,7 @@ export function StoreDispatchPage() {
     <div>
       <ServiceBreadcrumb current="Send to service centre" />
       <PageHeader
-        title="Send watches to service centre (HO)"
+        title="Send watches to service centre (CSC)"
         description=""
         actions={
           <div className="flex flex-wrap gap-2">
@@ -407,7 +407,7 @@ export function StoreDispatchPage() {
 
       {mode === "outward" ? (
         <Card
-          title="Outward SRF (Store to HO)"
+          title="Outward SRF (Store to CSC)"
           subtitle=""
           className="mt-8"
         >
@@ -503,7 +503,7 @@ export function StoreDispatchPage() {
         </Card>
       ) : (
         <>
-          <Card title="Inward SRF (HO to Store)" className="mt-8">
+          <Card title="Inward SRF (CSC to Store)" className="mt-8">
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-sm">
                 Pending internal transfer number
@@ -726,7 +726,7 @@ export function StoreDispatchPage() {
               <dd className="font-medium text-stone-900">{storeInwardAck.storeLabel}</dd>
             </div>
             <div className="flex justify-between gap-2">
-              <dt className="text-stone-500">From HO</dt>
+              <dt className="text-stone-500">From CSC</dt>
               <dd className="font-medium text-stone-900">{storeInwardAck.fromHoLabel}</dd>
             </div>
           </dl>
@@ -760,7 +760,7 @@ export function StoreDispatchPage() {
       {outwardAck ? (
         <ProcessSuccessModal
           open
-          title="Internal transfer created (store → HO)"
+          title="Internal transfer created (store → CSC)"
           description={`${outwardAck.dcNumber} · ${outwardAck.moved} watch${outwardAck.moved === 1 ? "" : "es"}`}
           onBackdropClick={() => setOutwardAck(null)}
           actions={

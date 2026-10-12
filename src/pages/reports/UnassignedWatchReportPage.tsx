@@ -21,7 +21,7 @@ const BUCKETS = ["ALL", "0-3 days", "4-7 days", "8-14 days", "15-30 days", "30+ 
 
 const STAGE_OPTIONS: Array<{ value: "ALL" | SrfJobStatus; label: string }> = [
   { value: "ALL", label: "All unassigned" },
-  { value: "received_at_sc", label: "HO received — pending assign" },
+  { value: "received_at_sc", label: "CSC received — pending assign" },
   { value: "store_self_pending", label: "In-store — pending assign" },
 ];
 
@@ -126,7 +126,7 @@ export function UnassignedWatchReportPage() {
     <div className="ui-page-bleed px-3 font-sans text-rlx-ink sm:px-4 md:px-5">
       <PageHeader
         title="Unassigned watch report"
-        description="Watches inwarded at HO or store but not yet assigned to a technician."
+        description="Watches inwarded at CSC or store but not yet assigned to a technician."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -167,7 +167,7 @@ export function UnassignedWatchReportPage() {
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[
           { label: "Unassigned total", value: kpis.total },
-          { label: "HO — pending assign", value: kpis.ho },
+          { label: "CSC — pending assign", value: kpis.ho },
           { label: "Store — pending assign", value: kpis.store },
           { label: "3+ days waiting", value: kpis.overdue, warn: true },
           { label: "Filtered rows", value: kpis.filtered },

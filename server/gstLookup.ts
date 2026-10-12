@@ -12,13 +12,27 @@
  * @see https://developer.sandbox.co.in/guides/get-started/quickstart
  */
 
-export type GstLookupNames = {
-  tradeName?: string;
-  legalName?: string;
+export type GstLookupAddress = {
   address?: string;
+  addressLine1?: string;
+  addressLine2?: string;
   city?: string;
+  district?: string;
   state?: string;
   pincode?: string;
+};
+
+export type GstLookupNames = GstLookupAddress & {
+  tradeName?: string;
+  legalName?: string;
+  email?: string;
+  mobile?: string;
+  status?: string;
+  constitution?: string;
+  taxpayerType?: string;
+  registrationDate?: string;
+  natureOfBusiness?: string[];
+  additionalAddresses?: GstLookupAddress[];
 };
 
 export type PanLookupResult = {
@@ -123,22 +137,46 @@ type MastersAddr = {
   pncd?: string;
 };
 
-function formatMastersIndiaAddress(pradr: unknown): Pick<GstLookupNames, "address" | "city" | "state" | "pincode"> {
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "";
+}
+
+function joinParts(parts: unknown[]): string {
+  return parts.map(str).filter(Boolean).join(", ");
+}
+
+function formatMastersIndiaAddress(pradr: unknown): GstLookupAddress {
   if (!pradr || typeof pradr !== "object") return {};
   const addr = (pradr as { addr?: MastersAddr }).addr;
   if (!addr || typeof addr !== "object") return {};
-  const parts = [addr.bno, addr.bnm, addr.flno, addr.st, addr.loc]
-    .map((p) => (typeof p === "string" ? p.trim() : ""))
-    .filter(Boolean);
-  const city = (typeof addr.city === "string" && addr.city.trim()) || (typeof addr.dst === "string" ? addr.dst.trim() : "");
-  const state = typeof addr.stcd === "string" ? addr.stcd.trim() : "";
-  const pincode = typeof addr.pncd === "string" ? addr.pncd.trim() : "";
+  const line1 = joinParts([addr.bno, addr.flno, addr.bnm]);
+  const line2 = joinParts([addr.st, addr.loc]);
+  const district = str(addr.dst);
+  const city = str(addr.city) || str(addr.loc) || district;
+  const state = str(addr.stcd);
+  const pincode = str(addr.pncd);
+  const full = joinParts([line1, line2]);
   return {
-    address: parts.length ? parts.join(", ") : undefined,
+    address: full || undefined,
+    addressLine1: line1 || line2 || undefined,
+    addressLine2: line1 ? line2 || undefined : undefined,
     city: city || undefined,
+    district: district || undefined,
     state: state || undefined,
     pincode: pincode || undefined,
   };
+}
+
+function firstContact(sources: unknown[], keys: string[]): string {
+  for (const s of sources) {
+    if (!s || typeof s !== "object") continue;
+    const o = s as Record<string, unknown>;
+    for (const k of keys) {
+      const v = str(o[k]);
+      if (v) return v;
+    }
+  }
+  return "";
 }
 
 function extractMastersIndiaNames(json: unknown): GstLookupNames {
@@ -149,6 +187,13 @@ function extractMastersIndiaNames(json: unknown): GstLookupNames {
       lgnm?: string;
       tradeNam?: string;
       pradr?: unknown;
+      adadr?: unknown;
+      sts?: string;
+      ctb?: string;
+      dty?: string;
+      rgdt?: string;
+      nba?: unknown;
+      [k: string]: unknown;
     };
   };
   if (root.error === true || (typeof root.error === "string" && root.error)) {
@@ -161,10 +206,26 @@ function extractMastersIndiaNames(json: unknown): GstLookupNames {
   const legalName = typeof d.lgnm === "string" ? d.lgnm.trim() : "";
   const tradeRaw = typeof d.tradeNam === "string" ? d.tradeNam.trim() : "";
   const tradeName = tradeRaw || legalName || undefined;
+  const contactSources = [d.pradr, d, (d as { contact?: unknown }).contact, (d as { contactDetails?: unknown }).contactDetails];
+  const email = firstContact(contactSources, ["em", "email", "emailId", "email_id"]).toLowerCase();
+  const mobileRaw = firstContact(contactSources, ["mb", "mobile", "mobileNo", "mobile_no", "ph", "phone"]);
+  const mobile = mobileRaw.replace(/\D/g, "").slice(-10);
+  const additionalAddresses = Array.isArray(d.adadr)
+    ? d.adadr.map((a) => formatMastersIndiaAddress(a)).filter((a) => a.addressLine1 || a.pincode)
+    : [];
+  const nba = Array.isArray(d.nba) ? d.nba.map(str).filter(Boolean) : [];
   return {
     legalName: legalName || undefined,
     tradeName,
     ...formatMastersIndiaAddress(d.pradr),
+    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : undefined,
+    mobile: mobile.length === 10 ? mobile : undefined,
+    status: str(d.sts) || undefined,
+    constitution: str(d.ctb) || undefined,
+    taxpayerType: str(d.dty) || undefined,
+    registrationDate: str(d.rgdt) || undefined,
+    natureOfBusiness: nba.length ? nba : undefined,
+    additionalAddresses: additionalAddresses.length ? additionalAddresses : undefined,
   };
 }
 
@@ -261,13 +322,7 @@ function extractSandboxNames(json: unknown): GstLookupNames {
   if (!d || typeof d !== "object") {
     throw new Error("Unexpected Sandbox GST response shape.");
   }
-  const legalName = typeof d.lgnm === "string" ? d.lgnm.trim() : "";
-  const tradeRaw = typeof d.tradeNam === "string" ? d.tradeNam.trim() : "";
-  const tradeName = tradeRaw || legalName || undefined;
-  return {
-    legalName: legalName || undefined,
-    tradeName,
-  };
+  return extractMastersIndiaNames({ data: d });
 }
 
 async function lookupViaSandbox(gstin: string, apiKey: string, apiSecret: string): Promise<GstLookupNames> {

@@ -43,8 +43,8 @@ const tabIdle = "border border-rlx-gold bg-white text-rlx-green hover:bg-rlx-gre
 
 function inwardFromLocationName(kind: ScInwardDocumentKind, storeLabel: string): string {
   if (kind === "store_transfer") return storeLabel;
-  if (kind === "inter_ho_return") return "Sender HO (return leg)";
-  return "Other HO";
+  if (kind === "inter_ho_return") return "Sender CSC (return leg)";
+  return "Other CSC";
 }
 
 function buildScInwardPrintParties(
@@ -248,7 +248,17 @@ export function ScLogisticsPage() {
 
   const inTransit = useMemo(() => {
     if (!user) return [];
-    return jobs.filter((j) => j.status === "awaiting_sc_inward" && jobVisibleToServiceCentre(j, user));
+    const isHoAdmin = user.role === "super_admin" || user.role === "admin";
+    return jobs.filter((j) => {
+      if (j.status === "awaiting_sc_inward") return jobVisibleToServiceCentre(j, user);
+      // HO → HO legs have no delivery-agent handoff: the receiving HO inwards straight from in transit.
+      if (j.status !== "in_transit_sc" || !j.dcNumber) return false;
+      const isInterHoLeg =
+        (j.requiresLocalConversion && Boolean(j.transferTargetRegionId)) ||
+        (!j.requiresLocalConversion && Boolean(j.transferSourceRegionId));
+      if (!isInterHoLeg) return false;
+      return isHoAdmin || (user.regionId != null && user.regionId === j.regionId);
+    });
   }, [jobs, user]);
 
   /** One row per open DC — HO (region) and originating store are shown separately. */
@@ -536,7 +546,7 @@ export function ScLogisticsPage() {
     );
     if (hasReturnToSender && missingRepairInvoiceRefs.length > 0) {
       const refs = missingRepairInvoiceRefs.map((j) => j.reference).join(", ");
-      setOutwardMsg({ type: "err", text: `Create repair HO invoice first for: ${refs}` });
+      setOutwardMsg({ type: "err", text: `Create repair CSC invoice first for: ${refs}` });
       return;
     }
     const notReadyForStoreDispatch = selectedRows.filter(
@@ -583,9 +593,9 @@ export function ScLogisticsPage() {
           if (transferJob) {
              const targetRegId = transferJob.requiresLocalConversion ? transferJob.transferTargetRegionId : transferJob.transferSourceRegionId;
              const reg = regions.find(r => r.id === targetRegId);
-             return `HO: ${reg?.name ?? targetRegId}`;
+             return `CSC: ${reg?.name ?? targetRegId}`;
           }
-          return loc ? `Store: ${loc.storeName} (HO: ${loc.regionName})` : `Store: ${sid}`;
+          return loc ? `Store: ${loc.storeName} (CSC: ${loc.regionName})` : `Store: ${sid}`;
         });
       const toLocation = destLabels.length === 1 ? destLabels[0] : `Multiple stores (${destLabels.length})`;
       const fromHo = first?.regionName ?? (first?.regionId ? regionNameById.get(first.regionId) ?? first.regionId : "-");
@@ -594,7 +604,7 @@ export function ScLogisticsPage() {
           ? regionNameById.get(first.transferSourceRegionId) ?? first.transferSourceRegionId
           : fromHo;
       const printOpts = {
-        fromLocation: `HO / Service Centre: ${fromHo}`,
+        fromLocation: `Service Centre: ${fromHo}`,
         toLocation,
         fromHo,
         toHo,
@@ -708,7 +718,7 @@ export function ScLogisticsPage() {
         type: "ok",
         text: [
           printMeta.flow === "ho_to_store"
-            ? `Internal transfer ${result.odcNumber} created (HO → store). Print when ready.`
+            ? `Internal transfer ${result.odcNumber} created (CSC → store). Print when ready.`
             : printMeta.printKind === "dc"
               ? `Delivery Challan ${result.odcNumber} created (${transferDocumentTitle(printMeta.printKind, printMeta.flow)}). Print when ready.`
               : `Internal transfer ${result.odcNumber} created. Print when ready.`,
@@ -789,21 +799,21 @@ export function ScLogisticsPage() {
 
       <div className="mb-6 flex flex-wrap gap-2">
         <button type="button" className={`${tabBtn} ${tab === "inward" ? tabActive : tabIdle}`} onClick={() => setTab("inward")}>
-          Internal inward (Store to HO)
+          Internal inward (Store / CSC to CSC)
         </button>
         <button
           type="button"
           className={`${tabBtn} ${tab === "outward" ? tabActive : tabIdle}`}
           onClick={() => setTab("outward")}
         >
-          Internal outward (HO to Store)
+          Internal outward (CSC to Store)
         </button>
       </div>
 
       {tab === "inward" ? (
         <>
           <Card
-            title="Internal inward from store"
+            title="Internal inward from store / other CSC"
           >
             <form
               onSubmit={(e) => {
@@ -829,7 +839,7 @@ export function ScLogisticsPage() {
                   <option value="">— Choose a pending internal transfer —</option>
                   {pendingDcOptions.map((o) => (
                     <option key={o.dcNumber} value={o.dcNumber}>
-                      {o.dcNumber} · {o.typeLabel} · HO: {o.hoLabel}
+                      {o.dcNumber} · {o.typeLabel} · CSC: {o.hoLabel}
                       {o.documentKind === "store_transfer" ? ` · From store: ${o.storeLabel}` : ""} · {o.count} watch
                       {o.count === 1 ? "" : "es"}
                     </option>
@@ -859,7 +869,7 @@ export function ScLogisticsPage() {
                 Review watches &amp; inward
               </button>
               {!canPostDcInward ? (
-                <p className="text-xs text-amber-800">You can view transit lists but cannot post inward for this HO.</p>
+                <p className="text-xs text-amber-800">You can view transit lists but cannot post inward for this CSC.</p>
               ) : null}
             </form>
             {inwardMsg ? (
@@ -991,7 +1001,7 @@ export function ScLogisticsPage() {
 
           {outwardModule === "online" ? <section id="module-online-spare-odc">
           <Card
-            title="Online spare ODC pending (sender HO)"
+            title="Online spare ODC pending (sender CSC)"
           >
             {onlineSpareRows.filter((o) => !o.dispatchedAt).length === 0 ? (
               <div className="min-h-[2rem]" aria-hidden />
@@ -1270,7 +1280,7 @@ export function ScLogisticsPage() {
                         <th className="px-3 py-2 w-10" />
                         <th className="px-3 py-2">SRF</th>
                         <th className="px-3 py-2">Watch</th>
-                        <th className="px-3 py-2 min-w-[220px]">Repair HO invoice</th>
+                        <th className="px-3 py-2 min-w-[220px]">Repair CSC invoice</th>
                         <th className="px-3 py-2 min-w-[220px]">Destination store</th>
                       </tr>
                     </thead>
@@ -1309,7 +1319,7 @@ export function ScLogisticsPage() {
                             {(!j.requiresLocalConversion && !!j.transferSourceRegionId) ? (
                               j.interHoReestimatePhase === "customer_declined_final" || j.interHoReturnWithoutRepair ? (
                                 <p className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-900">
-                                  Return to sender HO — DC + e-way
+                                  Return to sender CSC — DC + e-way
                                 </p>
                               ) : j.hoSparesBillRef ? (
                                 <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
@@ -1336,11 +1346,11 @@ export function ScLogisticsPage() {
                                   const reg = regions.find(r => r.id === j.transferTargetRegionId);
                                   const finalStore = storeById.get(destId);
                                   const finalLabel = finalStore
-                                    ? `Store: ${finalStore.storeName} (HO: ${finalStore.regionName})`
+                                    ? `Store: ${finalStore.storeName} (CSC: ${finalStore.regionName})`
                                     : `Store: ${destId}`;
                                   return (
                                     <>
-                                      <span>Next: HO: {reg?.name ?? j.transferTargetRegionId}</span>
+                                      <span>Next: CSC: {reg?.name ?? j.transferTargetRegionId}</span>
                                       <span className="mt-0.5 block text-[10px] font-normal text-stone-500">Final: {finalLabel}</span>
                                     </>
                                   );
@@ -1349,17 +1359,17 @@ export function ScLogisticsPage() {
                                   const reg = regions.find(r => r.id === j.transferSourceRegionId);
                                   const finalStore = storeById.get(destId);
                                   const finalLabel = finalStore
-                                    ? `Store: ${finalStore.storeName} (HO: ${finalStore.regionName})`
+                                    ? `Store: ${finalStore.storeName} (CSC: ${finalStore.regionName})`
                                     : `Store: ${destId}`;
                                   return (
                                     <>
-                                      <span>Next: HO: {reg?.name ?? j.transferSourceRegionId}</span>
+                                      <span>Next: CSC: {reg?.name ?? j.transferSourceRegionId}</span>
                                       <span className="mt-0.5 block text-[10px] font-normal text-stone-500">Final: {finalLabel}</span>
                                     </>
                                   );
                                 }
                                 const loc = storeById.get(destId);
-                                return (loc?.regionName ? `HO: ${loc.regionName} · ` : "") + `Store: ${loc?.storeName ?? destId}`;
+                                return (loc?.regionName ? `CSC: ${loc.regionName} · ` : "") + `Store: ${loc?.storeName ?? destId}`;
                               })()}
                             </p>
                           </td>
@@ -1412,7 +1422,7 @@ export function ScLogisticsPage() {
                   <tr className="border-b border-rlx-rule">
                     <th className="bg-rlx-green-light/70 px-3 py-2">Region / Store</th>
                     <td className="px-3 py-2">
-                      HO: {selectedJob.regionName ?? selectedJob.regionId} · Store: {storeById.get(selectedJob.storeId)?.storeName ?? selectedJob.storeId}
+                      CSC: {selectedJob.regionName ?? selectedJob.regionId} · Store: {storeById.get(selectedJob.storeId)?.storeName ?? selectedJob.storeId}
                     </td>
                   </tr>
                   <tr className="border-b border-rlx-rule">
@@ -1454,10 +1464,10 @@ export function ScLogisticsPage() {
                   outwardAck.documentKind === "DC" ? "text-emerald-100" : "text-indigo-100"
                 }`}
               >
-                {outwardAck.documentKind === "DC" ? "Inter-HO dispatch confirmed" : "Internal transfer confirmed"}
+                {outwardAck.documentKind === "DC" ? "Inter-CSC dispatch confirmed" : "Internal transfer confirmed"}
               </p>
               <h2 id="outward-ack-title" className="mt-1 text-xl font-bold">
-                {outwardAck.documentKind === "DC" ? "HO → HO delivery challan (DC)" : "HO → store transfer (TD)"}
+                {outwardAck.documentKind === "DC" ? "CSC → CSC delivery challan (DC)" : "CSC → store transfer (TD)"}
               </h2>
             </div>
             <div className="px-5 py-5">
@@ -1637,8 +1647,8 @@ export function ScLogisticsPage() {
                     <dt className="text-stone-500">Route</dt>
                     <dd className="max-w-[60%] text-right font-medium text-stone-900">
                       {inwardAck.documentKind === "inter_ho_return"
-                        ? "Repair HO → sender HO (return DC)"
-                        : "Other HO → this service centre"}
+                        ? "Repair CSC → sender CSC (return DC)"
+                        : "Other CSC → this service centre"}
                     </dd>
                   </div>
                 )}

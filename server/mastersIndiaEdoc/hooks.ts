@@ -97,8 +97,8 @@ function resolveEwayTotals(
 }
 
 function flowLabelFromMeta(printMeta: TransferPrintMeta): string {
-  if (printMeta.flow === "ho_to_ho_return") return "HO return after repair";
-  if (printMeta.flow === "ho_to_ho_dispatch") return "Inter-HO repair dispatch";
+  if (printMeta.flow === "ho_to_ho_return") return "CSC return after repair";
+  if (printMeta.flow === "ho_to_ho_dispatch") return "Inter-CSC repair dispatch";
   return printMeta.flow.replace(/_/g, " ");
 }
 
@@ -825,7 +825,7 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
   const cfg = getMastersIndiaEdocConfig(repairRegionId);
   if (!cfg?.enabled) return skip("E-doc not configured");
   if (inv.source_type !== "inter_ho_repair") {
-    const r = skip("E-invoice applies to inter-HO repair invoices only");
+    const r = skip("E-invoice applies to inter-CSC repair invoices only");
     await saveServiceInvoiceEdoc(pool, invoiceId, r);
     return r;
   }
@@ -842,7 +842,7 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
     (typeof snap.transferSourceRegionId === "string" ? snap.transferSourceRegionId.trim() : "");
 
   if (!repairRegionId || !senderId) {
-    const r = skip("Repair HO and sender HO regions required for inter-HO e-invoice");
+    const r = skip("Repair CSC and sender CSC regions required for inter-CSC e-invoice");
     await saveServiceInvoiceEdoc(pool, invoiceId, r);
     return r;
   }
@@ -850,7 +850,7 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
   const repairRegion = await loadRegionForEdoc(pool, repairRegionId);
   const senderRegion = await loadRegionForEdoc(pool, senderId);
   if (!repairRegion || !senderRegion) {
-    const r = skip("Could not load HO region details for e-invoice");
+    const r = skip("Could not load CSC region details for e-invoice");
     await saveServiceInvoiceEdoc(pool, invoiceId, r);
     return r;
   }
@@ -858,14 +858,14 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
   const sellerGst = String(repairRegion.gst ?? "").trim().toUpperCase();
   const buyerGst = String(senderRegion.gst ?? "").trim().toUpperCase();
   if (!isValidGstin(sellerGst) || !isValidGstin(buyerGst)) {
-    const r = skip("Valid repair-HO and sender-HO GSTIN required for inter-HO e-invoice");
+    const r = skip("Valid repair-CSC and sender-CSC GSTIN required for inter-CSC e-invoice");
     await saveServiceInvoiceEdoc(pool, invoiceId, r);
     return r;
   }
 
   const usedSpares = parseUsedSparesForEdoc(snap.billLines ?? snap.usedSpares ?? inv.used_spares);
   if (usedSpares.length === 0) {
-    const r = skip("No billable lines for inter-HO e-invoice — add description, qty, rate and HSN.");
+    const r = skip("No billable lines for inter-CSC e-invoice — add description, qty, rate and HSN.");
     await saveServiceInvoiceEdoc(pool, invoiceId, r);
     return r;
   }
@@ -922,7 +922,7 @@ export async function tryGenerateEinvoiceForInterHoInvoice(
     sgstRatePercent: Number(taxRow?.sgst_rate_percent ?? configuredGst / 2),
     igstRatePercent: Number(taxRow?.igst_rate_percent ?? configuredGst),
     pricesTaxInclusive: false,
-    natureOfRepair: "Inter-HO repair",
+    natureOfRepair: "Inter-CSC repair",
     sellerStateCode,
     customerStateCode: buyerStateCode,
     billTotalInr: subtotalInr,
@@ -1098,7 +1098,7 @@ export async function tryGenerateEwayForChallan(
   }
 
   if (!transferFlowNeedsEway(meta.flow) && !/^DC/i.test(docNo)) {
-    return skip("E-way not required for store ↔ HO transfer (TD).");
+    return skip("E-way not required for store ↔ CSC transfer (TD).");
   }
 
   let consignor = partyFromTransferBlock(meta.from, "");
@@ -1242,7 +1242,7 @@ export async function getEwayPrefillForBrandSend(pool: Pool, srfId: string): Pro
   return {
     documentNumber: row.brand_odc_number,
     flowLabel: `Send to brand (${row.watch_brand})`,
-    fromLabel: reg?.name ? `HO / Service Centre: ${reg.name}` : "Service centre HO",
+    fromLabel: reg?.name ? `Service Centre: ${reg.name}` : "Service centre CSC",
     toLabel: defaultConsignee
       ? `${defaultConsignee.brandName} — ${defaultConsignee.locationName}`
       : `Brand service centre — ${row.watch_brand}`,
@@ -1312,7 +1312,7 @@ export async function tryGenerateEwayForBrandSend(
     const from = await loadRegionHoPartyForEway(client, row.region_id);
     let consignor = partyFromTransferBlock(from, resolveEdocEwayUserGstin("", cfg));
     if (!isValidGstin(consignor.gstin)) {
-      const r = skip("Consignor HO GSTIN required for e-way");
+      const r = skip("Consignor CSC GSTIN required for e-way");
       await saveSrfEwayEdoc(pool, srfId, r);
       return r;
     }
@@ -1420,9 +1420,9 @@ export async function getEwayPrefillForOnlineSpareOrder(pool: Pool, orderId: str
 
   return {
     documentNumber: row.order_number,
-    flowLabel: "Online store — inter-HO spare dispatch",
-    fromLabel: supplier?.name ? `HO / Service Centre: ${supplier.name}` : "Supplier HO",
-    toLabel: requester?.name ? `HO / Service Centre: ${requester.name}` : "Requesting HO",
+    flowLabel: "Online store — inter-CSC spare dispatch",
+    fromLabel: supplier?.name ? `Service Centre: ${supplier.name}` : "Supplier CSC",
+    toLabel: requester?.name ? `Service Centre: ${requester.name}` : "Requesting CSC",
     consignorGstin,
     consigneeGstin,
     vehicleNumber: "",
@@ -1489,11 +1489,11 @@ export async function tryGenerateEwayForOnlineSpareOrder(
       consignor,
       consignee,
       ...nominal,
-      itemDescription: "Spare parts — inter-HO online store dispatch",
+      itemDescription: "Spare parts — inter-CSC online store dispatch",
       hsnSac: "9113",
       qty: 1,
       transportationDistanceKm: "0",
-      subSupplyDescription: "Online store inter-HO spare dispatch",
+      subSupplyDescription: "Online store inter-CSC spare dispatch",
       vehicleNumber: input?.vehicleNumber,
       transportationMode: input?.transportationMode,
       transporterName: input?.transporterName,

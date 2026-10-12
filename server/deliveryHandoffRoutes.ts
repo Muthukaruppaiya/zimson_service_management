@@ -171,7 +171,7 @@ export function registerDeliveryHandoffRoutes(
 
       if (queue === "ho_receive") {
         if (!SC_LOGISTICS_ROLES.has(actor.role)) {
-          res.status(403).json({ error: "Front desk / HO logistics required." });
+          res.status(403).json({ error: "Front desk / CSC logistics required." });
           return;
         }
         const params: unknown[] = [];
@@ -211,7 +211,7 @@ export function registerDeliveryHandoffRoutes(
 
       if (queue === "ho_send") {
         if (!SC_LOGISTICS_ROLES.has(actor.role)) {
-          res.status(403).json({ error: "Front desk / HO logistics required." });
+          res.status(403).json({ error: "Front desk / CSC logistics required." });
           return;
         }
         const params: unknown[] = [];
@@ -292,7 +292,7 @@ export function registerDeliveryHandoffRoutes(
       return;
     }
     if (!STORE_ROLES.has(actor.role) && !SC_LOGISTICS_ROLES.has(actor.role)) {
-      res.status(403).json({ error: "Store or HO logistics role required." });
+      res.status(403).json({ error: "Store or CSC logistics role required." });
       return;
     }
 
@@ -397,7 +397,7 @@ export function registerDeliveryHandoffRoutes(
       (kind === "ho_receive_from_db" || kind === "ho_to_store_send") &&
       !SC_LOGISTICS_ROLES.has(actor.role)
     ) {
-      res.status(403).json({ error: "Front desk / HO logistics required." });
+      res.status(403).json({ error: "Front desk / CSC logistics required." });
       return;
     }
 
@@ -473,7 +473,7 @@ export function registerDeliveryHandoffRoutes(
           }
         } else if (kind === "ho_receive_from_db") {
           if (dc.to_location !== "SERVICE_CENTRE" || dc.status !== "IN_TRANSIT") {
-            res.status(400).json({ error: `TD ${dc.dc_number} is not in transit to HO.` });
+            res.status(400).json({ error: `TD ${dc.dc_number} is not in transit to CSC.` });
             return;
           }
           if (dc.delivery_boy_user_id !== deliveryBoyUserId) {
@@ -597,13 +597,13 @@ export function registerDeliveryHandoffRoutes(
                 line.srf_id,
                 "in_transit_sc",
                 actor.id,
-                `Handed to delivery agent for HO — transfer ${dcNumber}.`,
+                `Handed to delivery agent for CSC — transfer ${dcNumber}.`,
               );
               await appendActionLog(
                 client,
                 line.srf_id,
                 "delivery_handoff_store_send",
-                `Handed to delivery agent (OTP) for HO via ${dcNumber}.`,
+                `Handed to delivery agent (OTP) for CSC via ${dcNumber}.`,
                 actor,
                 dcNumber,
               );
@@ -633,7 +633,7 @@ export function registerDeliveryHandoffRoutes(
                 line.srf_id,
                 "awaiting_sc_inward",
                 actor.id,
-                `Received from delivery agent at HO — waiting for inward (${dcNumber}).`,
+                `Received from delivery agent at CSC — waiting for inward (${dcNumber}).`,
               );
               await appendActionLog(
                 client,

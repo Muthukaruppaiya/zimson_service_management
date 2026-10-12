@@ -79,7 +79,7 @@ function InventoryAllocationReviewBody() {
   if (!isHo) {
     return (
       <Card title="Access">
-        <p className="text-sm text-stone-600">Only HO admins can run allocation review.</p>
+        <p className="text-sm text-stone-600">Only CSC admins can run allocation review.</p>
       </Card>
     );
   }
@@ -88,8 +88,8 @@ function InventoryAllocationReviewBody() {
     <div>
       <InventoryBreadcrumb current="Allocation review" />
       <PageHeader
-        title="Allocation review (HO -> stores)"
-        description="Auto-suggest transfer quantities from HO stock against pending PR lines, then edit and confirm."
+        title="Allocation review (CSC -> stores)"
+        description="Auto-suggest transfer quantities from CSC stock against pending PR lines, then edit and confirm."
         actions={
           <Link
             to="/inventory"
@@ -132,7 +132,7 @@ function InventoryAllocationReviewBody() {
                   <th className="px-3 py-2">PR#</th>
                   <th className="px-3 py-2">Store</th>
                   <th className="px-3 py-2">Spare</th>
-                  <th className="px-3 py-2">HO available</th>
+                  <th className="px-3 py-2">CSC available</th>
                   <th className="px-3 py-2">Pending</th>
                   <th className="px-3 py-2">Suggested</th>
                   <th className="px-3 py-2">Final qty</th>
