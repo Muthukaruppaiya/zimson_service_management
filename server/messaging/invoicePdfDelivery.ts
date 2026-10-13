@@ -136,7 +136,7 @@ export async function resolveWhatsAppInvoiceDocumentUrl(
     ? " Local dev: keep the API server running on port " +
       port +
       ", set MESSAGING_AUTO_TUNNEL=true (cloudflared), or WHATSAPP_INVOICE_DRY_RUN=true to test without WhatsApp. " +
-      "Do not point MESSAGING_PUBLIC_BASE_URL at https://zimsonwatchcare.com unless that host proxies /api to this Node app."
+      "Do not point MESSAGING_PUBLIC_BASE_URL at https://service.zimson.net unless that host proxies /api to this Node app."
     : " On production set FILES_STORAGE=s3 (recommended), or deploy /api/messaging/public-invoice-pdf/ with Nginx proxying /api to Node (not the Vite SPA).";
 
   throw new Error(`Could not publish invoice PDF for WhatsApp.${localHint}`);

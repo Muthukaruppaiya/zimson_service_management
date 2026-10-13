@@ -51,7 +51,7 @@ export async function verifyPublicInvoicePdfUrl(documentUrl: string): Promise<vo
       head.includes("<!doctype");
 
     const hint = looksHtml
-      ? " That URL returned your website HTML page, not the PDF. Set Public PDF base URL to the same host that proxies /api to Node (e.g. https://zimsonwatchcare.com — invoice links use /api/messaging/public-invoice-pdf/). Do not use the Vite dev port (5173)."
+      ? " That URL returned your website HTML page, not the PDF. Set Public PDF base URL to the same host that proxies /api to Node (e.g. https://service.zimson.net — invoice links use /api/messaging/public-invoice-pdf/). Do not use the Vite dev port (5173)."
       : ` Content-Type was "${ct || "unknown"}" and the file does not start with %PDF.`;
 
     throw new Error(`WhatsApp invoice link is not a downloadable PDF.${hint}`);

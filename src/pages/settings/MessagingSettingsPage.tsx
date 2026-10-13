@@ -557,7 +557,7 @@ export function MessagingSettingsPage() {
                   />
                   <p className="mt-1 text-xs text-stone-500">
                     Must be your public site/API host where <code>/api</code> reaches Node (e.g.{" "}
-                    <code>https://zimsonwatchcare.com</code>). PDFs are served at{" "}
+                    <code>https://service.zimson.net</code>). PDFs are served at{" "}
                     <code>/api/messaging/public-invoice-pdf/…</code> — not the React HTML page. Test:{" "}
                     <code>/api/messaging/public-ping</code>. Local dev: enable auto-tunnel in server settings.
                   </p>

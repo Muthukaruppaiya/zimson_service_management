@@ -114,7 +114,7 @@ export function getEmailActionBaseUrl(req?: Request): string {
   }
 
   throw new Error(
-    "APP_BASE_URL must be set to your public site (e.g. https://zimsonwatchcare.com). " +
+    "APP_BASE_URL must be set to your public site (e.g. https://service.zimson.net). " +
       "localhost links do not work in Gmail or on mobile.",
   );
 }
@@ -125,13 +125,13 @@ export function normalizeEmailActionBaseUrl(base: string): string {
   const u = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
   if (isLocalOrPrivateAppHost(u.hostname)) {
     throw new Error(
-      `Email links cannot use ${u.hostname}. Set APP_BASE_URL=https://zimsonwatchcare.com in .env`,
+      `Email links cannot use ${u.hostname}. Set APP_BASE_URL=https://service.zimson.net in .env`,
     );
   }
   if (u.protocol === "http:" && process.env.NODE_ENV === "production") {
     u.protocol = "https:";
   }
-  if (u.hostname.endsWith("zimsonwatchcare.com") && u.protocol === "http:") {
+  if ((u.hostname.endsWith("zimson.net") || u.hostname.endsWith("zimsonwatchcare.com")) && u.protocol === "http:") {
     u.protocol = "https:";
   }
   return `${u.protocol}//${u.host}`;

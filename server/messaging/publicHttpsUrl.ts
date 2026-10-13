@@ -15,7 +15,7 @@ export function normalizeMessagingPublicBaseUrl(raw: string): string {
   if (u.protocol === "http:") {
     u.protocol = "https:";
   }
-  if (u.hostname.endsWith("zimsonwatchcare.com") && u.protocol !== "https:") {
+  if ((u.hostname.endsWith("zimson.net") || u.hostname.endsWith("zimsonwatchcare.com")) && u.protocol !== "https:") {
     u.protocol = "https:";
   }
 
@@ -35,7 +35,7 @@ export function resolvePublicHttpsDocumentUrl(documentUrl: string, publicBase?: 
     const base = (publicBase ?? "").trim();
     if (!base) {
       throw new Error(
-        "Public PDF base URL is not set. On the server set MESSAGING_PUBLIC_BASE_URL=https://zimsonwatchcare.com " +
+        "Public PDF base URL is not set. On the server set MESSAGING_PUBLIC_BASE_URL=https://service.zimson.net " +
           "(same host as the site, with Nginx proxying /api to Node).",
       );
     }
@@ -49,7 +49,7 @@ export function resolvePublicHttpsDocumentUrl(documentUrl: string, publicBase?: 
   if (isLocalOrPrivateAppHost(u.hostname)) {
     throw new Error(
       "WhatsApp cannot download PDFs from localhost or a private IP. On the server use HTTPS " +
-        "(MESSAGING_PUBLIC_BASE_URL=https://zimsonwatchcare.com with /api on Node, or FILES_STORAGE=s3). " +
+        "(MESSAGING_PUBLIC_BASE_URL=https://service.zimson.net with /api on Node, or FILES_STORAGE=s3). " +
         "On a dev PC use MESSAGING_AUTO_TUNNEL=true or WHATSAPP_INVOICE_DRY_RUN=true.",
     );
   }
