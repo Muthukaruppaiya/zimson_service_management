@@ -496,7 +496,54 @@ export function ScLogisticsPage() {
     return j?.destinationStoreId || originatingStoreId;
   }
 
+  function outwardDispatchKey(j: SrfJob): string {
+    if (j.requiresLocalConversion && j.transferTargetRegionId) return `CSC:${j.transferTargetRegionId}`;
+    if (!j.requiresLocalConversion && j.transferSourceRegionId) return `CSC:${j.transferSourceRegionId}`;
+    return `STORE:${destinationFor(j.id, j.storeId)}`;
+  }
+
+  function outwardDispatchLabel(key: string): string {
+    const [kind, id = ""] = key.split(":");
+    if (kind === "CSC") return `CSC: ${regions.find((r) => r.id === id)?.name ?? id}`;
+    return `Store: ${storeById.get(id)?.storeName ?? id}`;
+  }
+
+  const selectedOutKey = (() => {
+    const first = jobs.find((j) => selectedOut[j.id]);
+    return first ? outwardDispatchKey(first) : null;
+  })();
+  const selectedOutCount = outwardRows.filter((j) => selectedOut[j.id]).length;
+  const outwardGroups = (() => {
+    const map = new Map<string, number>();
+    for (const j of outwardRows) {
+      const key = outwardDispatchKey(j);
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return [...map.entries()].map(([key, count]) => ({ key, count }));
+  })();
+  const outwardAllChecked = (() => {
+    if (outwardRows.length === 0) return false;
+    const key = selectedOutKey ?? outwardDispatchKey(outwardRows[0]!);
+    const eligible = outwardRows.filter((j) => outwardDispatchKey(j) === key);
+    return eligible.length > 0 && eligible.every((j) => selectedOut[j.id]);
+  })();
+
+  function selectOutwardGroup(key: string) {
+    const next: Record<string, boolean> = {};
+    for (const j of outwardRows) if (outwardDispatchKey(j) === key) next[j.id] = true;
+    setSelectedOut(next);
+    setOutwardMsg(null);
+  }
+
   function toggleOut(id: string) {
+    const job = jobs.find((x) => x.id === id);
+    if (!selectedOut[id] && job && selectedOutKey && outwardDispatchKey(job) !== selectedOutKey) {
+      setOutwardMsg({
+        type: "err",
+        text: `${job.reference} goes to a different destination (${outwardDispatchLabel(outwardDispatchKey(job))}). One TD can include only one destination.`,
+      });
+      return;
+    }
     setSelectedOut((s) => ({ ...s, [id]: !s[id] }));
   }
 
@@ -508,13 +555,25 @@ export function ScLogisticsPage() {
       setOutwardMsg({ type: "err", text: `Scanned SRF not found in outward queue: ${scanned}` });
       return;
     }
+    if (selectedOutKey && outwardDispatchKey(hit) !== selectedOutKey) {
+      setOutwardMsg({
+        type: "err",
+        text: `${hit.reference} goes to ${outwardDispatchLabel(outwardDispatchKey(hit))} — selected SRFs go to ${outwardDispatchLabel(selectedOutKey)}.`,
+      });
+      return;
+    }
     setSelectedOut((prev) => ({ ...prev, [hit.id]: true }));
     setOutwardMsg({ type: "ok", text: `SRF ${hit.reference} selected from barcode scan.` });
   }
 
   function toggleAllOut(checked: boolean, rows: SrfJob[]) {
     const next: Record<string, boolean> = {};
-    if (checked) rows.forEach((j) => (next[j.id] = true));
+    if (checked && rows.length > 0) {
+      const key = selectedOutKey ?? outwardDispatchKey(rows[0]!);
+      rows.forEach((j) => {
+        if (outwardDispatchKey(j) === key) next[j.id] = true;
+      });
+    }
     setSelectedOut(next);
   }
 
@@ -534,6 +593,14 @@ export function ScLogisticsPage() {
       return { jobId, destinationStoreId: dest };
     });
     const selectedRows = jobs.filter((j) => ids.includes(j.id));
+    const dispatchKeys = new Set(selectedRows.map((j) => outwardDispatchKey(j)));
+    if (dispatchKeys.size > 1) {
+      setOutwardMsg({
+        type: "err",
+        text: `Selected SRFs go to different destinations (${[...dispatchKeys].map(outwardDispatchLabel).join(", ")}). Create one TD per destination.`,
+      });
+      return;
+    }
     const hasReturnToSender = selectedRows.some(
       (j) => !j.requiresLocalConversion && !!j.transferSourceRegionId,
     );
@@ -1205,117 +1272,220 @@ export function ScLogisticsPage() {
               <div className="mt-4 min-h-[2rem]" aria-hidden />
             ) : (
               <>
-                <div className="mt-4 mb-3 grid gap-2 md:grid-cols-4">
-                  <input
-                    value={outwardQuery}
-                    onChange={(e) => setOutwardQuery(e.target.value)}
-                    className="rounded-xl border border-rlx-gold/80 bg-rlx-green-light/50 px-3 py-2 text-sm"
-                    placeholder="Search SRF/customer/phone/watch/store"
-                  />
-                  <input
-                    type="date"
-                    value={outwardFromDate}
-                    onChange={(e) => setOutwardFromDate(e.target.value)}
-                    className="rounded-xl border border-rlx-gold/80 bg-rlx-green-light/50 px-3 py-2 text-sm"
-                  />
-                  <input
-                    type="date"
-                    value={outwardToDate}
-                    onChange={(e) => setOutwardToDate(e.target.value)}
-                    className="rounded-xl border border-rlx-gold/80 bg-rlx-green-light/50 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOutwardQuery("");
-                      setOutwardFromDate("");
-                      setOutwardToDate("");
-                    }}
-                    className="rounded-xl border border-rlx-gold px-3 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light"
-                  >
-                    Reset
-                  </button>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  {[
+                    { label: "Ready for outward", value: readyOutward.length, accent: false },
+                    { label: "Showing", value: outwardRows.length, accent: false },
+                    { label: "Selected", value: selectedOutCount, accent: true },
+                  ].map((t) => (
+                    <div key={t.label} className="overflow-hidden border border-rlx-rule bg-white shadow-sm">
+                      <div className="border-b-2 border-rlx-gold bg-rlx-green px-3 py-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">{t.label}</p>
+                      </div>
+                      <p className={`px-3 py-2.5 text-xl font-semibold tabular-nums ${t.accent ? "text-rlx-green" : "text-stone-800"}`}>
+                        {t.value}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <label className="flex items-center gap-2 text-sm text-stone-700">
-                    <input
-                      type="checkbox"
-                      disabled={!canCreateOdc}
-                      checked={outwardRows.length > 0 && outwardRows.every((j) => selectedOut[j.id])}
-                      onChange={(e) => toggleAllOut(e.target.checked, outwardRows)}
-                      className="rounded border-rlx-gold text-rlx-green focus:ring-rlx-green"
-                    />
-                    Select all
-                  </label>
+
+                <div className="mt-4 rounded-xl border border-rlx-rule bg-rlx-bg/60 p-3 sm:p-4">
+                  <div className="grid gap-3 lg:grid-cols-12">
+                    <label className="lg:col-span-3">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-500">Scan SRF barcode</span>
+                      <div className="relative mt-1">
+                        <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-rlx-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6v12M7 6v12M10 6v12M14 6v12M17 6v12M20 6v12" />
+                        </svg>
+                        <input
+                          className="w-full rounded-xl border-2 border-rlx-gold/70 bg-white py-2 pl-9 pr-3 font-mono text-sm uppercase outline-none focus:border-rlx-green focus:ring-2 focus:ring-rlx-green/20"
+                          placeholder="SRF number"
+                          value={scanOutwardSrfInput}
+                          onChange={(e) => setScanOutwardSrfInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key !== "Enter") return;
+                            e.preventDefault();
+                            applyScannedOutwardSrf(scanOutwardSrfInput);
+                            setScanOutwardSrfInput("");
+                          }}
+                        />
+                      </div>
+                    </label>
+                    <label className="lg:col-span-4">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-500">Search</span>
+                      <input
+                        value={outwardQuery}
+                        onChange={(e) => setOutwardQuery(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green focus:ring-2 focus:ring-rlx-green/20"
+                        placeholder="SRF, customer, phone, watch, store"
+                      />
+                    </label>
+                    <label className="lg:col-span-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-500">From</span>
+                      <input
+                        type="date"
+                        value={outwardFromDate}
+                        onChange={(e) => setOutwardFromDate(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
+                      />
+                    </label>
+                    <label className="lg:col-span-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-500">To</span>
+                      <input
+                        type="date"
+                        value={outwardToDate}
+                        onChange={(e) => setOutwardToDate(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-rlx-rule bg-white px-3 py-2 text-sm outline-none focus:border-rlx-green"
+                      />
+                    </label>
+                    <div className="flex items-end lg:col-span-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOutwardQuery("");
+                          setOutwardFromDate("");
+                          setOutwardToDate("");
+                        }}
+                        className="w-full rounded-xl border border-rlx-gold bg-white px-3 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  {outwardGroups.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-rlx-rule pt-3">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-500">Destinations</span>
+                      {outwardGroups.map((g) => {
+                        const active = selectedOutKey === g.key;
+                        return (
+                          <button
+                            key={g.key}
+                            type="button"
+                            disabled={!canCreateOdc}
+                            onClick={() => (active ? setSelectedOut({}) : selectOutwardGroup(g.key))}
+                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                              active
+                                ? "border-rlx-green bg-rlx-green text-white"
+                                : "border-rlx-rule bg-white text-rlx-green hover:border-rlx-green hover:bg-rlx-green-light"
+                            }`}
+                          >
+                            {outwardDispatchLabel(g.key)}
+                            <span
+                              className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${
+                                active ? "bg-white/20 text-white" : "bg-rlx-green-light text-rlx-green"
+                              }`}
+                            >
+                              {g.count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div
+                  className={`sticky top-0 z-20 mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 shadow-sm transition ${
+                    selectedOutCount > 0 ? "border-rlx-green bg-rlx-green-light" : "border-rlx-rule bg-white"
+                  }`}
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+                    {selectedOutCount > 0 && selectedOutKey ? (
+                      <>
+                        <span className="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-rlx-green px-2 text-xs font-bold text-white">
+                          {selectedOutCount}
+                        </span>
+                        <span className="font-semibold text-stone-800">SRF selected</span>
+                        <span className="text-stone-400">→</span>
+                        <span className="truncate font-semibold text-rlx-green">{outwardDispatchLabel(selectedOutKey)}</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOut({})}
+                          className="ml-1 rounded-lg px-2 py-0.5 text-xs font-semibold text-stone-500 underline-offset-2 hover:text-rose-700 hover:underline"
+                        >
+                          Clear
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-stone-500">No SRF selected</span>
+                    )}
+                  </div>
                   <button
                     type="button"
-                    disabled={!canCreateOdc}
+                    disabled={!canCreateOdc || selectedOutCount === 0}
                     onClick={() => void handleCreateOdc()}
-                    className="rounded-xl bg-rlx-green px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green-deep disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-xl bg-rlx-green px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rlx-green-deep disabled:cursor-not-allowed disabled:opacity-50"
                   >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M3 7h11v10H3zM14 10h4l3 3v4h-7z" />
+                    </svg>
                     Generate internal outward &amp; dispatch
                   </button>
                 </div>
-                <div className="mb-3 max-w-md">
-                  <label className="text-sm">
-                    Scan SRF barcode
-                    <input
-                      className="mt-1 w-full rounded-xl border border-rlx-gold/80 bg-rlx-green-light/50 px-3 py-2 text-sm"
-                      placeholder="Scan SRF and press Enter"
-                      value={scanOutwardSrfInput}
-                      onChange={(e) => setScanOutwardSrfInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key !== "Enter") return;
-                        e.preventDefault();
-                        applyScannedOutwardSrf(scanOutwardSrfInput);
-                        setScanOutwardSrfInput("");
-                      }}
-                    />
-                  </label>
-                </div>
-                <div className="overflow-x-auto rounded-xl border border-rlx-rule/80">
+
+                <div className="mt-3 overflow-x-auto rounded-xl border border-rlx-rule/80 bg-white shadow-sm">
                   <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-rlx-green-deep bg-rlx-green text-xs font-semibold uppercase tracking-wide text-white">
+                    <thead className="border-b-2 border-rlx-gold bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
                       <tr>
-                        <th className="px-3 py-2 w-10" />
-                        <th className="px-3 py-2">SRF</th>
-                        <th className="px-3 py-2">Watch</th>
-                        <th className="px-3 py-2 min-w-[220px]">Repair CSC invoice</th>
-                        <th className="px-3 py-2 min-w-[220px]">Destination store</th>
+                        <th className="w-10 px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            disabled={!canCreateOdc || outwardRows.length === 0}
+                            checked={outwardAllChecked}
+                            onChange={(e) => toggleAllOut(e.target.checked, outwardRows)}
+                            aria-label="Select all"
+                            className="rounded border-white/60 text-rlx-gold focus:ring-rlx-gold"
+                          />
+                        </th>
+                        <th className="px-3 py-2.5">SRF</th>
+                        <th className="px-3 py-2.5">Watch</th>
+                        <th className="min-w-[220px] px-3 py-2.5">Repair CSC invoice</th>
+                        <th className="min-w-[220px] px-3 py-2.5">Destination store</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {outwardRows.map((j) => (
+                      {outwardRows.map((j) => {
+                        const otherDestination =
+                          !selectedOut[j.id] && !!selectedOutKey && outwardDispatchKey(j) !== selectedOutKey;
+                        return (
                         <tr
                           key={j.id}
                           onClick={() => setSelectedJob(j)}
-                          className="cursor-pointer border-b border-rlx-rule hover:bg-rlx-green-light/60 last:border-0"
+                          className={`cursor-pointer border-b border-l-4 border-rlx-rule transition-colors last:border-b-0 ${
+                            selectedOut[j.id]
+                              ? "border-l-rlx-green bg-rlx-green-light"
+                              : otherDestination
+                                ? "border-l-transparent bg-stone-50 opacity-50"
+                                : "border-l-transparent hover:bg-rlx-green-light/60"
+                          }`}
                         >
-                          <td className="px-3 py-2 align-top">
+                          <td className="px-3 py-2.5 align-top" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
-                              disabled={!canCreateOdc}
+                              disabled={!canCreateOdc || otherDestination}
                               checked={!!selectedOut[j.id]}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                toggleOut(j.id);
-                              }}
-                              className="rounded border-rlx-gold text-rlx-green focus:ring-rlx-green"
+                              onChange={() => toggleOut(j.id)}
+                              title={otherDestination ? "Different destination" : undefined}
+                              className="rounded border-rlx-gold text-rlx-green focus:ring-rlx-green disabled:cursor-not-allowed"
                             />
                           </td>
-                          <td className="px-3 py-2 align-top font-mono font-semibold text-rlx-gold-dark">
+                          <td className="px-3 py-2.5 align-top font-mono font-semibold text-rlx-gold-dark">
                             {j.reference}
                             {j.transferSourceReference && j.transferSourceReference !== j.reference ? (
                               <span className="mt-0.5 block text-[10px] font-normal text-stone-500">
                                 Root: <span className="font-mono">{j.transferSourceReference}</span>
                               </span>
                             ) : null}
+                            <span className="mt-0.5 block font-sans text-[11px] font-normal text-stone-400">
+                              {new Date(j.createdAt).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}
+                            </span>
                           </td>
-                          <td className="px-3 py-2 align-top text-stone-700">
-                            {j.watchBrand} {j.watchModel}
+                          <td className="px-3 py-2.5 align-top text-stone-700">
+                            <span className="font-medium text-stone-800">{j.watchBrand} {j.watchModel}</span>
                             <span className="mt-0.5 block text-xs text-stone-500">{j.customerName}</span>
                           </td>
-                          <td className="px-3 py-2 align-top">
+                          <td className="px-3 py-2.5 align-top">
                             {(!j.requiresLocalConversion && !!j.transferSourceRegionId) ? (
                               j.interHoReestimatePhase === "customer_declined_final" || j.interHoReturnWithoutRepair ? (
                                 <p className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-900">
@@ -1338,8 +1508,8 @@ export function ScLogisticsPage() {
                               <span className="text-xs text-stone-500">Not required</span>
                             )}
                           </td>
-                          <td className="px-3 py-2 align-top">
-                            <p className="rounded-lg border border-rlx-rule bg-rlx-green-light px-2 py-1 text-xs font-semibold text-rlx-green">
+                          <td className="px-3 py-2.5 align-top">
+                            <p className="rounded-lg border border-rlx-rule bg-white px-2 py-1 text-xs font-semibold text-rlx-green">
                               {(() => {
                                 const destId = destinationFor(j.id, j.storeId);
                                 if (j.requiresLocalConversion && j.transferTargetRegionId) {
@@ -1374,7 +1544,8 @@ export function ScLogisticsPage() {
                             </p>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

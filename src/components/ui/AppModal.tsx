@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export type AppModalSize = "sm" | "md" | "lg" | "xl" | "2xl";
+export type AppModalSize = "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
 
 const sizeClass: Record<AppModalSize, string> = {
   sm: "max-w-sm",
@@ -8,6 +8,7 @@ const sizeClass: Record<AppModalSize, string> = {
   lg: "max-w-2xl",
   xl: "max-w-3xl",
   "2xl": "max-w-5xl",
+  "3xl": "max-w-7xl",
 };
 
 type AppModalProps = {

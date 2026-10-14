@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { Link } from "react-router-dom";
 import { FilterField } from "../../components/ui/FilterField";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
+import { AppModal, AppModalDetailGrid, AppModalDetailRow } from "../../components/ui/AppModal";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { useToast } from "../../components/ui/Toast";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
@@ -12,8 +14,8 @@ import type { SpareStockRow } from "../../types/spare";
 
 const btnIcon =
   "inline-flex h-9 w-9 shrink-0 items-center justify-center border border-rlx-gold/60 bg-white text-rlx-green transition hover:border-rlx-gold hover:bg-rlx-green-light";
-const modalIconGhost =
-  "inline-flex h-9 w-9 shrink-0 items-center justify-center border border-white/30 bg-white/10 text-white transition hover:bg-white/20";
+
+const popupThead = "sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.12em] text-white";
 
 type StockHistoryRow = {
   id: string;
@@ -69,22 +71,22 @@ function IconDetails({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: 
   );
 }
 
-function IconClose({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: string }) {
+function IconPlus({ className = "h-[1.125rem] w-[1.125rem]" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
     </svg>
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+function StatTile({ label, value, accent }: { label: string; value: ReactNode; accent?: boolean }) {
   return (
-    <tr className="border-b border-rlx-rule">
-      <th className="w-40 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted align-top">
-        {label}
-      </th>
-      <td className="px-3 py-2.5 text-sm text-rlx-ink">{value}</td>
-    </tr>
+    <div className="border border-rlx-rule bg-white shadow-sm">
+      <div className="border-b-2 border-rlx-gold bg-rlx-green px-3 py-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">{label}</p>
+      </div>
+      <p className={`px-3 py-3 text-lg font-semibold tabular-nums ${accent ? "text-rlx-green" : "text-rlx-ink"}`}>{value}</p>
+    </div>
   );
 }
 
@@ -92,13 +94,15 @@ export function InventoryStockAdjustmentPage() {
   const { user } = useAuth();
   const { regions } = useRegions();
   const { spares } = useSpares();
+  const toast = useToast();
   const [selectedId, setSelectedId] = useState("");
   const [locationType, setLocationType] = useState<"HO" | "STORE">("STORE");
   const [regionId, setRegionId] = useState("");
   const [storeId, setStoreId] = useState("");
   const [stockQty, setStockQty] = useState("0");
   const [stockRows, setStockRows] = useState<SpareStockRow[]>([]);
-  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjustErr, setAdjustErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [listFilter, setListFilter] = useState<"ALL" | "HO" | "STORE">("ALL");
@@ -113,6 +117,7 @@ export function InventoryStockAdjustmentPage() {
   const hoOnlyRole =
     user?.role === "service_centre_clerk" || user?.role === "service_centre_supervisor" || user?.role === "technician";
   const storeOnlyRole = user?.role === "store_user";
+  const regionLocked = Boolean(user && user.role !== "super_admin");
 
   useEffect(() => {
     if (regions.length > 0 && !regionId) setRegionId(regions[0]!.id);
@@ -206,6 +211,18 @@ export function InventoryStockAdjustmentPage() {
   const hoLines = useMemo(() => filteredStock.filter((r) => r.locationType === "HO").length, [filteredStock]);
   const storeLines = useMemo(() => filteredStock.filter((r) => r.locationType === "STORE").length, [filteredStock]);
 
+  const currentBalance = useMemo(() => {
+    const hit = stockRows.find(
+      (r) =>
+        r.locationType === locationType &&
+        r.regionId === regionId &&
+        (locationType === "STORE" ? r.storeId === storeId : true),
+    );
+    return Number(hit?.quantity ?? 0);
+  }, [stockRows, locationType, regionId, storeId]);
+  const addQty = Number(stockQty);
+  const validAddQty = Number.isFinite(addQty) && addQty >= 0 ? addQty : 0;
+
   async function loadHistory(row: SpareStockRow) {
     if (!selectedId) return;
     setHistoryLoading(true);
@@ -239,16 +256,33 @@ export function InventoryStockAdjustmentPage() {
     setHistoryError(null);
   }
 
+  function openAdjust(row?: SpareStockRow) {
+    if (row) {
+      if (!storeOnlyRole && !hoOnlyRole) setLocationType(row.locationType);
+      if (!regionLocked) setRegionId(row.regionId);
+      if (row.locationType === "STORE" && row.storeId && !storeOnlyRole) setStoreId(row.storeId);
+    }
+    setStockQty("0");
+    setAdjustErr(null);
+    setAdjustOpen(true);
+  }
+
+  function closeAdjust() {
+    if (saving) return;
+    setAdjustOpen(false);
+    setAdjustErr(null);
+  }
+
   async function saveStockLine(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedId) return;
     const qty = Number(stockQty);
     if (!regionId || Number.isNaN(qty) || qty < 0 || (locationType === "STORE" && !storeId)) {
-      setMsg({ type: "err", text: "Select region/store and enter non-negative quantity." });
+      setAdjustErr("Select region/store and enter non-negative quantity.");
       return;
     }
     setSaving(true);
-    setMsg(null);
+    setAdjustErr(null);
     try {
       await apiJson(`/api/catalog/spares/${encodeURIComponent(selectedId)}/stock`, {
         method: "POST",
@@ -260,11 +294,12 @@ export function InventoryStockAdjustmentPage() {
           mode: "add",
         },
       });
-      setMsg({ type: "ok", text: "Stock adjusted." });
-      setStockQty("0");
       await loadStock(selectedId);
+      setStockQty("0");
+      setAdjustOpen(false);
+      toast.success("Stock adjusted", `${selectedSpare?.sku ?? "Spare"} · +${qty.toLocaleString()}`);
     } catch (err) {
-      setMsg({ type: "err", text: err instanceof ApiError ? err.message : "Could not save stock." });
+      setAdjustErr(err instanceof ApiError ? err.message : "Could not save stock.");
     } finally {
       setSaving(false);
     }
@@ -286,416 +321,430 @@ export function InventoryStockAdjustmentPage() {
         }
       />
 
+      <section className="mb-5 border border-rlx-rule bg-white shadow-sm">
+        <div className="flex flex-wrap items-end gap-3 p-3 sm:p-4">
+          <FilterField label="Spare" htmlFor="adj-spare" className="min-w-[16rem] flex-1">
+            <select
+              id="adj-spare"
+              value={selectedId}
+              onChange={(e) => setSelectedId(e.target.value)}
+              className="ui-field"
+            >
+              {spares.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.sku} — {s.name}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+          <button
+            type="button"
+            onClick={() => openAdjust()}
+            disabled={!selectedId}
+            className="inline-flex items-center gap-2 border border-rlx-gold/70 bg-rlx-gold px-5 py-2.5 text-sm font-semibold text-rlx-green-deep transition hover:bg-rlx-gold-dark disabled:opacity-50"
+          >
+            <IconPlus className="h-4 w-4" />
+            Adjust stock
+          </button>
+        </div>
+      </section>
+
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <div className="border border-rlx-rule bg-white shadow-sm">
-          <div className="border-b-2 border-rlx-gold bg-rlx-green px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">Total qty</p>
-          </div>
-          <p className="px-3 py-3 text-lg font-semibold text-rlx-green">{totalQty.toLocaleString()}</p>
-        </div>
-        <div className="border border-rlx-rule bg-white shadow-sm">
-          <div className="border-b-2 border-rlx-gold bg-rlx-green px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">CSC lines</p>
-          </div>
-          <p className="px-3 py-3 text-lg font-semibold text-rlx-ink">{hoLines}</p>
-        </div>
-        <div className="border border-rlx-rule bg-white shadow-sm">
-          <div className="border-b-2 border-rlx-gold bg-rlx-green px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white">Store lines</p>
-          </div>
-          <p className="px-3 py-3 text-lg font-semibold text-rlx-ink">{storeLines}</p>
-        </div>
+        <StatTile label="Total qty" value={totalQty.toLocaleString()} accent />
+        <StatTile label="CSC lines" value={hoLines} />
+        <StatTile label="Store lines" value={storeLines} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-        <section className="border border-rlx-rule bg-white shadow-sm">
-          <div className="border-b-2 border-rlx-gold bg-rlx-green px-3 py-2.5 sm:px-4">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white">Adjust stock</h2>
+      <section className="min-w-0">
+        <div className="mb-3 border border-rlx-rule bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rlx-rule bg-rlx-bg px-3 py-2.5 sm:px-4">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-rlx-ink-muted">
+              Stock by location
+            </h2>
+            <button
+              type="button"
+              onClick={() => {
+                setListFilter("ALL");
+                setListRegionId("");
+                setListQuery("");
+              }}
+              className="ui-btn-secondary"
+            >
+              Reset
+            </button>
           </div>
-          <form onSubmit={(e) => void saveStockLine(e)} className="space-y-3 p-3 sm:p-4">
-            <FilterField label="Spare" htmlFor="adj-spare">
-              <select
-                id="adj-spare"
-                value={selectedId}
-                onChange={(e) => setSelectedId(e.target.value)}
+          <div className="ui-filter-grid p-3 sm:p-4">
+            <FilterField label="Search" htmlFor="stock-q" className="ui-filter-span-2-sm min-w-0">
+              <input
+                id="stock-q"
                 className="ui-field"
+                value={listQuery}
+                onChange={(e) => setListQuery(e.target.value)}
+                placeholder="Region, store…"
+              />
+            </FilterField>
+            <FilterField label="Type" htmlFor="stock-type" className="min-w-0">
+              <select
+                id="stock-type"
+                className="ui-field"
+                value={listFilter}
+                onChange={(e) => setListFilter(e.target.value as typeof listFilter)}
               >
-                {spares.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.sku} — {s.name}
+                <option value="ALL">All</option>
+                <option value="HO">CSC</option>
+                <option value="STORE">Store</option>
+              </select>
+            </FilterField>
+            <FilterField label="Region" htmlFor="stock-region" className="min-w-0">
+              <select
+                id="stock-region"
+                className="ui-field"
+                value={listRegionId}
+                onChange={(e) => setListRegionId(e.target.value)}
+              >
+                <option value="">All regions</option>
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
                   </option>
                 ))}
               </select>
             </FilterField>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <FilterField label="Location" htmlFor="adj-loc">
-                <select
-                  id="adj-loc"
-                  value={locationType}
-                  onChange={(e) => setLocationType(e.target.value as "HO" | "STORE")}
-                  className="ui-field"
-                  disabled={storeOnlyRole || hoOnlyRole}
-                >
-                  <option value="STORE">Store</option>
-                  <option value="HO">Service Centre</option>
-                </select>
-              </FilterField>
-              <FilterField label="Region" htmlFor="adj-region">
-                <select
-                  id="adj-region"
-                  value={regionId}
-                  onChange={(e) => setRegionId(e.target.value)}
-                  className="ui-field"
-                  disabled={Boolean(user && user.role !== "super_admin")}
-                >
-                  <option value="">Select region</option>
-                  {regions.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
-            </div>
-            {locationType === "STORE" ? (
-              <FilterField label="Store" htmlFor="adj-store">
-                <select
-                  id="adj-store"
-                  value={storeId}
-                  onChange={(e) => setStoreId(e.target.value)}
-                  className="ui-field"
-                  disabled={storeOnlyRole}
-                >
-                  <option value="">Select store</option>
-                  {currentStores.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
-            ) : null}
-            <FilterField label="Add quantity" htmlFor="adj-qty">
-              <input
-                id="adj-qty"
-                type="number"
-                min={0}
-                step={1}
-                inputMode="numeric"
-                value={stockQty}
-                onChange={(e) => setStockQty(e.target.value)}
-                className="ui-field"
-                placeholder="Quantity to add"
-              />
-            </FilterField>
+          </div>
+        </div>
+
+        {filteredStock.length === 0 ? (
+          <p className="border border-rlx-rule bg-white px-4 py-8 text-center text-sm text-rlx-ink-muted">
+            No stock rows for this spare / filters.
+          </p>
+        ) : (
+          <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
+            <table className="ui-table-dense w-full min-w-[36rem] text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
+                <tr className="border-b-2 border-rlx-gold">
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Type</th>
+                  <th className="min-w-[12rem] px-3 py-3 text-left font-semibold">Place</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Qty</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Updated</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredStock.map((row, idx) => {
+                  const regionName = regionNameById.get(row.regionId) ?? row.regionId;
+                  const storeName = row.storeId ? storeNameById.get(row.storeId) ?? row.storeId : null;
+                  return (
+                    <tr
+                      key={row.id}
+                      onClick={() => openDetail(row)}
+                      className={`cursor-pointer border-b border-rlx-rule transition-colors hover:bg-rlx-green-light ${
+                        idx % 2 === 1 ? "bg-rlx-bg" : "bg-white"
+                      }`}
+                    >
+                      <td className="align-middle px-3 py-3">
+                        <span
+                          className={`inline-flex min-w-[4.5rem] items-center justify-center rounded px-2 py-1 text-xs font-semibold ring-1 ring-inset ${
+                            row.locationType === "HO"
+                              ? "bg-sky-50 text-sky-900 ring-sky-300/70"
+                              : "bg-amber-50 text-amber-950 ring-amber-300/70"
+                          }`}
+                        >
+                          {locationTypeLabel(row.locationType)}
+                        </span>
+                      </td>
+                      <td className="align-middle px-3 py-3">
+                        <span className="block break-words text-sm font-medium text-rlx-ink">
+                          {row.locationType === "HO" ? regionName : storeName ?? "—"}
+                        </span>
+                        {row.locationType === "STORE" ? (
+                          <span className="block text-xs text-rlx-ink-muted">{regionName}</span>
+                        ) : null}
+                      </td>
+                      <td className="align-middle whitespace-nowrap px-3 py-3 text-right text-sm font-semibold tabular-nums text-rlx-green">
+                        {Number(row.quantity ?? 0).toLocaleString()}
+                      </td>
+                      <td className="align-middle whitespace-nowrap px-3 py-3 text-xs text-rlx-ink-muted">
+                        {formatDateTime(row.updatedAt)}
+                      </td>
+                      <td className="align-middle px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openAdjust(row)}
+                            className={btnIcon}
+                            title="Adjust stock"
+                            aria-label="Adjust stock"
+                          >
+                            <IconPlus />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDetail(row)}
+                            className={btnIcon}
+                            title="Details & history"
+                            aria-label="Details and history"
+                          >
+                            <IconDetails />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {filteredStock.length > 0 ? (
+          <p className="mt-2 text-sm text-rlx-ink-muted">
+            {filteredStock.length} of {stockRows.length} location(s)
+          </p>
+        ) : null}
+      </section>
+
+      <AppModal
+        open={adjustOpen && Boolean(selectedSpare)}
+        onClose={closeAdjust}
+        size="md"
+        eyebrow="Adjust stock"
+        title={selectedSpare?.name ?? ""}
+        subtitle={selectedSpare?.sku}
+        closeOnBackdrop={!saving}
+        footer={
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={closeAdjust}
+              disabled={saving}
+              className="border border-rlx-rule bg-white px-5 py-2 text-sm font-semibold text-rlx-ink-muted transition hover:bg-rlx-bg disabled:opacity-50"
+            >
+              Cancel
+            </button>
             <button
               type="submit"
+              form="adj-stock-form"
               disabled={saving || !selectedId}
-              className="w-full border border-rlx-gold/70 bg-rlx-gold px-4 py-2.5 text-sm font-semibold text-rlx-green-deep transition hover:bg-rlx-gold-dark disabled:opacity-50"
+              className="border border-rlx-gold/70 bg-rlx-gold px-6 py-2 text-sm font-semibold text-rlx-green-deep transition hover:bg-rlx-gold-dark disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save stock"}
             </button>
-            {msg ? (
-              <p
-                className={`border px-3 py-2 text-sm ${
-                  msg.type === "ok"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                    : "border-rose-200 bg-rose-50 text-rose-800"
-                }`}
+          </div>
+        }
+      >
+        <form id="adj-stock-form" onSubmit={(e) => void saveStockLine(e)} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FilterField label="Location" htmlFor="adj-loc">
+              <select
+                id="adj-loc"
+                value={locationType}
+                onChange={(e) => setLocationType(e.target.value as "HO" | "STORE")}
+                className="ui-field"
+                disabled={storeOnlyRole || hoOnlyRole}
               >
-                {msg.text}
-              </p>
-            ) : null}
-            {selectedSpare ? (
-              <p className="text-xs text-rlx-ink-muted">
-                Adjusting <span className="font-mono font-semibold text-rlx-green">{selectedSpare.sku}</span> — quantity
-                is added to existing balance.
-              </p>
-            ) : null}
-          </form>
-        </section>
+                <option value="STORE">Store</option>
+                <option value="HO">Service Centre</option>
+              </select>
+            </FilterField>
+            <FilterField label="Region" htmlFor="adj-region">
+              <select
+                id="adj-region"
+                value={regionId}
+                onChange={(e) => setRegionId(e.target.value)}
+                className="ui-field"
+                disabled={regionLocked}
+              >
+                <option value="">Select region</option>
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+          </div>
+          {locationType === "STORE" ? (
+            <FilterField label="Store" htmlFor="adj-store">
+              <select
+                id="adj-store"
+                value={storeId}
+                onChange={(e) => setStoreId(e.target.value)}
+                className="ui-field"
+                disabled={storeOnlyRole}
+              >
+                <option value="">Select store</option>
+                {currentStores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+          ) : null}
+          <FilterField label="Add quantity" htmlFor="adj-qty">
+            <input
+              id="adj-qty"
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              value={stockQty}
+              onChange={(e) => setStockQty(e.target.value)}
+              className="ui-field"
+              placeholder="Quantity to add"
+              autoFocus
+            />
+          </FilterField>
 
-        <section className="min-w-0">
-          <div className="mb-3 border border-rlx-rule bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rlx-rule bg-rlx-bg px-3 py-2.5 sm:px-4">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-rlx-ink-muted">
-                Stock by location
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setListFilter("ALL");
-                  setListRegionId("");
-                  setListQuery("");
-                }}
-                className="ui-btn-secondary"
-              >
-                Reset
-              </button>
+          <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-white text-center shadow-sm">
+            <div className="px-3 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Current</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums text-slate-800">{currentBalance.toLocaleString()}</p>
             </div>
-            <div className="ui-filter-grid p-3 sm:p-4">
-              <FilterField label="Search" htmlFor="stock-q" className="ui-filter-span-2-sm min-w-0">
-                <input
-                  id="stock-q"
-                  className="ui-field"
-                  value={listQuery}
-                  onChange={(e) => setListQuery(e.target.value)}
-                  placeholder="Region, store…"
-                />
-              </FilterField>
-              <FilterField label="Type" htmlFor="stock-type" className="min-w-0">
-                <select
-                  id="stock-type"
-                  className="ui-field"
-                  value={listFilter}
-                  onChange={(e) => setListFilter(e.target.value as typeof listFilter)}
-                >
-                  <option value="ALL">All</option>
-                  <option value="HO">CSC</option>
-                  <option value="STORE">Store</option>
-                </select>
-              </FilterField>
-              <FilterField label="Region" htmlFor="stock-region" className="min-w-0">
-                <select
-                  id="stock-region"
-                  className="ui-field"
-                  value={listRegionId}
-                  onChange={(e) => setListRegionId(e.target.value)}
-                >
-                  <option value="">All regions</option>
-                  {regions.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
+            <div className="border-x border-slate-200 px-3 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Adding</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums text-emerald-700">+{validAddQty.toLocaleString()}</p>
+            </div>
+            <div className="bg-rlx-green-light px-3 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">New balance</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums text-rlx-green">
+                {(currentBalance + validAddQty).toLocaleString()}
+              </p>
             </div>
           </div>
 
-          {filteredStock.length === 0 ? (
-            <p className="border border-rlx-rule bg-white px-4 py-8 text-center text-sm text-rlx-ink-muted">
-              No stock rows for this spare / filters.
-            </p>
-          ) : (
-            <div className="ui-table-scroll border border-rlx-rule bg-white shadow-sm">
-              <table className="ui-table-dense w-full min-w-[36rem] text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-rlx-green text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
-                  <tr className="border-b-2 border-rlx-gold">
-                    <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Type</th>
-                    <th className="min-w-[12rem] px-3 py-3 text-left font-semibold">Place</th>
-                    <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Qty</th>
-                    <th className="whitespace-nowrap px-3 py-3 text-left font-semibold">Updated</th>
-                    <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredStock.map((row, idx) => {
-                    const regionName = regionNameById.get(row.regionId) ?? row.regionId;
-                    const storeName = row.storeId ? storeNameById.get(row.storeId) ?? row.storeId : null;
-                    return (
-                      <tr
-                        key={row.id}
-                        onClick={() => openDetail(row)}
-                        className={`cursor-pointer border-b border-rlx-rule transition-colors hover:bg-rlx-green-light ${
-                          idx % 2 === 1 ? "bg-rlx-bg" : "bg-white"
-                        }`}
-                      >
-                        <td className="align-middle px-3 py-3">
-                          <span
-                            className={`inline-flex min-w-[4.5rem] items-center justify-center rounded px-2 py-1 text-xs font-semibold ring-1 ring-inset ${
-                              row.locationType === "HO"
-                                ? "bg-sky-50 text-sky-900 ring-sky-300/70"
-                                : "bg-amber-50 text-amber-950 ring-amber-300/70"
-                            }`}
-                          >
-                            {locationTypeLabel(row.locationType)}
-                          </span>
-                        </td>
-                        <td className="align-middle px-3 py-3">
-                          <span className="block break-words text-sm font-medium text-rlx-ink">
-                            {row.locationType === "HO" ? regionName : storeName ?? "—"}
-                          </span>
-                          {row.locationType === "STORE" ? (
-                            <span className="block text-xs text-rlx-ink-muted">{regionName}</span>
-                          ) : null}
-                        </td>
-                        <td className="align-middle whitespace-nowrap px-3 py-3 text-right text-sm font-semibold tabular-nums text-rlx-green">
-                          {Number(row.quantity ?? 0).toLocaleString()}
-                        </td>
-                        <td className="align-middle whitespace-nowrap px-3 py-3 text-xs text-rlx-ink-muted">
-                          {formatDateTime(row.updatedAt)}
-                        </td>
-                        <td className="align-middle px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex justify-end">
-                            <button
-                              type="button"
-                              onClick={() => openDetail(row)}
-                              className={btnIcon}
-                              title="Details & history"
-                              aria-label="Details and history"
-                            >
-                              <IconDetails />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {filteredStock.length > 0 ? (
-            <p className="mt-2 text-sm text-rlx-ink-muted">
-              {filteredStock.length} of {stockRows.length} location(s)
-            </p>
+          {adjustErr ? (
+            <p className="border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{adjustErr}</p>
           ) : null}
-        </section>
-      </div>
+        </form>
+      </AppModal>
 
-      {detail && selectedSpare ? (
-        <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-rlx-ink/70 p-0 backdrop-blur-sm sm:items-center sm:p-3 md:p-5">
-          <div className="flex h-[100dvh] w-full max-w-[96rem] flex-col overflow-hidden bg-white shadow-[0_32px_80px_-20px_rgba(0,0,0,0.5)] sm:h-[min(96dvh,56rem)] sm:max-h-[96dvh]">
-            <div className="flex shrink-0 items-center justify-between gap-3 bg-rlx-green px-4 py-3 sm:px-6">
-              <div className="min-w-0 flex-1">
-                <p className="text-[9px] font-semibold uppercase tracking-[0.35em] text-rlx-gold">Stock location</p>
-                <h3 className="truncate font-mono text-base font-semibold text-white sm:text-lg">
-                  {selectedSpare.sku}
-                </h3>
-                <p className="mt-0.5 truncate text-xs text-white/65 sm:text-sm">
-                  {selectedSpare.name} · {locationTypeLabel(detail.locationType)} · qty{" "}
+      <AppModal
+        open={Boolean(detail && selectedSpare)}
+        onClose={closeDetail}
+        size="3xl"
+        eyebrow="Stock location"
+        title={selectedSpare?.name ?? ""}
+        subtitle={selectedSpare?.sku}
+        headerActions={
+          detail ? (
+            <button
+              type="button"
+              onClick={() => {
+                const row = detail;
+                closeDetail();
+                openAdjust(row);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-full border border-rlx-gold/70 bg-rlx-gold px-4 py-1.5 text-xs font-semibold text-rlx-green-deep transition hover:bg-rlx-gold-dark"
+            >
+              <IconPlus className="h-3.5 w-3.5" />
+              Adjust
+            </button>
+          ) : null
+        }
+      >
+        {detail && selectedSpare ? (
+          <div className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
+            <div className="space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-center shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Quantity on hand</p>
+                <p className="mt-1 text-3xl font-semibold tabular-nums text-rlx-green">
                   {Number(detail.quantity ?? 0).toLocaleString()}
                 </p>
               </div>
-              <button type="button" onClick={closeDetail} className={modalIconGhost} title="Close" aria-label="Close">
-                <IconClose />
-              </button>
+              <AppModalDetailGrid>
+                <AppModalDetailRow label="Location">
+                  <span
+                    className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${
+                      detail.locationType === "HO"
+                        ? "bg-sky-50 text-sky-900 ring-sky-300/70"
+                        : "bg-amber-50 text-amber-950 ring-amber-300/70"
+                    }`}
+                  >
+                    {locationTypeLabel(detail.locationType)}
+                  </span>
+                </AppModalDetailRow>
+                <AppModalDetailRow label="Region">{regionNameById.get(detail.regionId) ?? detail.regionId}</AppModalDetailRow>
+                <AppModalDetailRow label="Store">
+                  {detail.storeId ? storeNameById.get(detail.storeId) ?? detail.storeId : "—"}
+                </AppModalDetailRow>
+                <AppModalDetailRow label="Last updated" last>
+                  {formatDateTime(detail.updatedAt)}
+                </AppModalDetailRow>
+              </AppModalDetailGrid>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-              <div className="shrink-0 border-b border-rlx-rule p-4 sm:p-5 lg:w-[22rem] lg:overflow-y-auto lg:border-b-0 lg:border-r">
-                <div className="overflow-hidden border border-rlx-rule">
-                  <table className="w-full text-left">
-                    <tbody className="odd:[&>tr]:bg-white even:[&>tr]:bg-rlx-bg">
-                      <DetailRow
-                        label="SKU"
-                        value={<span className="font-mono font-semibold text-rlx-green">{selectedSpare.sku}</span>}
-                      />
-                      <DetailRow label="Item" value={selectedSpare.name} />
-                      <DetailRow label="Location" value={locationTypeLabel(detail.locationType)} />
-                      <DetailRow label="Region" value={regionNameById.get(detail.regionId) ?? detail.regionId} />
-                      <DetailRow
-                        label="Store"
-                        value={
-                          detail.storeId ? storeNameById.get(detail.storeId) ?? detail.storeId : "—"
-                        }
-                      />
-                      <DetailRow
-                        label="Quantity"
-                        value={
-                          <span className="font-semibold text-rlx-green">
-                            {Number(detail.quantity ?? 0).toLocaleString()}
-                          </span>
-                        }
-                      />
-                      <DetailRow label="Last updated" value={formatDateTime(detail.updatedAt)} />
+            <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Full stock history</p>
+                <button
+                  type="button"
+                  onClick={() => void loadHistory(detail)}
+                  className="rounded-lg bg-rlx-green px-3 py-1.5 text-xs font-semibold text-white hover:bg-rlx-green/90"
+                >
+                  Refresh
+                </button>
+              </div>
+              {historyError ? (
+                <p className="m-4 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{historyError}</p>
+              ) : null}
+              {historyLoading ? (
+                <p className="px-4 py-6 text-sm text-slate-500">Loading history…</p>
+              ) : history.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-slate-500">No stock history for this location.</p>
+              ) : (
+                <div className="max-h-[55vh] overflow-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className={popupThead}>
+                      <tr>
+                        <th className="whitespace-nowrap px-3 py-2.5">When</th>
+                        <th className="px-3 py-2.5">Event</th>
+                        <th className="px-3 py-2.5">Note</th>
+                        <th className="px-3 py-2.5 text-right">Change</th>
+                        <th className="px-3 py-2.5 text-right">Balance</th>
+                        <th className="px-3 py-2.5">Reference</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map((h, idx) => {
+                        const change = h.quantityChange;
+                        return (
+                          <tr
+                            key={h.id}
+                            className={`border-b border-slate-100 ${idx % 2 === 1 ? "bg-slate-50/70" : "bg-white"}`}
+                          >
+                            <td className="whitespace-nowrap px-3 py-2.5 align-top text-xs text-slate-600">
+                              {formatDateTime(h.createdAt)}
+                            </td>
+                            <td className="px-3 py-2.5 align-top">{eventLabel(h.eventType)}</td>
+                            <td className="break-words px-3 py-2.5 align-top text-slate-600">{h.note || "—"}</td>
+                            <td
+                              className={`px-3 py-2.5 align-top text-right font-semibold tabular-nums ${
+                                change == null ? "text-slate-400" : change < 0 ? "text-rose-700" : "text-emerald-700"
+                              }`}
+                            >
+                              {change == null ? "—" : change > 0 ? `+${change.toLocaleString()}` : change.toLocaleString()}
+                            </td>
+                            <td className="px-3 py-2.5 align-top text-right font-semibold tabular-nums">
+                              {h.balanceAfter == null ? "—" : h.balanceAfter.toLocaleString()}
+                            </td>
+                            <td className="break-words px-3 py-2.5 align-top text-xs text-slate-600">
+                              {h.referenceType && h.referenceNumber
+                                ? `${h.referenceType} ${h.referenceNumber}`
+                                : h.createdBy
+                                  ? `By ${h.createdBy}`
+                                  : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-              </div>
-
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col p-4 sm:p-5">
-                <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
-                  <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rlx-ink-muted">
-                    Full stock history
-                  </h4>
-                  <button
-                    type="button"
-                    onClick={() => void loadHistory(detail)}
-                    className="border border-rlx-rule bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
-                  >
-                    Refresh
-                  </button>
-                </div>
-                {historyError ? (
-                  <p className="mb-3 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{historyError}</p>
-                ) : null}
-                {historyLoading ? (
-                  <p className="text-sm text-rlx-ink-muted">Loading history…</p>
-                ) : history.length === 0 ? (
-                  <p className="border border-rlx-rule bg-rlx-bg px-3 py-6 text-center text-sm text-rlx-ink-muted">
-                    No stock history for this location.
-                  </p>
-                ) : (
-                  <div className="min-h-0 flex-1 overflow-auto border border-rlx-rule">
-                    <table className="w-full table-fixed text-left text-sm">
-                      <colgroup>
-                        <col className="w-[8.5rem]" />
-                        <col className="w-[9.5rem]" />
-                        <col />
-                        <col className="w-[5rem]" />
-                        <col className="w-[5rem]" />
-                        <col className="w-[9rem]" />
-                      </colgroup>
-                      <thead className="sticky top-0 z-10 bg-rlx-bg text-[11px] font-semibold uppercase tracking-[0.12em] text-rlx-ink-muted">
-                        <tr className="border-b border-rlx-rule">
-                          <th className="px-3 py-2.5 text-left">When</th>
-                          <th className="px-3 py-2.5 text-left">Event</th>
-                          <th className="px-3 py-2.5 text-left">Note</th>
-                          <th className="px-3 py-2.5 text-right">Change</th>
-                          <th className="px-3 py-2.5 text-right">Balance</th>
-                          <th className="px-3 py-2.5 text-left">Reference</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {history.map((h, idx) => {
-                          const change = h.quantityChange;
-                          return (
-                            <tr
-                              key={h.id}
-                              className={`border-b border-rlx-rule ${idx % 2 === 1 ? "bg-rlx-bg" : "bg-white"}`}
-                            >
-                              <td className="px-3 py-2.5 align-top text-xs text-rlx-ink-muted">
-                                {formatDateTime(h.createdAt)}
-                              </td>
-                              <td className="px-3 py-2.5 align-top text-sm">{eventLabel(h.eventType)}</td>
-                              <td className="break-words px-3 py-2.5 align-top text-sm text-rlx-ink-muted">
-                                {h.note || "—"}
-                              </td>
-                              <td
-                                className={`px-3 py-2.5 align-top text-right text-sm font-semibold tabular-nums ${
-                                  change == null
-                                    ? "text-rlx-ink-muted"
-                                    : change < 0
-                                      ? "text-rose-700"
-                                      : "text-emerald-700"
-                                }`}
-                              >
-                                {change == null ? "—" : change.toLocaleString()}
-                              </td>
-                              <td className="px-3 py-2.5 align-top text-right text-sm font-semibold tabular-nums">
-                                {h.balanceAfter == null ? "—" : h.balanceAfter.toLocaleString()}
-                              </td>
-                              <td className="break-words px-3 py-2.5 align-top text-xs text-rlx-ink-muted">
-                                {h.referenceType && h.referenceNumber
-                                  ? `${h.referenceType} ${h.referenceNumber}`
-                                  : h.createdBy
-                                    ? `By ${h.createdBy}`
-                                    : "—"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
+              )}
+            </section>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </AppModal>
     </div>
   );
 }
