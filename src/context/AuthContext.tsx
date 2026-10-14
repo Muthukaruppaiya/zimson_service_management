@@ -50,6 +50,7 @@ export type UserPatchInput = Partial<{
   storeId: string | null;
   storeIds: string[];
   canLogin: boolean;
+  phone: string | null;
   moduleAccessOverride: import("../types/user").ModuleKey[] | null;
   password: string;
 }>;
@@ -491,6 +492,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             storeId: "storeId" in patch ? patch.storeId ?? null : u.storeId,
             storeIds: patch.storeIds ?? u.storeIds,
             canLogin: patch.canLogin ?? u.canLogin,
+            phone: "phone" in patch ? (patch.phone ?? null) : u.phone,
             moduleAccessOverride: "moduleAccessOverride" in patch ? patch.moduleAccessOverride : u.moduleAccessOverride,
           };
         });

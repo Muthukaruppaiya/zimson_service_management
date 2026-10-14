@@ -5,9 +5,12 @@ import { useRegions } from "../context/RegionsContext";
 import { useToast } from "../components/ui/Toast";
 import { ROLE_MODULE_ACCESS } from "../config/moduleAccess";
 import {
+  isValidEmail,
   isValidUsername,
   sanitizeAlphanumericInput,
   sanitizeEmailInput,
+  sanitizePasswordInput,
+  sanitizePhoneDigits,
   sanitizeUsernameInput,
 } from "../lib/inputSanitize";
 import { ROLE_CREATION_META, creatableRolesForActor, isStoreRole } from "../lib/userCreationPolicy";
@@ -49,6 +52,11 @@ function UserEditModal({
   const [role, setRole] = useState<UserRole>(target.role);
   const [regionId, setRegionId] = useState(target.regionId ?? "");
   const [storeIds, setStoreIds] = useState<string[]>(target.storeIds ?? (target.storeId ? [target.storeId] : []));
+  const [canLogin, setCanLogin] = useState(target.canLogin !== false);
+  const [phone, setPhone] = useState(target.phone ?? "");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const canSetPassword = user?.role === "super_admin";
   const hasModuleOverride = (target.moduleAccessOverride?.length ?? 0) > 0;
   const [useCustomModules, setUseCustomModules] = useState(hasModuleOverride);
   const [selectedModules, setSelectedModules] = useState<ModuleKey[]>(() =>
@@ -59,6 +67,7 @@ function UserEditModal({
 
   const creatableRoles = useMemo(() => creatableRolesForActor(user?.role), [user?.role]);
   const storeRole = isStoreRole(role);
+  const superAdminRole = role === "super_admin";
   const storesForRegion = useMemo(
     () => regions.find((r) => r.id === regionId)?.stores ?? [],
     [regions, regionId],
@@ -75,6 +84,35 @@ function UserEditModal({
       setErr("Username must contain only letters and digits (no spaces or special characters).");
       return;
     }
+    if (!email.trim() || !isValidEmail(email)) {
+      setErr("A valid email address is required.");
+      return;
+    }
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits && phoneDigits.length < 10) {
+      setErr("Mobile number must have 10 digits.");
+      return;
+    }
+    if (role === "delivery_boy" && phoneDigits.length < 10) {
+      setErr("Delivery agent requires a valid 10-digit mobile for OTP.");
+      return;
+    }
+    if (storeRole && !regionId) {
+      setErr("Select a region (CSC scope).");
+      return;
+    }
+    if (storeRole && storeIds.length === 0) {
+      setErr("Store roles require at least one store.");
+      return;
+    }
+    if (canLogin && !employeeCode.trim()) {
+      setErr("Login-enabled users need an employee number.");
+      return;
+    }
+    if (canSetPassword && password && password.length < 4) {
+      setErr("Password must be at least 4 characters.");
+      return;
+    }
     if (useCustomModules && selectedModules.length === 0) {
       setErr("Custom module list is empty — select at least one module.");
       return;
@@ -86,10 +124,13 @@ function UserEditModal({
       email: email.trim(),
       employeeCode: employeeCode.trim(),
       role,
-      regionId: regionId || undefined,
+      regionId: superAdminRole ? "" : regionId,
       storeId: storeRole ? (storeIds[0] ?? null) : null,
       storeIds: storeRole ? storeIds : [],
-      moduleAccessOverride: useCustomModules ? selectedModules : null,
+      canLogin,
+      phone: phoneDigits || null,
+      moduleAccessOverride: useCustomModules && !superAdminRole ? selectedModules : null,
+      ...(canSetPassword && password ? { password } : {}),
     });
     setSaving(false);
   }
@@ -128,9 +169,24 @@ function UserEditModal({
           />
           <p className="mt-1 text-[11px] text-stone-400">Letters and digits only — no spaces or special characters.</p>
 
+          <label className="mt-3 flex cursor-pointer items-center gap-2.5 border border-rlx-rule bg-stone-50 px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-rlx-green"
+              checked={canLogin}
+              onChange={(e) => setCanLogin(e.target.checked)}
+            />
+            <span className="text-sm font-semibold text-stone-700">
+              Login enabled
+              <span className="ml-2 text-[11px] font-normal text-stone-400">
+                (off = directory-only profile, cannot sign in)
+              </span>
+            </span>
+          </label>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelCls}>Employee No</label>
+              <label className={labelCls}>Employee No{canLogin ? " *" : ""}</label>
               <input
                 className={inputCls}
                 value={employeeCode}
@@ -138,7 +194,7 @@ function UserEditModal({
               />
             </div>
             <div>
-              <label className={labelCls}>Email</label>
+              <label className={labelCls}>Email *</label>
               <input
                 type="email"
                 className={inputCls}
@@ -146,6 +202,43 @@ function UserEditModal({
                 onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
               />
             </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelCls}>Mobile{role === "delivery_boy" ? " (OTP) *" : ""}</label>
+              <input
+                inputMode="numeric"
+                className={inputCls}
+                value={phone}
+                onChange={(e) => setPhone(sanitizePhoneDigits(e.target.value))}
+                placeholder="10-digit mobile"
+                maxLength={15}
+              />
+            </div>
+            {canSetPassword && (
+              <div>
+                <label className={labelCls}>New password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    className={inputCls + " pr-14"}
+                    value={password}
+                    onChange={(e) => setPassword(sanitizePasswordInput(e.target.value))}
+                    placeholder="Leave blank to keep current"
+                    autoComplete="new-password"
+                    minLength={4}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 mt-0.5 -translate-y-1/2 text-[10px] font-semibold uppercase tracking-wider text-rlx-green"
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -163,7 +256,9 @@ function UserEditModal({
             </div>
             <div>
               <label className={labelCls}>Region / CSC</label>
-              {user?.role === "admin" ? (
+              {superAdminRole ? (
+                <div className={inputCls + " bg-stone-50 text-stone-500"}>All regions</div>
+              ) : user?.role === "admin" ? (
                 <div className={inputCls + " bg-stone-50 text-stone-500"}>{regionOptions[0]?.name ?? "—"}</div>
               ) : (
                 <select
@@ -206,16 +301,18 @@ function UserEditModal({
             </div>
           )}
 
-          <div className="mt-4 border-t border-rlx-rule pt-4">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-stone-500 mb-3">Navigation modules</p>
-            <UserModuleAccessEditor
-              role={role}
-              useCustomModules={useCustomModules}
-              onUseCustomModulesChange={setUseCustomModules}
-              selectedModules={selectedModules}
-              onSelectedModulesChange={setSelectedModules}
-            />
-          </div>
+          {!superAdminRole && (
+            <div className="mt-4 border-t border-rlx-rule pt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-stone-500 mb-3">Navigation modules</p>
+              <UserModuleAccessEditor
+                role={role}
+                useCustomModules={useCustomModules}
+                onUseCustomModulesChange={setUseCustomModules}
+                selectedModules={selectedModules}
+                onSelectedModulesChange={setSelectedModules}
+              />
+            </div>
+          )}
 
           {err && (
             <div className="mt-3 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{err}</div>

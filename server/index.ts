@@ -337,6 +337,25 @@ function normalizeModuleAccessOverride(raw: unknown): ModuleKey[] | null {
 }
 
 function mapDbUser(row: DbUserRow): DemoUser {
+  if (row.role === "super_admin") {
+    return {
+      id: row.id,
+      employeeCode: row.employee_code ?? undefined,
+      email: row.email,
+      password: row.password_hash,
+      displayName: row.display_name,
+      role: row.role,
+      regionId: null,
+      storeId: null,
+      storeIds: [],
+      phone: row.phone,
+      technicianProfileId: row.technician_profile_id,
+      canLogin: row.can_login,
+      moduleAccessOverride: null,
+      createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
+      isSeed: row.is_seed,
+    };
+  }
   return {
     id: row.id,
     employeeCode: row.employee_code ?? undefined,
@@ -1081,7 +1100,8 @@ app.post("/api/users", requireAuth, async (req, res) => {
       return;
     }
   }
-  const overrideModules = moduleKeys(input.moduleAccessOverride);
+  const isSuperAdminTarget = input.role === "super_admin";
+  const overrideModules = isSuperAdminTarget ? null : moduleKeys(input.moduleAccessOverride);
 
   const plainPwd = String(input.password ?? "").trim() || "123456";
   const newUser: DemoUser = {
@@ -1091,7 +1111,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
     password: hashPassword(plainPwd),
     displayName: displayName,
     role: input.role as UserRole,
-    regionId: input.regionId,
+    regionId: isSuperAdminTarget ? null : input.regionId,
     storeId: STORE_ROLES.has(input.role) ? requestedStoreIds[0] ?? null : null,
     storeIds: STORE_ROLES.has(input.role) ? requestedStoreIds : [],
     phone,
@@ -1209,6 +1229,10 @@ app.patch("/api/users/:userId", requireAuth, async (req, res) => {
       push("employee_code", nextCode || null);
     }
     if ("canLogin" in body) push("can_login", Boolean(body.canLogin));
+    if ("phone" in body) {
+      const digits = String(body.phone ?? "").replace(/\D/g, "");
+      push("phone", digits.length >= 10 ? digits.slice(-10) : digits || null);
+    }
     if ("regionId" in body) push("region_id", String(body.regionId ?? "").trim() || null);
     if ("storeId" in body) push("store_id", String(body.storeId ?? "").trim() || null);
     if ("role" in body) {
@@ -1254,6 +1278,16 @@ app.patch("/api/users/:userId", requireAuth, async (req, res) => {
           [targetId, sid],
         );
       }
+    }
+    const { rowCount: superAdminCleared } = await dbPool.query(
+      `UPDATE app_users
+       SET region_id = NULL, store_id = NULL, module_access_override = NULL
+       WHERE id = $1::text AND role = 'super_admin'
+         AND (region_id IS NOT NULL OR store_id IS NOT NULL OR module_access_override IS NOT NULL)`,
+      [targetId],
+    );
+    if (superAdminCleared) {
+      await dbPool.query(`DELETE FROM user_store_access WHERE user_id = $1::text`, [targetId]);
     }
 
     await refreshUsersFromDb();

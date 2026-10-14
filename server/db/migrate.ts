@@ -1719,6 +1719,15 @@ export async function runMigrations(pool: Pool): Promise<void> {
   `);
 
   await pool.query(`
+    UPDATE app_users
+    SET region_id = NULL, store_id = NULL, module_access_override = NULL
+    WHERE role = 'super_admin'
+      AND (region_id IS NOT NULL OR store_id IS NOT NULL OR module_access_override IS NOT NULL);
+    DELETE FROM user_store_access
+    WHERE user_id IN (SELECT id FROM app_users WHERE role = 'super_admin');
+  `);
+
+  await pool.query(`
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_till_date DATE;
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_months INTEGER;
   `);

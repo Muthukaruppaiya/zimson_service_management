@@ -147,6 +147,7 @@ export function creatableRolesForActor(actorRole: UserRole | undefined): RoleCre
  * (same as `canAccessModule` in `moduleAccess.ts`).
  */
 export function effectiveModuleAccess(role: UserRole, override: ModuleKey[] | null | undefined): ModuleKey[] {
+  if (role === "super_admin") return [...ROLE_MODULE_ACCESS.super_admin];
   if (override && override.length > 0) return [...override];
   return [...ROLE_MODULE_ACCESS[role]];
 }

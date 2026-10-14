@@ -32,6 +32,7 @@ export function canAccessModule(subject: UserRole | SessionUser, module: ModuleK
     return modulesForRole(subject).includes(module);
   }
   const role = subject.role ?? "";
+  if (role === "super_admin") return true;
   const override = subject.moduleAccessOverride?.length ? subject.moduleAccessOverride : null;
   const base = override ?? modulesForRole(role);
   return Array.isArray(base) && base.includes(module);
