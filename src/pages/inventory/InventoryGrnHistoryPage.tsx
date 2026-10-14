@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -272,6 +274,7 @@ export function InventoryGrnHistoryPage() {
       );
     });
   }, [grns, search, modeFilter]);
+  const pagination = usePagination(filtered);
 
   // Summary stats
   const stats = useMemo(() => {
@@ -377,7 +380,7 @@ export function InventoryGrnHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((g) => {
+                {pagination.pageRows.map((g) => {
                   const t = grnTotals(g.items);
                   const hasPricing = g.items.some((i) => (i.costPrice ?? 0) > 0);
                   const pending = grnPendingQty(g.items);
@@ -436,6 +439,7 @@ export function InventoryGrnHistoryPage() {
             </table>
           </div>
         )}
+        <TablePagination pagination={pagination} />
       </div>
 
       {/* Detail Modal */}

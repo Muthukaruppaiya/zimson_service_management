@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -144,6 +146,7 @@ export function DeliveryBoyHistoryPage() {
         .includes(q);
     });
   }, [lines, boyId, direction, query]);
+  const pagination = usePagination(filtered);
 
   const activeCount = lines.filter((line) => line.transferStatus === "IN_TRANSIT").length;
   const completedCount = lines.filter((line) => Boolean(line.receivedAt)).length;
@@ -230,7 +233,7 @@ export function DeliveryBoyHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((line) => (
+                {pagination.pageRows.map((line) => (
                   <tr
                     key={`${line.transferId}-${line.id}`}
                     onClick={() => setSelected(line)}
@@ -264,6 +267,7 @@ export function DeliveryBoyHistoryPage() {
             </table>
           </div>
         )}
+        <TablePagination pagination={pagination} />
       </Card>
 
       {selected ? (

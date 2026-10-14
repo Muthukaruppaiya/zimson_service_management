@@ -3,7 +3,8 @@ import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import type { DemoUser } from "../src/types/user";
 import {
-  deliverOtpToTargets,
+  deliverOtpToTargetsDetailed,
+  type OtpDeliveryResult,
   type OtpDeliveryTarget,
 } from "./messaging/deliverOtp";
 import { generateOtpCode, isValidOtpCode } from "./otp";
@@ -16,11 +17,6 @@ const LOGIN_OTP_MAX_ATTEMPTS = 5;
 
 function hashToken(raw: string): string {
   return crypto.createHash("sha256").update(raw).digest("hex");
-}
-
-function phoneLast10(v: string): string {
-  const digits = String(v ?? "").replace(/\D/g, "");
-  return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
 function parseCookieHeader(header: string | undefined): Record<string, string> {
@@ -43,15 +39,12 @@ export function trustedDeviceCookieOptions() {
   };
 }
 
-export function buildLoginOtpTargets(user: Pick<DemoUser, "phone" | "email">): OtpDeliveryTarget[] {
-  const targets: OtpDeliveryTarget[] = [];
-  const p10 = phoneLast10(user.phone ?? "");
+/** Login OTP goes to the profile email only (also shown on the login screen). */
+export function buildLoginOtpTargets(user: Pick<DemoUser, "email">): OtpDeliveryTarget[] {
   const email = String(user.email ?? "")
     .trim()
     .toLowerCase();
-  if (p10.length === 10) targets.push({ type: "mobile", label: p10 });
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) targets.push({ type: "email", label: email });
-  return targets;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? [{ type: "email", label: email }] : [];
 }
 
 export async function isTrustedDevice(
@@ -108,6 +101,9 @@ export type LoginOtpChallengeResult =
       ok: true;
       challengeToken: string;
       sentTo: OtpDeliveryTarget[];
+      delivery: OtpDeliveryResult[];
+      shownOnScreen: boolean;
+      generatedOtp: string;
       demoOtp?: string;
       message: string;
     }
@@ -123,7 +119,7 @@ export async function createLoginOtpChallenge(
   const challengeToken = crypto.randomBytes(24).toString("base64url");
   const tokenHash = hashToken(challengeToken);
   const codeHash = hashToken(code);
-  /** Temporary testing: always show OTP on login screen (emails may be wrong / shared). */
+  /** Login OTP is emailed and always shown on the login screen as well. */
   const showOtpOnScreen = true;
 
   await pool.query(
@@ -141,30 +137,36 @@ export async function createLoginOtpChallenge(
     [tokenHash, user.id, codeHash, selectedStoreId],
   );
 
+  let delivery: OtpDeliveryResult[] = [];
   if (targets.length > 0) {
-    try {
-      await deliverOtpToTargets(code, targets);
-    } catch (e) {
-      // Still allow login when mail/SMS fails — OTP is shown on screen for testing.
-      console.warn(
-        "[login-otp] delivery failed; showing OTP on screen:",
-        e instanceof Error ? e.message : e,
-      );
+    // Still allow login when mail/SMS fails — OTP is shown on screen for testing.
+    delivery = await deliverOtpToTargetsDetailed(code, targets);
+    if (!delivery.some((d) => d.status === "sent")) {
+      console.warn("[login-otp] delivery failed on every channel; showing OTP on screen");
     }
   }
 
+  const sentTo = delivery.filter((d) => d.status === "sent").map(({ type, label }) => ({ type, label }));
   return {
     ok: true,
     challengeToken,
-    sentTo: targets,
+    sentTo,
+    delivery,
+    shownOnScreen: showOtpOnScreen,
+    generatedOtp: code,
     demoOtp: showOtpOnScreen ? code : undefined,
-    message: "Temporary: OTP is shown below. Enter it to continue.",
+    message:
+      targets.length === 0
+        ? "No email on this profile. Use the OTP shown below."
+        : sentTo.length === 0
+          ? `Could not send email to ${targets[0]!.label}. Use the OTP shown below.`
+          : `OTP sent to ${sentTo[0]!.label}.`,
   };
 }
 
 export type ConsumeLoginOtpResult =
   | { ok: true; userId: string; selectedStoreId: string | null }
-  | { ok: false; message: string };
+  | { ok: false; message: string; userId?: string };
 
 export async function consumeLoginOtpChallenge(
   pool: Pool,
@@ -191,11 +193,11 @@ export async function consumeLoginOtpChallenge(
   );
   const row = rows[0];
   if (!row || row.used_at || row.expires_at.getTime() < Date.now()) {
-    return { ok: false, message: "OTP expired. Sign in again to get a new code." };
+    return { ok: false, message: "OTP expired. Sign in again to get a new code.", userId: row?.user_id };
   }
   if (row.attempts >= LOGIN_OTP_MAX_ATTEMPTS) {
     await pool.query(`UPDATE login_otp_challenges SET used_at = now() WHERE token_hash = $1`, [tokenHash]);
-    return { ok: false, message: "Too many incorrect attempts. Sign in again." };
+    return { ok: false, message: "Too many incorrect attempts. Sign in again.", userId: row.user_id };
   }
 
   const codeHash = hashToken(code.trim());
@@ -204,7 +206,7 @@ export async function consumeLoginOtpChallenge(
       `UPDATE login_otp_challenges SET attempts = attempts + 1 WHERE token_hash = $1`,
       [tokenHash],
     );
-    return { ok: false, message: "Incorrect OTP. Please try again." };
+    return { ok: false, message: "Incorrect OTP. Please try again.", userId: row.user_id };
   }
 
   await pool.query(`UPDATE login_otp_challenges SET used_at = now() WHERE token_hash = $1`, [tokenHash]);

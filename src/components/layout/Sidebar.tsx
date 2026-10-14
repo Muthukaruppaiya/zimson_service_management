@@ -154,6 +154,7 @@ export function Sidebar() {
           { to: "/reports/watch-not-returned", label: "Watch status", module: "reports", match: ["/reports/aging", "/reports/unassigned-watches", "/reports/pending"] },
           { to: "/reports/stock-in-hand", label: "Stock", module: "reports", match: ["/reports/transfer"] },
           { to: "/reports/technician-assign-watch", label: "Technician", module: "reports", match: ["/reports/technician-repaired-history"] },
+          { to: "/reports/login", label: "Login report", module: "reports", roles: ["super_admin", "admin"] },
         ],
       },
       {

@@ -29,6 +29,7 @@ function createPool(): pg.Pool {
 const TRUNCATE_SQL = `
 TRUNCATE TABLE
   auth_sessions,
+  login_audit_events,
   spare_stock_history,
   stock_allocation_batch_items,
   stock_allocation_batches,

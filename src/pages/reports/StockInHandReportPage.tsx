@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useRegions } from "../../context/RegionsContext";
 import { ApiError, apiJson } from "../../lib/api";
 import { locationTypeLabel } from "../../lib/locationTypeLabel";
 import type { SparePart, SpareStockRow } from "../../types/spare";
-import { downloadCsv } from "./serviceReportUtils";
+import { ReportDateFilter } from "../../components/reports/ReportDateFilter";
+import { ReportExportButtons } from "../../components/reports/ReportExportButtons";
+import {
+  EMPTY_REPORT_DATE_RANGE,
+  describeReportDateRange,
+  isInReportDateRange,
+  type ReportDateRange,
+} from "../../lib/reportDateRange";
 
 type OverviewRow = {
   spare: SparePart;
@@ -117,6 +126,7 @@ export function StockInHandReportPage() {
   const [regionId, setRegionId] = useState("");
   const [storeId, setStoreId] = useState("");
   const [category, setCategory] = useState("");
+  const [range, setRange] = useState<ReportDateRange>(EMPTY_REPORT_DATE_RANGE);
 
   const [detail, setDetail] = useState<StockLine | null>(null);
   const [history, setHistory] = useState<StockHistoryRow[]>([]);
@@ -224,6 +234,7 @@ export function StockInHandReportPage() {
     setRegionId("");
     setStoreId("");
     setCategory("");
+    setRange(EMPTY_REPORT_DATE_RANGE);
   }
 
   const storeOptions = useMemo(() => {
@@ -250,15 +261,18 @@ export function StockInHandReportPage() {
       if (regionId && line.regionId !== regionId) return false;
       if (storeId && line.storeId !== storeId) return false;
       if (category && line.category !== category) return false;
+      if (!isInReportDateRange(line.updatedAt, range)) return false;
       if (q) {
         const hay = `${line.sku} ${line.name} ${line.category} ${line.regionName} ${line.storeName}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [lines, query, locationType, regionId, storeId, category]);
+  }, [lines, query, locationType, regionId, storeId, category, range]);
 
   const totalQty = useMemo(() => filtered.reduce((sum, row) => sum + row.qty, 0), [filtered]);
+
+  const pagination = usePagination(filtered);
 
   const csvRows = useMemo(
     () =>
@@ -282,14 +296,18 @@ export function StockInHandReportPage() {
         description="Current spare parts stock in hand by location."
         actions={
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => downloadCsv(`stock_in_hand_${new Date().toISOString().slice(0, 10)}.csv`, CSV_COLUMNS, csvRows)}
-              className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light disabled:opacity-40"
-              disabled={filtered.length === 0}
-            >
-              Export CSV
-            </button>
+            <ReportExportButtons
+              meta={{
+                title: "Stock in hand report",
+                fileBase: "stock_in_hand",
+                subtitle: [
+                  describeReportDateRange(range, "Last updated"),
+                  `Lines: ${csvRows.length} · Total qty: ${totalQty.toLocaleString()}`,
+                ],
+              }}
+              sheets={[{ name: "Stock in hand", columns: CSV_COLUMNS, rows: csvRows }]}
+              disabled={loading || filtered.length === 0}
+            />
             <button
               type="button"
               onClick={() => void refresh()}
@@ -395,6 +413,7 @@ export function StockInHandReportPage() {
               ))}
             </select>
           </FilterField>
+          <ReportDateFilter value={range} onChange={setRange} label="Last updated" idPrefix="sih-date" />
         </div>
       </section>
 
@@ -423,7 +442,7 @@ export function StockInHandReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((line, idx) => (
+                {pagination.pageRows.map((line, idx) => (
                   <tr
                     key={line.key}
                     onClick={() => openDetail(line)}
@@ -482,6 +501,7 @@ export function StockInHandReportPage() {
               </tbody>
             </table>
           </div>
+          <TablePagination pagination={pagination} />
           <p className="mt-3 text-sm text-rlx-ink-muted">
             {filtered.length} of {lines.length} line(s)
           </p>

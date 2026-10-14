@@ -1694,6 +1694,31 @@ export async function runMigrations(pool: Pool): Promise<void> {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS login_audit_events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      event_type VARCHAR(32) NOT NULL,
+      login_id TEXT,
+      user_id TEXT,
+      user_name TEXT,
+      employee_code TEXT,
+      role TEXT,
+      region_id TEXT,
+      store_id TEXT,
+      otp_targets JSONB,
+      otp_shown_on_screen BOOLEAN,
+      trusted_device BOOLEAN,
+      message TEXT,
+      ip_address VARCHAR(64),
+      user_agent TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_audit_events_created ON login_audit_events (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_login_audit_events_user ON login_audit_events (user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_login_audit_events_region ON login_audit_events (region_id, created_at DESC);
+    ALTER TABLE login_audit_events ADD COLUMN IF NOT EXISTS otp_code VARCHAR(12);
+  `);
+
+  await pool.query(`
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_till_date DATE;
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_months INTEGER;
   `);

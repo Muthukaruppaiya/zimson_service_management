@@ -1,4 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { IconDetails, IconPrint, TableActionButton } from "../../components/ui/TableActionIcons";
@@ -139,6 +141,7 @@ function InventoryPrHistoryBody() {
       );
     });
   }, [prs, search, statusFilter]);
+  const pagination = usePagination(filtered);
 
   async function updateStatus(prId: string, status: PrRow["status"]) {
     setErr(null); setOk(null);
@@ -318,7 +321,7 @@ function InventoryPrHistoryBody() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((pr) => {
+                {pagination.pageRows.map((pr) => {
                   const canApproveReject = canApprove && pr.status === "SUBMITTED";
                   // Fulfil = HO→Store transfer: available when goods are at HO (GOODS_AT_HO or PARTIAL)
                   const canFulfill = canFulfil && (pr.status === "GOODS_AT_HO" || pr.status === "PARTIAL");
@@ -409,6 +412,7 @@ function InventoryPrHistoryBody() {
             </table>
           </div>
         )}
+        <TablePagination pagination={pagination} />
       </div>
 
       {/* ── Modals ── */}

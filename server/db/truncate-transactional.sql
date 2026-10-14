@@ -51,6 +51,7 @@ TRUNCATE TABLE
   spare_stock,
   password_reset_tokens,
   auth_sessions,
+  login_audit_events,
   store_invoice_sequences,
   store_advance_voucher_sequences
 RESTART IDENTITY CASCADE;

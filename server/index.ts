@@ -50,6 +50,7 @@ import { registerEdocSettingsRoutes } from "./edocSettingsRoutes";
 import { initRazorpaySettings } from "./razorpaySettingsStore";
 import { registerRazorpayRoutes } from "./razorpayRoutes";
 import { registerTechnicianRoutes } from "./technicianRoutes";
+import { recordLoginEvent, registerLoginAuditRoutes } from "./loginAuditRoutes";
 import { runMigrations } from "./db/migrate";
 import { createPool } from "./db/pool";
 import { appendStockHistory } from "./db/stockHistory";
@@ -681,6 +682,12 @@ app.post("/api/auth/login", async (req, res) => {
   const passwordHash = hashPassword(password);
   const loginMatches = users.filter((u) => userMatchesLoginId(u, loginId));
   if (loginMatches.length > 1) {
+    void recordLoginEvent(dbPool, {
+      eventType: "LOGIN_BLOCKED",
+      loginId,
+      message: "More than one account matches this username.",
+      req,
+    });
     res.status(401).json({
       ok: false,
       message:
@@ -690,15 +697,36 @@ app.post("/api/auth/login", async (req, res) => {
   }
   const found = loginMatches.find((u) => u.password === passwordHash) ?? null;
   if (!found) {
+    void recordLoginEvent(dbPool, {
+      eventType: "PASSWORD_FAILED",
+      loginId,
+      user: loginMatches[0] ?? null,
+      message: loginMatches[0] ? "Incorrect password." : "Unknown username.",
+      req,
+    });
     res.status(401).json({ ok: false, message: "Invalid username or password." });
     return;
   }
   if (found.canLogin === false) {
+    void recordLoginEvent(dbPool, {
+      eventType: "LOGIN_BLOCKED",
+      loginId,
+      user: found,
+      message: "Directory-only profile.",
+      req,
+    });
     res.status(403).json({ ok: false, message: "This profile is directory-only and cannot sign in." });
     return;
   }
   const activeElsewhere = await countActiveSessionsForUser(dbPool, found.id);
   if (activeElsewhere > 0) {
+    void recordLoginEvent(dbPool, {
+      eventType: "ALREADY_LOGGED_IN",
+      loginId,
+      user: found,
+      message: `Active on ${activeElsewhere} other session(s).`,
+      req,
+    });
     await notifyActiveSessionsOfLoginAttempt(dbPool, found.id);
     res.status(409).json({
       ok: false,
@@ -744,6 +772,17 @@ app.post("/api/auth/login", async (req, res) => {
         res.status(400).json({ ok: false, message: challenge.message });
         return;
       }
+      void recordLoginEvent(dbPool, {
+        eventType: "OTP_SENT",
+        loginId,
+        user: found,
+        storeId: selectedStoreId,
+        otpTargets: challenge.delivery,
+        otpCode: challenge.generatedOtp,
+        otpShownOnScreen: challenge.shownOnScreen,
+        message: challenge.delivery.length === 0 ? "No mobile or email on profile." : null,
+        req,
+      });
       res.json({
         ok: false,
         code: "LOGIN_OTP_REQUIRED",
@@ -765,6 +804,15 @@ app.post("/api/auth/login", async (req, res) => {
       });
       return;
     }
+    void recordLoginEvent(dbPool, {
+      eventType: "LOGIN_SUCCESS",
+      loginId,
+      user: found,
+      storeId: selectedStoreId,
+      trustedDevice: true,
+      message: "Trusted device, OTP skipped.",
+      req,
+    });
     await refreshUsersFromDb();
     const refreshed = allUsers().find((u) => u.id === session.user.id) ?? found;
     res.json({ ok: true, user: stripPassword(refreshed), trustedDevice: true });
@@ -786,6 +834,12 @@ app.post("/api/auth/login/verify-otp", async (req, res) => {
   try {
     const challenge = await consumeLoginOtpChallenge(dbPool, challengeToken, code);
     if (!challenge.ok) {
+      void recordLoginEvent(dbPool, {
+        eventType: "OTP_FAILED",
+        user: challenge.userId ? findUser(challenge.userId) ?? null : null,
+        message: challenge.message,
+        req,
+      });
       res.status(401).json({ ok: false, code: "LOGIN_OTP_INVALID", message: challenge.message });
       return;
     }
@@ -816,6 +870,14 @@ app.post("/api/auth/login/verify-otp", async (req, res) => {
     if (rememberDevice) {
       await createTrustedDevice(dbPool, res, found.id);
     }
+    void recordLoginEvent(dbPool, {
+      eventType: "OTP_VERIFIED",
+      user: found,
+      storeId: challenge.selectedStoreId,
+      trustedDevice: rememberDevice,
+      message: rememberDevice ? "Signed in; device remembered." : "Signed in.",
+      req,
+    });
     await refreshUsersFromDb();
     const refreshed = allUsers().find((u) => u.id === session.user.id) ?? found;
     res.json({
@@ -830,9 +892,12 @@ app.post("/api/auth/login/verify-otp", async (req, res) => {
   }
 });
 
-app.post("/api/auth/logout", (req, res) => {
+app.post("/api/auth/logout", async (req, res) => {
   const sid = parseCookies(req.headers.cookie)[COOKIE];
   if (sid) {
+    const uid = await getSessionUserId(req).catch(() => null);
+    const u = uid ? findUser(uid) : undefined;
+    if (u) void recordLoginEvent(dbPool, { eventType: "LOGOUT", user: u, req });
     void dbPool.query(`UPDATE auth_sessions SET revoked_at = now() WHERE id = $1`, [sid]);
   }
   res.clearCookie(COOKIE, { path: "/" });
@@ -4390,6 +4455,7 @@ async function main() {
   registerSrfRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null, pushNotifications);
   registerDeliveryHandoffRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerTechnicianRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerLoginAuditRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerMessagingRoutes(app, requireAuth);
   registerPasswordResetRoutes(app, dbPool, {
     onPasswordChanged: () => refreshUsersFromDb(),

@@ -1,4 +1,5 @@
 import { FilterField } from "../../ui/FilterField";
+import { ReportDateFilter } from "../../reports/ReportDateFilter";
 import { useRegions } from "../../../context/RegionsContext";
 import { useAuth } from "../../../context/AuthContext";
 import { useMemo } from "react";
@@ -22,23 +23,15 @@ export function ReportFilters({ filters, onChange, onRun, running }: Props) {
   }, [regions, filters.regionId]);
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-      <FilterField label="From date">
-        <input
-          type="date"
-          className="w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm"
-          value={filters.from}
-          onChange={(e) => onChange({ ...filters, from: e.target.value })}
-        />
-      </FilterField>
-      <FilterField label="To date">
-        <input
-          type="date"
-          className="w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm"
-          value={filters.to}
-          onChange={(e) => onChange({ ...filters, to: e.target.value })}
-        />
-      </FilterField>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+      <ReportDateFilter
+        value={{ from: filters.from, to: filters.to }}
+        onChange={(r) => onChange({ ...filters, from: r.from, to: r.to })}
+        label="Date"
+        idPrefix="acc-report-date"
+        fieldClassName="w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm"
+        requireRange
+      />
       <FilterField label="Region">
         <select
           className="w-full rounded-xl border border-zimson-300 px-3 py-2 text-sm"
@@ -79,7 +72,7 @@ export function ReportFilters({ filters, onChange, onRun, running }: Props) {
         </button>
       </div>
       {user?.role === "store_accounts" && user.storeId ? (
-        <p className="sm:col-span-2 lg:col-span-5 text-xs text-stone-500">Store-scoped: only your store data is included.</p>
+        <p className="sm:col-span-2 lg:col-span-6 text-xs text-stone-500">Store-scoped: only your store data is included.</p>
       ) : null}
     </div>
   );

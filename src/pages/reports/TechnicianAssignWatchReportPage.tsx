@@ -1,10 +1,20 @@
 import { useMemo, useState } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { Link } from "react-router-dom";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
-import { downloadCsv, useServiceReportRows } from "./serviceReportUtils";
+import { ReportDateFilter } from "../../components/reports/ReportDateFilter";
+import { ReportExportButtons } from "../../components/reports/ReportExportButtons";
+import {
+  EMPTY_REPORT_DATE_RANGE,
+  describeReportDateRange,
+  isInReportDateRange,
+  type ReportDateRange,
+} from "../../lib/reportDateRange";
+import { useServiceReportRows } from "./serviceReportUtils";
 import {
   ASSIGN_CSV_COLUMNS,
   assignAgingBucket,
@@ -39,6 +49,7 @@ export function TechnicianAssignWatchReportPage() {
   const [technicianId, setTechnicianId] = useState("");
   const [bucket, setBucket] = useState<(typeof BUCKETS)[number]>("ALL");
   const [minDays, setMinDays] = useState("");
+  const [range, setRange] = useState<ReportDateRange>(EMPTY_REPORT_DATE_RANGE);
 
   const assignedRows = useMemo(
     () =>
@@ -61,6 +72,7 @@ export function TechnicianAssignWatchReportPage() {
       if (technicianId && job.assignedTechnicianId !== technicianId) return false;
       if (bucket !== "ALL" && rowBucket !== bucket) return false;
       if (hasMin && assignDays < min) return false;
+      if (!isInReportDateRange(job.assignedAt ?? job.inwardAt ?? job.createdAt, range)) return false;
       if (q) {
         const tech = technicianDisplay(job.assignedTechnicianId, techById);
         const hay =
@@ -69,7 +81,9 @@ export function TechnicianAssignWatchReportPage() {
       }
       return true;
     });
-  }, [assignedRows, query, regionId, technicianId, bucket, minDays, techById]);
+  }, [assignedRows, query, regionId, technicianId, bucket, minDays, range, techById]);
+
+  const pagination = usePagination(filtered);
 
   const csvRows = useMemo(
     () =>
@@ -128,20 +142,15 @@ export function TechnicianAssignWatchReportPage() {
             >
               Repaired history →
             </Link>
-            <button
-              type="button"
-              onClick={() =>
-                downloadCsv(
-                  `technician_assign_watch_${new Date().toISOString().slice(0, 10)}.csv`,
-                  ASSIGN_CSV_COLUMNS,
-                  csvRows,
-                )
-              }
-              className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light disabled:opacity-40"
-              disabled={filtered.length === 0}
-            >
-              Export CSV
-            </button>
+            <ReportExportButtons
+              meta={{
+                title: "Technician assign watch report",
+                fileBase: "technician_assign_watch",
+                subtitle: [describeReportDateRange(range, "Assigned date"), `Rows: ${csvRows.length}`],
+              }}
+              sheets={[{ name: "Assigned watches", columns: ASSIGN_CSV_COLUMNS, rows: csvRows }]}
+              disabled={loading || techLoading || filtered.length === 0}
+            />
             <button
               type="button"
               onClick={refreshPage}
@@ -175,7 +184,7 @@ export function TechnicianAssignWatchReportPage() {
         ))}
       </div>
 
-      <div className="mb-4 grid gap-3 rounded-xl border border-rlx-rule bg-white p-4 shadow-sm md:grid-cols-2 lg:grid-cols-5">
+      <div className="mb-4 grid gap-3 rounded-xl border border-rlx-rule bg-white p-4 shadow-sm md:grid-cols-3 lg:grid-cols-4">
         <FilterField label="Search">
           <input
             className="w-full rounded-lg border border-rlx-rule px-3 py-2 text-sm"
@@ -235,6 +244,13 @@ export function TechnicianAssignWatchReportPage() {
             placeholder="e.g. 7"
           />
         </FilterField>
+        <ReportDateFilter
+          value={range}
+          onChange={setRange}
+          label="Assigned"
+          idPrefix="taw-date"
+          fieldClassName="w-full rounded-lg border border-rlx-rule px-3 py-2 text-sm"
+        />
       </div>
 
       {error || techError ? (
@@ -268,7 +284,7 @@ export function TechnicianAssignWatchReportPage() {
                 </td>
               </tr>
             ) : (
-              filtered.map(({ job, assignDays, bucket: rowBucket }) => {
+              pagination.pageRows.map(({ job, assignDays, bucket: rowBucket }) => {
                 const tech = technicianDisplay(job.assignedTechnicianId, techById);
                 return (
                   <tr key={job.id} className="border-b border-rlx-rule/60 hover:bg-rlx-green-light/20">
@@ -297,6 +313,7 @@ export function TechnicianAssignWatchReportPage() {
           </tbody>
         </table>
       </div>
+      <TablePagination pagination={pagination} />
     </div>
   );
 }

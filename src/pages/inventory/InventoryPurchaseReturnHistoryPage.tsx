@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -282,6 +284,7 @@ export function InventoryPurchaseReturnHistoryPage() {
         (r.debitNoteNumber ?? "").toLowerCase().includes(q),
     );
   }, [rows, search]);
+  const pagination = usePagination(filtered);
 
   const stats = useMemo(() => {
     const totalQty = rows.reduce((s, r) => s + r.items.reduce((n, i) => n + i.qtyReturned, 0), 0);
@@ -372,7 +375,7 @@ export function InventoryPurchaseReturnHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => {
+                {pagination.pageRows.map((r) => {
                   const t = returnTotals(r.items);
                   const qty = r.items.reduce((s, i) => s + i.qtyReturned, 0);
                   const hasPricing = r.items.some((i) => (i.costPrice ?? 0) > 0);
@@ -425,6 +428,7 @@ export function InventoryPurchaseReturnHistoryPage() {
             </table>
           </div>
         )}
+        <TablePagination pagination={pagination} />
       </div>
 
       {selected && (

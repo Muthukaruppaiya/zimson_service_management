@@ -61,6 +61,8 @@ export function SummarySaleReportPage() {
       hasData={Boolean(data && data.rows.length > 0)}
       onDownload={handleDownload}
       downloading={downloading}
+      exportFileBase="summary_sale_report"
+      exportSheets={data ? [{ name: "Summary sales", columns: COLS, rows: data.rows }] : []}
     >
       {data ? (
         <div className="space-y-6">

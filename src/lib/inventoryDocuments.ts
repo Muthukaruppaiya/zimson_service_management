@@ -798,7 +798,7 @@ export function buildGrnDocument(input: {
           <span><i class="box"></i>Short supply</span>
           <span><i class="box"></i>Excess supply</span>
           <span><i class="box"></i>Qty verified with ${esc(grnDocNumberLabel(input.mode).toLowerCase())}</span>
-        </div>
+      </div>
       </div>
       ${input.notes?.trim() ? `<div class="note"><div class="meta-k">${esc(lbl(tpl.labels, "commentsLabel", "Comments"))}</div><div class="note-v">${esc(input.notes)}</div></div>` : ""}
     </div>

@@ -1,11 +1,21 @@
 import { useMemo, useState } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { Link } from "react-router-dom";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import type { SrfJobStatus } from "../../types/srfJob";
-import { downloadCsv, useServiceReportRows } from "./serviceReportUtils";
+import { ReportDateFilter } from "../../components/reports/ReportDateFilter";
+import { ReportExportButtons } from "../../components/reports/ReportExportButtons";
+import {
+  EMPTY_REPORT_DATE_RANGE,
+  describeReportDateRange,
+  isInReportDateRange,
+  type ReportDateRange,
+} from "../../lib/reportDateRange";
+import { useServiceReportRows } from "./serviceReportUtils";
 import {
   UNASSIGNED_CSV_COLUMNS,
   assignAgingBucket,
@@ -47,6 +57,7 @@ export function UnassignedWatchReportPage() {
   const [stage, setStage] = useState<(typeof STAGE_OPTIONS)[number]["value"]>("ALL");
   const [bucket, setBucket] = useState<(typeof BUCKETS)[number]>("ALL");
   const [minDays, setMinDays] = useState("");
+  const [range, setRange] = useState<ReportDateRange>(EMPTY_REPORT_DATE_RANGE);
 
   const unassignedRows = useMemo(
     () =>
@@ -74,8 +85,9 @@ export function UnassignedWatchReportPage() {
     const q = query.trim().toLowerCase();
     const min = Number(minDays);
     const hasMin = Number.isFinite(min) && minDays.trim() !== "";
-    return unassignedRows.filter(({ job, waitDays, bucket: rowBucket }) => {
+    return unassignedRows.filter(({ job, waitDays, bucket: rowBucket, receivedIso }) => {
       if (regionId && job.regionId !== regionId) return false;
+      if (!isInReportDateRange(receivedIso, range)) return false;
       if (storeId && job.storeId !== storeId) return false;
       if (stage !== "ALL" && job.status !== stage) return false;
       if (bucket !== "ALL" && rowBucket !== bucket) return false;
@@ -87,7 +99,9 @@ export function UnassignedWatchReportPage() {
       }
       return true;
     });
-  }, [unassignedRows, query, regionId, storeId, stage, bucket, minDays]);
+  }, [unassignedRows, query, regionId, storeId, stage, bucket, minDays, range]);
+
+  const pagination = usePagination(filtered);
 
   const csvRows = useMemo(
     () =>
@@ -135,20 +149,15 @@ export function UnassignedWatchReportPage() {
             >
               Assigned watches →
             </Link>
-            <button
-              type="button"
-              onClick={() =>
-                downloadCsv(
-                  `unassigned_watches_${new Date().toISOString().slice(0, 10)}.csv`,
-                  UNASSIGNED_CSV_COLUMNS,
-                  csvRows,
-                )
-              }
-              className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light disabled:opacity-40"
-              disabled={filtered.length === 0}
-            >
-              Export CSV
-            </button>
+            <ReportExportButtons
+              meta={{
+                title: "Unassigned watch report",
+                fileBase: "unassigned_watches",
+                subtitle: [describeReportDateRange(range, "Received date"), `Rows: ${csvRows.length}`],
+              }}
+              sheets={[{ name: "Unassigned watches", columns: UNASSIGNED_CSV_COLUMNS, rows: csvRows }]}
+              disabled={loading || filtered.length === 0}
+            />
             <button
               type="button"
               onClick={() => void refreshAll()}
@@ -183,7 +192,7 @@ export function UnassignedWatchReportPage() {
         ))}
       </div>
 
-      <div className="mb-4 grid gap-3 rounded-xl border border-rlx-rule bg-white p-4 shadow-sm md:grid-cols-2 lg:grid-cols-6">
+      <div className="mb-4 grid gap-3 rounded-xl border border-rlx-rule bg-white p-4 shadow-sm md:grid-cols-3 lg:grid-cols-5">
         <FilterField label="Search">
           <input
             className="w-full rounded-lg border border-rlx-rule px-3 py-2 text-sm"
@@ -259,6 +268,13 @@ export function UnassignedWatchReportPage() {
             placeholder="e.g. 3"
           />
         </FilterField>
+        <ReportDateFilter
+          value={range}
+          onChange={setRange}
+          label="Received"
+          idPrefix="uaw-date"
+          fieldClassName="w-full rounded-lg border border-rlx-rule px-3 py-2 text-sm"
+        />
       </div>
 
       {error ? (
@@ -290,7 +306,7 @@ export function UnassignedWatchReportPage() {
                 </td>
               </tr>
             ) : (
-              filtered.map(({ job, waitDays, bucket: rowBucket, receivedIso }) => (
+              pagination.pageRows.map(({ job, waitDays, bucket: rowBucket, receivedIso }) => (
                 <tr key={job.id} className="border-b border-rlx-rule/60 hover:bg-rlx-green-light/20">
                   <td className="px-3 py-2 font-mono text-xs font-semibold">{job.reference}</td>
                   <td className="px-3 py-2">{job.customerName}</td>
@@ -317,6 +333,7 @@ export function UnassignedWatchReportPage() {
           </tbody>
         </table>
       </div>
+      <TablePagination pagination={pagination} />
     </div>
   );
 }

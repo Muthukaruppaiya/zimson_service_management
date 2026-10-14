@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -222,6 +224,7 @@ export function InventoryTransferHistoryPage() {
         (r.note ?? "").toLowerCase().includes(q),
     );
   }, [rows, search]);
+  const pagination = usePagination(filtered);
 
   const stats = useMemo(() => {
     const totalQty = rows.reduce((s, r) => s + r.qty, 0);
@@ -313,7 +316,7 @@ export function InventoryTransferHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => (
+                {pagination.pageRows.map((r) => (
                   <tr
                     key={r.id}
                     onClick={() => setSelected(r)}
@@ -351,6 +354,7 @@ export function InventoryTransferHistoryPage() {
             </table>
           </div>
         )}
+        <TablePagination pagination={pagination} />
       </div>
 
       {selected ? <TransferDetailModal row={selected} onClose={() => setSelected(null)} /> : null}

@@ -1,11 +1,21 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { Link } from "react-router-dom";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import type { SrfJob, SrfJobStatus } from "../../types/srfJob";
-import { downloadCsv, useServiceReportRows } from "./serviceReportUtils";
+import { ReportDateFilter } from "../../components/reports/ReportDateFilter";
+import { ReportExportButtons } from "../../components/reports/ReportExportButtons";
+import {
+  EMPTY_REPORT_DATE_RANGE,
+  describeReportDateRange,
+  isInReportDateRange,
+  type ReportDateRange,
+} from "../../lib/reportDateRange";
+import { useServiceReportRows } from "./serviceReportUtils";
 
 const CSV_COLUMNS = [
   "SR No",
@@ -169,6 +179,7 @@ export function TransferReportPage() {
   const [regionId, setRegionId] = useState("");
   const [leg, setLeg] = useState<"ALL" | "INBOUND" | "OUTWARD" | "INTER_HO">("ALL");
   const [minAge, setMinAge] = useState("");
+  const [range, setRange] = useState<ReportDateRange>(EMPTY_REPORT_DATE_RANGE);
   const [detail, setDetail] = useState<SrfJob | null>(null);
 
   const regionNameById = useMemo(() => {
@@ -261,6 +272,7 @@ export function TransferReportPage() {
         return false;
       }
       if (hasMin && ageDays < minDays) return false;
+      if (!isInReportDateRange(job.createdAt, range)) return false;
       if (q) {
         const hay =
           `${job.reference} ${job.customerName} ${job.phone} ${watchLabel(job)} ${job.serial} ${job.dcNumber ?? ""} ${job.outwardDcNumber ?? ""} ${job.transferSourceReference ?? ""} ${fromLabel(job)} ${toLabel(job)} ${job.status}`.toLowerCase();
@@ -270,7 +282,7 @@ export function TransferReportPage() {
     });
     // fromLabel/toLabel depend on maps; intentional
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transferJobs, query, status, regionId, leg, minAge, regionNameById, storeNameById]);
+  }, [transferJobs, query, status, regionId, leg, minAge, range, regionNameById, storeNameById]);
 
   function resetFilters() {
     setQuery("");
@@ -278,7 +290,10 @@ export function TransferReportPage() {
     setRegionId("");
     setLeg("ALL");
     setMinAge("");
+    setRange(EMPTY_REPORT_DATE_RANGE);
   }
+
+  const pagination = usePagination(filtered);
 
   const csvRows = useMemo(
     () =>
@@ -310,14 +325,15 @@ export function TransferReportPage() {
         description="Transfer lifecycle summary for SRFs moved between locations."
         actions={
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => downloadCsv(`transfer_${new Date().toISOString().slice(0, 10)}.csv`, CSV_COLUMNS, csvRows)}
-              className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light disabled:opacity-40"
-              disabled={filtered.length === 0}
-            >
-              Export CSV
-            </button>
+            <ReportExportButtons
+              meta={{
+                title: "Transfer report",
+                fileBase: "transfer",
+                subtitle: [describeReportDateRange(range, "Created date"), `Rows: ${csvRows.length}`],
+              }}
+              sheets={[{ name: "Transfers", columns: CSV_COLUMNS, rows: csvRows }]}
+              disabled={loading || filtered.length === 0}
+            />
             <button
               type="button"
               onClick={() => void refreshAll()}
@@ -427,6 +443,7 @@ export function TransferReportPage() {
               placeholder="e.g. 7"
             />
           </FilterField>
+          <ReportDateFilter value={range} onChange={setRange} label="Created" idPrefix="xfer-date" />
         </div>
       </section>
 
@@ -456,7 +473,7 @@ export function TransferReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(({ job, ageDays }, idx) => (
+                {pagination.pageRows.map(({ job, ageDays }, idx) => (
                   <tr
                     key={job.id}
                     onClick={() => setDetail(job)}
@@ -516,6 +533,7 @@ export function TransferReportPage() {
               </tbody>
             </table>
           </div>
+          <TablePagination pagination={pagination} />
           <p className="mt-3 text-sm text-rlx-ink-muted">
             {filtered.length} of {transferJobs.length} transfer(s)
           </p>

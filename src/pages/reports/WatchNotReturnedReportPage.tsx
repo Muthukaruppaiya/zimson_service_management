@@ -1,11 +1,16 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { Link } from "react-router-dom";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useRegions } from "../../context/RegionsContext";
 import { useSrfJobs } from "../../context/SrfJobsContext";
 import type { SrfJob } from "../../types/srfJob";
-import { downloadCsv, useServiceReportRows } from "./serviceReportUtils";
+import { ReportDateFilter } from "../../components/reports/ReportDateFilter";
+import { ReportExportButtons } from "../../components/reports/ReportExportButtons";
+import { describeReportDateRange } from "../../lib/reportDateRange";
+import { useServiceReportRows } from "./serviceReportUtils";
 
 const CSV_COLUMNS = [
   "SR No",
@@ -228,6 +233,8 @@ export function WatchNotReturnedReportPage() {
     setToDate("");
   }
 
+  const pagination = usePagination(filtered);
+
   const csvRows = useMemo(
     () =>
       filtered.map((j) => ({
@@ -257,16 +264,18 @@ export function WatchNotReturnedReportPage() {
         description="Watches dispatched from service centre but still not received at store."
         actions={
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                downloadCsv(`watch_not_returned_${new Date().toISOString().slice(0, 10)}.csv`, CSV_COLUMNS, csvRows)
-              }
-              className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light disabled:opacity-40"
-              disabled={filtered.length === 0}
-            >
-              Export CSV
-            </button>
+            <ReportExportButtons
+              meta={{
+                title: "Watch not returned report",
+                fileBase: "watch_not_returned",
+                subtitle: [
+                  describeReportDateRange({ from: fromDate, to: toDate }, "Dispatched date"),
+                  `Rows: ${csvRows.length}`,
+                ],
+              }}
+              sheets={[{ name: "Watch not returned", columns: CSV_COLUMNS, rows: csvRows }]}
+              disabled={loading || filtered.length === 0}
+            />
             <button
               type="button"
               onClick={() => void refreshAll()}
@@ -372,24 +381,15 @@ export function WatchNotReturnedReportPage() {
               placeholder="e.g. 3"
             />
           </FilterField>
-          <FilterField label="Dispatched from" htmlFor="wnr-from" className="min-w-0">
-            <input
-              id="wnr-from"
-              type="date"
-              className="ui-field"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-          </FilterField>
-          <FilterField label="Dispatched to" htmlFor="wnr-to" className="min-w-0">
-            <input
-              id="wnr-to"
-              type="date"
-              className="ui-field"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
-          </FilterField>
+          <ReportDateFilter
+            value={{ from: fromDate, to: toDate }}
+            onChange={(r) => {
+              setFromDate(r.from);
+              setToDate(r.to);
+            }}
+            label="Dispatched"
+            idPrefix="wnr-date"
+          />
         </div>
       </section>
 
@@ -418,7 +418,7 @@ export function WatchNotReturnedReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((j, idx) => {
+                {pagination.pageRows.map((j, idx) => {
                   const pending = daysSince(j.dispatchedToStoreAt);
                   const dest = resolveStoreName(j.destinationStoreId, j.storeName);
                   return (
@@ -485,6 +485,7 @@ export function WatchNotReturnedReportPage() {
               </tbody>
             </table>
           </div>
+          <TablePagination pagination={pagination} />
           <p className="mt-3 text-sm text-rlx-ink-muted">
             {filtered.length} of {notReturnedJobs.length} record(s)
           </p>

@@ -7,7 +7,18 @@ import { useSrfJobs } from "../../context/SrfJobsContext";
 import { ApiError, apiJson } from "../../lib/api";
 import type { SparePart, SpareStockRow } from "../../types/spare";
 import type { SrfJob } from "../../types/srfJob";
-import { downloadCsv, useServiceReportRows } from "./serviceReportUtils";
+import { ReportDateFilter } from "../../components/reports/ReportDateFilter";
+import { ReportExportButtons } from "../../components/reports/ReportExportButtons";
+import {
+  EMPTY_REPORT_DATE_RANGE,
+  describeReportDateRange,
+  isInReportDateRange,
+  type ReportDateRange,
+} from "../../lib/reportDateRange";
+import type { ReportSheet } from "../../lib/reportExport";
+import { useServiceReportRows } from "./serviceReportUtils";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 
 type OverviewRow = {
   spare: SparePart;
@@ -182,11 +193,13 @@ export function AgingReportPage() {
   const [srfRegionId, setSrfRegionId] = useState("");
   const [srfBucket, setSrfBucket] = useState<(typeof BUCKETS)[number]>("ALL");
   const [srfMinAge, setSrfMinAge] = useState("");
+  const [srfRange, setSrfRange] = useState<ReportDateRange>(EMPTY_REPORT_DATE_RANGE);
 
   const [invQuery, setInvQuery] = useState("");
   const [invCategory, setInvCategory] = useState("");
   const [invBucket, setInvBucket] = useState<(typeof BUCKETS)[number]>("ALL");
   const [invMinAge, setInvMinAge] = useState("");
+  const [invRange, setInvRange] = useState<ReportDateRange>(EMPTY_REPORT_DATE_RANGE);
 
   const [srfDetail, setSrfDetail] = useState<SrfJob | null>(null);
   const [invDetail, setInvDetail] = useState<InvAgingLine | null>(null);
@@ -267,13 +280,14 @@ export function AgingReportPage() {
       if (srfRegionId && job.regionId !== srfRegionId) return false;
       if (srfBucket !== "ALL" && bucket !== srfBucket) return false;
       if (hasMin && ageDays < minAge) return false;
+      if (!isInReportDateRange(job.createdAt, srfRange)) return false;
       if (q) {
         const hay = `${job.reference} ${job.customerName} ${job.phone} ${watchLabel(job)} ${job.serial} ${job.status} ${job.regionName ?? ""} ${job.storeName ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [openJobs, srfQuery, srfRegionId, srfBucket, srfMinAge]);
+  }, [openJobs, srfQuery, srfRegionId, srfBucket, srfMinAge, srfRange]);
 
   const invCategories = useMemo(() => {
     const set = new Set<string>();
@@ -291,13 +305,17 @@ export function AgingReportPage() {
       if (invCategory && line.category !== invCategory) return false;
       if (invBucket !== "ALL" && line.bucket !== invBucket) return false;
       if (hasMin && line.ageDays < minAge) return false;
+      if (!isInReportDateRange(line.lastMovementAt, invRange)) return false;
       if (q) {
         const hay = `${line.sku} ${line.name} ${line.category}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [invLines, invQuery, invCategory, invBucket, invMinAge]);
+  }, [invLines, invQuery, invCategory, invBucket, invMinAge, invRange]);
+
+  const srfPagination = usePagination(filteredSrf);
+  const invPagination = usePagination(filteredInv);
 
   async function openInvDetail(line: InvAgingLine) {
     setInvDetail(line);
@@ -348,11 +366,11 @@ export function AgingReportPage() {
     [filteredInv],
   );
 
-  function exportAll() {
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadCsv(`aging_srf_${stamp}.csv`, SRF_CSV, srfCsv);
-    if (invCsv.length > 0) downloadCsv(`aging_inventory_${stamp}.csv`, INV_CSV, invCsv);
-  }
+  const exportSheets = useMemo<ReportSheet[]>(() => {
+    const sheets: ReportSheet[] = [{ name: "SRF aging", columns: SRF_CSV, rows: srfCsv }];
+    if (invCsv.length > 0) sheets.push({ name: "Inventory aging", columns: INV_CSV, rows: invCsv });
+    return sheets;
+  }, [srfCsv, invCsv]);
 
   const srfTimeline = srfDetail ? buildSrfTimeline(srfDetail) : [];
 
@@ -363,14 +381,19 @@ export function AgingReportPage() {
         description="Aging view of open SRFs by days and bucket, plus inventory item aging."
         actions={
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={exportAll}
-              className="inline-flex border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-rlx-green transition hover:border-rlx-green hover:bg-rlx-green-light disabled:opacity-40"
+            <ReportExportButtons
+              meta={{
+                title: "Aging report",
+                fileBase: "aging",
+                subtitle: [
+                  describeReportDateRange(srfRange, "SRF created"),
+                  describeReportDateRange(invRange, "Inventory last movement"),
+                  `SRFs: ${srfCsv.length} · Inventory lines: ${invCsv.length}`,
+                ],
+              }}
+              sheets={exportSheets}
               disabled={filteredSrf.length === 0 && filteredInv.length === 0}
-            >
-              Export CSV
-            </button>
+            />
             <button
               type="button"
               onClick={() => {
@@ -432,6 +455,7 @@ export function AgingReportPage() {
                 setInvCategory("");
                 setInvBucket("ALL");
                 setInvMinAge("");
+                setInvRange(EMPTY_REPORT_DATE_RANGE);
               }}
               className="ui-btn-secondary"
             >
@@ -488,6 +512,7 @@ export function AgingReportPage() {
                 placeholder="e.g. 15"
               />
             </FilterField>
+            <ReportDateFilter value={invRange} onChange={setInvRange} label="Last movement" idPrefix="aging-inv-date" />
           </div>
         </div>
 
@@ -515,7 +540,7 @@ export function AgingReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredInv.map((line, idx) => (
+                {invPagination.pageRows.map((line, idx) => (
                   <tr
                     key={line.spareId}
                     onClick={() => void openInvDetail(line)}
@@ -560,6 +585,7 @@ export function AgingReportPage() {
             </table>
           </div>
         )}
+        {!invLoading ? <TablePagination pagination={invPagination} /> : null}
         {!invLoading && filteredInv.length > 0 ? (
           <p className="mt-2 text-sm text-rlx-ink-muted">
             {filteredInv.length} of {invLines.length} inventory line(s)
@@ -581,6 +607,7 @@ export function AgingReportPage() {
                 setSrfRegionId("");
                 setSrfBucket("ALL");
                 setSrfMinAge("");
+                setSrfRange(EMPTY_REPORT_DATE_RANGE);
               }}
               className="ui-btn-secondary"
             >
@@ -637,6 +664,7 @@ export function AgingReportPage() {
                 placeholder="e.g. 7"
               />
             </FilterField>
+            <ReportDateFilter value={srfRange} onChange={setSrfRange} label="Created" idPrefix="aging-srf-date" />
           </div>
         </div>
 
@@ -661,7 +689,7 @@ export function AgingReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredSrf.map(({ job, ageDays, bucket }, idx) => (
+                {srfPagination.pageRows.map(({ job, ageDays, bucket }, idx) => (
                   <tr
                     key={job.id}
                     onClick={() => setSrfDetail(job)}
@@ -713,6 +741,7 @@ export function AgingReportPage() {
             </table>
           </div>
         )}
+        {!loading ? <TablePagination pagination={srfPagination} /> : null}
         {!loading && filteredSrf.length > 0 ? (
           <p className="mt-2 text-sm text-rlx-ink-muted">
             {filteredSrf.length} of {openJobs.length} open SRF(s)

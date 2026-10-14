@@ -1,8 +1,22 @@
-import type { ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { FormPageShell } from "../../components/layout/FormPageShell";
 import { Card } from "../../components/ui/Card";
 import { ReportDataTable } from "../../components/accounts/report/ReportDataTable";
-import { SERVICE_REPORT_COLUMNS, type ServiceReportKey, downloadCsv, useServiceReportRows } from "./serviceReportUtils";
+import { ReportDateFilter } from "../../components/reports/ReportDateFilter";
+import { ReportExportButtons } from "../../components/reports/ReportExportButtons";
+import {
+  EMPTY_REPORT_DATE_RANGE,
+  describeReportDateRange,
+  isInReportDateRange,
+  type ReportDateRange,
+} from "../../lib/reportDateRange";
+import {
+  REPORT_ROW_DATE_KEY,
+  SERVICE_REPORT_COLUMNS,
+  SERVICE_REPORT_DATE_LABEL,
+  type ServiceReportKey,
+  useServiceReportRows,
+} from "./serviceReportUtils";
 
 type Props = {
   reportKey: ServiceReportKey;
@@ -13,8 +27,15 @@ type Props = {
 
 export function ServiceReportPageShell({ reportKey, title, description, children }: Props) {
   const { loading, error, kpis, rowsByReport, refreshAll } = useServiceReportRows();
-  const rows = rowsByReport[reportKey] ?? [];
+  const [range, setRange] = useState<ReportDateRange>(EMPTY_REPORT_DATE_RANGE);
+  const allRows = rowsByReport[reportKey] ?? [];
   const cols = SERVICE_REPORT_COLUMNS[reportKey];
+  const dateLabel = SERVICE_REPORT_DATE_LABEL[reportKey];
+
+  const rows = useMemo(
+    () => allRows.filter((r) => isInReportDateRange(r[REPORT_ROW_DATE_KEY] as string | null | undefined, range)),
+    [allRows, range],
+  );
 
   return (
     <FormPageShell
@@ -22,18 +43,19 @@ export function ServiceReportPageShell({ reportKey, title, description, children
       title={title}
       actions={
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => downloadCsv(`${reportKey}_${new Date().toISOString().slice(0, 10)}.csv`, cols, rows)}
-            className="rounded-lg border border-rlx-gold/60 bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
-            disabled={rows.length === 0}
-          >
-            Export CSV
-          </button>
+          <ReportExportButtons
+            meta={{
+              title,
+              fileBase: reportKey,
+              subtitle: [describeReportDateRange(range, `${dateLabel} date`), `Rows: ${rows.length}`],
+            }}
+            sheets={[{ name: title, columns: cols, rows }]}
+            disabled={loading || rows.length === 0}
+          />
           <button
             type="button"
             onClick={() => void refreshAll()}
-            className="rounded-lg border border-rlx-gold/60 bg-white px-3 py-1.5 text-xs font-semibold text-rlx-green hover:bg-rlx-green-light"
+            className="border border-rlx-rule bg-white px-3 py-2 text-sm font-semibold text-rlx-green hover:bg-rlx-green-light"
           >
             Refresh
           </button>
@@ -60,6 +82,12 @@ export function ServiceReportPageShell({ reportKey, title, description, children
         {children}
       </Card>
 
+      <Card title="Filters" className="mt-3">
+        <div className="ui-filter-grid">
+          <ReportDateFilter value={range} onChange={setRange} label={dateLabel} idPrefix={`${reportKey}-date`} />
+        </div>
+      </Card>
+
       {error ? (
         <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       ) : null}
@@ -74,4 +102,3 @@ export function ServiceReportPageShell({ reportKey, title, description, children
     </FormPageShell>
   );
 }
-

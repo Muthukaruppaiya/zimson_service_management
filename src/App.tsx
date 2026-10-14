@@ -115,6 +115,7 @@ import { TransferReportPage } from "./pages/reports/TransferReportPage";
 import { TechnicianAssignWatchReportPage } from "./pages/reports/TechnicianAssignWatchReportPage";
 import { TechnicianRepairedHistoryReportPage } from "./pages/reports/TechnicianRepairedHistoryReportPage";
 import { UnassignedWatchReportPage } from "./pages/reports/UnassignedWatchReportPage";
+import { LoginReportPage } from "./pages/reports/LoginReportPage";
 
 function RedirectPreserveSearch({ to }: { to: string }) {
   const { search } = useLocation();
@@ -232,6 +233,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="reports">
                       <UnassignedWatchReportPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/reports/login"
+                  element={
+                    <ModuleRoute module="reports">
+                      <LoginReportPage />
                     </ModuleRoute>
                   }
                 />

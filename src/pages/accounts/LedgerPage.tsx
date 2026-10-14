@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { apiJson, useApiMode } from "../../lib/api";
 import type { LedgerEntryRecord } from "../../types/serviceInvoiceRecord";
 
@@ -36,6 +38,7 @@ export function LedgerPage() {
 
   const totalDebit = rows.reduce((s, r) => s + r.debitInr, 0);
   const totalCredit = rows.reduce((s, r) => s + r.creditInr, 0);
+  const pagination = usePagination(rows);
 
   return (
     <div className="ui-page-bleed font-sans text-rlx-ink">
@@ -117,7 +120,7 @@ export function LedgerPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, idx) => (
+                {pagination.pageRows.map((r, idx) => (
                   <tr key={r.id} className={`border-b border-rlx-rule ${idx % 2 ? "bg-rlx-bg" : "bg-white"}`}>
                     <td className="whitespace-nowrap text-xs text-rlx-ink-muted">{new Date(r.postedAt).toLocaleString()}</td>
                     <td className="font-mono text-[10px]">{r.voucherRef}</td>
@@ -137,6 +140,7 @@ export function LedgerPage() {
             </table>
           </div>
         )}
+        {!loading ? <TablePagination pagination={pagination} /> : null}
       </div>
     </div>
   );

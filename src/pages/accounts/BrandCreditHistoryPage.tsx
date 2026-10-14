@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { Link } from "react-router-dom";
 import { FilterField } from "../../components/ui/FilterField";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -219,6 +221,7 @@ export function BrandCreditHistoryPage() {
       return true;
     });
   }, [rows, storeName, brand, validity, documentFilter]);
+  const pagination = usePagination(filteredRows);
 
   const detailDocUrl = detail ? attachmentUrl(detail.brandInvoiceMeta) : null;
 
@@ -420,7 +423,7 @@ export function BrandCreditHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((r, idx) => {
+                {pagination.pageRows.map((r, idx) => {
                   const docUrl = attachmentUrl(r.brandInvoiceMeta);
                   const watchLabel = `${r.watchBrand} ${r.watchModel}`.trim();
                   return (
@@ -517,7 +520,8 @@ export function BrandCreditHistoryPage() {
               </tbody>
             </table>
           </div>
-          <p className="mt-3 text-sm text-rlx-ink-muted">
+<TablePagination pagination={pagination} />
+                    <p className="mt-3 text-sm text-rlx-ink-muted">
             {filteredRows.length} of {rows.length} record(s)
           </p>
         </>

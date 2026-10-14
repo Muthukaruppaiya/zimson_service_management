@@ -9,48 +9,66 @@ import { sendOtpSms } from "./qikberrySms";
 
 export type OtpDeliveryTarget = { type: "mobile" | "email"; label: string };
 
-/** Send the same OTP to each target. Throws if every channel fails and demo mode is off. */
-export async function deliverOtpToTargets(code: string, targets: OtpDeliveryTarget[]): Promise<void> {
-  const failures: string[] = [];
-  let anySent = false;
+export type OtpDeliveryStatus = "sent" | "failed" | "not_configured";
+
+export type OtpDeliveryResult = OtpDeliveryTarget & { status: OtpDeliveryStatus; error?: string };
+
+/** Send the same OTP to each target and report the outcome per target. Never throws. */
+export async function deliverOtpToTargetsDetailed(
+  code: string,
+  targets: OtpDeliveryTarget[],
+): Promise<OtpDeliveryResult[]> {
+  const results: OtpDeliveryResult[] = [];
 
   for (const target of targets) {
     if (target.type === "mobile") {
       if (!isSmsConfigured()) {
-        if (!shouldExposeMobileOtpInUi()) failures.push("SMS not configured");
+        results.push({ ...target, status: "not_configured", error: "SMS not configured" });
         continue;
       }
       try {
         await sendOtpSms(target.label, code);
-        anySent = true;
+        results.push({ ...target, status: "sent" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "SMS failed";
-        failures.push(msg);
+        results.push({ ...target, status: "failed", error: msg });
         console.error("[otp-sms]", target.label, msg);
       }
       continue;
     }
 
     if (!isEmailConfigured()) {
-      if (!shouldExposeEmailOtpInUi()) failures.push("Email not configured");
+      results.push({ ...target, status: "not_configured", error: "Email not configured" });
       continue;
     }
     try {
       await sendOtpEmail(target.label, code);
-      anySent = true;
+      results.push({ ...target, status: "sent" });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Email failed";
-      failures.push(msg);
+      results.push({ ...target, status: "failed", error: msg });
       console.error("[otp-email]", target.label, msg);
     }
   }
 
+  return results;
+}
+
+/** Send the same OTP to each target. Throws if every channel fails and demo mode is off. */
+export async function deliverOtpToTargets(code: string, targets: OtpDeliveryTarget[]): Promise<OtpDeliveryResult[]> {
+  const results = await deliverOtpToTargetsDetailed(code, targets);
+  const anySent = results.some((r) => r.status === "sent");
   const uiFallbackOk = targets.some((t) =>
     t.type === "mobile" ? shouldExposeMobileOtpInUi() : shouldExposeEmailOtpInUi(),
   );
   if (!anySent && !uiFallbackOk) {
-    throw new Error(failures.join(" ") || "Could not send OTP on any channel.");
+    const failures = results
+      .filter((r) => r.status !== "sent")
+      .filter((r) => r.status === "failed" || !(r.type === "mobile" ? shouldExposeMobileOtpInUi() : shouldExposeEmailOtpInUi()))
+      .map((r) => r.error ?? "");
+    throw new Error(failures.join(" ").trim() || "Could not send OTP on any channel.");
   }
+  return results;
 }
 
 export function otpStartResponsePayload(sessionId: string, code: string, targets: OtpDeliveryTarget[]) {

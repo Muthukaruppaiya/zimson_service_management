@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { FormPageShell } from "../../components/layout/FormPageShell";
 import { Card } from "../../components/ui/Card";
+import { useAuth } from "../../context/AuthContext";
 
 const reportLinks = [
   {
@@ -51,10 +52,20 @@ const reportLinks = [
     description: "SRF movement references: transfer/DC/ODC trail.",
     section: "Logistics",
   },
+  {
+    to: "/reports/login",
+    title: "Login report",
+    description: "Sign-in activity with OTP sent-to and delivery status.",
+    section: "Security",
+    adminOnly: true,
+  },
 ] as const;
 
 export function ReportsModulePage() {
-  const sections = Array.from(new Set(reportLinks.map((item) => item.section)));
+  const { user } = useAuth();
+  const isAdmin = user?.role === "super_admin" || user?.role === "admin";
+  const visibleLinks = reportLinks.filter((item) => !("adminOnly" in item) || isAdmin);
+  const sections = Array.from(new Set(visibleLinks.map((item) => item.section)));
 
   return (
     <FormPageShell
@@ -67,7 +78,7 @@ export function ReportsModulePage() {
           <div key={section}>
             <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-rlx-gold-dark">{section}</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {reportLinks
+              {visibleLinks
                 .filter((item) => item.section === section)
                 .map((item) => (
                   <Link

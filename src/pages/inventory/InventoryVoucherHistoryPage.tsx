@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -96,6 +98,7 @@ export function InventoryVoucherHistoryPage() {
       );
     });
   }, [vouchers, search, statusFilter]);
+  const pagination = usePagination(filtered);
 
   function printVoucher(v: PurchaseVoucher) {
     const supplier = suppliers.find((s) => s.id === v.supplierId);
@@ -223,7 +226,7 @@ export function InventoryVoucherHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((v) => (
+                {pagination.pageRows.map((v) => (
                   <tr key={v.id} className="border-b border-rlx-rule last:border-0 hover:bg-stone-50/50 transition">
                     <td className="px-5 py-3 font-mono text-xs font-bold text-rlx-green">{v.voucherNumber}</td>
                     <td className="px-5 py-3 font-medium text-stone-800">{v.supplierName}</td>
@@ -266,6 +269,7 @@ export function InventoryVoucherHistoryPage() {
             </table>
           </div>
         )}
+        <TablePagination pagination={pagination} />
       </div>
 
       {detail && (

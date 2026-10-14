@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { Link } from "react-router-dom";
 import { ServiceInvoicePrintSet } from "../../components/service/ServiceInvoicePrintSet";
 import {
@@ -302,6 +304,7 @@ export function InvoiceHistoryPage() {
         (r.rootSrfReference ?? "").toLowerCase().includes(q),
     );
   }, [rows, query]);
+  const pagination = usePagination(filtered);
 
   async function syncLegacy() {
     setSyncing(true);
@@ -543,7 +546,7 @@ export function InvoiceHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r, idx) => {
+                {pagination.pageRows.map((r, idx) => {
                   const created = formatTableDate(r.createdAt);
                   return (
                     <tr
@@ -691,6 +694,7 @@ export function InvoiceHistoryPage() {
             </table>
           </div>
         )}
+        <TablePagination pagination={pagination} />
       </div>
 
       {selectedId ? (

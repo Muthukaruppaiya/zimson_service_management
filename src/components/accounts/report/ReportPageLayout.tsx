@@ -2,8 +2,11 @@ import type { ReactNode } from "react";
 import { Card } from "../../ui/Card";
 import { PageHeader } from "../../ui/PageHeader";
 import { ReportFilters } from "./ReportFilters";
+import { ReportExportButtons } from "../../reports/ReportExportButtons";
 import type { ReportFiltersQuery } from "../../../lib/clientReportsApi";
 import { triggerBlobDownload } from "../../../lib/captureInvoicePdf";
+import { describeReportDateRange } from "../../../lib/reportDateRange";
+import type { ReportSheet } from "../../../lib/reportExport";
 
 type Props = {
   title: string;
@@ -16,7 +19,8 @@ type Props = {
   hasData: boolean;
   onDownload: () => Promise<void>;
   downloading: boolean;
-  downloadLabel?: string;
+  exportFileBase: string;
+  exportSheets: ReportSheet[];
   children: ReactNode;
 };
 
@@ -31,23 +35,27 @@ export function ReportPageLayout({
   hasData,
   onDownload,
   downloading,
-  downloadLabel = "Download Excel",
+  exportFileBase,
+  exportSheets,
   children,
 }: Props) {
+  const rowCount = exportSheets.reduce((sum, s) => sum + s.rows.length, 0);
   return (
     <div>
       <PageHeader
         title={title}
         description={description}
         actions={
-          <button
-            type="button"
+          <ReportExportButtons
+            meta={{
+              title,
+              fileBase: exportFileBase,
+              subtitle: [describeReportDateRange(filters, "Period"), `Rows: ${rowCount}`],
+            }}
+            sheets={exportSheets}
+            onExcel={onDownload}
             disabled={!hasData || downloading || running}
-            onClick={() => void onDownload()}
-            className="rounded-xl bg-zimson-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zimson-900 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {downloading ? "Downloading…" : downloadLabel}
-          </button>
+          />
         }
       />
 

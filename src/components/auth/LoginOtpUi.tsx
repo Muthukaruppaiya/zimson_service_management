@@ -67,7 +67,7 @@ export function LoginOtpEntryPanel({
 
       {demoOtp ? (
         <div className="zimson-login-otp__temp" role="status">
-          <span className="zimson-login-otp__temp-label">Temporary OTP</span>
+          <span className="zimson-login-otp__temp-label">Your OTP</span>
           <span className="zimson-login-otp__temp-code">{demoOtp}</span>
         </div>
       ) : null}

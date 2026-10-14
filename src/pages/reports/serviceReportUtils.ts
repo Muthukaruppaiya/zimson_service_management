@@ -17,6 +17,16 @@ export const SERVICE_REPORT_COLUMNS: Record<ServiceReportKey, string[]> = {
   transfer: ["SR No", "Customer", "Watch", "Transfer Ref", "Inbound DC", "Outward DC", "Status", "From", "To", "Age (days)"],
 };
 
+/** Row key holding the raw ISO date used by the report date filter (not a display column). */
+export const REPORT_ROW_DATE_KEY = "__date";
+
+export const SERVICE_REPORT_DATE_LABEL: Record<ServiceReportKey, string> = {
+  watch_not_returned: "Dispatched",
+  aging: "Created",
+  pending: "Created",
+  transfer: "Created",
+};
+
 export const PENDING_STATUSES = new Set<SrfJob["status"]>([
   "draft",
   "photo_pending",
@@ -139,6 +149,7 @@ export function useServiceReportRows() {
         "Pending Days": daysSince(j.dispatchedToStoreAt),
         "Current Status": j.status,
         "Destination Store": j.destinationStoreId || j.storeName || "—",
+        [REPORT_ROW_DATE_KEY]: j.dispatchedToStoreAt,
       }))
       .sort((a, b) => Number(b["Pending Days"]) - Number(a["Pending Days"]));
 
@@ -155,6 +166,7 @@ export function useServiceReportRows() {
           "Aging Bucket": agingBucket(age),
           Region: j.regionName || j.regionId,
           Store: j.storeName || j.storeId,
+          [REPORT_ROW_DATE_KEY]: j.createdAt,
         };
       })
       .sort((a, b) => Number(b["Age (days)"]) - Number(a["Age (days)"]));
@@ -170,6 +182,7 @@ export function useServiceReportRows() {
         "Age (days)": daysSince(j.createdAt),
         Region: j.regionName || j.regionId,
         Store: j.storeName || j.storeId,
+        [REPORT_ROW_DATE_KEY]: j.createdAt,
       }))
       .sort((a, b) => Number(b["Age (days)"]) - Number(a["Age (days)"]));
 
@@ -194,6 +207,7 @@ export function useServiceReportRows() {
         From: j.transferSourceRegionId || j.regionName || j.regionId,
         To: j.transferTargetRegionId || j.destinationStoreId || j.storeName || "—",
         "Age (days)": daysSince(j.createdAt),
+        [REPORT_ROW_DATE_KEY]: j.createdAt,
       }))
       .sort((a, b) => Number(b["Age (days)"]) - Number(a["Age (days)"]));
 

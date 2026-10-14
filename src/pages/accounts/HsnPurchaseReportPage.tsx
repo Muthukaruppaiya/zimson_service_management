@@ -61,6 +61,8 @@ export function HsnPurchaseReportPage() {
       hasData={Boolean(data && data.rows.length > 0)}
       onDownload={handleDownload}
       downloading={downloading}
+      exportFileBase="hsn_purchase_report"
+      exportSheets={data ? [{ name: "HSN purchases", columns: COLS, rows: data.rows }] : []}
     >
       {data ? (
         <div className="space-y-6">

@@ -60,6 +60,8 @@ export function SrReturnedReportPage() {
       hasData={Boolean(data && data.rows.length > 0)}
       onDownload={handleDownload}
       downloading={downloading}
+      exportFileBase="sr_returned_report"
+      exportSheets={data ? [{ name: "SR returns", columns: COLS, rows: data.rows }] : []}
     >
       {data ? (
         <div className="space-y-6">

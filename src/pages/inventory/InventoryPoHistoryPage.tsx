@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { TablePagination } from "../../components/ui/TablePagination";
+import { usePagination } from "../../lib/usePagination";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -106,6 +108,7 @@ export function InventoryPoHistoryPage() {
       );
     });
   }, [pos, search, statusFilter]);
+  const pagination = usePagination(filtered);
 
   const poStats = useMemo(() => ({
     total: pos.length,
@@ -308,7 +311,7 @@ export function InventoryPoHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((po) => (
+                {pagination.pageRows.map((po) => (
                   <tr key={po.id} className="border-b border-rlx-rule last:border-0 hover:bg-stone-50/50 transition">
                     <td className="px-5 py-3 font-mono text-xs font-bold text-rlx-green">{po.poNumber}</td>
                     {ENABLE_PR_FLOW ? (
@@ -349,6 +352,7 @@ export function InventoryPoHistoryPage() {
             </table>
           </div>
         )}
+        <TablePagination pagination={pagination} />
       </div>
 
       {/* Detail Modal */}

@@ -65,6 +65,15 @@ export function RevenueReportPage() {
       hasData={Boolean(data && (data.srfLines.length > 0 || data.quickBillLines.length > 0))}
       onDownload={handleDownload}
       downloading={downloading}
+      exportFileBase="revenue_report"
+      exportSheets={
+        data
+          ? [
+              { name: "SR revenue", columns: SRF_COLS, rows: data.srfLines },
+              { name: "Quick bill revenue", columns: QB_COLS, rows: data.quickBillLines },
+            ]
+          : []
+      }
     >
       {data ? (
         <div className="space-y-6">
