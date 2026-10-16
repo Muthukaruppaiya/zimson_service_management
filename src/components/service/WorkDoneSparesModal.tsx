@@ -35,7 +35,7 @@ type Props = {
 
 function spareDisplayName(options: ComboboxOption[], spareId: string) {
   const label = options.find((o) => o.value === spareId)?.label ?? spareId;
-  return label.replace(/\s[·—-]\s(?:Out of stock|HO \d+|Stock \d+).*$/i, "").trim() || label;
+  return label.replace(/\s[·—-]\s(?:Out of stock|CSC \d+|HO \d+|Stock \d+).*$/i, "").trim() || label;
 }
 
 export function WorkDoneSparesModal({
@@ -166,16 +166,19 @@ export function WorkDoneSparesModal({
                   : "—";
               const hasStock = stock != null && Number.isFinite(stock);
               const inStock = hasStock && stock > 0;
-              const stockClass = !line.spareId
+              const stockLoading = Boolean(line.spareId) && stock == null;
+              const stockClass = !line.spareId || stockLoading
                 ? "text-slate-400"
                 : inStock
                   ? "font-semibold text-emerald-700"
                   : "font-semibold text-rose-700";
               const stockText = !line.spareId
                 ? ""
-                : `${stockLabel} ${stock != null ? stock : "…"}${outOfStock ? " · Out" : ""}${
-                    lineShort && !outOfStock ? ` · need ${qty}` : ""
-                  }${noPrice && !includedInPackage ? " · no price" : ""}`;
+                : stockLoading
+                  ? `${stockLabel} …`
+                  : `${stockLabel} ${stock}${outOfStock ? " · Out" : ""}${
+                      lineShort && !outOfStock ? ` · need ${qty}` : ""
+                    }${noPrice && !includedInPackage ? " · no price" : ""}`;
               return (
                 <div
                   key={`${idx}-${fromPackage ? "pkg" : "extra"}`}

@@ -8,7 +8,7 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { useRegions } from "../../context/RegionsContext";
 import { useSpares } from "../../context/SparesContext";
-import { ApiError, apiJson } from "../../lib/api";
+import { ApiError, apiJson, reportApiSaveError } from "../../lib/api";
 import {
   GRN_DOC_ACCEPT,
   grnAttachHint,
@@ -400,7 +400,7 @@ export function InventoryPoInwardPage() {
         fd.append("items", JSON.stringify(lines.map((l) => ({ poItemId: l.poItemId, spareId: l.spareId, qtyReceived: l.qtyReceived, costPrice: l.costPrice, gstRate: l.gstRate, taxAmount: l.taxAmount }))));
         fd.append("invoiceFile", invoiceFile);
         const resp = await fetch("/api/inventory/grns", { method: "POST", body: fd, credentials: "include" });
-        if (!resp.ok) { const j = await resp.json() as { error: string }; throw new Error(j.error); }
+        if (!resp.ok) { const j = await resp.json() as { error: string }; reportApiSaveError(j.error, { status: resp.status }); throw new Error(j.error); }
         data = await resp.json() as typeof data;
       } else {
         data = await apiJson<typeof data>("/api/inventory/grns", {
@@ -503,7 +503,7 @@ export function InventoryPoInwardPage() {
         fd.append("items", JSON.stringify(lines));
         fd.append("invoiceFile", invoiceFile);
         const resp = await fetch("/api/inventory/grns/standalone", { method: "POST", body: fd, credentials: "include" });
-        if (!resp.ok) { const j = await resp.json() as { error: string }; throw new Error(j.error); }
+        if (!resp.ok) { const j = await resp.json() as { error: string }; reportApiSaveError(j.error, { status: resp.status }); throw new Error(j.error); }
         data = await resp.json() as typeof data;
       } else {
         data = await apiJson<typeof data>("/api/inventory/grns/standalone", { method: "POST", json: payload });
@@ -572,7 +572,7 @@ export function InventoryPoInwardPage() {
         fd.append("items", JSON.stringify(payloadItems));
         fd.append("invoiceFile", invoiceFile);
         const resp = await fetch("/api/inventory/grns/against-voucher", { method: "POST", body: fd, credentials: "include" });
-        if (!resp.ok) { const j = await resp.json() as { error: string }; throw new Error(j.error); }
+        if (!resp.ok) { const j = await resp.json() as { error: string }; reportApiSaveError(j.error, { status: resp.status }); throw new Error(j.error); }
         data = await resp.json() as typeof data;
       } else {
         data = await apiJson<typeof data>("/api/inventory/grns/against-voucher", {

@@ -1,4 +1,4 @@
-import { ApiError } from "./api";
+import { ApiError, reportApiSaveError } from "./api";
 import { validateSrfDocumentFile, SRF_DOCUMENT_ACCEPT } from "./srfCustomerPhotoUpload";
 
 export type BrandMailAttachmentRef = {
@@ -39,6 +39,7 @@ export async function uploadBrandMailAttachment(srfId: string, file: File): Prom
       typeof data === "object" && data !== null && "error" in data
         ? String((data as { error: string }).error)
         : res.statusText;
+    reportApiSaveError(msg || "Upload failed", { status: res.status, path: res.url, method: "POST" });
     throw new ApiError(msg || "Upload failed", res.status, data);
   }
   return data as BrandMailAttachmentRef;

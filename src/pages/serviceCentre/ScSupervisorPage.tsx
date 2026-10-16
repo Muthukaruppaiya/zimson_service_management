@@ -1901,7 +1901,10 @@ export function ScSupervisorPage() {
       const out = await apiJson<{ stock: SpareStockRow[] }>(
         `/api/catalog/spares/${encodeURIComponent(spareId)}/stock`,
       );
-      const qty = out.stock.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
+      // CSC stock = HO location rows (location_type stays "HO" in DB; UI label is CSC).
+      const qty = out.stock
+        .filter((row) => row.locationType === "HO")
+        .reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
       setHoStockBySpareId((prev) => ({ ...prev, [spareId]: qty }));
       return qty;
     } catch {
@@ -1970,16 +1973,32 @@ export function ScSupervisorPage() {
       }
     }
     setRepairPopupJobId(jobId);
-    const spareIds =
-      flow?.status === "FULFILLED" && flow.inwardReceivedAt
-        ? flow.lines.map((l) => l.spareId).filter(Boolean)
-        : [];
-    for (const spareId of spareIds) {
+    const spareIds = [
+      ...(flow?.status === "FULFILLED" && flow.inwardReceivedAt
+        ? flow.lines.map((l) => l.spareId)
+        : []),
+      ...(job?.usedSpares ?? []).map((u) => u.spareId),
+      ...(job?.servicePackage?.spareIds ?? []),
+    ]
+      .map((id) => String(id ?? "").trim())
+      .filter(Boolean);
+    for (const spareId of new Set(spareIds)) {
       void fetchHoStockQty(spareId);
       void ensureSparePrice(spareId, watchBrand);
     }
     setRepairPackage(job?.servicePackage && job.servicePackage.id ? job.servicePackage : null);
   }
+
+  // Package selection never calls onSparePicked, so load CSC stock whenever repair lines gain spare ids.
+  useEffect(() => {
+    if (!repairPopupJobId) return;
+    const watchBrand = jobs.find((j) => j.id === repairPopupJobId)?.watchBrand ?? "";
+    const ids = [...new Set(repairLines.map((l) => l.spareId.trim()).filter(Boolean))];
+    for (const spareId of ids) {
+      if (hoStockBySpareId[spareId] == null) void fetchHoStockQty(spareId);
+      void ensureSparePrice(spareId, watchBrand);
+    }
+  }, [repairPopupJobId, repairLines]);
 
   function closeRepairPopup() {
     setRepairPopupJobId(null);

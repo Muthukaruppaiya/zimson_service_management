@@ -267,7 +267,10 @@ export function ServiceInvoiceTemplate({ data, idPrefix = "inv" }: Props) {
               <td className="inv-split-cell inv-customer-block">
                 <table className="inv-kv">
                   <tbody>
-                    <InvKv label="Customer Name" value={data.billTo.name} />
+                    <InvKv
+                      label={(data.billTo.gstin ?? "").trim() ? "Business Name" : "Customer Name"}
+                      value={data.billTo.name}
+                    />
                     <InvKv label="Customer ID" value={data.billTo.customerCode || ""} mono />
                     <InvKv label="Mobile Number" value={data.billTo.phone || ""} />
                     <InvKv label="Email ID" value={data.billTo.email || ""} />

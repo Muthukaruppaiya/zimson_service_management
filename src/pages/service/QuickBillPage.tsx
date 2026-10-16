@@ -1226,6 +1226,7 @@ export function QuickBillPage() {
     void apiJson(`/api/service/quick-bill-drafts/${encodeURIComponent(draftId)}/capture-session`, {
       method: "PATCH",
       json: { captureSessionId: session.sessionId, captureSession: session },
+      silent: true,
     }).catch(() => {});
   }
 

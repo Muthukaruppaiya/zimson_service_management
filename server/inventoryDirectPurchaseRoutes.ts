@@ -1721,9 +1721,9 @@ export function registerInventoryDirectPurchaseRoutes(
       const nextStatus = rec + 1e-9 >= total ? "RECEIVED" : "PARTIAL";
       await client.query(
         `UPDATE stock_transfers
-         SET status = $1,
+         SET status = $1::text,
              received_by = $2,
-             received_at = CASE WHEN $1 = 'RECEIVED' THEN now() ELSE received_at END,
+             received_at = CASE WHEN $1::text = 'RECEIVED' THEN now() ELSE received_at END,
              updated_at = now()
          WHERE id = $3::uuid`,
         [nextStatus, actor.id, transferId],

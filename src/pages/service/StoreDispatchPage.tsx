@@ -339,6 +339,7 @@ export function StoreDispatchPage() {
       void apiJson("/api/notifications/service-dispatch", {
         method: "POST",
         json: { dcNumber: result.dcNumber, count: ids.length },
+        silent: true,
       }).catch(() => {});
       setSelected({});
     } catch (e) {

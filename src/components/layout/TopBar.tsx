@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { canAccessModule } from "../../config/moduleAccess";
 import { useAuth } from "../../context/AuthContext";
 import { useNavLayout } from "../../context/NavLayoutContext";
@@ -38,8 +38,30 @@ export function TopBar() {
   const { user, logout } = useAuth();
   const { toggleNav } = useNavLayout();
   const navigate = useNavigate();
+  const location = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNotifOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [notifOpen]);
+
+  useEffect(() => {
+    setNotifOpen(false);
+  }, [location.pathname]);
   const [logoUrl, setLogoUrl] = useState(getAppLogoUrl());
   const [signingOut, setSigningOut] = useState(false);
 
@@ -155,7 +177,7 @@ export function TopBar() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9.1 9a3 3 0 015.8 1c0 2-3 3-3 3m.1 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </NavLink>
-            <div className="relative">
+            <div className="relative" ref={notifRef}>
               <button
                 type="button"
                 onClick={() => setNotifOpen((v) => !v)}

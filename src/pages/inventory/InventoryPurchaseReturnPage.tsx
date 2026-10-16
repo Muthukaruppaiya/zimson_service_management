@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
-import { ApiError, apiJson } from "../../lib/api";
+import { ApiError, apiJson, reportApiSaveError } from "../../lib/api";
 import { GRN_DOC_ACCEPT, grnDocNumberLabel, isAllowedGrnDocument } from "../../lib/grnMode";
 import { buildPurchaseReturnDocument, openPrintDocument } from "../../lib/inventoryDocuments";
 import { setPrintSuppliers } from "../../lib/printContext";
@@ -220,7 +220,10 @@ export function InventoryPurchaseReturnPage() {
           returnedQty?: number;
           grnNumber?: string;
         };
-        if (!resp.ok) throw new Error(j.error || "Could not post purchase return.");
+        if (!resp.ok) {
+          reportApiSaveError(j.error || "Could not post purchase return.", { status: resp.status, method: "POST" });
+          throw new Error(j.error || "Could not post purchase return.");
+        }
         data = { prtNumber: j.prtNumber!, returnedQty: j.returnedQty!, grnNumber: j.grnNumber! };
       } else {
         data = await apiJson<typeof data>("/api/inventory/purchase-returns", {

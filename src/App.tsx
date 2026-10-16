@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { NumberInputGuard } from "./components/ui/NumberInputGuard";
+import { GlobalSaveErrorPopup } from "./components/ui/GlobalSaveErrorPopup";
 import { InventorySupervisorGuard } from "./components/auth/InventorySupervisorGuard";
 import { ModuleRoute } from "./components/auth/ModuleRoute";
 import { RequireAuth } from "./components/auth/RequireAuth";
@@ -126,6 +127,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <NumberInputGuard />
+      <GlobalSaveErrorPopup />
       <ToastProvider>
       <WhatsAppSendProvider>
       <AuthProvider>
