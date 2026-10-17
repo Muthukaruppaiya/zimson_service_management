@@ -13,10 +13,15 @@ const GOLD_LIGHT = "#E8C14E";
 const INK = "#0d1b2a";
 const MUTED = "#64748b";
 const BORDER = "#e2e8f5";
-const CARD_BG = "#fafbfe";
+const DIVIDER = "#e6ebf5";
 const PAGE_W = 595.28;
+const PAGE_H = 841.89;
 const MARGIN = 40;
 const CONTENT_W = PAGE_W - MARGIN * 2;
+/** Small inset so content lines up just inside the section headers. */
+const PAD = 4;
+const GAP = 10;
+const SECTION_GAP = 12;
 
 function display(v?: string | null): string {
   const t = String(v ?? "").trim();
@@ -31,10 +36,16 @@ function formatDateOnly(value?: string | null): string {
 }
 
 function formatDateTime(value?: string | null): string {
-  if (!value) return new Date().toLocaleString("en-IN", { hour12: false });
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString("en-IN", { hour12: false });
+  const d = value ? new Date(value) : new Date();
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 function logoPath(): string | null {
@@ -70,10 +81,11 @@ function iconBadge(
   cx: number,
   cy: number,
   r: number,
-  colorFrom: string,
+  _colorFrom: string,
   colorTo: string,
   glyph: "calendar" | "wallet" | "wrench" | "rupee" | "check" | "pin" | "box",
 ): void {
+  doc.save();
   doc.circle(cx, cy, r).fill(colorTo);
   doc.fillColor("#ffffff").strokeColor("#ffffff").lineWidth(1.1);
   const s = r * 0.62;
@@ -112,47 +124,103 @@ function iconBadge(
     doc.moveTo(cx - s * 0.75, cy - s * 0.85).lineTo(cx + s * 0.15, cy - s * 0.85).lineTo(cx + s * 0.15, cy - s * 0.25).stroke();
     doc.moveTo(cx - s * 0.35, cy - s * 0.25).lineTo(cx + s * 0.75, cy + s * 0.9).stroke();
   }
+  doc.restore();
   doc.font("Helvetica");
 }
 
-/** Rounded pill-shaped navy section header with a gold accent icon, mirroring the on-screen premium design. */
+/** Navy section header pill with a gold icon, followed by a thin rule to the right margin. */
 function sectionPill(doc: PdfDoc, title: string, y: number, glyph: "box" | "wrench" | "check" | "pin" = "box"): number {
-  doc.font("Helvetica-Bold").fontSize(9.5);
+  doc.font("Helvetica-Bold").fontSize(9);
   const label = title.toUpperCase();
-  const textW = doc.widthOfString(label);
-  const pillH = 21;
-  const pillW = textW + 42;
+  const textW = doc.widthOfString(label, { characterSpacing: 0.6 });
+  const pillH = 20;
+  const pillW = textW + 40;
   doc.roundedRect(MARGIN, y, pillW, pillH, pillH / 2).fill(NAVY);
-  iconBadge(doc, MARGIN + 14, y + pillH / 2, 7, GOLD_LIGHT, GOLD, glyph);
-  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(9.5).text(label, MARGIN + 26, y + 6.2);
+  iconBadge(doc, MARGIN + 12, y + pillH / 2, 6.5, GOLD_LIGHT, GOLD, glyph);
+  doc
+    .fillColor("#ffffff")
+    .font("Helvetica-Bold")
+    .fontSize(9)
+    .text(label, MARGIN + 25, y + (pillH - 9) / 2 + 0.5, { characterSpacing: 0.6, lineBreak: false });
+  doc
+    .moveTo(MARGIN + pillW + 8, y + pillH / 2)
+    .lineTo(PAGE_W - MARGIN, y + pillH / 2)
+    .lineWidth(0.75)
+    .strokeColor(BORDER)
+    .stroke();
   doc.font("Helvetica");
   return y + pillH + 8;
 }
 
-/** Rounded white card container used throughout the document for a consistent, elevated look. */
-function card(doc: PdfDoc, x: number, y: number, w: number, h: number, fill = "#ffffff"): void {
-  doc.roundedRect(x, y, w, h, 8).fill(fill).roundedRect(x, y, w, h, 8).lineWidth(0.75).strokeColor(BORDER).stroke();
-}
+const META_LABEL_SIZE = 7;
+const META_VALUE_SIZE = 9.5;
+const META_LINE_GAP = 23;
 
-/** Vertical spacing between consecutive meta lines in the top-left info card (must be tall enough for a label + value pair). */
-const META_LINE_GAP = 24;
-
-function metaLine(doc: PdfDoc, x: number, y: number, label: string, value: string, glyph: "calendar" | "check" | "pin" | "box"): void {
-  iconBadge(doc, x + 6, y + 5, 6, NAVY, NAVY_DEEP, glyph);
-  doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED).text(label, x + 16, y, { width: 190, continued: false });
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(INK).text(truncate(value, 40), x + 16, y + 10, { width: 190 });
-}
-
-function fieldRow(doc: PdfDoc, label: string, value: string, y: number, col = 0): number {
-  const x = MARGIN + col * (CONTENT_W / 2 + 4);
-  doc.fontSize(8).fillColor(MUTED).font("Helvetica").text(label, x, y, { width: 108, continued: false });
+function metaLine(
+  doc: PdfDoc,
+  x: number,
+  y: number,
+  width: number,
+  label: string,
+  value: string,
+  glyph: "calendar" | "check" | "pin" | "box",
+): void {
+  iconBadge(doc, x + 7, y + 8, 7, NAVY, NAVY_DEEP, glyph);
   doc
-    .fontSize(9)
-    .fillColor(INK)
     .font("Helvetica-Bold")
-    .text(value, x + 110, y, { width: CONTENT_W / 2 - 112 });
+    .fontSize(META_LABEL_SIZE)
+    .fillColor(MUTED)
+    .text(label, x + 20, y, { width: width - 20, characterSpacing: 0.4, lineBreak: false });
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(META_VALUE_SIZE)
+    .fillColor(INK)
+    .text(truncate(value, 46), x + 20, y + 9.5, { width: width - 20, lineBreak: false, ellipsis: true });
+}
+
+type FieldPair = [string, string];
+
+/** Two-column label/value grid sized to its content; returns the card height used. */
+function fieldGrid(doc: PdfDoc, y: number, rows: Array<[FieldPair, FieldPair | null]>): number {
+  const colGap = 18;
+  const colW = (CONTENT_W - PAD * 2 - colGap) / 2;
+  const labelW = 96;
+  const valueW = colW - labelW - 6;
+  const rowPadY = 5;
+
+  const measure = (pair: FieldPair | null): number => {
+    if (!pair) return 0;
+    doc.font("Helvetica").fontSize(8);
+    const lh = doc.heightOfString(pair[0], { width: labelW });
+    doc.font("Helvetica-Bold").fontSize(9);
+    const vh = doc.heightOfString(pair[1], { width: valueW });
+    return Math.max(lh, vh);
+  };
+  const heights = rows.map(([l, r]) => Math.max(measure(l), measure(r), 10) + rowPadY * 2);
+  const cardH = heights.reduce((a, b) => a + b, 0);
+
+  let ry = y;
+  rows.forEach(([left, right], i) => {
+    const h = heights[i]!;
+    const draw = (pair: FieldPair | null, colX: number) => {
+      if (!pair) return;
+      doc.font("Helvetica").fontSize(8).fillColor(MUTED).text(pair[0], colX, ry + rowPadY + 0.5, { width: labelW });
+      doc.font("Helvetica-Bold").fontSize(9).fillColor(INK).text(pair[1], colX + labelW + 6, ry + rowPadY, { width: valueW });
+    };
+    draw(left, MARGIN + PAD);
+    draw(right, MARGIN + PAD + colW + colGap);
+    if (i < rows.length - 1) {
+      doc
+        .moveTo(MARGIN + PAD, ry + h)
+        .lineTo(PAGE_W - MARGIN - PAD, ry + h)
+        .lineWidth(0.5)
+        .strokeColor(DIVIDER)
+        .stroke();
+    }
+    ry += h;
+  });
   doc.font("Helvetica");
-  return y;
+  return cardH;
 }
 
 /** Builds the SRF acknowledgment PDF sent as the WhatsApp template document header. */
@@ -169,207 +237,235 @@ export async function buildSrfPdfBuffer(data: SrfPrintData): Promise<Buffer> {
     const estimate = Number(data.estimateTotalInr) || 0;
     const balance = Math.max(estimate - advance, 0);
     const brandModel = [data.watchFamily?.trim(), data.watchModel?.trim()].filter(Boolean).join(" ") || data.watchModel;
+    const logo = logoPath();
 
     // ---- Banner ---------------------------------------------------------
     // Flat fills only (no PDF shading patterns) so the document renders reliably
     // in WhatsApp's in-app preview and third-party mobile PDF viewers.
-    const bannerH = 56;
+    const bannerH = 60;
     doc.rect(0, 0, PAGE_W, bannerH).fill(NAVY_DEEP);
-    doc.polygon([PAGE_W - 130, 0], [PAGE_W, 0], [PAGE_W, bannerH]).fillOpacity(0.9).fill(GOLD).fillOpacity(1);
+    doc.polygon([PAGE_W - 150, 0], [PAGE_W, 0], [PAGE_W, bannerH], [PAGE_W - 95, bannerH]).fill(NAVY);
+    doc.rect(0, bannerH, PAGE_W, 3.5).fill(GOLD);
 
-    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(16).text("SERVICE ACKNOWLEDGMENT FORM", MARGIN, 17, {
-      width: 340,
-      characterSpacing: 0.4,
-    });
-    doc.font("Helvetica").fontSize(8).fillColor("#dbe4fb").text("Customer copy", MARGIN, 38);
+    doc
+      .fillColor("#ffffff")
+      .font("Helvetica-Bold")
+      .fontSize(16)
+      .text("SERVICE ACKNOWLEDGMENT FORM", MARGIN, (bannerH - 16) / 2 + 1, {
+        width: CONTENT_W - 140,
+        characterSpacing: 0.5,
+        lineBreak: false,
+      });
 
-    const logo = logoPath();
+    const logoBoxW = 118;
+    const logoBoxH = 40;
+    const logoBoxX = PAGE_W - MARGIN - logoBoxW;
+    const logoBoxY = (bannerH - logoBoxH) / 2;
+    doc.roundedRect(logoBoxX, logoBoxY, logoBoxW, logoBoxH, 6).fill("#ffffff");
     if (logo) {
       try {
-        doc.roundedRect(PAGE_W - 150, 8, 110, 40, 6).fill("#ffffff");
-        doc.image(logo, PAGE_W - 145, 12, { width: 100, height: 32, fit: [100, 32] });
+        doc.image(logo, logoBoxX + 8, logoBoxY + 5, { fit: [logoBoxW - 16, logoBoxH - 10], align: "center", valign: "center" });
       } catch {
         /* optional logo */
       }
-    }
-
-    doc.rect(0, bannerH, PAGE_W, 4).fill(GOLD);
-
-    // ---- Top meta row ----------------------------------------------------
-    // rowH must comfortably fit 4 meta lines (label + value each) — see META_LINE_GAP.
-    let y = bannerH + 4 + 12;
-    const metaPadTop = 10;
-    const rowH = metaPadTop + 3 * META_LINE_GAP + 20 + 10;
-    const metaW = 240;
-    const gap = 8;
-    const smallW = (CONTENT_W - metaW - gap * 2) / 2;
-
-    card(doc, MARGIN, y, metaW, rowH, CARD_BG);
-    metaLine(doc, MARGIN + 10, y + metaPadTop, "SERVICE ENTRY NO", data.reference, "box");
-    metaLine(doc, MARGIN + 10, y + metaPadTop + META_LINE_GAP, "BOOKING DATE", formatDateTime(data.bookingDate), "calendar");
-    metaLine(doc, MARGIN + 10, y + metaPadTop + META_LINE_GAP * 2, "CUSTOMER", display(data.customerName), "check");
-    if (data.company) {
-      metaLine(doc, MARGIN + 10, y + metaPadTop + META_LINE_GAP * 3, "MOBILE / COMPANY", `${display(data.phone)} · ${data.company}`, "pin");
     } else {
-      metaLine(doc, MARGIN + 10, y + metaPadTop + META_LINE_GAP * 3, "MOBILE", display(data.phone), "pin");
-    }
-
-    const barcodeX = MARGIN + metaW + gap;
-    card(doc, barcodeX, y, smallW, rowH, "#ffffff");
-    doc.font("Helvetica-Bold").fontSize(7).fillColor(MUTED).text("SERVICE REFERENCE", barcodeX + 6, y + 10, {
-      width: smallW - 12,
-      align: "center",
-    });
-    if (barcodePng) {
-      doc.image(barcodePng, barcodeX + 10, y + 24, { fit: [smallW - 20, rowH - 60], align: "center", valign: "center" });
-    } else {
-      doc.font("Courier-Bold").fontSize(9).fillColor(INK).text(data.reference, barcodeX + 6, y + rowH / 2 - 4, {
-        width: smallW - 12,
+      doc.font("Helvetica-Bold").fontSize(11).fillColor(NAVY_DEEP).text("ZIMSON", logoBoxX, logoBoxY + 14, {
+        width: logoBoxW,
         align: "center",
       });
     }
-    doc.font("Courier-Bold").fontSize(8).fillColor(INK).text(data.reference, barcodeX + 6, y + rowH - 22, {
-      width: smallW - 12,
-      align: "center",
+
+    // ---- Top meta row ----------------------------------------------------
+    let y = bannerH + 3.5 + 14;
+    const metaRows: Array<[string, string, "calendar" | "check" | "pin" | "box"]> = [
+      ["SERVICE NO.", data.reference, "box"],
+      ["BOOKING DATE & TIME", formatDateTime(data.bookingDate), "calendar"],
+      ["CUSTOMER", display(data.customerName), "check"],
+      [data.company ? "MOBILE / COMPANY" : "MOBILE", data.company ? `${display(data.phone)} · ${data.company}` : display(data.phone), "pin"],
+    ];
+    const rowH = PAD * 2 + (metaRows.length - 1) * META_LINE_GAP + 20;
+    const metaW = 300;
+    const barcodeW = CONTENT_W - metaW - GAP;
+
+    metaRows.forEach(([label, value, glyph], i) => {
+      metaLine(doc, MARGIN + PAD, y + PAD + i * META_LINE_GAP, metaW - PAD * 2, label, value, glyph);
     });
 
-    const logoX = barcodeX + smallW + gap;
-    card(doc, logoX, y, smallW, rowH, "#ffffff");
-    if (logo) {
-      try {
-        doc.image(logo, logoX + smallW / 2 - 44, y + rowH / 2 - 18, { width: 88, height: 36, fit: [88, 36] });
-      } catch {
-        /* optional */
-      }
+    const barcodeX = MARGIN + metaW + GAP;
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(7)
+      .fillColor(MUTED)
+      .text("SERVICE REFERENCE", barcodeX, y + PAD, { width: barcodeW, align: "center", characterSpacing: 0.4 });
+    const codeTop = y + PAD + 14;
+    const codeH = rowH - PAD * 2 - 14 - 18;
+    if (barcodePng) {
+      doc.image(barcodePng, barcodeX + PAD, codeTop, {
+        fit: [barcodeW - PAD * 2, codeH],
+        align: "center",
+        valign: "center",
+      });
     }
+    doc
+      .font("Courier-Bold")
+      .fontSize(10)
+      .fillColor(INK)
+      .text(data.reference, barcodeX, y + rowH - PAD - 10, { width: barcodeW, align: "center", lineBreak: false });
 
-    y += rowH + 12;
+    y += rowH + SECTION_GAP;
 
     // ---- Booking center ---------------------------------------------------
     y = sectionPill(doc, "Booking center", y, "pin");
-    const centerCardH = data.storeAddress ? 54 : 40;
-    card(doc, MARGIN, y, CONTENT_W, centerCardH, CARD_BG);
-    doc.font("Helvetica-Bold").fontSize(9.5).fillColor(INK).text(data.storeDisplayName, MARGIN + 10, y + 8, { continued: true });
-    doc.font("Helvetica-Bold").fillColor(GOLD).text(`  ${data.storeTagline}`);
-    let cy = y + 22;
-    if (data.storeAddress) {
-      doc.font("Helvetica").fontSize(8.5).fillColor(INK).text(data.storeAddress.replace(/\n/g, ", "), MARGIN + 10, cy, {
-        width: CONTENT_W - 20,
-      });
-      cy += doc.heightOfString(data.storeAddress.replace(/\n/g, ", "), { width: CONTENT_W - 20 }) + 4;
+    const centerInnerW = CONTENT_W - PAD * 2;
+    const addressText = data.storeAddress ? data.storeAddress.replace(/[\s,]*\n\s*/g, ", ") : "";
+    const contactText = `Ph: ${display(data.storePhone)}     Email: ${display(data.storeEmail)}     GSTIN: ${display(data.storeGstin)}`;
+    doc.font("Helvetica").fontSize(8.5);
+    const addrH = addressText ? doc.heightOfString(addressText, { width: centerInnerW }) : 0;
+    const contactH = doc.heightOfString(contactText, { width: centerInnerW });
+    const centerCardH = PAD + 12 + (addrH ? addrH + 4 : 0) + 4 + contactH + PAD;
+    let cy = y + PAD;
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text(display(data.storeDisplayName), MARGIN + PAD, cy, {
+      continued: Boolean(data.storeTagline),
+      lineBreak: false,
+    });
+    if (data.storeTagline) {
+      doc.font("Helvetica-Bold").fontSize(8.5).fillColor(GOLD).text(`   ${data.storeTagline}`, { lineBreak: false });
     }
-    doc
-      .font("Helvetica")
-      .fontSize(8.5)
-      .fillColor(MUTED)
-      .text(`Ph: ${display(data.storePhone)}    Email: ${display(data.storeEmail)}    GSTIN: ${display(data.storeGstin)}`, MARGIN + 10, cy, {
-        width: CONTENT_W - 20,
-      });
-    y += centerCardH + 14;
+    cy += 16;
+    if (addressText) {
+      doc.font("Helvetica").fontSize(8.5).fillColor(INK).text(addressText, MARGIN + PAD, cy, { width: centerInnerW });
+      cy += addrH + 4;
+    }
+    doc.font("Helvetica").fontSize(8.5).fillColor(MUTED).text(contactText, MARGIN + PAD, cy, { width: centerInnerW });
+    y += centerCardH + SECTION_GAP;
 
     // ---- Product information ----------------------------------------------
     y = sectionPill(doc, "Product information", y, "box");
-    const prodRows = 4;
-    const prodCardH = prodRows * 16 + 14;
-    card(doc, MARGIN, y, CONTENT_W, prodCardH, "#ffffff");
-    let fy = y + 12;
-    fieldRow(doc, "Brand / Model No", display(data.serial), fy, 0);
-    fieldRow(doc, "Brand Name", display(data.watchBrand), fy, 1);
-    fy += 16;
-    fieldRow(doc, "Brand Model", display(brandModel), fy, 0);
-    fieldRow(doc, "Case Type", display(data.caseType), fy, 1);
-    fy += 16;
-    fieldRow(doc, "Nature of Repair", display(data.natureOfRepair), fy, 0);
-    fieldRow(doc, "Strap / Chain Type", display(data.strapChainType), fy, 1);
-    fy += 16;
-    fieldRow(doc, "Back Cover / S.No", display(data.serial), fy, 0);
-    fieldRow(doc, "12 Link Chain Count", display(data.chainCount12Phase || data.chainCount), fy, 1);
-    fy += 16;
-    fieldRow(doc, "6 Link Chain Count", display(data.chainCount6Phase), fy, 0);
-    y += prodCardH + 14;
+    const prodH = fieldGrid(doc, y, [
+      [["Brand Name", display(data.watchBrand)], ["Brand / Model No", display(data.serial)]],
+      [["Brand Model", display(brandModel)], ["Case Type", display(data.caseType)]],
+      [["Nature of Repair", display(data.natureOfRepair)], ["Strap / Chain Type", display(data.strapChainType)]],
+      [["Back Cover / S.No", display(data.serial)], ["12 Link Chain Count", display(data.chainCount12Phase || data.chainCount)]],
+      [["6 Link Chain Count", display(data.chainCount6Phase)], null],
+    ]);
+    y += prodH + SECTION_GAP;
 
     // ---- Remarks -----------------------------------------------------------
     y = sectionPill(doc, "Remarks", y, "check");
-    const remarkW = (CONTENT_W - gap) / 2;
-    const remarkH = 56;
-    card(doc, MARGIN, y, remarkW, remarkH, CARD_BG);
-    doc.font("Helvetica-Bold").fontSize(7.5).fillColor(NAVY).text("CUSTOMER REMARKS", MARGIN + 9, y + 7);
-    doc.font("Helvetica").fontSize(8.5).fillColor(INK).text(truncate(data.customerRemarks || data.complaint, 150), MARGIN + 9, y + 18, {
-      width: remarkW - 18,
-      height: remarkH - 26,
-      ellipsis: true,
-    });
-    const remarkX2 = MARGIN + remarkW + gap;
-    card(doc, remarkX2, y, remarkW, remarkH, CARD_BG);
-    doc.font("Helvetica-Bold").fontSize(7.5).fillColor(NAVY).text("COMPLAINT", remarkX2 + 9, y + 7);
-    doc.font("Helvetica").fontSize(8.5).fillColor(INK).text(truncate(data.complaint, 150), remarkX2 + 9, y + 18, {
-      width: remarkW - 18,
-      height: remarkH - 26,
-      ellipsis: true,
-    });
-    y += remarkH + 14;
+    const remarkW = (CONTENT_W - GAP) / 2;
+    const remarkInnerW = remarkW - PAD * 2;
+    const customerRemark = truncate(data.customerRemarks || data.complaint || "", 220);
+    const complaint = truncate(data.complaint || "", 220);
+    doc.font("Helvetica").fontSize(8.5);
+    const remarkTextH = Math.min(
+      60,
+      Math.max(
+        doc.heightOfString(customerRemark, { width: remarkInnerW }),
+        doc.heightOfString(complaint, { width: remarkInnerW }),
+        11,
+      ),
+    );
+    const remarkH = PAD + 12 + remarkTextH + PAD;
+    const drawRemark = (x: number, title: string, text: string) => {
+      doc.font("Helvetica-Bold").fontSize(7.5).fillColor(NAVY).text(title, x + PAD, y + PAD, { characterSpacing: 0.4 });
+      doc.font("Helvetica").fontSize(8.5).fillColor(INK).text(text, x + PAD, y + PAD + 12, {
+        width: remarkInnerW,
+        height: remarkTextH + 1,
+        ellipsis: true,
+      });
+    };
+    drawRemark(MARGIN, "CUSTOMER REMARKS", customerRemark);
+    drawRemark(MARGIN + remarkW + GAP, "COMPLAINT", complaint);
+    y += remarkH + SECTION_GAP;
 
     // ---- Service information -----------------------------------------------
     y = sectionPill(doc, "Service information", y, "wrench");
-    const cardW = (CONTENT_W - gap * 3) / 4;
-    const cardH = 46;
-    const amountCards: Array<[string, string, "calendar" | "wallet" | "wrench" | "rupee", string, string]> = [
-      ["Estd. Delivery", formatDateOnly(data.estimatedFinishDate), "calendar", "#c9a227", "#a8850f"],
-      ["Advance Paid (INR)", `INR ${advance.toFixed(2)}`, "wallet", "#22c55e", "#15803d"],
-      ["Est. Service Cost (approx.)", `Approx. INR ${estimate.toFixed(2)}`, "wrench", "#f97316", "#c2410c"],
-      ["Balance (Excl. Tax)", `INR ${balance.toFixed(2)}`, "rupee", GOLD_LIGHT, GOLD],
+    const cardW = (CONTENT_W - GAP * 3) / 4;
+    const cardH = 52;
+    const amountCards: Array<[string, string, "calendar" | "wallet" | "wrench" | "rupee", string]> = [
+      ["Estd. Delivery", formatDateOnly(data.estimatedFinishDate), "calendar", "#a8850f"],
+      ["Advance Paid", `INR ${advance.toFixed(2)}`, "wallet", "#15803d"],
+      ["Est. Cost (Approx.)", `INR ${estimate.toFixed(2)}`, "wrench", "#c2410c"],
+      ["Balance (Excl. Tax)", `INR ${balance.toFixed(2)}`, "rupee", GOLD],
     ];
-    amountCards.forEach(([label, val, glyph, cFrom, cTo], i) => {
-      const x = MARGIN + i * (cardW + gap);
-      card(doc, x, y, cardW, cardH, "#ffffff");
-      iconBadge(doc, x + 18, y + cardH / 2, 11, cFrom, cTo, glyph);
-      doc.font("Helvetica-Bold").fontSize(6.6).fillColor(MUTED).text(label.toUpperCase(), x + 32, y + 12, {
-        width: cardW - 40,
-      });
-      doc.font("Helvetica-Bold").fontSize(10.5).fillColor(NAVY).text(val, x + 32, y + 24, { width: cardW - 40 });
+    amountCards.forEach(([label, val, glyph, color], i) => {
+      const x = MARGIN + i * (cardW + GAP);
+      const textX = x + 36;
+      const textW = cardW - 36 - 8;
+      iconBadge(doc, x + 19, y + cardH / 2, 11, color, color, glyph);
+      const lbl = label.toUpperCase();
+      doc.font("Helvetica-Bold").fontSize(6.6);
+      const lblH = doc.heightOfString(lbl, { width: textW });
+      doc.font("Helvetica-Bold").fontSize(10);
+      const valH = doc.heightOfString(val, { width: textW });
+      const top = y + Math.max(4, (cardH - (lblH + 3 + valH)) / 2);
+      doc.font("Helvetica-Bold").fontSize(6.6).fillColor(MUTED).text(lbl, textX, top, { width: textW });
+      doc.font("Helvetica-Bold").fontSize(10).fillColor(NAVY).text(val, textX, top + lblH + 3, { width: textW });
     });
-    y += cardH + 10;
+    y += cardH + GAP;
 
     if (advance > 0) {
-      const noteH = 20;
-      doc.roundedRect(MARGIN, y, CONTENT_W, noteH, 7).fill("#ecfdf3").roundedRect(MARGIN, y, CONTENT_W, noteH, 7).lineWidth(0.75).strokeColor("#bbf0cf").stroke();
-      iconBadge(doc, MARGIN + 13, y + noteH / 2, 6, "#22c55e", "#15803d", "check");
+      const noteH = 18;
+      iconBadge(doc, MARGIN + PAD + 2, y + noteH / 2, 6, "#22c55e", "#15803d", "check");
       doc
         .font("Helvetica-Bold")
-        .fontSize(8)
+        .fontSize(8.5)
         .fillColor("#14532d")
         .text(
           `Advance collected: INR ${advance.toFixed(2)}${data.advancePaymentMode ? ` (${data.advancePaymentMode})` : ""}`,
-          MARGIN + 24,
-          y + 6,
+          MARGIN + PAD + 14,
+          y + (noteH - 8.5) / 2 + 0.5,
+          { width: CONTENT_W - PAD * 2 - 14, lineBreak: false },
         );
-      y += noteH + 10;
-    } else {
-      y += 6;
+      y += noteH + GAP;
     }
 
-    doc.font("Helvetica").fontSize(7.5).fillColor(MUTED).text(
-      "This is your service acknowledgment copy. Track live repair status using the link sent on WhatsApp.",
-      MARGIN,
-      y,
-      { width: CONTENT_W },
-    );
-    y += 22;
+    // ---- Tracking note ------------------------------------------------------
+    const trackH = 16;
+    doc
+      .font("Helvetica")
+      .fontSize(8)
+      .fillColor(MUTED)
+      .text(
+        "This is your service acknowledgment. Track live repair status using the link sent on WhatsApp.",
+        MARGIN + PAD,
+        y + (trackH - 8) / 2 + 0.5,
+        { width: CONTENT_W - PAD * 2, lineBreak: false, ellipsis: true },
+      );
+    y += trackH + 26;
 
-    // ---- Signature footer ---------------------------------------------------
-    doc.moveTo(MARGIN, y).lineTo(PAGE_W - MARGIN, y).lineWidth(0.75).strokeColor(BORDER).stroke();
-    y += 12;
-    const sigW = (CONTENT_W - gap) / 2;
-    iconBadge(doc, MARGIN + 6, y + 3, 6, NAVY, NAVY_DEEP, "check");
-    doc.font("Helvetica-Bold").fontSize(8).fillColor(NAVY).text("CUSTOMER SIGNATURE", MARGIN + 16, y);
-    doc.moveTo(MARGIN, y + 28).lineTo(MARGIN + sigW, y + 28).lineWidth(0.75).strokeColor("#c7d2e8").stroke();
+    // ---- Signatures ---------------------------------------------------------
+    const sigW = (CONTENT_W - 40) / 2;
+    const sigLineY = Math.min(y + 18, PAGE_H - 70);
+    const drawSig = (x: number, title: string) => {
+      doc.moveTo(x, sigLineY).lineTo(x + sigW, sigLineY).lineWidth(0.75).strokeColor("#b8c4de").stroke();
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(NAVY).text(title, x, sigLineY + 6, {
+        width: sigW,
+        align: "center",
+        characterSpacing: 0.4,
+      });
+    };
+    drawSig(MARGIN, "CUSTOMER SIGNATURE");
+    drawSig(MARGIN + sigW + 40, "STORE REPRESENTATIVE");
 
-    const sigX2 = MARGIN + sigW + gap;
-    iconBadge(doc, sigX2 + 6, y + 3, 6, NAVY, NAVY_DEEP, "check");
-    doc.font("Helvetica-Bold").fontSize(8).fillColor(NAVY).text("STORE REPRESENTATIVE", sigX2 + 16, y);
-    doc.moveTo(sigX2, y + 28).lineTo(sigX2 + sigW, y + 28).lineWidth(0.75).strokeColor("#c7d2e8").stroke();
-
-    doc.font("Helvetica").fontSize(8).fillColor(MUTED).text("ZIMSON WATCHES", MARGIN, 800, { width: CONTENT_W, align: "center" });
+    // ---- Footer -------------------------------------------------------------
+    const footerY = PAGE_H - 30;
+    doc.rect(0, footerY, PAGE_W, 30).fill(NAVY_DEEP);
+    doc.rect(0, footerY, PAGE_W, 2).fill(GOLD);
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(8)
+      .fillColor("#ffffff")
+      .text("ZIMSON WATCHES", MARGIN, footerY + 11, { width: CONTENT_W / 2, lineBreak: false, characterSpacing: 0.6 });
+    doc
+      .font("Helvetica")
+      .fontSize(7.5)
+      .fillColor("#c7d2f0")
+      .text(`Computer generated · ${data.reference}`, MARGIN + CONTENT_W / 2, footerY + 11.5, {
+        width: CONTENT_W / 2,
+        align: "right",
+        lineBreak: false,
+      });
 
     doc.end();
   });

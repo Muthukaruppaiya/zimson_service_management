@@ -14,6 +14,7 @@ import type { SeedRegion, SeedStore, SeedWarehouse } from "../data/seed";
 import { ApiError } from "../lib/api";
 import { fetchIndiaPinLookup } from "../lib/indiaPinLookup";
 import {
+  sanitizeAddressInput,
   sanitizeAlphanumericInput,
   sanitizeEmailInput,
   sanitizeGstPanInput,
@@ -237,7 +238,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrDoorNo}
-                onChange={(e) => onChange({ addrDoorNo: sanitizeTextInput(e.target.value, 80) })}
+                onChange={(e) => onChange({ addrDoorNo: sanitizeAddressInput(e.target.value, 80) })}
                 placeholder="12 / A"
               />
             </label>
@@ -246,7 +247,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrStreet}
-                onChange={(e) => onChange({ addrStreet: sanitizeTextInput(e.target.value, 200) })}
+                onChange={(e) => onChange({ addrStreet: sanitizeAddressInput(e.target.value, 200) })}
                 placeholder="T. Nagar, Mount Road…"
               />
             </label>
@@ -284,7 +285,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrCity}
-                onChange={(e) => onChange({ addrCity: sanitizeTextInput(e.target.value, 80) })}
+                onChange={(e) => onChange({ addrCity: sanitizeAddressInput(e.target.value, 80) })}
                 placeholder="Chennai"
               />
             </label>
@@ -293,7 +294,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrDistrict}
-                onChange={(e) => onChange({ addrDistrict: sanitizeTextInput(e.target.value, 80) })}
+                onChange={(e) => onChange({ addrDistrict: sanitizeAddressInput(e.target.value, 80) })}
                 placeholder="Chennai"
               />
             </label>
@@ -306,7 +307,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrState}
-                onChange={(e) => onChange({ addrState: sanitizeTextInput(e.target.value, 80) })}
+                onChange={(e) => onChange({ addrState: sanitizeAddressInput(e.target.value, 80) })}
                 placeholder="Tamil Nadu"
               />
             </label>
@@ -315,7 +316,7 @@ function RegionFormFields({
               <input
                 className={inputClass}
                 value={draft.addrCountry}
-                onChange={(e) => onChange({ addrCountry: sanitizeTextInput(e.target.value, 80) })}
+                onChange={(e) => onChange({ addrCountry: sanitizeAddressInput(e.target.value, 80) })}
                 placeholder="India"
               />
             </label>
@@ -431,7 +432,7 @@ function StoreInvoiceFields({
             className={inputClass}
             rows={3}
             value={draft.invoiceAddress}
-            onChange={(e) => onChange({ invoiceAddress: sanitizeTextInput(e.target.value, 500) })}
+            onChange={(e) => onChange({ invoiceAddress: sanitizeAddressInput(e.target.value, 500) })}
             placeholder={"Street, area\nCity, State - PIN"}
           />
         </label>

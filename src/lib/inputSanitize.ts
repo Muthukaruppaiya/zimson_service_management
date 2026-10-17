@@ -15,6 +15,12 @@ export function sanitizeMultilineTextInput(value: string, maxLen?: number): stri
   return maxLen != null ? s.slice(0, maxLen) : s;
 }
 
+/** Addresses: letters, digits, spaces, line breaks and common address punctuation (, . / - # & ( ) ' : ;). */
+export function sanitizeAddressInput(value: string, maxLen?: number): string {
+  const s = value.replace(/[^a-zA-Z0-9\s,./\-#&()':;]/g, "");
+  return maxLen != null ? s.slice(0, maxLen) : s;
+}
+
 /** Codes (employee no, SKU): letters and digits only. */
 export function sanitizeAlphanumericInput(value: string, maxLen?: number): string {
   const s = value.replace(/[^a-zA-Z0-9]/g, "");
