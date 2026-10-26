@@ -56,7 +56,7 @@ type RegionsContextValue = {
   regions: SeedRegion[];
   addRegion: (payload: RegionUpsertPayload) => Promise<void>;
   patchRegion: (regionId: string, payload: Partial<RegionUpsertPayload>) => Promise<void>;
-  addStore: (regionId: string, payload: StoreUpsertPayload) => void;
+  addStore: (regionId: string, payload: StoreUpsertPayload) => Promise<void>;
   patchStore: (storeId: string, payload: Partial<StoreUpsertPayload>) => Promise<void>;
   addWarehouse: (regionId: string, payload: WarehouseUpsertPayload) => void;
   patchWarehouse: (warehouseId: string, payload: Partial<WarehouseUpsertPayload>) => Promise<void>;
@@ -171,20 +171,18 @@ export function RegionsProvider({ children }: { children: ReactNode }) {
   );
 
   const addStore = useCallback(
-    (regionId: string, payload: StoreUpsertPayload) => {
+    async (regionId: string, payload: StoreUpsertPayload) => {
       const trimmed = payload.name.trim();
       if (!trimmed) return;
       const { name: _n, ...invoiceRest } = payload;
       if (api) {
-        void (async () => {
-          const data = await apiJson<{ store: SeedStore }>(`/api/regions/${encodeURIComponent(regionId)}/stores`, {
-            method: "POST",
-            json: { name: trimmed, ...invoiceRest },
-          });
-          setRegions((prev) =>
-            prev.map((r) => (r.id === regionId ? { ...r, stores: [...r.stores, data.store] } : r)),
-          );
-        })();
+        const data = await apiJson<{ store: SeedStore }>(`/api/regions/${encodeURIComponent(regionId)}/stores`, {
+          method: "POST",
+          json: { name: trimmed, ...invoiceRest },
+        });
+        setRegions((prev) =>
+          prev.map((r) => (r.id === regionId ? { ...r, stores: [...r.stores, data.store] } : r)),
+        );
         return;
       }
       const store: SeedStore = { id: createId("store"), name: trimmed, ...invoiceRest };

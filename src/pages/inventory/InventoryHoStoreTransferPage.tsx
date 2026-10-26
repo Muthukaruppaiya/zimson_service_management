@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { SparePicker } from "../../components/inventory/SparePicker";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -69,6 +69,7 @@ function newExtraLine(): ExtraLine {
 
 export function InventoryHoStoreTransferPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { regions } = useRegions();
   const { spares } = useSpares();
   const canTransfer =
@@ -459,7 +460,8 @@ export function InventoryHoStoreTransferPage() {
 
       <ProcessSuccessModal
         open={!!result}
-        title="Transfer sent"
+        showHome={false}
+        title="Outward successful"
         description={
           result
             ? `${result.movedQty} unit(s) in transit to ${result.storeName}. Store stock updates after store inward.`
@@ -492,9 +494,19 @@ export function InventoryHoStoreTransferPage() {
             <button type="button" className={modalBtnSecondary} onClick={() => setResult(null)}>
               Transfer another
             </button>
-            <Link to="/inventory/transfer-history" className={modalBtnPrimary} onClick={() => setResult(null)}>
+            <Link to="/inventory/transfer-history" className={modalBtnSecondary} onClick={() => setResult(null)}>
               Transfers history
             </Link>
+            <button
+              type="button"
+              className={modalBtnPrimary}
+              onClick={() => {
+                setResult(null);
+                navigate("/");
+              }}
+            >
+              OK
+            </button>
           </>
         }
       >

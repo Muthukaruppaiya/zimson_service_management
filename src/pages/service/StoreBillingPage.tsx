@@ -590,8 +590,8 @@ export function StoreBillingPage() {
         return false;
       }
     }
-    if (!parseServiceWarrantyMonths(warrantyMonths)) {
-      setMessage({ type: "err", text: "Select service warranty (3, 4, 6, 9, or 12 months)." });
+    if (parseServiceWarrantyMonths(warrantyMonths) == null) {
+      setMessage({ type: "err", text: "Select service warranty (0, 3, 4, 6, 9, or 12 months)." });
       return false;
     }
     // Zero-value bills (e.g. warranty non-chargeable) collect no payment — skip payment validation.
@@ -778,7 +778,12 @@ export function StoreBillingPage() {
         invoiceNumber: closeOut.invoiceNumber ?? job.invoiceNumber ?? null,
         storeBillingSnapshot: snapshot,
         warrantyMonths,
-        warrantyTillDate: warrantyMonths ? addMonthsYmd(new Date(), warrantyMonths) : job.warrantyTillDate,
+        warrantyTillDate:
+          warrantyMonths == null
+            ? job.warrantyTillDate
+            : warrantyMonths > 0
+              ? addMonthsYmd(new Date(), warrantyMonths)
+              : null,
         edocIrn: closeOut.edoc?.irn ?? null,
         edocAckNo: closeOut.edoc?.ackNo ?? null,
         edocQr: closeOut.edoc?.qrUrl ?? null,

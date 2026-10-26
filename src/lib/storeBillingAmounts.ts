@@ -68,7 +68,7 @@ export function buildStoreBillingSnapshot(params: {
     collectionPaymentMode: params.collectionPaymentMode,
     paymentDetails: params.paymentDetails,
     closedAt: new Date().toISOString(),
-    warrantyMonths: params.warrantyMonths && params.warrantyMonths > 0 ? params.warrantyMonths : undefined,
+    warrantyMonths: params.warrantyMonths != null && params.warrantyMonths >= 0 ? params.warrantyMonths : undefined,
     extraChargesInr:
       params.extraChargesInr != null && Number.isFinite(params.extraChargesInr) && params.extraChargesInr > 0
         ? Math.round(params.extraChargesInr * 100) / 100

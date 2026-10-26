@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { InventoryBreadcrumb } from "../../components/inventory/InventoryBreadcrumb";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
@@ -342,6 +342,7 @@ function TransferCard({
 
 export function InventoryStoreInwardPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const canInward = isStoreInwardRole(user?.role);
   const [tab, setTab] = useState<"pending" | "received">("pending");
   const [rows, setRows] = useState<StoreTransfer[]>([]);
@@ -465,17 +466,25 @@ export function InventoryStoreInwardPage() {
 
       <ProcessSuccessModal
         open={!!done}
-        title={done?.status === "RECEIVED" ? "Transfer inwarded" : "Partly inwarded"}
+        showHome={false}
+        title={done?.status === "RECEIVED" ? "Inward successful" : "Inward successful (partial)"}
         description={done ? `${done.movedQty} unit(s) added to store stock.` : undefined}
         onBackdropClick={() => setDone(null)}
         actions={
           <>
-            <button type="button" className={modalBtnSecondary} onClick={() => setDone(null)}>
-              Close
-            </button>
-            <Link to="/inventory/stock-prices" className={modalBtnPrimary} onClick={() => setDone(null)}>
+            <Link to="/inventory/stock-prices" className={modalBtnSecondary} onClick={() => setDone(null)}>
               Stock &amp; prices
             </Link>
+            <button
+              type="button"
+              className={modalBtnPrimary}
+              onClick={() => {
+                setDone(null);
+                navigate("/");
+              }}
+            >
+              OK
+            </button>
           </>
         }
       >

@@ -137,6 +137,8 @@ export function Sidebar() {
           { to: "/service/srf", label: "SRF", module: "service", match: ["/service/srf-register", "/service/srf-master"] },
           { to: "/service/store-assign", label: "Store assign", module: "service" },
           { to: "/service/brand-credit-notes", label: "Brand credit notes", module: "service", roles: ["store_user", "store_manager", "store_accounts"] },
+          { to: "/service/warranty-claims", label: "Purchase warranty claims", module: "service", roles: ["store_user", "store_manager", "store_accounts"] },
+          { to: "/service/warranty-claim-review", label: "Warranty claim review", module: "service", roles: ["super_admin"] },
         ],
       },
       {
@@ -226,7 +228,7 @@ export function Sidebar() {
         items: [
           { to: "/regions", label: "Regions & stores", module: "regions" },
           { to: "/settings/tax", label: "Tax & e-invoice", module: "settings", match: ["/settings/edoc", "/settings/brand-eway-consignees"] },
-          { to: "/settings/messaging", label: "Integrations", module: "settings", roles: ["super_admin"], match: ["/settings/razorpay"] },
+          { to: "/settings/messaging", label: "Integrations", module: "settings", roles: ["super_admin"], match: ["/settings/razorpay", "/settings/pinelabs"] },
           { to: "/settings/document-templates", label: "Customization", module: "settings", match: ["/settings/custom-fields"] },
           { to: "/settings/active-sessions", label: "Logged-in users", module: "settings", roles: ["super_admin"] },
         ],

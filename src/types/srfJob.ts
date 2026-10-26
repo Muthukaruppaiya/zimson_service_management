@@ -105,6 +105,8 @@ export type SrfJob = {
   warrantyRefSrfId?: string | null;
   warrantyRefInvoiceNumber?: string | null;
   warrantyRefSrfReference?: string | null;
+  /** Approved purchase warranty claim used as the warranty reference (new watch not billed in this system). */
+  warrantyRefClaimId?: string | null;
   chainCount12Phase?: string;
   chainCount6Phase?: string;
   /** @deprecated Legacy field — use chainCount12Phase / chainCount6Phase. */
@@ -291,4 +293,8 @@ export type InvoicedSrfRef = {
   watchModel: string;
   serial: string;
   createdAt: string;
+  warrantyMonths?: number | null;
+  warrantyTillDate?: string | null;
+  /** `srf` = previous invoiced SRF; `purchase_claim` = approved new-purchase warranty claim (id is `claim:<uuid>`). */
+  source?: "srf" | "purchase_claim";
 };

@@ -1,7 +1,8 @@
 /** Service warranty periods offered on the store tax invoice. */
-export const SERVICE_WARRANTY_MONTHS = [3, 4, 6, 9, 12] as const;
+export const SERVICE_WARRANTY_MONTHS = [0, 3, 4, 6, 9, 12] as const;
 
 export function isServiceWarrantyMonths(value: unknown): value is number {
+  if (value == null || (typeof value === "string" && value.trim() === "")) return false;
   const n = Number(value);
   return Number.isInteger(n) && (SERVICE_WARRANTY_MONTHS as readonly number[]).includes(n);
 }
@@ -30,6 +31,7 @@ export function formatWarrantyTillDisplay(ymd: string | null | undefined): strin
 }
 
 export function formatWarrantyInvoiceLine(months: number, tillYmd?: string | null): string {
+  if (months === 0) return "0 months (no warranty)";
   const label = formatWarrantyMonthsLabel(months);
   const till = formatWarrantyTillDisplay(tillYmd);
   return till ? `${label} (till ${till})` : label;

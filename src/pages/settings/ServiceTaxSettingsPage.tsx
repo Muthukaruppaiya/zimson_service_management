@@ -216,6 +216,14 @@ export function ServiceTaxSettingsPage() {
                 Razorpay
               </Link>
             ) : null}
+            {user?.role === "super_admin" ? (
+              <Link
+                to="/settings/pinelabs"
+                className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+              >
+                Pine Labs POS
+              </Link>
+            ) : null}
             <Link
               to="/service/billing"
               className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"

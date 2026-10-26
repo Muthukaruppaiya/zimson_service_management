@@ -30,6 +30,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { RegionsPage } from "./pages/RegionsPage";
+import { StoreFormPage } from "./pages/StoreFormPage";
 import { QuickBillPage } from "./pages/service/QuickBillPage";
 import { QuickBillHistoryPage } from "./pages/service/QuickBillHistoryPage";
 import { QuickBillDraftsPage } from "./pages/service/QuickBillDraftsPage";
@@ -72,6 +73,9 @@ import { ActiveSessionsPage } from "./pages/settings/ActiveSessionsPage";
 import { DocumentTemplatesPage } from "./pages/settings/DocumentTemplatesPage";
 import { CustomFieldsSettingsPage } from "./pages/settings/CustomFieldsSettingsPage";
 import { RazorpaySettingsPage } from "./pages/settings/RazorpaySettingsPage";
+import { PinelabsSettingsPage } from "./pages/settings/PinelabsSettingsPage";
+import { WarrantyClaimsPage } from "./pages/service/WarrantyClaimsPage";
+import { WarrantyClaimReviewPage } from "./pages/service/WarrantyClaimReviewPage";
 import { InventoryModulePage } from "./pages/inventory/InventoryModulePage";
 import { InventoryPoInwardPage } from "./pages/inventory/InventoryPoInwardPage";
 import { InventoryGrnHistoryPage } from "./pages/inventory/InventoryGrnHistoryPage";
@@ -455,6 +459,15 @@ export default function App() {
                     </ModuleRoute>
                   }
                 />
+                <Route
+                  path="/service/warranty-claims"
+                  element={
+                    <ModuleRoute module="service">
+                      <WarrantyClaimsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route path="/service/warranty-claim-review" element={<WarrantyClaimReviewPage />} />
                 <Route
                   path="/service/store-billing-master"
                   element={
@@ -1018,6 +1031,22 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/regions/:regionId/stores/new"
+                  element={
+                    <ModuleRoute module="regions">
+                      <StoreFormPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/regions/:regionId/stores/:storeId/edit"
+                  element={
+                    <ModuleRoute module="regions">
+                      <StoreFormPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
                   path="/users"
                   element={
                     <ModuleRoute module="users">
@@ -1054,6 +1083,14 @@ export default function App() {
                   element={
                     <ModuleRoute module="settings">
                       <RazorpaySettingsPage />
+                    </ModuleRoute>
+                  }
+                />
+                <Route
+                  path="/settings/pinelabs"
+                  element={
+                    <ModuleRoute module="settings">
+                      <PinelabsSettingsPage />
                     </ModuleRoute>
                   }
                 />

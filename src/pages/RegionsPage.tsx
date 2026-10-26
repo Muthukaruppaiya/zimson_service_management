@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { PageHeader } from "../components/ui/PageHeader";
 import { useToast } from "../components/ui/Toast";
@@ -23,10 +24,10 @@ import {
   sanitizeTextInput,
 } from "../lib/inputSanitize";
 
-const inputClass =
+export const inputClass =
   "mt-1 w-full border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-rlx-green focus:ring-1 focus:ring-rlx-green placeholder:text-stone-400";
 
-const labelClass = "block text-xs font-semibold uppercase tracking-wide text-stone-500";
+export const labelClass = "block text-xs font-semibold uppercase tracking-wide text-stone-500";
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -329,7 +330,7 @@ function RegionFormFields({
 
 // ── Store form ───────────────────────────────────────────────────────────────
 
-type StoreFormDraft = {
+export type StoreFormDraft = {
   name: string;
   invoiceDisplayName: string;
   invoiceTagline: string;
@@ -342,7 +343,7 @@ type StoreFormDraft = {
   invoiceNumberStoreCode: string;
 };
 
-function emptyStoreDraft(): StoreFormDraft {
+export function emptyStoreDraft(): StoreFormDraft {
   return {
     name: "", invoiceDisplayName: "", invoiceTagline: "", invoiceAddress: "",
     invoicePhone: "", invoiceEmail: "", invoiceGstin: "", invoiceLegalEntityName: "",
@@ -350,7 +351,7 @@ function emptyStoreDraft(): StoreFormDraft {
   };
 }
 
-function seedStoreToDraft(s: SeedStore): StoreFormDraft {
+export function seedStoreToDraft(s: SeedStore): StoreFormDraft {
   return {
     name: s.name,
     invoiceDisplayName: s.invoiceDisplayName ?? "",
@@ -365,7 +366,7 @@ function seedStoreToDraft(s: SeedStore): StoreFormDraft {
   };
 }
 
-function draftToStorePatch(d: StoreFormDraft): Partial<StoreUpsertPayload> & Pick<StoreUpsertPayload, "name"> {
+export function draftToStorePatch(d: StoreFormDraft): Partial<StoreUpsertPayload> & Pick<StoreUpsertPayload, "name"> {
   const t = (v: string) => v.trim();
   return {
     name: t(d.name),
@@ -381,7 +382,7 @@ function draftToStorePatch(d: StoreFormDraft): Partial<StoreUpsertPayload> & Pic
   };
 }
 
-function StoreInvoiceFields({
+export function StoreInvoiceFields({
   draft,
   onChange,
   regionGst,
@@ -510,8 +511,10 @@ function draftToWarehousePayload(d: WarehouseDraft): WarehouseUpsertPayload {
 
 export function RegionsPage() {
   const { user } = useAuth();
-  const { regions, addRegion, patchRegion, addStore, patchStore, addWarehouse, patchWarehouse } = useRegions();
+  const { regions, addRegion, patchRegion, addWarehouse, patchWarehouse } = useRegions();
   const { success, error: toastError } = useToast();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Region creation
   const [newRegionDraft, setNewRegionDraft] = useState<RegionDraft>(emptyRegionDraft());
@@ -523,15 +526,6 @@ export function RegionsPage() {
   const [editRegionDraft, setEditRegionDraft] = useState<RegionDraft | null>(null);
   const [regionEditSaving, setRegionEditSaving] = useState(false);
 
-  // Store creation drafts per region
-  const [createStoreDraftByRegion, setCreateStoreDraftByRegion] = useState<Record<string, StoreFormDraft>>({});
-  const [addingStoreForRegion, setAddingStoreForRegion] = useState<string | null>(null);
-
-  // Store editing
-  const [editStoreId, setEditStoreId] = useState<string | null>(null);
-  const [editStoreDraft, setEditStoreDraft] = useState<StoreFormDraft | null>(null);
-  const [storeSaving, setStoreSaving] = useState(false);
-
   // Warehouse creation drafts per region
   const [createWhDraftByRegion, setCreateWhDraftByRegion] = useState<Record<string, WarehouseDraft>>({});
   const [addingWhForRegion, setAddingWhForRegion] = useState<string | null>(null);
@@ -542,16 +536,18 @@ export function RegionsPage() {
   const [whSaving, setWhSaving] = useState(false);
 
   const [actionError, setActionError] = useState<string | null>(null);
-  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
+  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(() => searchParams.get("region"));
 
   function closeModal() {
     setSelectedRegionId(null);
+    if (searchParams.has("region")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("region");
+      setSearchParams(next, { replace: true });
+    }
     setEditRegionId(null);
     setEditRegionDraft(null);
-    setAddingStoreForRegion(null);
     setAddingWhForRegion(null);
-    setEditStoreId(null);
-    setEditStoreDraft(null);
     setEditWhId(null);
     setEditWhDraft(null);
     setActionError(null);
@@ -612,34 +608,6 @@ export function RegionsPage() {
       toastError("Update failed", msg);
     } finally {
       setRegionEditSaving(false);
-    }
-  }
-
-  // ── Store handlers ───────────────────────────────────────────────
-  function getStoreDraft(regionId: string) {
-    return createStoreDraftByRegion[regionId] ?? emptyStoreDraft();
-  }
-  function patchStoreDraft(regionId: string, patch: Partial<StoreFormDraft>) {
-    setCreateStoreDraftByRegion((prev) => ({ ...prev, [regionId]: { ...emptyStoreDraft(), ...prev[regionId], ...patch } }));
-  }
-
-  async function handleSaveStoreEdit() {
-    if (!editStoreId || !editStoreDraft) return;
-    const name = editStoreDraft.name.trim();
-    if (!name) { setActionError("Store name is required."); return; }
-    setActionError(null);
-    setStoreSaving(true);
-    try {
-      await patchStore(editStoreId, draftToStorePatch(editStoreDraft));
-      setEditStoreId(null);
-      setEditStoreDraft(null);
-      success("Store updated", `"${name}" details have been saved.`);
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not save store.";
-      setActionError(msg);
-      toastError("Store update failed", msg);
-    } finally {
-      setStoreSaving(false);
     }
   }
 
@@ -909,62 +877,16 @@ export function RegionsPage() {
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <SectionHeading>Stores</SectionHeading>
-                    {canManageRegion(region.id) && addingStoreForRegion !== region.id && (
+                    {canManageRegion(region.id) && (
                       <button
                         type="button"
-                        onClick={() => setAddingStoreForRegion(region.id)}
+                        onClick={() => navigate(`/regions/${encodeURIComponent(region.id)}/stores/new`)}
                         className="border border-rlx-green px-3 py-1 text-xs font-semibold text-rlx-green hover:bg-rlx-green hover:text-white transition"
                       >
                         + Add Store
                       </button>
                     )}
                   </div>
-
-                  {/* Add store form */}
-                  {canManageRegion(region.id) && addingStoreForRegion === region.id && (
-                    <div className="border border-rlx-rule bg-rlx-bg p-3 mb-3">
-                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-stone-600">New Store</p>
-                      <label className={labelClass}>
-                        Store Code / Name *
-                        <input
-                          className={inputClass}
-                          value={getStoreDraft(region.id).name}
-                          onChange={(e) => patchStoreDraft(region.id, { name: sanitizeTextInput(e.target.value, 240) })}
-                          placeholder="e.g. CHN01"
-                        />
-                      </label>
-                      <StoreInvoiceFields
-                        draft={getStoreDraft(region.id)}
-                        onChange={(patch) => patchStoreDraft(region.id, patch)}
-                        regionGst={region.gst}
-                      />
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActionError(null);
-                            const d = getStoreDraft(region.id);
-                            const sname = d.name.trim();
-                            if (!sname) { setActionError("Enter a store name."); return; }
-                            addStore(region.id, draftToStorePatch(d) as StoreUpsertPayload);
-                            setCreateStoreDraftByRegion((prev) => ({ ...prev, [region.id]: emptyStoreDraft() }));
-                            setAddingStoreForRegion(null);
-                            success("Store added", `"${sname}" has been added successfully.`);
-                          }}
-                          className="bg-rlx-green px-4 py-2 text-xs font-semibold text-white"
-                        >
-                          Add Store
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setAddingStoreForRegion(null); setActionError(null); }}
-                          className="border border-rlx-rule px-4 py-2 text-xs font-semibold text-stone-600"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   {region.stores.length === 0 ? (
                     <p className="border border-dashed border-stone-300 px-3 py-4 text-center text-sm text-stone-400">
@@ -985,44 +907,15 @@ export function RegionsPage() {
                             {canManageRegion(region.id) && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (editStoreId === store.id) { setEditStoreId(null); setEditStoreDraft(null); }
-                                  else { setEditStoreId(store.id); setEditStoreDraft(seedStoreToDraft(store)); }
-                                  setActionError(null);
-                                }}
+                                onClick={() =>
+                                  navigate(`/regions/${encodeURIComponent(region.id)}/stores/${encodeURIComponent(store.id)}/edit`)
+                                }
                                 className="border border-stone-300 px-2 py-1 text-xs font-semibold text-stone-600 hover:bg-stone-50"
                               >
-                                {editStoreId === store.id ? "Close" : "Edit"}
+                                Edit
                               </button>
                             )}
                           </div>
-                          {editStoreId === store.id && editStoreDraft && (
-                            <div className="mt-3 border-t border-rlx-rule pt-3">
-                              <label className={labelClass}>
-                                Store Code / Name *
-                                <input
-                                  className={inputClass}
-                                  value={editStoreDraft.name}
-                                  onChange={(e) =>
-                                    setEditStoreDraft((p) => (p ? { ...p, name: sanitizeTextInput(e.target.value, 240) } : p))
-                                  }
-                                />
-                              </label>
-                              <StoreInvoiceFields
-                                draft={editStoreDraft}
-                                onChange={(patch) => setEditStoreDraft((p) => p ? { ...p, ...patch } : p)}
-                                regionGst={region.gst}
-                              />
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <button type="button" disabled={storeSaving} onClick={() => void handleSaveStoreEdit()} className="bg-rlx-green px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">
-                                  {storeSaving ? "Saving…" : "Save"}
-                                </button>
-                                <button type="button" disabled={storeSaving} onClick={() => { setEditStoreId(null); setEditStoreDraft(null); }} className="border border-rlx-rule px-4 py-2 text-xs font-semibold text-stone-600">
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          )}
                         </li>
                       ))}
                     </ul>

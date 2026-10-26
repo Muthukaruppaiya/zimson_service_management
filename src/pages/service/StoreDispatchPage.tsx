@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import {
   StoreInwardQcDispositionModal,
@@ -28,9 +28,6 @@ import { PrintIconButton } from "../../components/ui/PrintIconButton";
 
 const rowClass = "border-b border-zimson-100 last:border-0";
 
-const ackBtnOutline =
-  "rounded-xl border border-rlx-rule bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50";
-
 type DispatchMode = "outward" | "inward";
 
 type StoreOutwardAck = {
@@ -55,10 +52,12 @@ type StoreInwardAck = {
   fromHoLabel: string;
   partyFrom?: TransferPartyBlock;
   partyTo?: TransferPartyBlock;
+  note?: string;
 };
 
 export function StoreDispatchPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { regions } = useRegions();
   const { jobs, dispatchToServiceCentre, receiveOutwardByDc } = useSrfJobs();
   const [mode, setMode] = useState<DispatchMode>("outward");
@@ -204,32 +203,28 @@ export function StoreDispatchPage() {
       }
       closeInwardReview();
       setOutwardDcInput("");
-      if (rows.length > 0) {
-        setStoreInwardAck({
-          inwardNumber: dcNumber,
-          rows,
-          updated: out.updated,
-          receivedAt: new Date(),
-          storeLabel,
-          fromHoLabel,
-          partyFrom,
-          partyTo,
-        });
-      }
-      let okText = `Inwarded ${out.updated} watch(es) on ${dcNumber}.`;
+      const notes: string[] = [];
       if (failedRows.length > 0) {
         if (action === "return_to_ho") {
-          okText += ` ${out.returnedToHo ?? failedRows.length} sent to outward queue for CSC re-repair.`;
+          notes.push(`${out.returnedToHo ?? failedRows.length} sent to outward queue for CSC re-repair.`);
+          notes.push("Use Outward SRF to create a new transfer and delivery agent handoff.");
         } else {
-          okText += ` ${failedRows.length} kept in inward pending on this transfer.`;
+          notes.push(`${failedRows.length} kept in inward pending on this transfer.`);
         }
       } else if ((out.pendingOnTransfer ?? 0) > 0) {
-        okText += ` ${out.pendingOnTransfer} still pending on this transfer.`;
+        notes.push(`${out.pendingOnTransfer} still pending on this transfer.`);
       }
-      if (action === "return_to_ho") {
-        okText += " Use Outward SRF to create a new transfer and delivery agent handoff.";
-      }
-      setMessage({ type: "ok", text: okText });
+      setStoreInwardAck({
+        inwardNumber: dcNumber,
+        rows,
+        updated: out.updated,
+        receivedAt: new Date(),
+        storeLabel,
+        fromHoLabel,
+        partyFrom,
+        partyTo,
+        note: notes.length > 0 ? notes.join(" ") : undefined,
+      });
     } catch (e) {
       setMessage({ type: "err", text: e instanceof Error ? e.message : "Could not receive internal transfer." });
     } finally {
@@ -690,8 +685,9 @@ export function StoreDispatchPage() {
       {storeInwardAck ? (
         <ProcessSuccessModal
           open
-          title="SRF received at store"
-          description={`${storeInwardAck.inwardNumber} · ${storeInwardAck.updated} watch${storeInwardAck.updated === 1 ? "" : "es"}`}
+          showHome={false}
+          title="Inward successful"
+          description={`${storeInwardAck.inwardNumber} · ${storeInwardAck.updated} watch${storeInwardAck.updated === 1 ? "" : "es"} received at store`}
           onBackdropClick={() => setStoreInwardAck(null)}
           actions={
             <>
@@ -711,8 +707,15 @@ export function StoreDispatchPage() {
                   })
                 }
               />
-              <button type="button" className={ackBtnOutline} onClick={() => setStoreInwardAck(null)}>
-                Done
+              <button
+                type="button"
+                className={modalBtnPrimary}
+                onClick={() => {
+                  setStoreInwardAck(null);
+                  navigate("/");
+                }}
+              >
+                OK
               </button>
             </>
           }
@@ -755,14 +758,20 @@ export function StoreDispatchPage() {
               </table>
             </div>
           ) : null}
+          {storeInwardAck.note ? (
+            <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              {storeInwardAck.note}
+            </p>
+          ) : null}
         </ProcessSuccessModal>
       ) : null}
 
       {outwardAck ? (
         <ProcessSuccessModal
           open
-          title="Internal transfer created (store → CSC)"
-          description={`${outwardAck.dcNumber} · ${outwardAck.moved} watch${outwardAck.moved === 1 ? "" : "es"}`}
+          showHome={false}
+          title="Outward successful"
+          description={`${outwardAck.dcNumber} · ${outwardAck.moved} watch${outwardAck.moved === 1 ? "" : "es"} · store → CSC`}
           onBackdropClick={() => setOutwardAck(null)}
           actions={
             <>
@@ -776,8 +785,15 @@ export function StoreDispatchPage() {
                   })
                 }
               />
-              <button type="button" className={ackBtnOutline} onClick={() => setOutwardAck(null)}>
-                Done
+              <button
+                type="button"
+                className={modalBtnPrimary}
+                onClick={() => {
+                  setOutwardAck(null);
+                  navigate("/");
+                }}
+              >
+                OK
               </button>
             </>
           }

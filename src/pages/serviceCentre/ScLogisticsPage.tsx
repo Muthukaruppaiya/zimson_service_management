@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { useAuth } from "../../context/AuthContext";
@@ -16,7 +16,6 @@ import {
   resolveHoToHoPrint,
   resolveHoToStorePrint,
   resolveStoreToHoPrint,
-  transferDocumentTitle,
 } from "../../lib/transferDocumentKind";
 import {
   scInwardAckTitle,
@@ -106,6 +105,7 @@ export function ScLogisticsPage() {
   const { regions } = useRegions();
   const { jobs, confirmInwardByDc, createOutwardBatch, clerkLogBrandDispatchBatch, refreshJobs } = useSrfJobs();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const tab = searchParams.get("tab") === "outward" ? "outward" : "inward";
 
   const canPostDcInward = useMemo(() => {
@@ -157,8 +157,10 @@ export function ScLogisticsPage() {
     storeLabel: string;
     jobs: SrfJob[];
     receivedAt: Date;
+    note?: string;
   } | null>(null);
   const [outwardAck, setOutwardAck] = useState<{
+    note?: string;
     odcNumber: string;
     dcId?: string;
     documentKind: "DC" | "ODC" | "TD";
@@ -440,9 +442,15 @@ export function ScLogisticsPage() {
       const documentKind =
         result.documentKind ??
         (inwardedJobs[0] ? scInwardDocumentKindFromJob(inwardedJobs[0]) : "store_transfer");
-      const numberLabel = scInwardNumberLabel(documentKind);
       closeInwardReview();
       setSelectedDc("");
+      const skipped = inwardReviewRows.length - selectedIds.length;
+      let note = "";
+      if (skipped > 0) {
+        note = `${skipped} not accepted — still on this transfer.`;
+      } else if ((result.pendingOnTransfer ?? 0) > 0) {
+        note = `${result.pendingOnTransfer} still pending on this transfer.`;
+      }
       setInwardAck({
         inwardNumber: result.dcNumber ?? dcNumber,
         documentKind,
@@ -451,15 +459,8 @@ export function ScLogisticsPage() {
         storeLabel: dcMeta?.storeLabel ?? "—",
         jobs: inwardedJobs,
         receivedAt,
+        note: note || undefined,
       });
-      const skipped = inwardReviewRows.length - selectedIds.length;
-      let okText = `Inward recorded for ${result.updated} watch(es). ${numberLabel}: ${result.dcNumber ?? dcNumber}.`;
-      if (skipped > 0) {
-        okText += ` ${skipped} not accepted — still on transfer (return to store flow coming next).`;
-      } else if ((result.pendingOnTransfer ?? 0) > 0) {
-        okText += ` ${result.pendingOnTransfer} still pending on this transfer.`;
-      }
-      setInwardMsg({ type: "ok", text: okText });
     } catch (err) {
       setInwardMsg({ type: "err", text: err instanceof Error ? err.message : "Could not inward DC." });
     } finally {
@@ -781,19 +782,8 @@ export function ScLogisticsPage() {
         setEwayModalOpen(true);
       }
       const ewayNote = needsEway ? formatEwayEdocMessage(result.edoc) : null;
-      setOutwardMsg({
-        type: "ok",
-        text: [
-          printMeta.flow === "ho_to_store"
-            ? `Internal transfer ${result.odcNumber} created (CSC → store). Print when ready.`
-            : printMeta.printKind === "dc"
-              ? `Delivery Challan ${result.odcNumber} created (${transferDocumentTitle(printMeta.printKind, printMeta.flow)}). Print when ready.`
-              : `Internal transfer ${result.odcNumber} created. Print when ready.`,
-          ewayNote,
-        ]
-          .filter(Boolean)
-          .join(" "),
-      });
+      setOutwardMsg(null);
+      if (ewayNote) setOutwardAck((prev) => (prev ? { ...prev, note: ewayNote } : prev));
       setSelectedOut({});
     } catch (e) {
       setOutwardMsg({ type: "err", text: e instanceof Error ? e.message : "Could not create internal outward transfer." });
@@ -1635,10 +1625,10 @@ export function ScLogisticsPage() {
                   outwardAck.documentKind === "DC" ? "text-emerald-100" : "text-indigo-100"
                 }`}
               >
-                {outwardAck.documentKind === "DC" ? "Inter-CSC dispatch confirmed" : "Internal transfer confirmed"}
+                {outwardAck.documentKind === "DC" ? "CSC → CSC delivery challan (DC)" : "CSC → store transfer (TD)"}
               </p>
               <h2 id="outward-ack-title" className="mt-1 text-xl font-bold">
-                {outwardAck.documentKind === "DC" ? "CSC → CSC delivery challan (DC)" : "CSC → store transfer (TD)"}
+                Outward successful
               </h2>
             </div>
             <div className="px-5 py-5">
@@ -1746,6 +1736,11 @@ export function ScLogisticsPage() {
                   </table>
                 </div>
               ) : null}
+              {outwardAck.note ? (
+                <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  {outwardAck.note}
+                </p>
+              ) : null}
               <div className="mt-5 flex flex-col gap-2 sm:flex-row">
                 <button
                   type="button"
@@ -1768,14 +1763,17 @@ export function ScLogisticsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setOutwardAck(null)}
+                  onClick={() => {
+                    setOutwardAck(null);
+                    navigate("/");
+                  }}
                   className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${
                     outwardAck.documentKind === "DC"
                       ? "bg-emerald-600 hover:bg-emerald-700"
                       : "bg-indigo-600 hover:bg-indigo-700"
                   }`}
                 >
-                  Done
+                  OK
                 </button>
               </div>
             </div>
@@ -1791,9 +1789,11 @@ export function ScLogisticsPage() {
             aria-labelledby="inward-ack-title"
           >
             <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 px-5 py-5 text-white">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-100">Inward confirmed</p>
-              <h2 id="inward-ack-title" className="mt-1 text-xl font-bold">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-100">
                 {scInwardAckTitle(inwardAck.documentKind)}
+              </p>
+              <h2 id="inward-ack-title" className="mt-1 text-xl font-bold">
+                Inward successful
               </h2>
             </div>
             <div className="px-5 py-5">
@@ -1853,6 +1853,11 @@ export function ScLogisticsPage() {
                     </tbody>
                   </table>
                 </div>
+              ) : null}
+              {inwardAck.note ? (
+                <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  {inwardAck.note}
+                </p>
               ) : null}
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <PrintIconButton
@@ -1935,10 +1940,13 @@ export function ScLogisticsPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setInwardAck(null)}
-                  className="flex-1 rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+                  onClick={() => {
+                    setInwardAck(null);
+                    navigate("/");
+                  }}
+                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
                 >
-                  Done
+                  OK
                 </button>
               </div>
             </div>

@@ -58,7 +58,7 @@ export function normalizeStoreBillingSnapshot(raw: unknown): StoreBillingSnapsho
     paymentDetails: o.paymentDetails,
     closedAt: typeof o.closedAt === "string" ? o.closedAt : undefined,
     warrantyMonths:
-      Number.isInteger(Number(o.warrantyMonths)) && Number(o.warrantyMonths) > 0
+      o.warrantyMonths != null && Number.isInteger(Number(o.warrantyMonths)) && Number(o.warrantyMonths) >= 0
         ? Number(o.warrantyMonths)
         : undefined,
     extraChargesInr:

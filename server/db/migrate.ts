@@ -2138,4 +2138,76 @@ export async function runMigrations(pool: Pool): Promise<void> {
       paid_at TIMESTAMPTZ
     );
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pinelabs_settings (
+      id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      environment VARCHAR(20) NOT NULL DEFAULT 'uat',
+      merchant_id VARCHAR(40) NOT NULL DEFAULT '',
+      security_token TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by VARCHAR(200)
+    );
+  `);
+  await pool.query(`INSERT INTO pinelabs_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pinelabs_store_settings (
+      store_id TEXT PRIMARY KEY REFERENCES stores(id) ON DELETE CASCADE,
+      enabled BOOLEAN NOT NULL DEFAULT false,
+      environment VARCHAR(20) NOT NULL DEFAULT 'uat',
+      merchant_id VARCHAR(40) NOT NULL DEFAULT '',
+      security_token TEXT NOT NULL DEFAULT '',
+      pl_store_id VARCHAR(40) NOT NULL DEFAULT '',
+      client_id VARCHAR(40) NOT NULL DEFAULT '',
+      imei VARCHAR(32) NOT NULL DEFAULT '',
+      merchant_store_pos_code VARCHAR(40) NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by VARCHAR(200)
+    );
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_pinelabs_store_settings_client_id
+      ON pinelabs_store_settings (client_id) WHERE client_id <> '';
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_pinelabs_store_settings_imei
+      ON pinelabs_store_settings (imei) WHERE imei <> '';
+  `);
+
+  await pool.query(`
+    CREATE SEQUENCE IF NOT EXISTS warranty_purchase_claim_seq START 1;
+    CREATE TABLE IF NOT EXISTS warranty_purchase_claims (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      claim_number VARCHAR(32) NOT NULL UNIQUE,
+      region_id TEXT REFERENCES regions(id) ON DELETE SET NULL,
+      store_id TEXT REFERENCES stores(id) ON DELETE SET NULL,
+      customer_name VARCHAR(200) NOT NULL,
+      phone VARCHAR(20) NOT NULL,
+      watch_brand VARCHAR(120) NOT NULL,
+      watch_model VARCHAR(160) NOT NULL DEFAULT '',
+      serial VARCHAR(120) NOT NULL DEFAULT '',
+      purchase_invoice_number VARCHAR(64) NOT NULL,
+      purchase_date DATE NOT NULL,
+      purchased_from VARCHAR(200) NOT NULL DEFAULT '',
+      purchase_amount_inr NUMERIC(14, 2),
+      warranty_months INTEGER NOT NULL CHECK (warranty_months > 0 AND warranty_months <= 120),
+      warranty_till_date DATE NOT NULL,
+      invoice_file_path TEXT NOT NULL,
+      invoice_file_name VARCHAR(255),
+      invoice_file_mime VARCHAR(120),
+      remarks TEXT NOT NULL DEFAULT '',
+      status VARCHAR(16) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+      review_note TEXT NOT NULL DEFAULT '',
+      submitted_by TEXT,
+      submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      reviewed_by TEXT,
+      reviewed_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_purchase_claims (status, submitted_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_warranty_claims_phone ON warranty_purchase_claims (phone);
+    CREATE INDEX IF NOT EXISTS idx_warranty_claims_store ON warranty_purchase_claims (store_id);
+    ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_ref_claim_id UUID
+      REFERENCES warranty_purchase_claims(id) ON DELETE SET NULL;
+  `);
 }

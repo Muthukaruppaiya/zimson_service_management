@@ -761,7 +761,7 @@ export function mapSrfPreviewToServiceInvoiceViewModel(
   const invoiceNet = Math.round((gst.net + extraAmt) * 100) / 100;
   const serviceMeta: { label: string; value: string }[] = [];
   if (input.complaint.trim()) serviceMeta.push({ label: "Complaint", value: input.complaint.trim() });
-  if (input.warrantyMonths && input.warrantyMonths > 0) {
+  if (input.warrantyMonths != null && input.warrantyMonths >= 0) {
     serviceMeta.push({
       label: "Warranty",
       value: formatWarrantyInvoiceLine(input.warrantyMonths, input.warrantyTillDate),

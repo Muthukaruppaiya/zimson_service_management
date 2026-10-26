@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { SRF_ROUTE_LABEL_SEND_TO_SC } from "../../lib/srfRepairRoute";
+import { ProcessSuccessModal } from "../../components/ui/ProcessSuccessModal";
+import { modalBtnPrimary } from "../../lib/appModalStyles";
 import { ServiceBreadcrumb } from "../../components/service/ServiceBreadcrumb";
 import { DemoOtpGate } from "../../components/service/DemoOtpGate";
 import { Card } from "../../components/ui/Card";
@@ -38,6 +41,15 @@ type PendingTd = {
 };
 
 type QueueKey = "store_send" | "ho_receive" | "ho_send" | "store_receive";
+
+type HandoffAck = {
+  receiveMode: boolean;
+  agentName: string;
+  tripNumber: string | null;
+  docs: number;
+  watches: number;
+  dcNumbers: string[];
+};
 
 type HandoffKind =
   | "store_to_ho_send"
@@ -87,7 +99,9 @@ type Props = {
 export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
   const { user } = useAuth();
   const { refreshJobs } = useSrfJobs();
+  const navigate = useNavigate();
   const { showOtpSent, otpSentModal } = useOtpSentSuccess();
+  const [handoffAck, setHandoffAck] = useState<HandoffAck | null>(null);
   const initial = defaultQueue && queues.includes(defaultQueue) ? defaultQueue : queues[0]!;
   const [queue, setQueue] = useState<QueueKey>(initial);
   const meta = QUEUE_META[queue];
@@ -245,9 +259,14 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
         "/api/service/delivery-handoff/otp/confirm",
         { method: "POST", json: { sessionId, otp: otpInput.trim() } },
       );
-      setOk(
-        `Handoff confirmed${data.deliveryTripNumber ? ` · Trip ${data.deliveryTripNumber}` : ""} — ${data.updatedDocs} transfer(s), ${data.updatedWatches} watch(es) updated.`,
-      );
+      setHandoffAck({
+        receiveMode: meta.receiveMode,
+        agentName: selectedBoy?.displayName ?? "Delivery agent",
+        tripNumber: data.deliveryTripNumber ?? null,
+        docs: data.updatedDocs,
+        watches: data.updatedWatches,
+        dcNumbers: allDcNumbers,
+      });
       setSessionId(null);
       setDemoOtp(null);
       setOtpInput("");
@@ -460,6 +479,46 @@ export function DeliveryHandoffPage({ queues, defaultQueue }: Props) {
         </div>
       ) : null}
       {otpSentModal}
+      {handoffAck ? (
+        <ProcessSuccessModal
+          open
+          showHome={false}
+          title={handoffAck.receiveMode ? "Received from delivery agent" : "Handed over to delivery agent"}
+          description={`${handoffAck.docs} transfer${handoffAck.docs === 1 ? "" : "s"} · ${handoffAck.watches} watch${handoffAck.watches === 1 ? "" : "es"}`}
+          onBackdropClick={() => setHandoffAck(null)}
+          actions={
+            <button
+              type="button"
+              className={modalBtnPrimary}
+              onClick={() => {
+                setHandoffAck(null);
+                navigate("/");
+              }}
+            >
+              OK
+            </button>
+          }
+        >
+          <dl className="space-y-1.5 text-sm text-stone-700">
+            <div className="flex justify-between gap-2">
+              <dt className="text-stone-500">Delivery agent</dt>
+              <dd className="font-medium text-stone-900">{handoffAck.agentName}</dd>
+            </div>
+            {handoffAck.tripNumber ? (
+              <div className="flex justify-between gap-2">
+                <dt className="text-stone-500">Trip number</dt>
+                <dd className="font-mono font-semibold text-stone-900">{handoffAck.tripNumber}</dd>
+              </div>
+            ) : null}
+            <div className="flex justify-between gap-2">
+              <dt className="text-stone-500">Transfers</dt>
+              <dd className="max-w-[65%] text-right font-mono text-xs font-semibold text-stone-900">
+                {handoffAck.dcNumbers.join(", ")}
+              </dd>
+            </div>
+          </dl>
+        </ProcessSuccessModal>
+      ) : null}
     </div>
   );
 }

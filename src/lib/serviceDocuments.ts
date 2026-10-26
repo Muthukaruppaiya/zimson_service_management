@@ -765,7 +765,7 @@ export function printFullSrfDocument(
          <tr><td><strong>Complaint</strong></td><td colspan="3">${job.complaint || "-"}</td></tr>
          ${
            job.warrantyRefInvoiceNumber || job.warrantyRefSrfReference
-             ? `<tr><td><strong>Warranty ref. (invoiced SRF)</strong></td><td colspan="3">${[job.warrantyRefInvoiceNumber, job.warrantyRefSrfReference].filter(Boolean).join(" · ") || "-"}</td></tr>`
+             ? `<tr><td><strong>Warranty ref.</strong></td><td colspan="3">${[job.warrantyRefInvoiceNumber, job.warrantyRefSrfReference].filter(Boolean).join(" · ") || "-"}</td></tr>`
              : ""
          }
          <tr><td><strong>Estimate (approximate)</strong></td><td>Approximate INR ${Number(job.estimateTotalInr ?? 0).toFixed(2)}</td><td><strong>Created at</strong></td><td>${new Date(job.createdAt).toLocaleString()}</td></tr>

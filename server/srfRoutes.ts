@@ -859,9 +859,19 @@ function looksLikeUuid(v: string): boolean {
 
 type WarrantyRefSnapshot = {
   warrantyRefSrfId: string | null;
+  warrantyRefClaimId: string | null;
   warrantyRefInvoiceNumber: string | null;
   warrantyRefSrfReference: string | null;
 };
+
+const WARRANTY_CLAIM_REF_PREFIX = "claim:";
+
+/** Raw value stored on the client for the SRF warranty reference (SRF id or `claim:<id>`). */
+function warrantyRefRawFromRow(row: { warranty_ref_srf_id: string | null; warranty_ref_claim_id?: string | null }): string | null {
+  if (row.warranty_ref_srf_id) return row.warranty_ref_srf_id;
+  if (row.warranty_ref_claim_id) return `${WARRANTY_CLAIM_REF_PREFIX}${row.warranty_ref_claim_id}`;
+  return null;
+}
 
 async function resolveWarrantyRefSnapshot(
   executor: Queryable,
@@ -871,10 +881,13 @@ async function resolveWarrantyRefSnapshot(
     currentSrfId: string;
     currentPhone: string;
     required: boolean;
+    /** Reference already saved on this SRF — warranty end date is not re-checked for it. */
+    existingRaw?: string | null;
   },
 ): Promise<({ ok: true } & WarrantyRefSnapshot) | { ok: false; error: string }> {
   const empty: WarrantyRefSnapshot = {
     warrantyRefSrfId: null,
+    warrantyRefClaimId: null,
     warrantyRefInvoiceNumber: null,
     warrantyRefSrfReference: null,
   };
@@ -887,9 +900,48 @@ async function resolveWarrantyRefSnapshot(
     if (!opts.required) return { ok: true, ...empty };
     return {
       ok: false,
-      error: "Select the previous invoiced SRF as reference for this warranty (non-chargeable) booking.",
+      error: "Select the previous invoiced SRF or an approved purchase warranty claim for this warranty (non-chargeable) booking.",
     };
   }
+  const unchanged = Boolean(opts.existingRaw) && opts.existingRaw === refId;
+
+  if (refId.startsWith(WARRANTY_CLAIM_REF_PREFIX)) {
+    const claimId = refId.slice(WARRANTY_CLAIM_REF_PREFIX.length);
+    if (!looksLikeUuid(claimId)) {
+      return { ok: false, error: "Invalid purchase warranty claim selected." };
+    }
+    const { rows } = await executor.query<{
+      id: string;
+      claim_number: string;
+      purchase_invoice_number: string;
+      phone: string;
+      status: string;
+      in_warranty: boolean;
+    }>(
+      `SELECT id, claim_number, purchase_invoice_number, phone, status,
+              (warranty_till_date >= CURRENT_DATE) AS in_warranty
+       FROM warranty_purchase_claims
+       WHERE id = $1::uuid
+       LIMIT 1`,
+      [claimId],
+    );
+    const claim = rows[0];
+    if (!claim) return { ok: false, error: "Purchase warranty claim not found." };
+    if (claim.status !== "APPROVED") {
+      return { ok: false, error: `Claim ${claim.claim_number} is not approved by back office yet.` };
+    }
+    if (!claim.in_warranty && !unchanged) {
+      return { ok: false, error: `Warranty on claim ${claim.claim_number} has ended.` };
+    }
+    return {
+      ok: true,
+      warrantyRefSrfId: null,
+      warrantyRefClaimId: claim.id,
+      warrantyRefInvoiceNumber: String(claim.purchase_invoice_number ?? "").trim() || null,
+      warrantyRefSrfReference: claim.claim_number,
+    };
+  }
+
   if (refId === opts.currentSrfId) {
     return { ok: false, error: "Warranty reference cannot be this SRF." };
   }
@@ -901,8 +953,10 @@ async function resolveWarrantyRefSnapshot(
     reference: string;
     invoice_number: string | null;
     phone: string;
+    in_warranty: boolean;
   }>(
-    `SELECT id, reference, invoice_number, phone
+    `SELECT id, reference, invoice_number, phone,
+            COALESCE(warranty_till_date >= CURRENT_DATE, false) AS in_warranty
      FROM srf_jobs
      WHERE id = $1::uuid
      LIMIT 1`,
@@ -916,14 +970,13 @@ async function resolveWarrantyRefSnapshot(
   if (!inv) {
     return { ok: false, error: "Map an invoiced SRF only. The selected job has no invoice." };
   }
-  const curP = phoneLast10(opts.currentPhone);
-  const refP = phoneLast10(ref.phone);
-  if (curP && refP && curP !== refP) {
-    return { ok: false, error: "Previous SRF must belong to the same customer mobile number." };
+  if (!ref.in_warranty && !unchanged) {
+    return { ok: false, error: `Invoice ${inv} (${ref.reference}) is not under warranty.` };
   }
   return {
     ok: true,
     warrantyRefSrfId: ref.id,
+    warrantyRefClaimId: null,
     warrantyRefInvoiceNumber: inv,
     warrantyRefSrfReference: String(ref.reference ?? "").trim() || null,
   };
@@ -1501,6 +1554,7 @@ export function registerSrfRoutes(
                 j.warranty_ref_srf_id AS "warrantyRefSrfId",
                 j.warranty_ref_invoice_number AS "warrantyRefInvoiceNumber",
                 j.warranty_ref_srf_reference AS "warrantyRefSrfReference",
+                j.warranty_ref_claim_id AS "warrantyRefClaimId",
                 j.chain_count_12_phase AS "chainCount12Phase",
                 j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",
@@ -1681,16 +1735,20 @@ export function registerSrfRoutes(
       res.status(403).json({ error: "Forbidden." });
       return;
     }
-    const phone = phoneLast10(String(req.query.phone ?? ""));
-    if (phone.length !== 10) {
-      res.status(400).json({ error: "Customer mobile (10 digits) is required to list invoiced SRFs." });
-      return;
-    }
+    const phoneRaw = phoneLast10(String(req.query.phone ?? ""));
+    /** Optional — only used to list this customer's invoices first. */
+    const phone = phoneRaw.length === 10 ? phoneRaw : "";
     const q = String(req.query.q ?? "").trim();
     const excludeId = String(req.query.excludeId ?? "").trim();
+    const includeRaw = String(req.query.includeRef ?? "").trim();
+    const includeSrfId = includeRaw && looksLikeUuid(includeRaw) ? includeRaw : null;
+    const includeClaimRaw = includeRaw.startsWith(WARRANTY_CLAIM_REF_PREFIX)
+      ? includeRaw.slice(WARRANTY_CLAIM_REF_PREFIX.length)
+      : "";
+    const includeClaimId = includeClaimRaw && looksLikeUuid(includeClaimRaw) ? includeClaimRaw : null;
     try {
-      const params: unknown[] = [phone];
-      let i = 2;
+      const params: unknown[] = [phone, includeSrfId];
+      let i = 3;
       let extra = "";
       if (excludeId && looksLikeUuid(excludeId)) {
         extra += ` AND j.id <> $${i++}::uuid`;
@@ -1702,6 +1760,8 @@ export function registerSrfRoutes(
           OR j.reference ILIKE $${i}
           OR COALESCE(j.serial, '') ILIKE $${i}
           OR COALESCE(j.watch_model, '') ILIKE $${i}
+          OR COALESCE(j.customer_name, '') ILIKE $${i}
+          OR COALESCE(j.phone, '') ILIKE $${i}
         )`;
         params.push(`%${q}%`);
       }
@@ -1715,17 +1775,59 @@ export function registerSrfRoutes(
                 j.watch_family AS "watchFamily",
                 j.watch_model AS "watchModel",
                 j.serial,
-                j.created_at AS "createdAt"
+                j.created_at AS "createdAt",
+                j.warranty_months AS "warrantyMonths",
+                j.warranty_till_date::text AS "warrantyTillDate",
+                'srf' AS "source"
          FROM srf_jobs j
          WHERE TRIM(COALESCE(j.invoice_number, '')) <> ''
            AND j.status <> 'cancelled'
-           AND RIGHT(regexp_replace(j.phone, '\\D', '', 'g'), 10) = $1
+           AND (
+             (j.warranty_till_date IS NOT NULL AND j.warranty_till_date >= CURRENT_DATE)
+             OR j.id = $2::uuid
+           )
            ${extra}
-         ORDER BY j.invoice_number DESC, j.created_at DESC
-         LIMIT 80`,
+         ORDER BY (RIGHT(regexp_replace(j.phone, '\\D', '', 'g'), 10) = $1::text) DESC,
+                  j.invoice_number DESC, j.created_at DESC
+         LIMIT 500`,
         params,
       );
-      res.json({ jobs: rows });
+      const claimParams: unknown[] = [phone, includeClaimId];
+      let claimExtra = "";
+      if (q) {
+        claimExtra = ` AND (
+          c.purchase_invoice_number ILIKE $3
+          OR c.claim_number ILIKE $3
+          OR c.serial ILIKE $3
+          OR c.watch_model ILIKE $3
+          OR c.customer_name ILIKE $3
+          OR c.phone ILIKE $3
+        )`;
+        claimParams.push(`%${q}%`);
+      }
+      const { rows: claimRows } = await pool.query(
+        `SELECT '${WARRANTY_CLAIM_REF_PREFIX}' || c.id::text AS id,
+                c.claim_number AS reference,
+                c.purchase_invoice_number AS "invoiceNumber",
+                c.customer_name AS "customerName",
+                c.phone,
+                c.watch_brand AS "watchBrand",
+                NULL AS "watchFamily",
+                c.watch_model AS "watchModel",
+                c.serial,
+                c.submitted_at AS "createdAt",
+                c.warranty_months AS "warrantyMonths",
+                c.warranty_till_date::text AS "warrantyTillDate",
+                'purchase_claim' AS "source"
+         FROM warranty_purchase_claims c
+         WHERE c.status = 'APPROVED'
+           AND (c.warranty_till_date >= CURRENT_DATE OR c.id = $2::uuid)
+           ${claimExtra}
+         ORDER BY (c.phone = $1::text) DESC, c.reviewed_at DESC NULLS LAST
+         LIMIT 200`,
+        claimParams,
+      );
+      res.json({ jobs: [...claimRows, ...rows], customerPhone: phone || null });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Failed to load invoiced SRFs." });
@@ -1836,6 +1938,7 @@ export function registerSrfRoutes(
                 j.warranty_ref_srf_id AS "warrantyRefSrfId",
                 j.warranty_ref_invoice_number AS "warrantyRefInvoiceNumber",
                 j.warranty_ref_srf_reference AS "warrantyRefSrfReference",
+                j.warranty_ref_claim_id AS "warrantyRefClaimId",
                 j.chain_count_12_phase AS "chainCount12Phase",
                 j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",
@@ -2898,8 +3001,9 @@ export function registerSrfRoutes(
         serial: string;
         phone: string;
         warranty_ref_srf_id: string | null;
+        warranty_ref_claim_id: string | null;
       }>(
-        `SELECT id, status, store_id, repair_route, watch_brand, serial, phone, warranty_ref_srf_id
+        `SELECT id, status, store_id, repair_route, watch_brand, serial, phone, warranty_ref_srf_id, warranty_ref_claim_id
          FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
@@ -2941,7 +3045,7 @@ export function registerSrfRoutes(
       const wr = await resolveWarrantyRefSnapshot(client, {
         natureOfRepair,
         warrantyRefSrfIdRaw:
-          req.body?.warrantyRefSrfId !== undefined ? req.body.warrantyRefSrfId : locked[0].warranty_ref_srf_id,
+          req.body?.warrantyRefSrfId !== undefined ? req.body.warrantyRefSrfId : warrantyRefRawFromRow(locked[0]),
         currentSrfId: srfId,
         currentPhone: locked[0].phone,
         required: true,
@@ -2973,6 +3077,7 @@ export function registerSrfRoutes(
              warranty_ref_srf_id = $20::uuid,
              warranty_ref_invoice_number = $21,
              warranty_ref_srf_reference = $22,
+             warranty_ref_claim_id = $23::uuid,
              photo_session_active = false,
              capture_link_disabled_at = now(),
              updated_at = now(),
@@ -3001,6 +3106,7 @@ export function registerSrfRoutes(
           wr.warrantyRefSrfId,
           wr.warrantyRefInvoiceNumber,
           wr.warrantyRefSrfReference,
+          wr.warrantyRefClaimId,
         ],
       );
       let advancePay: { id: string; publicToken: string; receiptNo: string } | null = null;
@@ -3619,8 +3725,10 @@ export function registerSrfRoutes(
         phone: string;
         nature_of_repair: string | null;
         warranty_ref_srf_id: string | null;
+        warranty_ref_claim_id: string | null;
       }>(
-        `SELECT id, status, region_id, store_id, watch_brand, serial, phone, nature_of_repair, warranty_ref_srf_id
+        `SELECT id, status, region_id, store_id, watch_brand, serial, phone, nature_of_repair, warranty_ref_srf_id,
+                warranty_ref_claim_id
          FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
         [srfId],
       );
@@ -3725,12 +3833,13 @@ export function registerSrfRoutes(
           natureOfRepair: natureForRef,
           warrantyRefSrfIdRaw: Object.prototype.hasOwnProperty.call(body, "warrantyRefSrfId")
             ? body.warrantyRefSrfId
-            : row.warranty_ref_srf_id,
+            : warrantyRefRawFromRow(row),
           currentSrfId: srfId,
           currentPhone: typeof body.phone === "string" ? String(body.phone).trim() : row.phone,
           required:
             normalizeNatureOfRepair(natureForRef) === "warranty_non_chargeable" &&
             Object.prototype.hasOwnProperty.call(body, "warrantyRefSrfId"),
+          existingRaw: warrantyRefRawFromRow(row),
         });
         if (!wr.ok) {
           await client.query("ROLLBACK");
@@ -3747,6 +3856,8 @@ export function registerSrfRoutes(
           vals.push(wr.warrantyRefInvoiceNumber);
           sets.push(`warranty_ref_srf_reference = $${pi++}`);
           vals.push(wr.warrantyRefSrfReference);
+          sets.push(`warranty_ref_claim_id = $${pi++}::uuid`);
+          vals.push(wr.warrantyRefClaimId);
         }
       }
       if (body.customFields !== undefined) {
@@ -10044,12 +10155,12 @@ export function registerSrfRoutes(
         : null;
     const parseWarrantyMonths = (raw: unknown): number | null => {
       const n = Number(raw);
-      return Number.isInteger(n) && [3, 4, 6, 9, 12].includes(n) ? n : null;
+      return raw != null && raw !== "" && Number.isInteger(n) && [0, 3, 4, 6, 9, 12].includes(n) ? n : null;
     };
     const warrantyMonths =
       parseWarrantyMonths(req.body?.warrantyMonths) ?? parseWarrantyMonths(snapObj?.warrantyMonths);
     if (!noBillingHandover && warrantyMonths == null) {
-      res.status(400).json({ error: "Select service warranty in months (3, 4, 6, 9, or 12)." });
+      res.status(400).json({ error: "Select service warranty in months (0, 3, 4, 6, 9, or 12)." });
       return;
     }
     const actorStoreId = String(actor.storeId ?? "").trim();
@@ -10162,6 +10273,7 @@ export function registerSrfRoutes(
              warranty_months = CASE WHEN $7::int IS NULL THEN warranty_months ELSE $7 END,
              warranty_till_date = CASE
                WHEN $7::int IS NULL THEN warranty_till_date
+               WHEN $7::int = 0 THEN NULL
                ELSE (CURRENT_DATE + ($7::int * INTERVAL '1 month'))::date
              END,
              closed_at = now(),
@@ -10369,6 +10481,7 @@ export function registerSrfRoutes(
                 j.warranty_ref_srf_id AS "warrantyRefSrfId",
                 j.warranty_ref_invoice_number AS "warrantyRefInvoiceNumber",
                 j.warranty_ref_srf_reference AS "warrantyRefSrfReference",
+                j.warranty_ref_claim_id AS "warrantyRefClaimId",
                 j.chain_count_12_phase AS "chainCount12Phase",
                 j.chain_count_6_phase AS "chainCount6Phase",
                 j.chain_count AS "chainCount",

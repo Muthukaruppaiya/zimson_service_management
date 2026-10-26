@@ -77,6 +77,8 @@ import { SearchableSelect } from "../../components/service/SearchableSelect";
 import { formatInr, formatApproxEstimateInr, ESTIMATE_AMOUNT_LABEL_APPROX, ESTIMATE_LABEL_APPROX } from "../../lib/formatInr";
 import { packageDisplayName } from "../../lib/servicePackage";
 import { formatWarrantyPriorSrfLabel, natureOfRepairLabel } from "../../lib/natureOfRepair";
+import { formatWarrantyTillDisplay } from "../../lib/serviceWarranty";
+import { WARRANTY_CLAIM_REF_PREFIX } from "../../types/warrantyClaim";
 import {
   SRF_REPAIR_ROUTE_OPTIONS,
   SRF_ROUTE_LABEL_INSTORE,
@@ -292,6 +294,8 @@ export function SrfBookingV2Page() {
     emptyWatchServiceDetailValues,
   );
   const [warrantyRefSrfId, setWarrantyRefSrfId] = useState("");
+  const warrantyRefSrfIdRef = useRef("");
+  warrantyRefSrfIdRef.current = warrantyRefSrfId;
   const [invoicedSrfJobs, setInvoicedSrfJobs] = useState<InvoicedSrfRef[]>([]);
   const [stockWatchStoreId, setStockWatchStoreId] = useState("");
   const [handoverStoreId, setHandoverStoreId] = useState("");
@@ -495,9 +499,9 @@ export function SrfBookingV2Page() {
   }, []);
 
   useEffect(() => {
-    if (brandNames.length === 0) return;
-    if (!watchBrand || !brandNames.includes(watchBrand)) {
-      syncModelForBrand(brandNames[0]!);
+    if (!watchBrand) return;
+    if (brandNames.length > 0 && !brandNames.includes(watchBrand)) {
+      syncModelForBrand("");
     }
   }, [brandNames, watchBrand, syncModelForBrand]);
 
@@ -568,17 +572,27 @@ export function SrfBookingV2Page() {
       return;
     }
     const p10 = phone.replace(/\D/g, "").slice(-10);
-    if (p10.length !== 10) {
-      setInvoicedSrfJobs([]);
-      return;
-    }
     let cancelled = false;
-    const qs = new URLSearchParams({ phone: p10 });
+    const qs = new URLSearchParams();
+    if (p10.length === 10) qs.set("phone", p10);
     if (draft?.srfId) qs.set("excludeId", draft.srfId);
+    if (warrantyRefSrfIdRef.current) qs.set("includeRef", warrantyRefSrfIdRef.current);
     void apiJson<{ jobs: InvoicedSrfRef[] }>(`/api/service/srf-jobs/invoiced?${qs.toString()}`)
       .then((data) => {
         if (cancelled) return;
-        setInvoicedSrfJobs(data.jobs ?? []);
+        const jobs = data.jobs ?? [];
+        const own = (j: InvoicedSrfRef) => p10.length === 10 && j.phone.replace(/\D/g, "").slice(-10) === p10;
+        const isClaim = (j: InvoicedSrfRef) => j.source === "purchase_claim";
+        const ownClaims = jobs.filter((j) => own(j) && isClaim(j));
+        setInvoicedSrfJobs([
+          ...ownClaims,
+          ...jobs.filter((j) => own(j) && !isClaim(j)),
+          ...jobs.filter((j) => !own(j) && isClaim(j)),
+          ...jobs.filter((j) => !own(j) && !isClaim(j)),
+        ]);
+        if (ownClaims.length === 1 && !warrantyRefSrfIdRef.current) {
+          setWarrantyRefSrfId(ownClaims[0]!.id);
+        }
       })
       .catch(() => {
         if (!cancelled) setInvoicedSrfJobs([]);
@@ -638,7 +652,7 @@ export function SrfBookingV2Page() {
     }
     if (watchServiceDetails.natureOfRepair === "warranty_non_chargeable") {
       if (!warrantyRefSrfId.trim()) {
-        setError("Select the previous invoiced SRF as reference for this warranty (non-chargeable) booking.");
+        setError("Select an invoice under warranty (previous SRF or approved purchase claim) for this warranty (non-chargeable) booking.");
         return false;
       }
     }
@@ -1095,7 +1109,10 @@ export function SrfBookingV2Page() {
         setWatchModel(job.watchModel.trim());
         setSerial(job.serial);
         setWatchServiceDetails(watchServiceDetailsFromApi(job));
-        setWarrantyRefSrfId(job.warrantyRefSrfId?.trim() ?? "");
+        setWarrantyRefSrfId(
+          job.warrantyRefSrfId?.trim() ||
+            (job.warrantyRefClaimId?.trim() ? `${WARRANTY_CLAIM_REF_PREFIX}${job.warrantyRefClaimId.trim()}` : ""),
+        );
         if (job.servicePackage?.id) {
           setWorkAsPackage("yes");
           setBookingPackage(job.servicePackage);
@@ -1934,9 +1951,7 @@ export function SrfBookingV2Page() {
                   label="Brand *"
                   value={watchBrand}
                   options={brandOptions}
-                  onChange={(v) => {
-                    if (v) syncModelForBrand(v);
-                  }}
+                  onChange={(v) => syncModelForBrand(v)}
                   inputClass={bookingInputClass.replace(/\bmt-1\b/g, "").trim()}
                   placeholder="Search brand"
                   required
@@ -1996,33 +2011,50 @@ export function SrfBookingV2Page() {
               <div className="rounded-xl border border-rlx-gold/50 bg-rlx-green-light/40 p-3">
                 <SearchableSelect
                   id="srf-warranty-ref"
-                  label="Previous invoiced SRF (reference only)"
+                  label="Warranty reference (invoice under warranty)"
                   value={warrantyRefSrfId}
                   onChange={setWarrantyRefSrfId}
-                  options={invoicedSrfJobs.map((j) => ({
-                    value: j.id,
-                    label: formatWarrantyPriorSrfLabel({
+                  options={invoicedSrfJobs.map((j) => {
+                    const till = formatWarrantyTillDisplay(j.warrantyTillDate);
+                    const base = formatWarrantyPriorSrfLabel({
                       invoiceNumber: j.invoiceNumber,
                       srfReference: j.reference,
                       watchBrand: j.watchBrand,
                       watchModel: j.watchModel,
                       serial: j.serial,
-                    }),
-                  }))}
+                    });
+                    const who = [j.customerName?.trim(), j.phone?.replace(/\D/g, "").slice(-10)]
+                      .filter(Boolean)
+                      .join(" ");
+                    return {
+                      value: j.id,
+                      label: [
+                        j.source === "purchase_claim" ? "New purchase ·" : "",
+                        base,
+                        who ? `· ${who}` : "",
+                        till ? `· Warranty till ${till}` : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" "),
+                    };
+                  })}
                   inputClass={bookingInputClass}
-                  placeholder="Select invoiced SRF…"
-                  searchPlaceholder="Search by invoice / SRF / serial…"
+                  placeholder="Select invoice under warranty…"
+                  searchPlaceholder="Search by invoice / SRF / claim / serial / customer / mobile…"
                   required
-                  emptyOption={{ value: "", label: "Select invoiced SRF…" }}
+                  emptyOption={{ value: "", label: "Select invoice under warranty…" }}
                 />
-                <p className="mt-1.5 text-[11px] text-stone-600">
-                  
+                <p className="mt-1.5 text-[11px] font-medium text-stone-600">
+                  {invoicedSrfJobs.length === 0 ? (
+                    <span className="text-rose-700">No invoice under warranty. </span>
+                  ) : null}
+                  <Link
+                    to={`/service/warranty-claims?phone=${encodeURIComponent(phone.replace(/\D/g, "").slice(-10))}&name=${encodeURIComponent(customerName.trim())}`}
+                    className="font-semibold text-rlx-green underline underline-offset-2"
+                  >
+                    Submit purchase invoice for approval
+                  </Link>
                 </p>
-                {phone.replace(/\D/g, "").slice(-10).length === 10 && invoicedSrfJobs.length === 0 ? (
-                  <p className="mt-1 text-[11px] font-medium text-rose-700">
-                    No invoiced SRF found for this customer mobile.
-                  </p>
-                ) : null}
               </div>
             ) : null}
             <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3 md:items-start">
@@ -2470,7 +2502,11 @@ export function SrfBookingV2Page() {
                   <ReviewRow label="Stock Watch Location">{selectedStockWatchStoreName || "—"}</ReviewRow>
                 ) : null}
                 {watchServiceDetails.natureOfRepair === "warranty_non_chargeable" ? (
-                  <ReviewRow label="Previous Invoiced SRF">{selectedWarrantyRefLabel || "—"}</ReviewRow>
+                  <ReviewRow label="Warranty Reference">
+                    {selectedWarrantyRefLabel
+                      ? `${selectedWarrantyRefJob?.source === "purchase_claim" ? "New purchase · " : ""}${selectedWarrantyRefLabel}`
+                      : "—"}
+                  </ReviewRow>
                 ) : null}
               </ReviewSection>
             </div>

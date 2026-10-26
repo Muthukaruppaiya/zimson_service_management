@@ -42,6 +42,8 @@ type TrackJob = {
 
 type TrackPhoto = { id: string; photoKind?: string; filePath: string };
 
+const SERIF = '"Playfair Display", Georgia, "Times New Roman", serif';
+
 function buildCouponMessage(job: TrackJob): string {
   const coupon = job.brandCouponCode ?? "-";
   const validity = job.brandCouponValidUntil
@@ -54,6 +56,14 @@ function estimateAmountLabel(x: { amountInr: number | null; note: string }): str
   if (Number(x.amountInr ?? 0) > 0) return formatApproxEstimateInr(Number(x.amountInr));
   const m = String(x.note ?? "").match(/INR\s+([0-9]+(?:\.[0-9]+)?)/i);
   return m ? formatApproxEstimateInr(Number(m[1])) : formatApproxEstimateInr(0);
+}
+
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ""
+    : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
 function TrackStepIcon({ stepId, className = "h-5 w-5" }: { stepId: string; className?: string }) {
@@ -105,76 +115,53 @@ function TrackProgress({ activeIndex, steps }: { activeIndex: number; steps: rea
   const last = Math.max(steps.length - 1, 1);
   const safeIndex = Math.min(Math.max(activeIndex, 0), last);
   const pct = Math.round((safeIndex / last) * 100);
+  const inset = `${50 / steps.length}%`;
 
   return (
-    <div className="mt-3 overflow-hidden rounded-2xl border border-[#e8dfd0] bg-gradient-to-b from-white to-[#faf6ef] p-4 shadow-sm sm:p-5">
-      <div className="mb-5 flex items-end justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#A8850F]">
-            Step {safeIndex + 1} of {steps.length}
-          </p>
-          <p className="mt-0.5 text-sm font-semibold text-[#0a1f3d]">{steps[safeIndex]?.label}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-semibold tabular-nums text-[#0a1f3d]">{pct}%</p>
-          <p className="text-[10px] font-medium uppercase tracking-wide text-[#8a7a5c]">Complete</p>
-        </div>
-      </div>
-
-      <div className="relative px-1 sm:px-3">
+    <div>
+      <div className="relative">
         <div
-          className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-[22px] h-[3px] rounded-full bg-[#e8dfd0] sm:top-[26px]"
+          className="pointer-events-none absolute top-5 h-[2px] bg-[#e8dfd0]"
+          style={{ left: inset, right: inset }}
           aria-hidden
         />
         <div
-          className="pointer-events-none absolute left-[12.5%] top-[22px] h-[3px] rounded-full bg-gradient-to-r from-[#8B6914] via-[#C9A227] to-[#E8C14E] transition-all duration-700 sm:top-[26px]"
-          style={{ width: `calc(${pct}% * 0.75)` }}
+          className="pointer-events-none absolute top-5 h-[2px] bg-gradient-to-r from-[#8B6914] to-[#E8C14E] transition-all duration-700"
+          style={{ left: inset, width: `calc((100% - ${inset} * 2) * ${pct / 100})` }}
           aria-hidden
         />
-
         <ol className="relative z-10 grid" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
           {steps.map((step, idx) => {
             const done = idx < safeIndex;
             const current = idx === safeIndex;
-            const upcoming = idx > safeIndex;
             return (
               <li key={step.id} className="flex flex-col items-center text-center">
                 <div
                   className={[
-                    "relative flex h-11 w-11 items-center justify-center rounded-full transition-all duration-300 sm:h-[3.25rem] sm:w-[3.25rem]",
+                    "flex h-10 w-10 items-center justify-center transition-all duration-300",
                     done
-                      ? "bg-[#0a1f3d] text-[#E8C14E] shadow-md"
+                      ? "bg-[#0a1f3d] text-[#E8C14E]"
                       : current
-                        ? "bg-gradient-to-br from-[#C9A227] to-[#8B6914] text-white shadow-[0_0_0_4px_rgba(201,162,39,0.22)] sm:shadow-[0_0_0_5px_rgba(201,162,39,0.22)]"
+                        ? "bg-gradient-to-br from-[#C9A227] to-[#8B6914] text-white shadow-[0_0_0_4px_rgba(201,162,39,0.2)]"
                         : "border border-[#d4c4a8] bg-white text-[#b09a6e]",
-                    upcoming ? "opacity-70" : "",
                   ].join(" ")}
                 >
                   {done ? (
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   ) : (
-                    <TrackStepIcon stepId={step.id} className="h-5 w-5 sm:h-[1.35rem] sm:w-[1.35rem]" />
+                    <TrackStepIcon stepId={step.id} className="h-[1.15rem] w-[1.15rem]" />
                   )}
                 </div>
                 <p
                   className={[
-                    "mt-2.5 max-w-[5.5rem] text-[10px] font-semibold leading-snug sm:max-w-[8rem] sm:text-[12px]",
-                    current ? "text-[#0a1f3d]" : done ? "text-[#3d4f66]" : "text-[#8a7a5c]",
+                    "mt-2 max-w-[5.5rem] text-[10px] font-semibold leading-tight sm:max-w-[8rem] sm:text-xs",
+                    current ? "text-[#0a1f3d]" : done ? "text-[#3d4f66]" : "text-[#9a8a6c]",
                   ].join(" ")}
                 >
                   {step.label}
                 </p>
-                {current ? (
-                  <span className="mt-1.5 inline-flex rounded-full bg-[#0a1f3d] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-[#E8C14E]">
-                    Now
-                  </span>
-                ) : done ? (
-                  <span className="mt-1.5 text-[9px] font-medium text-[#A8850F]">Done</span>
-                ) : (
-                  <span className="mt-1.5 text-[9px] font-medium text-transparent select-none">·</span>
-                )}
               </li>
             );
           })}
@@ -184,35 +171,65 @@ function TrackProgress({ activeIndex, steps }: { activeIndex: number; steps: rea
   );
 }
 
-function ZimsonHeader() {
+function ZimsonHeader({ customer }: { customer: { name: string; phone: string } | null }) {
   return (
-    <header className="relative overflow-hidden bg-[#0a1f3d] text-white shadow-xl">
+    <header className="relative overflow-hidden bg-[#0a1f3d] text-white">
       <div
-        className="pointer-events-none absolute inset-0 opacity-[0.07]"
+        className="pointer-events-none absolute inset-0 opacity-[0.08]"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 20% 50%, #C9A227 0%, transparent 45%), radial-gradient(circle at 90% 20%, #fff 0%, transparent 35%)",
+            "radial-gradient(circle at 15% 40%, #C9A227 0%, transparent 45%), radial-gradient(circle at 90% 10%, #fff 0%, transparent 35%)",
         }}
         aria-hidden
       />
-      <div className="relative mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-5 sm:px-8 sm:py-6">
-        <div className="min-w-0">
-          <p
-            className="text-2xl font-semibold tracking-[0.12em] text-[#E8C14E] sm:text-3xl"
-            style={{ fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif' }}
-          >
-            ZIMSON WATCH
-          </p>
-          <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.35em] text-white/80 sm:text-[11px]">
-            Service care
-          </p>
+      <div className="relative mx-auto max-w-3xl px-5 pb-7 pt-5 sm:px-8 sm:pb-9 sm:pt-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xl font-semibold tracking-[0.14em] text-[#E8C14E] sm:text-2xl" style={{ fontFamily: SERIF }}>
+              ZIMSON WATCH
+            </p>
+            <p className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.36em] text-white/70 sm:text-[10px]">
+              Service care
+            </p>
+          </div>
+          <span className="hidden border border-[#E8C14E]/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#E8C14E] sm:inline-block">
+            Service tracking
+          </span>
         </div>
-        <p className="hidden max-w-[14rem] text-right text-xs leading-relaxed text-white/75 sm:block md:text-sm">
-          Premium after-sales service for your timepiece.
-        </p>
+
+        <div className="mt-7 sm:mt-8">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#E8C14E]/90">Your service</p>
+          <h1 className="mt-1.5 text-[1.7rem] font-semibold leading-tight sm:text-4xl" style={{ fontFamily: SERIF }}>
+            {customer?.name ? `Hello, ${customer.name}` : "Watch service tracking"}
+          </h1>
+          {customer?.phone ? <p className="mt-1.5 font-mono text-sm text-white/65">{customer.phone}</p> : null}
+        </div>
       </div>
-      <div className="h-1 bg-gradient-to-r from-transparent via-[#E8C14E] to-transparent" />
+      <div className="h-[3px] bg-gradient-to-r from-transparent via-[#E8C14E] to-transparent" />
     </header>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h2 className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#8a7a5c]">{children}</h2>;
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-4" aria-label="Loading">
+      {[0, 1].map((i) => (
+        <div key={i} className="animate-pulse border border-[#e8dfd0] bg-white p-5 sm:p-6">
+          <div className="h-3 w-24 bg-[#efe7d8]" />
+          <div className="mt-3 h-6 w-48 bg-[#efe7d8]" />
+          <div className="mt-2 h-3 w-36 bg-[#f4eee2]" />
+          <div className="mt-6 grid grid-cols-4 gap-3">
+            {[0, 1, 2, 3].map((k) => (
+              <div key={k} className="mx-auto h-10 w-10 bg-[#f4eee2]" />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -232,6 +249,7 @@ export function SrfTrackingPage() {
   const [jobs, setJobs] = useState<TrackJob[]>([]);
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [lightboxPhoto, setLightboxPhoto] = useState<TrackPhoto | null>(null);
 
   async function load() {
@@ -295,69 +313,59 @@ export function SrfTrackingPage() {
     }
   }
 
+  async function copyCoupon(job: TrackJob) {
+    try {
+      await navigator.clipboard.writeText(buildCouponMessage(job));
+      setCopiedId(job.id);
+      window.setTimeout(() => setCopiedId((prev) => (prev === job.id ? null : prev)), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
   return (
-    <div className="min-h-dvh bg-[#f7f4ef] text-[#1a2332]">
+    <div className="min-h-dvh bg-[#f7f4ef] text-[#1a2332]" style={{ fontFamily: '"Poppins", system-ui, sans-serif' }}>
       <link
         href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Poppins:wght@400;500;600;700&display=swap"
         rel="stylesheet"
       />
-      <ZimsonHeader />
+      <ZimsonHeader customer={customer} />
 
-      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-8 sm:py-12" style={{ fontFamily: '"Poppins", system-ui, sans-serif' }}>
-        {/* Hero intro card */}
-        <section className="rounded-3xl border border-[#e8dfd0] bg-white px-6 py-8 shadow-[0_8px_30px_rgba(10,31,61,0.08)] sm:px-10 sm:py-10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#A8850F]">Your service</p>
-          <h1
-            className="mt-2 text-3xl font-semibold tracking-tight text-[#0a1f3d] sm:text-4xl"
-            style={{ fontFamily: '"Playfair Display", Georgia, serif' }}
-          >
-            Watch service tracking
-          </h1>
-          {customer ? (
-            <div className="mt-6 flex flex-wrap gap-2">
-              <span className="inline-flex items-center rounded-full border border-[#e8dfd0] bg-[#faf6ef] px-4 py-2 text-sm font-semibold text-[#0a1f3d]">
-                {customer.name}
-              </span>
-              <span className="inline-flex items-center rounded-full border border-[#e8dfd0] bg-[#faf6ef] px-4 py-2 font-mono text-sm text-[#5c6b7a]">
-                {customer.phone}
-              </span>
-            </div>
-          ) : null}
-        </section>
-
-        {loading ? (
-          <div className="mt-8 flex items-center gap-3 rounded-2xl border border-[#e8dfd0] bg-white px-5 py-4 text-sm text-[#5c6b7a] shadow-sm">
-            <span className="inline-block h-4 w-4 animate-pulse rounded-full bg-[#E8C14E]" aria-hidden />
-            Loading your service details…
-          </div>
-        ) : null}
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
+        {loading ? <LoadingSkeleton /> : null}
 
         {error ? (
-          <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800" role="alert">
+          <div className="mb-4 border border-red-200 border-l-4 border-l-red-500 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
             {error}
           </div>
         ) : null}
 
         {!loading && disabled ? (
-          <div className="mt-8 rounded-3xl border border-[#E8C14E]/40 bg-gradient-to-br from-[#0a1f3d] to-[#1a3a5c] px-6 py-8 text-white shadow-lg">
-            <p className="text-xl font-semibold" style={{ fontFamily: '"Playfair Display", Georgia, serif' }}>
+          <section className="border border-[#e8dfd0] bg-white px-6 py-10 text-center shadow-[0_8px_30px_rgba(10,31,61,0.06)] sm:px-10">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center bg-[#0a1f3d] text-[#E8C14E]">
+              <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="mt-5 text-2xl font-semibold text-[#0a1f3d]" style={{ fontFamily: SERIF }}>
               Service complete
+            </h2>
+            <div className="mx-auto mt-3 h-[2px] w-12 bg-[#C9A227]" aria-hidden />
+            <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-[#5c6b7a]">
+              Your watch has been delivered and this tracking link is no longer active. Thank you for choosing Zimson
+              Watch.
             </p>
-            <p className="mt-2 text-sm text-white/80">
-              This tracking link has been deactivated. Thank you for choosing Zimson Watch.
-            </p>
-          </div>
+          </section>
+        ) : null}
+
+        {!loading && !disabled && jobs.length > 1 ? (
+          <p className="mb-4 text-sm text-[#5c6b7a]">
+            <span className="font-semibold text-[#0a1f3d]">{jobs.length}</span> active service requests
+          </p>
         ) : null}
 
         {!loading && !disabled && jobs.length > 0 ? (
-          <div className="mt-8 space-y-6">
-            {jobs.length > 1 ? (
-              <p className="text-sm font-medium text-[#5c6b7a]">
-                <span className="font-semibold text-[#0a1f3d]">{jobs.length}</span> active service requests found for
-                your account.
-              </p>
-            ) : null}
-
+          <div className="space-y-5">
             {jobs.map((j, jobIdx) => {
               const pendingReestimate =
                 (j.status === "reestimate_required" || j.status === "brand_estimate_customer_pending") &&
@@ -367,13 +375,24 @@ export function SrfTrackingPage() {
               const activeFlow = trackingFlowIndex(j.status, j.repairRoute);
               const isStoreSelf = j.repairRoute === "store_self" || j.status.startsWith("store_self_");
               const statusLabel = customerTrackingStatusLabel(j.status, pendingReestimate, j.repairRoute);
+              const showBrandCoupon =
+                (j.status === "brand_credit_note_pending" ||
+                  j.status === "brand_credit_note_pending_ho" ||
+                  j.status === "brand_credit_note_pending_accounts" ||
+                  j.status === "brand_credit_note_active") &&
+                Boolean(j.brandCouponCode);
+              const hasDetails =
+                Boolean(j.complaint?.trim()) ||
+                j.estimateTotalInr > 0 ||
+                (j.reestimateHistory ?? []).length > 0 ||
+                (j.photos ?? []).length > 0;
 
               return (
                 <article
                   key={j.id}
-                  className="overflow-hidden rounded-3xl border border-[#e8dfd0] bg-white shadow-[0_10px_40px_rgba(10,31,61,0.07)]"
+                  className="border border-[#e8dfd0] border-t-[3px] border-t-[#C9A227] bg-white shadow-[0_10px_34px_rgba(10,31,61,0.06)]"
                 >
-                  <div className="px-5 py-5 sm:px-8 sm:py-6">
+                  <div className="px-5 pb-5 pt-5 sm:px-7 sm:pt-6">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#8a7a5c]">
@@ -382,234 +401,226 @@ export function SrfTrackingPage() {
                         <p className="mt-1 font-mono text-xl font-bold tracking-tight text-[#0a1f3d] sm:text-2xl">
                           {j.reference}
                         </p>
-                        <p className="mt-2 text-sm text-[#5c6b7a]">
-                          {j.watchBrand} {j.watchModel}
-                          <span className="mx-1.5 text-[#d4c4a8]">·</span>
-                          <span className="font-mono text-xs">{j.serial}</span>
-                        </p>
-                        {isStoreSelf ? (
-                          <p className="mt-1 text-xs font-medium text-sky-800">
-                            Repaired at your Zimson store (not sent to service centre).
-                          </p>
-                        ) : null}
                       </div>
                       <span
-                        className={`shrink-0 rounded-full px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] shadow-sm ${
+                        className={`shrink-0 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
                           pendingReestimate
-                            ? "bg-amber-100 text-amber-950 ring-1 ring-amber-300/80"
-                            : "bg-[#0a1f3d] text-white"
+                            ? "bg-amber-100 text-amber-950 ring-1 ring-amber-300"
+                            : "bg-[#0a1f3d] text-[#E8C14E]"
                         }`}
                       >
                         {statusLabel}
                       </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setOpenJobId((prev) => (prev === j.id ? null : j.id))}
-                      className="mt-5 flex w-full items-center justify-between gap-3 rounded-2xl border border-[#e8dfd0] bg-[#faf6ef] px-4 py-3.5 text-left text-sm font-semibold text-[#0a1f3d] transition hover:border-[#E8C14E]/50 hover:bg-[#f5efe3]"
-                      aria-expanded={isOpen}
-                    >
-                      <span>{isOpen ? "Hide tracking & details" : "Show tracking & details"}</span>
-                      <span
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-sm text-[#A8850F] shadow-sm transition-transform ${
-                          isOpen ? "rotate-180" : ""
-                        }`}
-                        aria-hidden
-                      >
-                        ▼
+                    <div className="mt-4 flex items-center gap-3 border border-[#f0e9dc] bg-[#fbf8f2] px-3.5 py-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center bg-white text-[#A8850F] ring-1 ring-[#e8dfd0]">
+                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
+                          <circle cx="12" cy="12" r="5" />
+                          <path strokeLinecap="round" d="M12 9.8V12l1.4 1.2M9 7l.8-4h4.4l.8 4M9 17l.8 4h4.4l.8-4" />
+                        </svg>
                       </span>
-                    </button>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[#0a1f3d]">
+                          {[j.watchBrand, j.watchModel].filter(Boolean).join(" ") || "Watch"}
+                        </p>
+                        {j.serial ? <p className="truncate font-mono text-xs text-[#5c6b7a]">S/N {j.serial}</p> : null}
+                      </div>
+                    </div>
+                    {isStoreSelf ? (
+                      <p className="mt-2 text-xs font-medium text-[#3d4f66]">Being repaired at your Zimson store.</p>
+                    ) : null}
+
+                    <div className="mt-6">
+                      <TrackProgress activeIndex={activeFlow} steps={steps} />
+                    </div>
                   </div>
 
-                  {isOpen ? (
-                    <div className="space-y-6 border-t border-[#f0e9dc] px-5 py-6 sm:px-8 sm:py-8">
-                      <section>
-                        <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#0a1f3d]">
-                          Repair progress
-                        </h2>
-                        <TrackProgress activeIndex={activeFlow} steps={steps} />
-                      </section>
-                      <dl className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-xl border border-[#e8dfd0] bg-[#faf6ef]/80 px-3 py-3">
-                          <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a7a5c]">
-                            Original Estimate (approximate)
-                          </dt>
-                          <dd className="mt-1.5 text-base font-semibold text-[#0a1f3d] sm:text-lg">
-                            {formatApproxEstimateInr(j.estimateTotalInr)}
-                          </dd>
-                        </div>
-                        <div className="rounded-xl border border-[#e8dfd0] bg-[#faf6ef]/80 px-3 py-3">
-                          <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a7a5c]">
-                            Complaint
-                          </dt>
-                          <dd className="mt-1.5 text-xs font-medium leading-snug text-[#1a2332] sm:text-sm">
-                            {j.complaint?.trim() || "—"}
-                          </dd>
-                        </div>
-                      </dl>
-
-                      {(j.reestimateHistory ?? []).length > 0 ? (
-                        <section>
-                          <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#0a1f3d]">
-                            Re-estimate updates
-                          </h2>
-                          <ul className="mt-3 space-y-3">
-                            {(j.reestimateHistory ?? []).map((x, idx) => (
-                              <li
-                                key={`${x.requestedAt}-${idx}`}
-                                className="rounded-2xl border border-[#e8dfd0] border-l-4 border-l-[#E8C14E] bg-white px-4 py-4 text-sm shadow-sm"
-                              >
-                                <p className="font-semibold text-[#0a1f3d]">
-                                  Estimate {idx + 1}: {estimateAmountLabel(x)}
+                  {pendingReestimate ? (
+                    <section className="border-t border-amber-200 bg-gradient-to-br from-amber-50 to-[#fbf8f2] px-5 py-5 sm:px-7">
+                      {(() => {
+                        const isBrandPending = j.status === "brand_estimate_customer_pending";
+                        const attemptNo = Number(j.reestimateAttemptNo ?? 1);
+                        const firstReestimate = !isBrandPending && attemptNo <= 1;
+                        const softDeclineLabel = firstReestimate ? "Need to talk" : "Decline";
+                        return (
+                          <>
+                            <h3 className="text-base font-bold text-amber-950">Your approval is needed</h3>
+                            <p className="mt-1 text-sm text-[#5c6b7a]">
+                              {firstReestimate
+                                ? "A revised estimate is ready. Accept to continue, or choose Need to talk if you’d like our team to call you."
+                                : "A revised estimate is ready. Please accept or decline to continue your repair."}
+                            </p>
+                            {j.reestimateRequestedInr != null && Number(j.reestimateRequestedInr) > 0 ? (
+                              <div className="mt-4 border border-amber-200 bg-white px-4 py-3">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a7a5c]">
+                                  Revised amount (approximate)
                                 </p>
-                                <p className="mt-1 text-[#5c6b7a]">{x.note || "—"}</p>
-                                <p className="mt-2 text-[11px] text-[#8a7a5c]">
-                                  {new Date(x.requestedAt).toLocaleString()}
+                                <p className="mt-1 text-xl font-semibold text-[#0a1f3d]">
+                                  {formatApproxEstimateInr(Number(j.reestimateRequestedInr))}
                                 </p>
-                              </li>
-                            ))}
-                          </ul>
-                        </section>
-                      ) : null}
-
-                      {j.photos && j.photos.length > 0 ? (
-                        <section>
-                          <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#0a1f3d]">
-                            Watch photos on file
-                          </h2>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {j.photos.map((p) => (
+                              </div>
+                            ) : null}
+                            <div className="mt-4 grid grid-cols-2 gap-3">
                               <button
-                                key={p.id}
                                 type="button"
-                                onClick={() => setLightboxPhoto(p)}
-                                className="overflow-hidden rounded-xl border border-[#e8dfd0] bg-white text-left shadow-sm transition hover:border-[#E8C14E]/70 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#E8C14E]/40"
+                                disabled={busyId === j.id}
+                                onClick={() => void respond(j.id, true)}
+                                className="bg-[#0a1f3d] px-4 py-3.5 text-sm font-bold text-white transition hover:bg-[#132a4d] disabled:opacity-60"
                               >
-                                <img
-                                  src={`/${p.filePath}`}
-                                  alt={p.photoKind ?? "Watch photo"}
-                                  className="h-14 w-14 object-cover sm:h-16 sm:w-16"
-                                />
-                                <span className="block w-14 truncate border-t border-[#f0e9dc] bg-[#faf6ef] px-1.5 py-1 text-center text-[9px] font-bold uppercase tracking-wide text-[#0a1f3d] sm:w-16">
-                                  {p.photoKind ?? "other"}
-                                </span>
+                                {busyId === j.id ? "Saving…" : "Accept"}
                               </button>
-                            ))}
-                          </div>
-                        </section>
-                      ) : null}
+                              <button
+                                type="button"
+                                disabled={busyId === j.id}
+                                onClick={() => void respond(j.id, false)}
+                                className="border-2 border-[#0a1f3d] bg-white px-4 py-3.5 text-sm font-bold text-[#0a1f3d] transition hover:bg-[#fbf8f2] disabled:opacity-60"
+                              >
+                                {softDeclineLabel}
+                              </button>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </section>
+                  ) : null}
 
-                      {pendingReestimate ? (
-                        <section className="rounded-3xl border border-amber-300/70 bg-gradient-to-br from-amber-50 to-[#faf6ef] p-5 sm:p-6">
-                          <h2 className="text-base font-bold text-amber-950">Your approval is needed</h2>
-                          {(() => {
-                            const isBrandPending = j.status === "brand_estimate_customer_pending";
-                            const attemptNo = Number(j.reestimateAttemptNo ?? 1);
-                            const firstReestimate = !isBrandPending && attemptNo <= 1;
-                            const softDeclineLabel = firstReestimate ? "Need to talk" : "Decline";
-                            return (
-                              <>
-                                <p className="mt-1 text-sm text-[#5c6b7a]">
-                                  {firstReestimate
-                                    ? "A revised estimate is ready. Accept to continue, or choose Need to talk if you’d like our team to call you."
-                                    : "A revised estimate is ready. Please accept or decline to continue your repair."}
-                                </p>
-                                {j.reestimateRequestedInr != null && Number(j.reestimateRequestedInr) > 0 ? (
-                                  <p className="mt-3 text-base font-semibold text-[#0a1f3d] sm:text-lg">
-                                    Revised amount (approximate):{" "}
-                                    {formatApproxEstimateInr(Number(j.reestimateRequestedInr))}
-                                  </p>
-                                ) : null}
-                                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                  {j.storeAdvanceVoucherCode ? (
+                    <section className="border-t border-[#f0e9dc] px-5 py-5 sm:px-7">
+                      <SectionTitle>Store credit</SectionTitle>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-dashed border-[#C9A227] bg-[#fbf8f2] px-4 py-3">
+                        <p className="font-mono text-lg font-bold tracking-wider text-[#0a1f3d]">{j.storeAdvanceVoucherCode}</p>
+                        {j.storeAdvanceVoucherValueInr ? (
+                          <p className="text-lg font-semibold text-[#0a1f3d]">
+                            {formatInr(Number(j.storeAdvanceVoucherValueInr))}
+                          </p>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 text-xs text-[#5c6b7a]">
+                        Issued for the advance paid on this service request. Redeem at a Zimson store.
+                        {j.storeAdvanceVoucherValidUntil ? ` Valid until ${formatDate(j.storeAdvanceVoucherValidUntil)}.` : ""}
+                      </p>
+                    </section>
+                  ) : null}
+
+                  {showBrandCoupon ? (
+                    <section className="border-t border-[#f0e9dc] px-5 py-5 sm:px-7">
+                      <SectionTitle>Brand credit / coupon</SectionTitle>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-dashed border-emerald-400 bg-emerald-50/60 px-4 py-3">
+                        <p className="font-mono text-lg font-bold tracking-wider text-[#0a1f3d]">{j.brandCouponCode}</p>
+                        {j.brandCouponValueInr ? (
+                          <p className="text-lg font-semibold text-[#0a1f3d]">{formatInr(Number(j.brandCouponValueInr))}</p>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 text-xs text-[#5c6b7a]">
+                        Redeem at any Zimson Watch store.
+                        {j.brandCouponValidUntil ? ` Valid until ${formatDate(j.brandCouponValidUntil)}.` : ""}
+                      </p>
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void copyCoupon(j)}
+                          className="border border-[#0a1f3d] bg-white px-3 py-2.5 text-xs font-bold text-[#0a1f3d] hover:bg-[#fbf8f2]"
+                        >
+                          {copiedId === j.id ? "Copied" : "Copy message"}
+                        </button>
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(buildCouponMessage(j))}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bg-[#25D366] px-3 py-2.5 text-center text-xs font-bold text-white hover:opacity-90"
+                        >
+                          Share on WhatsApp
+                        </a>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {hasDetails ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setOpenJobId((prev) => (prev === j.id ? null : j.id))}
+                        className="flex w-full items-center justify-between gap-3 border-t border-[#f0e9dc] px-5 py-3.5 text-left text-sm font-semibold text-[#0a1f3d] transition hover:bg-[#fbf8f2] sm:px-7"
+                        aria-expanded={isOpen}
+                      >
+                        <span>{isOpen ? "Hide details" : "View details"}</span>
+                        <svg
+                          className={`h-4 w-4 text-[#A8850F] transition-transform ${isOpen ? "rotate-180" : ""}`}
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2.2}
+                          aria-hidden
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+                        </svg>
+                      </button>
+
+                      {isOpen ? (
+                        <div className="space-y-6 border-t border-[#f0e9dc] bg-[#fdfbf7] px-5 py-6 sm:px-7">
+                          <dl className="grid gap-3 sm:grid-cols-2">
+                            <div className="border border-[#e8dfd0] bg-white px-4 py-3">
+                              <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a7a5c]">
+                                Original estimate (approximate)
+                              </dt>
+                              <dd className="mt-1.5 text-lg font-semibold text-[#0a1f3d]">
+                                {formatApproxEstimateInr(j.estimateTotalInr)}
+                              </dd>
+                            </div>
+                            <div className="border border-[#e8dfd0] bg-white px-4 py-3">
+                              <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a7a5c]">Complaint</dt>
+                              <dd className="mt-1.5 text-sm font-medium leading-snug text-[#1a2332]">
+                                {j.complaint?.trim() || "—"}
+                              </dd>
+                            </div>
+                          </dl>
+
+                          {(j.reestimateHistory ?? []).length > 0 ? (
+                            <section>
+                              <SectionTitle>Re-estimate updates</SectionTitle>
+                              <ol className="mt-3 space-y-0 border-l-2 border-[#e8dfd0] pl-4">
+                                {(j.reestimateHistory ?? []).map((x, idx) => (
+                                  <li key={`${x.requestedAt}-${idx}`} className="relative pb-4 last:pb-0">
+                                    <span className="absolute -left-[1.4rem] top-1 h-2.5 w-2.5 bg-[#C9A227]" aria-hidden />
+                                    <p className="text-sm font-semibold text-[#0a1f3d]">
+                                      Estimate {idx + 1}: {estimateAmountLabel(x)}
+                                    </p>
+                                    {x.note ? <p className="mt-0.5 text-sm text-[#5c6b7a]">{x.note}</p> : null}
+                                    <p className="mt-1 text-[11px] text-[#8a7a5c]">{new Date(x.requestedAt).toLocaleString()}</p>
+                                  </li>
+                                ))}
+                              </ol>
+                            </section>
+                          ) : null}
+
+                          {j.photos && j.photos.length > 0 ? (
+                            <section>
+                              <SectionTitle>Watch photos on file</SectionTitle>
+                              <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-6">
+                                {j.photos.map((p) => (
                                   <button
+                                    key={p.id}
                                     type="button"
-                                    disabled={busyId === j.id}
-                                    onClick={() => void respond(j.id, true)}
-                                    className="flex-1 rounded-2xl bg-[#0a1f3d] px-4 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-[#132a4d] disabled:opacity-60"
+                                    onClick={() => setLightboxPhoto(p)}
+                                    className="group overflow-hidden border border-[#e8dfd0] bg-white text-left transition hover:border-[#C9A227] focus:outline-none focus:ring-2 focus:ring-[#E8C14E]/50"
                                   >
-                                    Accept
+                                    <img
+                                      src={`/${p.filePath}`}
+                                      alt={p.photoKind ?? "Watch photo"}
+                                      className="aspect-square w-full object-cover transition group-hover:scale-105"
+                                    />
+                                    <span className="block truncate border-t border-[#f0e9dc] bg-[#fbf8f2] px-1 py-1 text-center text-[9px] font-bold uppercase tracking-wide text-[#0a1f3d]">
+                                      {p.photoKind ?? "other"}
+                                    </span>
                                   </button>
-                                  <button
-                                    type="button"
-                                    disabled={busyId === j.id}
-                                    onClick={() => void respond(j.id, false)}
-                                    className="flex-1 rounded-2xl border-2 border-[#0a1f3d] bg-white px-4 py-3.5 text-sm font-bold text-[#0a1f3d] transition hover:bg-[#faf6ef] disabled:opacity-60"
-                                  >
-                                    {softDeclineLabel}
-                                  </button>
-                                </div>
-                              </>
-                            );
-                          })()}
-                        </section>
+                                ))}
+                              </div>
+                            </section>
+                          ) : null}
+                        </div>
                       ) : null}
-
-                      {j.storeAdvanceVoucherCode ? (
-                        <section className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-[#faf6ef] p-5 sm:p-6">
-                          <h2 className="text-base font-bold text-amber-950">Store credit</h2>
-                          <p className="mt-2 text-sm text-[#1a2332]">
-                            Code <strong className="font-mono text-[#0a1f3d]">{j.storeAdvanceVoucherCode}</strong>
-                            {j.storeAdvanceVoucherValueInr ? (
-                              <span>
-                                {" "}
-                                · <strong>{formatInr(Number(j.storeAdvanceVoucherValueInr))}</strong>
-                              </span>
-                            ) : null}
-                            {j.storeAdvanceVoucherValidUntil ? (
-                              <span className="mt-1 block text-xs text-[#5c6b7a]">
-                                Valid until {new Date(j.storeAdvanceVoucherValidUntil).toLocaleDateString()}
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="mt-2 text-xs text-[#5c6b7a]">
-                            Issued for the advance paid on this service request. Redeem this store credit at a Zimson store.
-                          </p>
-                        </section>
-                      ) : null}
-
-                      {(j.status === "brand_credit_note_pending" ||
-                        j.status === "brand_credit_note_pending_ho" ||
-                        j.status === "brand_credit_note_pending_accounts" ||
-                        j.status === "brand_credit_note_active") &&
-                      j.brandCouponCode ? (
-                        <section className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-[#faf6ef] p-5 sm:p-6">
-                          <h2 className="text-base font-bold text-emerald-900">Brand credit / coupon</h2>
-                          <p className="mt-2 text-sm text-[#1a2332]">
-                            Code <strong className="font-mono text-[#0a1f3d]">{j.brandCouponCode}</strong>
-                            {j.brandCouponValueInr ? (
-                              <span>
-                                {" "}
-                                · <strong>{formatInr(Number(j.brandCouponValueInr))}</strong>
-                              </span>
-                            ) : null}
-                            {j.brandCouponValidUntil ? (
-                              <span className="mt-1 block text-xs text-[#5c6b7a]">
-                                Valid until {new Date(j.brandCouponValidUntil).toLocaleDateString()}
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="mt-2 text-xs text-[#5c6b7a]">Redeem at any Zimson Watch store.</p>
-                          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                            <button
-                              type="button"
-                              onClick={() => void navigator.clipboard.writeText(buildCouponMessage(j))}
-                              className="flex-1 rounded-2xl border border-[#0a1f3d] bg-white px-3 py-2.5 text-xs font-bold text-[#0a1f3d] hover:bg-[#faf6ef]"
-                            >
-                              Copy message
-                            </button>
-                            <a
-                              href={`https://wa.me/?text=${encodeURIComponent(buildCouponMessage(j))}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex-1 rounded-2xl bg-[#25D366] px-3 py-2.5 text-center text-xs font-bold text-white hover:opacity-90"
-                            >
-                              Share on WhatsApp
-                            </a>
-                          </div>
-                        </section>
-                      ) : null}
-                    </div>
+                    </>
                   ) : null}
                 </article>
               );
@@ -617,31 +628,26 @@ export function SrfTrackingPage() {
           </div>
         ) : null}
 
-        {!loading && !disabled && jobs.length === 0 ? (
-          <p className="mt-8 rounded-2xl border border-[#e8dfd0] bg-white px-5 py-5 text-sm text-[#5c6b7a] shadow-sm">
-            No active service request found for this link. Please contact your Zimson store.
-          </p>
+        {!loading && !disabled && !error && jobs.length === 0 ? (
+          <section className="border border-[#e8dfd0] bg-white px-6 py-8 text-center">
+            <p className="text-base font-semibold text-[#0a1f3d]" style={{ fontFamily: SERIF }}>
+              No active service request
+            </p>
+            <p className="mt-2 text-sm text-[#5c6b7a]">Please contact your Zimson store with your SRF reference.</p>
+          </section>
         ) : null}
 
-        <footer className="mt-14 border-t border-[#e8dfd0] pt-8 text-center">
-          <p
-            className="text-lg font-semibold tracking-wide text-[#0a1f3d]"
-            style={{ fontFamily: '"Playfair Display", Georgia, serif' }}
-          >
-            Zimson Watch
+        <footer className="mt-12 border-t border-[#e8dfd0] pt-7 text-center">
+          <p className="text-base font-semibold tracking-[0.12em] text-[#0a1f3d]" style={{ fontFamily: SERIF }}>
+            ZIMSON WATCH
           </p>
-          <p className="mt-2 text-xs text-[#8a7a5c]">
-            Need help? Visit your authorised service centre with your SRF reference.
+          <div className="mx-auto mt-2 h-[2px] w-8 bg-[#C9A227]" aria-hidden />
+          <p className="mx-auto mt-3 max-w-xs text-xs leading-relaxed text-[#8a7a5c]">
+            Need help? Visit your Zimson store with your SRF reference.
           </p>
-          <nav className="mt-5 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px] font-medium text-[#5c6b7a]">
-            <span>Home</span>
-            <span className="text-[#d4c4a8]">|</span>
-            <span>Contact Us</span>
-            <span className="text-[#d4c4a8]">|</span>
-            <span>About Zimson</span>
-            <span className="text-[#d4c4a8]">|</span>
-            <span>Support</span>
-          </nav>
+          <p className="mt-4 text-[10px] uppercase tracking-[0.2em] text-[#b5a684]">
+            © {new Date().getFullYear()} Zimson Watch
+          </p>
         </footer>
       </main>
 
@@ -656,26 +662,22 @@ export function SrfTrackingPage() {
           <button
             type="button"
             onClick={() => setLightboxPhoto(null)}
-            className="absolute right-4 top-4 flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm transition hover:bg-white/20"
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center border border-white/30 bg-white/10 text-white backdrop-blur-sm transition hover:bg-white/20"
+            aria-label="Close"
           >
-            <span aria-hidden>←</span> Back
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+              <path strokeLinecap="round" d="M18 6 6 18M6 6l12 12" />
+            </svg>
           </button>
           <img
             src={`/${lightboxPhoto.filePath}`}
             alt={lightboxPhoto.photoKind ?? "Watch photo"}
-            className="max-h-[78vh] max-w-full rounded-2xl object-contain shadow-2xl"
+            className="max-h-[78vh] max-w-full object-contain shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
           <p className="mt-4 text-center text-sm font-semibold uppercase tracking-wide text-white/90">
             {lightboxPhoto.photoKind ?? "Watch photo"}
           </p>
-          <button
-            type="button"
-            onClick={() => setLightboxPhoto(null)}
-            className="mt-4 rounded-2xl bg-white px-6 py-2.5 text-sm font-bold text-[#0a1f3d] shadow-lg transition hover:bg-[#faf6ef]"
-          >
-            Close
-          </button>
         </div>
       ) : null}
     </div>

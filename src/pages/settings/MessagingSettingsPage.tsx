@@ -257,12 +257,26 @@ export function MessagingSettingsPage() {
         title="SMS, email & WhatsApp"
         description="Qikberry SMS, SMTP email, and Qikchat WhatsApp — all credentials and templates are stored in the database."
         actions={
-          <Link
-            to="/settings/tax"
-            className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
-          >
-            Tax &amp; billing
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              to="/settings/tax"
+              className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Tax &amp; billing
+            </Link>
+            <Link
+              to="/settings/razorpay"
+              className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Razorpay
+            </Link>
+            <Link
+              to="/settings/pinelabs"
+              className="inline-flex items-center justify-center rounded-xl border border-zimson-400 bg-white px-4 py-2.5 text-sm font-semibold text-zimson-900 shadow-sm transition hover:bg-zimson-50"
+            >
+              Pine Labs POS
+            </Link>
+          </div>
         }
       />
 
