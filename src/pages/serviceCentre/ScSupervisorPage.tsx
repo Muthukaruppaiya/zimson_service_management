@@ -463,6 +463,12 @@ export function ScSupervisorPage() {
   const [brandReturnAttachmentFile, setBrandReturnAttachmentFile] = useState<File | null>(null);
   const [brandReturnAttachmentError, setBrandReturnAttachmentError] = useState<string | null>(null);
   const [brandReturnSaving, setBrandReturnSaving] = useState(false);
+  const [brandCannotRepairJobId, setBrandCannotRepairJobId] = useState<string | null>(null);
+  const [brandCannotRepairMode, setBrandCannotRepairMode] = useState<"choose" | "no_credit">("choose");
+  const [brandCannotRepairNote, setBrandCannotRepairNote] = useState("");
+  const [brandCannotRepairFile, setBrandCannotRepairFile] = useState<File | null>(null);
+  const [brandCannotRepairError, setBrandCannotRepairError] = useState<string | null>(null);
+  const [brandCannotRepairSaving, setBrandCannotRepairSaving] = useState(false);
   const [brandNotifyPopupJobId, setBrandNotifyPopupJobId] = useState<string | null>(null);
   const [brandNotifyNoteInput, setBrandNotifyNoteInput] = useState("Customer informed through web, SMS and WhatsApp copy.");
   const [brandConfirmPopup, setBrandConfirmPopup] = useState<{
@@ -1475,6 +1481,103 @@ export function ScSupervisorPage() {
     } finally {
       setBrandReturnSaving(false);
     }
+  }
+
+  function openBrandCreditPopup(jobId: string) {
+    setBrandCreditPopupJobId(jobId);
+    setBrandCreditNoteRefInput("");
+    setBrandCreditValueInput("");
+    setBrandCouponValidUntilInput("");
+    setBrandCouponNoteInput("");
+    setBrandCreditResponsible("");
+    setBrandCreditAttachmentFile(null);
+    setBrandCreditAttachmentError(null);
+  }
+
+  function openBrandCannotRepair(jobId: string) {
+    setBrandCannotRepairJobId(jobId);
+    setBrandCannotRepairMode("choose");
+    setBrandCannotRepairNote("");
+    setBrandCannotRepairFile(null);
+    setBrandCannotRepairError(null);
+  }
+
+  function chooseBrandCannotRepairWithCredit() {
+    const jobId = brandCannotRepairJobId;
+    if (!jobId) return;
+    setBrandCannotRepairJobId(null);
+    openBrandCreditPopup(jobId);
+    setBrandCouponNoteInput("Brand cannot repair after customer approval — credit note issued by brand.");
+  }
+
+  async function confirmBrandCannotRepairNoCredit() {
+    const jobId = brandCannotRepairJobId;
+    if (!jobId) return;
+    const note = brandCannotRepairNote.trim();
+    if (!note) {
+      setBrandCannotRepairError("Enter the brand's reason.");
+      return;
+    }
+    setBrandCannotRepairSaving(true);
+    setBrandCannotRepairError(null);
+    try {
+      let attachmentPath: string | undefined;
+      let attachmentMeta: Record<string, unknown> | undefined;
+      if (brandCannotRepairFile) {
+        const att = await uploadBrandMailAttachment(jobId, brandCannotRepairFile);
+        attachmentPath = att.attachmentPath;
+        attachmentMeta = brandMailMetaFromAttachment(att);
+      }
+      const out = await apiJson<{
+        ok: boolean;
+        storeCredit: { code: string; valueInr: number; validUntil: string | null } | null;
+        emailSent: boolean;
+        emailReason: string | null;
+        whatsappSent: boolean;
+        whatsappReason: string | null;
+      }>(`/api/service/srf-jobs/${encodeURIComponent(jobId)}/brand/cannot-repair-cancel`, {
+        method: "POST",
+        json: { note, ...(attachmentPath ? { attachmentPath, attachmentMeta } : {}) },
+      });
+      await refreshJobs();
+      setBrandCannotRepairJobId(null);
+      const ref = jobs.find((j) => j.id === jobId)?.reference ?? jobId;
+      const channels = [out.emailSent ? "email" : "", out.whatsappSent ? "WhatsApp" : ""].filter(Boolean).join(" + ");
+      setBrandSuccessAck({
+        title: "SRF cancelled — brand cannot repair",
+        description: ref,
+        reference: ref,
+        detail: [
+          `Store staff notified.`,
+          channels
+            ? `Customer notified by ${channels}.`
+            : `Customer not notified automatically (${out.emailReason || out.whatsappReason || "no contact on file"}) — please call the customer.`,
+          out.storeCredit
+            ? `Store credit ${out.storeCredit.code} issued for the advance (INR ${out.storeCredit.valueInr.toLocaleString("en-IN")}).`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      });
+    } catch (e) {
+      setBrandCannotRepairError(e instanceof Error ? e.message : "Could not cancel SRF.");
+    } finally {
+      setBrandCannotRepairSaving(false);
+    }
+  }
+
+  function renderBrandCannotRepairButton(j: SrfJob) {
+    if (j.brandReturnWithoutRepair) return null;
+    if (!user || !isRepairHoUserForInterHoReceiverJob(j, user)) return null;
+    return (
+      <button
+        type="button"
+        onClick={() => openBrandCannotRepair(j.id)}
+        className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100"
+      >
+        Brand cannot repair
+      </button>
+    );
   }
 
   async function confirmCustomerAcceptedBrandEstimateLater(jobId: string) {
@@ -3012,16 +3115,7 @@ export function ScSupervisorPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          setBrandCreditPopupJobId(j.id);
-                          setBrandCreditNoteRefInput("");
-                          setBrandCreditValueInput("");
-                          setBrandCouponValidUntilInput("");
-                          setBrandCouponNoteInput("");
-                          setBrandCreditResponsible("");
-                          setBrandCreditAttachmentFile(null);
-                          setBrandCreditAttachmentError(null);
-                        }}
+                        onClick={() => openBrandCreditPopup(j.id)}
                         className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100"
                       >
                         Log brand credit note
@@ -3138,19 +3232,22 @@ export function ScSupervisorPage() {
                         Customer approved brand estimate — repair CSC has been notified to approve and send to brand.
                       </p>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setBrandConfirmPopup({
-                            kind: "approve_send_brand",
-                            jobId: j.id,
-                            note: "Customer accepted — CSC approval sent to brand.",
-                          })
-                        }
-                        className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                      >
-                        Approve & send to brand
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBrandConfirmPopup({
+                              kind: "approve_send_brand",
+                              jobId: j.id,
+                              note: "Customer accepted — CSC approval sent to brand.",
+                            })
+                          }
+                          className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                        >
+                          Approve & send to brand
+                        </button>
+                        {renderBrandCannotRepairButton(j)}
+                      </>
                     )
                   ) : null}
                   {j.status === "brand_approved" || j.status === "brand_repair_in_progress" ? (
@@ -3188,6 +3285,7 @@ export function ScSupervisorPage() {
                           Only repair CSC marks receipt from brand. Sender CSC will inward after repair CSC completes the return leg.
                         </p>
                       ) : null}
+                      {renderBrandCannotRepairButton(j)}
                     </>
                   ) : null}
                   {j.status === "received_from_brand" ? (
@@ -4161,6 +4259,95 @@ export function ScSupervisorPage() {
               <button type="button" disabled={brandReturnSaving} onClick={() => void confirmBrandReturnWithoutRepair()} className="rounded-xl bg-stone-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                 {brandReturnSaving ? "Saving…" : "Confirm return without repair"}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {brandCannotRepairJobId ? (
+        <div className="legacy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6">
+          <div className="legacy-modal-panel flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.45)]">
+            <h3 className="text-lg font-semibold text-zimson-900">Brand cannot repair</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              {jobs.find((x) => x.id === brandCannotRepairJobId)?.reference ?? ""} · customer already approved the brand estimate
+            </p>
+            {brandCannotRepairMode === "choose" ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={chooseBrandCannotRepairWithCredit}
+                  className="rounded-xl border-2 border-emerald-300 bg-emerald-50 px-4 py-4 text-left hover:bg-emerald-100"
+                >
+                  <span className="block text-sm font-bold text-emerald-900">With credit</span>
+                  <span className="mt-1 block text-xs text-emerald-900/80">
+                    Brand gives a credit note → CSC Accounts approval → customer voucher
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBrandCannotRepairMode("no_credit")}
+                  className="rounded-xl border-2 border-rose-300 bg-rose-50 px-4 py-4 text-left hover:bg-rose-100"
+                >
+                  <span className="block text-sm font-bold text-rose-900">Without credit</span>
+                  <span className="mt-1 block text-xs text-rose-900/80">
+                    Cancel the SRF and notify the customer and store staff
+                  </span>
+                </button>
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3">
+                <label className="text-sm">
+                  Brand reason *
+                  <textarea
+                    className="mt-1 w-full rounded-xl border border-zimson-300 bg-zimson-50/50 px-3 py-2 text-sm"
+                    rows={3}
+                    value={brandCannotRepairNote}
+                    onChange={(e) => setBrandCannotRepairNote(e.target.value)}
+                    autoFocus
+                  />
+                </label>
+                <BrandMailAttachmentField
+                  file={brandCannotRepairFile}
+                  onChange={(file) => {
+                    setBrandCannotRepairFile(file);
+                    setBrandCannotRepairError(null);
+                  }}
+                  disabled={brandCannotRepairSaving}
+                  error={null}
+                />
+                {brandCannotRepairError ? (
+                  <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{brandCannotRepairError}</p>
+                ) : null}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              {brandCannotRepairMode === "no_credit" ? (
+                <button
+                  type="button"
+                  disabled={brandCannotRepairSaving}
+                  onClick={() => setBrandCannotRepairMode("choose")}
+                  className="mr-auto rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-50"
+                >
+                  Back
+                </button>
+              ) : null}
+              <button
+                type="button"
+                disabled={brandCannotRepairSaving}
+                onClick={() => setBrandCannotRepairJobId(null)}
+                className="rounded-xl border border-zimson-300 px-4 py-2 text-sm disabled:opacity-50"
+              >
+                Close
+              </button>
+              {brandCannotRepairMode === "no_credit" ? (
+                <button
+                  type="button"
+                  disabled={brandCannotRepairSaving}
+                  onClick={() => void confirmBrandCannotRepairNoCredit()}
+                  className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {brandCannotRepairSaving ? "Cancelling…" : "Cancel SRF & notify"}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

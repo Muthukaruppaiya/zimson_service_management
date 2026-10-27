@@ -2329,6 +2329,8 @@ export function SrfBookingV2Page() {
                   targetInr={advanceTotal}
                   form={advancePaymentForm}
                   onChange={setAdvancePaymentForm}
+                  posStoreId={currentStoreId || null}
+                  posPurpose="srf_advance"
                 />
               </div>
             ) : null}

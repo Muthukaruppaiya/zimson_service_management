@@ -29,6 +29,7 @@ import { resolveCustomerEmail } from "./messaging/customerContact";
 import { sendReestimateDecisionNotification, sendSiteVisitApprovalLink, sendTrackingLink } from "./notificationService";
 import { publishSrfDocumentForWhatsApp } from "./messaging/publishSrfDocumentForWhatsApp";
 import { sendBrandVoucherEmail } from "./messaging/brandVoucherEmail";
+import { sendBrandCannotRepairEmail } from "./messaging/brandCannotRepairEmail";
 import { sendReadyPickupWhatsAppTemplate } from "./messaging/qikchatWhatsApp";
 import { getAppBaseUrl, getEmailActionBaseUrl, resolvePublicAppBaseUrl } from "./publicAppUrl";
 import { finalizeSrfBillingHandoverSession } from "./srfBillingHandoverRoutes";
@@ -115,6 +116,14 @@ function canSupervisorDecide(actor: DemoUser | null): boolean {
     role === "admin"
   );
 }
+
+/** Brand desk states after the customer approved the brand estimate (brand may still report "cannot repair"). */
+const BRAND_AFTER_CUSTOMER_APPROVAL_STATUSES = [
+  "brand_estimate_customer_accepted",
+  "brand_approved",
+  "brand_repair_in_progress",
+] as const;
+const BRAND_AFTER_CUSTOMER_APPROVAL_STATUSES_SQL = BRAND_AFTER_CUSTOMER_APPROVAL_STATUSES.map((s) => `'${s}'`).join(", ");
 
 function canManageBrandDesk(actor: DemoUser | null): boolean {
   return !!actor && (actor.role === "service_centre_supervisor" || actor.role === "super_admin" || actor.role === "admin");
@@ -8456,8 +8465,13 @@ export function registerSrfRoutes(
              updated_at = now(),
              modified_by = $4
          WHERE id = $1::uuid
-           AND status = 'sent_to_brand'
-           AND brand_estimate_inr IS NULL
+           AND (
+             (status = 'sent_to_brand' AND brand_estimate_inr IS NULL)
+             OR (
+               status IN (${BRAND_AFTER_CUSTOMER_APPROVAL_STATUSES_SQL})
+               AND COALESCE(brand_return_without_repair, false) = false
+             )
+           )
          RETURNING reference, region_id, store_id, customer_name, watch_brand, watch_model`,
         [
           srfId,
@@ -8472,7 +8486,10 @@ export function registerSrfRoutes(
         ],
       );
       if ((upd.rowCount ?? 0) === 0) {
-        res.status(400).json({ error: "SRF must be sent_to_brand with no brand estimate logged yet." });
+        res.status(400).json({
+          error:
+            "Credit note is allowed while the watch is at brand (no estimate yet), or when brand cannot repair after the customer approved the estimate.",
+        });
         return;
       }
       const client = await pool.connect();
@@ -8671,6 +8688,223 @@ export function registerSrfRoutes(
     } finally {
       client.release();
     }
+  });
+
+  /** Brand cannot repair after customer approved the estimate — no brand credit: cancel SRF and notify customer + store. */
+  app.post("/api/service/srf-jobs/:srfId/brand/cannot-repair-cancel", requireAuth, async (req, res) => {
+    const actor = getUserById((req as Authed).userId);
+    if (!canManageBrandDesk(actor)) {
+      res.status(403).json({ error: "Only supervisor/admin can record brand cannot repair." });
+      return;
+    }
+    const srfId = String(req.params.srfId ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const attachmentPath = String(req.body?.attachmentPath ?? "").trim() || null;
+    if (!note) {
+      res.status(400).json({ error: "Enter the brand's reason (cannot repair)." });
+      return;
+    }
+    const attachMeta = attachmentPath
+      ? mergeBrandAttachmentMeta({}, attachmentPath, toJsonMeta(req.body?.attachmentMeta))
+      : null;
+    const client = await pool.connect();
+    let job: {
+      reference: string;
+      customer_name: string;
+      phone: string;
+      store_id: string;
+      destination_store_id: string | null;
+      region_id: string;
+      watch_brand: string;
+      watch_model: string;
+      advance_inr: number;
+    } | null = null;
+    let storeCredit: { code: string; valueInr: number; validUntil: string | null } | null = null;
+    try {
+      await client.query("BEGIN");
+      const prior = await client.query<{
+        status: string;
+        brand_return_without_repair: boolean;
+        reference: string;
+        customer_name: string;
+        phone: string;
+        store_id: string;
+        destination_store_id: string | null;
+        region_id: string;
+        watch_brand: string;
+        watch_model: string;
+        advance_inr: number;
+        store_advance_voucher_code: string | null;
+        transfer_source_reference: string | null;
+        requires_local_conversion: boolean;
+      }>(
+        `SELECT status, COALESCE(brand_return_without_repair, false) AS brand_return_without_repair,
+                reference, customer_name, phone, store_id, destination_store_id, region_id,
+                watch_brand, watch_model, COALESCE(advance_inr, 0)::float8 AS advance_inr,
+                store_advance_voucher_code, transfer_source_reference, requires_local_conversion
+         FROM srf_jobs WHERE id = $1::uuid FOR UPDATE`,
+        [srfId],
+      );
+      const row = prior.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "SRF not found." });
+        return;
+      }
+      if (
+        isInterHoReceiverLocalRow(row) &&
+        actor &&
+        actor.role !== "super_admin" &&
+        actor.role !== "admin" &&
+        actor.regionId !== row.region_id
+      ) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Only the repair CSC can record brand cannot repair for inter-CSC SRFs." });
+        return;
+      }
+      if (
+        !(BRAND_AFTER_CUSTOMER_APPROVAL_STATUSES as readonly string[]).includes(row.status) ||
+        row.brand_return_without_repair
+      ) {
+        await client.query("ROLLBACK");
+        res.status(400).json({
+          error: "Brand cannot repair (without credit) is only allowed after the customer approved the brand estimate.",
+        });
+        return;
+      }
+      job = row;
+
+      const advance = Number(row.advance_inr ?? 0);
+      if (advance > 0 && !String(row.store_advance_voucher_code ?? "").trim()) {
+        const voucherStoreId = String(row.destination_store_id ?? row.store_id ?? "").trim();
+        if (voucherStoreId) {
+          const voucherCode = await allocateStoreAdvanceVoucherNumber(client, voucherStoreId);
+          const issued = await client.query<{ valid_until: string | null }>(
+            `UPDATE srf_jobs
+             SET store_advance_voucher_code = $2,
+                 store_advance_voucher_value_inr = $3,
+                 store_advance_voucher_issued_at = now(),
+                 store_advance_voucher_valid_until = (CURRENT_DATE + INTERVAL '12 months')::date,
+                 store_advance_voucher_issued_by = $4
+             WHERE id = $1::uuid
+             RETURNING store_advance_voucher_valid_until::text AS valid_until`,
+            [srfId, voucherCode, advance, actor?.id ?? null],
+          );
+          storeCredit = { code: voucherCode, valueInr: advance, validUntil: issued.rows[0]?.valid_until ?? null };
+          await appendActionLog(client, srfId, {
+            action: "store_advance_voucher_issued",
+            description: `Store credit ${voucherCode} issued for INR ${advance.toFixed(2)} (brand cannot repair — SRF cancelled).`,
+            actor: actor ?? undefined,
+            referenceDoc: voucherCode,
+            details: { voucherCode, valueInr: advance, validUntil: storeCredit.validUntil },
+          });
+        }
+      }
+
+      await client.query(
+        `UPDATE srf_jobs
+         SET status = 'cancelled',
+             brand_invoice_meta = CASE WHEN $3::jsonb IS NOT NULL THEN $3::jsonb ELSE brand_invoice_meta END,
+             updated_at = now(),
+             modified_by = $2
+         WHERE id = $1::uuid`,
+        [srfId, actor?.id ?? null, attachMeta ? JSON.stringify(attachMeta) : null],
+      );
+      await appendStatusHistory(
+        client,
+        srfId,
+        "cancelled",
+        actor?.id ?? null,
+        `Brand cannot repair (no credit) after customer approval — SRF cancelled. ${note}`,
+      );
+      await appendActionLog(client, srfId, {
+        action: "brand_cannot_repair_cancelled",
+        description: "Brand cannot repair after customer approval — no brand credit. SRF cancelled.",
+        actor: actor ?? undefined,
+        details: { note, fromStatus: row.status, attachMeta, storeCredit },
+      });
+
+      const arch = await findInterHoArchivedSenderRow(client, srfId);
+      if (arch) {
+        await client.query(
+          `UPDATE srf_jobs
+           SET status = 'cancelled', updated_at = now(), modified_by = $2
+           WHERE id = $1::uuid AND status = 'sent_to_other_ho'`,
+          [arch.id, actor?.id ?? null],
+        );
+        await appendStatusHistory(
+          client,
+          arch.id,
+          "cancelled",
+          actor?.id ?? null,
+          `Cancelled — repair CSC reported brand cannot repair on ${row.reference} (no credit).`,
+        );
+      }
+      await maybeDisableTrackingToken(client, row.phone ?? "");
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e);
+      res.status(400).json({ error: "Could not cancel SRF for brand cannot repair." });
+      return;
+    } finally {
+      client.release();
+    }
+
+    const watchLabel = [job.watch_brand, job.watch_model].filter(Boolean).join(" ");
+    const storeId = String(job.destination_store_id ?? job.store_id ?? "").trim();
+    if (pushInApp && storeId) {
+      const { rows: recipients } = await pool.query<{ id: string }>(
+        `SELECT id FROM app_users
+         WHERE store_id = $1::text
+           AND role IN ('store_user', 'store_manager', 'store_accounts')`,
+        [storeId],
+      );
+      await pushInApp(
+        recipients.map((r) => r.id),
+        {
+          title: "SRF cancelled — brand cannot repair",
+          message: `${job.reference} · ${watchLabel} · ${job.customer_name}: brand cannot repair (no credit). ${note}${storeCredit ? ` · Store credit ${storeCredit.code} for INR ${storeCredit.valueInr.toLocaleString("en-IN")}` : ""}`,
+          category: "service_srf",
+        },
+      ).catch(() => {});
+    }
+
+    let emailSent = false;
+    let emailReason: string | undefined;
+    try {
+      const email = await resolveCustomerEmail(pool, job.phone);
+      if (email) {
+        await sendBrandCannotRepairEmail({
+          toEmail: email,
+          customerName: job.customer_name,
+          srfReference: job.reference,
+          watchLabel,
+          reason: note,
+          storeCredit,
+        });
+        emailSent = true;
+      } else {
+        emailReason = "No customer email on file.";
+      }
+    } catch (e) {
+      emailReason = e instanceof Error ? e.message : "Email send failed.";
+      console.error("[BRAND CANNOT REPAIR] email failed", e);
+    }
+    const whatsapp = await notifyCustomerSiteVisitApproval(req, pool, srfId, {
+      approvalReason: `Brand could not repair your ${watchLabel || "watch"}. SRF ${job.reference} is cancelled. ${note}${storeCredit ? ` Store credit ${storeCredit.code} for INR ${storeCredit.valueInr.toLocaleString("en-IN")} — redeem at any Zimson store.` : ""}`,
+      srfReference: job.reference,
+    }).catch(() => ({ sent: false, reason: "WhatsApp send failed." }));
+
+    res.json({
+      ok: true,
+      cancelled: true,
+      storeCredit,
+      emailSent,
+      emailReason: emailReason ?? null,
+      whatsappSent: whatsapp.sent,
+      whatsappReason: whatsapp.sent ? null : (whatsapp as { reason?: string }).reason ?? null,
+    });
   });
 
   app.post("/api/service/srf-jobs/:srfId/brand/customer-accepted-estimate-later", requireAuth, async (req, res) => {

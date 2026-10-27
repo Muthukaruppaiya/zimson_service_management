@@ -2210,4 +2210,31 @@ export async function runMigrations(pool: Pool): Promise<void> {
     ALTER TABLE srf_jobs ADD COLUMN IF NOT EXISTS warranty_ref_claim_id UUID
       REFERENCES warranty_purchase_claims(id) ON DELETE SET NULL;
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pinelabs_transactions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      store_id TEXT REFERENCES stores(id) ON DELETE SET NULL,
+      transaction_number VARCHAR(40) NOT NULL UNIQUE,
+      ptrid BIGINT,
+      amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),
+      allowed_payment_mode VARCHAR(40) NOT NULL,
+      purpose VARCHAR(40) NOT NULL DEFAULT '',
+      environment VARCHAR(20) NOT NULL DEFAULT 'uat',
+      status VARCHAR(16) NOT NULL DEFAULT 'UPLOADED'
+        CHECK (status IN ('UPLOADED', 'APPROVED', 'FAILED', 'CANCELLED')),
+      response_code INTEGER,
+      response_message TEXT,
+      payment_mode VARCHAR(40),
+      rrn VARCHAR(64),
+      approval_code VARCHAR(64),
+      card_last4 VARCHAR(8),
+      tid VARCHAR(40),
+      transaction_data JSONB,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_pinelabs_txn_store ON pinelabs_transactions (store_id, created_at DESC);
+  `);
 }

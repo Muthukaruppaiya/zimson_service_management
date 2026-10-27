@@ -1,4 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { apiJson } from "../../lib/api";
+import type { PinelabsPosMode, PinelabsPublicConfig } from "../../types/pinelabsPayment";
+import { PinelabsPosPayModal, posReferenceFromTxn } from "./PinelabsPosPayModal";
 import {
   APP_PAYMENT_MODES,
   cashBillTargetInr,
@@ -18,7 +21,41 @@ type Props = {
   targetInr: number;
   form: MultiPaymentFormState;
   onChange: (next: MultiPaymentFormState) => void;
+  /** Store whose Pine Labs machine takes Card / UPI (defaults to the user's store). */
+  posStoreId?: string | null;
+  /** Logged on the Pine Labs transaction (quick_bill, srf_advance, store_bill, srf_payment). */
+  posPurpose?: string;
 };
+
+const pinelabsConfigCache = new Map<string, Promise<PinelabsPublicConfig>>();
+
+function usePinelabsConfig(storeId: string | null | undefined): PinelabsPublicConfig | null {
+  const key = storeId?.trim() || "__self__";
+  const [cfg, setCfg] = useState<PinelabsPublicConfig | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let p = pinelabsConfigCache.get(key);
+    if (!p) {
+      const qs = storeId?.trim() ? `?storeId=${encodeURIComponent(storeId.trim())}` : "";
+      p = apiJson<PinelabsPublicConfig>(`/api/payments/pinelabs/config${qs}`, { silent: true }).catch(() => ({
+        enabled: false,
+        storeId: null,
+        environment: null,
+      }));
+      pinelabsConfigCache.set(key, p);
+      window.setTimeout(() => pinelabsConfigCache.delete(key), 60_000);
+    }
+    void p.then((c) => {
+      if (!cancelled) setCfg(c);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, storeId]);
+  return cfg;
+}
+
+const POS_MODES: Partial<Record<AppPaymentMode, PinelabsPosMode>> = { Card: "card", UPI: "upi" };
 
 function toggleMode(form: MultiPaymentFormState, mode: AppPaymentMode, on: boolean): MultiPaymentFormState {
   const next = { ...form, [mode]: { ...form[mode], enabled: on } };
@@ -40,7 +77,17 @@ function patchRow(
   return { ...form, [mode]: { ...form[mode], ...patch } };
 }
 
-export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onChange }: Props) {
+export function MultiPaymentFields({
+  idPrefix,
+  amountLabel,
+  targetInr,
+  form,
+  onChange,
+  posStoreId,
+  posPurpose = "",
+}: Props) {
+  const pinelabs = usePinelabsConfig(posStoreId);
+  const [posPay, setPosPay] = useState<{ mode: AppPaymentMode; amountInr: number } | null>(null);
   const splitSum = sumMultiPaymentFormAmounts(form);
   const matchTarget = Math.abs(splitSum - targetInr) <= 0.02;
 
@@ -151,15 +198,27 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
                   </span>
                 ) : null}
               </label>
-              {targetInr > 0 && !(mode === "Cash" && onlyCash) ? (
-                <button
-                  type="button"
-                  onClick={() => fillRemaining(mode)}
-                  className="rounded-lg border border-zimson-300 bg-white px-3 py-2 text-xs font-semibold text-zimson-800 transition hover:bg-zimson-50"
-                >
-                  Use remaining
-                </button>
-              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {targetInr > 0 && !(mode === "Cash" && onlyCash) ? (
+                  <button
+                    type="button"
+                    onClick={() => fillRemaining(mode)}
+                    className="rounded-lg border border-zimson-300 bg-white px-3 py-2 text-xs font-semibold text-zimson-800 transition hover:bg-zimson-50"
+                  >
+                    Use remaining
+                  </button>
+                ) : null}
+                {pinelabs?.enabled && POS_MODES[mode] ? (
+                  <button
+                    type="button"
+                    disabled={!(Number.parseFloat(row.amount) >= 1) || row.reference.startsWith("PL ")}
+                    onClick={() => setPosPay({ mode, amountInr: Number.parseFloat(row.amount) })}
+                    className="rounded-lg bg-zimson-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zimson-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {row.reference.startsWith("PL ") ? "Paid on POS" : "Send to Pine Labs POS"}
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             {mode !== "Cash" ? (
@@ -217,6 +276,19 @@ export function MultiPaymentFields({ idPrefix, amountLabel, targetInr, form, onC
           </span>
         </div>
       ) : null}
+
+      <PinelabsPosPayModal
+        open={Boolean(posPay)}
+        storeId={pinelabs?.storeId ?? posStoreId ?? null}
+        mode={posPay ? POS_MODES[posPay.mode] ?? "card" : "card"}
+        amountInr={posPay?.amountInr ?? 0}
+        purpose={posPurpose}
+        onClose={() => setPosPay(null)}
+        onApproved={(txn) => {
+          if (posPay) onChange(patchRow(form, posPay.mode, { reference: posReferenceFromTxn(txn) }));
+          window.setTimeout(() => setPosPay(null), 1200);
+        }}
+      />
     </div>
   );
 }

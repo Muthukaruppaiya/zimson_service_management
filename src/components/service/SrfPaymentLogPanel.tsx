@@ -335,6 +335,7 @@ export function SrfPaymentLogPanel({
               targetInr={amountN}
               form={form}
               onChange={setForm}
+              posPurpose="srf_payment"
             />
           ) : null}
           <label className="block text-xs font-semibold text-stone-700">

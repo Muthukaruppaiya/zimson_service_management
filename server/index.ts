@@ -52,6 +52,7 @@ import { initRazorpaySettings } from "./razorpaySettingsStore";
 import { registerRazorpayRoutes } from "./razorpayRoutes";
 import { initPinelabsSettings } from "./pinelabsSettingsStore";
 import { registerPinelabsSettingsRoutes } from "./pinelabsSettingsRoutes";
+import { registerPinelabsRoutes } from "./pinelabsRoutes";
 import { registerTechnicianRoutes } from "./technicianRoutes";
 import { recordLoginEvent, registerLoginAuditRoutes } from "./loginAuditRoutes";
 import { runMigrations } from "./db/migrate";
@@ -4485,6 +4486,7 @@ async function main() {
   registerRazorpayRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   await initPinelabsSettings(dbPool);
   registerPinelabsSettingsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
+  registerPinelabsRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerInventoryBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerSupplierBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);
   registerCustomerBulkImportRoutes(app, dbPool, requireAuth, (id) => findUser(id) ?? null);

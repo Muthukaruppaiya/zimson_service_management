@@ -1529,6 +1529,111 @@ export function QuickBillPage() {
     };
   }
 
+  function buildDraftRequestBody() {
+    const watchLabel = [watchBrand, watchFamily, watchModel].map((s) => s.trim()).filter(Boolean).join(" · ");
+    const customerLabel = customerName.trim() || company.trim() || "Customer";
+    return {
+      regionId: effectiveBillingRegionId,
+      storeId: effectiveBillingStoreId,
+      customerName: customerLabel,
+      phone: phone.trim(),
+      watchLabel,
+      captureSessionId: captureSession?.sessionId ?? null,
+      payload: buildDraftPayload(),
+    };
+  }
+
+  const draftIdRef = useRef<string | null>(null);
+  draftIdRef.current = draftId;
+  const autoSaveTimerRef = useRef<number | null>(null);
+  const autoSaveInFlightRef = useRef<Promise<void> | null>(null);
+  const lastSavedDraftFingerprintRef = useRef("");
+  /** Bumped when the form is reset or another draft is opened, so in-flight auto-saves don't apply. */
+  const draftFormGenRef = useRef(0);
+  const [autoSaveState, setAutoSaveState] = useState<"idle" | "saving" | "error">("idle");
+
+  function cancelPendingAutoSave() {
+    if (autoSaveTimerRef.current != null) {
+      window.clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+  }
+
+  async function waitForAutoSave() {
+    cancelPendingAutoSave();
+    if (autoSaveInFlightRef.current) {
+      await autoSaveInFlightRef.current.catch(() => undefined);
+    }
+  }
+
+  async function persistDraft(body: ReturnType<typeof buildDraftRequestBody>, opts: { silent: boolean }) {
+    const currentId = draftIdRef.current;
+    const res = currentId
+      ? await apiJson<{ draft: QuickBillDraftSummary }>(`/api/service/quick-bill-drafts/${encodeURIComponent(currentId)}`, {
+          method: "PUT",
+          json: body,
+          silent: opts.silent,
+        })
+      : await apiJson<{ draft: QuickBillDraftSummary }>("/api/service/quick-bill-drafts", {
+          method: "POST",
+          json: body,
+          silent: opts.silent,
+        });
+    return res.draft;
+  }
+
+  const draftAutoSaveBody =
+    apiMode &&
+    !completion &&
+    !isSavingBill &&
+    !draftBusy &&
+    phoneLast10(phone).length === 10 &&
+    effectiveBillingRegionId &&
+    effectiveBillingStoreId
+      ? buildDraftRequestBody()
+      : null;
+  const draftAutoSaveFingerprint = draftAutoSaveBody ? JSON.stringify(draftAutoSaveBody) : "";
+
+  useEffect(() => {
+    if (!draftAutoSaveBody || !draftAutoSaveFingerprint) return;
+    if (draftAutoSaveFingerprint === lastSavedDraftFingerprintRef.current) return;
+    cancelPendingAutoSave();
+    const body = draftAutoSaveBody;
+    const fingerprint = draftAutoSaveFingerprint;
+    const gen = draftFormGenRef.current;
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      const run = (async () => {
+        if (autoSaveInFlightRef.current) await autoSaveInFlightRef.current.catch(() => undefined);
+        if (gen !== draftFormGenRef.current) return;
+        setAutoSaveState("saving");
+        try {
+          const wasNew = !draftIdRef.current;
+          const saved = await persistDraft(body, { silent: true });
+          if (gen !== draftFormGenRef.current) {
+            setAutoSaveState("idle");
+            return;
+          }
+          lastSavedDraftFingerprintRef.current = fingerprint;
+          if (saved?.id) {
+            draftIdRef.current = saved.id;
+            setDraftId(saved.id);
+            setDraftSavedAt(saved.updatedAt ?? new Date().toISOString());
+          }
+          setAutoSaveState("idle");
+          if (wasNew) void loadDrafts();
+        } catch {
+          setAutoSaveState("error");
+        }
+      })();
+      autoSaveInFlightRef.current = run.finally(() => {
+        if (autoSaveInFlightRef.current === run) autoSaveInFlightRef.current = null;
+      });
+    }, 2500);
+    return cancelPendingAutoSave;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftAutoSaveFingerprint]);
+
   async function saveDraft() {
     if (!apiMode) {
       setError("Drafts require API mode.");
@@ -1542,24 +1647,14 @@ export function QuickBillPage() {
       setError("Select billing region and store before saving a draft.");
       return;
     }
-    const watchLabel = [watchBrand, watchFamily, watchModel].map((s) => s.trim()).filter(Boolean).join(" · ");
-    const customerLabel = customerName.trim() || company.trim() || "Customer";
-    const body = {
-      regionId,
-      storeId,
-      customerName: customerLabel,
-      phone: phone.trim(),
-      watchLabel,
-      captureSessionId: captureSession?.sessionId ?? null,
-      payload: buildDraftPayload(),
-    };
+    await waitForAutoSave();
+    const body = buildDraftRequestBody();
+    const watchLabel = body.watchLabel;
+    const customerLabel = body.customerName;
     setDraftBusy(true);
     try {
-      if (draftId) {
-        await apiJson(`/api/service/quick-bill-drafts/${encodeURIComponent(draftId)}`, { method: "PUT", json: body });
-      } else {
-        await apiJson("/api/service/quick-bill-drafts", { method: "POST", json: body });
-      }
+      await persistDraft(body, { silent: false });
+      lastSavedDraftFingerprintRef.current = "";
       resetForm();
       setDraftMsg(`Draft saved: ${customerLabel} · ${watchLabel || "Watch"}`);
       void loadDrafts();
@@ -1575,6 +1670,7 @@ export function QuickBillPage() {
     if (draftBusy || id === draftId) return;
     const hasWork = Boolean(phone.trim() || watchBrand || captureSession || lines.length);
     if (hasWork && !window.confirm("Replace the current form with this draft? Unsaved changes will be lost.")) return;
+    await waitForAutoSave();
     setDraftBusy(true);
     setDraftMsg(null);
     try {
@@ -1734,6 +1830,7 @@ export function QuickBillPage() {
         }
       }
       setIsSavingBill(true);
+      await waitForAutoSave();
       try {
         const { invoice, edoc } = await apiJson<{
           invoice: QuickBillInvoice;
@@ -1764,7 +1861,7 @@ export function QuickBillPage() {
             watchDocumentPath,
             watchImagePath,
             captureSessionId: captureSession?.sessionId ?? null,
-            draftId: draftId ?? null,
+            draftId: draftIdRef.current ?? null,
             technicianId: technicianId || null,
             technicianName: tech?.fullName ?? null,
             paymentMode: payMode,
@@ -1804,7 +1901,8 @@ export function QuickBillPage() {
         setCompletion({ mode: "api", invoice: mergedInvoice, edoc: edoc ?? null });
         setBillPostActionNote(null);
         setBillSuccessModalOpen(true);
-        if (draftId) {
+        if (draftIdRef.current) {
+          draftIdRef.current = null;
           setDraftId(null);
           setDraftSavedAt(null);
           void loadDrafts();
@@ -2056,6 +2154,11 @@ export function QuickBillPage() {
   }, [spareLinesWithHsn, lines, serviceChargeNum, serviceSacHsn, serviceHsnGstRate]);
 
   function resetForm() {
+    cancelPendingAutoSave();
+    draftFormGenRef.current += 1;
+    draftIdRef.current = null;
+    lastSavedDraftFingerprintRef.current = "";
+    setAutoSaveState("idle");
     setBillSuccessModalOpen(false);
     setBillPostActionNote(null);
     setCustomerType("B2C");
@@ -2481,8 +2584,12 @@ export function QuickBillPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5">
           <p className="text-sm font-semibold text-amber-950">
             Draft In Progress
-            {draftSavedAt ? (
-              <span className="ml-2 text-xs font-normal text-amber-900/80">Saved {formatDraftTime(draftSavedAt)}</span>
+            {autoSaveState === "saving" ? (
+              <span className="ml-2 text-xs font-normal text-amber-900/80">Saving…</span>
+            ) : autoSaveState === "error" ? (
+              <span className="ml-2 text-xs font-medium text-rose-700">Auto-save failed — use Update Draft</span>
+            ) : draftSavedAt ? (
+              <span className="ml-2 text-xs font-normal text-amber-900/80">Auto-saved {formatDraftTime(draftSavedAt)}</span>
             ) : null}
           </p>
           <button
@@ -2991,7 +3098,13 @@ export function QuickBillPage() {
               <p className="font-semibold text-amber-950">{draftId ? "Update Draft" : "Save As Draft"}</p>
               <p className="text-xs text-amber-900/80">
                 {captureWatchPhotoCount} / {SRF_MIN_WATCH_PHOTOS_REQUIRED} Watch Photos
-                {draftSavedAt ? ` · Saved ${formatDraftTime(draftSavedAt)}` : ""}
+                {autoSaveState === "saving"
+                  ? " · Saving…"
+                  : autoSaveState === "error"
+                    ? " · Auto-save failed"
+                    : draftSavedAt
+                      ? ` · Auto-saved ${formatDraftTime(draftSavedAt)}`
+                      : ""}
               </p>
             </div>
             <button
@@ -3360,6 +3473,8 @@ export function QuickBillPage() {
                 targetInr={payableTotal}
                 form={multiPaymentForm}
                 onChange={setMultiPaymentForm}
+                posStoreId={effectiveBillingStoreId || null}
+                posPurpose="quick_bill"
               />
             </div>
           </div>

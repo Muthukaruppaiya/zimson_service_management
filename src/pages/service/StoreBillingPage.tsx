@@ -1618,6 +1618,8 @@ export function StoreBillingPage() {
               targetInr={finalBillingAmount}
               form={multiPaymentForm}
               onChange={setMultiPaymentForm}
+              posStoreId={billingJob?.destinationStoreId || billingJob?.storeId || user?.storeId || null}
+              posPurpose="store_bill"
             />
               </>
             ) : null}
