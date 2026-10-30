@@ -69,7 +69,7 @@ function resolveStoreId(actor: DemoUser, requested: unknown): string | null {
   return actor.storeId ?? null;
 }
 
-async function plutusPost(cfg: ResolvedPinelabsConfig, endpoint: string, body: Record<string, unknown>) {
+export async function plutusPost(cfg: ResolvedPinelabsConfig, endpoint: string, body: Record<string, unknown>) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
@@ -98,10 +98,17 @@ async function plutusPost(cfg: ResolvedPinelabsConfig, endpoint: string, body: R
   }
 }
 
-function authFields(cfg: ResolvedPinelabsConfig) {
-  return {
+/** Merchant credentials + terminal identity (POS code + IMEI, or Store ID + Client ID). */
+export function authFields(cfg: ResolvedPinelabsConfig) {
+  const base = {
     MerchantID: numericOrString(cfg.merchantId),
     SecurityToken: cfg.securityToken,
+  };
+  if (cfg.connectionMode === "pos_imei") {
+    return { ...base, MerchantStorePosCode: cfg.merchantStorePosCode, IMEI: cfg.imei };
+  }
+  return {
+    ...base,
     StoreId: numericOrString(cfg.pineLabsStoreId),
     ClientId: numericOrString(cfg.clientId),
   };
@@ -184,11 +191,10 @@ export function registerPinelabsRoutes(
         TransactionNumber: transactionNumber,
         SequenceNumber: 1,
         AllowedPaymentMode: allowedMode,
-        Amount: amountPaise,
-        UserID: (actor.employeeCode || actor.id).slice(0, 20),
+        Amount: String(amountPaise),
+        UserID: (actor.employeeCode || actor.displayName || actor.id).replace(/[^A-Za-z0-9]/g, "").slice(0, 20),
         ...authFields(cfg),
-        AutoCancelDurationInMinutes: AUTO_CANCEL_MINUTES,
-        TotalInvoiceAmount: amountPaise,
+        AutoCancelDurationInMinutes: String(AUTO_CANCEL_MINUTES),
       });
       const code = Number(data.ResponseCode ?? -1);
       const message = String(data.ResponseMessage ?? "").trim();
@@ -254,7 +260,7 @@ export function registerPinelabsRoutes(
     try {
       const data = await plutusPost(cfg, "GetCloudBasedTxnStatus", {
         ...authFields(cfg),
-        UserID: (actor.employeeCode || actor.id).slice(0, 20),
+        UserID: (actor.employeeCode || actor.displayName || actor.id).replace(/[^A-Za-z0-9]/g, "").slice(0, 20),
         PlutusTransactionReferenceID: Number(row.ptrid),
         TransactionNumber: row.transaction_number,
       });
@@ -316,13 +322,20 @@ export function registerPinelabsRoutes(
       return;
     }
     try {
-      const data = await plutusPost(cfg, "CancelTransactionForced", {
-        ...authFields(cfg),
-        PlutusTransactionReferenceID: Number(row.ptrid),
-        Amount: Number(row.amount_paise),
-        TakeToHomeScreen: true,
-        ConfirmationRequired: true,
-      });
+      const data =
+        cfg.connectionMode === "pos_imei"
+          ? await plutusPost(cfg, "CancelTransaction", {
+              ...authFields(cfg),
+              PlutusTransactionReferenceID: Number(row.ptrid),
+              Amount: Number(row.amount_paise),
+            })
+          : await plutusPost(cfg, "CancelTransactionForced", {
+              ...authFields(cfg),
+              PlutusTransactionReferenceID: Number(row.ptrid),
+              Amount: Number(row.amount_paise),
+              TakeToHomeScreen: true,
+              ConfirmationRequired: true,
+            });
       const code = Number(data.ResponseCode ?? -1);
       const message = String(data.ResponseMessage ?? "").trim();
       if (code !== 0) {

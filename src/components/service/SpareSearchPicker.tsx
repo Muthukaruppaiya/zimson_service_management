@@ -5,6 +5,7 @@ export type SpareSearchOption = {
   id: string;
   sku: string;
   altSku?: string | null;
+  brand?: string | null;
   name: string;
   hsn?: string | null;
   price: number;
@@ -47,7 +48,7 @@ export function SpareSearchPicker({ options, loading, disabled, placeholder, onP
     if (!q) return options;
     const terms = q.split(/\s+/).filter(Boolean);
     return options.filter((o) => {
-      const hay = `${o.name} ${o.sku} ${o.altSku ?? ""} ${o.hsn ?? ""}`.toLowerCase();
+      const hay = `${o.name} ${o.sku} ${o.altSku ?? ""} ${o.brand ?? ""} ${o.hsn ?? ""}`.toLowerCase();
       return terms.every((t) => hay.includes(t));
     });
   }, [options, q]);
@@ -153,7 +154,7 @@ export function SpareSearchPicker({ options, loading, disabled, placeholder, onP
             <p className="px-4 py-4 text-center text-sm text-stone-500">Loading spares…</p>
           ) : shown.length === 0 ? (
             <p className="px-4 py-4 text-center text-sm text-stone-500">
-              {options.length === 0 ? "No spares priced for this brand" : "No matching spares"}
+              {options.length === 0 ? "No spares in the catalogue" : "No matching spares"}
             </p>
           ) : (
             <ul ref={listRef} role="listbox" className="max-h-80 overflow-y-auto py-1">
@@ -180,6 +181,12 @@ export function SpareSearchPicker({ options, loading, disabled, placeholder, onP
                             <>
                               {" · "}
                               <Highlight text={o.altSku} q={q} />
+                            </>
+                          ) : null}
+                          {o.brand ? (
+                            <>
+                              {" · "}
+                              <Highlight text={o.brand} q={q} />
                             </>
                           ) : null}
                           {o.hsn ? ` · HSN ${o.hsn}` : ""}

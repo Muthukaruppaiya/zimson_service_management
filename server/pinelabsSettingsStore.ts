@@ -1,5 +1,9 @@
 import type { Pool } from "pg";
-import type { PinelabsEnvironment, PinelabsStoreSettings } from "../src/types/pinelabsSettings";
+import type {
+  PinelabsConnectionMode,
+  PinelabsEnvironment,
+  PinelabsStoreSettings,
+} from "../src/types/pinelabsSettings";
 import { defaultInvoiceCodeFromStoreName } from "./storeInvoiceNumber";
 
 export const PINELABS_UAT_BASE = "https://www.plutuscloudserviceuat.in:8201";
@@ -13,10 +17,11 @@ export type PinelabsStoreSettingsDb = {
   pineLabsStoreId: string;
   clientId: string;
   imei: string;
+  merchantStorePosCode: string;
 };
 
 export type ResolvedPinelabsConfig = PinelabsStoreSettingsDb & {
-  merchantStorePosCode: string;
+  connectionMode: PinelabsConnectionMode | null;
   configured: boolean;
   apiBase: string;
 };
@@ -34,6 +39,7 @@ type StoreRow = {
   pl_store_id: string | null;
   client_id: string | null;
   imei: string | null;
+  merchant_store_pos_code: string | null;
   updated_at: Date | null;
   updated_by: string | null;
 };
@@ -56,11 +62,17 @@ export function storeCodeFromMaster(invoiceNumberStoreCode: string | null | unde
   return (raw || defaultInvoiceCodeFromStoreName(storeName)).slice(0, 16);
 }
 
-export function merchantStorePosCodeFromMaster(storeCode: string): string {
+/** Older builds auto-filled the POS code from the store code; treat that placeholder as "not entered". */
+function legacyDerivedPosCode(storeCode: string): string {
   const code = storeCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
   if (!code) return "";
-  const storePart = code.slice(0, 5).padEnd(5, "0");
-  return `${storePart}000`;
+  return `${code.slice(0, 5).padEnd(5, "0")}000`;
+}
+
+export function pinelabsConnectionMode(db: PinelabsStoreSettingsDb): PinelabsConnectionMode | null {
+  if (db.merchantStorePosCode.trim() && db.imei.trim()) return "pos_imei";
+  if (db.pineLabsStoreId.trim() && db.clientId.trim()) return "store_client";
+  return null;
 }
 
 function emptyDb(): PinelabsStoreSettingsDb {
@@ -72,21 +84,18 @@ function emptyDb(): PinelabsStoreSettingsDb {
     pineLabsStoreId: "",
     clientId: "",
     imei: "",
+    merchantStorePosCode: "",
   };
 }
 
 function isConfigured(db: PinelabsStoreSettingsDb): boolean {
-  return Boolean(
-    db.enabled &&
-      db.merchantId.trim() &&
-      db.securityToken.trim() &&
-      db.pineLabsStoreId.trim() &&
-      db.clientId.trim(),
-  );
+  return Boolean(db.enabled && db.merchantId.trim() && db.securityToken.trim() && pinelabsConnectionMode(db));
 }
 
 function rowToDb(row: StoreRow): PinelabsStoreSettingsDb {
   if (row.enabled == null) return emptyDb();
+  const storeCode = storeCodeFromMaster(row.invoice_number_store_code, row.store_name);
+  const posRaw = String(row.merchant_store_pos_code ?? "").trim();
   return {
     enabled: Boolean(row.enabled),
     environment: normalizePinelabsEnvironment(row.environment),
@@ -95,12 +104,12 @@ function rowToDb(row: StoreRow): PinelabsStoreSettingsDb {
     pineLabsStoreId: String(row.pl_store_id ?? "").trim(),
     clientId: String(row.client_id ?? "").trim(),
     imei: String(row.imei ?? "").trim(),
+    merchantStorePosCode: posRaw && posRaw === legacyDerivedPosCode(storeCode) ? "" : posRaw,
   };
 }
 
 function toPublic(row: StoreRow): PinelabsStoreSettings {
   const db = rowToDb(row);
-  const storeCode = storeCodeFromMaster(row.invoice_number_store_code, row.store_name);
   return {
     storeId: row.store_id,
     storeName: row.store_name,
@@ -113,8 +122,9 @@ function toPublic(row: StoreRow): PinelabsStoreSettings {
     pineLabsStoreId: db.pineLabsStoreId,
     clientId: db.clientId,
     imei: db.imei,
-    storeCode,
-    merchantStorePosCode: merchantStorePosCodeFromMaster(storeCode),
+    storeCode: storeCodeFromMaster(row.invoice_number_store_code, row.store_name),
+    merchantStorePosCode: db.merchantStorePosCode,
+    connectionMode: pinelabsConnectionMode(db),
     configured: isConfigured(db),
     updatedAt: row.updated_at?.toISOString?.() ?? null,
     updatedBy: row.updated_by,
@@ -135,6 +145,7 @@ const STORE_LIST_SQL = `
     p.pl_store_id,
     p.client_id,
     p.imei,
+    p.merchant_store_pos_code,
     p.updated_at,
     p.updated_by
   FROM stores s
@@ -165,10 +176,9 @@ export async function getResolvedPinelabsForStore(storeId: string): Promise<Reso
   const row = rows[0];
   if (!row) return null;
   const db = rowToDb(row);
-  const storeCode = storeCodeFromMaster(row.invoice_number_store_code, row.store_name);
   return {
     ...db,
-    merchantStorePosCode: merchantStorePosCodeFromMaster(storeCode),
+    connectionMode: pinelabsConnectionMode(db),
     configured: isConfigured(db),
     apiBase: pinelabsApiBase(db.environment),
   };
@@ -188,25 +198,31 @@ export async function savePinelabsStoreSettings(
 ): Promise<PinelabsStoreSettings> {
   if (!poolRef) throw new Error("Pine Labs settings are not initialised.");
 
-  const existingPublic = await getPinelabsStoreSettings(storeId);
-  const existingResolved = await getResolvedPinelabsForStore(storeId);
-  if (!existingPublic || !existingResolved) throw new Error("Store not found.");
+  const existing = await getResolvedPinelabsForStore(storeId);
+  if (!existing) throw new Error("Store not found.");
+
+  const pick = (key: Exclude<keyof PinelabsStoreSettingsDb, "enabled" | "environment" | "securityToken">) =>
+    patch[key] !== undefined ? String(patch[key]).trim() : existing[key];
 
   const next: PinelabsStoreSettingsDb = {
-    enabled: patch.enabled ?? existingResolved.enabled,
-    environment: patch.environment ?? existingResolved.environment,
-    merchantId: patch.merchantId !== undefined ? patch.merchantId.trim() : existingResolved.merchantId,
-    securityToken: patch.securityToken?.trim() ? patch.securityToken.trim() : existingResolved.securityToken,
-    pineLabsStoreId: patch.pineLabsStoreId !== undefined ? patch.pineLabsStoreId.trim() : existingResolved.pineLabsStoreId,
-    clientId: patch.clientId !== undefined ? patch.clientId.trim() : existingResolved.clientId,
-    imei: patch.imei !== undefined ? patch.imei.trim() : existingResolved.imei,
+    enabled: patch.enabled ?? existing.enabled,
+    environment: patch.environment ?? existing.environment,
+    merchantId: pick("merchantId"),
+    securityToken: patch.securityToken?.trim() ? patch.securityToken.trim() : existing.securityToken,
+    pineLabsStoreId: pick("pineLabsStoreId"),
+    clientId: pick("clientId"),
+    imei: pick("imei"),
+    merchantStorePosCode: pick("merchantStorePosCode"),
   };
 
   if (next.enabled) {
     if (!next.merchantId) throw new PinelabsSettingsConflictError("Merchant ID is required.");
     if (!next.securityToken) throw new PinelabsSettingsConflictError("Security token is required.");
-    if (!next.pineLabsStoreId) throw new PinelabsSettingsConflictError("Pine Labs Store ID is required.");
-    if (!next.clientId) throw new PinelabsSettingsConflictError("Client ID is required.");
+    if (!pinelabsConnectionMode(next)) {
+      throw new PinelabsSettingsConflictError(
+        "Enter Merchant store POS code + IMEI, or Pine Labs Store ID + Client ID.",
+      );
+    }
   }
 
   try {
@@ -235,7 +251,7 @@ export async function savePinelabsStoreSettings(
         next.pineLabsStoreId,
         next.clientId,
         next.imei,
-        existingPublic.merchantStorePosCode,
+        next.merchantStorePosCode,
         updatedBy,
       ],
     );

@@ -20,6 +20,7 @@ type StoreForm = {
   pineLabsStoreId: string;
   clientId: string;
   imei: string;
+  merchantStorePosCode: string;
 };
 
 function toForm(s: PinelabsStoreSettings): StoreForm {
@@ -31,6 +32,7 @@ function toForm(s: PinelabsStoreSettings): StoreForm {
     pineLabsStoreId: s.pineLabsStoreId,
     clientId: s.clientId,
     imei: s.imei,
+    merchantStorePosCode: s.merchantStorePosCode,
   };
 }
 
@@ -43,6 +45,7 @@ function emptyForm(): StoreForm {
     pineLabsStoreId: "",
     clientId: "",
     imei: "",
+    merchantStorePosCode: "",
   };
 }
 
@@ -122,6 +125,7 @@ export function PinelabsSettingsPage() {
             pineLabsStoreId: form.pineLabsStoreId,
             clientId: form.clientId,
             imei: form.imei,
+            merchantStorePosCode: form.merchantStorePosCode,
           },
         },
       );
@@ -258,8 +262,34 @@ export function PinelabsSettingsPage() {
                     placeholder={active.hasSecurityToken ? "Leave blank to keep current token" : ""}
                   />
                 </label>
+                <p className="text-xs font-semibold uppercase tracking-wide text-stone-500 sm:col-span-2">
+                  Terminal — POS code + IMEI, or Store ID + Client ID
+                  {active.connectionMode ? (
+                    <span className="ml-2 font-normal normal-case text-emerald-700">
+                      Using {active.connectionMode === "pos_imei" ? "POS code + IMEI" : "Store ID + Client ID"}
+                    </span>
+                  ) : null}
+                </p>
                 <label className="text-sm">
-                  <span className={labelClass}>Pine Labs Store ID *</span>
+                  <span className={labelClass}>Merchant store POS code</span>
+                  <input
+                    className={inputClass}
+                    value={form.merchantStorePosCode}
+                    onChange={(e) =>
+                      patchForm({ merchantStorePosCode: e.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 40) })
+                    }
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className={labelClass}>IMEI</span>
+                  <input
+                    className={inputClass}
+                    value={form.imei}
+                    onChange={(e) => patchForm({ imei: e.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 32) })}
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className={labelClass}>Pine Labs Store ID</span>
                   <input
                     className={inputClass}
                     value={form.pineLabsStoreId}
@@ -267,20 +297,11 @@ export function PinelabsSettingsPage() {
                   />
                 </label>
                 <label className="text-sm">
-                  <span className={labelClass}>Client ID *</span>
+                  <span className={labelClass}>Client ID</span>
                   <input
                     className={inputClass}
                     value={form.clientId}
                     onChange={(e) => patchForm({ clientId: e.target.value })}
-                  />
-                </label>
-                <label className="text-sm sm:col-span-2">
-                  <span className={labelClass}>IMEI</span>
-                  <input
-                    className={inputClass}
-                    value={form.imei}
-                    onChange={(e) => patchForm({ imei: e.target.value.replace(/\D/g, "").slice(0, 20) })}
-                    inputMode="numeric"
                   />
                 </label>
                 <div className="sm:col-span-2">

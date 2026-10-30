@@ -245,7 +245,11 @@ export function registerCatalogRoutes(
     }
   });
 
-  /** One-shot billing picker data: brand price (region-scoped) + scoped stock total per spare. */
+  /**
+   * One-shot billing picker data for all active spares (any brand) + scoped stock total per spare.
+   * Price: region price for the watch brand → region price for the spare's own brand → any region price → master price.
+   * `brand` (watch brand) is optional and only used for price preference and ordering.
+   */
   app.get("/api/catalog/spare-options", requireAuth, async (req, res) => {
     const actor = getUserById((req as Authed).userId);
     if (!actor) {
@@ -253,24 +257,41 @@ export function registerCatalogRoutes(
       return;
     }
     const brand = String(req.query.brand ?? "").trim();
-    if (!brand) {
-      res.status(400).json({ error: "brand is required." });
-      return;
-    }
     const requestedRegion = String(req.query.priceRegionId ?? req.query.regionId ?? "").trim();
     const priceRegionId =
       actor.role === "super_admin" || actor.role === "admin" ? requestedRegion || null : actor.regionId ?? null;
+    const regionMatch = `(($2::text IS NULL AND p.region_id IS NULL) OR p.region_id = $2::text)`;
     try {
       const priced = await pool.query<{ spareId: string; price: number }>(
-        `SELECT DISTINCT ON (s.id) s.id AS "spareId", p.price::float8 AS price
+        `SELECT s.id AS "spareId",
+                COALESCE(
+                  pw.price,
+                  ps.price,
+                  pa.price,
+                  NULLIF(s.selling_price_inr, 0),
+                  NULLIF(s.mrp_inr, 0),
+                  0
+                )::float8 AS price
          FROM spares s
-         JOIN spare_prices p
-           ON p.spare_id = s.id
-          AND LOWER(TRIM(p.brand)) = LOWER(TRIM($1))
-          AND (($2::text IS NULL AND p.region_id IS NULL) OR p.region_id = $2::text)
+         LEFT JOIN LATERAL (
+           SELECT p.price FROM spare_prices p
+           WHERE p.spare_id = s.id AND $1::text <> ''
+             AND LOWER(TRIM(p.brand)) = LOWER(TRIM($1::text)) AND ${regionMatch}
+           ORDER BY p.created_at DESC LIMIT 1
+         ) pw ON true
+         LEFT JOIN LATERAL (
+           SELECT p.price FROM spare_prices p
+           WHERE p.spare_id = s.id
+             AND LOWER(TRIM(p.brand)) = LOWER(TRIM(COALESCE(s.brand, ''))) AND ${regionMatch}
+           ORDER BY p.created_at DESC LIMIT 1
+         ) ps ON true
+         LEFT JOIN LATERAL (
+           SELECT p.price FROM spare_prices p
+           WHERE p.spare_id = s.id AND ${regionMatch}
+           ORDER BY p.created_at DESC LIMIT 1
+         ) pa ON true
          WHERE s.is_active = true
-           AND (BTRIM(COALESCE(s.brand, '')) = '' OR LOWER(BTRIM(s.brand)) = LOWER(BTRIM($1)))
-         ORDER BY s.id, p.created_at DESC`,
+         ORDER BY (LOWER(BTRIM(COALESCE(s.brand, ''))) = LOWER(BTRIM($1::text))) DESC, s.name ASC, s.sku ASC`,
         [brand, priceRegionId],
       );
       const ids = priced.rows.map((r) => r.spareId);

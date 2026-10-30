@@ -1,5 +1,8 @@
 export type PinelabsEnvironment = "uat" | "production";
 
+/** `pos_imei` = MerchantStorePosCode + IMEI; `store_client` = StoreId + ClientId. */
+export type PinelabsConnectionMode = "pos_imei" | "store_client";
+
 export type PinelabsStoreSettings = {
   storeId: string;
   storeName: string;
@@ -14,6 +17,7 @@ export type PinelabsStoreSettings = {
   imei: string;
   storeCode: string;
   merchantStorePosCode: string;
+  connectionMode: PinelabsConnectionMode | null;
   configured: boolean;
   updatedAt: string | null;
   updatedBy: string | null;

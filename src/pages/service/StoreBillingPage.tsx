@@ -322,16 +322,18 @@ export function StoreBillingPage() {
   /** @deprecated alias — same as useServiceBillLinesCard */
   const useQuickBillStyleLines = useServiceBillLinesCard;
 
-  const spareOptions = useMemo(
-    () =>
-      activeSpares
-        .filter((s) => {
-          const spareBrand = (s.brand ?? "").trim().toLowerCase();
-          const jobBrand = (billingJob?.watchBrand ?? "").trim().toLowerCase();
-          if (!spareBrand || !jobBrand) return true;
-          return spareBrand === jobBrand;
-        })
-        .map((s) => ({
+  const spareOptions = useMemo(() => {
+    const jobBrand = (billingJob?.watchBrand ?? "").trim().toLowerCase();
+    const isJobBrand = (brand: string | null | undefined) =>
+      Boolean(jobBrand) && (brand ?? "").trim().toLowerCase() === jobBrand;
+    return [...activeSpares]
+      .sort(
+        (a, b) =>
+          Number(isJobBrand(b.brand)) - Number(isJobBrand(a.brand)) ||
+          a.name.localeCompare(b.name) ||
+          a.sku.localeCompare(b.sku),
+      )
+      .map((s) => ({
           id: s.id,
           sku: s.sku,
           brand: s.brand,
@@ -340,9 +342,8 @@ export function StoreBillingPage() {
           hsn: s.hsn?.trim() || null,
           gstPercent: s.gstPercent ?? null,
           price: Number(s.sellingPriceInr ?? s.mrpInr ?? 0),
-        })),
-    [activeSpares, billingJob?.watchBrand],
-  );
+        }));
+  }, [activeSpares, billingJob?.watchBrand]);
 
   useEffect(() => {
     if (!billingJob || !useServiceBillLinesCard) {

@@ -66,7 +66,10 @@ export function registerPinelabsSettingsRoutes(
     if (body.securityToken !== undefined) patch.securityToken = String(body.securityToken ?? "").trim().slice(0, 200);
     if (body.pineLabsStoreId !== undefined) patch.pineLabsStoreId = String(body.pineLabsStoreId ?? "").trim().slice(0, 40);
     if (body.clientId !== undefined) patch.clientId = String(body.clientId ?? "").trim().slice(0, 40);
-    if (body.imei !== undefined) patch.imei = String(body.imei ?? "").replace(/\D/g, "").slice(0, 20);
+    if (body.imei !== undefined) patch.imei = String(body.imei ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 32);
+    if (body.merchantStorePosCode !== undefined) {
+      patch.merchantStorePosCode = String(body.merchantStorePosCode ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 40);
+    }
     try {
       const settings = await savePinelabsStoreSettings(storeId, patch, actor.displayName?.trim() || actor.email);
       res.json({ settings });

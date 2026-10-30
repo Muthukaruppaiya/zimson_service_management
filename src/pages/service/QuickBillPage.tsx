@@ -951,14 +951,14 @@ export function QuickBillPage() {
     let cancelled = false;
     async function loadBrandSpareOptions() {
       const brand = watchBrand.trim();
-      if (spares.length === 0 || !brand) {
+      if (spares.length === 0) {
         setSpareOptions([]);
         return;
       }
       setSpareOptionsLoading(true);
       try {
         const qs = new URLSearchParams(stockQuerySuffix.replace(/^\?/, ""));
-        qs.set("brand", brand);
+        if (brand) qs.set("brand", brand);
         if (effectiveBillingRegionId) qs.set("priceRegionId", effectiveBillingRegionId);
         const out = await apiJson<{ options: { spareId: string; price: number; stockQty: number }[] }>(
           `/api/catalog/spare-options?${qs.toString()}`,
@@ -981,7 +981,14 @@ export function QuickBillPage() {
             stockQty: row.stockQty,
           });
         }
-        sorted.sort((a, b) => a.name.localeCompare(b.name) || a.sku.localeCompare(b.sku));
+        const brandKey = brand.toLowerCase();
+        const isWatchBrand = (s: QuickBillSpareOption) => Boolean(brandKey) && (s.brand ?? "").trim().toLowerCase() === brandKey;
+        sorted.sort(
+          (a, b) =>
+            Number(isWatchBrand(b)) - Number(isWatchBrand(a)) ||
+            a.name.localeCompare(b.name) ||
+            a.sku.localeCompare(b.sku),
+        );
         setSpareOptions(sorted);
       } catch {
         if (!cancelled) setSpareOptions([]);
@@ -1073,14 +1080,15 @@ export function QuickBillPage() {
     const spare = spareOptions.find((s) => s.id === spareId);
     if (!spare) {
       const fallback = spares.find((s) => s.id === spareId);
-      setError(
-        fallback
-          ? `No ${watchBrand} price for ${fallback.name} (${fallback.sku}) in this region — add it under Inventory → Spare catalogue.`
-          : "Spare not found.",
-      );
+      setError(fallback ? `${fallback.name} (${fallback.sku}) is not available for billing.` : "Spare not found.");
       return;
     }
     try {
+      if (!(spare.price > 0)) {
+        setError(`No price set for ${spare.name} (${spare.sku}) — add it under Inventory → Stock & prices.`);
+        setPartPick("");
+        return;
+      }
       if (spare.stockQty <= 0) {
         setError(`${spare.name} (${spare.sku}) is out of stock.`);
         setPartPick("");
@@ -1114,9 +1122,7 @@ export function QuickBillPage() {
     if (!sku) return;
     const option = pickSpareByScannedSku(spareOptions, sku, watchBrand);
     if (!option) {
-      setError(
-        `Scanned SKU ${sku} has no ${watchBrand} price in this region (or is out of stock).`,
-      );
+      setError(`Scanned SKU ${sku} was not found in the spare catalogue.`);
       setBarcodeSku("");
       return;
     }
@@ -3151,7 +3157,7 @@ export function QuickBillPage() {
             <SpareSearchPicker
               options={spareOptions}
               loading={spareOptionsLoading}
-              placeholder={watchBrand.trim() ? `Search ${watchBrand} spares by name, SKU or HSN` : "Search spares"}
+              placeholder="Search spares by name, SKU, brand or HSN"
               onPick={(id) => void addPartLine(id)}
             />
           </div>

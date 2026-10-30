@@ -3968,7 +3968,7 @@ export function ScSupervisorPage() {
             const stockHint = stock != null ? (stock <= 0 ? " · Out of stock" : ` · CSC ${stock}`) : "";
             return {
               value: s.id,
-              label: `${s.sku}${s.altSku ? ` / ${s.altSku}` : ""} - ${s.name}${s.altName ? ` (${s.altName})` : ""}${stockHint}`,
+              label: `${s.sku}${s.altSku ? ` / ${s.altSku}` : ""} - ${s.name}${s.altName ? ` (${s.altName})` : ""}${s.brand ? ` · ${s.brand}` : ""}${stockHint}`,
             };
           })}
           unitPrice={(spareId) => resolveSpareUnitPrice(spareId, repairPopupJob?.watchBrand ?? "")}
