@@ -22,6 +22,9 @@ export function useScrollReveal(rootRef: RefObject<HTMLElement | null>, resetKey
           el.classList.add("reveal-in");
           el.classList.remove("reveal-pending");
           io.unobserve(el);
+          const clear = () => el.classList.remove("reveal-in");
+          el.addEventListener("transitionend", clear, { once: true });
+          window.setTimeout(clear, 700);
         }
       },
       { threshold: 0.08, rootMargin: "0px 0px -24px 0px" },
@@ -44,10 +47,19 @@ export function useScrollReveal(rootRef: RefObject<HTMLElement | null>, resetKey
     };
 
     scan(root);
+    const OVERLAY_SELECTOR = "[role='dialog'], [aria-modal='true'], .legacy-modal-backdrop, .fixed";
     const mo = new MutationObserver((mutations) => {
       for (const m of mutations) {
         m.addedNodes.forEach((node) => {
           if (!(node instanceof Element)) return;
+          if (node.matches(OVERLAY_SELECTOR) || node.querySelector(OVERLAY_SELECTOR)) {
+            const hidden = node.closest(".reveal-pending");
+            if (hidden) {
+              hidden.classList.remove("reveal-pending");
+              io.unobserve(hidden);
+            }
+            return;
+          }
           if (node.matches(REVEAL_SELECTOR)) register(node);
           scan(node);
         });

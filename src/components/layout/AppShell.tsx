@@ -18,10 +18,18 @@ function AppShellInner() {
   useEffect(() => {
     const el = contentRef.current;
     if (!el) return;
+    const done = () => el.classList.remove("app-route-enter");
     el.classList.remove("app-route-enter");
     void el.offsetWidth;
     el.classList.add("app-route-enter");
+    el.addEventListener("animationend", done, { once: true });
+    const fallback = window.setTimeout(done, 600);
     mainRef.current?.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    return () => {
+      window.clearTimeout(fallback);
+      el.removeEventListener("animationend", done);
+      done();
+    };
   }, [pathname]);
 
   return (

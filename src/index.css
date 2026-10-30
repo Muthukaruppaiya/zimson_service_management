@@ -1905,8 +1905,10 @@ a[class*="rounded"][class*="px-"]::after {
   }
 }
 
+/* No fill-mode: an animation that stays applied on `transform` makes this element the containing block
+   for `position: fixed` popups inside the page, pushing them off-screen. The class is also removed on animationend. */
 .app-route-enter {
-  animation: app-fade-up 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: app-fade-up 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .reveal-pending {
