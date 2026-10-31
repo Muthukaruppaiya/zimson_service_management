@@ -110,7 +110,6 @@ import {
   normalizeSrfPhotoKind,
   SRF_DOCUMENT_PHOTO_KIND,
   SRF_MAX_WATCH_PHOTOS,
-  SRF_MIN_WATCH_PHOTOS_REQUIRED,
   SRF_PHOTO_SLOT_LABELS,
 } from "../../lib/srfPhotoSlots";
 import { watchAttachmentDisplayName } from "../../lib/watchAttachmentUpload";
@@ -1399,14 +1398,6 @@ export function QuickBillPage() {
     }
     if (watchServiceDetails.natureOfRepair === "internal_service" && !stockWatchStoreId) {
       setError("For Stock Watch, select the stock watch location store.");
-      return false;
-    }
-    if (apiMode && captureWatchPhotoCount < SRF_MIN_WATCH_PHOTOS_REQUIRED) {
-      setError(
-        captureSession
-          ? `Upload at least ${SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos via the QR link (${captureWatchPhotoCount} received). Use Refresh Uploads after the customer uploads.`
-          : `Generate the upload link and get at least ${SRF_MIN_WATCH_PHOTOS_REQUIRED} watch photos uploaded via QR.`,
-      );
       return false;
     }
     if (apiMode && user?.role === "super_admin" && !billingRegionId.trim()) {
@@ -2928,18 +2919,15 @@ export function QuickBillPage() {
             <div className={`${qbField} min-w-0 rounded-xl border border-zimson-200 bg-zimson-50/50 p-3 sm:p-4`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-zimson-900">
-                  Image Collection
-                  <RequiredMark />
+                  Image Collection <span className="text-xs font-normal text-stone-500">(optional)</span>
                 </p>
                 {apiMode ? (
                   <span
                     className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-                      captureWatchPhotoCount >= SRF_MIN_WATCH_PHOTOS_REQUIRED
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-800"
+                      captureWatchPhotoCount > 0 ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-600"
                     }`}
                   >
-                    {Math.min(captureWatchPhotoCount, SRF_MIN_WATCH_PHOTOS_REQUIRED)} / {SRF_MIN_WATCH_PHOTOS_REQUIRED} Watch Photos
+                    {captureWatchPhotoCount} Watch Photo{captureWatchPhotoCount === 1 ? "" : "s"}
                   </span>
                 ) : null}
               </div>
@@ -3103,7 +3091,7 @@ export function QuickBillPage() {
             <div className="text-sm">
               <p className="font-semibold text-amber-950">{draftId ? "Update Draft" : "Save As Draft"}</p>
               <p className="text-xs text-amber-900/80">
-                {captureWatchPhotoCount} / {SRF_MIN_WATCH_PHOTOS_REQUIRED} Watch Photos
+                {captureWatchPhotoCount} Watch Photo{captureWatchPhotoCount === 1 ? "" : "s"}
                 {autoSaveState === "saving"
                   ? " · Saving…"
                   : autoSaveState === "error"
